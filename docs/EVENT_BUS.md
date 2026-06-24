@@ -94,3 +94,33 @@ translated into internal events where appropriate.
 - **Audit** — events plus \`AuditLog\` give a complete, replayable history.
 - **Extensibility** — new modules subscribe to existing events with zero changes
   to emitters.
+
+
+## Sprint 2.5 — Three separate concerns (locked)
+
+The foundation keeps three event-shaped concepts strictly separate. Confusing
+them is the most common way an event-driven system rots, so the boundary is
+stated explicitly here before the first merge.
+
+- **Domain events (Event Bus):** the internal change stream. Every meaningful
+  state change emits an event (e.g. Customer Created, Booking Confirmed, Invoice
+  Paid). Events are transient signals that drive workflows, projections, and
+  notifications. They are not the customer's durable timeline.
+- **Interaction:** the durable, canonical customer timeline record (see
+  INTERACTION_MODEL.md), now carrying `kind`. Interactions are read by the
+  inbox, analytics, and AI memory.
+- **Signal:** soft, append-only intelligence about a customer or entity
+  (scores, inferences, behavioral hints). Signals are first-class and additive;
+  they never overwrite, and they are not events.
+- **IntegrationEvent:** the raw, provider-specific webhook/payload as received,
+  retained for replay and debugging. It is the untrusted edge record from which
+  Interactions and domain events may be derived — never the source of truth for
+  business state.
+
+### Why keep them separate
+
+A domain event may *produce* an Interaction and *update* a Signal, and may have
+*originated* from an IntegrationEvent — but each has a different lifecycle,
+retention policy, and consumer. Future inbox, workflows, analytics, and AI
+memory all attach to Interaction; automation reacts to domain events; raw
+provider data stays quarantined in IntegrationEvent.
