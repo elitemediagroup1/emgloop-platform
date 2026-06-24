@@ -89,3 +89,60 @@ are placeholders in Sprint 1 — nothing is wired to a live vendor.
 
 Real provider integrations, customer-facing features, and production auth are
 explicitly deferred. See \`docs/ROADMAP.md\`.
+
+
+---
+
+## Sprint 1.5 — Architecture Hardening (additions)
+
+The hardening sprint introduced a set of companion documents that extend (and do
+not contradict) the architecture above. Start with
+\`LOOP_MASTER_BLUEPRINT.md\` — the master vision document every developer reads first.
+
+### Modular architecture
+Capabilities ship as **installable modules** that are **organization-enabled, not
+hardcoded** (CRM, AI Receptionist, AI Phone Agent, AI Ordering, Scheduling,
+Estimates, Payments, Reviews, Reputation, Marketing, Analytics, Knowledge Base,
+Messaging). Modules coordinate through the event bus, never via direct internal
+calls. See \`MODULE_ARCHITECTURE.md\`.
+
+### Universal interaction model
+Every customer interaction on every channel fits one envelope, with kind- and
+vertical-specific detail in JSON \`attributes\`. This is the spine of the unified
+timeline and inbox. See \`INTERACTION_MODEL.md\`.
+
+### AI Employee system
+\`AIAgent\` + \`VoiceProfile\` generalize into **AI Employees** with role, voice,
+knowledge, permissions, channels, workflows, memory, and escalation rules
+(HVAC Dispatcher, Pizza Order Taker, Salon Receptionist, Medical Scheduler, Real
+Estate Assistant). See \`AI_EMPLOYEE_SYSTEM.md\`.
+
+### Organization knowledge base
+Per-organization KB (PDFs, SOPs, menus, price lists, FAQs, policies, service
+areas) grounds AI Employees before they respond, behind a provider-agnostic
+embedding + retrieval interface. See \`KNOWLEDGE_BASE.md\`.
+
+### Event-driven architecture
+Every platform action emits an event; workflows and automation are built on the
+event bus. Internal events are distinct from inbound provider events
+(\`IntegrationEvent\`). See \`EVENT_BUS.md\`.
+
+### Email architecture
+Core email sync is **server-side Gmail / Microsoft 365 OAuth**, working on
+desktop and mobile equally — **not** built around a Chrome extension. See
+\`EMAIL_ARCHITECTURE.md\`.
+
+### Universal inbox
+A future unified inbox merges email, SMS, calls, website chat, Facebook,
+Instagram, WhatsApp, and future channels over the universal interaction model.
+See \`UNIVERSAL_INBOX.md\`.
+
+### Strengthened provider philosophy
+No provider is ever tightly coupled; everything is replaceable (Anthropic,
+OpenAI, Google, ElevenLabs, Deepgram, Twilio, Telnyx, Stripe, Square, Google
+Calendar, Microsoft, SendGrid, Mailgun, Amazon SES). A transcription category is
+recommended in addition to the existing six. See \`PROVIDER_PHILOSOPHY.md\`.
+
+### Review & recommendations
+\`ARCHITECTURE_REVIEW.md\` records the structural refinements (R1–R9) recommended
+before Sprint 2. No schema/code changes were made in this documentation sprint.
