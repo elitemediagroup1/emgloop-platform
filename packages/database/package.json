@@ -8,6 +8,8 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
+    "postinstall": "prisma generate",
+    "build": "prisma generate",
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
