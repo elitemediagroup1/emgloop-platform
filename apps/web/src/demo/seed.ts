@@ -1,11 +1,22 @@
-// Demo seed + metrics — Sprint 3 (First Customer Loop).
+// Demo seed + metrics — Sprint 4 (Real Data Layer).
 //
-// Runs the loop engine for a small set of sample HVAC quote requests so the
-// dashboard has realistic (but entirely mock) numbers, and derives the demo
-// metrics from the in-memory store. All data is synthetic; nothing persists.
+// Seeds REAL persisted data by running the loop engine for a small set of
+// sample HVAC quote requests, then derives the dashboard metrics from the
+// DATABASE via the repository layer. Nothing is held in memory between requests.
+//
+// ensureSeeded() is idempotent at the org level: it only runs the sample loops
+// the first time the demo org has no customers, so repeated page loads (and
+// cold serverless instances) don't pile up duplicate journeys.
+//
+// NOTE: this in-app seed mirrors the canonical Prisma seed
+// (packages/database/prisma/seed.ts) but additionally exercises the full loop.
 
 import { runQuoteToBooking, type QuoteRequestInput } from './loop-engine';
-import { getStore } from './store';
+import {
+  store,
+  ensureDemoOrganization,
+  toTimelineEntry,
+} from './repository-store';
 
 const SAMPLE_REQUESTS: QuoteRequestInput[] = [
   {
@@ -51,53 +62,59 @@ export interface DemoMetrics {
   }[];
 }
 
-let seeded = false;
-
-/** Idempotently seed the store by running the loop for each sample request. */
+/**
+ * Idempotently seed the demo org by running the loop for each sample request,
+ * but only when the org currently has no customers. Safe to call on every
+ * dashboard/timeline render.
+ */
 export async function ensureSeeded(): Promise<void> {
-  if (seeded) return;
-  // Only the FIRST call resets; subsequent requests append to the same store.
-  let first = true;
+  const { id: organizationId } = await ensureDemoOrganization();
+  const existing = await store.customers.countByOrganization(organizationId);
+  if (existing > 0) return;
   for (const req of SAMPLE_REQUESTS) {
-    await runQuoteToBooking(req, first);
-    first = false;
+    await runQuoteToBooking(req);
   }
-  seeded = true;
 }
 
-/** Derive dashboard metrics from the in-memory store. */
-export function getMetrics(): DemoMetrics {
-  const store = getStore();
-  const totalRequests = store.interactions.filter(
-    (i) => i.kind === 'quote_request',
-  ).length;
-  const bookedAppointments = store.bookings.filter(
-    (b) => b.status === 'confirmed',
-  ).length;
-  // "Active" = customers with an interaction but no confirmed booking yet.
-  const confirmedCustomerIds = new Set(
-    store.bookings
-      .filter((b) => b.status === 'confirmed')
-      .map((b) => b.customerId),
+/** Derive dashboard metrics from the database. */
+export async function getMetrics(): Promise<DemoMetrics> {
+  const { id: organizationId } = await ensureDemoOrganization();
+
+  const totalRequests = await store.interactions.countByKind(
+    organizationId,
+    'FORM_SUBMISSION',
   );
-  const activeInteractions = store.customers.filter(
-    (c) => !confirmedCustomerIds.has(c.id),
-  ).length;
+  const bookedAppointments = await store.bookings.countConfirmed(organizationId);
+  const totalCustomers =
+    await store.customers.countByOrganization(organizationId);
+  const confirmedIds = await store.bookings.confirmedCustomerIds(organizationId);
+  const activeInteractions = Math.max(totalCustomers - confirmedIds.length, 0);
   const conversionRate =
     totalRequests === 0 ? 0 : bookedAppointments / totalRequests;
 
-  const recentActivity = [...store.interactions]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, 8)
-    .map((i) => {
-      const customer = store.customers.find((c) => c.id === i.customerId);
-      return {
-        customerName: customer?.name ?? 'Unknown',
-        summary: i.summary,
-        kind: i.kind,
-        createdAt: i.createdAt,
-      };
-    });
+  const recent = await store.interactions.recentForOrganization(
+    organizationId,
+    8,
+  );
+  const customers = await store.customers.listByOrganization(organizationId);
+  const nameById = new Map(
+    customers.map((c) => [
+      c.id,
+      [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Customer',
+    ]),
+  );
+
+  const recentActivity = recent.map((i) => {
+    const e = toTimelineEntry(i);
+    return {
+      customerName: i.customerId
+        ? (nameById.get(i.customerId) ?? 'Unknown')
+        : 'Unknown',
+      summary: e.summary,
+      kind: String(e.loopKind),
+      createdAt: e.occurredAt,
+    };
+  });
 
   return {
     totalRequests,

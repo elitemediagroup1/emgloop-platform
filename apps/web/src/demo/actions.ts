@@ -1,8 +1,9 @@
-// Server actions for the Sprint 3 demo (First Customer Loop).
+// Server actions for the demo intake — Sprint 4 (Real Data Layer).
 //
 // A single Server Action runs the loop engine for a submitted HVAC quote
-// request, then redirects to the timeline for the created customer. All work
-// happens server-side through the provider abstractions — no external calls.
+// request, persisting every record to PostgreSQL, then redirects to the
+// timeline for the created customer. All provider work still happens through
+// the mock provider abstractions — no external calls.
 
 'use server';
 
@@ -26,7 +27,7 @@ export async function submitQuoteRequest(formData: FormData): Promise<void> {
     notes: str(formData, 'notes') || undefined,
   };
 
-  // Fresh run (reset = true) so the demo is deterministic and self-contained.
-  const result = await runQuoteToBooking(input, true);
-  redirect(`/demo/timeline?customer=${result.customer.id}`);
+  // Persisted run: appends a new customer journey to the database.
+  const result = await runQuoteToBooking(input);
+  redirect(`/demo/timeline?customer=${result.customerId}`);
 }
