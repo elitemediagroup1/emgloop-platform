@@ -173,3 +173,46 @@ See \`PROVIDER_CONNECTIONS.md\`.
 \`SPRINT_2_REVIEW.md\` confirms consistency with the blueprint/constitution and
 lists Sprint 3 recommendations; \`FUTURE_CAPABILITIES.md\` parks out-of-roadmap
 ideas.
+
+
+## Sprint 2.5 — Foundation Cleanup & Lock (additions)
+
+This sprint tightened the foundation before the first pull request into `main`.
+No business features, live auth, or real provider integrations were added.
+
+### AI Employees as first-class actors
+
+`AIEmployee` is now a concrete model and the high-level AI identity on the
+platform. AIAgent is reserved as the lower-level execution runtime that an
+employee may be backed by. AI Employees inherit Organization DNA (with
+per-employee overrides) and are typed permission subjects.
+
+### Capabilities as the single source of enablement
+
+`OrganizationCapability` is the sole source of truth for what an organization
+can do. `OrganizationSettings.modules` is deprecated (kept only for
+backward-compat migration). Modules are presentation bundles on top of enabled
+capabilities; the app shell, modules, and AI Employee abilities all resolve
+enablement through capabilities — one consistent path for humans, UI, and AI.
+
+### Typed permission subjects
+
+Permissions distinguish three subject types — Human User, AI Employee, and
+System Process — via `Permission.subjectType` and the `PermissionSubject` types
+in `@emgloop/shared`. The `resolvePermission` helper filters rules to the subject
+and then applies the existing deny-by-default resolver; explicit deny always
+wins.
+
+### Interaction & event boundary locked
+
+`Interaction.kind` is now in the schema; Interaction is the canonical customer
+timeline spine that inbox, workflows, analytics, and AI memory attach to. Domain
+events (Event Bus), Signals, and IntegrationEvents remain three separate
+concerns with distinct lifecycles.
+
+### PR readiness
+
+The branch is being prepared for a squash-merge PR into `main` (do not open it
+until asked). Build/typecheck/Prisma commands, required environment variables,
+known limitations, and intentionally-unbuilt scope are documented in
+PR_READINESS.md. Schema-integrity findings are in SPRINT_2_5_REVIEW.md.
