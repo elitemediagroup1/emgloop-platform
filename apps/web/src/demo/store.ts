@@ -192,16 +192,17 @@ export function upsertBooking(booking: Booking): Booking {
 }
 
 export function ensureAIEmployee(): AIEmployeeRef {
-  if (store.aiEmployees.length === 0) {
-    store.aiEmployees.push({
-      id: id('aiemp'),
-      organizationId: 'org-demo-servicesinmycity',
-      name: 'Ava',
-      role: 'Front Desk AI Employee',
-      status: 'active',
-    });
-  }
-  return store.aiEmployees[0];
+  const existing = store.aiEmployees[0];
+  if (existing) return existing;
+  const created: AIEmployeeRef = {
+    id: id('aiemp'),
+    organizationId: 'org-demo-servicesinmycity',
+    name: 'Ava',
+    role: 'Front Desk AI Employee',
+    status: 'active',
+  };
+  store.aiEmployees.push(created);
+  return created;
 }
 
 export function timelineFor(customerId: string): Interaction[] {
