@@ -116,3 +116,50 @@ detail and prioritization are in \`ARCHITECTURE_REVIEW.md\`.
 
 These keep the current 19-model foundation intact and additive: nothing here
 removes or forks an existing model, consistent with "foundation over polish."
+
+
+---
+
+## Sprint 2 — Identity & Operating-System Core (implemented in schema)
+
+Sprint 2 added **9 models** and **5 enums** (schema now 28 models), all additive
+and tenant-scoped. Nothing from Sprint 1 was removed or forked.
+
+### New enums
+\`SystemRole\` (OWNER, ADMIN, MANAGER, EMPLOYEE, AI_EMPLOYEE, READ_ONLY),
+\`InvitationStatus\`, \`AuthProviderType\` (PASSWORD + GOOGLE/MICROSOFT OAuth, SAML,
+OIDC, MAGIC_LINK), \`CapabilityStatus\`, \`PermissionEffect\` (ALLOW/DENY).
+
+### Organization configuration
+- **OrganizationSettings** (1:1) — modules (interim), limits, feature flags,
+  defaults.
+- **OrganizationPreferences** (1:1) — locale, date/time format, week start,
+  currency, notifications.
+
+### Organization DNA
+- **OrganizationDNA** (1:1) — brand, voice, communicationStyle, businessHours,
+  knowledgeSources, complianceRules, escalationRules, aiDefaults,
+  providerDefaults, industry, version. Inherited by AI Employees.
+  (See \`ORGANIZATION_DNA.md\`.)
+
+### Authentication foundation (architecture only)
+- **Invitation** — tokenized (hash stored), expiring, status-tracked; links an
+  inviter (\`User\`) and target role.
+- **PasswordReset** — tokenized, expiring, single-use request lifecycle.
+- **UserSession** — session metadata only (provider, ip, UA, expiry, revocation);
+  no raw token material. (See \`AUTHENTICATION.md\`.)
+
+### Permissions (deny-by-default)
+- **Permission** — explicit ALLOW/DENY rule targeting a system role, custom role,
+  user, or AI employee; resource + action + JSON conditions. DENY wins; no
+  matching rule => denied. (See \`ROLES_AND_PERMISSIONS.md\`.)
+
+### Capabilities
+- **Capability** — global catalog (key, dependencies, configSchema, isCore).
+- **OrganizationCapability** — per-org enablement (status, config, enabledAt),
+  unique on \`(organizationId, capabilityId)\`. Capabilities power modules.
+  (See \`CAPABILITIES.md\`.)
+
+### Conventions preserved
+All new tenant-scoped models carry \`organizationId\` with \`onDelete: Cascade\`;
+secrets are referenced, never stored raw; industry/vertical detail stays in JSON.
