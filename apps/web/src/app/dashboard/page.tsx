@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ensureSeeded, getMetrics } from '../../demo/seed';
+import { loadOrFallback, DbNotConfigured } from '../../demo/db-health';
 
 // Dashboard — Sprint 4 (Real Data Layer).
 //
@@ -7,6 +8,9 @@ import { ensureSeeded, getMetrics } from '../../demo/seed';
 // after the loop has run for the seeded sample requests. Providers remain
 // mocked (no real AI/SMS/calendar), but the numbers are now read from real
 // persisted rows rather than an in-memory store.
+//
+// If no database is configured (e.g. a deploy preview) the page degrades to a
+// clear internal notice instead of crashing.
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +28,16 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  await ensureSeeded();
-  const m = await getMetrics();
+  const result = await loadOrFallback(async () => {
+    await ensureSeeded();
+    return getMetrics();
+  });
+
+  if (!result.ok) {
+    return <DbNotConfigured />;
+  }
+
+  const m = result.data;
 
   const cards = [
     { title: 'Total requests', value: String(m.totalRequests) },
