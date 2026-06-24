@@ -163,3 +163,55 @@ OIDC, MAGIC_LINK), \`CapabilityStatus\`, \`PermissionEffect\` (ALLOW/DENY).
 ### Conventions preserved
 All new tenant-scoped models carry \`organizationId\` with \`onDelete: Cascade\`;
 secrets are referenced, never stored raw; industry/vertical detail stays in JSON.
+
+
+## Sprint 2.5 — Foundation Cleanup & Lock (implemented in schema)
+
+Schema totals after this sprint: **29 models, 27 enums**, balanced braces, no
+duplicate names. Changes:
+
+### New model: AIEmployee
+
+A first-class organization-level AI actor (table `ai_employees`). Fields:
+`organizationId`, `locationId?`, `voiceProfileId?`, `agentId?`, `name`, `title?`,
+`status` (`AIEmployeeStatus`), `channels` (`ChannelType[]`), `inheritsDNA`,
+`dnaOverrides`, `knowledgeAccess`, `escalationRules`, `operatingHours`,
+`providerPrefs`, `attributes`, `metadata`, timestamps. Relations to
+Organization, Location, VoiceProfile, AIAgent (backing runtime), and Permission.
+Indexed on `(organizationId, status)` and `(organizationId, locationId)`.
+
+AIEmployee is the high-level identity; AIAgent is reserved as the lower-level
+execution runtime. See AI_EMPLOYEE_SYSTEM.md.
+
+### New enums
+
+- `InteractionKind` — PHONE_CALL, SMS, EMAIL, CHAT, RESERVATION, APPOINTMENT,
+  ORDER, FORM_SUBMISSION, REVIEW, PAYMENT, NOTE, OTHER.
+- `AIEmployeeStatus` — DRAFT, ACTIVE, PAUSED, ARCHIVED.
+- `PermissionSubjectType` — HUMAN_USER, AI_EMPLOYEE, SYSTEM_PROCESS.
+
+### Interaction
+
+Added `kind` (`InteractionKind`, default OTHER) and an index on
+`(organizationId, kind)`. `channel` stays the transport; `kind` is the semantic
+event type. Interaction remains the canonical customer timeline spine.
+
+### Permission
+
+Added `subjectType` (`PermissionSubjectType`, default HUMAN_USER) and a typed
+`aiEmployee` relation, so AI Employees are explicit permission subjects rather
+than loose string references. Deny-by-default and explicit-deny-wins are
+unchanged; see `@emgloop/shared` `resolvePermission`.
+
+### Deprecation
+
+`OrganizationSettings.modules` is marked DEPRECATED in the schema. Capability
+enablement is governed solely by `OrganizationCapability`. The bag is retained
+only for backward-compat migration and is never the source of truth.
+
+### Integrity
+
+Every tenant-scoped model carries `organizationId`; all relations have matching
+back-relations; vertical-specific shape stays in JSON (`attributes`/`metadata`,
+DNA overrides, escalation/knowledge rules) rather than dedicated tables. Full
+findings are in SPRINT_2_5_REVIEW.md.
