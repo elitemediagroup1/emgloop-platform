@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { ensureSeeded, getMetrics } from '../../demo/seed';
 
-// Dashboard — Sprint 3 (First Customer Loop).
+// Dashboard — Sprint 4 (Real Data Layer).
 //
-// Shows live demo metrics derived from the in-memory store after the mock loop
-// has run for the seeded sample requests. All numbers are synthetic; nothing
-// is persisted and no external provider is called.
+// Shows live demo metrics derived from the DATABASE via the repository layer
+// after the loop has run for the seeded sample requests. Providers remain
+// mocked (no real AI/SMS/calendar), but the numbers are now read from real
+// persisted rows rather than an in-memory store.
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ const KIND_LABEL: Record<string, string> = {
 
 export default async function DashboardPage() {
   await ensureSeeded();
-  const m = getMetrics();
+  const m = await getMetrics();
 
   const cards = [
     { title: 'Total requests', value: String(m.totalRequests) },
@@ -50,8 +51,8 @@ export default async function DashboardPage() {
       <main className="container">
         <h1>Dashboard</h1>
         <p className="muted">
-          Sprint 3 demo metrics from the First Customer Loop. Seeded mock data —
-          no real providers, no persistence.
+          First Customer Loop metrics, read from the database. Mock providers —
+          real persistence.
         </p>
         <div
           style={{
