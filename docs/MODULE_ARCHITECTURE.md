@@ -88,3 +88,31 @@ AI Employees are configured to use a subset of the organization's enabled
 modules. A Salon Receptionist might use Scheduling + Messaging + Knowledge Base;
 a Pizza Order Taker uses AI Ordering + Payments + Knowledge Base. The module set
 an AI Employee may touch is part of its permissions.
+
+
+## Sprint 2.5 — Modules sit on top of capabilities
+
+Modules are no longer enabled by their own bag of flags. As of Sprint 2.5,
+`OrganizationCapability` is the single source of truth for what an organization
+can do, and `OrganizationSettings.modules` is deprecated (retained only for
+backward-compat migration).
+
+### How modules relate to capabilities
+
+A module is a packaging and presentation layer — a named bundle of one or more
+platform capabilities plus its UI surface. A module is considered available to
+an organization when all of its required capabilities are enabled via
+`OrganizationCapability`. Capabilities power modules; modules do not own
+enablement state of their own.
+
+This means:
+
+- Enabling a module is implemented as enabling its underlying capabilities (and
+  their dependencies), not as flipping a `modules` flag.
+- The app shell renders a module's navigation and screens only when the
+  module's required capabilities resolve to `ENABLED` for the organization.
+- AI Employees gain abilities through enabled capabilities, keeping a single,
+  consistent enablement path for humans, UI, and AI actors.
+
+See CAPABILITIES.md for the capability registration, enablement, and dependency
+rules that govern this.
