@@ -127,3 +127,49 @@ document every developer reads first.
   \`PROVIDER_PHILOSOPHY.md\`.
 - **Review** — \`ARCHITECTURE_REVIEW.md\` records refinements R1–R9 for Sprint 2.
   No schema/code changes were made in this documentation sprint.
+
+
+---
+
+## Sprint 2 — Identity & Operating-System Core (additions)
+
+Sprint 2 establishes the identity and OS core: the platform now understands
+organizations, locations, users, roles, permissions, capabilities, AI employees,
+and provider connections **before** customers. All additive to the Sprint 1
+core; the schema grew from 19 to 28 models.
+
+### Authentication foundation
+Provider-agnostic, enterprise/SSO-ready, architecture only (no production
+flows). Models: \`Invitation\`, \`PasswordReset\`, \`UserSession\`; enum
+\`AuthProviderType\` covers password, Google/Microsoft OAuth, SAML, OIDC, and
+magic link. No raw secrets are stored. See \`AUTHENTICATION.md\`.
+
+### Multi-tenant organization configuration
+\`OrganizationSettings\` and \`OrganizationPreferences\` (each 1:1 with
+\`Organization\`) hold operational settings and user-facing preferences, alongside
+the existing \`OrganizationStatus\`.
+
+### Organization DNA
+\`OrganizationDNA\` is the inheritable identity (brand, voice, hours, industry,
+knowledge sources, communication style, compliance, escalation, AI defaults,
+provider defaults). AI Employees inherit it. See \`ORGANIZATION_DNA.md\`.
+
+### Capabilities
+\`Capability\` (global catalog) + \`OrganizationCapability\` (per-org enablement)
+refine the module architecture: capabilities **power** modules, are org-enabled,
+and declare dependencies. See \`CAPABILITIES.md\`.
+
+### Roles & permissions
+\`SystemRole\` (Owner/Admin/Manager/Employee/AI Employee/Read Only) plus a
+deny-by-default \`Permission\` model and a shared \`isAllowed\` resolver. Humans and
+AI Employees share one authorization model. See \`ROLES_AND_PERMISSIONS.md\`.
+
+### Provider connections
+Lifecycle and multi-provider management on the existing \`ProviderConnection\`
+model (multiple providers per org, secrets by reference, no live integrations).
+See \`PROVIDER_CONNECTIONS.md\`.
+
+### Review & future ideas
+\`SPRINT_2_REVIEW.md\` confirms consistency with the blueprint/constitution and
+lists Sprint 3 recommendations; \`FUTURE_CAPABILITIES.md\` parks out-of-roadmap
+ideas.
