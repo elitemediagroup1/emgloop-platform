@@ -228,6 +228,7 @@ model Organization {
   providerConnections ProviderConnection[]
   integrationEvents   IntegrationEvent[]
   auditLogs           AuditLog[]
+  domainEvents            DomainEvent[]
   // --- Sprint 2: identity & OS core ---
   organizationSettings    OrganizationSettings?
   organizationPreferences OrganizationPreferences?
@@ -1053,4 +1054,31 @@ enum PermissionSubjectType {
   HUMAN_USER
   AI_EMPLOYEE
   SYSTEM_PROCESS
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 4: Real Data Layer — internal domain event log
+// ---------------------------------------------------------------------------
+
+// Append-only INTERNAL fact log (e.g. "customer.created", "booking.confirmed").
+// This is the platform's own event spine and the seed of the future event bus
+// (see docs/EVENT_BUS.md). It is deliberately DISTINCT from IntegrationEvent,
+// which records EXTERNAL provider webhooks. Domain events are immutable.
+model DomainEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String   // dotted event name, e.g. "booking.confirmed"
+  aggregateType  String?  // e.g. "customer", "booking"
+  aggregateId    String?  // id of the aggregate the event concerns
+  payload        Json     @default("{}")
+  metadata       Json     @default("{}")
+  occurredAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, name])
+  @@index([aggregateType, aggregateId])
+  @@map("domain_events")
 }
