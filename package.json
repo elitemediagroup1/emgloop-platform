@@ -1,0 +1,32 @@
+{
+  "test": true
+}{
+  "name": "emgloop-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EMG Loop — an AI-first operating system for customer-facing businesses.",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "db:generate": "npm run -w @emgloop/database generate",
+    "db:migrate": "npm run -w @emgloop/database migrate",
+    "db:studio": "npm run -w @emgloop/database studio"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.1.0",
+    "typescript": "^5.5.4"
+  },
+  "packageManager": "npm@10.8.2",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
