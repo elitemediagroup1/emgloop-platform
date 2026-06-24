@@ -15,10 +15,11 @@ function splitName(name?: string | null): {
   lastName: string | null;
 } {
   if (!name) return { firstName: null, lastName: null };
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return { firstName: parts[0], lastName: null };
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0] ?? null;
+  if (parts.length <= 1) return { firstName: first, lastName: null };
   return {
-    firstName: parts[0],
+    firstName: first,
     lastName: parts.slice(1).join(' '),
   };
 }
