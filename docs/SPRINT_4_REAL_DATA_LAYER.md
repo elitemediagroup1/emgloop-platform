@@ -79,3 +79,27 @@ npm run seed            # seed the demo org, AI Employee, customers, interaction
 
 Then start the web app and open the dashboard/intake/timeline; the loop reads and
 writes real rows in PostgreSQL.
+
+
+## Deploying to production
+
+The build does **not** require a database — `prisma generate` only reads the
+schema, and the data-driven pages (`/dashboard`, `/demo/timeline`) are
+`dynamic = 'force-dynamic'`, so nothing queries the database at build time.
+Deploy previews therefore build and deploy without a live database.
+
+At **runtime**, the dashboard and timeline read PostgreSQL. Production needs:
+
+1. **`DATABASE_URL`** — a PostgreSQL connection string in the environment.
+2. **Migration applied** — run `prisma migrate deploy` (applies
+   `prisma/migrations/`, including `domain_events`). This is **not** run
+   automatically from this branch.
+3. **Seed (optional)** — run `npm run -w @emgloop/database seed` if demo data
+   is desired.
+
+### Graceful degradation
+
+If `DATABASE_URL` is missing or the database is unreachable, `/dashboard` and
+`/demo/timeline` do **not** crash. They render an internal notice —
+"Database is not configured for this environment yet." — plus the steps above.
+See `apps/web/src/demo/db-health.tsx`.
