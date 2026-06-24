@@ -1,212 +1,75 @@
-// In-memory demo store — Sprint 3 (First Customer Loop).
+// Demo store — Sprint 4 (Real Data Layer).
 //
-// Models the platform's REAL record shapes (Customer, Interaction, Signal,
-// Event, Message, Booking) in a process-local store so the loop can be run and
-// visualized without a database. The field names mirror the Prisma schema so
-// swapping this for @emgloop/database is a mechanical change, not a redesign.
+// The Sprint 3 in-memory arrays (customers/interactions/signals/events/
+// messages/bookings) and their add*/getStore/resetStore helpers have been
+// REMOVED. There is no process-local state anymore: every read and write goes
+// to PostgreSQL through the @emgloop/database repository layer.
 //
-// Interaction is the canonical customer-timeline spine: every step of the loop
-// appends an Interaction (and, where appropriate, a Signal and an Event).
+// This module is now a thin READ facade over the repositories, scoped to the
+// demo organization, returning UI-ready view models. Writes happen in the loop
+// engine (loop-engine.ts) via the repository-store facade. Keeping this file
+// preserves the import surface used by the dashboard and timeline pages.
 
-import { ISO } from './providers';
+import {
+  store,
+  ensureDemoOrganization,
+  toCustomerView,
+  toTimelineEntry,
+  type CustomerView,
+  type TimelineEntry,
+  type BookingView,
+} from './repository-store';
 
-export type InteractionKind =
-  | 'quote_request'
-  | 'system_note'
-  | 'assignment'
-  | 'outbound_message'
-  | 'inbound_message'
-  | 'booking_created'
-  | 'booking_confirmed';
+export type { CustomerView, TimelineEntry, BookingView };
 
-export type Channel =
-  | 'web_chat'
-  | 'sms'
-  | 'email'
-  | 'phone'
-  | 'in_person'
-  | 'system';
-
-export interface Customer {
-  id: string;
-  organizationId: string;
-  name: string;
-  phone: string;
-  email: string;
-  city: string;
-  state: string;
-  createdAt: string;
-  attributes: Record<string, unknown>;
+/** Most recently created customers for the demo org (UI view models). */
+export async function listCustomers(): Promise<CustomerView[]> {
+  const { id: organizationId } = await ensureDemoOrganization();
+  const rows = await store.customers.listByOrganization(organizationId);
+  return rows.map(toCustomerView);
 }
 
-export interface Interaction {
-  id: string;
-  organizationId: string;
-  customerId: string;
-  kind: InteractionKind;
-  channel: Channel;
-  direction: 'inbound' | 'outbound' | 'internal';
-  summary: string;
-  body?: string;
-  actorType: 'human' | 'ai_employee' | 'system' | 'customer';
-  actorId?: string;
-  createdAt: string;
-  metadata: Record<string, unknown>;
+/** A single customer view, or null if not found. */
+export async function getCustomer(
+  customerId: string,
+): Promise<CustomerView | null> {
+  const row = await store.customers.findById(customerId);
+  return row ? toCustomerView(row) : null;
 }
 
-export interface Signal {
-  id: string;
-  organizationId: string;
-  customerId?: string;
-  type: string;
-  payload: Record<string, unknown>;
-  createdAt: string;
+/** Fallback customer = most recently created in the demo org. */
+export async function getLatestCustomer(): Promise<CustomerView | null> {
+  const { id: organizationId } = await ensureDemoOrganization();
+  const row = await store.customers.findLatest(organizationId);
+  return row ? toCustomerView(row) : null;
 }
 
-export interface DomainEvent {
-  id: string;
-  organizationId: string;
-  name: string;
-  payload: Record<string, unknown>;
-  createdAt: string;
+/** Ordered interaction timeline for a customer (oldest first). */
+export async function timelineFor(
+  customerId: string,
+): Promise<TimelineEntry[]> {
+  const rows = await store.interactions.timelineFor(customerId);
+  return rows.map(toTimelineEntry);
 }
 
-export interface Message {
-  id: string;
-  organizationId: string;
-  customerId: string;
-  interactionId: string;
-  channel: Channel;
-  direction: 'inbound' | 'outbound';
-  body: string;
-  externalId?: string;
-  createdAt: string;
-}
-
-export interface Booking {
-  id: string;
-  organizationId: string;
-  customerId: string;
-  serviceType: string;
-  windowStart: string;
-  windowEnd: string;
-  status: 'pending' | 'created' | 'confirmed' | 'canceled';
-  calendarProvider?: string;
-  calendarEventId?: string;
-  createdAt: string;
-}
-
-export interface AIEmployeeRef {
-  id: string;
-  organizationId: string;
-  name: string;
-  role: string;
-  status: 'active' | 'paused';
-}
-
-export interface DemoStore {
-  customers: Customer[];
-  interactions: Interaction[];
-  signals: Signal[];
-  events: DomainEvent[];
-  messages: Message[];
-  bookings: Booking[];
-  aiEmployees: AIEmployeeRef[];
-}
-
-// Process-local singleton. Reset via resetStore() for repeatable demo runs.
-function emptyStore(): DemoStore {
+/** Latest booking for a customer, mapped to a UI view model. */
+export async function bookingFor(
+  customerId: string,
+): Promise<BookingView | null> {
+  const b = await store.bookings.findForCustomer(customerId);
+  if (!b) return null;
+  const serviceType =
+    (b.attributes &&
+      typeof b.attributes === 'object' &&
+      'serviceType' in b.attributes &&
+      String((b.attributes as Record<string, unknown>).serviceType)) ||
+    b.title ||
+    'Service';
   return {
-    customers: [],
-    interactions: [],
-    signals: [],
-    events: [],
-    messages: [],
-    bookings: [],
-    aiEmployees: [],
+    id: b.id,
+    status: b.status.toLowerCase(),
+    serviceType,
+    calendarProvider: b.calendarProvider,
+    calendarEventId: b.calendarEventId,
   };
-}
-
-let store: DemoStore = emptyStore();
-let counter = 0;
-export const id = (prefix: string) => `${prefix}_${++counter}`;
-
-export function getStore(): DemoStore {
-  return store;
-}
-
-export function resetStore(): void {
-  store = emptyStore();
-  counter = 0;
-}
-
-// --- Record helpers (each returns the created record) -----------------------
-export function addCustomer(
-  data: Omit<Customer, 'id' | 'createdAt'>,
-): Customer {
-  const rec: Customer = { ...data, id: id('cust'), createdAt: ISO() };
-  store.customers.push(rec);
-  return rec;
-}
-
-export function addInteraction(
-  data: Omit<Interaction, 'id' | 'createdAt'>,
-): Interaction {
-  const rec: Interaction = { ...data, id: id('int'), createdAt: ISO() };
-  store.interactions.push(rec);
-  return rec;
-}
-
-export function addSignal(data: Omit<Signal, 'id' | 'createdAt'>): Signal {
-  const rec: Signal = { ...data, id: id('sig'), createdAt: ISO() };
-  store.signals.push(rec);
-  return rec;
-}
-
-export function addEvent(
-  data: Omit<DomainEvent, 'id' | 'createdAt'>,
-): DomainEvent {
-  const rec: DomainEvent = { ...data, id: id('evt'), createdAt: ISO() };
-  store.events.push(rec);
-  return rec;
-}
-
-export function addMessage(data: Omit<Message, 'id' | 'createdAt'>): Message {
-  const rec: Message = { ...data, id: id('msg'), createdAt: ISO() };
-  store.messages.push(rec);
-  return rec;
-}
-
-export function addBooking(
-  data: Omit<Booking, 'id' | 'createdAt'>,
-): Booking {
-  const rec: Booking = { ...data, id: id('book'), createdAt: ISO() };
-  store.bookings.push(rec);
-  return rec;
-}
-
-export function upsertBooking(booking: Booking): Booking {
-  const idx = store.bookings.findIndex((b) => b.id === booking.id);
-  if (idx >= 0) store.bookings[idx] = booking;
-  return booking;
-}
-
-export function ensureAIEmployee(): AIEmployeeRef {
-  const existing = store.aiEmployees[0];
-  if (existing) return existing;
-  const created: AIEmployeeRef = {
-    id: id('aiemp'),
-    organizationId: 'org-demo-servicesinmycity',
-    name: 'Ava',
-    role: 'Front Desk AI Employee',
-    status: 'active',
-  };
-  store.aiEmployees.push(created);
-  return created;
-}
-
-export function timelineFor(customerId: string): Interaction[] {
-  return store.interactions
-    .filter((i) => i.customerId === customerId)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
