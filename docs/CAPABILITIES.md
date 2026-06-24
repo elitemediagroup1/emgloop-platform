@@ -74,3 +74,37 @@ rollout: \`OrganizationSettings.modules\`.
 This document plus the \`Capability\` / \`OrganizationCapability\` models and the
 shared \`CAPABILITY_KEYS\` vocabulary. No capability is *implemented* as a working
 feature yet — this is the registration/enablement/dependency foundation.
+
+
+## Sprint 2.5 — OrganizationCapability is the single source of truth
+
+Capability enablement is now governed **solely** by `OrganizationCapability`
+rows. The legacy `OrganizationSettings.modules` JSON bag is deprecated: it is
+retained only for backward-compat migration and must never be read as the
+source of truth. No new code should read or write `modules`.
+
+### Lifecycle
+
+- **Globally registered:** Each capability is a `Capability` row keyed by a
+  stable `key` (mirrored by `CAPABILITY_KEYS` in `@emgloop/shared`), with a
+  `category`, `dependencies`, optional `configSchema`, and an `isCore` flag.
+- **Enabled per organization:** Enablement creates/updates an
+  `OrganizationCapability` row with `status = ENABLED`, an `enabledAt`
+  timestamp, and an org-specific `config`. The `(organizationId, capabilityId)`
+  pair is unique, so an organization has exactly one row per capability.
+- **Disabled per organization:** Setting `status = DISABLED` (rather than
+  deleting the row) preserves config and audit history.
+- **Dependency-checked:** Before enabling, every key in the capability's
+  `dependencies` must already be enabled for that organization. Disabling a
+  capability that others depend on is blocked until dependents are disabled.
+- **Surfaced in the app shell:** The shell reads the organization's enabled
+  capabilities (not `modules`) to decide which navigation, screens, and AI
+  Employee abilities to render.
+- **Used by future modules:** Modules are presentation/packaging on top of
+  capabilities. A module is considered available when its required capabilities
+  are enabled; capabilities power modules rather than the reverse.
+
+### Resolution order
+
+The only authoritative answer to "is capability X enabled for org Y" is the
+`OrganizationCapability` row. `OrganizationSettings.modules` is ignored.
