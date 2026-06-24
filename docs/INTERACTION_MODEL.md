@@ -91,3 +91,40 @@ Because every interaction shares one envelope:
 - **Workflows** can trigger on any interaction kind uniformly.
 - **AI Employees** handle any channel through the same interface.
 - Adding a vertical never requires new interaction plumbing.
+
+
+## Sprint 2.5 — Interaction.kind is now in the schema (locked)
+
+The recommended `kind` spine is no longer just a recommendation. The
+`Interaction` model now carries a `kind` field (enum `InteractionKind`) with an
+index on `(organizationId, kind)`.
+
+### Channel vs kind
+
+`channel` is the transport (`PHONE`, `SMS`, `EMAIL`, `WEB_CHAT`, ...). `kind` is
+the semantic event type. The taxonomy is:
+
+`PHONE_CALL`, `SMS`, `EMAIL`, `CHAT`, `RESERVATION`, `APPOINTMENT`, `ORDER`,
+`FORM_SUBMISSION`, `REVIEW`, `PAYMENT`, `NOTE`, `OTHER`.
+
+A reservation taken over the phone, for example, is `channel = PHONE`,
+`kind = RESERVATION`. Keeping the two orthogonal avoids industry-specific
+assumptions while still giving every vertical a shared, queryable event type.
+
+### Interaction as the canonical timeline spine (confirmed)
+
+Interaction remains the single canonical customer timeline. Everything attaches
+to it rather than forking per-channel timelines:
+
+- The **universal inbox** lists Interactions across channels.
+- **Workflows** trigger from and write back to Interactions.
+- **Analytics** aggregate over Interaction `kind` and `occurredAt`.
+- **AI memory** for AI Employees is built by reading a customer's Interaction
+  history.
+
+### Separation from events and signals
+
+An Interaction is the durable customer-facing record. It is distinct from
+domain **events** (Event Bus, the internal change stream), from **Signal** (soft,
+append-only intelligence), and from **IntegrationEvent** (raw provider
+webhooks). These remain four separate concerns — see EVENT_BUS.md.
