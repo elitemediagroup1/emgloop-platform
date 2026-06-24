@@ -82,3 +82,49 @@ See \`ARCHITECTURE_REVIEW.md\` for the recommended foundational change.
 - **Event bus** — employee actions emit events that drive workflows and analytics.
 - **Modules** — an employee's reach is the set of modules + actions it is permitted.
 - **Providers** — voice/AI/telephony are resolved through provider adapters.
+
+
+## Sprint 2.5 — AIEmployee is now first-class
+
+AI Employees are now a concrete platform model (`AIEmployee`) rather than a
+concept layered onto `AIAgent`. An AIEmployee is an organization-level actor
+with its own identity and permissions.
+
+### AIEmployee model fields
+
+- `organizationId`, optional `locationId` — tenant and (optional) site scope.
+- `name`, `title`, `status` (`DRAFT`/`ACTIVE`/`PAUSED`/`ARCHIVED`).
+- `channels` — the channels the employee may operate on.
+- `voiceProfileId` — optional voice identity.
+- `inheritsDNA` + `dnaOverrides` — DNA inheritance from OrganizationDNA, with
+  per-employee overrides layered on top.
+- `knowledgeAccess` — which knowledge sources/categories are in scope.
+- `escalationRules` — when and to whom to hand off.
+- `operatingHours` — falls back to OrganizationDNA business hours when empty.
+- `providerPrefs` — preferred providers per category.
+- `attributes` / `metadata` — extensibility JSON.
+
+### Decision: AIEmployee vs AIAgent
+
+AIEmployee is the high-level identity ("who") — a named role such as "HVAC
+Dispatcher" or "Pizza Order Taker" that owns DNA inheritance, channels,
+knowledge access, escalation, and operating hours, and is a permission subject.
+AIAgent is reserved as the lower-level execution runtime ("how") — the
+model/provider, system prompt, and runtime config for a single agent run. An
+AIEmployee links to an optional backing `AIAgent` via `agentId`; one employee may
+use different runtime configs over time. New orchestration targets AIEmployee;
+AIAgent is no longer the place to express identity.
+
+### DNA inheritance
+
+When `inheritsDNA` is true, unset employee fields resolve from OrganizationDNA
+(voice, communication style, business hours, compliance, escalation, AI and
+provider defaults). `dnaOverrides` is merged over the inherited values so a
+single employee can diverge without forking organization configuration.
+
+### Permissions
+
+AIEmployee is a typed permission subject. Permission rows reference it through
+`Permission.aiEmployeeId` with `subjectType = AI_EMPLOYEE`, and the
+`resolvePermission` helper in `@emgloop/shared` filters rules by subject before
+applying the deny-by-default resolver.
