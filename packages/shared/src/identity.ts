@@ -114,3 +114,50 @@ export const AUTH_PROVIDER_TYPES = [
   'magic_link',
 ] as const;
 export type AuthProviderType = (typeof AUTH_PROVIDER_TYPES)[number];
+
+
+// --- Permission subjects (Sprint 2.5) ---
+//
+// A permission rule applies to a SUBJECT. Subjects are typed so that AI
+// Employees are first-class permission holders alongside humans and system
+// processes (no loose, untyped string references). The resolver below still
+// enforces deny-by-default, and an explicit deny always wins.
+export const PERMISSION_SUBJECT_TYPES = [
+  'HUMAN_USER',
+  'AI_EMPLOYEE',
+  'SYSTEM_PROCESS',
+] as const;
+export type PermissionSubjectType = (typeof PERMISSION_SUBJECT_TYPES)[number];
+
+// A concrete, typed reference to whoever/whatever is being authorized.
+export type PermissionSubject =
+  | { type: 'HUMAN_USER'; userId: string; systemRole?: SystemRole; roleId?: string }
+  | { type: 'AI_EMPLOYEE'; aiEmployeeId: string; roleId?: string }
+  | { type: 'SYSTEM_PROCESS'; processId: string };
+
+// A PermissionRule scoped to the subject it governs. `subjectType` narrows
+// which rules are even in scope for a given subject before the deny-by-default
+// resolver runs; it never relaxes deny-by-default or explicit-deny precedence.
+export interface ScopedPermissionRule extends PermissionRule {
+  subjectType: PermissionSubjectType;
+}
+
+// Returns the rules that apply to a subject (matching subject type). Untyped
+// or mismatched rules are excluded so authorization stays explicit.
+export function rulesForSubject(
+  rules: ScopedPermissionRule[],
+  subject: PermissionSubject,
+): PermissionRule[] {
+  return rules.filter((r) => r.subjectType === subject.type);
+}
+
+// Subject-aware authorization. Filters rules down to the subject, then defers
+// to isAllowed — preserving deny-by-default and explicit-deny-wins semantics.
+export function resolvePermission(
+  rules: ScopedPermissionRule[],
+  subject: PermissionSubject,
+  resource: string,
+  action: string,
+): boolean {
+  return isAllowed(rulesForSubject(rules, subject), resource, action);
+}
