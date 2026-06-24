@@ -6,6 +6,7 @@ import {
   timelineFor,
   bookingFor,
 } from '../../../demo/store';
+import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 
 // Customer interaction timeline — Sprint 4 (Real Data Layer).
 //
@@ -14,6 +15,9 @@ import {
 // booking confirmation. On a cold instance we ensure the demo org is seeded,
 // then fall back to the most recently created customer if the requested id is
 // not present.
+//
+// If no database is configured (e.g. a deploy preview) the page degrades to a
+// clear internal notice instead of crashing.
 
 export const dynamic = 'force-dynamic';
 
@@ -41,14 +45,23 @@ export default async function TimelinePage({
 }: {
   searchParams: { customer?: string };
 }) {
-  await ensureSeeded();
   const requested = searchParams.customer;
-  const customer =
-    (requested ? await getCustomer(requested) : null) ??
-    (await getLatestCustomer());
 
-  const events = customer ? await timelineFor(customer.id) : [];
-  const booking = customer ? await bookingFor(customer.id) : null;
+  const result = await loadOrFallback(async () => {
+    await ensureSeeded();
+    const customer =
+      (requested ? await getCustomer(requested) : null) ??
+      (await getLatestCustomer());
+    const events = customer ? await timelineFor(customer.id) : [];
+    const booking = customer ? await bookingFor(customer.id) : null;
+    return { customer, events, booking };
+  });
+
+  if (!result.ok) {
+    return <DbNotConfigured />;
+  }
+
+  const { customer, events, booking } = result.data;
 
   return (
     <div className="shell">
