@@ -174,11 +174,11 @@ export { LOOP_KIND_TO_ENUM, CHANNEL_TO_ENUM };
 
 /** Helpers re-exported so the loop engine never imports Prisma maps directly. */
 export function loopKindToEnum(kind: LoopKind): InteractionKind {
-  return LOOP_KIND_TO_ENUM[kind];
+  return LOOP_KIND_TO_ENUM[kind] ?? 'OTHER';
 }
 
 export function channelToEnum(channel: LoopChannel): ChannelType {
-  return CHANNEL_TO_ENUM[channel];
+  return CHANNEL_TO_ENUM[channel] ?? 'OTHER';
 }
 
 export function directionFor(
