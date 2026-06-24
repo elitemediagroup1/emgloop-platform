@@ -223,6 +223,7 @@ model Organization {
   workflows           Workflow[]
   workflowRuns        WorkflowRun[]
   aiAgents            AIAgent[]
+  aiEmployees            AIEmployee[]
   voiceProfiles       VoiceProfile[]
   providerConnections ProviderConnection[]
   integrationEvents   IntegrationEvent[]
@@ -268,6 +269,7 @@ model Location {
   orders          Order[]
   serviceRequests ServiceRequest[]
   aiAgents        AIAgent[]
+  aiEmployees    AIEmployee[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -368,6 +370,7 @@ model Interaction {
   customerId     String?
   conversationId String?
   channel        ChannelType
+  kind           InteractionKind      @default(OTHER)
   direction      InteractionDirection
   occurredAt     DateTime             @default(now())
   summary        String?
@@ -383,6 +386,7 @@ model Interaction {
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, occurredAt])
+  @@index([organizationId, kind])
   @@index([customerId])
   @@index([conversationId])
   @@map("interactions")
@@ -630,10 +634,55 @@ model AIAgent {
   organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   location      Location?      @relation(fields: [locationId], references: [id], onDelete: SetNull)
   voiceProfile  VoiceProfile?  @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
+  aiEmployees   AIEmployee[]
   conversations Conversation[]
 
   @@index([organizationId, type])
   @@map("ai_agents")
+}
+
+// AIEmployee — a first-class, organization-level AI actor (Sprint 2.5).
+//
+// Relationship to AIAgent:
+//   AIEmployee is the HIGH-LEVEL identity ("who": a named role such as
+//   "HVAC Dispatcher" or "Pizza Order Taker"). It owns DNA inheritance,
+//   channels, knowledge access, escalation and operating hours, and can be a
+//   first-class permission subject.
+//   AIAgent is the LOWER-LEVEL EXECUTION RUNTIME ("how": the model/provider,
+//   system prompt and runtime config a single agent run uses). One AIEmployee
+//   may be backed by one or more AIAgent runtime configs over time.
+// AIAgent is therefore reserved for execution; new orchestration targets
+// AIEmployee. See docs/AI_EMPLOYEE_SYSTEM.md for the full decision record.
+model AIEmployee {
+  id              String           @id @default(cuid())
+  organizationId  String
+  locationId      String?
+  voiceProfileId  String?
+  agentId         String?
+  name            String
+  title           String?
+  status          AIEmployeeStatus @default(DRAFT)
+  channels        ChannelType[]
+  inheritsDNA     Boolean          @default(true)
+  dnaOverrides    Json             @default("{}")
+  knowledgeAccess Json             @default("{}")
+  escalationRules Json             @default("{}")
+  operatingHours  Json             @default("{}")
+  providerPrefs   Json             @default("{}")
+  attributes      Json             @default("{}")
+  metadata        Json             @default("{}")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location        Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  voiceProfile    VoiceProfile?    @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
+  agent           AIAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  permissions     Permission[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, locationId])
+  @@map("ai_employees")
 }
 
 model VoiceProfile {
@@ -653,6 +702,7 @@ model VoiceProfile {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   aiAgents     AIAgent[]
+  aiEmployees   AIEmployee[]
 
   @@index([organizationId])
   @@map("voice_profiles")
@@ -793,6 +843,9 @@ enum PermissionEffect {
 model OrganizationSettings {
   id             String   @id @default(cuid())
   organizationId String   @unique
+  // DEPRECATED (Sprint 2.5): capability enablement is governed solely by
+  // OrganizationCapability rows. Retained only for backward-compat migration;
+  // MUST NOT be treated as the source of truth. Do not add new reads/writes here.
   modules        Json     @default("{}")
   limits         Json     @default("{}")
   featureFlags   Json     @default("{}")
@@ -911,6 +964,7 @@ model Permission {
   id             String           @id @default(cuid())
   organizationId String
   systemRole     SystemRole?
+  subjectType    PermissionSubjectType @default(HUMAN_USER)
   roleId         String?
   userId         String?
   aiEmployeeId   String?
@@ -924,6 +978,7 @@ model Permission {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  aiEmployee     AIEmployee?      @relation(fields: [aiEmployeeId], references: [id], onDelete: SetNull)
   @@index([organizationId, resource, action])
   @@map("permissions")
 }
@@ -964,4 +1019,38 @@ model OrganizationCapability {
   @@unique([organizationId, capabilityId])
   @@index([organizationId, status])
   @@map("organization_capabilities")
+}
+
+// ---- Sprint 2.5 additions ----
+
+// Canonical interaction taxonomy (the customer-timeline "kind" spine).
+// Channel = transport (PHONE/SMS/...). Kind = semantic event type.
+enum InteractionKind {
+  PHONE_CALL
+  SMS
+  EMAIL
+  CHAT
+  RESERVATION
+  APPOINTMENT
+  ORDER
+  FORM_SUBMISSION
+  REVIEW
+  PAYMENT
+  NOTE
+  OTHER
+}
+
+enum AIEmployeeStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+// Who/what a Permission rule applies to. Deny-by-default still governs the
+// resolver; subjectType only narrows which rules are in scope for a subject.
+enum PermissionSubjectType {
+  HUMAN_USER
+  AI_EMPLOYEE
+  SYSTEM_PROCESS
 }
