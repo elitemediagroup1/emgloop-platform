@@ -77,3 +77,7 @@ export const PLATFORM = {
   appUrl: 'https://app.emgloop.com',
   firstDataSource: 'servicesinmycity',
 } as const;
+
+
+// --- Sprint 2: identity & OS-core vocabulary ---
+export * from './identity';
