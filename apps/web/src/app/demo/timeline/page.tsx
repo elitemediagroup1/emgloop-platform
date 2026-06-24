@@ -1,13 +1,19 @@
 import Link from 'next/link';
 import { ensureSeeded } from '../../../demo/seed';
-import { getStore, timelineFor } from '../../../demo/store';
+import {
+  getCustomer,
+  getLatestCustomer,
+  timelineFor,
+  bookingFor,
+} from '../../../demo/store';
 
-// Customer interaction timeline — Sprint 3 (First Customer Loop).
+// Customer interaction timeline — Sprint 4 (Real Data Layer).
 //
-// Renders the Interaction spine for one customer: every step of the loop from
-// quote request through booking confirmation. The store is process-local, so on
-// a cold serverless instance we seed first, then fall back to the most recent
-// customer if the requested id is not present.
+// Renders the Interaction spine for one customer, read from the DATABASE via
+// the repository layer: every step of the loop from quote request through
+// booking confirmation. On a cold instance we ensure the demo org is seeded,
+// then fall back to the most recently created customer if the requested id is
+// not present.
 
 export const dynamic = 'force-dynamic';
 
@@ -36,16 +42,13 @@ export default async function TimelinePage({
   searchParams: { customer?: string };
 }) {
   await ensureSeeded();
-  const store = getStore();
   const requested = searchParams.customer;
   const customer =
-    store.customers.find((c) => c.id === requested) ??
-    store.customers[store.customers.length - 1];
+    (requested ? await getCustomer(requested) : null) ??
+    (await getLatestCustomer());
 
-  const events = customer ? timelineFor(customer.id) : [];
-  const booking = customer
-    ? store.bookings.find((b) => b.customerId === customer.id)
-    : undefined;
+  const events = customer ? await timelineFor(customer.id) : [];
+  const booking = customer ? await bookingFor(customer.id) : null;
 
   return (
     <div className="shell">
@@ -103,12 +106,12 @@ export default async function TimelinePage({
                       height: '12px',
                       marginTop: '0.3rem',
                       borderRadius: '50%',
-                      background: dot(e.kind),
+                      background: dot(String(e.loopKind)),
                     }}
                   />
                   <div>
                     <div style={{ fontWeight: 600 }}>
-                      {KIND_LABEL[e.kind] ?? e.kind}
+                      {KIND_LABEL[String(e.loopKind)] ?? String(e.loopKind)}
                     </div>
                     <div className="muted" style={{ fontSize: '0.9rem' }}>
                       {e.summary}
@@ -119,7 +122,7 @@ export default async function TimelinePage({
                       </div>
                     ) : null}
                     <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.2rem' }}>
-                      {e.channel} · {e.actorType} · {e.createdAt}
+                      {e.channel} · {e.actorType} · {e.occurredAt}
                     </div>
                   </div>
                 </li>
