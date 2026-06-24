@@ -82,3 +82,37 @@ To add a vertical: configure \`Organization.industry\`, populate \`attributes\` 
 an enum. Do **not** create per-industry tables. To add a provider: register an
 adapter against the relevant interface and create a \`ProviderConnection\` — no
 core schema change required.
+
+
+---
+
+## Sprint 1.5 — Planned Model Refinements (not yet implemented)
+
+The Architecture Hardening sprint identified refinements to make the modular,
+event-driven, knowledge-grounded, AI-Employee vision explicit in the schema.
+These are **documented only**; no schema changes were made in this sprint. Full
+detail and prioritization are in \`ARCHITECTURE_REVIEW.md\`.
+
+- **Modules:** add \`Module\` (global catalog) and \`OrganizationModule\` (per-tenant
+  enablement). Interim mechanism: \`Organization.settings.modules\`.
+  (\`MODULE_ARCHITECTURE.md\`)
+- **Interaction spine:** add a \`kind\` enum to \`Interaction\` and make it the
+  canonical timeline parent that \`Conversation\`, \`Booking\`, \`Order\`,
+  \`ServiceRequest\`, reviews, and payments link back to. (\`INTERACTION_MODEL.md\`)
+- **Internal events:** add a first-class \`Event\` / \`DomainEvent\` stream (distinct
+  from \`IntegrationEvent\`, which remains the normalized inbound-provider
+  envelope) and wire \`Workflow\` triggers to it. (\`EVENT_BUS.md\`)
+- **AI Employees:** generalize \`AIAgent\` into an \`AIEmployee\` concept (role,
+  voice, knowledge scope, permissions, channels[], allowed modules, escalation
+  rules, memory link); keep \`VoiceProfile\` linkage. (\`AI_EMPLOYEE_SYSTEM.md\`)
+- **Knowledge base:** add \`KnowledgeSource\`, \`KnowledgeDocument\`,
+  \`KnowledgeChunk\` (per-org, embedding-backed, provenance-tracked).
+  (\`KNOWLEDGE_BASE.md\`)
+- **Email:** model mailbox connections as \`ProviderConnection\` (category
+  \`email\`, OAuth, tokens by reference) feeding \`Conversation\`/\`Message\`.
+  (\`EMAIL_ARCHITECTURE.md\`)
+- **Memory:** add a per-customer / per-employee memory store complementing the
+  append-only \`Signal\` stream. (\`AI_EMPLOYEE_SYSTEM.md\`)
+
+These keep the current 19-model foundation intact and additive: nothing here
+removes or forks an existing model, consistent with "foundation over polish."
