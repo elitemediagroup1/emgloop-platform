@@ -14,10 +14,13 @@
   publish = "apps/web/.next"
 
 [build.environment]
-  # Use the repo's pinned Node and avoid dev-only install pruning so workspace
-  # packages (e.g. @emgloop/shared) are available during the build.
   NODE_VERSION = "22"
-  NPM_FLAGS = "--workspaces"
+  # Production deploys default to NODE_ENV=production, which would skip
+  # devDependencies. Turbo (the build runner) is a root devDependency, so we
+  # must force dev dependencies to install or the build hits "turbo: not found".
+  # (Do NOT use "--workspaces" here: it installs only workspace packages and
+  # skips the ROOT devDependencies, which is what broke the production build.)
+  NPM_FLAGS = "--include=dev"
 
 # Official Next.js runtime for Netlify (handles routing, SSR, and the
 # publish directory for the App Router build).
