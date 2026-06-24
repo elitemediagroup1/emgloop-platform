@@ -1,0 +1,25 @@
+# Netlify configuration for the EMG Loop monorepo.
+#
+# The deploy target is the Next.js app in apps/web. The build runs from the
+# repo root so npm workspaces install correctly, then builds only the web app
+# via Turborepo. The official Next.js plugin handles the publish output.
+#
+# Scope: deploy configuration only. No business features, auth, or provider
+# integrations are introduced here.
+
+[build]
+  # Install at the workspace root, then build just the web app and its deps.
+  command = "npm run build -- --filter=@emgloop/web"
+  # Next.js build output for the web app.
+  publish = "apps/web/.next"
+
+[build.environment]
+  # Use the repo's pinned Node and avoid dev-only install pruning so workspace
+  # packages (e.g. @emgloop/shared) are available during the build.
+  NODE_VERSION = "22"
+  NPM_FLAGS = "--workspaces"
+
+# Official Next.js runtime for Netlify (handles routing, SSR, and the
+# publish directory for the App Router build).
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
