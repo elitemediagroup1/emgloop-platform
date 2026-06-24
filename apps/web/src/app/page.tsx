@@ -15,17 +15,21 @@ export default function HomePage() {
       <main className="container">
         <h1>EMG Loop</h1>
         <p className="muted">
-          An AI-first operating system for customer-facing businesses. This is the
-          Sprint 1 app shell &mdash; foundation only.
+          An AI-first operating system for customer-facing businesses. Sprint 3
+          ships the first end-to-end customer loop, running entirely on mock
+          providers.
         </p>
         <div className="card" style={{ marginTop: '1.5rem' }}>
-          <p>Available placeholders:</p>
+          <p>Explore:</p>
           <ul>
             <li>
-              <Link href="/login">Login</Link>
+              <Link href="/demo">First Customer Loop (demo)</Link>
             </li>
             <li>
               <Link href="/dashboard">Dashboard</Link>
+            </li>
+            <li>
+              <Link href="/login">Login</Link>
             </li>
             <li>
               <Link href="/status">Health / Status</Link>
