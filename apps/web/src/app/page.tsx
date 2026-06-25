@@ -8,6 +8,8 @@ export default function HomePage() {
           <span className="brand">EMG Loop</span>
           <span className="muted">AI-first operating system</span>
           <span style={{ marginLeft: 'auto' }}>
+            <Link href="/crm">CRM</Link>
+            {' · '}
             <Link href="/login">Login</Link>
           </span>
         </div>
@@ -22,6 +24,9 @@ export default function HomePage() {
         <div className="card" style={{ marginTop: '1.5rem' }}>
           <p>Explore:</p>
           <ul>
+            <li>
+              <Link href="/crm">Internal CRM (operations console)</Link>
+            </li>
             <li>
               <Link href="/demo">First Customer Loop (demo)</Link>
             </li>
