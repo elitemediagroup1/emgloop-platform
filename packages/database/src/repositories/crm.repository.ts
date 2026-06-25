@@ -1,4 +1,4 @@
-// CrmRepository — Sprint 5 (Internal CRM, Phase 1).
+// CrmRepository — Sprint 5 (Internal CRM, Phase 1) + Sprint 6 (Phase 2).
 //
 // Read/write queries that power the internal operations console (Customers
 // list, Customer workspace, global Search). Everything goes through Prisma via
@@ -11,6 +11,10 @@
 // `tags` array. This repository owns the mapping between those JSON fields and
 // the CRM view models, and derives "last interaction" from the Interaction
 // timeline. No mock data, no in-memory state — every value is read from Neon.
+//
+// Sprint 6 (Phase 2) adds: editable customer fields, bulk list operations,
+// the real assignee picker (backed by the User and AIEmployee tables), the
+// activity inbox feed, and the pipeline kanban board — all through Prisma.
 
 import type { Prisma, PrismaClient, Customer } from '@prisma/client';
 import { customerDisplayName } from './customer.repository';
@@ -73,11 +77,58 @@ export interface CustomerListResult {
   pageCount: number;
 }
 
+/** A selectable assignee for the workspace picker (human user or AI employee). */
+export interface AssigneeOption {
+  id: string;
+  name: string;
+  subtitle: string;
+}
+
+export interface AssigneeOptions {
+  humans: AssigneeOption[];
+  ais: AssigneeOption[];
+}
+
+/** One row in the cross-org activity inbox feed. */
+export interface InboxItem {
+  id: string;
+  customerId: string | null;
+  customerName: string;
+  kind: string;
+  channel: string;
+  direction: string;
+  summary: string;
+  actorType: string;
+  occurredAt: string;
+}
+
+/** A single column of the pipeline kanban board. */
+export interface KanbanColumn {
+  status: PipelineStatus;
+  count: number;
+  cards: {
+    id: string;
+    name: string;
+    company: string;
+    assignedHuman: string;
+    assignedAI: string;
+    lastInteractionAt: string | null;
+  }[];
+}
+
 function attr<T = unknown>(obj: unknown, key: string): T | undefined {
   if (obj && typeof obj === 'object' && key in (obj as Record<string, unknown>)) {
     return (obj as Record<string, T>)[key];
   }
   return undefined;
+}
+
+/** Inline display-name from first/last (mirrors customerDisplayName) for
+   partial selects where the full Customer row is not loaded. */
+function nameFromParts(
+  c: { firstName: string | null; lastName: string | null },
+): string {
+  return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Customer';
 }
 
 function readStatus(c: Pick<Customer, 'attributes'>): PipelineStatus {
@@ -124,9 +175,6 @@ export class CrmRepository {
 
     const where: Prisma.CustomerWhereInput = { AND: and };
 
-    // Status lives in JSON attributes; Prisma can't portably order by it, so we
-    // load the filtered set and apply status filter + status sort in-process.
-    // For non-status sorts we paginate in the database for efficiency.
     const wantsStatusFilter = Boolean(filters.status);
     const sort = filters.sort ?? 'createdAt';
     const direction = filters.direction ?? 'desc';
@@ -159,8 +207,6 @@ export class CrmRepository {
       };
     }
 
-    // Status filter/sort path: load the matching set (bounded), filter + sort
-    // by the JSON status in memory, then slice the page.
     const all = await this.prisma.customer.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -360,5 +406,229 @@ export class CrmRepository {
     });
     const next = (c?.tags ?? []).filter((t) => t !== tag);
     return this.prisma.customer.update({ where: { id }, data: { tags: next } });
+  }
+
+  // ----------------------------------------------------------------------
+  // Sprint 6 (Phase 2)
+  // ----------------------------------------------------------------------
+
+  /**
+   * Update the editable, first-class customer fields plus the operational
+   * fields that live in JSON attributes (company, city, state, service,
+   * source). Only keys explicitly provided are changed; attributes are merged
+   * so unrelated keys (status, assignments) are preserved.
+   */
+  async updateCustomerFields(
+    id: string,
+    fields: {
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      company?: string | null;
+      city?: string | null;
+      state?: string | null;
+      serviceType?: string | null;
+      source?: string | null;
+    },
+  ): Promise<Customer> {
+    const data: Prisma.CustomerUpdateInput = {};
+    if (fields.firstName !== undefined) data.firstName = fields.firstName;
+    if (fields.lastName !== undefined) data.lastName = fields.lastName;
+    if (fields.email !== undefined) data.email = fields.email;
+    if (fields.phone !== undefined) data.phone = fields.phone;
+
+    const attrPatch: Record<string, unknown> = {};
+    for (const k of ['company', 'city', 'state', 'serviceType', 'source'] as const) {
+      if (fields[k] !== undefined) attrPatch[k] = fields[k];
+    }
+
+    if (Object.keys(attrPatch).length > 0) {
+      const existing = await this.prisma.customer.findUnique({
+        where: { id },
+        select: { attributes: true },
+      });
+      const current =
+        existing && existing.attributes && typeof existing.attributes === 'object'
+          ? (existing.attributes as Record<string, unknown>)
+          : {};
+      data.attributes = { ...current, ...attrPatch } as object;
+    }
+
+    return this.prisma.customer.update({ where: { id }, data });
+  }
+
+  /** Bulk: set pipeline status on many customers (scoped to the org). */
+  async bulkSetStatus(
+    organizationId: string,
+    ids: string[],
+    status: PipelineStatus,
+  ): Promise<number> {
+    const targets = await this.prisma.customer.findMany({
+      where: { organizationId, id: { in: ids } },
+      select: { id: true },
+    });
+    let n = 0;
+    for (const t of targets) {
+      await this.setPipelineStatus(t.id, status);
+      n += 1;
+    }
+    return n;
+  }
+
+  /** Bulk: add a tag to many customers (scoped to the org, deduplicated). */
+  async bulkAddTag(
+    organizationId: string,
+    ids: string[],
+    tag: string,
+  ): Promise<number> {
+    const targets = await this.prisma.customer.findMany({
+      where: { organizationId, id: { in: ids } },
+      select: { id: true },
+    });
+    let n = 0;
+    for (const t of targets) {
+      await this.addTag(t.id, tag);
+      n += 1;
+    }
+    return n;
+  }
+
+  /** Bulk: assign many customers to a human and/or AI employee (by name). */
+  async bulkAssign(
+    organizationId: string,
+    ids: string[],
+    args: { humanName?: string | null; aiName?: string | null },
+  ): Promise<number> {
+    const targets = await this.prisma.customer.findMany({
+      where: { organizationId, id: { in: ids } },
+      select: { id: true },
+    });
+    let n = 0;
+    for (const t of targets) {
+      await this.setAssignment(t.id, args);
+      n += 1;
+    }
+    return n;
+  }
+
+  /**
+   * The real assignee picker source: human Users and AI Employees that belong
+   * to the organization, read straight from Neon. Replaces the Phase-1
+   * free-text assignment inputs.
+   */
+  async listAssignees(organizationId: string): Promise<AssigneeOptions> {
+    const [users, ais] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, email: true, status: true },
+      }),
+      this.prisma.aIEmployee.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, title: true, status: true },
+      }),
+    ]);
+
+    return {
+      humans: users.map((u) => ({
+        id: u.id,
+        name: u.name ?? u.email,
+        subtitle: u.email + ' · ' + u.status,
+      })),
+      ais: ais.map((a) => ({
+        id: a.id,
+        name: a.name,
+        subtitle: (a.title ?? 'AI Employee') + ' · ' + a.status,
+      })),
+    };
+  }
+
+  /**
+   * The activity inbox: the most recent interactions across the whole org,
+   * joined to the customer's display name. Powers /crm/inbox.
+   */
+  async inboxFeed(organizationId: string, take = 50): Promise<InboxItem[]> {
+    const interactions = await this.prisma.interaction.findMany({
+      where: { organizationId },
+      orderBy: { occurredAt: 'desc' },
+      take: Math.min(200, Math.max(1, take)),
+      include: {
+        customer: {
+          select: { firstName: true, lastName: true },
+        },
+      },
+    });
+
+    return interactions.map((i) => {
+      const c = i.customer;
+      const name = c ? nameFromParts(c) : 'Unknown customer';
+      const actorType = attr<string>(i.payload, 'actorType') ?? 'SYSTEM';
+      return {
+        id: i.id,
+        customerId: i.customerId,
+        customerName: name,
+        kind: i.kind,
+        channel: i.channel,
+        direction: i.direction,
+        summary: i.summary ?? i.kind,
+        actorType,
+        occurredAt: i.occurredAt.toISOString(),
+      };
+    });
+  }
+
+  /**
+   * The pipeline kanban board: every customer in the org grouped into its
+   * pipeline-status column, with a lightweight card payload. Bounded read.
+   */
+  async kanbanBoard(organizationId: string): Promise<KanbanColumn[]> {
+    const customers = await this.prisma.customer.findMany({
+      where: { organizationId },
+      orderBy: { lastSeenAt: 'desc' },
+      take: 2000,
+    });
+
+    const lastByCustomer = new Map<string, Date>();
+    const ids = customers.map((c) => c.id);
+    if (ids.length > 0) {
+      const interactions = await this.prisma.interaction.findMany({
+        where: { organizationId, customerId: { in: ids } },
+        orderBy: { occurredAt: 'desc' },
+        select: { customerId: true, occurredAt: true },
+      });
+      for (const i of interactions) {
+        if (i.customerId && !lastByCustomer.has(i.customerId)) {
+          lastByCustomer.set(i.customerId, i.occurredAt);
+        }
+      }
+    }
+
+    const columns: KanbanColumn[] = PIPELINE_STATUSES.map((status) => ({
+      status,
+      count: 0,
+      cards: [],
+    }));
+    const byStatus = new Map(columns.map((c) => [c.status, c]));
+
+    for (const c of customers) {
+      const col = byStatus.get(readStatus(c));
+      if (!col) continue;
+      col.count += 1;
+      if (col.cards.length < 50) {
+        const last = lastByCustomer.get(c.id);
+        col.cards.push({
+          id: c.id,
+          name: customerDisplayName(c),
+          company: attr<string>(c.attributes, 'company') ?? '',
+          assignedHuman: attr<string>(c.attributes, 'assignedHumanName') ?? '',
+          assignedAI: attr<string>(c.attributes, 'assignedAIName') ?? '',
+          lastInteractionAt: last ? last.toISOString() : null,
+        });
+      }
+    }
+
+    return columns;
   }
 }

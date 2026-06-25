@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import './crm.css';
 
-// CRM layout — Sprint 5 (Internal CRM, Phase 1).
+// CRM layout — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
 //
 // Wraps every /crm page in the self-contained dark operations theme and a
 // persistent top bar. This is an internal tool: minimal chrome, fast nav, no
 // marketing. The theme is scoped under the .crm class so it never leaks into
-// the existing light demo/dashboard pages.
+// the existing light demo/dashboard pages. Sprint 6 adds Inbox and Pipeline to
+// the nav.
 
 export const metadata = {
   title: 'EMG Loop — CRM',
@@ -29,6 +30,8 @@ export default function CrmLayout({
         </Link>
         <nav className="crm-nav">
           <Link href="/crm/customers">Customers</Link>
+          <Link href="/crm/pipeline">Pipeline</Link>
+          <Link href="/crm/inbox">Inbox</Link>
           <Link href="/crm/search">Search</Link>
           <Link href="/dashboard">Dashboard</Link>
         </nav>

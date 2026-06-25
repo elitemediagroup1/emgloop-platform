@@ -38,6 +38,10 @@ export type {
   CustomerListFilters,
   CustomerListRow,
   CustomerListResult,
+  AssigneeOption,
+  AssigneeOptions,
+  InboxItem,
+  KanbanColumn,
 } from './crm.repository';
 
 export interface Repositories {

@@ -6,12 +6,14 @@ import {
   type PipelineStatus,
   type CustomerSortKey,
 } from '@emgloop/database';
+import { BulkBar } from './bulk-bar';
 
-// Customers list — Sprint 5 (Internal CRM, Phase 1).
+// Customers list — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
 //
 // A searchable, sortable, filterable, paginated customer table read straight
-// from Neon via the repository layer. Every column maps to a real persisted
-// field (or a derived JSON attribute / last-interaction join). No mock data.
+// from Neon via the repository layer. Sprint 6 adds saved views (sharable
+// filter presets) and bulk operations (select rows → set status / add tag /
+// assign), wired to server actions through a small client selection bar.
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +25,17 @@ type SP = {
   dir?: string;
   page?: string;
 };
+
+// Saved views: named, sharable filter presets. Pure URL state — no schema
+// change required. Each renders as a one-click chip.
+const SAVED_VIEWS: { label: string; sp: Partial<SP> }[] = [
+  { label: 'All customers', sp: {} },
+  { label: 'New leads', sp: { status: 'New', sort: 'createdAt', dir: 'desc' } },
+  { label: 'Hot leads', sp: { tag: 'Hot Lead' } },
+  { label: 'Booked', sp: { status: 'Booked' } },
+  { label: 'VIPs', sp: { tag: 'VIP' } },
+  { label: 'Recently active', sp: { sort: 'lastSeenAt', dir: 'desc' } },
+];
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
@@ -54,6 +67,11 @@ function buildQuery(base: SP, override: Partial<SP>): string {
   }
   const s = params.toString();
   return s ? '?' + s : '';
+}
+
+function viewMatches(sp: SP, view: Partial<SP>): boolean {
+  const keys: (keyof SP)[] = ['q', 'status', 'tag', 'sort', 'dir'];
+  return keys.every((k) => (sp[k] ?? '') === (view[k] ?? ''));
 }
 
 export default async function CustomersPage({
@@ -142,6 +160,23 @@ export default async function CustomersPage({
             {list.total} total · page {list.page} of {list.pageCount}
           </p>
         </div>
+        <span style={{ marginLeft: 'auto' }}>
+          <Link className="crm-btn crm-btn-ghost" href="/crm/pipeline">
+            Pipeline board
+          </Link>
+        </span>
+      </div>
+
+      <div className="crm-views">
+        {SAVED_VIEWS.map((v) => (
+          <Link
+            key={v.label}
+            className={'crm-view' + (viewMatches(sp, v.sp) ? ' active' : '')}
+            href={'/crm/customers' + buildQuery({}, { ...v.sp, page: '1' })}
+          >
+            {v.label}
+          </Link>
+        ))}
       </div>
 
       <form className="crm-toolbar" method="get" action="/crm/customers">
@@ -196,10 +231,15 @@ export default async function CustomersPage({
         ))}
       </div>
 
+      <BulkBar tags={tags} />
+
       <div className="crm-panel">
-        <table className="crm-table">
+        <table className="crm-table crm-table-select">
           <thead>
             <tr>
+              <th className="crm-checkcol">
+                <input type="checkbox" data-bulk-all aria-label="Select all" />
+              </th>
               <th>{sortLink('name', 'Customer')}</th>
               <th>Company</th>
               <th>Phone</th>
@@ -215,13 +255,21 @@ export default async function CustomersPage({
           <tbody>
             {list.rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="crm-empty">
+                <td colSpan={11} className="crm-empty">
                   No customers match these filters.
                 </td>
               </tr>
             ) : (
               list.rows.map((c) => (
                 <tr key={c.id}>
+                  <td className="crm-checkcol">
+                    <input
+                      type="checkbox"
+                      data-bulk-row
+                      value={c.id}
+                      aria-label={'Select ' + c.name}
+                    />
+                  </td>
                   <td>
                     <Link href={'/crm/customers/' + c.id} className="crm-cell-name">
                       {c.name}

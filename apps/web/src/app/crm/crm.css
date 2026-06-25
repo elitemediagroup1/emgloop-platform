@@ -1,4 +1,4 @@
-/* EMG Loop — Internal CRM theme (Sprint 5, Phase 1).
+/* EMG Loop — Internal CRM theme (Sprint 5, Phase 1; extended Sprint 6, Phase 2).
    A self-contained dark operations theme scoped under .crm so it never affects
    the existing light marketing/demo pages. Neon accent matches EMG Loop. */
 
@@ -16,6 +16,7 @@
   --crm-purple: #b07cff;
   --crm-amber: #ffc24a;
   --crm-red: #ff6b6b;
+  --crm-green: #7ee0b0;
   min-height: 100vh;
   background: var(--crm-bg);
   color: var(--crm-text);
@@ -252,3 +253,124 @@
   outline: none;
 }
 .crm-textarea:focus { border-color: var(--crm-accent); }
+
+/* ----------------------------------------------------------------------
+   Sprint 6 (Phase 2): saved views, bulk bar, edit grid, inbox feed,
+   pipeline kanban board, assignment labels.
+   ---------------------------------------------------------------------- */
+
+/* Saved views */
+.crm-views { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.9rem 0 0.2rem; }
+.crm-view {
+  padding: 0.3rem 0.7rem;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--crm-panel-2);
+  border: 1px solid var(--crm-border);
+  color: var(--crm-muted);
+}
+.crm-view:hover { color: var(--crm-text); border-color: var(--crm-muted); }
+.crm-view.active { background: var(--crm-accent-dim); border-color: var(--crm-accent); color: var(--crm-accent); }
+
+/* Field labels */
+.crm-field-label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crm-faint);
+  margin-bottom: 0.2rem;
+}
+
+/* Bulk selection bar */
+.crm-checkcol { width: 34px; text-align: center; }
+.crm-table-select td.crm-checkcol, .crm-table-select th.crm-checkcol { padding-left: 0.6rem; padding-right: 0.3rem; }
+.crm-bulkbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
+  margin-bottom: 0.7rem;
+  border: 1px solid var(--crm-accent);
+  background: var(--crm-accent-dim);
+  border-radius: 9px;
+}
+.crm-bulk-count { font-weight: 700; color: var(--crm-accent); font-size: 0.8rem; }
+.crm-bulk-group { display: flex; gap: 0.4rem; align-items: center; }
+
+/* Edit grid */
+.crm-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.7rem;
+}
+@media (max-width: 620px) { .crm-edit-grid { grid-template-columns: 1fr; } }
+.crm-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.crm-field > span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crm-faint);
+}
+
+/* Activity inbox feed */
+.crm-feed { list-style: none; margin: 0; padding: 0; }
+.crm-feed-item { display: flex; gap: 0.85rem; padding: 0.75rem 0.95rem; border-bottom: 1px solid var(--crm-border); }
+.crm-feed-item:last-child { border-bottom: none; }
+.crm-feed-item:hover { background: var(--crm-panel-2); }
+.crm-feed-body { flex: 1; min-width: 0; }
+.crm-feed-top { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+.crm-feed-when { color: var(--crm-faint); font-size: 0.72rem; white-space: nowrap; }
+
+/* Pipeline kanban board */
+.crm-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  gap: 0.85rem;
+  margin-top: 1rem;
+  overflow-x: auto;
+  padding-bottom: 0.6rem;
+}
+.crm-col {
+  background: var(--crm-panel);
+  border: 1px solid var(--crm-border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+}
+.crm-col-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid var(--crm-border);
+  background: var(--crm-panel-2);
+  border-radius: 10px 10px 0 0;
+}
+.crm-col-dot { width: 9px; height: 9px; border-radius: 50%; }
+.crm-col-name { font-weight: 700; font-size: 0.78rem; }
+.crm-col-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--crm-faint);
+  background: var(--crm-bg);
+  border: 1px solid var(--crm-border);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+.crm-col-body { padding: 0.6rem; display: flex; flex-direction: column; gap: 0.55rem; }
+.crm-col-empty { text-align: center; font-size: 0.78rem; padding: 0.8rem 0; }
+.crm-kcard {
+  background: var(--crm-panel-2);
+  border: 1px solid var(--crm-border);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+}
+.crm-kcard-sub { font-size: 0.76rem; color: var(--crm-muted); margin-top: 0.1rem; }
+.crm-kcard-meta { font-size: 0.72rem; color: var(--crm-muted); margin-top: 0.25rem; }
+.crm-kcard-move { display: flex; gap: 0.35rem; margin-top: 0.5rem; }
+.crm-select-sm { padding: 0.25rem 0.4rem; font-size: 0.74rem; flex: 1; }
+.crm-btn-sm { padding: 0.25rem 0.55rem; font-size: 0.74rem; }
