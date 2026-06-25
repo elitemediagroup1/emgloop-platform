@@ -6,7 +6,6 @@
 // the same demo organization the Sprint 4 intake loop persists into, so the
 // customers created by /demo/intake appear here immediately.
 
-import 'server-only';
 import {
   prisma,
   createRepositories,
