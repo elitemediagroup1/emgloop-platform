@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import { submitQuoteRequest } from '../../../demo/actions';
 
+// Force this route to be server-rendered so the form's Server Action POST is
+// handled by the SSR function (Netlify won't route POSTs to a static page).
+export const dynamic = 'force-dynamic';
+
 // Internal demo intake form — Sprint 3 (First Customer Loop).
 //
 // Represents a ServicesInMyCity HVAC quote request. Submitting it runs the
