@@ -26,23 +26,3 @@
 # publish directory for the App Router build).
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-
-# --- TEMPORARY (hotfix-neon-db-setup) -------------------------------------
-# Bundle the Prisma schema, migrations, seed, and the Prisma/tsx CLIs into the
-# serverless functions so the one-time POST /api/admin/setup-database route can
-# run `prisma migrate deploy` and `prisma db seed` from the deployed environment.
-#
-# REMOVE this [functions] block in the cleanup hotfix together with the route.
-# See docs/HOTFIX-NEON-DB-SETUP.md. This is bootstrap plumbing, not a feature.
-[functions]
-included_files = [
-  "packages/database/prisma/**",
-    "packages/database/package.json",
-      "node_modules/prisma/**",
-        "node_modules/@prisma/**",
-          "node_modules/.bin/prisma",
-            "node_modules/tsx/**",
-              "node_modules/.bin/tsx",
-              ]
-              # --- END TEMPORARY ---------------------------------------------------------
-              
