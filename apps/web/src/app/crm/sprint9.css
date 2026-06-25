@@ -1,0 +1,139 @@
+/* Sprint 9 — Workflows & Automation. Scoped under .crm so it never leaks
+   into the light demo/dashboard pages. Builds on the dark/neon CRM theme
+   variables defined in crm.css. */
+
+.crm .crm-wf-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.crm .crm-h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  color: var(--crm-text, #e5e7eb);
+}
+
+.crm .crm-wf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+@media (max-width: 880px) {
+  .crm .crm-wf-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.crm .crm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.crm .crm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.crm .crm-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.4rem;
+}
+
+.crm .crm-step-list {
+  list-style: none;
+  margin: 0 0 0.85rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.crm .crm-step {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--crm-border, #2a2f3a);
+  border-radius: 0.5rem;
+  background: var(--crm-panel-2, rgba(255, 255, 255, 0.02));
+}
+
+.crm .crm-step-idx {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0b0f17;
+  background: var(--crm-accent, #34d399);
+}
+
+.crm .crm-step-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.crm .crm-step-detail {
+  flex: 1 1 auto;
+  color: var(--crm-faint, #9ca3af);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crm .crm-add-step {
+  border-top: 1px dashed var(--crm-border, #2a2f3a);
+  padding-top: 0.85rem;
+}
+
+.crm .crm-step-configs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.crm .crm-input-sm {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.45rem;
+  min-width: 0;
+}
+
+.crm .crm-run-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.crm .crm-x {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--crm-faint, #9ca3af);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+.crm .crm-x:hover {
+  color: var(--crm-red, #f87171);
+}
