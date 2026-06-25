@@ -6,12 +6,12 @@
 // NormalizedEvent (already mapped by the provider adapter) and writes the
 // three primitives through the existing repository layer into Neon.
 //
-// Idempotency: externalId on Interaction metadata prevents duplicate records
+// Idempotency: externalId in Interaction metadata prevents duplicate records
 // if the same event is replayed.
 
 
 import type { PrismaClient } from '@prisma/client';
-import { ChannelType, InteractionDirection, SignalType, ActorType } from '@prisma/client';
+import { ChannelType, InteractionDirection, SignalType } from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
 import type { WorkflowsRepository } from './workflows.repository';
 
@@ -136,7 +136,6 @@ export class NormalizationEngine {
             channel,
             direction,
             startedAt: event.occurredAt,
-            endedAt: event.occurredAt,
             durationSeconds: event.durationSeconds,
             summary: event.summary,
             metadata: {
@@ -159,9 +158,9 @@ export class NormalizationEngine {
           organizationId: event.organizationId,
           customerId: customerId ?? undefined,
           type: signalType,
-          key: event.eventType,       // event type as signal key
+          key: event.eventType,
           source: event.source,
-          valueNumber: 1,             // presence signal: 1 = occurred
+          valueNumber: 1,
           metadata: {
             source: event.source,
             externalId: event.externalId,
@@ -190,7 +189,6 @@ export class NormalizationEngine {
             signalIds: result.signalIds,
             ...event.metadata,
           },
-          actorType: ActorType.SYSTEM,
         },
       });
       result.domainEventId = domainEvent.id;
