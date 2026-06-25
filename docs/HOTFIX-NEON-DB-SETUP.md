@@ -62,3 +62,30 @@ adds a temporary, token-protected endpoint:
                                   No business features, no real provider integrations, and no ServicesInMyCity
                                   production traffic are introduced by this hotfix.
                                   
+
+
+## Browser-based alternative: /admin/setup-database
+
+Because curl/CLI is not available locally, there is also an internal browser
+page at `/admin/setup-database` that runs the same `runDatabaseSetup()` logic
+server-side, without exposing `SETUP_SECRET` to the browser or chat:
+
+- The page 404s unless `SETUP_SECRET` is set.
+- - The operator types the confirmation phrase `RUN DATABASE SETUP` and clicks Run.
+  - - A server action reads `SETUP_SECRET` from `process.env` only to gate execution; the secret is never sent to the client, rendered, logged, or returned.
+    - - The result (migrate/seed status or error log) is shown on the page.
+     
+      - Files for this page (ALL temporary, remove in cleanup):
+      - - `apps/web/src/lib/setup-database.ts` (shared `runDatabaseSetup()`)
+        - - `apps/web/src/app/admin/setup-database/page.tsx`
+          - - `apps/web/src/app/admin/setup-database/actions.ts`
+            - - `apps/web/src/app/admin/setup-database/setup-form.tsx`
+             
+              - Updated cleanup checklist (do all of this in the follow-up hotfix):
+              - - Delete `apps/web/src/app/admin/setup-database/` (page, actions, form).
+                - - Delete `apps/web/src/app/api/admin/setup-database/route.ts`.
+                  - - Delete `apps/web/src/lib/setup-database.ts`.
+                    - - Remove the temporary `[functions] included_files` block from `netlify.toml`.
+                      - - Delete the `SETUP_SECRET` environment variable in Netlify.
+                        - - Delete this document.
+                          - 
