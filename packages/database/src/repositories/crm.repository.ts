@@ -123,6 +123,14 @@ function attr<T = unknown>(obj: unknown, key: string): T | undefined {
   return undefined;
 }
 
+/** Inline display-name from first/last (mirrors customerDisplayName) for
+   partial selects where the full Customer row is not loaded. */
+function nameFromParts(
+  c: { firstName: string | null; lastName: string | null },
+): string {
+  return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Customer';
+}
+
 function readStatus(c: Pick<Customer, 'attributes'>): PipelineStatus {
   const s = attr<string>(c.attributes, 'pipelineStatus');
   if (s && (PIPELINE_STATUSES as string[]).includes(s)) return s as PipelineStatus;
@@ -167,9 +175,6 @@ export class CrmRepository {
 
     const where: Prisma.CustomerWhereInput = { AND: and };
 
-    // Status lives in JSON attributes; Prisma can't portably order by it, so we
-    // load the filtered set and apply status filter + status sort in-process.
-    // For non-status sorts we paginate in the database for efficiency.
     const wantsStatusFilter = Boolean(filters.status);
     const sort = filters.sort ?? 'createdAt';
     const direction = filters.direction ?? 'desc';
@@ -202,8 +207,6 @@ export class CrmRepository {
       };
     }
 
-    // Status filter/sort path: load the matching set (bounded), filter + sort
-    // by the JSON status in memory, then slice the page.
     const all = await this.prisma.customer.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -553,16 +556,14 @@ export class CrmRepository {
       take: Math.min(200, Math.max(1, take)),
       include: {
         customer: {
-          select: { firstName: true, lastName: true, email: true, phone: true },
+          select: { firstName: true, lastName: true },
         },
       },
     });
 
     return interactions.map((i) => {
       const c = i.customer;
-      const name = c
-        ? customerDisplayName(c as Pick<Customer, 'firstName' | 'lastName' | 'email' | 'phone'>)
-        : 'Unknown customer';
+      const name = c ? nameFromParts(c) : 'Unknown customer';
       const actorType = attr<string>(i.payload, 'actorType') ?? 'SYSTEM';
       return {
         id: i.id,
