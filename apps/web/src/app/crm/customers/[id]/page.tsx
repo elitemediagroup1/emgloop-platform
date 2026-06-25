@@ -1,22 +1,24 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
-import { crmRepos } from '../../../../crm/crm-data';
-import { PIPELINE_STATUSES } from '@emgloop/database';
+import { crmRepos, resolveCrmOrganizationId } from '../../../../crm/crm-data';
+import { PIPELINE_STATUSES, type AssigneeOptions } from '@emgloop/database';
 import {
   addNoteAction,
   setStatusAction,
   addTagAction,
   removeTagAction,
   setAssignmentAction,
+  updateCustomerFieldsAction,
 } from '../../../../crm/actions';
 
-// Customer workspace — Sprint 5 (Internal CRM, Phase 1).
+// Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
 //
 // A dedicated operating surface for one customer, read entirely from Neon via
 // the repository layer. Tabs are server-rendered via ?tab= so no client JS is
-// needed. Mutations (notes, tags, status, assignment) post to server actions
-// that write through the repository layer. No providers, no mock data.
+// needed. Sprint 6 adds an Edit tab (editable name / contact / company / city /
+// state / service / source) and replaces the free-text assignment inputs with
+// real pickers populated from the organization's User and AIEmployee tables.
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +30,7 @@ const TABS = [
   'Bookings',
   'Signals',
   'AI Activity',
+  'Edit',
 ] as const;
 type Tab = (typeof TABS)[number];
 
@@ -98,14 +101,21 @@ export default async function CustomerWorkspace({
     ? (searchParams!.tab as Tab)
     : 'Overview';
 
-  const result = await loadOrFallback(() =>
-    crmRepos.crm.getWorkspace(params.id),
-  );
+  const result = await loadOrFallback(async () => {
+    const ws = await crmRepos.crm.getWorkspace(params.id);
+    if (!ws) return { ws: null, assignees: { humans: [], ais: [] } as AssigneeOptions };
+    const organizationId = await resolveCrmOrganizationId();
+    const assignees = organizationId
+      ? await crmRepos.crm.listAssignees(organizationId)
+      : ({ humans: [], ais: [] } as AssigneeOptions);
+    return { ws, assignees };
+  });
 
   if (!result.ok) return <DbNotConfigured />;
-  if (!result.data) return notFound();
+  if (!result.data.ws) return notFound();
 
-  const ws = result.data;
+  const ws = result.data.ws;
+  const assignees = result.data.assignees;
   const cid = ws.customer.id;
 
   const notes = ws.interactions.filter((i) => i.kind === 'NOTE');
@@ -118,6 +128,21 @@ export default async function CustomerWorkspace({
 
   const tabHref = (t: Tab) =>
     '/crm/customers/' + cid + (t === 'Overview' ? '' : '?tab=' + encodeURIComponent(t));
+
+  // The picker offers the org's real people/AIs by name, plus the current
+  // free-text value (so an externally-set assignment still shows as selected).
+  const humanNames = Array.from(
+    new Set(
+      [ws.assignedHumanName, ...assignees.humans.map((h) => h.name)].filter(
+        Boolean,
+      ),
+    ),
+  );
+  const aiNames = Array.from(
+    new Set(
+      [ws.assignedAIName, ...assignees.ais.map((a) => a.name)].filter(Boolean),
+    ),
+  );
 
   return (
     <>
@@ -155,6 +180,9 @@ export default async function CustomerWorkspace({
             <div className="crm-kv"><span className="k">Source</span><span className="v">{ws.source || '—'}</span></div>
             <div className="crm-kv"><span className="k">External ID</span><span className="v">{ws.customer.externalId || '—'}</span></div>
             <div className="crm-kv"><span className="k">Created</span><span className="v">{fmt(ws.customer.createdAt)}</span></div>
+            <Link className="crm-btn crm-btn-ghost" href={tabHref('Edit')} style={{ marginTop: '0.6rem', display: 'inline-block' }}>
+              Edit details
+            </Link>
           </div>
 
           <div className="crm-card">
@@ -172,16 +200,33 @@ export default async function CustomerWorkspace({
 
           <div className="crm-card">
             <h3>Assignments</h3>
+            <label className="crm-field-label">Human employee</label>
             <form action={setAssignmentAction} className="crm-form-row">
               <input type="hidden" name="customerId" value={cid} />
-              <input className="crm-input" name="humanName" defaultValue={ws.assignedHumanName} placeholder="Human employee" style={{ flex: 1 }} />
+              <select className="crm-select" name="humanName" defaultValue={ws.assignedHumanName} style={{ flex: 1 }}>
+                <option value="">— Unassigned —</option>
+                {humanNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
               <button className="crm-btn" type="submit">Save</button>
             </form>
+            <label className="crm-field-label" style={{ marginTop: '0.5rem' }}>AI employee</label>
             <form action={setAssignmentAction} className="crm-form-row">
               <input type="hidden" name="customerId" value={cid} />
-              <input className="crm-input" name="aiName" defaultValue={ws.assignedAIName} placeholder="AI employee" style={{ flex: 1 }} />
+              <select className="crm-select" name="aiName" defaultValue={ws.assignedAIName} style={{ flex: 1 }}>
+                <option value="">— Unassigned —</option>
+                {aiNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
               <button className="crm-btn" type="submit">Save</button>
             </form>
+            {assignees.humans.length === 0 && assignees.ais.length === 0 ? (
+              <p className="crm-faint" style={{ fontSize: '0.72rem', marginTop: '0.4rem' }}>
+                No employees provisioned for this org yet.
+              </p>
+            ) : null}
           </div>
 
           <div className="crm-card">
@@ -234,6 +279,57 @@ export default async function CustomerWorkspace({
               <div className="crm-kv"><span className="k">Notes</span><span className="v">{notes.length}</span></div>
               <div className="crm-kv"><span className="k">Assigned AI</span><span className="v">{ws.assignedAIName || '—'}</span></div>
               <div className="crm-kv"><span className="k">Assigned human</span><span className="v">{ws.assignedHumanName || '—'}</span></div>
+            </div>
+          ) : null}
+
+          {activeTab === 'Edit' ? (
+            <div className="crm-card">
+              <h3>Edit customer</h3>
+              <form action={updateCustomerFieldsAction}>
+                <input type="hidden" name="customerId" value={cid} />
+                <div className="crm-edit-grid">
+                  <label className="crm-field">
+                    <span>First name</span>
+                    <input className="crm-input" name="firstName" defaultValue={ws.customer.firstName ?? ''} />
+                  </label>
+                  <label className="crm-field">
+                    <span>Last name</span>
+                    <input className="crm-input" name="lastName" defaultValue={ws.customer.lastName ?? ''} />
+                  </label>
+                  <label className="crm-field">
+                    <span>Email</span>
+                    <input className="crm-input" name="email" type="email" defaultValue={ws.customer.email ?? ''} />
+                  </label>
+                  <label className="crm-field">
+                    <span>Phone</span>
+                    <input className="crm-input" name="phone" defaultValue={ws.customer.phone ?? ''} />
+                  </label>
+                  <label className="crm-field">
+                    <span>Company</span>
+                    <input className="crm-input" name="company" defaultValue={ws.company} />
+                  </label>
+                  <label className="crm-field">
+                    <span>City</span>
+                    <input className="crm-input" name="city" defaultValue={ws.city} />
+                  </label>
+                  <label className="crm-field">
+                    <span>State</span>
+                    <input className="crm-input" name="state" defaultValue={ws.state} />
+                  </label>
+                  <label className="crm-field">
+                    <span>Service type</span>
+                    <input className="crm-input" name="serviceType" defaultValue={ws.serviceType} />
+                  </label>
+                  <label className="crm-field">
+                    <span>Source</span>
+                    <input className="crm-input" name="source" defaultValue={ws.source} />
+                  </label>
+                </div>
+                <div className="crm-form-row" style={{ marginTop: '0.85rem' }}>
+                  <button className="crm-btn" type="submit">Save changes</button>
+                  <Link className="crm-btn crm-btn-ghost" href={tabHref('Overview')}>Cancel</Link>
+                </div>
+              </form>
             </div>
           ) : null}
 
