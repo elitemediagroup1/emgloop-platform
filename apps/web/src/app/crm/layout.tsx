@@ -1,44 +1,72 @@
 import Link from 'next/link';
 import './crm.css';
+import './sprint7.css';
+import { getSession } from '../../auth/auth';
+import { logoutAction } from '../../auth/actions';
 
-// CRM layout — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
+// CRM layout — Sprint 5/6 + Sprint 7 (Identity).
 //
 // Wraps every /crm page in the self-contained dark operations theme and a
 // persistent top bar. This is an internal tool: minimal chrome, fast nav, no
 // marketing. The theme is scoped under the .crm class so it never leaks into
-// the existing light demo/dashboard pages. Sprint 6 adds Inbox and Pipeline to
-// the nav.
+// the existing light demo/dashboard pages. Sprint 7 expands the nav to the
+// full operating-system surface (Dashboard, Customers, Pipeline, Inbox,
+// Search, AI Employees, Users, Organizations, Settings, Audit) and adds the
+// signed-in account chip + sign-out. The layout reads the session optionally
+// so the auth screens (login / reset) still render when unauthenticated.
 
 export const metadata = {
   title: 'EMG Loop — CRM',
 };
 
-export default function CrmLayout({
+const NAV: { href: string; label: string }[] = [
+  { href: '/crm', label: 'Dashboard' },
+  { href: '/crm/customers', label: 'Customers' },
+  { href: '/crm/pipeline', label: 'Pipeline' },
+  { href: '/crm/inbox', label: 'Inbox' },
+  { href: '/crm/search', label: 'Search' },
+  { href: '/crm/ai-employees', label: 'AI Employees' },
+  { href: '/crm/users', label: 'Users' },
+  { href: '/crm/organizations', label: 'Organizations' },
+  { href: '/crm/settings', label: 'Settings' },
+  { href: '/crm/audit', label: 'Audit' },
+];
+
+export default async function CrmLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await getSession();
   return (
     <div className="crm">
       <header className="crm-topbar">
-        <Link href="/crm/customers" className="crm-brand">
+        <Link href="/crm" className="crm-brand">
           <span className="dot" />
           EMG Loop
           <span className="crm-faint" style={{ fontWeight: 500 }}>
             / CRM
           </span>
         </Link>
-        <nav className="crm-nav">
-          <Link href="/crm/customers">Customers</Link>
-          <Link href="/crm/pipeline">Pipeline</Link>
-          <Link href="/crm/inbox">Inbox</Link>
-          <Link href="/crm/search">Search</Link>
-          <Link href="/dashboard">Dashboard</Link>
-        </nav>
+        {session ? (
+          <nav className="crm-nav">
+            {NAV.map((n) => (
+              <Link key={n.href} href={n.href}>{n.label}</Link>
+            ))}
+          </nav>
+        ) : null}
         <span className="spacer" />
-        <Link href="/demo/intake" className="crm-btn-ghost crm-btn">
-          New intake
-        </Link>
+        {session ? (
+          <div className="crm-account">
+            <span className="who">{session.name}</span>
+            <span>· {session.roleLabel}</span>
+            <form action={logoutAction}>
+              <button className="crm-btn-sm" type="submit">Sign out</button>
+            </form>
+          </div>
+        ) : (
+          <Link href="/crm/login" className="crm-btn-ghost crm-btn">Sign in</Link>
+        )}
       </header>
       <main className="crm-main">{children}</main>
     </div>
