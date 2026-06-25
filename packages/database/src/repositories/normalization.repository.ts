@@ -6,8 +6,8 @@
 // NormalizedEvent (already mapped by the provider adapter) and writes the
 // three primitives through the existing repository layer into Neon.
 //
-// Idempotency: externalId + provider on Interaction and Signal prevents
-// duplicate records if the same event is replayed.
+// Idempotency: externalId on Interaction metadata prevents duplicate records
+// if the same event is replayed.
 
 
 import type { PrismaClient } from '@prisma/client';
@@ -98,6 +98,7 @@ export class NormalizationEngine {
       wasIdempotent: false,
     };
 
+    // Resolve customer from email/phone if not directly provided
     let customerId: string | null = event.customerId ?? null;
     if (!customerId && (event.customerEmail || event.customerPhone)) {
       const customer = await this.prisma.customer.findFirst({
@@ -112,15 +113,18 @@ export class NormalizationEngine {
       if (customer) customerId = customer.id;
     }
 
+    // 1. Create Interaction (idempotent by externalId in metadata)
     if (INTERACTION_EVENTS.has(event.eventType)) {
       const channel = EVENT_CHANNEL[event.eventType] ?? ChannelType.OTHER;
       const direction = EVENT_DIRECTION[event.eventType] ?? InteractionDirection.INBOUND;
+
       const existing = await this.prisma.interaction.findFirst({
         where: {
           organizationId: event.organizationId,
           metadata: { path: ['externalId'], equals: event.externalId },
         },
       });
+
       if (existing) {
         result.interactionId = existing.id;
         result.wasIdempotent = true;
@@ -147,6 +151,7 @@ export class NormalizationEngine {
       }
     }
 
+    // 2. Create Signal (if event maps to a signal type)
     const signalType = SIGNAL_MAP[event.eventType];
     if (signalType && !result.wasIdempotent) {
       const signal = await this.prisma.signal.create({
@@ -154,8 +159,9 @@ export class NormalizationEngine {
           organizationId: event.organizationId,
           customerId: customerId ?? undefined,
           type: signalType,
+          key: event.eventType,       // event type as signal key
           source: event.source,
-          value: 1,
+          valueNumber: 1,             // presence signal: 1 = occurred
           metadata: {
             source: event.source,
             externalId: event.externalId,
@@ -168,6 +174,7 @@ export class NormalizationEngine {
       result.signalIds.push(signal.id);
     }
 
+    // 3. Create DomainEvent and fire workflow trigger
     if (!result.wasIdempotent) {
       const domainEventName = 'integration.' + event.eventType;
       const domainEvent = await this.prisma.domainEvent.create({
@@ -187,6 +194,8 @@ export class NormalizationEngine {
         },
       });
       result.domainEventId = domainEvent.id;
+
+      // Fire any EVENT-triggered workflows
       try {
         await this.workflows.runWorkflowsForEvent({
           organizationId: event.organizationId,
@@ -195,7 +204,7 @@ export class NormalizationEngine {
           triggeredBy: 'normalization-engine',
         });
       } catch {
-        // Workflow failures are isolated
+        // Workflow failures are isolated — normalization always succeeds
       }
     }
 
