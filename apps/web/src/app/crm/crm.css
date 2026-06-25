@@ -1,0 +1,254 @@
+/* EMG Loop — Internal CRM theme (Sprint 5, Phase 1).
+   A self-contained dark operations theme scoped under .crm so it never affects
+   the existing light marketing/demo pages. Neon accent matches EMG Loop. */
+
+.crm {
+  --crm-bg: #0a0c10;
+  --crm-panel: #11151c;
+  --crm-panel-2: #161b24;
+  --crm-border: #232a36;
+  --crm-text: #e6edf3;
+  --crm-muted: #8b97a7;
+  --crm-faint: #5b6675;
+  --crm-accent: #00e5a0;
+  --crm-accent-dim: rgba(0, 229, 160, 0.12);
+  --crm-blue: #4aa8ff;
+  --crm-purple: #b07cff;
+  --crm-amber: #ffc24a;
+  --crm-red: #ff6b6b;
+  min-height: 100vh;
+  background: var(--crm-bg);
+  color: var(--crm-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.crm a { color: inherit; text-decoration: none; }
+.crm * { box-sizing: border-box; }
+
+.crm-topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  height: 52px;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid var(--crm-border);
+  background: linear-gradient(180deg, #0d1117, #0a0c10);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.crm-brand {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.crm-brand .dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--crm-accent);
+  box-shadow: 0 0 10px var(--crm-accent);
+}
+.crm-nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
+.crm-nav a {
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  color: var(--crm-muted);
+  font-weight: 500;
+}
+.crm-nav a:hover { background: var(--crm-panel-2); color: var(--crm-text); }
+.crm-nav a.active { background: var(--crm-accent-dim); color: var(--crm-accent); }
+.crm-topbar .spacer { margin-left: auto; }
+
+.crm-main { padding: 1.25rem 1.5rem 3rem; max-width: 1320px; margin: 0 auto; }
+.crm-h1 { font-size: 1.4rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.crm-sub { color: var(--crm-muted); margin: 0.25rem 0 0; font-size: 0.85rem; }
+.crm-muted { color: var(--crm-muted); }
+.crm-faint { color: var(--crm-faint); }
+
+.crm-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;
+  margin: 1rem 0;
+}
+.crm-input, .crm-select {
+  background: var(--crm-panel);
+  border: 1px solid var(--crm-border);
+  color: var(--crm-text);
+  border-radius: 7px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.85rem;
+  outline: none;
+}
+.crm-input:focus, .crm-select:focus { border-color: var(--crm-accent); }
+.crm-input::placeholder { color: var(--crm-faint); }
+.crm-search { flex: 1; min-width: 220px; }
+
+.crm-btn {
+  background: var(--crm-accent);
+  color: #04221a;
+  border: none;
+  border-radius: 7px;
+  padding: 0.45rem 0.85rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.crm-btn:hover { filter: brightness(1.08); }
+.crm-btn-ghost {
+  background: var(--crm-panel);
+  color: var(--crm-text);
+  border: 1px solid var(--crm-border);
+}
+.crm-btn-ghost:hover { background: var(--crm-panel-2); }
+
+.crm-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.crm-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--crm-panel-2);
+  border: 1px solid var(--crm-border);
+  color: var(--crm-muted);
+}
+.crm-chip.active { background: var(--crm-accent-dim); border-color: var(--crm-accent); color: var(--crm-accent); }
+
+.crm-panel {
+  background: var(--crm-panel);
+  border: 1px solid var(--crm-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.crm-table { width: 100%; border-collapse: collapse; }
+.crm-table th {
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crm-faint);
+  font-weight: 600;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--crm-border);
+  background: var(--crm-panel-2);
+  white-space: nowrap;
+}
+.crm-table th a { color: inherit; }
+.crm-table td {
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--crm-border);
+  font-size: 0.83rem;
+  vertical-align: middle;
+}
+.crm-table tbody tr:hover { background: var(--crm-panel-2); }
+.crm-table tbody tr:last-child td { border-bottom: none; }
+.crm-cell-name { font-weight: 600; color: var(--crm-text); }
+.crm-cell-sub { color: var(--crm-faint); font-size: 0.75rem; }
+
+.crm-status {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.crm-status.New { color: var(--crm-blue); background: rgba(74,168,255,0.12); }
+.crm-status.Contacted { color: var(--crm-purple); background: rgba(176,124,255,0.12); }
+.crm-status.Quoted { color: var(--crm-amber); background: rgba(255,194,74,0.12); }
+.crm-status.Booked { color: var(--crm-accent); background: var(--crm-accent-dim); }
+.crm-status.Completed { color: #7ee0b0; background: rgba(126,224,176,0.10); }
+.crm-status.Archived { color: var(--crm-faint); background: rgba(91,102,117,0.12); }
+
+.crm-tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--crm-panel-2);
+  border: 1px solid var(--crm-border);
+  color: var(--crm-muted);
+  margin: 0 0.2rem 0.2rem 0;
+}
+
+.crm-pagination {
+  display: flex; align-items: center; gap: 0.5rem;
+  justify-content: space-between;
+  margin-top: 0.85rem;
+}
+.crm-pagination .pages { display: flex; gap: 0.35rem; }
+
+.crm-empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--crm-muted);
+}
+
+/* Customer workspace layout */
+.crm-ws { display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem; margin-top: 1rem; }
+@media (max-width: 980px) { .crm-ws { grid-template-columns: 1fr; } }
+.crm-card {
+  background: var(--crm-panel);
+  border: 1px solid var(--crm-border);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.crm-card h3 {
+  margin: 0 0 0.65rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--crm-faint);
+}
+.crm-kv { display: flex; justify-content: space-between; gap: 1rem; padding: 0.3rem 0; font-size: 0.83rem; }
+.crm-kv .k { color: var(--crm-muted); }
+.crm-kv .v { color: var(--crm-text); font-weight: 500; text-align: right; }
+
+.crm-tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--crm-border); margin-bottom: 1rem; flex-wrap: wrap; }
+.crm-tabs a {
+  padding: 0.5rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--crm-muted);
+  border-bottom: 2px solid transparent;
+  font-weight: 500;
+}
+.crm-tabs a:hover { color: var(--crm-text); }
+.crm-tabs a.active { color: var(--crm-accent); border-bottom-color: var(--crm-accent); }
+
+/* Timeline */
+.crm-timeline { list-style: none; padding: 0; margin: 0; }
+.crm-timeline li { display: flex; gap: 0.85rem; padding: 0.7rem 0; border-bottom: 1px solid var(--crm-border); }
+.crm-timeline li:last-child { border-bottom: none; }
+.crm-tl-dot { flex: 0 0 10px; width: 10px; height: 10px; border-radius: 50%; margin-top: 0.35rem; }
+.crm-tl-title { font-weight: 600; font-size: 0.85rem; }
+.crm-tl-meta { color: var(--crm-faint); font-size: 0.72rem; margin-top: 0.15rem; }
+.crm-tl-body { font-size: 0.83rem; margin-top: 0.2rem; color: var(--crm-text); }
+
+.crm-note { border: 1px solid var(--crm-border); border-radius: 8px; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; background: var(--crm-panel-2); }
+.crm-note .who { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.crm-note .who.HUMAN_AGENT { color: var(--crm-accent); }
+.crm-note .who.AI_AGENT { color: var(--crm-purple); }
+.crm-note .who.SYSTEM { color: var(--crm-faint); }
+.crm-note .when { color: var(--crm-faint); font-size: 0.7rem; }
+
+.crm-form-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+.crm-textarea {
+  width: 100%;
+  background: var(--crm-panel);
+  border: 1px solid var(--crm-border);
+  color: var(--crm-text);
+  border-radius: 7px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+  min-height: 64px;
+  outline: none;
+}
+.crm-textarea:focus { border-color: var(--crm-accent); }
