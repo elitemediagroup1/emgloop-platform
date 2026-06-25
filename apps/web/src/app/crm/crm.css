@@ -1,4 +1,4 @@
-/* EMG Loop — Internal CRM theme (Sprint 5, Phase 1).
+/* EMG Loop — Internal CRM theme (Sprint 5, Phase 1; extended Sprint 6, Phase 2).
    A self-contained dark operations theme scoped under .crm so it never affects
    the existing light marketing/demo pages. Neon accent matches EMG Loop. */
 
@@ -16,6 +16,7 @@
   --crm-purple: #b07cff;
   --crm-amber: #ffc24a;
   --crm-red: #ff6b6b;
+  --crm-green: #7ee0b0;
   min-height: 100vh;
   background: var(--crm-bg);
   color: var(--crm-text);
@@ -253,13 +254,10 @@
 }
 .crm-textarea:focus { border-color: var(--crm-accent); }
 
-
 /* ----------------------------------------------------------------------
    Sprint 6 (Phase 2): saved views, bulk bar, edit grid, inbox feed,
    pipeline kanban board, assignment labels.
    ---------------------------------------------------------------------- */
-
-.crm { --crm-green: #7ee0b0; }
 
 /* Saved views */
 .crm-views { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.9rem 0 0.2rem; }
