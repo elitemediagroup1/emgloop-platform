@@ -57,6 +57,13 @@ export interface TriggerConfig {
   schedule?: string | null;
 }
 
+// Normalized trigger config: the reader always fills both keys (null when
+// absent) so callers never deal with `undefined`.
+interface NormalizedTriggerConfig {
+  eventName: string | null;
+  schedule: string | null;
+}
+
 export interface WorkflowListItem {
   id: string;
   name: string;
@@ -76,7 +83,7 @@ export interface WorkflowDetail {
   name: string;
   description: string;
   trigger: WorkflowTrigger;
-  triggerConfig: TriggerConfig;
+  triggerConfig: NormalizedTriggerConfig;
   definition: WorkflowDefinition;
   isActive: boolean;
   createdAt: string;
@@ -120,7 +127,7 @@ function asObject(v: unknown): Record<string, unknown> {
     : {};
 }
 
-function readTriggerConfig(v: unknown): TriggerConfig {
+function readTriggerConfig(v: unknown): NormalizedTriggerConfig {
   const o = asObject(v);
   const eventName = typeof o.eventName === 'string' ? o.eventName : null;
   const schedule = typeof o.schedule === 'string' ? o.schedule : null;
