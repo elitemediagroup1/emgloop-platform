@@ -77,7 +77,7 @@ export function roleLabel(role: string | null | undefined): string {
 
 /** Pure matrix check (no DB). Baseline before explicit rules. */
 export function matrixAllows(role: string, resource: Resource, action: Action): boolean {
-  const grants = MATRIX[role] ?? MATRIX.READ_ONLY;
+  const grants = MATRIX[role] ?? MATRIX.READ_ONLY ?? {};
   const allowed = grants[resource] ?? [];
   if (allowed.includes('manage')) return true;
   return allowed.includes(action);
