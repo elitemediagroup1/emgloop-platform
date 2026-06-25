@@ -21,15 +21,12 @@ export default async function IntelligencePage() {
 
   const orgId = await resolveCrmOrganizationId();
 
-  const result = await loadOrFallback(
-    async () => {
-      if (!orgId) return null;
-      return crmRepos.intelligence.generateReport(orgId, start, end);
-    },
-    null,
-  );
+  const result = await loadOrFallback(async () => {
+    if (!orgId) return null;
+    return crmRepos.intelligence.generateReport(orgId, start, end);
+  });
 
-  if (!result || !result.data) {
+  if (!result.ok || !result.data) {
     return (
       <>
         <h1 className="crm-h1">Loop Intelligence</h1>
@@ -112,7 +109,6 @@ export default async function IntelligencePage() {
         </div>
       </div>
 
-      {/* Architecture note */}
       <div className="crm-panel" style={{ fontSize: '0.8rem', color: 'var(--crm-muted)' }}>
         <strong style={{ color: 'var(--crm-fg)' }}>How intelligence works</strong>
         <p style={{ margin: '0.5rem 0 0' }}>
