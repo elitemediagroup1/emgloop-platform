@@ -175,6 +175,8 @@ enum ProviderCategory {
   EMAIL
   PAYMENT
   CALENDAR
+  INGESTION
+  ANALYTICS
 }
 
 enum ConnectionStatus {
