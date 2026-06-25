@@ -73,11 +73,12 @@ export class AuditRepository {
     const filtered = prefix ? rows.filter((r) => r.action.startsWith(prefix)) : rows;
     return filtered.map((r) => {
       const meta = jsonObj(r.metadata);
+      const actorName = typeof meta.actorName === 'string' ? meta.actorName : 'System';
       return {
         id: r.id,
         action: r.action,
         actorType: r.actorType,
-        actorName: typeof meta.actorName === 'string' ? meta.actorName : 'System',
+        actorName,
         entityType: r.entityType,
         entityId: r.entityId,
         createdAt: r.createdAt.toISOString(),
@@ -94,7 +95,10 @@ export class AuditRepository {
       take: 1000,
     });
     const set = new Set<string>();
-    for (const r of rows) set.add(r.action.split('.')[0]);
+    for (const r of rows) {
+      const category = r.action.split('.')[0];
+      if (category) set.add(category);
+    }
     return [...set].sort();
   }
 }
