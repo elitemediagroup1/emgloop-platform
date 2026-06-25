@@ -1,12 +1,14 @@
 'use server';
 
-// CRM server actions — Sprint 5 (Internal CRM, Phase 1).
+// CRM server actions — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
 //
-// Mutations triggered from the customer workspace: add an internal note,
-// add/remove a tag, set the pipeline status, and set assignment (human or AI).
-// Every write goes through the @emgloop/database repository layer; notes are
-// persisted as Interaction rows of kind NOTE so they live on the same canonical
-// timeline as every other touchpoint. No provider integrations are used.
+// Mutations triggered from the CRM surfaces. Every write goes through the
+// @emgloop/database repository layer; notes are persisted as Interaction rows
+// of kind NOTE so they live on the same canonical timeline as every other
+// touchpoint. No provider integrations are used.
+//
+// Sprint 6 adds: editable customer fields, bulk list operations, and a
+// pipeline kanban move action.
 
 import { revalidatePath } from 'next/cache';
 import { crmRepos, resolveCrmOrganizationId } from './crm-data';
@@ -18,6 +20,21 @@ export type NoteAuthor = 'HUMAN_AGENT' | 'AI_AGENT' | 'SYSTEM';
 function refresh(customerId: string) {
   revalidatePath(`/crm/customers/${customerId}`);
   revalidatePath('/crm/customers');
+}
+
+function refreshLists() {
+  revalidatePath('/crm/customers');
+  revalidatePath('/crm/pipeline');
+  revalidatePath('/crm/inbox');
+}
+
+/** Parse a repeated "ids" field (comma-joined) into a clean string array. */
+function parseIds(formData: FormData): string[] {
+  const raw = String(formData.get('ids') ?? '');
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -58,6 +75,7 @@ export async function setStatusAction(formData: FormData): Promise<void> {
   if (!customerId || !PIPELINE_STATUSES.includes(status)) return;
   await crmRepos.crm.setPipelineStatus(customerId, status);
   refresh(customerId);
+  revalidatePath('/crm/pipeline');
 }
 
 /** Add a tag to the customer (deduplicated). */
@@ -78,7 +96,12 @@ export async function removeTagAction(formData: FormData): Promise<void> {
   refresh(customerId);
 }
 
-/** Assign the customer to a human and/or AI employee (by display name). */
+/**
+ * Assign the customer to a human and/or AI employee. Sprint 6 sends the
+ * selected employee's display name from the real picker (backed by the User /
+ * AIEmployee tables); we persist the name into attributes for display, keeping
+ * Phase-1 compatibility. An empty value clears the assignment.
+ */
 export async function setAssignmentAction(formData: FormData): Promise<void> {
   const customerId = String(formData.get('customerId') ?? '').trim();
   if (!customerId) return;
@@ -92,5 +115,92 @@ export async function setAssignmentAction(formData: FormData): Promise<void> {
     ...(humanName !== undefined ? { humanName: humanName || null } : {}),
     ...(aiName !== undefined ? { aiName: aiName || null } : {}),
   });
+  refresh(customerId);
+}
+
+// ------------------------------------------------------------------------
+// Sprint 6 (Phase 2)
+// ------------------------------------------------------------------------
+
+/**
+ * Update the editable customer fields (name / email / phone) plus the
+ * operational attributes (company / city / state / service / source). Only
+ * fields present in the form are changed.
+ */
+export async function updateCustomerFieldsAction(
+  formData: FormData,
+): Promise<void> {
+  const customerId = String(formData.get('customerId') ?? '').trim();
+  if (!customerId) return;
+  const str = (k: string) => {
+    const v = formData.get(k);
+    return v === null ? undefined : String(v).trim();
+  };
+  await crmRepos.crm.updateCustomerFields(customerId, {
+    firstName: str('firstName') || null,
+    lastName: str('lastName') || null,
+    email: str('email') || null,
+    phone: str('phone') || null,
+    company: str('company') ?? undefined,
+    city: str('city') ?? undefined,
+    state: str('state') ?? undefined,
+    serviceType: str('serviceType') ?? undefined,
+    source: str('source') ?? undefined,
+  });
+  refresh(customerId);
+}
+
+/** Bulk: set pipeline status on the selected customers. */
+export async function bulkSetStatusAction(formData: FormData): Promise<void> {
+  const ids = parseIds(formData);
+  const status = String(formData.get('status') ?? '') as PipelineStatus;
+  if (ids.length === 0 || !PIPELINE_STATUSES.includes(status)) return;
+  const organizationId = await resolveCrmOrganizationId();
+  if (!organizationId) return;
+  await crmRepos.crm.bulkSetStatus(organizationId, ids, status);
+  refreshLists();
+}
+
+/** Bulk: add a tag to the selected customers. */
+export async function bulkAddTagAction(formData: FormData): Promise<void> {
+  const ids = parseIds(formData);
+  const tag = String(formData.get('tag') ?? '').trim();
+  if (ids.length === 0 || !tag) return;
+  const organizationId = await resolveCrmOrganizationId();
+  if (!organizationId) return;
+  await crmRepos.crm.bulkAddTag(organizationId, ids, tag);
+  refreshLists();
+}
+
+/** Bulk: assign the selected customers to a human and/or AI employee. */
+export async function bulkAssignAction(formData: FormData): Promise<void> {
+  const ids = parseIds(formData);
+  if (ids.length === 0) return;
+  const humanName = formData.has('humanName')
+    ? String(formData.get('humanName') ?? '').trim()
+    : undefined;
+  const aiName = formData.has('aiName')
+    ? String(formData.get('aiName') ?? '').trim()
+    : undefined;
+  const organizationId = await resolveCrmOrganizationId();
+  if (!organizationId) return;
+  await crmRepos.crm.bulkAssign(organizationId, ids, {
+    ...(humanName !== undefined ? { humanName: humanName || null } : {}),
+    ...(aiName !== undefined ? { aiName: aiName || null } : {}),
+  });
+  refreshLists();
+}
+
+/**
+ * Move a customer to a different pipeline column from the kanban board. Same
+ * write as setStatus, but revalidates the board after.
+ */
+export async function movePipelineAction(formData: FormData): Promise<void> {
+  const customerId = String(formData.get('customerId') ?? '').trim();
+  const status = String(formData.get('status') ?? '') as PipelineStatus;
+  if (!customerId || !PIPELINE_STATUSES.includes(status)) return;
+  await crmRepos.crm.setPipelineStatus(customerId, status);
+  revalidatePath('/crm/pipeline');
+  revalidatePath('/crm/customers');
   refresh(customerId);
 }
