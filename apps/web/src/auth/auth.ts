@@ -38,9 +38,14 @@ export function hashPassword(password: string): string {
 export function verifyPassword(password: string, stored: string): boolean {
   try {
     const parts = stored.split('$');
-    if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
-    const salt = Buffer.from(parts[1], 'hex');
-    const expected = Buffer.from(parts[2], 'hex');
+    const scheme = parts[0];
+    const saltHex = parts[1];
+    const hashHex = parts[2];
+    if (parts.length !== 3 || scheme !== 'scrypt' || !saltHex || !hashHex) {
+      return false;
+    }
+    const salt = Buffer.from(saltHex, 'hex');
+    const expected = Buffer.from(hashHex, 'hex');
     const actual = scryptSync(password, salt, expected.length);
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   } catch {
