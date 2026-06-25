@@ -9,6 +9,9 @@
 // user.metadata.systemRole, defaulting to EMPLOYEE). A static capability matrix
 // maps each SystemRole to its resource:action grants. Explicit Permission rows
 // can ADD or DENY on top of the matrix; DENY always wins (deny-by-default).
+//
+// Sprint 9 adds the 'workflows' resource so the automation surface is governed
+// by the same deny-by-default matrix as every other CRM resource.
 
 import type { PrismaClient, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
@@ -17,6 +20,7 @@ export type Resource =
   | 'customers'
   | 'pipeline'
   | 'inbox'
+  | 'workflows'
   | 'users'
   | 'organizations'
   | 'aiEmployees'
@@ -50,23 +54,23 @@ const RO: Action[] = ['view'];
 // The capability matrix. Deny-by-default: anything not listed is denied.
 const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
   OWNER: {
-    customers: ALL, pipeline: ALL, inbox: ALL, users: ALL,
+    customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ALL, aiEmployees: ALL, settings: ALL, audit: ALL,
   },
   ADMIN: {
-    customers: ALL, pipeline: ALL, inbox: ALL, users: ALL,
+    customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ['view', 'update'], aiEmployees: ALL, settings: ALL, audit: ['view'],
   },
   MANAGER: {
-    customers: RW, pipeline: RW, inbox: RW, users: ['view'],
+    customers: RW, pipeline: RW, inbox: RW, workflows: RW, users: ['view'],
     organizations: RO, aiEmployees: RW, settings: ['view'], audit: ['view'],
   },
   EMPLOYEE: {
-    customers: RW, pipeline: RW, inbox: RW, users: [],
+    customers: RW, pipeline: RW, inbox: RW, workflows: RO, users: [],
     organizations: [], aiEmployees: RO, settings: [], audit: [],
   },
   READ_ONLY: {
-    customers: RO, pipeline: RO, inbox: RO, users: [],
+    customers: RO, pipeline: RO, inbox: RO, workflows: RO, users: [],
     organizations: [], aiEmployees: RO, settings: [], audit: [],
   },
 };
