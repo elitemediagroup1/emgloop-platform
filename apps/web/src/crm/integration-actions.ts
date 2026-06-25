@@ -6,7 +6,7 @@
 // Mutations for the Integrations management page. Every action:
 //  - enforces deny-by-default permission check (integrations resource)
 //  - persists through the @emgloop/database IntegrationRepository
-//  - writes an immutable AuditLog entry
+//  - writes an immutable AuditLog entry via repositories.audit.record()
 //  - performs configuration only — no real API calls, no credentials
 
 
@@ -27,18 +27,19 @@ export async function createIntegrationAction(formData: FormData): Promise<void>
 
   if (!category || !provider) return;
 
-  await repositories.integrations.createConnection({
+  const conn = await repositories.integrations.createConnection({
     organizationId: orgId,
     category,
     provider,
     displayName,
   });
 
-  await repositories.audit.log({
+  await repositories.audit.record({
     organizationId: orgId,
     userId: session.userId,
     action: 'integration.connection_created',
     entityType: 'ProviderConnection',
+    entityId: conn.id,
     after: { category, provider, displayName },
   });
 
@@ -59,7 +60,7 @@ export async function deleteIntegrationAction(formData: FormData): Promise<void>
 
   await repositories.integrations.deleteConnection(orgId, connectionId);
 
-  await repositories.audit.log({
+  await repositories.audit.record({
     organizationId: orgId,
     userId: session.userId,
     action: 'integration.connection_deleted',
