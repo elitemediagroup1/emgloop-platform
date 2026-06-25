@@ -4,13 +4,19 @@
 // external sources) and IntegrationEvent (raw inbound payloads before
 // normalization). Both are org-scoped, written through Prisma into Neon, never
 // mocked. No real API calls happen here — this is the storage layer only.
+//
+// Note: ProviderCategory Prisma enum is uppercase (AI, VOICE, INGESTION, ...).
+// The shared @emgloop/shared ProviderCategory is lowercase ('ingestion', ...).
+// This repository converts between them. All input category values are lowercase
+// from the shared package; they are uppercased before Prisma calls.
 
 
-import type {
-  PrismaClient,
-  ProviderConnection,
-  IntegrationEvent,
-} from '@prisma/client';
+import type { PrismaClient, ProviderConnection, IntegrationEvent, ProviderCategory as PrismaProviderCategory } from '@prisma/client';
+
+
+function toUpperCategory(cat: string): PrismaProviderCategory {
+  return cat.toUpperCase() as PrismaProviderCategory;
+}
 
 
 // ---- View models ----------------------------------------------------------
@@ -43,8 +49,8 @@ export interface IntegrationEventView {
 
 export interface CreateConnectionInput {
   organizationId: string;
-  category: string;  // 'ingestion' | 'analytics'
-  provider: string;  // e.g. 'callgrid', 'ga4', 'google_ads'
+  category: string;  // 'ingestion' | 'analytics' (lowercase, from shared package)
+  provider: string;
   displayName?: string;
   config?: Record<string, unknown>;
 }
@@ -82,7 +88,7 @@ function toConnectionView(c: ProviderConnection): IntegrationConnectionView {
   return {
     id: c.id,
     organizationId: c.organizationId,
-    category: c.category,
+    category: c.category.toLowerCase(),
     provider: c.provider,
     displayName: c.displayName ?? c.provider,
     status: c.status,
@@ -141,7 +147,7 @@ export class IntegrationRepository {
     const row = await this.prisma.providerConnection.create({
       data: {
         organizationId: input.organizationId,
-        category: input.category as Parameters<typeof this.prisma.providerConnection.create>[0]['data']['category'],
+        category: toUpperCategory(input.category),
         provider: input.provider,
         displayName: input.displayName ?? input.provider,
         status: 'PENDING',
@@ -165,9 +171,6 @@ export class IntegrationRepository {
       where: { id },
       data: {
         ...(input.displayName !== undefined && { displayName: input.displayName }),
-        ...(input.status !== undefined && {
-          status: input.status as Parameters<typeof this.prisma.providerConnection.update>[0]['data']['status'],
-        }),
         ...(input.config !== undefined && { config: input.config }),
         ...(input.connectedAt !== undefined && { connectedAt: input.connectedAt }),
         ...(input.lastSyncedAt !== undefined && { lastSyncedAt: input.lastSyncedAt }),
@@ -232,15 +235,12 @@ export class IntegrationRepository {
 
   async listRecentEvents(
     organizationId: string,
-    options: { provider?: string; status?: string; limit?: number } = {},
+    options: { provider?: string; limit?: number } = {},
   ): Promise<IntegrationEventView[]> {
     const rows = await this.prisma.integrationEvent.findMany({
       where: {
         organizationId,
         ...(options.provider && { provider: options.provider }),
-        ...(options.status && {
-          status: options.status as Parameters<typeof this.prisma.integrationEvent.findMany>[0]['where'] extends { status?: infer S } ? S : never,
-        }),
       },
       orderBy: { receivedAt: 'desc' },
       take: options.limit ?? 50,
