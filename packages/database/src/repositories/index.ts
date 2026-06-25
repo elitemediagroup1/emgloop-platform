@@ -18,6 +18,7 @@ import {
   MessageRepository,
 } from './messaging.repository';
 import { AIEmployeeRepository } from './ai-employee.repository';
+import { CrmRepository } from './crm.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -30,6 +31,14 @@ export {
   MessageRepository,
 } from './messaging.repository';
 export { AIEmployeeRepository } from './ai-employee.repository';
+export { CrmRepository, PIPELINE_STATUSES } from './crm.repository';
+export type {
+  PipelineStatus,
+  CustomerSortKey,
+  CustomerListFilters,
+  CustomerListRow,
+  CustomerListResult,
+} from './crm.repository';
 
 export interface Repositories {
   customers: CustomerRepository;
@@ -40,6 +49,7 @@ export interface Repositories {
   conversations: ConversationRepository;
   messages: MessageRepository;
   aiEmployees: AIEmployeeRepository;
+  crm: CrmRepository;
 }
 
 /**
@@ -56,5 +66,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     conversations: new ConversationRepository(prisma),
     messages: new MessageRepository(prisma),
     aiEmployees: new AIEmployeeRepository(prisma),
+    crm: new CrmRepository(prisma),
   };
 }
