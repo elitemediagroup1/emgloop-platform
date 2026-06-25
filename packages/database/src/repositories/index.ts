@@ -1,5 +1,5 @@
 // Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity)
-// + Sprint 8 (Conversations & the Unified Inbox).
+// + Sprint 8 (Conversations & the Unified Inbox) + Sprint 9 (Workflows).
 //
 // One import surface for the whole platform's persistence. The loop engine,
 // seed scripts, and (eventually) API routes depend on these classes, never on
@@ -11,6 +11,8 @@
 // permissions, users, invitations), organizations, and audit.
 // Sprint 8 adds the conversations layer: the unified inbox, conversation
 // workspace, message compose, saved views, and customer merge.
+// Sprint 9 adds the automation layer: declarative workflows, an internal
+// step-execution engine, manual + event-triggered runs, and run history.
 
 import type { PrismaClient } from '@prisma/client';
 
@@ -30,6 +32,7 @@ import { IamRepository } from './iam.repository';
 import { OrganizationRepository } from './organization.repository';
 import { AuditRepository } from './audit.repository';
 import { ConversationsRepository } from './conversations.repository';
+import { WorkflowsRepository } from './workflows.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -93,6 +96,25 @@ export type {
   DuplicateGroup,
 } from './conversations.repository';
 
+// --- Sprint 9: workflows & automation ---
+export {
+  WorkflowsRepository,
+  WORKFLOW_TRIGGERS,
+  WORKFLOW_STEP_TYPES,
+} from './workflows.repository';
+export type {
+  WorkflowStepType,
+  WorkflowStep,
+  WorkflowDefinition,
+  TriggerConfig,
+  WorkflowListItem,
+  WorkflowDetail,
+  WorkflowRunView,
+  StepResult,
+  RunContext,
+  RunOutcome,
+} from './workflows.repository';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
@@ -108,6 +130,7 @@ export interface Repositories {
   organizations: OrganizationRepository;
   audit: AuditRepository;
   conversationsInbox: ConversationsRepository;
+  workflows: WorkflowsRepository;
 }
 
 /**
@@ -130,5 +153,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     organizations: new OrganizationRepository(prisma),
     audit: new AuditRepository(prisma),
     conversationsInbox: new ConversationsRepository(prisma),
+    workflows: new WorkflowsRepository(prisma),
   };
 }
