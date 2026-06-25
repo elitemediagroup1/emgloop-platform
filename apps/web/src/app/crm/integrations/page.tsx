@@ -41,6 +41,45 @@ export default async function IntegrationsPage() {
         <DbNotConfigured />
       </>
     );
+import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { requirePermission, hasPermission } from '../../../auth/guard';
+import { createIntegrationAction, deleteIntegrationAction } from '../../../crm/integration-actions';
+import { KNOWN_PROVIDERS } from '@emgloop/shared';
+
+
+// Integrations — Sprint 10 (Loop Intelligence Foundation, Phase 2).
+//
+// Configuration-only integration management UI. No real API calls, no OAuth,
+// no credentials stored. Operators configure ProviderConnections (category,
+// provider, display name) which show as PENDING until a real adapter is wired.
+// Each connection tracks status and event counts from the IntegrationEvent table.
+
+
+export const dynamic = 'force-dynamic';
+
+
+export default async function IntegrationsPage() {
+  await requirePermission('integrations', 'view');
+  const canManage = await hasPermission('integrations', 'create');
+
+  const orgId = await resolveCrmOrganizationId();
+
+  const result = await loadOrFallback(async () => {
+    if (!orgId) return null;
+    const [connections, eventCounts] = await Promise.all([
+      crmRepos.integrations.listConnections(orgId),
+      crmRepos.integrations.countEventsByStatus(orgId),
+    ]);
+    return { connections, eventCounts };
+  });
+
+  if (!result.ok || !result.data) {
+    return (
+      <>
+        <h1 className="crm-h1">Integrations</h1>
+        <DbNotConfigured />
+      </>
+    );
   }
 
   const { connections, eventCounts } = result.data;
