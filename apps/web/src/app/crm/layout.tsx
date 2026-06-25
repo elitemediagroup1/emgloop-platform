@@ -2,18 +2,21 @@ import Link from 'next/link';
 import './crm.css';
 import './sprint7.css';
 import './sprint8.css';
+import './sprint9.css';
 import { getSession } from '../../auth/auth';
 import { logoutAction } from '../../auth/actions';
 
-// CRM layout — Sprint 5/6 + Sprint 7 (Identity) + Sprint 8 (Conversations).
+// CRM layout — Sprint 5/6 + Sprint 7 (Identity) + Sprint 8 (Conversations)
+// + Sprint 9 (Workflows).
 //
 // Wraps every /crm page in the self-contained dark operations theme and a
 // persistent top bar. This is an internal tool: minimal chrome, fast nav, no
 // marketing. The theme is scoped under the .crm class so it never leaks into
 // the existing light demo/dashboard pages. Sprint 7 expanded the nav to the
-// full operating-system surface; Sprint 8 adds the unified Conversations
-// inbox. The layout reads the session optionally so the auth screens
-// (login / reset) still render when unauthenticated.
+// full operating-system surface; Sprint 8 added the unified Conversations
+// inbox; Sprint 9 adds the Workflows automation surface. The layout reads the
+// session optionally so the auth screens (login / reset) still render when
+// unauthenticated.
 
 export const metadata = {
   title: 'EMG Loop — CRM',
@@ -24,6 +27,7 @@ const NAV: { href: string; label: string }[] = [
   { href: '/crm/customers', label: 'Customers' },
   { href: '/crm/pipeline', label: 'Pipeline' },
   { href: '/crm/conversations', label: 'Conversations' },
+  { href: '/crm/workflows', label: 'Workflows' },
   { href: '/crm/inbox', label: 'Inbox' },
   { href: '/crm/search', label: 'Search' },
   { href: '/crm/ai-employees', label: 'AI Employees' },
