@@ -18,13 +18,6 @@ function pct(value: number, max: number): string {
   return Math.min(100, Math.round((value / max) * 100)) + '%';
 }
 
-function relChange(n: number | null): { label: string; cls: string } {
-  if (n === null) return { label: '', cls: '' };
-  if (n > 0) return { label: '+' + n + '%', cls: 'up' };
-  if (n < 0) return { label: n + '%', cls: 'down' };
-  return { label: '0%', cls: 'stable' };
-}
-
 
 export default async function AnalyticsPage() {
   await requirePermission('analytics', 'view');
@@ -34,19 +27,16 @@ export default async function AnalyticsPage() {
 
   const orgId = await resolveCrmOrganizationId();
 
-  const result = await loadOrFallback(
-    async () => {
-      if (!orgId) return null;
-      const [summary, velocity] = await Promise.all([
-        crmRepos.analytics.getSummary(orgId, start, end),
-        crmRepos.analytics.getVelocityMetrics(orgId, start, end),
-      ]);
-      return { summary, velocity };
-    },
-    null,
-  );
+  const result = await loadOrFallback(async () => {
+    if (!orgId) return null;
+    const [summary, velocity] = await Promise.all([
+      crmRepos.analytics.getSummary(orgId, start, end),
+      crmRepos.analytics.getVelocityMetrics(orgId, start, end),
+    ]);
+    return { summary, velocity };
+  });
 
-  if (!result || !result.data) {
+  if (!result.ok || !result.data) {
     return (
       <>
         <h1 className="crm-h1">Analytics</h1>
@@ -59,56 +49,20 @@ export default async function AnalyticsPage() {
   const totalSignals = summary.signals.total;
 
   const kpis = [
-    {
-      label: 'Lead Volume',
-      value: summary.signals.intentCount,
-      unit: 'leads',
-      delta: null,
-    },
-    {
-      label: 'Interactions',
-      value: summary.interactions.total,
-      unit: 'touchpoints',
-      delta: null,
-    },
-    {
-      label: 'Bookings',
-      value: summary.bookings.completed,
-      unit: 'completed',
-      delta: null,
-    },
-    {
-      label: 'Booking Rate',
-      value: summary.bookings.bookingRate,
-      unit: '%',
-      delta: null,
-    },
+    { label: 'Lead Volume', value: summary.signals.intentCount, unit: 'leads' },
+    { label: 'Interactions', value: summary.interactions.total, unit: 'touchpoints' },
+    { label: 'Bookings', value: summary.bookings.completed, unit: 'completed' },
+    { label: 'Booking Rate', value: summary.bookings.bookingRate, unit: '%' },
     {
       label: 'Avg Response',
       value: velocity.avgResponseTimeSeconds !== null
         ? Math.round(velocity.avgResponseTimeSeconds / 60)
         : 0,
       unit: 'min',
-      delta: null,
     },
-    {
-      label: 'Churn Risk',
-      value: summary.signals.churnRiskCount,
-      unit: 'signals',
-      delta: null,
-    },
-    {
-      label: 'Workflow Runs',
-      value: summary.workflows.runs,
-      unit: 'executions',
-      delta: null,
-    },
-    {
-      label: 'AI Conversations',
-      value: summary.aiActivity.conversationsStarted,
-      unit: 'started',
-      delta: null,
-    },
+    { label: 'Churn Risk', value: summary.signals.churnRiskCount, unit: 'signals' },
+    { label: 'Workflow Runs', value: summary.workflows.runs, unit: 'executions' },
+    { label: 'AI Conversations', value: summary.aiActivity.conversationsStarted, unit: 'started' },
   ];
 
   const channelEntries = Object.entries(summary.interactions.byChannel)
@@ -131,19 +85,13 @@ export default async function AnalyticsPage() {
 
       {/* KPI strip */}
       <div className="crm-analytics-hero">
-        {kpis.map((k) => {
-          const ch = relChange(k.delta);
-          return (
-            <div key={k.label} className="crm-analytics-kpi">
-              <div className="crm-analytics-kpi-label">{k.label}</div>
-              <div className="crm-analytics-kpi-value">{k.value}</div>
-              <div className="crm-analytics-kpi-unit">{k.unit}</div>
-              {ch.label ? (
-                <div className={'crm-analytics-kpi-delta ' + ch.cls}>{ch.label} vs prior period</div>
-              ) : null}
-            </div>
-          );
-        })}
+        {kpis.map((k) => (
+          <div key={k.label} className="crm-analytics-kpi">
+            <div className="crm-analytics-kpi-label">{k.label}</div>
+            <div className="crm-analytics-kpi-value">{k.value}</div>
+            <div className="crm-analytics-kpi-unit">{k.unit}</div>
+          </div>
+        ))}
       </div>
 
       {/* Channel + Signal breakdown */}
@@ -169,7 +117,7 @@ export default async function AnalyticsPage() {
             <p className="crm-empty" style={{ margin: 0 }}>No signals yet.</p>
           ) : signalEntries.map(([type, count]) => (
             <div key={type} className="crm-analytics-bar-row">
-              <span className="crm-analytics-bar-label">{type.replace('_', ' ')}</span>
+              <span className="crm-analytics-bar-label">{type.replace(/_/g, ' ')}</span>
               <div className="crm-analytics-bar-track">
                 <div className="crm-analytics-bar-fill" style={{ width: pct(count, maxSignal) }} />
               </div>
@@ -206,14 +154,6 @@ export default async function AnalyticsPage() {
 
         <div className="crm-analytics-panel">
           <div className="crm-analytics-panel-title">AI Activity</div>
-          <div className="crm-analytics-bar-row">
-            <span className="crm-analytics-bar-label">Started</span>
-            <div className="crm-analytics-bar-track">
-              <div className="crm-analytics-bar-fill"
-                style={{ width: pct(summary.aiActivity.conversationsStarted, Math.max(1, summary.aiActivity.conversationsStarted)) }} />
-            </div>
-            <span className="crm-analytics-bar-value">{summary.aiActivity.conversationsStarted}</span>
-          </div>
           <div className="crm-analytics-bar-row">
             <span className="crm-analytics-bar-label">Escalations</span>
             <div className="crm-analytics-bar-track">
