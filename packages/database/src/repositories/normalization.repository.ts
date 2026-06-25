@@ -6,12 +6,17 @@
 // NormalizedEvent (already mapped by the provider adapter) and writes the
 // three primitives through the existing repository layer into Neon.
 //
-// Idempotency: externalId in Interaction metadata prevents duplicate records
+// Idempotency: externalId on Interaction prevents duplicate records
 // if the same event is replayed.
 
 
 import type { PrismaClient } from '@prisma/client';
-import { ChannelType, InteractionDirection, SignalType } from '@prisma/client';
+import {
+  ChannelType,
+  InteractionDirection,
+  InteractionKind,
+  SignalType,
+} from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
 import type { WorkflowsRepository } from './workflows.repository';
 
@@ -44,6 +49,28 @@ const EVENT_CHANNEL: Partial<Record<LoopEventType, ChannelType>> = {
   'ai.conversation_end':   ChannelType.WEB_CHAT,
   'ai.escalation':         ChannelType.WEB_CHAT,
   'ads.lead_form_submit':  ChannelType.SOCIAL,
+};
+
+const EVENT_KIND: Partial<Record<LoopEventType, InteractionKind>> = {
+  'call.inbound':          InteractionKind.PHONE_CALL,
+  'call.outbound':         InteractionKind.PHONE_CALL,
+  'call.answered':         InteractionKind.PHONE_CALL,
+  'call.missed':           InteractionKind.PHONE_CALL,
+  'call.completed':        InteractionKind.PHONE_CALL,
+  'call.voicemail':        InteractionKind.PHONE_CALL,
+  'call.transferred':      InteractionKind.PHONE_CALL,
+  'sms.inbound':           InteractionKind.SMS,
+  'sms.outbound':          InteractionKind.SMS,
+  'email.sent':            InteractionKind.EMAIL,
+  'email.delivered':       InteractionKind.EMAIL,
+  'email.opened':          InteractionKind.EMAIL,
+  'email.clicked':         InteractionKind.EMAIL,
+  'email.bounced':         InteractionKind.EMAIL,
+  'email.unsubscribed':    InteractionKind.EMAIL,
+  'ai.conversation_start': InteractionKind.CHAT,
+  'ai.conversation_end':   InteractionKind.CHAT,
+  'ai.escalation':         InteractionKind.CHAT,
+  'ads.lead_form_submit':  InteractionKind.FORM_SUBMISSION,
 };
 
 const EVENT_DIRECTION: Partial<Record<LoopEventType, InteractionDirection>> = {
@@ -113,15 +140,17 @@ export class NormalizationEngine {
       if (customer) customerId = customer.id;
     }
 
-    // 1. Create Interaction (idempotent by externalId in metadata)
+    // 1. Create Interaction (idempotent by externalId)
     if (INTERACTION_EVENTS.has(event.eventType)) {
       const channel = EVENT_CHANNEL[event.eventType] ?? ChannelType.OTHER;
+      const kind = EVENT_KIND[event.eventType] ?? InteractionKind.NOTE;
       const direction = EVENT_DIRECTION[event.eventType] ?? InteractionDirection.INBOUND;
 
       const existing = await this.prisma.interaction.findFirst({
         where: {
           organizationId: event.organizationId,
-          metadata: { path: ['externalId'], equals: event.externalId },
+          externalId: event.externalId,
+          provider: event.source,
         },
       });
 
@@ -134,14 +163,15 @@ export class NormalizationEngine {
             organizationId: event.organizationId,
             customerId: customerId ?? undefined,
             channel,
+            kind,
             direction,
-            startedAt: event.occurredAt,
-            durationSeconds: event.durationSeconds,
             summary: event.summary,
+            provider: event.source,
+            externalId: event.externalId,
+            occurredAt: event.occurredAt,
             metadata: {
-              source: event.source,
-              externalId: event.externalId,
               eventType: event.eventType,
+              durationSeconds: event.durationSeconds,
               ...event.metadata,
             },
           },
