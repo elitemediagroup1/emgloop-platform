@@ -4,12 +4,18 @@
 // Sprint 1 ships the registry with NO concrete adapters registered. Real
 // adapters (Claude, ElevenLabs, Twilio, Telnyx, Stripe, Google, ...) are added
 // in later sprints without changing any consumer code.
+//
+// Sprint 10 adds 'ingestion' and 'analytics' categories to support the
+// integration layer and analytics brain foundation.
+
 
 import type { BaseProvider, ProviderCategory } from './types';
+
 
 type Registry = {
   [K in ProviderCategory]: Map<string, BaseProvider>;
 };
+
 
 const registry: Registry = {
   ai: new Map(),
@@ -18,11 +24,15 @@ const registry: Registry = {
   email: new Map(),
   payment: new Map(),
   calendar: new Map(),
+  ingestion: new Map(),
+  analytics: new Map(),
 };
+
 
 export function registerProvider(provider: BaseProvider): void {
   registry[provider.info.category].set(provider.info.id, provider);
 }
+
 
 export function getProvider<T extends BaseProvider>(
   category: ProviderCategory,
@@ -31,13 +41,19 @@ export function getProvider<T extends BaseProvider>(
   const found = registry[category].get(id);
   if (!found) {
     throw new Error(
-      \`No '\${category}' provider registered with id '\${id}'. \` +
-        'Provider adapters are added in later sprints.',
+      `No "${category}" provider registered with id "${id}". ` +
+        `Register it first with registerProvider().`,
     );
   }
   return found as T;
 }
 
+
 export function listProviders(category: ProviderCategory): BaseProvider[] {
-  return [...registry[category].values()];
+  return Array.from(registry[category].values());
+}
+
+
+export function hasProvider(category: ProviderCategory, id: string): boolean {
+  return registry[category].has(id);
 }
