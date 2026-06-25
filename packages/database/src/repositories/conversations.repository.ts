@@ -187,10 +187,12 @@ export class ConversationsRepository {
     });
     const counts: Record<string, number> = { ALL: 0 };
     for (const s of CONVERSATION_STATUSES) counts[s] = 0;
+    let allCount = 0;
     for (const g of grouped) {
       counts[g.status] = g._count._all;
-      counts.ALL += g._count._all;
+      allCount += g._count._all;
     }
+    counts.ALL = allCount;
 
     return { rows: list, counts, total: list.length };
   }
