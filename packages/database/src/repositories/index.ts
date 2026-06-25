@@ -1,10 +1,13 @@
-// Repository layer barrel — Sprint 4 (Real Data Layer).
+// Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity).
 //
 // One import surface for the whole platform's persistence. The loop engine,
 // seed scripts, and (eventually) API routes depend on these classes, never on
 // the Prisma client directly. This keeps queries centralized and testable and
 // preserves the architecture: providers handle the OUTSIDE world, repositories
 // handle the DATABASE, and the loop engine orchestrates between them.
+//
+// Sprint 7 adds the identity layer: auth (sessions/resets), IAM (roles,
+// permissions, users, invitations), organizations, and audit.
 
 import type { PrismaClient } from '@prisma/client';
 
@@ -19,6 +22,10 @@ import {
 } from './messaging.repository';
 import { AIEmployeeRepository } from './ai-employee.repository';
 import { CrmRepository } from './crm.repository';
+import { AuthRepository } from './auth.repository';
+import { IamRepository } from './iam.repository';
+import { OrganizationRepository } from './organization.repository';
+import { AuditRepository } from './audit.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -31,6 +38,7 @@ export {
   MessageRepository,
 } from './messaging.repository';
 export { AIEmployeeRepository } from './ai-employee.repository';
+export type { AIEmployeeView } from './ai-employee.repository';
 export { CrmRepository, PIPELINE_STATUSES } from './crm.repository';
 export type {
   PipelineStatus,
@@ -44,6 +52,27 @@ export type {
   KanbanColumn,
 } from './crm.repository';
 
+// --- Sprint 7: identity layer ---
+export { AuthRepository } from './auth.repository';
+export type { SessionWithUser } from './auth.repository';
+export {
+  IamRepository,
+  SYSTEM_ROLES,
+  SYSTEM_ROLE_LABELS,
+  roleLabel,
+  matrixAllows,
+  userSystemRole,
+} from './iam.repository';
+export type { Resource, Action, UserView } from './iam.repository';
+export { OrganizationRepository } from './organization.repository';
+export type {
+  OrgSummary,
+  OrgBranding,
+  OrgCrmDefaults,
+} from './organization.repository';
+export { AuditRepository } from './audit.repository';
+export type { AuditView } from './audit.repository';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
@@ -54,6 +83,10 @@ export interface Repositories {
   messages: MessageRepository;
   aiEmployees: AIEmployeeRepository;
   crm: CrmRepository;
+  auth: AuthRepository;
+  iam: IamRepository;
+  organizations: OrganizationRepository;
+  audit: AuditRepository;
 }
 
 /**
@@ -71,5 +104,9 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     messages: new MessageRepository(prisma),
     aiEmployees: new AIEmployeeRepository(prisma),
     crm: new CrmRepository(prisma),
+    auth: new AuthRepository(prisma),
+    iam: new IamRepository(prisma),
+    organizations: new OrganizationRepository(prisma),
+    audit: new AuditRepository(prisma),
   };
 }

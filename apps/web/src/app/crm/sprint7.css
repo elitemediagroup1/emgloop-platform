@@ -1,0 +1,142 @@
+/* Sprint 7 — Identity, Authentication & Organizations.
+   Additive styles scoped under .crm for the auth screens, settings, and the
+   admin tables (users, organizations, AI employees, audit). Extends the
+   Sprint 5/6 dark operations theme; nothing here leaks outside .crm. */
+
+.crm .crm-auth-wrap {
+  min-height: calc(100vh - 56px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+}
+.crm .crm-auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--crm-panel, #14161c);
+  border: 1px solid var(--crm-border, #262a33);
+  border-radius: 14px;
+  padding: 28px 26px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+}
+.crm .crm-auth-card h1 { font-size: 19px; margin: 0 0 4px; }
+.crm .crm-auth-sub { color: var(--crm-faint, #8b93a7); font-size: 13px; margin: 0 0 20px; }
+.crm .crm-field { display: block; margin-bottom: 14px; }
+.crm .crm-field > span { display: block; font-size: 12px; color: var(--crm-faint, #8b93a7); margin-bottom: 6px; }
+.crm .crm-input, .crm .crm-select {
+  width: 100%;
+  background: var(--crm-bg, #0d0f14);
+  border: 1px solid var(--crm-border, #262a33);
+  color: var(--crm-text, #e6e8ee);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 14px;
+  outline: none;
+}
+.crm .crm-input:focus, .crm .crm-select:focus { border-color: var(--crm-accent, #7c5cff); }
+.crm .crm-checkrow { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--crm-faint,#8b93a7); margin-bottom: 16px; }
+.crm .crm-btn-primary {
+  width: 100%;
+  background: linear-gradient(180deg, #8b6dff, #6d4eff);
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.crm .crm-btn-primary:hover { filter: brightness(1.07); }
+.crm .crm-auth-error {
+  background: rgba(255,90,90,0.12);
+  border: 1px solid rgba(255,90,90,0.35);
+  color: #ff9b9b;
+  font-size: 12.5px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 14px;
+}
+.crm .crm-auth-ok {
+  background: rgba(34,197,94,0.12);
+  border: 1px solid rgba(34,197,94,0.35);
+  color: #86efac;
+  font-size: 12.5px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 14px;
+}
+.crm .crm-auth-hint { font-size: 12px; color: var(--crm-faint,#8b93a7); margin-top: 14px; line-height: 1.5; }
+.crm .crm-auth-hint code { background: var(--crm-bg,#0d0f14); padding: 1px 5px; border-radius: 4px; }
+.crm .crm-auth-links { display:flex; justify-content:space-between; font-size:12.5px; margin-top:14px; }
+.crm .crm-auth-links a { color: var(--crm-accent,#7c5cff); text-decoration: none; }
+
+/* Page scaffolding for admin areas */
+.crm .crm-page { padding: 22px 26px; }
+.crm .crm-page-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px; }
+.crm .crm-page-head h1 { font-size: 20px; margin: 0 0 4px; }
+.crm .crm-page-head p { margin: 0; color: var(--crm-faint,#8b93a7); font-size: 13px; }
+
+/* Tables */
+.crm .crm-table { width:100%; border-collapse: collapse; font-size: 13px; }
+.crm .crm-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--crm-faint,#8b93a7);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--crm-border,#262a33);
+}
+.crm .crm-table td { padding: 11px 12px; border-bottom: 1px solid var(--crm-border,#1e222a); }
+.crm .crm-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* Badges */
+.crm .crm-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--crm-border,#262a33);
+  color: var(--crm-faint,#8b93a7);
+}
+.crm .crm-badge.role { border-color: rgba(124,92,255,0.4); color: #c4b5fd; }
+.crm .crm-badge.ok { border-color: rgba(34,197,94,0.4); color: #86efac; }
+.crm .crm-badge.warn { border-color: rgba(234,179,8,0.4); color: #fde047; }
+.crm .crm-badge.off { border-color: rgba(148,163,184,0.4); color: #cbd5e1; }
+
+/* Cards grid for settings + org tiles */
+.crm .crm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.crm .crm-card {
+  background: var(--crm-panel,#14161c);
+  border: 1px solid var(--crm-border,#262a33);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.crm .crm-card h3 { margin: 0 0 6px; font-size: 14px; }
+.crm .crm-card p { margin: 0; color: var(--crm-faint,#8b93a7); font-size: 12.5px; line-height: 1.5; }
+
+/* Two-column form layout */
+.crm .crm-form-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 720px; }
+.crm .crm-form-grid .full { grid-column: 1 / -1; }
+.crm .crm-inline-actions { display:flex; gap:10px; margin-top:6px; align-items:center; flex-wrap: wrap; }
+.crm .crm-btn-sm {
+  background: var(--crm-bg,#0d0f14);
+  border: 1px solid var(--crm-border,#262a33);
+  color: var(--crm-text,#e6e8ee);
+  border-radius: 7px;
+  padding: 6px 11px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.crm .crm-btn-sm:hover { border-color: var(--crm-accent,#7c5cff); }
+.crm .crm-btn-danger { color: #ff9b9b; border-color: rgba(255,90,90,0.35); }
+
+/* Audit list */
+.crm .crm-audit-row { display:flex; align-items:center; gap:12px; padding:10px 12px; border-bottom:1px solid var(--crm-border,#1e222a); font-size:13px; }
+.crm .crm-audit-row .when { color: var(--crm-faint,#8b93a7); font-size:12px; min-width: 150px; }
+.crm .crm-audit-row .act { font-family: ui-monospace, monospace; color:#c4b5fd; }
+
+/* Account chip in the top bar */
+.crm .crm-account { display:flex; align-items:center; gap:10px; font-size:12.5px; color: var(--crm-faint,#8b93a7); }
+.crm .crm-account .who { color: var(--crm-text,#e6e8ee); font-weight:600; }
