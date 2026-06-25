@@ -1,4 +1,5 @@
-// Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity).
+// Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity)
+// + Sprint 8 (Conversations & the Unified Inbox).
 //
 // One import surface for the whole platform's persistence. The loop engine,
 // seed scripts, and (eventually) API routes depend on these classes, never on
@@ -8,6 +9,8 @@
 //
 // Sprint 7 adds the identity layer: auth (sessions/resets), IAM (roles,
 // permissions, users, invitations), organizations, and audit.
+// Sprint 8 adds the conversations layer: the unified inbox, conversation
+// workspace, message compose, saved views, and customer merge.
 
 import type { PrismaClient } from '@prisma/client';
 
@@ -26,6 +29,7 @@ import { AuthRepository } from './auth.repository';
 import { IamRepository } from './iam.repository';
 import { OrganizationRepository } from './organization.repository';
 import { AuditRepository } from './audit.repository';
+import { ConversationsRepository } from './conversations.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -73,6 +77,22 @@ export type {
 export { AuditRepository } from './audit.repository';
 export type { AuditView } from './audit.repository';
 
+// --- Sprint 8: conversations & unified inbox ---
+export {
+  ConversationsRepository,
+  CONVERSATION_STATUSES,
+} from './conversations.repository';
+export type {
+  InboxFilters,
+  ConversationListItem,
+  ConversationListResult,
+  ThreadMessage,
+  ConversationWorkspace,
+  SavedView,
+  MergeResult,
+  DuplicateGroup,
+} from './conversations.repository';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
@@ -87,6 +107,7 @@ export interface Repositories {
   iam: IamRepository;
   organizations: OrganizationRepository;
   audit: AuditRepository;
+  conversationsInbox: ConversationsRepository;
 }
 
 /**
@@ -108,5 +129,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     iam: new IamRepository(prisma),
     organizations: new OrganizationRepository(prisma),
     audit: new AuditRepository(prisma),
+    conversationsInbox: new ConversationsRepository(prisma),
   };
 }

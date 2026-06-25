@@ -1,0 +1,198 @@
+/* Sprint 8 — Conversations & the Unified Inbox.
+   Styles for the inbox toolbar, saved views, conversation thread, compose
+   box, customer merge, and per-customer activity. Scoped under .crm so the
+   dark/neon operations theme never leaks into the light demo pages. */
+
+.crm .crm-conv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+}
+.crm .crm-conv-search {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.crm .crm-conv-assignees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.crm .crm-input {
+  background: var(--crm-panel, #12161d);
+  border: 1px solid var(--crm-border, #232a35);
+  color: var(--crm-text, #e6e9ef);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+  min-width: 220px;
+}
+.crm .crm-input-sm { min-width: 160px; }
+.crm .crm-input:focus {
+  outline: none;
+  border-color: var(--crm-accent, #4ade80);
+}
+
+.crm .crm-select {
+  background: var(--crm-panel, #12161d);
+  border: 1px solid var(--crm-border, #232a35);
+  color: var(--crm-text, #e6e9ef);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+}
+.crm .crm-select:disabled { opacity: 0.55; }
+
+.crm .crm-textarea {
+  width: 100%;
+  background: var(--crm-panel, #12161d);
+  border: 1px solid var(--crm-border, #232a35);
+  color: var(--crm-text, #e6e9ef);
+  border-radius: 10px;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+}
+.crm .crm-textarea:focus {
+  outline: none;
+  border-color: var(--crm-accent, #4ade80);
+}
+
+/* Saved views */
+.crm .crm-saved-views {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+}
+.crm .crm-saved-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--crm-panel, #12161d);
+  border: 1px solid var(--crm-border, #232a35);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+.crm .crm-saved-view a { color: var(--crm-text, #e6e9ef); text-decoration: none; }
+.crm .crm-x {
+  background: none;
+  border: none;
+  color: var(--crm-faint, #7a8290);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+}
+.crm .crm-x:hover { color: var(--crm-red, #f87171); }
+.crm .crm-save-view-form {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* Status pill */
+.crm .crm-status-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Breadcrumb */
+.crm .crm-breadcrumb {
+  margin-bottom: 0.6rem;
+  font-size: 0.82rem;
+}
+.crm .crm-breadcrumb a { color: var(--crm-faint, #7a8290); text-decoration: none; }
+.crm .crm-breadcrumb a:hover { color: var(--crm-accent, #4ade80); }
+
+/* Conversation workspace controls */
+.crm .crm-conv-head { margin-bottom: 0.5rem; }
+.crm .crm-conv-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin: 0.5rem 0 1rem;
+}
+.crm .crm-inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* Message thread */
+.crm .crm-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem;
+}
+.crm .crm-msg {
+  border: 1px solid var(--crm-border, #232a35);
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  max-width: 80%;
+}
+.crm .crm-msg-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.74rem;
+  margin-bottom: 0.25rem;
+}
+.crm .crm-msg-actor { font-weight: 600; }
+.crm .crm-msg-body { font-size: 0.9rem; white-space: pre-wrap; line-height: 1.4; }
+.crm .crm-msg-agent {
+  align-self: flex-end;
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.35);
+}
+.crm .crm-msg-ai {
+  align-self: flex-end;
+  background: rgba(96, 165, 250, 0.08);
+  border-color: rgba(96, 165, 250, 0.35);
+}
+.crm .crm-msg-customer {
+  align-self: flex-start;
+  background: var(--crm-panel, #12161d);
+}
+.crm .crm-msg-system {
+  align-self: center;
+  background: transparent;
+  border-style: dashed;
+  font-style: italic;
+}
+
+/* Compose box */
+.crm .crm-compose {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.crm .crm-compose-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Customer merge */
+.crm .crm-merge-group { margin-bottom: 1rem; }
+.crm .crm-merge-head { margin-bottom: 0.5rem; font-size: 0.85rem; }
+.crm .crm-merge-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+.crm .crm-cell-muted { color: var(--crm-faint, #7a8290); font-size: 0.85rem; }
