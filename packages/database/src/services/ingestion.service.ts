@@ -1,0 +1,297 @@
+// IngestionService — Sprint 11 (First Live Integration, Phases 2-4 + 7).
+//
+// The orchestration spine for live events. Given verified InboundEvents from a
+// provider adapter, this service runs the full Loop pipeline for each one:
+//
+//   1. Record the raw event as an IntegrationEvent (idempotent on provider +
+//      externalId, with status + error tracking for the admin/retry queue).
+//   2. Resolve or create the Customer (so they appear immediately in the CRM).
+//   3. Build a provider-agnostic NormalizedEvent and run it through the
+//      NormalizationEngine -> Interaction + Signal + DomainEvent + Workflow.
+//   4. Enrich the Brain via the SignalRegistry (Phase 4 signals).
+//   5. Run the rules-based NextBestActionService (Phase 7).
+//   6. Mark the IntegrationEvent PROCESSED, or FAILED with the error for retry.
+//
+// NO provider-specific logic lives here. The adapter already translated the wire
+// format into InboundEvent; everything below is generic. A different provider
+// produces InboundEvents the same way and flows through this identical pipeline.
+
+import type { PrismaClient } from '@prisma/client';
+import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
+import type { InboundEvent } from '@emgloop/providers';
+import { NormalizationEngine } from '../repositories/normalization.repository';
+import { WorkflowsRepository } from '../repositories/workflows.repository';
+import { deriveSignals } from './signal-registry';
+import { NextBestActionService } from './next-best-action.service';
+
+const LOOP_EVENT_TYPES_SET = new Set<string>([
+  'call.inbound', 'call.outbound', 'call.answered', 'call.missed',
+  'call.completed', 'call.voicemail', 'call.transferred',
+  'web.session_start', 'web.page_view', 'web.goal_conversion', 'web.form_submit',
+  'sms.inbound', 'sms.outbound',
+  'email.sent', 'email.delivered', 'email.opened', 'email.clicked',
+  'ai.conversation_start', 'ai.conversation_end', 'ai.escalation',
+  'ads.lead_form_submit',
+]);
+
+export interface IngestResult {
+  externalId: string;
+  status: 'processed' | 'duplicate' | 'failed';
+  integrationEventId: string | null;
+  customerId: string | null;
+  interactionId: string | null;
+  signalIds: string[];
+  domainEventId: string | null;
+  nextBestActions: string[];
+  error?: string;
+}
+
+export interface IngestInput {
+  organizationId: string;
+  provider: string; // e.g. 'callgrid'
+  /** Maps the adapter's rawEventType string to a canonical LoopEventType. */
+  mapEventType: (rawEventType: string) => string;
+  events: InboundEvent[];
+  providerConnectionId?: string | null;
+}
+
+function digits(s?: string): string | undefined {
+  if (!s) return undefined;
+  const d = s.replace(/[^0-9]/g, '');
+  return d.length >= 7 ? d : undefined;
+}
+
+export class IngestionService {
+  private readonly normalizer: NormalizationEngine;
+  private readonly nextBestAction: NextBestActionService;
+
+  constructor(private readonly prisma: PrismaClient) {
+    this.normalizer = new NormalizationEngine(prisma, new WorkflowsRepository(prisma));
+    this.nextBestAction = new NextBestActionService(prisma);
+  }
+
+  /** Process a batch of inbound events. Each event is isolated: one failure
+      does not abort the others. Returns a per-event result for the caller. */
+  async ingest(input: IngestInput): Promise<IngestResult[]> {
+    const results: IngestResult[] = [];
+    for (const ev of input.events) {
+      results.push(await this.ingestOne(input, ev));
+    }
+    return results;
+  }
+
+  private async ingestOne(input: IngestInput, ev: InboundEvent): Promise<IngestResult> {
+    const { organizationId, provider } = input;
+    const eventType = input.mapEventType(ev.rawEventType);
+
+    const base: IngestResult = {
+      externalId: ev.externalId,
+      status: 'failed',
+      integrationEventId: null,
+      customerId: null,
+      interactionId: null,
+      signalIds: [],
+      domainEventId: null,
+      nextBestActions: [],
+    };
+
+    // 1. Idempotency: provider + externalId is unique in the schema. If we have
+    //    already PROCESSED this delivery, short-circuit as a duplicate.
+    const existing = await this.prisma.integrationEvent.findFirst({
+      where: { provider, externalId: ev.externalId },
+    });
+    if (existing && existing.status === 'PROCESSED') {
+      return { ...base, status: 'duplicate', integrationEventId: existing.id };
+    }
+
+    // Record (or reuse) the raw IntegrationEvent in RECEIVED/PROCESSING state.
+    const record = existing
+      ? await this.prisma.integrationEvent.update({
+          where: { id: existing.id },
+          data: { status: 'PROCESSING', error: null },
+        })
+      : await this.prisma.integrationEvent.create({
+          data: {
+            organizationId,
+            providerConnectionId: input.providerConnectionId ?? null,
+            category: 'INGESTION',
+            provider,
+            eventType,
+            externalId: ev.externalId,
+            status: 'PROCESSING',
+            payload: ev.payload as object,
+          },
+        });
+    base.integrationEventId = record.id;
+
+    try {
+      // 2. Resolve or create the Customer so they show up in the CRM at once.
+      const customerId = await this.resolveCustomer(organizationId, provider, ev);
+      base.customerId = customerId;
+
+      // 3. Build the provider-agnostic NormalizedEvent and normalize it.
+      const normalized: NormalizedEvent = {
+        organizationId,
+        source: provider,
+        externalId: ev.externalId,
+        eventType: (LOOP_EVENT_TYPES_SET.has(eventType) ? eventType : 'call.inbound') as LoopEventType,
+        occurredAt: ev.occurredAt,
+        customerId: customerId ?? undefined,
+        customerEmail: ev.customerEmail,
+        customerPhone: ev.customerPhone,
+        durationSeconds: numberFrom(ev.payload, ['duration', 'duration_seconds', 'billable_duration']),
+        summary: summaryFor(eventType, ev.payload),
+        metadata: { ...ev.payload, eventType },
+      };
+      const normResult = await this.normalizer.normalize(normalized);
+      base.interactionId = normResult.interactionId;
+      base.domainEventId = normResult.domainEventId;
+      base.signalIds = [...normResult.signalIds];
+
+      // 4. SignalRegistry enrichment (Phase 4). Append-only, advisory.
+      if (customerId && !normResult.wasIdempotent) {
+        const derived = deriveSignals(normalized);
+        for (const d of derived) {
+          try {
+            const s = await this.prisma.signal.create({
+              data: {
+                organizationId,
+                customerId,
+                type: d.type,
+                key: d.key,
+                label: d.label,
+                valueString: d.valueString ?? null,
+                valueNumber: d.valueNumber ?? null,
+                confidence: d.confidence ?? null,
+                source: 'signal-registry',
+                metadata: { externalId: ev.externalId, eventType } as object,
+              },
+            });
+            base.signalIds.push(s.id);
+          } catch {
+            // enrichment is advisory
+          }
+        }
+      }
+
+      // 5. Next Best Action (Phase 7) — rules-based recommendations.
+      if (base.interactionId) {
+        const allSignals = customerId
+          ? await this.prisma.signal.findMany({
+              where: { organizationId, customerId },
+              select: { type: true, key: true, label: true },
+              take: 100,
+            })
+          : [];
+        const nba = await this.nextBestAction.run({
+          organizationId,
+          customerId,
+          interaction: {
+            id: base.interactionId,
+            channel: channelFor(eventType),
+            kind: 'PHONE_CALL',
+            direction: directionFor(eventType),
+            summary: normalized.summary ?? null,
+            occurredAt: normalized.occurredAt,
+            metadata: { eventType },
+          },
+          signals: allSignals,
+        });
+        base.nextBestActions = nba.actions.map((a) => a.kind);
+      }
+
+      // 6. Done — mark PROCESSED.
+      await this.prisma.integrationEvent.update({
+        where: { id: record.id },
+        data: { status: 'PROCESSED', processedAt: new Date(), error: null },
+      });
+      return { ...base, status: 'processed' };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown ingestion error';
+      await this.prisma.integrationEvent.update({
+        where: { id: record.id },
+        data: { status: 'FAILED', error: message },
+      });
+      return { ...base, status: 'failed', error: message };
+    }
+  }
+
+  /** Resolve a customer by phone/email within the org, creating one if needed so
+      the contact is immediately visible in the CRM. */
+  private async resolveCustomer(
+    organizationId: string,
+    provider: string,
+    ev: InboundEvent,
+  ): Promise<string | null> {
+    const phone = ev.customerPhone ?? undefined;
+    const email = ev.customerEmail ?? undefined;
+    const phoneDigits = digits(phone);
+
+    if (phoneDigits) {
+      const found = await this.prisma.customer.findFirst({
+        where: { organizationId, phone: { contains: phoneDigits.slice(-7) } },
+      });
+      if (found) return found.id;
+    }
+    if (email) {
+      const found = await this.prisma.customer.findFirst({
+        where: { organizationId, email },
+      });
+      if (found) return found.id;
+    }
+    if (!phone && !email) return null;
+
+    const created = await this.prisma.customer.create({
+      data: {
+        organizationId,
+        phone: phone ?? null,
+        email: email ?? null,
+        tags: ['lead'],
+        attributes: { pipelineStatus: 'New', firstSource: provider } as object,
+        metadata: { createdFrom: provider } as object,
+      },
+    });
+    return created.id;
+  }
+}
+
+function numberFrom(payload: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    const v = payload[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) return Number(v);
+  }
+  return undefined;
+}
+
+function summaryFor(eventType: string, payload: Record<string, unknown>): string {
+  const num =
+    (typeof payload['caller_number'] === 'string' && payload['caller_number']) ||
+    (typeof payload['from'] === 'string' && payload['from']) ||
+    '';
+  const label: Record<string, string> = {
+    'call.inbound': 'Inbound call',
+    'call.answered': 'Call answered',
+    'call.missed': 'Missed call',
+    'call.completed': 'Call completed',
+    'call.voicemail': 'Voicemail left',
+    'call.transferred': 'Call transferred',
+  };
+  const base = label[eventType] ?? 'Call event';
+  return num ? base + ' from ' + num : base;
+}
+
+function channelFor(eventType: string): 'PHONE' | 'SMS' | 'EMAIL' | 'WEB_CHAT' | 'OTHER' {
+  if (eventType.startsWith('call.')) return 'PHONE';
+  if (eventType.startsWith('sms.')) return 'SMS';
+  if (eventType.startsWith('email.')) return 'EMAIL';
+  if (eventType.startsWith('ai.')) return 'WEB_CHAT';
+  return 'OTHER';
+}
+
+function directionFor(eventType: string): 'INBOUND' | 'OUTBOUND' | 'INTERNAL' {
+  if (eventType === 'call.outbound' || eventType === 'sms.outbound' || eventType.startsWith('email.')) {
+    return 'OUTBOUND';
+  }
+  return 'INBOUND';
+}
