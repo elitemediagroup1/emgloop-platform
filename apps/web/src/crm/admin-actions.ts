@@ -43,7 +43,7 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
     organizationId: session.organizationId,
     email,
     systemRole: role,
-    invitedById: session.userId,
+    inviterId: session.userId,
     tokenHash: hashToken(token),
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   });
