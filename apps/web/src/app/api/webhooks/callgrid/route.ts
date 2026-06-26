@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma, repositories, IngestionService } from '@emgloop/database';
 import { CallGridProvider, mapCallgridEventType } from '@emgloop/providers';
 import type { ProviderContext } from '@emgloop/providers';
-import { LIVE_ORG_SLUG } from '../../../../crm/live-org';
-
+import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../crm/live-org';
 // CallGrid webhook — Sprint 11 (First Live Integration, Phase 2-3).
 //
 // The single live ingress point for CallGrid call-tracking events. The flow is:
@@ -32,7 +31,10 @@ function headerMap(req: Request): Record<string, string> {
 
 export async function POST(req: Request) {
   const rawBody = await req.text();
+  // Promote/heal the live org (also self-heals the ProviderCategory enum).
+    await ensureLiveOrganization();
 
+  
   // Resolve the live organization (ServicesInMyCity).
   const org = await prisma.organization.findUnique({
     where: { slug: LIVE_ORG_SLUG },
