@@ -36,6 +36,7 @@ const LIVE_BRANDING = {
 };
 
 let promoted = false;
+let schemaChecked = false;
 
 /** Resolve the live organization id (or null if not bootstrapped yet). */
 export async function resolveLiveOrganizationId(): Promise<string | null> {
@@ -47,19 +48,38 @@ export async function resolveLiveOrganizationId(): Promise<string | null> {
 }
 
 /**
+ * Transitional schema-compatibility shim. The canonical fix lives in the Prisma
+ * migration 20250626000000_sprint_11_provider_category_ingestion_analytics,
+ * which adds the INGESTION/ANALYTICS members to the ProviderCategory enum.
+ *
+ * Because the Netlify build pipeline runs only `prisma generate` (never
+ * `migrate deploy`), a long-lived database that predates Sprint 10 may still be
+ * missing those enum members. This shim closes that gap ONCE per server
+ * instance — it is no longer invoked on the per-request hot path. The DDL is
+ * idempotent (ADD VALUE IF NOT EXISTS); once `migrate deploy` runs everywhere
+ * this shim becomes a no-op and can be deleted.
+ */
+async function ensureSchemaCompatibility(): Promise<void> {
+  if (schemaChecked) return;
+  schemaChecked = true;
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TYPE "ProviderCategory" ADD VALUE IF NOT EXISTS 'INGESTION'`);
+    await prisma.$executeRawUnsafe(`ALTER TYPE "ProviderCategory" ADD VALUE IF NOT EXISTS 'ANALYTICS'`);
+  } catch {
+    // enum already current, or insufficient privileges — proceed regardless.
+  }
+}
+
+/**
  * Idempotently promote ServicesInMyCity to a production organization. Safe to
  * call on every CRM/admin load: it short-circuits per server instance and each
  * underlying write is an upsert/merge.
  */
 export async function ensureLiveOrganization(): Promise<{ organizationId: string }> {
-    // Self-heal the ProviderConnection/IntegrationEvent enum if the database
-    // predates Sprint 10's ProviderCategory additions. Idempotent + safe.
-    try {
-          await prisma.$executeRawUnsafe(`ALTER TYPE "ProviderCategory" ADD VALUE IF NOT EXISTS 'INGESTION'`);
-          await prisma.$executeRawUnsafe(`ALTER TYPE "ProviderCategory" ADD VALUE IF NOT EXISTS 'ANALYTICS'`);
-    } catch {
-          // enum already current, or insufficient privileges — proceed regardless.
-    }
+  // One-time schema compatibility check (no per-request DDL). The proper fix is
+  // the Sprint 11 Prisma migration; this only matters for un-migrated databases.
+  await ensureSchemaCompatibility();
+
   // Reuse the org seeded by the identity bootstrap; create it if missing so the
   // live integration works even on a fresh database.
   const org = await prisma.organization.upsert({
