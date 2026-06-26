@@ -148,8 +148,7 @@ export class IntegrationRepository {
         provider: input.provider,
         displayName: input.displayName ?? input.provider,
         status: 'PENDING',
-        config: input.config ?? {},
-      },
+        config: (input.config ?? {}) as any,      },
     });
     return toConnectionView(row);
   }
@@ -168,8 +167,7 @@ export class IntegrationRepository {
       where: { id },
       data: {
         ...(input.displayName !== undefined && { displayName: input.displayName }),
-        ...(input.config !== undefined && { config: input.config }),
-        ...(input.connectedAt !== undefined && { connectedAt: input.connectedAt }),
+      ...(input.config !== undefined && { config: input.config as any }),        ...(input.connectedAt !== undefined && { connectedAt: input.connectedAt }),
         ...(input.lastSyncedAt !== undefined && { lastSyncedAt: input.lastSyncedAt }),
       },
     });
