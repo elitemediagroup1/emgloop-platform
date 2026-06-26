@@ -52,6 +52,14 @@ export async function resolveLiveOrganizationId(): Promise<string | null> {
  * underlying write is an upsert/merge.
  */
 export async function ensureLiveOrganization(): Promise<{ organizationId: string }> {
+    // Self-heal the ProviderConnection/IntegrationEvent enum if the database
+    // predates Sprint 10's ProviderCategory additions. Idempotent + safe.
+    try {
+          await prisma.$executeRawUnsafe(`ALTER TYPE "ProviderCategory" ADD VALUE IF NOT EXISTS 'INGESTION'`);
+          await prisma.$executeRawUnsafe(`ALTER TYPE "ProviderCategory" ADD VALUE IF NOT EXISTS 'ANALYTICS'`);
+    } catch {
+          // enum already current, or insufficient privileges — proceed regardless.
+    }
   // Reuse the org seeded by the identity bootstrap; create it if missing so the
   // live integration works even on a fresh database.
   const org = await prisma.organization.upsert({
