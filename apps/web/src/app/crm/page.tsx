@@ -6,7 +6,7 @@
 // landing surface.
 
 import Link from 'next/link';
-import { prisma, repositories } from '@emgloop/database';
+import { prisma } from '@emgloop/database';
 import { requireSession } from '../../auth/guard';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +19,7 @@ export default async function CrmDashboard() {
     await Promise.all([
       prisma.customer.count({ where: { organizationId: orgId } }),
       prisma.conversation.count({ where: { organizationId: orgId, status: 'OPEN' } }),
-      repositories.iam.countUsers(orgId),
+      prisma.user.count({ where: { organizationId: orgId, status: { not: 'DISABLED' } } }),
       prisma.aIEmployee.count({ where: { organizationId: orgId } }),
       prisma.invitation.count({ where: { organizationId: orgId, status: 'PENDING' } }),
     ]);

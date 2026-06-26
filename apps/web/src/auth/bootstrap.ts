@@ -30,14 +30,21 @@ async function ensureUser(args: {
   password?: string;
   activate?: boolean;
 }): Promise<void> {
-  const user = await repositories.iam.createUser({
-    organizationId: args.organizationId,
-    email: args.email,
-    name: args.name,
-    systemRole: args.role,
-  });
+  // Idempotent: reuse the existing user if present, otherwise create it.
+  // createUser() performs a plain insert, so a blind create would throw a
+  // P2002 unique-constraint error on every cold start once the seed users
+  // already exist in the shared database.
+  let user = await repositories.auth.findUserByEmail(args.organizationId, args.email);
+  if (!user) {
+    user = await repositories.iam.createUser({
+      organizationId: args.organizationId,
+      email: args.email,
+      name: args.name,
+      systemRole: args.role,
+    });
+  }
   if (args.activate) {
-    await repositories.iam.setStatus(user.id, 'ACTIVE');
+    await repositories.iam.activateUser(args.organizationId, user.id);
   }
   if (args.password) {
     const existing = await repositories.auth.getPasswordHash(user.id);

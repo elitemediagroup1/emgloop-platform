@@ -35,7 +35,7 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
   const user = await repositories.iam.createUser({
     organizationId: session.organizationId,
     email,
-    name: name || null,
+    name: name || undefined,
     systemRole: role,
   });
   const token = newToken();
@@ -43,7 +43,7 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
     organizationId: session.organizationId,
     email,
     systemRole: role,
-    invitedById: session.userId,
+    inviterId: session.userId,
     tokenHash: hashToken(token),
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   });
@@ -64,7 +64,7 @@ export async function setUserRoleAction(formData: FormData): Promise<void> {
   const userId = String(formData.get('userId') ?? '');
   const role = parseRole(formData.get('role'));
   if (!userId) return;
-  await repositories.iam.setSystemRole(userId, role);
+  await repositories.iam.updateUserRole(session.organizationId, userId, role);
   await repositories.audit.record({
     organizationId: session.organizationId,
     userId: session.userId,
@@ -82,8 +82,12 @@ export async function setUserStatusAction(formData: FormData): Promise<void> {
   const userId = String(formData.get('userId') ?? '');
   const status = String(formData.get('status') ?? '');
   if (!userId || (status !== 'ACTIVE' && status !== 'DISABLED')) return;
-  await repositories.iam.setStatus(userId, status);
-  if (status === 'DISABLED') await repositories.auth.revokeAllForUser(userId);
+  if (status === 'DISABLED') {
+    await repositories.iam.disableUser(session.organizationId, userId);
+    await repositories.auth.revokeAllForUser(userId);
+  } else {
+    await repositories.iam.activateUser(session.organizationId, userId);
+  }
   await repositories.audit.record({
     organizationId: session.organizationId,
     userId: session.userId,
@@ -99,7 +103,7 @@ export async function removeUserAction(formData: FormData): Promise<void> {
   const session = await requirePermission('users', 'delete');
   const userId = String(formData.get('userId') ?? '');
   if (!userId || userId === session.userId) return;
-  await repositories.iam.setStatus(userId, 'DISABLED');
+  await repositories.iam.softRemoveUser(session.organizationId, userId);
   await repositories.auth.revokeAllForUser(userId);
   await repositories.audit.record({
     organizationId: session.organizationId,
