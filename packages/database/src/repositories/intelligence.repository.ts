@@ -119,8 +119,7 @@ export class IntelligenceRepository {
       this.prisma.signal.findMany({
         where: {
           organizationId,
-          type: SignalType.RESPONSE_TIME,
-          createdAt: { gte: start, lte: end },
+          type: SignalType.CUSTOM,          createdAt: { gte: start, lte: end },
         },
         select: { metadata: true },
       }),
