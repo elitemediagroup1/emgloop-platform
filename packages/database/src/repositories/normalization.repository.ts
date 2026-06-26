@@ -106,9 +106,8 @@ const SIGNAL_MAP: Partial<Record<LoopEventType, SignalType>> = {
   'ai.escalation':        SignalType.SENTIMENT,
   'call.missed':          SignalType.CHURN_RISK,
   'email.unsubscribed':   SignalType.CHURN_RISK,
-  'call.completed':       SignalType.RESPONSE_TIME,
-  'ai.conversation_end':  SignalType.RESPONSE_TIME,
-};
+  'call.completed':       SignalType.CUSTOM,
+  'ai.conversation_end':  SignalType.CUSTOM,};
 
 
 export class NormalizationEngine {
