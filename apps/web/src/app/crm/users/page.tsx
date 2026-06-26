@@ -131,7 +131,7 @@ export default async function UsersPage() {
                 <tr key={i.id}>
                   <td>{i.email}</td>
                   <td><span className="crm-badge role">{SYSTEM_ROLE_LABELS[i.systemRole]}</span></td>
-                  <td className="crm-faint">{fmtDate(i.createdAt.toISOString())}</td>
+                  <td className="crm-faint">{fmtDate(i.createdAt)}</td>
                 </tr>
               ))}
             </tbody>
