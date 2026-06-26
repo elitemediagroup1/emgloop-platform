@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma, repositories, IngestionService } from '@emgloop/database';
-import { CallGridProvider, mapCallgridEventType } from '@emgloop/providers';
+import { getCallGridProvider, mapCallgridEventType } from '@emgloop/providers';
 import type { ProviderContext } from '@emgloop/providers';
 import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../crm/live-org';
+
 // CallGrid webhook — Sprint 11 (First Live Integration, Phase 2-3).
 //
 // The single live ingress point for CallGrid call-tracking events. The flow is:
@@ -15,11 +16,15 @@ import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../crm/live-org'
 //      Workflow -> enrichment -> Next Best Action) with idempotency + retry.
 //
 // No CallGrid-specific business logic lives here — the adapter + service own it.
-// The route only does transport: read, verify, parse, ingest, respond.
+// The route only does transport: read, verify, parse, ingest, respond. The
+// adapter itself is resolved through the provider registry (Provider Layer),
+// not constructed directly here.
 
 export const dynamic = 'force-dynamic';
 
-const provider = new CallGridProvider();
+// Resolve the CallGrid adapter via the provider registry (registers on first
+// use). Keeps provider resolution inside the Provider Layer.
+const provider = getCallGridProvider();
 
 function headerMap(req: Request): Record<string, string> {
   const out: Record<string, string> = {};
@@ -31,10 +36,9 @@ function headerMap(req: Request): Record<string, string> {
 
 export async function POST(req: Request) {
   const rawBody = await req.text();
-  // Promote/heal the live org (also self-heals the ProviderCategory enum).
-    await ensureLiveOrganization();
+  // Promote/heal the live org (also runs the one-time schema-compat check).
+  await ensureLiveOrganization();
 
-  
   // Resolve the live organization (ServicesInMyCity).
   const org = await prisma.organization.findUnique({
     where: { slug: LIVE_ORG_SLUG },
