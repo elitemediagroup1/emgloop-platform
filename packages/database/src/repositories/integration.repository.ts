@@ -107,10 +107,8 @@ function toEventView(e: IntegrationEvent): IntegrationEventView {
     provider: e.provider ?? '',    externalId: e.externalId ?? null,
     eventType: e.eventType ?? null,
     status: e.status,
-    occurredAt: e.occurredAt?.toISOString() ?? null,
-    receivedAt: e.receivedAt.toISOString(),
-    errorMessage: e.processingErrors ?? null,
-  };
+    occurredAt: e.processedAt?.toISOString() ?? null,    receivedAt: e.receivedAt.toISOString(),
+    errorMessage: e.error ?? null,  };
 }
 
 
