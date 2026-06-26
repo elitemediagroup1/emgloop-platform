@@ -37,7 +37,7 @@ async function ensureUser(args: {
     systemRole: args.role,
   });
   if (args.activate) {
-    await repositories.iam.setStatus(user.id, 'ACTIVE');
+    await repositories.iam.activateUser(args.organizationId, user.id);
   }
   if (args.password) {
     const existing = await repositories.auth.getPasswordHash(user.id);
