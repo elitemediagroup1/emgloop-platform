@@ -7,24 +7,33 @@ import { PrismaClient } from '@prisma/client';
 import { createRepositories, type Repositories } from './repositories';
 
 declare global {
-  // eslint-disable-next-line no-var
+    // eslint-disable-next-line no-var
   var __emgloopPrisma: PrismaClient | undefined;
 }
 
 export const prisma: PrismaClient =
-  global.__emgloopPrisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error'],
-  });
+    global.__emgloopPrisma ??
+    new PrismaClient({
+          log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error'],
+    });
 
 if (process.env.NODE_ENV !== 'production') {
-  global.__emgloopPrisma = prisma;
+    global.__emgloopPrisma = prisma;
 }
 
-// Repository layer (Sprint 4 — Real Data Layer). The whole platform persists
-// through these classes, never via the Prisma client directly. A shared bundle
-// bound to the singleton client is exported for convenience.
 export * from './repositories';
+
+export { IngestionService } from './services/ingestion.service';
+export type { IngestInput, IngestResult } from './services/ingestion.service';
+export { deriveSignals, SIGNAL_REGISTRY } from './services/signal-registry';
+export type { SignalDefinition, DerivedSignal } from './services/signal-registry';
+export { NextBestActionService } from './services/next-best-action.service';
+export type {
+    NextBestAction,
+    NextBestActionKind,
+    NextBestActionContext,
+    NextBestActionResult,
+} from './services/next-best-action.service';
 
 export const repositories: Repositories = createRepositories(prisma);
 
