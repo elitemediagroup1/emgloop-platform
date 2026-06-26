@@ -4,10 +4,8 @@
 // produce the foundational analytics dashboards. All queries are org-scoped,
 // read-only, and computed from real Neon data — no fake metrics.
 
-
 import type { PrismaClient } from '@prisma/client';
 import { SignalType, ChannelType, InteractionDirection } from '@prisma/client';
-
 
 // ---- KPI summary ----------------------------------------------------------
 
@@ -75,12 +73,10 @@ export interface AnalyticsTimeSeries {
   points: TimeSeriesPoint[];
 }
 
-
 // ---- Repository -----------------------------------------------------------
 
 export class AnalyticsRepository {
   constructor(private readonly prisma: PrismaClient) {}
-
 
   async getSummary(
     organizationId: string,
@@ -96,7 +92,7 @@ export class AnalyticsRepository {
       domainEvents,
     ] = await Promise.all([
       this.prisma.interaction.findMany({
-        where: { organizationId, startedAt: { gte: start, lte: end } },
+        where: { organizationId, occurredAt: { gte: start, lte: end } },
         select: { channel: true, direction: true },
       }),
       this.prisma.signal.findMany({
@@ -202,7 +198,6 @@ export class AnalyticsRepository {
     };
   }
 
-
   async getVelocityMetrics(
     organizationId: string,
     start: Date,
@@ -257,23 +252,21 @@ export class AnalyticsRepository {
     };
   }
 
-
   async getInteractionTimeSeries(
     organizationId: string,
     start: Date,
     end: Date,
   ): Promise<AnalyticsTimeSeries> {
     const interactions = await this.prisma.interaction.findMany({
-      where: { organizationId, startedAt: { gte: start, lte: end } },
-      select: { startedAt: true },
-      orderBy: { startedAt: 'asc' },
+      where: { organizationId, occurredAt: { gte: start, lte: end } },
+      select: { occurredAt: true },
+      orderBy: { occurredAt: 'asc' },
     });
 
     // Group by date
     const byDate: Record<string, number> = {};
     for (const i of interactions) {
-      if (!i.startedAt) continue;
-      const date = i.startedAt.toISOString().split('T')[0] ?? '';
+      const date = i.occurredAt.toISOString().split('T')[0] ?? '';
       byDate[date] = (byDate[date] ?? 0) + 1;
     }
 
@@ -282,7 +275,6 @@ export class AnalyticsRepository {
       points: Object.entries(byDate).map(([date, value]) => ({ date, value })),
     };
   }
-
 
   async getSignalTimeSeries(
     organizationId: string,
