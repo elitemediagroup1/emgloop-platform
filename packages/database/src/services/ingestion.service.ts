@@ -3,14 +3,23 @@
 // The orchestration spine for live events. Given verified InboundEvents from a
 // provider adapter, this service runs the full Loop pipeline for each one:
 //
-//   1. Record the raw event as an IntegrationEvent (idempotent on provider +
-//      externalId, with status + error tracking for the admin/retry queue).
-//   2. Resolve or create the Customer (so they appear immediately in the CRM).
+//   1. Record the raw event as an IntegrationEvent FIRST, in RECEIVED state
+//      (idempotent on provider + externalId). This durably captures the
+//      delivery before any processing, so a crash mid-pipeline leaves a
+//      retryable row rather than a lost event.
+//   2. Transition the event to PROCESSING, then resolve or create the Customer
+//      (so they appear immediately in the CRM).
 //   3. Build a provider-agnostic NormalizedEvent and run it through the
 //      NormalizationEngine -> Interaction + Signal + DomainEvent + Workflow.
 //   4. Enrich the Brain via the SignalRegistry (Phase 4 signals).
 //   5. Run the rules-based NextBestActionService (Phase 7).
-//   6. Mark the IntegrationEvent PROCESSED, or FAILED with the error for retry.
+//   6. Mark the IntegrationEvent PROCESSED, or FAILED with the error so the
+//      admin retry queue can replay it.
+//
+// Status lifecycle: RECEIVED -> PROCESSING -> PROCESSED | FAILED. A FAILED (or
+// orphaned RECEIVED) row is retryable: re-delivering the same externalId reuses
+// the row and re-runs from PROCESSING. Only PROCESSED short-circuits as a
+// duplicate.
 //
 // NO provider-specific logic lives here. The adapter already translated the wire
 // format into InboundEvent; everything below is generic. A different provider
@@ -96,7 +105,7 @@ export class IngestionService {
     };
 
     // 1. Idempotency: provider + externalId is unique in the schema. If we have
-    //    already PROCESSED this delivery, short-circuit as a duplicate.
+    // already PROCESSED this delivery, short-circuit as a duplicate.
     const existing = await this.prisma.integrationEvent.findFirst({
       where: { provider, externalId: ev.externalId },
     });
@@ -104,11 +113,13 @@ export class IngestionService {
       return { ...base, status: 'duplicate', integrationEventId: existing.id };
     }
 
-    // Record (or reuse) the raw IntegrationEvent in RECEIVED/PROCESSING state.
+    // 2. Persist the raw event FIRST in RECEIVED state (or reuse a prior
+    // RECEIVED/FAILED row). This durably records the delivery before any
+    // processing runs, so failures are always retryable from a known row.
     const record = existing
       ? await this.prisma.integrationEvent.update({
           where: { id: existing.id },
-          data: { status: 'PROCESSING', error: null },
+          data: { status: 'RECEIVED', error: null, payload: ev.payload as object },
         })
       : await this.prisma.integrationEvent.create({
           data: {
@@ -118,18 +129,24 @@ export class IngestionService {
             provider,
             eventType,
             externalId: ev.externalId,
-            status: 'PROCESSING',
+            status: 'RECEIVED',
             payload: ev.payload as object,
           },
         });
     base.integrationEventId = record.id;
 
+    // Transition RECEIVED -> PROCESSING now that the raw event is safely stored.
+    await this.prisma.integrationEvent.update({
+      where: { id: record.id },
+      data: { status: 'PROCESSING', error: null },
+    });
+
     try {
-      // 2. Resolve or create the Customer so they show up in the CRM at once.
+      // 3. Resolve or create the Customer so they show up in the CRM at once.
       const customerId = await this.resolveCustomer(organizationId, provider, ev);
       base.customerId = customerId;
 
-      // 3. Build the provider-agnostic NormalizedEvent and normalize it.
+      // 4. Build the provider-agnostic NormalizedEvent and normalize it.
       const normalized: NormalizedEvent = {
         organizationId,
         source: provider,
@@ -148,7 +165,7 @@ export class IngestionService {
       base.domainEventId = normResult.domainEventId;
       base.signalIds = [...normResult.signalIds];
 
-      // 4. SignalRegistry enrichment (Phase 4). Append-only, advisory.
+      // 5. SignalRegistry enrichment (Phase 4). Append-only, advisory.
       if (customerId && !normResult.wasIdempotent) {
         const derived = deriveSignals(normalized);
         for (const d of derived) {
@@ -174,7 +191,7 @@ export class IngestionService {
         }
       }
 
-      // 5. Next Best Action (Phase 7) — rules-based recommendations.
+      // 6. Next Best Action (Phase 7) — rules-based recommendations.
       if (base.interactionId) {
         const allSignals = customerId
           ? await this.prisma.signal.findMany({
@@ -200,13 +217,15 @@ export class IngestionService {
         base.nextBestActions = nba.actions.map((a) => a.kind);
       }
 
-      // 6. Done — mark PROCESSED.
+      // 7. Done — mark PROCESSED.
       await this.prisma.integrationEvent.update({
         where: { id: record.id },
         data: { status: 'PROCESSED', processedAt: new Date(), error: null },
       });
       return { ...base, status: 'processed' };
     } catch (err) {
+      // Mark FAILED with the error message; the row stays retryable (re-delivery
+      // of the same externalId reuses it and re-runs the pipeline).
       const message = err instanceof Error ? err.message : 'Unknown ingestion error';
       await this.prisma.integrationEvent.update({
         where: { id: record.id },
