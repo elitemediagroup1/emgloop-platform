@@ -197,12 +197,10 @@ export class IntegrationRepository {
         organizationId: input.organizationId,
         provider: input.provider,
         externalId: input.externalId,
-        eventType: input.eventType,
-        status: (input.status ?? 'RECEIVED') as Parameters<typeof this.prisma.integrationEvent.create>[0]['data']['status'],
-        occurredAt: input.occurredAt,
-        payload: input.payload ?? {},
-        processingErrors: input.processingErrors,
-        metadata: input.metadata ?? {},
+                eventType: input.eventType ?? '',
+                status: (input.status ?? 'RECEIVED') as Parameters<typeof this.prisma.integrationEvent.create>[0]['data']['status'],
+                payload: (input.payload ?? {}) as any,
+                error: input.processingErrors ?? null,
       },
     });
     return toEventView(row);
@@ -222,8 +220,7 @@ export class IntegrationRepository {
       where: { id },
       data: {
         status: status as Parameters<typeof this.prisma.integrationEvent.update>[0]['data']['status'],
-        ...(processingErrors !== undefined && { processingErrors }),
-      },
+      ...(processingErrors !== undefined && { error: processingErrors }),      },
     });
     return toEventView(row);
   }
