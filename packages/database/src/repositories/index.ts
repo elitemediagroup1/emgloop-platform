@@ -58,8 +58,7 @@ export {
   matrixAllows,
   userSystemRole,
 } from './iam.repository';
-export type { Resource, Action, UserView } from './iam.repository';
-export { OrganizationRepository } from './organization.repository';
+export type { Resource, Action, UserListItem } from './iam.repository';export { OrganizationRepository } from './organization.repository';
 export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
 export type { AuditView } from './audit.repository';
