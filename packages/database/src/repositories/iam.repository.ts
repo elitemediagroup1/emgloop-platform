@@ -180,8 +180,7 @@ export class IamRepository {
 
     // Check role-level DENY
     const roleDenyRules = await this.prisma.permission.findMany({
-      where: { organizationId, systemRole: role as Parameters<typeof this.prisma.permission.findMany>[0]['where'] extends { systemRole?: infer R } ? R : never, resource, action, effect: 'DENY' },
-    });
+      where: { organizationId, systemRole: role, resource, action, effect: 'DENY' },    });
     if (roleDenyRules.length > 0) return false;
 
     // Check explicit ALLOW
