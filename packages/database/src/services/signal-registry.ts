@@ -167,8 +167,7 @@ function sig(
   key: keyof typeof SIGNAL_REGISTRY,
   extra: Partial<Omit<DerivedSignal, 'key' | 'type' | 'label'>> = {},
 ): DerivedSignal {
-  const def = SIGNAL_REGISTRY[key];
-  return {
+  const def = SIGNAL_REGISTRY[key] ?? { key: String(key), type: 'CUSTOM' as SignalType, label: String(key), description: '' };  return {
     key: def.key,
     type: def.type,
     label: def.label,
