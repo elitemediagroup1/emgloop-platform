@@ -7,7 +7,6 @@ import './sprint10.css';
 import { getSession } from '../../auth/auth';
 import { logoutAction } from '../../auth/actions';
 
-
 // CRM layout — Sprint 5/6 + Sprint 7 (Identity) + Sprint 8 (Conversations)
 // + Sprint 9 (Workflows) + Sprint 10 (Loop Intelligence Foundation).
 //
@@ -15,11 +14,9 @@ import { logoutAction } from '../../auth/actions';
 // persistent top bar. Sprint 10 adds Analytics, Integrations, and Loop
 // Intelligence to the nav.
 
-
 export const metadata = {
   title: 'EMG Loop — CRM',
 };
-
 
 const NAV: { href: string; label: string }[] = [
   { href: '/crm', label: 'Dashboard' },
@@ -38,7 +35,6 @@ const NAV: { href: string; label: string }[] = [
   { href: '/crm/settings', label: 'Settings' },
   { href: '/crm/audit', label: 'Audit' },
 ];
-
 
 export default async function CrmLayout({
   children,
@@ -62,7 +58,7 @@ export default async function CrmLayout({
         </nav>
         {session ? (
           <div className="crm-account">
-            <span className="crm-account-name">{session.userEmail ?? 'Account'}</span>
+            <span className="crm-account-name">{session.email ?? 'Account'}</span>
             <form action={logoutAction}>
               <button type="submit" className="crm-signout">Sign out</button>
             </form>
