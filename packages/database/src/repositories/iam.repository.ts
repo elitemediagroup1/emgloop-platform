@@ -285,8 +285,7 @@ export class IamRepository {
       data: {
         organizationId: data.organizationId,
         email: data.email,
-        inviterId: data.inviterId,
-        status: 'PENDING',
+        invitedById: data.inviterId,        status: 'PENDING',
         tokenHash: data.tokenHash,
         expiresAt: data.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),        metadata: { systemRole: data.systemRole ?? 'EMPLOYEE' },
       },
