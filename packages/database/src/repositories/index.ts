@@ -2,17 +2,7 @@
 // + Sprint 8 (Conversations & the Unified Inbox) + Sprint 9 (Workflows)
 // + Sprint 10 (Loop Intelligence Foundation).
 //
-// One import surface for the whole platform's persistence. The loop engine,
-// seed scripts, and API routes depend on these classes, never on the Prisma
-// client directly. This keeps queries centralized and testable and preserves
-// the architecture: providers handle the OUTSIDE world, repositories handle
-// the DATABASE, and the loop engine orchestrates between them.
-//
-// Sprint 10 adds four new repositories:
-//   IntegrationRepository — ProviderConnection + IntegrationEvent CRUD
-//   NormalizationEngine   — converts external events into Interaction/Signal/DomainEvent
-//   AnalyticsRepository   — foundational KPIs, velocity, and time-series
-//   IntelligenceRepository — 3-layer intelligence engine (what/why/next)
+// One import surface for the whole platform's persistence.
 
 
 import type { PrismaClient } from '@prisma/client';
@@ -22,10 +12,7 @@ import { InteractionRepository } from './interaction.repository';
 import { BookingRepository } from './booking.repository';
 import { SignalRepository } from './signal.repository';
 import { DomainEventRepository } from './domain-event.repository';
-import {
-  ConversationRepository,
-  MessageRepository,
-} from './messaging.repository';
+import { ConversationRepository, MessageRepository } from './messaging.repository';
 import { AIEmployeeRepository } from './ai-employee.repository';
 import { CrmRepository } from './crm.repository';
 import { AuthRepository } from './auth.repository';
@@ -34,41 +21,60 @@ import { OrganizationRepository } from './organization.repository';
 import { AuditRepository } from './audit.repository';
 import { ConversationsRepository } from './conversations.repository';
 import { WorkflowsRepository } from './workflows.repository';
-// Sprint 10
 import { IntegrationRepository } from './integration.repository';
 import { NormalizationEngine } from './normalization.repository';
 import { AnalyticsRepository } from './analytics.repository';
 import { IntelligenceRepository } from './intelligence.repository';
 
+
 export * from './types';
+export { CustomerRepository, customerDisplayName } from './customer.repository';
+export { InteractionRepository } from './interaction.repository';
+export { BookingRepository } from './booking.repository';
+export { SignalRepository, signalTypeFromLabel } from './signal.repository';
+export { DomainEventRepository } from './domain-event.repository';
+export { ConversationRepository, MessageRepository } from './messaging.repository';
+export { AIEmployeeRepository } from './ai-employee.repository';
+export type { AIEmployeeView } from './ai-employee.repository';
+export { CrmRepository, PIPELINE_STATUSES } from './crm.repository';
+export type {
+  PipelineStatus,
+  CustomerSortKey,
+  CustomerListFilters,
+  CustomerListRow,
+  CustomerListResult,
+  AssigneeOption,
+  AssigneeOptions,
+  InboxItem,
+  KanbanColumn,
+} from './crm.repository';
+export { AuthRepository } from './auth.repository';
+export type { SessionWithUser } from './auth.repository';
 export {
-  CustomerRepository,
-  InteractionRepository,
-  BookingRepository,
-  SignalRepository,
-  DomainEventRepository,
-  ConversationRepository,
-  MessageRepository,
-  AIEmployeeRepository,
-  CrmRepository,
-  AuthRepository,
   IamRepository,
-  OrganizationRepository,
-  AuditRepository,
-  ConversationsRepository,
-  WorkflowsRepository,
-  // Sprint 10
-  IntegrationRepository,
-  NormalizationEngine,
-  AnalyticsRepository,
-  IntelligenceRepository,
-};
-
-export type { IntegrationConnectionView, IntegrationEventView, CreateConnectionInput } from './integration.repository';
-export type { NormalizationResult } from './normalization.repository';
-export type { AnalyticsSummary, VelocityMetrics, AnalyticsTimeSeries } from './analytics.repository';
-export type { IntelligenceReport, DescriptiveInsight, DiagnosticInsight, Recommendation } from './intelligence.repository';
-
+  SYSTEM_ROLES,
+  SYSTEM_ROLE_LABELS,
+  roleLabel,
+  matrixAllows,
+  userSystemRole,
+} from './iam.repository';
+export type { Resource, Action, UserView } from './iam.repository';
+export { OrganizationRepository } from './organization.repository';
+export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
+export { AuditRepository } from './audit.repository';
+export type { AuditView } from './audit.repository';
+export { ConversationsRepository, CONVERSATION_STATUSES } from './conversations.repository';
+export type {
+  InboxFilters,
+  ConversationListItem,
+  ConversationListResult,
+  ThreadMessage,
+  ConversationWorkspace,
+  SavedView,
+  MergeResult,
+  DuplicateGroup,
+} from './conversations.repository';
+export { WorkflowsRepository, WORKFLOW_TRIGGERS, WORKFLOW_STEP_TYPES } from './workflows.repository';
 export type {
   WorkflowStepType,
   WorkflowStep,
@@ -81,7 +87,14 @@ export type {
   RunContext,
   RunOutcome,
 } from './workflows.repository';
-export { WORKFLOW_TRIGGERS, WORKFLOW_STEP_TYPES } from './workflows.repository';
+export { IntegrationRepository } from './integration.repository';
+export type { IntegrationConnectionView, IntegrationEventView, CreateConnectionInput } from './integration.repository';
+export { NormalizationEngine } from './normalization.repository';
+export type { NormalizationResult } from './normalization.repository';
+export { AnalyticsRepository } from './analytics.repository';
+export type { AnalyticsSummary, VelocityMetrics, AnalyticsTimeSeries } from './analytics.repository';
+export { IntelligenceRepository } from './intelligence.repository';
+export type { IntelligenceReport, DescriptiveInsight, DiagnosticInsight, Recommendation } from './intelligence.repository';
 
 
 export interface Repositories {
@@ -100,19 +113,12 @@ export interface Repositories {
   audit: AuditRepository;
   conversationsInbox: ConversationsRepository;
   workflows: WorkflowsRepository;
-  // Sprint 10
   integrations: IntegrationRepository;
   analytics: AnalyticsRepository;
   intelligence: IntelligenceRepository;
 }
 
 
-/**
- * Build the repository bundle from a Prisma client. Use the shared singleton
- * from `@emgloop/database` in app code; pass a dedicated client for tests.
- * NormalizationEngine is NOT included in the bundle — it is instantiated
- * directly where needed (it takes a WorkflowsRepository dependency).
- */
 export function createRepositories(prisma: PrismaClient): Repositories {
   return {
     customers: new CustomerRepository(prisma),
@@ -130,7 +136,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     audit: new AuditRepository(prisma),
     conversationsInbox: new ConversationsRepository(prisma),
     workflows: new WorkflowsRepository(prisma),
-    // Sprint 10
     integrations: new IntegrationRepository(prisma),
     analytics: new AnalyticsRepository(prisma),
     intelligence: new IntelligenceRepository(prisma),
