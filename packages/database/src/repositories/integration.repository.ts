@@ -104,8 +104,7 @@ function toEventView(e: IntegrationEvent): IntegrationEventView {
   return {
     id: e.id,
     organizationId: e.organizationId,
-    provider: e.provider,
-    externalId: e.externalId ?? null,
+    provider: e.provider ?? '',    externalId: e.externalId ?? null,
     eventType: e.eventType ?? null,
     status: e.status,
     occurredAt: e.occurredAt?.toISOString() ?? null,
