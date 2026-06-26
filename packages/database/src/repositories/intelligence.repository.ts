@@ -26,8 +26,7 @@ export interface DescriptiveInsight {
 
 /** A diagnostic insight (Layer 2: why it happened). */
 export interface DiagnosticInsight {
-  type: 'correlation' | 'pattern' | 'anomaly';
-  primarySignal: string;
+  type: 'correlation' | 'pattern' | 'anomaly' | 'trend';  primarySignal: string;
   correlatedSignal?: string;
   confidence: number;
   description: string;
