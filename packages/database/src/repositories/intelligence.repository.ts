@@ -92,11 +92,9 @@ export class IntelligenceRepository {
         _count: { _all: true },
       }),
       this.prisma.interaction.count({
-        where: { organizationId, startedAt: { gte: start, lte: end } },
-      }),
+        where: { organizationId, occurredAt: { gte: start, lte: end } },      }),
       this.prisma.interaction.count({
-        where: { organizationId, startedAt: { gte: ps, lte: pe } },
-      }),
+        where: { organizationId, occurredAt: { gte: ps, lte: pe } },      }),
       this.prisma.booking.count({
         where: {
           organizationId,
