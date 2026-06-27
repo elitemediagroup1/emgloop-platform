@@ -1,9 +1,8 @@
 // Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity)
 // + Sprint 8 (Conversations & the Unified Inbox) + Sprint 9 (Workflows)
-// + Sprint 10 (Loop Intelligence Foundation).
+// + Sprint 10 (Loop Intelligence Foundation) + Sprint 14 (Website Intelligence).
 //
 // One import surface for the whole platform's persistence.
-
 
 import type { PrismaClient } from '@prisma/client';
 
@@ -24,8 +23,8 @@ import { WorkflowsRepository } from './workflows.repository';
 import { IntegrationRepository } from './integration.repository';
 import { NormalizationEngine } from './normalization.repository';
 import { AnalyticsRepository } from './analytics.repository';
+import { WebsiteAnalyticsRepository } from './website-analytics.repository';
 import { IntelligenceRepository } from './intelligence.repository';
-
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -58,7 +57,8 @@ export {
   matrixAllows,
   userSystemRole,
 } from './iam.repository';
-export type { Resource, Action, UserListItem } from './iam.repository';export { OrganizationRepository } from './organization.repository';
+export type { Resource, Action, UserListItem } from './iam.repository';
+export { OrganizationRepository } from './organization.repository';
 export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
 export type { AuditView } from './audit.repository';
@@ -92,9 +92,10 @@ export { NormalizationEngine } from './normalization.repository';
 export type { NormalizationResult } from './normalization.repository';
 export { AnalyticsRepository } from './analytics.repository';
 export type { AnalyticsSummary, VelocityMetrics, AnalyticsTimeSeries } from './analytics.repository';
+export { WebsiteAnalyticsRepository } from './website-analytics.repository';
+export type { WebsiteAnalytics, WebsiteRankedItem } from './website-analytics.repository';
 export { IntelligenceRepository } from './intelligence.repository';
 export type { IntelligenceReport, DescriptiveInsight, DiagnosticInsight, Recommendation } from './intelligence.repository';
-
 
 export interface Repositories {
   customers: CustomerRepository;
@@ -114,9 +115,9 @@ export interface Repositories {
   workflows: WorkflowsRepository;
   integrations: IntegrationRepository;
   analytics: AnalyticsRepository;
+  websiteAnalytics: WebsiteAnalyticsRepository;
   intelligence: IntelligenceRepository;
 }
-
 
 export function createRepositories(prisma: PrismaClient): Repositories {
   return {
@@ -137,6 +138,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     workflows: new WorkflowsRepository(prisma),
     integrations: new IntegrationRepository(prisma),
     analytics: new AnalyticsRepository(prisma),
+    websiteAnalytics: new WebsiteAnalyticsRepository(prisma),
     intelligence: new IntelligenceRepository(prisma),
   };
 }
