@@ -20,7 +20,7 @@ function jsonStr(value: Prisma.JsonValue | null | undefined, key: string): strin
 const UNATTRIBUTED = '(unattributed)';
 
 // Orders in these states count as realized revenue.
-const REVENUE_STATUSES = new Set(['PAID', 'COMPLETED', 'FULFILLED']);
+const REVENUE_STATUSES = new Set(['PLACED', 'IN_PROGRESS', 'READY', 'FULFILLED']);
 
 export interface RankedRevenue {
   key: string;
