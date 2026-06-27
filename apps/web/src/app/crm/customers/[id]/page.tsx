@@ -12,19 +12,26 @@ import {
   updateCustomerFieldsAction,
 } from '../../../../crm/actions';
 
-// Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
+// Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2)
+//                    + Sprint 14 (Website Intelligence — Website tab).
 //
 // A dedicated operating surface for one customer, read entirely from Neon via
 // the repository layer. Tabs are server-rendered via ?tab= so no client JS is
-// needed. Sprint 6 adds an Edit tab (editable name / contact / company / city /
-// state / service / source) and replaces the free-text assignment inputs with
-// real pickers populated from the organization's User and AIEmployee tables.
+// needed. Sprint 14 adds a Website tab that surfaces this customer's website
+// activity (pages, searches, downloads, forms, CTAs, sessions) — reusing the
+// existing timeline UI; website events already flow into ws.interactions via the
+// WebsiteProvider, so this is a presentation-only view over Brain data.
+//
+// Website context (eventType, property, page, query, ...) lives on the
+// Interaction.metadata JSON (written by the NormalizationEngine), so the Website
+// tab reads metadata, while notes/messages keep reading payload as before.
 
 export const dynamic = 'force-dynamic';
 
 const TABS = [
   'Overview',
   'Timeline',
+  'Website',
   'Notes',
   'Messages',
   'Bookings',
@@ -55,9 +62,9 @@ function fmt(d: Date | string | null | undefined): string {
   });
 }
 
-function payloadVal<T = unknown>(payload: unknown, key: string): T | undefined {
-  if (payload && typeof payload === 'object' && key in (payload as object)) {
-    return (payload as Record<string, T>)[key];
+function jsonVal<T = unknown>(bag: unknown, key: string): T | undefined {
+  if (bag && typeof bag === 'object' && key in (bag as object)) {
+    return (bag as Record<string, T>)[key];
   }
   return undefined;
 }
@@ -68,6 +75,7 @@ const KIND_COLOR: Record<string, string> = {
   EMAIL: 'var(--crm-purple)',
   PHONE_CALL: 'var(--crm-amber)',
   APPOINTMENT: 'var(--crm-accent)',
+  CHAT: 'var(--crm-blue)',
   NOTE: 'var(--crm-faint)',
   OTHER: 'var(--crm-faint)',
 };
@@ -86,6 +94,16 @@ function actorLabel(a: string | undefined): string {
     default:
       return 'System';
   }
+}
+
+// Sprint 14 — is this interaction a website event? (provider 'website' or a
+// web.* eventType captured on the interaction metadata).
+function webEventType(i: { metadata?: unknown }): string {
+  return jsonVal<string>(i.metadata, 'eventType') ?? '';
+}
+function isWebInteraction(i: { provider?: string | null; metadata?: unknown }): boolean {
+  if (i.provider === 'website') return true;
+  return webEventType(i).startsWith('web.');
 }
 
 export default async function CustomerWorkspace({
@@ -120,17 +138,16 @@ export default async function CustomerWorkspace({
 
   const notes = ws.interactions.filter((i) => i.kind === 'NOTE');
   const messages = ws.conversations.flatMap((c) => c.messages);
+  const webEvents = ws.interactions.filter((i) => isWebInteraction(i));
   const aiActivity = ws.interactions.filter(
     (i) =>
-      actorLabel(payloadVal<string>(i.payload, 'actorType')) === 'AI' ||
+      actorLabel(jsonVal<string>(i.payload, 'actorType')) === 'AI' ||
       i.kind === 'APPOINTMENT',
   );
 
   const tabHref = (t: Tab) =>
     '/crm/customers/' + cid + (t === 'Overview' ? '' : '?tab=' + encodeURIComponent(t));
 
-  // The picker offers the org's real people/AIs by name, plus the current
-  // free-text value (so an externally-set assignment still shows as selected).
   const humanNames = Array.from(
     new Set(
       [ws.assignedHumanName, ...assignees.humans.map((h) => h.name)].filter(
@@ -273,6 +290,7 @@ export default async function CustomerWorkspace({
             <div className="crm-card">
               <h3>Overview</h3>
               <div className="crm-kv"><span className="k">Interactions</span><span className="v">{ws.interactions.length}</span></div>
+              <div className="crm-kv"><span className="k">Website events</span><span className="v">{webEvents.length}</span></div>
               <div className="crm-kv"><span className="k">Messages</span><span className="v">{messages.length}</span></div>
               <div className="crm-kv"><span className="k">Bookings</span><span className="v">{ws.bookings.length}</span></div>
               <div className="crm-kv"><span className="k">Signals</span><span className="v">{ws.signals.length}</span></div>
@@ -288,42 +306,15 @@ export default async function CustomerWorkspace({
               <form action={updateCustomerFieldsAction}>
                 <input type="hidden" name="customerId" value={cid} />
                 <div className="crm-edit-grid">
-                  <label className="crm-field">
-                    <span>First name</span>
-                    <input className="crm-input" name="firstName" defaultValue={ws.customer.firstName ?? ''} />
-                  </label>
-                  <label className="crm-field">
-                    <span>Last name</span>
-                    <input className="crm-input" name="lastName" defaultValue={ws.customer.lastName ?? ''} />
-                  </label>
-                  <label className="crm-field">
-                    <span>Email</span>
-                    <input className="crm-input" name="email" type="email" defaultValue={ws.customer.email ?? ''} />
-                  </label>
-                  <label className="crm-field">
-                    <span>Phone</span>
-                    <input className="crm-input" name="phone" defaultValue={ws.customer.phone ?? ''} />
-                  </label>
-                  <label className="crm-field">
-                    <span>Company</span>
-                    <input className="crm-input" name="company" defaultValue={ws.company} />
-                  </label>
-                  <label className="crm-field">
-                    <span>City</span>
-                    <input className="crm-input" name="city" defaultValue={ws.city} />
-                  </label>
-                  <label className="crm-field">
-                    <span>State</span>
-                    <input className="crm-input" name="state" defaultValue={ws.state} />
-                  </label>
-                  <label className="crm-field">
-                    <span>Service type</span>
-                    <input className="crm-input" name="serviceType" defaultValue={ws.serviceType} />
-                  </label>
-                  <label className="crm-field">
-                    <span>Source</span>
-                    <input className="crm-input" name="source" defaultValue={ws.source} />
-                  </label>
+                  <label className="crm-field"><span>First name</span><input className="crm-input" name="firstName" defaultValue={ws.customer.firstName ?? ''} /></label>
+                  <label className="crm-field"><span>Last name</span><input className="crm-input" name="lastName" defaultValue={ws.customer.lastName ?? ''} /></label>
+                  <label className="crm-field"><span>Email</span><input className="crm-input" name="email" type="email" defaultValue={ws.customer.email ?? ''} /></label>
+                  <label className="crm-field"><span>Phone</span><input className="crm-input" name="phone" defaultValue={ws.customer.phone ?? ''} /></label>
+                  <label className="crm-field"><span>Company</span><input className="crm-input" name="company" defaultValue={ws.company} /></label>
+                  <label className="crm-field"><span>City</span><input className="crm-input" name="city" defaultValue={ws.city} /></label>
+                  <label className="crm-field"><span>State</span><input className="crm-input" name="state" defaultValue={ws.state} /></label>
+                  <label className="crm-field"><span>Service type</span><input className="crm-input" name="serviceType" defaultValue={ws.serviceType} /></label>
+                  <label className="crm-field"><span>Source</span><input className="crm-input" name="source" defaultValue={ws.source} /></label>
                 </div>
                 <div className="crm-form-row" style={{ marginTop: '0.85rem' }}>
                   <button className="crm-btn" type="submit">Save changes</button>
@@ -345,11 +336,44 @@ export default async function CustomerWorkspace({
                       <span className="crm-tl-dot" style={{ background: KIND_COLOR[i.kind] ?? 'var(--crm-faint)' }} />
                       <div>
                         <div className="crm-tl-title">{i.summary || i.kind}</div>
-                        {payloadVal<string>(i.payload, 'body') ? (
-                          <div className="crm-tl-body">“{payloadVal<string>(i.payload, 'body')}”</div>
+                        {jsonVal<string>(i.payload, 'body') ? (
+                          <div className="crm-tl-body">“{jsonVal<string>(i.payload, 'body')}”</div>
                         ) : null}
                         <div className="crm-tl-meta">
-                          {i.kind} · {actorLabel(payloadVal<string>(i.payload, 'actorType'))} · {i.channel} · {fmt(i.occurredAt)}
+                          {i.kind} · {actorLabel(jsonVal<string>(i.payload, 'actorType'))} · {i.channel} · {fmt(i.occurredAt)}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+
+          {activeTab === 'Website' ? (
+            <div className="crm-card">
+              <h3>Website activity</h3>
+              <p className="crm-faint" style={{ fontSize: '0.78rem', marginTop: '-0.3rem', marginBottom: '0.8rem' }}>
+                Pages, searches, downloads, forms, and CTA clicks captured by the Brain across EMG-owned websites.
+              </p>
+              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Total events</span><strong>{webEvents.length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Sessions</span><strong>{webEvents.filter((i) => webEventType(i) === 'web.session_start').length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Searches</span><strong>{webEvents.filter((i) => webEventType(i).startsWith('web.search')).length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Forms</span><strong>{webEvents.filter((i) => webEventType(i).startsWith('web.form')).length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>CTA clicks</span><strong>{webEvents.filter((i) => ['web.cta_click', 'web.phone_click', 'web.email_click'].includes(webEventType(i))).length}</strong></div>
+              </div>
+              {webEvents.length === 0 ? (
+                <p className="crm-faint">The Brain has not seen this customer on a website yet. As they browse EMG properties, their activity will appear here.</p>
+              ) : (
+                <ul className="crm-timeline">
+                  {webEvents.map((i) => (
+                    <li key={i.id}>
+                      <span className="crm-tl-dot" style={{ background: 'var(--crm-blue)' }} />
+                      <div>
+                        <div className="crm-tl-title">{i.summary || i.kind}</div>
+                        <div className="crm-tl-meta">
+                          {(jsonVal<string>(i.metadata, 'property') ?? 'website')} · {webEventType(i).replace(/^web\./, '') || i.kind} · {fmt(i.occurredAt)}
                         </div>
                       </div>
                     </li>
@@ -378,7 +402,7 @@ export default async function CustomerWorkspace({
                 <p className="crm-faint">No notes yet.</p>
               ) : (
                 notes.map((n) => {
-                  const who = String(payloadVal<string>(n.payload, 'actorType') ?? 'SYSTEM');
+                  const who = String(jsonVal<string>(n.payload, 'actorType') ?? 'SYSTEM');
                   const cls = who === 'AI_AGENT' ? 'AI_AGENT' : who === 'HUMAN_AGENT' ? 'HUMAN_AGENT' : 'SYSTEM';
                   return (
                     <div className="crm-note" key={n.id}>
@@ -386,7 +410,7 @@ export default async function CustomerWorkspace({
                         <span className={'who ' + cls}>{actorLabel(who)}</span>
                         <span className="when">{fmt(n.occurredAt)}</span>
                       </div>
-                      <div className="crm-tl-body">{payloadVal<string>(n.payload, 'body') || n.summary}</div>
+                      <div className="crm-tl-body">{jsonVal<string>(n.payload, 'body') || n.summary}</div>
                     </div>
                   );
                 })

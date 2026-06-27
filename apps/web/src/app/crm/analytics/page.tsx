@@ -2,22 +2,20 @@ import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 
-
-// Analytics — Sprint 10 (Loop Intelligence Foundation, Phase 4).
+// Analytics — Sprint 10 (Loop Intelligence Foundation, Phase 4)
+//          + Sprint 14 (Website Intelligence — website widgets).
 //
 // Foundational analytics dashboard using only real Neon data — no fake metrics.
-// Shows interaction volume, signals, bookings, pipeline, and workflow/AI
-// activity. All data is org-scoped and fetched through the AnalyticsRepository.
-
+// Sprint 14 adds website widgets (top pages, searches, CTAs, sources, cities,
+// categories, journeys, website signals) — ALL derived from Brain events, not
+// embedded GA reports.
 
 export const dynamic = 'force-dynamic';
-
 
 function pct(value: number, max: number): string {
   if (max === 0) return '0%';
   return Math.min(100, Math.round((value / max) * 100)) + '%';
 }
-
 
 export default async function AnalyticsPage() {
   await requirePermission('analytics', 'view');
@@ -29,11 +27,12 @@ export default async function AnalyticsPage() {
 
   const result = await loadOrFallback(async () => {
     if (!orgId) return null;
-    const [summary, velocity] = await Promise.all([
+    const [summary, velocity, website] = await Promise.all([
       crmRepos.analytics.getSummary(orgId, start, end),
       crmRepos.analytics.getVelocityMetrics(orgId, start, end),
+      crmRepos.websiteAnalytics.getWebsiteAnalytics(orgId, start, end),
     ]);
-    return { summary, velocity };
+    return { summary, velocity, website };
   });
 
   if (!result.ok || !result.data) {
@@ -45,7 +44,7 @@ export default async function AnalyticsPage() {
     );
   }
 
-  const { summary, velocity } = result.data;
+  const { summary, velocity, website } = result.data;
   const totalSignals = summary.signals.total;
 
   const kpis = [
@@ -73,6 +72,30 @@ export default async function AnalyticsPage() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
   const maxSignal = Math.max(1, ...signalEntries.map(([, v]) => v));
+
+  // Website widget helper: render a ranked horizontal bar list.
+  const maxOf = (items: { count: number }[]) => Math.max(1, ...items.map((i) => i.count));
+  function WebsitePanel({ title, items, empty }: { title: string; items: { label: string; count: number }[]; empty: string }) {
+    const max = maxOf(items);
+    return (
+      <div className="crm-analytics-panel">
+        <div className="crm-analytics-panel-title">{title}</div>
+        {items.length === 0 ? (
+          <p className="crm-empty" style={{ margin: 0 }}>{empty}</p>
+        ) : items.map((it) => (
+          <div key={it.label} className="crm-analytics-bar-row">
+            <span className="crm-analytics-bar-label" title={it.label}>{it.label}</span>
+            <div className="crm-analytics-bar-track">
+              <div className="crm-analytics-bar-fill" style={{ width: pct(it.count, max) }} />
+            </div>
+            <span className="crm-analytics-bar-value">{it.count}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const hasWebsite = website.totals.events > 0;
 
   return (
     <>
@@ -126,6 +149,52 @@ export default async function AnalyticsPage() {
           ))}
         </div>
       </div>
+
+      {/* Website Intelligence (Sprint 14) — all powered by Brain events */}
+      <div className="crm-wf-head" style={{ marginTop: '1.5rem' }}>
+        <div>
+          <h2 className="crm-h2">Website Intelligence</h2>
+          <p className="crm-sub">EMG-owned websites as a Brain sense — derived from Brain events, not embedded analytics.</p>
+        </div>
+      </div>
+
+      {!hasWebsite ? (
+        <div className="crm-panel">
+          <p className="crm-empty" style={{ margin: 0 }}>
+            The Brain is waiting for its first website signal. As visitors browse, search, and click across
+            ServicesInMyCity, CareInMyCity, PetsInMyCity, and ConsumerSupportHelp, Loop Intelligence will surface
+            landing pages, searches, journeys, and intent here.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="crm-analytics-hero">
+            <div className="crm-analytics-kpi"><div className="crm-analytics-kpi-label">Website Events</div><div className="crm-analytics-kpi-value">{website.totals.events}</div><div className="crm-analytics-kpi-unit">tracked</div></div>
+            <div className="crm-analytics-kpi"><div className="crm-analytics-kpi-label">Sessions</div><div className="crm-analytics-kpi-value">{website.totals.sessions}</div><div className="crm-analytics-kpi-unit">started</div></div>
+            <div className="crm-analytics-kpi"><div className="crm-analytics-kpi-label">Searches</div><div className="crm-analytics-kpi-value">{website.totals.searches}</div><div className="crm-analytics-kpi-unit">performed</div></div>
+            <div className="crm-analytics-kpi"><div className="crm-analytics-kpi-label">CTA Clicks</div><div className="crm-analytics-kpi-value">{website.totals.ctaClicks}</div><div className="crm-analytics-kpi-unit">clicks</div></div>
+            <div className="crm-analytics-kpi"><div className="crm-analytics-kpi-label">Form Submits</div><div className="crm-analytics-kpi-value">{website.totals.formSubmits}</div><div className="crm-analytics-kpi-unit">forms</div></div>
+            <div className="crm-analytics-kpi"><div className="crm-analytics-kpi-label">Appointments</div><div className="crm-analytics-kpi-value">{website.totals.appointmentRequests}</div><div className="crm-analytics-kpi-unit">requested</div></div>
+          </div>
+
+          <div className="crm-analytics-grid">
+            <WebsitePanel title="Top Landing Pages" items={website.topLandingPages} empty="No page views yet." />
+            <WebsitePanel title="Top Searches" items={website.topSearches} empty="No searches yet." />
+          </div>
+          <div className="crm-analytics-grid">
+            <WebsitePanel title="Top CTAs" items={website.topCtas} empty="No CTA clicks yet." />
+            <WebsitePanel title="Session Sources" items={website.sessionSources} empty="No sources yet." />
+          </div>
+          <div className="crm-analytics-grid">
+            <WebsitePanel title="Top Performing Cities" items={website.topCities} empty="No city data yet." />
+            <WebsitePanel title="Top Performing Categories" items={website.topCategories} empty="No category data yet." />
+          </div>
+          <div className="crm-analytics-grid">
+            <WebsitePanel title="Most Common Journeys" items={website.commonJourneys} empty="No journeys yet." />
+            <WebsitePanel title="Website Signal Breakdown" items={website.signalBreakdown} empty="No website signals yet." />
+          </div>
+        </>
+      )}
 
       {/* Workflow + AI breakdown */}
       <div className="crm-analytics-grid">
