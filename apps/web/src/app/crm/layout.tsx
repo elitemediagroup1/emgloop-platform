@@ -68,10 +68,10 @@ const NAV: NavGroup[] = [
 function initials(name?: string | null, email?: string | null): string {
   const src = (name || email || '?').trim();
   const parts = src.split(/[\s@.]+/).filter(Boolean);
-  if (parts.length >= 2 && parts[0] && parts[1]) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  return src.slice(0, 2).toUpperCase();
+  const a = parts[0]?.charAt(0) ?? '';
+  const b = parts.length > 1 ? (parts[1]?.charAt(0) ?? '') : '';
+  const combined = (a + b).toUpperCase();
+  return combined || src.slice(0, 2).toUpperCase();
 }
 
 export default async function CrmLayout({
