@@ -10,6 +10,12 @@
 // Recommendations are advisory: the service persists them as append-only Signals
 // (type CUSTOM, key "next_best_action") and a DomainEvent so they appear on the
 // timeline and in analytics, but it never mutates customer state on its own.
+//
+// Sprint 14 (Website Intelligence): the customer's signal pool now also contains
+// website-derived signals (appointment_intent, buying_intent, research_intent,
+// ...). Because the rules read the SAME signal pool, recommendations now reflect
+// BOTH senses — phone and website. Example: a web buying_intent that is later
+// followed by a call increases confidence in a sales-ready recommendation.
 
 import type { PrismaClient, Interaction, Signal } from '@prisma/client';
 
@@ -90,6 +96,44 @@ export class NextBestActionService {
         title: 'Assign to a human agent (emergency)',
         detail: 'Emergency intent detected. Route to a human dispatcher for immediate handling.',
         hint: { reason: 'emergency_intent' },
+      });
+    }
+
+    // Rule 2b — Sprint 14: website appointment intent is a hot, sales-ready lead.
+    if (signalKeys.has('appointment_intent') || eventType === 'web.appointment_request') {
+      actions.push({
+        kind: 'create_follow_up',
+        priority: 1,
+        title: 'Confirm the requested appointment',
+        detail: 'The customer requested an appointment on the website. Confirm the booking quickly while intent is high.',
+        hint: { reason: 'web_appointment_intent', dueWithinMinutes: 30 },
+      });
+    }
+
+    // Rule 2c — Sprint 14: website buying intent FOLLOWED by a call is high-confidence.
+    // Reads both senses from the shared signal pool — the cross-channel boost.
+    if (signalKeys.has('buying_intent') && ctx.interaction.channel === 'PHONE') {
+      actions.push({
+        kind: 'assign_human',
+        priority: 2,
+        title: 'Prioritize — researched online, now calling',
+        detail: 'This customer showed buying intent on the website and is now on a call. Treat as a high-confidence, sales-ready lead.',
+        hint: { reason: 'web_then_call', confidence: 'high' },
+      });
+    }
+
+    // Rule 2d — Sprint 14: research-only website behaviour deserves nurturing.
+    if (
+      (signalKeys.has('research_intent') || signalKeys.has('comparison_shopper')) &&
+      !signalKeys.has('buying_intent') &&
+      !signalKeys.has('appointment_intent')
+    ) {
+      actions.push({
+        kind: 'recommend_channel',
+        priority: 4,
+        title: 'Nurture an active researcher',
+        detail: 'The customer is researching but has not converted. Share a helpful guide or follow up by email to stay top-of-mind.',
+        hint: { reason: 'web_research', channel: 'email' },
       });
     }
 
