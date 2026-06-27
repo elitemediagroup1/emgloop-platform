@@ -12,19 +12,22 @@ import {
   updateCustomerFieldsAction,
 } from '../../../../crm/actions';
 
-// Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
+// Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2)
+//                    + Sprint 14 (Website Intelligence — Website tab).
 //
 // A dedicated operating surface for one customer, read entirely from Neon via
 // the repository layer. Tabs are server-rendered via ?tab= so no client JS is
-// needed. Sprint 6 adds an Edit tab (editable name / contact / company / city /
-// state / service / source) and replaces the free-text assignment inputs with
-// real pickers populated from the organization's User and AIEmployee tables.
+// needed. Sprint 14 adds a Website tab that surfaces this customer's website
+// activity (pages, searches, downloads, forms, CTAs, sessions) — reusing the
+// existing timeline UI; website events already flow into ws.interactions via the
+// WebsiteProvider, so this is a presentation-only view over Brain data.
 
 export const dynamic = 'force-dynamic';
 
 const TABS = [
   'Overview',
   'Timeline',
+  'Website',
   'Notes',
   'Messages',
   'Bookings',
@@ -68,6 +71,7 @@ const KIND_COLOR: Record<string, string> = {
   EMAIL: 'var(--crm-purple)',
   PHONE_CALL: 'var(--crm-amber)',
   APPOINTMENT: 'var(--crm-accent)',
+  CHAT: 'var(--crm-blue)',
   NOTE: 'var(--crm-faint)',
   OTHER: 'var(--crm-faint)',
 };
@@ -86,6 +90,14 @@ function actorLabel(a: string | undefined): string {
     default:
       return 'System';
   }
+}
+
+// Sprint 14 — is this interaction a website event? (provider 'website' or a
+// web.* eventType captured on the interaction metadata).
+function isWebInteraction(i: { provider?: string | null; payload?: unknown }): boolean {
+  if (i.provider === 'website') return true;
+  const et = payloadVal<string>(i.payload, 'eventType');
+  return typeof et === 'string' && et.startsWith('web.');
 }
 
 export default async function CustomerWorkspace({
@@ -120,6 +132,7 @@ export default async function CustomerWorkspace({
 
   const notes = ws.interactions.filter((i) => i.kind === 'NOTE');
   const messages = ws.conversations.flatMap((c) => c.messages);
+  const webEvents = ws.interactions.filter((i) => isWebInteraction(i));
   const aiActivity = ws.interactions.filter(
     (i) =>
       actorLabel(payloadVal<string>(i.payload, 'actorType')) === 'AI' ||
@@ -129,8 +142,6 @@ export default async function CustomerWorkspace({
   const tabHref = (t: Tab) =>
     '/crm/customers/' + cid + (t === 'Overview' ? '' : '?tab=' + encodeURIComponent(t));
 
-  // The picker offers the org's real people/AIs by name, plus the current
-  // free-text value (so an externally-set assignment still shows as selected).
   const humanNames = Array.from(
     new Set(
       [ws.assignedHumanName, ...assignees.humans.map((h) => h.name)].filter(
@@ -273,6 +284,7 @@ export default async function CustomerWorkspace({
             <div className="crm-card">
               <h3>Overview</h3>
               <div className="crm-kv"><span className="k">Interactions</span><span className="v">{ws.interactions.length}</span></div>
+              <div className="crm-kv"><span className="k">Website events</span><span className="v">{webEvents.length}</span></div>
               <div className="crm-kv"><span className="k">Messages</span><span className="v">{messages.length}</span></div>
               <div className="crm-kv"><span className="k">Bookings</span><span className="v">{ws.bookings.length}</span></div>
               <div className="crm-kv"><span className="k">Signals</span><span className="v">{ws.signals.length}</span></div>
@@ -350,6 +362,39 @@ export default async function CustomerWorkspace({
                         ) : null}
                         <div className="crm-tl-meta">
                           {i.kind} · {actorLabel(payloadVal<string>(i.payload, 'actorType'))} · {i.channel} · {fmt(i.occurredAt)}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+
+          {activeTab === 'Website' ? (
+            <div className="crm-card">
+              <h3>Website activity</h3>
+              <p className="crm-faint" style={{ fontSize: '0.78rem', marginTop: '-0.3rem', marginBottom: '0.8rem' }}>
+                Pages, searches, downloads, forms, and CTA clicks captured by the Brain across EMG-owned websites.
+              </p>
+              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Total events</span><strong>{webEvents.length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Sessions</span><strong>{webEvents.filter((i) => payloadVal<string>(i.payload, 'eventType') === 'web.session_start').length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Searches</span><strong>{webEvents.filter((i) => (payloadVal<string>(i.payload, 'eventType') ?? '').startsWith('web.search')).length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Forms</span><strong>{webEvents.filter((i) => (payloadVal<string>(i.payload, 'eventType') ?? '').startsWith('web.form')).length}</strong></div>
+                <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>CTA clicks</span><strong>{webEvents.filter((i) => ['web.cta_click', 'web.phone_click', 'web.email_click'].includes(payloadVal<string>(i.payload, 'eventType') ?? '')).length}</strong></div>
+              </div>
+              {webEvents.length === 0 ? (
+                <p className="crm-faint">The Brain has not seen this customer on a website yet. As they browse EMG properties, their activity will appear here.</p>
+              ) : (
+                <ul className="crm-timeline">
+                  {webEvents.map((i) => (
+                    <li key={i.id}>
+                      <span className="crm-tl-dot" style={{ background: 'var(--crm-blue)' }} />
+                      <div>
+                        <div className="crm-tl-title">{i.summary || i.kind}</div>
+                        <div className="crm-tl-meta">
+                          {(payloadVal<string>(i.payload, 'property') ?? 'website')} · {(payloadVal<string>(i.payload, 'eventType') ?? '').replace(/^web\./, '') || i.kind} · {fmt(i.occurredAt)}
                         </div>
                       </div>
                     </li>
