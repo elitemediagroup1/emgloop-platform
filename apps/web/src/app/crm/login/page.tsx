@@ -1,4 +1,6 @@
 // CRM Login — Sprint 7 (Identity, Authentication & Organizations).
+// Sprint 13: brand-forward presentation (EMG Loop wordmark + Elite Media Group
+// mark). Auth logic, action, session and redirect below are UNCHANGED.
 //
 // Email/password sign-in for the operations console. Renders the demo seed
 // credentials so reviewers can sign in (no email delivery yet). On submit, the
@@ -9,6 +11,7 @@ import { redirect } from 'next/navigation';
 import { loginAction } from '../../../auth/actions';
 import { getSession } from '../../../auth/auth';
 import { ensureCrmIdentity, DEMO_OWNER_EMAIL, DEMO_DEFAULT_PASSWORD } from '../../../auth/bootstrap';
+import { EmgLoopWordmark, EliteMediaGroupMark } from '../_brand/Logos';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +27,11 @@ export default async function LoginPage({
   return (
     <div className="crm-auth-wrap">
       <div className="crm-auth-card">
+        <div style={{ marginBottom: '1rem' }}>
+          <EmgLoopWordmark height={30} />
+        </div>
         <h1>Sign in</h1>
-        <p className="crm-auth-sub">EMG Loop operations console</p>
+        <p className="crm-auth-sub">Your business operating system</p>
         {searchParams.error ? (
           <div className="crm-auth-error">{searchParams.error}</div>
         ) : null}
@@ -53,6 +59,9 @@ export default async function LoginPage({
         <div className="crm-auth-hint">
           Demo sign-in: <code>{DEMO_OWNER_EMAIL}</code> / <code>{DEMO_DEFAULT_PASSWORD}</code>
           <br />Manager: <code>manager@emgloop.com</code> · Read-only: <code>viewer@emgloop.com</code> (same password)
+        </div>
+        <div style={{ marginTop: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: 0.7 }}>
+          <EliteMediaGroupMark height={16} />
         </div>
       </div>
     </div>
