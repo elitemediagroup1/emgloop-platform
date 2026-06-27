@@ -4,37 +4,75 @@ import './sprint7.css';
 import './sprint8.css';
 import './sprint9.css';
 import './sprint10.css';
+import './design-system.css';
 import { getSession } from '../../auth/auth';
 import { logoutAction } from '../../auth/actions';
+import { EmgLoopWordmark } from './_brand/Logos';
+import { SidebarIcon } from './_brand/SidebarIcon';
 
-// CRM layout — Sprint 5/6 + Sprint 7 (Identity) + Sprint 8 (Conversations)
-// + Sprint 9 (Workflows) + Sprint 10 (Loop Intelligence Foundation).
+// CRM layout — Sprint 13 Operating System design language.
 //
-// Wraps every /crm page in the self-contained dark operations theme and a
-// persistent top bar. Sprint 10 adds Analytics, Integrations, and Loop
-// Intelligence to the nav.
+// Sprint 13 replaces the horizontal top-bar with a premium left sidebar
+// (Brain-first information architecture), a sticky command bar with a
+// ⌘K affordance, and a System Health / Brain Status footer. This is a
+// PRESENTATION-ONLY change: the session read and logout action below are
+// unchanged from Sprint 10/11, and every existing route still renders in
+// the same content slot. No business logic, data, routing, or auth changes.
 
 export const metadata = {
-  title: 'EMG Loop — CRM',
+  title: 'EMG Loop — Operating System',
 };
 
-const NAV: { href: string; label: string }[] = [
-  { href: '/crm', label: 'Dashboard' },
-  { href: '/crm/customers', label: 'Customers' },
-  { href: '/crm/pipeline', label: 'Pipeline' },
-  { href: '/crm/conversations', label: 'Conversations' },
-  { href: '/crm/workflows', label: 'Workflows' },
-  { href: '/crm/inbox', label: 'Inbox' },
-  { href: '/crm/search', label: 'Search' },
-  { href: '/crm/analytics', label: 'Analytics' },
-  { href: '/crm/intelligence', label: 'Intelligence' },
-  { href: '/crm/ai-employees', label: 'AI Employees' },
-  { href: '/crm/integrations', label: 'Integrations' },
-  { href: '/crm/users', label: 'Users' },
-  { href: '/crm/organizations', label: 'Organizations' },
-  { href: '/crm/settings', label: 'Settings' },
-  { href: '/crm/audit', label: 'Audit' },
+type NavItem = { href: string; label: string; icon: string; soon?: boolean };
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV: NavGroup[] = [
+  {
+    label: 'Intelligence',
+    items: [
+      { href: '/crm', label: 'Overview', icon: 'grid' },
+      { href: '/crm/intelligence', label: 'Brain', icon: 'brain' },
+      { href: '/crm/analytics', label: 'Analytics', icon: 'chart' },
+      { href: '/crm/integrations', label: 'Integrations', icon: 'plug' },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { href: '/crm/customers', label: 'Customers', icon: 'users' },
+      { href: '/crm/conversations', label: 'Conversations', icon: 'chat' },
+      { href: '/crm/pipeline', label: 'Pipeline', icon: 'columns' },
+      { href: '/crm/inbox', label: 'Calendar', icon: 'calendar' },
+      { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot' },
+      { href: '/crm/workflows', label: 'Workflows', icon: 'flow' },
+    ],
+  },
+  {
+    label: 'Growth',
+    items: [
+      { href: '/crm/analytics', label: 'Revenue', icon: 'revenue' },
+      { href: '/crm/organizations', label: 'Organizations', icon: 'building' },
+      { href: '#', label: 'Creators', icon: 'star', soon: true },
+      { href: '#', label: 'Business Portal', icon: 'portal', soon: true },
+    ],
+  },
+  {
+    label: 'Workspace',
+    items: [
+      { href: '/crm/users', label: 'Team', icon: 'team' },
+      { href: '/crm/settings', label: 'Settings', icon: 'cog' },
+    ],
+  },
 ];
+
+function initials(name?: string | null, email?: string | null): string {
+  const src = (name || email || '?').trim();
+  const parts = src.split(/[\s@.]+/).filter(Boolean);
+  const a = parts[0]?.charAt(0) ?? '';
+  const b = parts.length > 1 ? (parts[1]?.charAt(0) ?? '') : '';
+  const combined = (a + b).toUpperCase();
+  return combined || src.slice(0, 2).toUpperCase();
+}
 
 export default async function CrmLayout({
   children,
@@ -42,30 +80,81 @@ export default async function CrmLayout({
   children: React.ReactNode;
 }) {
   const session = await getSession();
+
   return (
     <div className="crm">
-      <header className="crm-topbar">
-        <Link href="/crm" className="crm-brand">
-          <span className="dot" />
-          <span>EMG Loop</span>
-        </Link>
-        <nav className="crm-nav">
-          {NAV.map((item) => (
-            <Link key={item.href} href={item.href} className="crm-nav-link">
-              {item.label}
+      <div className="crm-shell">
+        <aside className="crm-sidebar">
+          <div className="crm-sb-brand">
+            <Link href="/crm" aria-label="EMG Loop home">
+              <EmgLoopWordmark height={24} />
             </Link>
-          ))}
-        </nav>
-        {session ? (
-          <div className="crm-account">
-            <span className="crm-account-name">{session.email ?? 'Account'}</span>
-            <form action={logoutAction}>
-              <button type="submit" className="crm-signout">Sign out</button>
-            </form>
+            <span className="badge">OS</span>
           </div>
-        ) : null}
-      </header>
-      <main className="crm-main">{children}</main>
+
+          <nav className="crm-sb-scroll" aria-label="Primary">
+            {NAV.map((group) => (
+              <div key={group.label}>
+                <div className="crm-sb-group-label">{group.label}</div>
+                {group.items.map((item) =>
+                  item.soon ? (
+                    <span key={item.label} className="crm-sb-link soon" aria-disabled="true">
+                      <span className="ico"><SidebarIcon name={item.icon} /></span>
+                      <span className="lbl">{item.label}</span>
+                      <span className="crm-sb-pill">Soon</span>
+                    </span>
+                  ) : (
+                    <Link key={item.label} href={item.href} className="crm-sb-link">
+                      <span className="ico"><SidebarIcon name={item.icon} /></span>
+                      <span className="lbl">{item.label}</span>
+                    </Link>
+                  )
+                )}
+              </div>
+            ))}
+          </nav>
+
+          <div className="crm-sb-foot">
+            <div className="crm-sb-stat">
+              <span className="crm-dot-live" />
+              <span className="label">Brain Status</span>
+              <span className="val">Online</span>
+            </div>
+            <div className="crm-sb-stat">
+              <span className="ds-status-dot ok" />
+              <span className="label">System Health</span>
+              <span className="val">Operational</span>
+            </div>
+            {session ? (
+              <div className="crm-sb-user">
+                <span className="crm-sb-avatar">{initials(session.name, session.email)}</span>
+                <span className="who">
+                  <div className="nm">{session.name ?? session.email ?? 'Account'}</div>
+                  <div className="rl">{session.roleLabel ?? 'Member'}</div>
+                </span>
+                <form action={logoutAction}>
+                  <button type="submit" className="crm-signout">Exit</button>
+                </form>
+              </div>
+            ) : null}
+          </div>
+        </aside>
+
+        <div className="crm-content">
+          <header className="crm-appbar">
+            <div className="crm-cmdk" role="button" aria-label="Search (Command K)">
+              <SidebarIcon name="search" />
+              <span>Search customers, signals, knowledge…</span>
+              <span className="kbd"><span className="crm-kbd">⌘</span><span className="crm-kbd">K</span></span>
+            </div>
+            <div className="crm-appbar-right">
+              <span className="crm-icon-btn" aria-label="Notifications"><SidebarIcon name="bell" /></span>
+              <span className="crm-icon-btn" aria-label="Activity"><SidebarIcon name="activity" /></span>
+            </div>
+          </header>
+          <main className="crm-main">{children}</main>
+        </div>
+      </div>
     </div>
   );
 }

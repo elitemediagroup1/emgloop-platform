@@ -1,0 +1,389 @@
+/* =====================================================================
+   EMG Loop — Operating System Design Language (Sprint 13)
+   ---------------------------------------------------------------------
+   A premium, dark-first design system layered on top of the existing
+   .crm scope. This file is PRESENTATION ONLY. It redefines the design
+   tokens and upgrades the visual treatment of the shared component
+   classes (panels, cards, tables, buttons, badges, tabs, inputs, etc.)
+   so every existing /crm page inherits the new look with zero changes
+   to business logic, data, routing, or auth.
+
+   Loaded AFTER crm.css + sprintN.css in layout.tsx, so these rules win.
+
+   Brand palette is derived from the Elite Media Group + EMG Loop marks:
+     navy   #1B2A6B   teal #2E9B9B   (logo gradient)
+   combined with the Sprint 13 platform palette:
+     bg #0B0F14  panel #111827  card #151D29  hover #1C2636
+     accent (electric cyan) #22D3EE   revenue/success (emerald) #34D399
+     warning (amber) #F5B544   error (crimson) #F2545B
+   ===================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+.crm {
+  /* --- Surfaces --- */
+  --crm-bg: #0B0F14;
+  --crm-panel: #111827;
+  --crm-panel-2: #151D29;
+  --crm-card: #151D29;
+  --crm-hover: #1C2636;
+  --crm-border: #1E2A3A;
+  --crm-border-soft: #18222F;
+
+  /* --- Text --- */
+  --crm-text: #E8EEF6;
+  --crm-muted: #93A1B5;
+  --crm-faint: #5C6B80;
+
+  /* --- Brand / accents --- */
+  --crm-accent: #22D3EE;              /* electric cyan */
+  --crm-accent-dim: rgba(34, 211, 238, 0.12);
+  --crm-accent-soft: rgba(34, 211, 238, 0.18);
+  --crm-navy: #1B2A6B;
+  --crm-teal: #2E9B9B;
+  --crm-brand-grad: linear-gradient(120deg, #1B2A6B 0%, #2E9B9B 100%);
+
+  --crm-blue: #4AA8FF;
+  --crm-purple: #B07CFF;
+  --crm-amber: #F5B544;
+  --crm-red: #F2545B;
+  --crm-green: #34D399;               /* success */
+  --crm-emerald: #34D399;             /* revenue */
+  --crm-revenue: #34D399;
+
+  /* --- Geometry / motion --- */
+  --crm-radius: 12px;
+  --crm-radius-sm: 9px;
+  --crm-radius-lg: 16px;
+  --crm-shadow: 0 1px 0 rgba(255,255,255,0.02), 0 8px 24px -12px rgba(0,0,0,0.6);
+  --crm-shadow-lg: 0 24px 60px -20px rgba(0,0,0,0.7);
+  --crm-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --crm-dur: 160ms;
+
+  --crm-sidebar-w: 248px;
+
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  background:
+    radial-gradient(1200px 600px at 78% -8%, rgba(46,155,155,0.08), transparent 60%),
+    radial-gradient(900px 500px at -6% 4%, rgba(27,42,107,0.16), transparent 55%),
+    var(--crm-bg);
+  color: var(--crm-text);
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ----- Typography rhythm ----- */
+.crm-h1, .crm h1 { font-weight: 700; letter-spacing: -0.022em; }
+.crm-sub, .crm-page-head p { color: var(--crm-muted); }
+
+/* =====================================================================
+   App shell (left sidebar + content). Layout markup lives in layout.tsx.
+   ===================================================================== */
+.crm-shell { display: flex; min-height: 100vh; }
+
+.crm-sidebar {
+  width: var(--crm-sidebar-w);
+  flex: 0 0 var(--crm-sidebar-w);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(17,24,39,0.92), rgba(11,15,20,0.96));
+  border-right: 1px solid var(--crm-border);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+.crm-sb-brand {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 1.05rem 1.1rem 0.9rem;
+  border-bottom: 1px solid var(--crm-border-soft);
+}
+.crm-sb-brand .logo { height: 26px; width: auto; display: block; }
+.crm-sb-brand .badge {
+  margin-left: auto; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--crm-accent);
+  background: var(--crm-accent-dim); border: 1px solid var(--crm-accent-soft);
+  border-radius: 999px; padding: 0.12rem 0.45rem;
+}
+.crm-sb-scroll { flex: 1; overflow-y: auto; padding: 0.6rem 0.6rem 0.4rem; }
+.crm-sb-scroll::-webkit-scrollbar { width: 8px; }
+.crm-sb-scroll::-webkit-scrollbar-thumb { background: var(--crm-border); border-radius: 8px; }
+
+.crm-sb-group-label {
+  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--crm-faint); font-weight: 700;
+  padding: 0.85rem 0.7rem 0.35rem;
+}
+.crm-sb-link {
+  display: flex; align-items: center; gap: 0.65rem;
+  padding: 0.5rem 0.7rem; margin: 0.08rem 0;
+  border-radius: var(--crm-radius-sm);
+  color: var(--crm-muted); font-weight: 500; font-size: 0.85rem;
+  position: relative; transition: background var(--crm-dur) var(--crm-ease),
+    color var(--crm-dur) var(--crm-ease);
+}
+.crm-sb-link .ico {
+  width: 17px; height: 17px; flex: 0 0 17px; opacity: 0.85;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.crm-sb-link:hover { background: var(--crm-hover); color: var(--crm-text); }
+.crm-sb-link.active {
+  background: linear-gradient(90deg, var(--crm-accent-dim), transparent);
+  color: var(--crm-text);
+}
+.crm-sb-link.active::before {
+  content: ''; position: absolute; left: -0.6rem; top: 50%;
+  transform: translateY(-50%); width: 3px; height: 18px;
+  border-radius: 0 3px 3px 0; background: var(--crm-accent);
+  box-shadow: 0 0 10px var(--crm-accent);
+}
+.crm-sb-link.soon { opacity: 0.55; cursor: default; }
+.crm-sb-pill {
+  margin-left: auto; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--crm-faint);
+  border: 1px solid var(--crm-border); border-radius: 999px; padding: 0.05rem 0.4rem;
+}
+
+.crm-sb-foot { border-top: 1px solid var(--crm-border-soft); padding: 0.7rem; }
+.crm-sb-stat {
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.4rem 0.55rem; border-radius: var(--crm-radius-sm); font-size: 0.78rem;
+}
+.crm-sb-stat .label { color: var(--crm-muted); }
+.crm-sb-stat .val { margin-left: auto; font-weight: 600; color: var(--crm-text); }
+.crm-dot-live {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--crm-green);
+  box-shadow: 0 0 0 0 rgba(52,211,153,0.6); animation: crm-pulse 2.2s infinite;
+}
+@keyframes crm-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52,211,153,0.5); }
+  70% { box-shadow: 0 0 0 7px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+}
+.crm-sb-user {
+  display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;
+  padding: 0.5rem 0.55rem; border-radius: var(--crm-radius-sm);
+  background: var(--crm-card); border: 1px solid var(--crm-border);
+}
+.crm-sb-avatar {
+  width: 30px; height: 30px; border-radius: 8px; flex: 0 0 30px;
+  background: var(--crm-brand-grad); color: #fff; font-weight: 700; font-size: 0.78rem;
+  display: flex; align-items: center; justify-content: center;
+}
+.crm-sb-user .who { min-width: 0; }
+.crm-sb-user .who .nm { font-weight: 600; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crm-sb-user .who .rl { color: var(--crm-faint); font-size: 0.7rem; }
+.crm-signout {
+  margin-left: auto; background: transparent; border: 1px solid var(--crm-border);
+  color: var(--crm-muted); border-radius: 7px; padding: 0.3rem 0.5rem;
+  font-size: 0.72rem; cursor: pointer; transition: all var(--crm-dur) var(--crm-ease);
+}
+.crm-signout:hover { color: var(--crm-red); border-color: var(--crm-red); }
+
+/* ----- Content column ----- */
+.crm-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.crm-appbar {
+  display: flex; align-items: center; gap: 0.85rem;
+  height: 58px; padding: 0 1.4rem;
+  border-bottom: 1px solid var(--crm-border);
+  background: rgba(11,15,20,0.72); backdrop-filter: blur(10px);
+  position: sticky; top: 0; z-index: 20;
+}
+.crm-cmdk {
+  display: flex; align-items: center; gap: 0.5rem;
+  min-width: 280px; max-width: 420px; flex: 1;
+  background: var(--crm-card); border: 1px solid var(--crm-border);
+  color: var(--crm-faint); border-radius: 10px; padding: 0.45rem 0.7rem;
+  font-size: 0.83rem; cursor: text;
+}
+.crm-cmdk .kbd {
+  margin-left: auto; display: inline-flex; gap: 0.2rem;
+}
+.crm-kbd {
+  font: 600 0.68rem 'Inter', system-ui; color: var(--crm-muted);
+  background: var(--crm-panel); border: 1px solid var(--crm-border);
+  border-radius: 5px; padding: 0.05rem 0.35rem;
+}
+.crm-appbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.7rem; }
+.crm-icon-btn {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 9px; border: 1px solid var(--crm-border); background: var(--crm-card);
+  color: var(--crm-muted); cursor: pointer; transition: all var(--crm-dur) var(--crm-ease);
+}
+.crm-icon-btn:hover { color: var(--crm-text); border-color: var(--crm-accent); }
+
+.crm-main { padding: 1.5rem 1.6rem 3.5rem; max-width: 1400px; margin: 0; width: 100%; }
+
+/* =====================================================================
+   Component upgrades (shared classes used across every page)
+   ===================================================================== */
+
+/* Panels & cards */
+.crm-panel, .crm-card, .crm-col, .crm-note, .crm-kcard {
+  border-radius: var(--crm-radius);
+  border-color: var(--crm-border);
+}
+.crm-panel, .crm-card {
+  background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.6));
+  box-shadow: var(--crm-shadow);
+}
+.crm-card { transition: transform var(--crm-dur) var(--crm-ease), border-color var(--crm-dur) var(--crm-ease); }
+a.crm-card:hover, .crm-card.hoverable:hover {
+  transform: translateY(-2px); border-color: var(--crm-accent-soft);
+}
+
+/* Buttons */
+.crm-btn {
+  background: var(--crm-accent); color: #04222a; border-radius: var(--crm-radius-sm);
+  font-weight: 600; transition: all var(--crm-dur) var(--crm-ease);
+  box-shadow: 0 6px 18px -8px rgba(34,211,238,0.6);
+}
+.crm-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.crm-btn-ghost {
+  background: var(--crm-card); color: var(--crm-text); border: 1px solid var(--crm-border);
+  box-shadow: none;
+}
+.crm-btn-ghost:hover { background: var(--crm-hover); border-color: var(--crm-accent-soft); }
+
+/* Inputs */
+.crm-input, .crm-select, .crm-textarea {
+  background: var(--crm-card); border-radius: var(--crm-radius-sm); border-color: var(--crm-border);
+  transition: border-color var(--crm-dur) var(--crm-ease), box-shadow var(--crm-dur) var(--crm-ease);
+}
+.crm-input:focus, .crm-select:focus, .crm-textarea:focus {
+  border-color: var(--crm-accent); box-shadow: 0 0 0 3px var(--crm-accent-dim);
+}
+
+/* Tables */
+.crm-table th { background: rgba(21,29,41,0.7); letter-spacing: 0.06em; }
+.crm-table tbody tr { transition: background var(--crm-dur) var(--crm-ease); }
+.crm-table tbody tr:hover { background: var(--crm-hover); }
+
+/* Status / badges */
+.crm-status, .crm-tag, .crm-chip { border-radius: 999px; }
+.crm-status.New { color: var(--crm-blue); background: rgba(74,168,255,0.14); }
+.crm-status.Contacted { color: var(--crm-purple); background: rgba(176,124,255,0.14); }
+.crm-status.Quoted { color: var(--crm-amber); background: rgba(245,181,68,0.14); }
+.crm-status.Booked { color: var(--crm-accent); background: var(--crm-accent-dim); }
+.crm-status.Completed { color: var(--crm-green); background: rgba(52,211,153,0.14); }
+
+/* Tabs */
+.crm-tabs a.active { color: var(--crm-accent); border-bottom-color: var(--crm-accent); }
+
+/* Chips */
+.crm-chip.active, .crm-view.active {
+  background: var(--crm-accent-dim); border-color: var(--crm-accent-soft); color: var(--crm-accent);
+}
+
+/* =====================================================================
+   New design-system primitives (opt-in classes used by redesigned pages)
+   ===================================================================== */
+
+/* Section header */
+.ds-pagehead { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.ds-eyebrow { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--crm-accent); font-weight: 700; margin-bottom: 0.35rem; }
+.ds-title { font-size: 1.55rem; font-weight: 700; letter-spacing: -0.025em; margin: 0; }
+.ds-subtitle { color: var(--crm-muted); margin: 0.3rem 0 0; font-size: 0.9rem; }
+
+/* KPI grid */
+.ds-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 0.85rem; margin-bottom: 1.4rem; }
+.ds-kpi {
+  background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.55));
+  border: 1px solid var(--crm-border); border-radius: var(--crm-radius);
+  padding: 0.95rem 1rem; position: relative; overflow: hidden;
+  box-shadow: var(--crm-shadow);
+}
+.ds-kpi::after {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: var(--crm-brand-grad); opacity: 0.7;
+}
+.ds-kpi .k-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--crm-faint); display: flex; align-items: center; gap: 0.4rem; }
+.ds-kpi .k-value { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.03em; margin-top: 0.35rem; }
+.ds-kpi .k-trend { font-size: 0.74rem; margin-top: 0.2rem; color: var(--crm-green); }
+.ds-kpi .k-trend.down { color: var(--crm-red); }
+.ds-kpi.rev .k-value { color: var(--crm-revenue); }
+
+/* Grid layout for command center */
+.ds-grid { display: grid; gap: 1rem; }
+.ds-grid.cols-3 { grid-template-columns: 1.4fr 1fr 1fr; }
+.ds-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+@media (max-width: 1100px) { .ds-grid.cols-3, .ds-grid.cols-2 { grid-template-columns: 1fr; } }
+
+.ds-card { background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.55)); border: 1px solid var(--crm-border); border-radius: var(--crm-radius); box-shadow: var(--crm-shadow); }
+.ds-card-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--crm-border-soft); }
+.ds-card-head h3 { margin: 0; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.02em; }
+.ds-card-head .more { margin-left: auto; font-size: 0.74rem; color: var(--crm-faint); }
+.ds-card-body { padding: 0.9rem 1rem; }
+
+/* Recommendation rows (Brain) */
+.ds-reco { display: flex; gap: 0.7rem; padding: 0.7rem 0; border-bottom: 1px solid var(--crm-border-soft); }
+.ds-reco:last-child { border-bottom: none; }
+.ds-reco .rico { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px; background: var(--crm-accent-dim); color: var(--crm-accent); display: flex; align-items: center; justify-content: center; }
+.ds-reco .rtitle { font-weight: 600; font-size: 0.86rem; }
+.ds-reco .rmeta { color: var(--crm-faint); font-size: 0.74rem; margin-top: 0.15rem; }
+.ds-conf { font-size: 0.68rem; font-weight: 700; color: var(--crm-green); margin-left: auto; white-space: nowrap; }
+
+/* Live activity feed */
+.ds-activity { list-style: none; margin: 0; padding: 0; }
+.ds-activity li { display: flex; gap: 0.6rem; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--crm-border-soft); font-size: 0.82rem; }
+.ds-activity li:last-child { border-bottom: none; }
+.ds-activity .adot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; background: var(--crm-accent); }
+.ds-activity .awhen { margin-left: auto; color: var(--crm-faint); font-size: 0.72rem; white-space: nowrap; }
+
+/* Health rows */
+.ds-health { display: flex; flex-direction: column; gap: 0.55rem; }
+.ds-health-row { display: flex; align-items: center; gap: 0.55rem; font-size: 0.82rem; }
+.ds-health-row .hname { color: var(--crm-muted); }
+.ds-health-row .hval { margin-left: auto; font-weight: 600; }
+.ds-status-dot { width: 9px; height: 9px; border-radius: 50%; }
+.ds-status-dot.ok { background: var(--crm-green); box-shadow: 0 0 8px rgba(52,211,153,0.6); }
+.ds-status-dot.warn { background: var(--crm-amber); }
+.ds-status-dot.err { background: var(--crm-red); }
+
+/* Empty / loading / skeleton */
+.ds-empty { text-align: center; padding: 2.4rem 1.2rem; color: var(--crm-muted); }
+.ds-empty .glyph { width: 46px; height: 46px; border-radius: 12px; margin: 0 auto 0.8rem; background: var(--crm-accent-dim); color: var(--crm-accent); display: flex; align-items: center; justify-content: center; }
+.ds-empty .et { font-weight: 600; color: var(--crm-text); margin-bottom: 0.25rem; }
+.ds-skel { background: linear-gradient(90deg, var(--crm-card) 25%, var(--crm-hover) 37%, var(--crm-card) 63%); background-size: 400% 100%; animation: ds-shimmer 1.4s ease infinite; border-radius: 6px; height: 14px; }
+@keyframes ds-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* Toast */
+.ds-toast { position: fixed; right: 1.2rem; bottom: 1.2rem; z-index: 60; display: flex; align-items: center; gap: 0.6rem; background: var(--crm-panel); border: 1px solid var(--crm-border); border-left: 3px solid var(--crm-accent); border-radius: var(--crm-radius-sm); padding: 0.7rem 0.9rem; box-shadow: var(--crm-shadow-lg); }
+
+/* Brain pipeline flow (signature page) */
+.ds-flow { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; padding: 0.5rem 0; }
+.ds-flow-node {
+  width: 100%; max-width: 420px; text-align: center;
+  background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.5));
+  border: 1px solid var(--crm-border); border-radius: var(--crm-radius);
+  padding: 0.7rem 1rem; box-shadow: var(--crm-shadow);
+  transition: border-color var(--crm-dur) var(--crm-ease), transform var(--crm-dur) var(--crm-ease);
+}
+.ds-flow-node:hover { border-color: var(--crm-accent-soft); transform: translateY(-1px); }
+.ds-flow-node .fn-name { font-weight: 700; font-size: 0.9rem; }
+.ds-flow-node .fn-desc { color: var(--crm-faint); font-size: 0.74rem; margin-top: 0.15rem; }
+.ds-flow-arrow { width: 2px; height: 18px; background: linear-gradient(180deg, var(--crm-accent), transparent); position: relative; }
+.ds-flow-arrow::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--crm-accent); }
+
+/* "Coming soon" placeholder cards */
+.ds-soon-banner { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--crm-amber); background: rgba(245,181,68,0.12); border: 1px solid rgba(245,181,68,0.3); border-radius: 999px; padding: 0.15rem 0.55rem; }
+
+/* Footer */
+.ds-footer { display: flex; align-items: center; gap: 0.6rem; padding: 1.5rem 0 0; margin-top: 1.5rem; border-top: 1px solid var(--crm-border-soft); color: var(--crm-faint); font-size: 0.74rem; }
+.ds-footer .emg { height: 14px; opacity: 0.7; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .crm *, .crm *::before, .crm *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* Mobile: sidebar collapses to icon strip (functional, not focus) */
+@media (max-width: 860px) {
+  .crm { --crm-sidebar-w: 64px; }
+  .crm-sb-brand .logo, .crm-sb-link span.lbl, .crm-sb-group-label,
+  .crm-sb-foot .label, .crm-sb-user .who, .crm-sb-pill, .crm-sb-brand .badge { display: none; }
+  .crm-sb-link { justify-content: center; }
+  .crm-cmdk { min-width: 0; }
+}
