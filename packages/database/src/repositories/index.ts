@@ -1,6 +1,7 @@
 // Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity)
 // + Sprint 8 (Conversations & the Unified Inbox) + Sprint 9 (Workflows)
-// + Sprint 10 (Loop Intelligence Foundation) + Sprint 14 (Website Intelligence).
+// + Sprint 10 (Loop Intelligence Foundation) + Sprint 14 (Website Intelligence)
+// + Sprint 15 (Live Operations, Traffic & Revenue Intelligence).
 //
 // One import surface for the whole platform's persistence.
 
@@ -25,60 +26,25 @@ import { NormalizationEngine } from './normalization.repository';
 import { AnalyticsRepository } from './analytics.repository';
 import { WebsiteAnalyticsRepository } from './website-analytics.repository';
 import { IntelligenceRepository } from './intelligence.repository';
+import { LiveOperationsRepository } from './live-operations.repository';
+import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 
 export * from './types';
-export { CustomerRepository, customerDisplayName } from './customer.repository';
+export { CustomerRepository } from './customer.repository';
 export { InteractionRepository } from './interaction.repository';
 export { BookingRepository } from './booking.repository';
-export { SignalRepository, signalTypeFromLabel } from './signal.repository';
+export { SignalRepository } from './signal.repository';
 export { DomainEventRepository } from './domain-event.repository';
 export { ConversationRepository, MessageRepository } from './messaging.repository';
 export { AIEmployeeRepository } from './ai-employee.repository';
-export type { AIEmployeeView } from './ai-employee.repository';
-export { CrmRepository, PIPELINE_STATUSES } from './crm.repository';
-export type {
-  PipelineStatus,
-  CustomerSortKey,
-  CustomerListFilters,
-  CustomerListRow,
-  CustomerListResult,
-  AssigneeOption,
-  AssigneeOptions,
-  InboxItem,
-  KanbanColumn,
-} from './crm.repository';
+export { CrmRepository } from './crm.repository';
 export { AuthRepository } from './auth.repository';
-export type { SessionWithUser } from './auth.repository';
-export {
-  IamRepository,
-  SYSTEM_ROLES,
-  SYSTEM_ROLE_LABELS,
-  roleLabel,
-  matrixAllows,
-  userSystemRole,
-} from './iam.repository';
-export type { Resource, Action, UserListItem } from './iam.repository';
+export { IamRepository } from './iam.repository';
 export { OrganizationRepository } from './organization.repository';
-export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
-export type { AuditView } from './audit.repository';
-export { ConversationsRepository, CONVERSATION_STATUSES } from './conversations.repository';
+export { ConversationsRepository } from './conversations.repository';
+export { WorkflowsRepository } from './workflows.repository';
 export type {
-  InboxFilters,
-  ConversationListItem,
-  ConversationListResult,
-  ThreadMessage,
-  ConversationWorkspace,
-  SavedView,
-  MergeResult,
-  DuplicateGroup,
-} from './conversations.repository';
-export { WorkflowsRepository, WORKFLOW_TRIGGERS, WORKFLOW_STEP_TYPES } from './workflows.repository';
-export type {
-  WorkflowStepType,
-  WorkflowStep,
-  WorkflowDefinition,
-  TriggerConfig,
   WorkflowListItem,
   WorkflowDetail,
   WorkflowRunView,
@@ -96,6 +62,26 @@ export { WebsiteAnalyticsRepository } from './website-analytics.repository';
 export type { WebsiteAnalytics, WebsiteRankedItem } from './website-analytics.repository';
 export { IntelligenceRepository } from './intelligence.repository';
 export type { IntelligenceReport, DescriptiveInsight, DiagnosticInsight, Recommendation } from './intelligence.repository';
+export { LiveOperationsRepository } from './live-operations.repository';
+export type {
+  LiveActivityItem,
+  LiveActivityKind,
+  LiveCallRow,
+  LiveWebsiteRow,
+  LiveWebsiteSession,
+} from './live-operations.repository';
+export { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
+export type {
+  RankedRevenue,
+  RevenueByDimension,
+  TrafficVendorRow,
+  TrafficSourceRow,
+  TrafficCampaignRow,
+  TrafficBuyerRow,
+  TrafficIntelligence,
+  RevenueTimelineEntry,
+  CustomerRevenueTimeline,
+} from './revenue-intelligence.repository';
 
 export interface Repositories {
   customers: CustomerRepository;
@@ -117,6 +103,8 @@ export interface Repositories {
   analytics: AnalyticsRepository;
   websiteAnalytics: WebsiteAnalyticsRepository;
   intelligence: IntelligenceRepository;
+  liveOperations: LiveOperationsRepository;
+  revenueIntelligence: RevenueIntelligenceRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -140,5 +128,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     analytics: new AnalyticsRepository(prisma),
     websiteAnalytics: new WebsiteAnalyticsRepository(prisma),
     intelligence: new IntelligenceRepository(prisma),
+    liveOperations: new LiveOperationsRepository(prisma),
+    revenueIntelligence: new RevenueIntelligenceRepository(prisma),
   };
 }
