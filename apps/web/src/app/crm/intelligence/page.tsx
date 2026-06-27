@@ -1,17 +1,26 @@
+import * as React from 'react';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 
-
-// Loop Intelligence — Sprint 10 (Loop Intelligence Foundation, Phase 5).
-//
-// The 3-layer intelligence engine: what happened, why, what should happen next.
-// All reasoning is computed from real Neon Signal/Interaction/Booking data.
-// No LLM calls. No ML models. Pure signal aggregation and rule-based insight.
-
+// Loop Intelligence — Sprint 10 engine, re-skinned as the signature Brain
+// page in Sprint 13. The 3-layer intelligence report logic below is UNCHANGED
+// (same real-Neon data, same rules, no LLM). Sprint 13 adds a premium page
+// header and the visual Brain Pipeline flow on top. Presentation only.
 
 export const dynamic = 'force-dynamic';
 
+const PIPELINE: { name: string; desc: string }[] = [
+  { name: 'Events', desc: 'Provider → Adapter → Integration Event' },
+  { name: 'Signals', desc: 'Deterministic detection from the Signal Registry' },
+  { name: 'Memory', desc: 'Structured customer & organization memory' },
+  { name: 'Identity', desc: 'Resolve people & businesses across channels' },
+  { name: 'Intent', desc: 'What the customer is trying to do' },
+  { name: 'Reasoning', desc: 'Customer Intelligence Graph' },
+  { name: 'Recommendations', desc: 'Next Best Action with confidence' },
+  { name: 'Actions', desc: 'Workflows · CRM · AI Employees' },
+  { name: 'Revenue', desc: 'Attribution → Revenue Intelligence' },
+];
 
 export default async function IntelligencePage() {
   await requirePermission('intelligence', 'view');
@@ -26,10 +35,46 @@ export default async function IntelligencePage() {
     return crmRepos.intelligence.generateReport(orgId, start, end);
   });
 
+  const header = (
+    <div className="ds-pagehead">
+      <div>
+        <div className="ds-eyebrow">The EMG Brain</div>
+        <h1 className="ds-title">Intelligence Flow</h1>
+        <p className="ds-subtitle">
+          Every event flows through one architecture — computed from real Neon data, no LLM.
+        </p>
+      </div>
+    </div>
+  );
+
+  const flow = (
+    <section className="ds-card" style={{ marginBottom: '1.4rem' }}>
+      <div className="ds-card-head">
+        <span className="crm-dot-live" />
+        <h3>Brain Pipeline</h3>
+        <span className="more">Provider → Brain → Revenue</span>
+      </div>
+      <div className="ds-card-body">
+        <div className="ds-flow">
+          {PIPELINE.map((node, i) => (
+            <React.Fragment key={node.name}>
+              <div className="ds-flow-node">
+                <div className="fn-name">{node.name}</div>
+                <div className="fn-desc">{node.desc}</div>
+              </div>
+              {i < PIPELINE.length - 1 ? <div className="ds-flow-arrow" /> : null}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+
   if (!result.ok || !result.data) {
     return (
       <>
-        <h1 className="crm-h1">Loop Intelligence</h1>
+        {header}
+        {flow}
         <DbNotConfigured />
       </>
     );
@@ -39,12 +84,14 @@ export default async function IntelligencePage() {
 
   return (
     <>
+      {header}
+      {flow}
+
       <div className="crm-wf-head">
         <div>
-          <h1 className="crm-h1">Loop Intelligence</h1>
+          <h2 className="crm-h1" style={{ fontSize: '1.1rem' }}>3-Layer Intelligence Report</h2>
           <p className="crm-sub">
-            3-layer intelligence — computed from real Neon data.
-            No LLM calls. No fabricated insight.
+            Computed from real Neon data. No LLM calls. No fabricated insight.
           </p>
         </div>
         <div style={{ fontSize: '0.7rem', color: 'var(--crm-faint)', textAlign: 'right' }}>
@@ -109,8 +156,8 @@ export default async function IntelligencePage() {
         </div>
       </div>
 
-      <div className="crm-panel" style={{ fontSize: '0.8rem', color: 'var(--crm-muted)' }}>
-        <strong style={{ color: 'var(--crm-fg)' }}>How intelligence works</strong>
+      <div className="crm-panel" style={{ fontSize: '0.8rem', color: 'var(--crm-muted)', padding: '1rem' }}>
+        <strong style={{ color: 'var(--crm-text)' }}>How intelligence works</strong>
         <p style={{ margin: '0.5rem 0 0' }}>
           Layer 1 (descriptive) reads Signal + Interaction counts from Neon.
           Layer 2 (diagnostic) detects correlations between signal types.
