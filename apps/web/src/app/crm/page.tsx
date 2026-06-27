@@ -1,10 +1,10 @@
 // /crm — Executive command center (Sprint 13 redesign).
 //
 // PRESENTATION-ONLY upgrade of the post-login dashboard. The data layer is
-// unchanged: the same org-scoped Prisma counts from Sprint 7/10 are read here
-// (plus two additional read-only counts), then surfaced as a premium KPI row,
-// a deterministic Brain Recommendations panel, a recent-activity rail, and a
-// system / provider health card. No AI, no writes, no schema or auth changes.
+// unchanged: the exact same five org-scoped Prisma counts from Sprint 7/10
+// are read here, then surfaced as a premium KPI row, a deterministic Brain
+// Recommendations panel, a recent-activity rail, and a system / provider
+// health card. No AI, no writes, no schema or auth changes.
 
 import Link from 'next/link';
 import { prisma } from '@emgloop/database';
@@ -24,33 +24,23 @@ export default async function CrmDashboard() {
   const session = await requireSession('/crm');
   const orgId = session.organizationId;
 
-  const [
-    customers,
-    openConversations,
-    users,
-    aiEmployees,
-    pendingInvites,
-    bookedCount,
-    workflowsCount,
-  ] = await Promise.all([
-    prisma.customer.count({ where: { organizationId: orgId } }),
-    prisma.conversation.count({ where: { organizationId: orgId, status: 'OPEN' } }),
-    prisma.user.count({ where: { organizationId: orgId, status: { not: 'DISABLED' } } }),
-    prisma.aIEmployee.count({ where: { organizationId: orgId } }),
-    prisma.invitation.count({ where: { organizationId: orgId, status: 'PENDING' } }),
-    prisma.customer.count({ where: { organizationId: orgId, status: 'Booked' } }),
-    prisma.workflow.count({ where: { organizationId: orgId } }).catch(() => 0),
-  ]);
+  const [customers, openConversations, users, aiEmployees, pendingInvites] =
+    await Promise.all([
+      prisma.customer.count({ where: { organizationId: orgId } }),
+      prisma.conversation.count({ where: { organizationId: orgId, status: 'OPEN' } }),
+      prisma.user.count({ where: { organizationId: orgId, status: { not: 'DISABLED' } } }),
+      prisma.aIEmployee.count({ where: { organizationId: orgId } }),
+      prisma.invitation.count({ where: { organizationId: orgId, status: 'PENDING' } }),
+    ]);
 
   const firstName = (session.name ?? '').split(' ')[0] || 'there';
 
-  const kpis: { label: string; value: number | string; icon: string; rev?: boolean; href: string }[] = [
+  const kpis: { label: string; value: number | string; icon: string; href: string }[] = [
     { label: 'Customers', value: customers, icon: 'users', href: '/crm/customers' },
     { label: 'Open Conversations', value: openConversations, icon: 'chat', href: '/crm/conversations' },
-    { label: 'Booked', value: bookedCount, icon: 'calendar', href: '/crm/pipeline' },
     { label: 'AI Employees', value: aiEmployees, icon: 'robot', href: '/crm/ai-employees' },
-    { label: 'Workflows', value: workflowsCount, icon: 'flow', href: '/crm/workflows' },
-    { label: 'Team', value: users, icon: 'team', href: '/crm/users' },
+    { label: 'Team Members', value: users, icon: 'team', href: '/crm/users' },
+    { label: 'Pending Invites', value: pendingInvites, icon: 'star', href: '/crm/users' },
   ];
 
   // Deterministic Brain surfacing — derived from real org counts (no AI).
@@ -108,7 +98,7 @@ export default async function CrmDashboard() {
 
       <div className="ds-kpis">
         {kpis.map((k) => (
-          <Link key={k.label} href={k.href} className={`ds-kpi${k.rev ? ' rev' : ''}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+          <Link key={k.label} href={k.href} className="ds-kpi" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="k-label"><SidebarIcon name={k.icon} size={13} /> {k.label}</div>
             <div className="k-value">{k.value}</div>
           </Link>
@@ -152,8 +142,8 @@ export default async function CrmDashboard() {
               <ul className="ds-activity">
                 <li><span className="adot" /> {customers} customers under management <span className="awhen">live</span></li>
                 <li><span className="adot" /> {openConversations} conversations open <span className="awhen">now</span></li>
-                <li><span className="adot" /> {bookedCount} customers booked <span className="awhen">pipeline</span></li>
                 <li><span className="adot" /> {aiEmployees} AI Employees configured <span className="awhen">team</span></li>
+                <li><span className="adot" /> {users} team members active <span className="awhen">workspace</span></li>
                 <li><span className="adot" /> CallGrid ingestion active <span className="awhen">provider</span></li>
               </ul>
             )}
