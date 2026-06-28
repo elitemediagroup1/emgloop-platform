@@ -18,6 +18,10 @@ import { SidebarIcon } from './_brand/SidebarIcon';
 // PRESENTATION-ONLY change: the session read and logout action below are
 // unchanged from Sprint 10/11, and every existing route still renders in
 // the same content slot. No business logic, data, routing, or auth changes.
+//
+// Sprint 15 adds Live Operations (Live Activity / Calls / Website Feed) and
+// Traffic & Revenue Intelligence nav links — presentation only. Each linked
+// page enforces its own permission gate server-side (intelligence / analytics).
 
 export const metadata = {
   title: 'EMG Loop — Operating System',
@@ -37,6 +41,14 @@ const NAV: NavGroup[] = [
     ],
   },
   {
+    label: 'Live Operations',
+    items: [
+      { href: '/crm/live/activity', label: 'Live Activity', icon: 'activity' },
+      { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat' },
+      { href: '/crm/live/websites', label: 'Live Website Feed', icon: 'grid' },
+    ],
+  },
+  {
     label: 'Operations',
     items: [
       { href: '/crm/customers', label: 'Customers', icon: 'users' },
@@ -50,7 +62,8 @@ const NAV: NavGroup[] = [
   {
     label: 'Growth',
     items: [
-      { href: '/crm/analytics', label: 'Revenue', icon: 'revenue' },
+      { href: '/crm/revenue', label: 'Revenue', icon: 'revenue' },
+      { href: '/crm/traffic', label: 'Traffic', icon: 'chart' },
       { href: '/crm/organizations', label: 'Organizations', icon: 'building' },
       { href: '#', label: 'Creators', icon: 'star', soon: true },
       { href: '#', label: 'Business Portal', icon: 'portal', soon: true },

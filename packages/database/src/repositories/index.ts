@@ -1,6 +1,7 @@
 // Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity)
 // + Sprint 8 (Conversations & the Unified Inbox) + Sprint 9 (Workflows)
-// + Sprint 10 (Loop Intelligence Foundation) + Sprint 14 (Website Intelligence).
+// + Sprint 10 (Loop Intelligence Foundation) + Sprint 14 (Website Intelligence)
+// + Sprint 15 (Live Operations, Traffic & Revenue Intelligence).
 //
 // One import surface for the whole platform's persistence.
 
@@ -25,6 +26,8 @@ import { NormalizationEngine } from './normalization.repository';
 import { AnalyticsRepository } from './analytics.repository';
 import { WebsiteAnalyticsRepository } from './website-analytics.repository';
 import { IntelligenceRepository } from './intelligence.repository';
+import { LiveOperationsRepository } from './live-operations.repository';
+import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -96,6 +99,26 @@ export { WebsiteAnalyticsRepository } from './website-analytics.repository';
 export type { WebsiteAnalytics, WebsiteRankedItem } from './website-analytics.repository';
 export { IntelligenceRepository } from './intelligence.repository';
 export type { IntelligenceReport, DescriptiveInsight, DiagnosticInsight, Recommendation } from './intelligence.repository';
+export { LiveOperationsRepository } from './live-operations.repository';
+export type {
+  LiveActivityItem,
+  LiveActivityKind,
+  LiveCallRow,
+  LiveWebsiteRow,
+  LiveWebsiteSession,
+} from './live-operations.repository';
+export { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
+export type {
+  RankedRevenue,
+  RevenueByDimension,
+  TrafficVendorRow,
+  TrafficSourceRow,
+  TrafficCampaignRow,
+  TrafficBuyerRow,
+  TrafficIntelligence,
+  RevenueTimelineEntry,
+  CustomerRevenueTimeline,
+} from './revenue-intelligence.repository';
 
 export interface Repositories {
   customers: CustomerRepository;
@@ -117,6 +140,8 @@ export interface Repositories {
   analytics: AnalyticsRepository;
   websiteAnalytics: WebsiteAnalyticsRepository;
   intelligence: IntelligenceRepository;
+  liveOperations: LiveOperationsRepository;
+  revenueIntelligence: RevenueIntelligenceRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -140,5 +165,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     analytics: new AnalyticsRepository(prisma),
     websiteAnalytics: new WebsiteAnalyticsRepository(prisma),
     intelligence: new IntelligenceRepository(prisma),
+    liveOperations: new LiveOperationsRepository(prisma),
+    revenueIntelligence: new RevenueIntelligenceRepository(prisma),
   };
 }
