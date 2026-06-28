@@ -120,6 +120,10 @@ export type {
   CustomerRevenueTimeline,
 } from './revenue-intelligence.repository';
 
+// Sprint 15 hotfix — production-safe operational filters (test-data exclusion,
+// honest attribution, EMG properties, recency windows). Additive only.
+export * from './operational-filters';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
