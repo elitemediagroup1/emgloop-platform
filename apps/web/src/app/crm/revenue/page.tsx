@@ -3,13 +3,14 @@ import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import type { RankedRevenue } from '@emgloop/database';
 
-// Revenue Intelligence — Sprint 15.
+// Revenue Intelligence — Sprint 15, real-data hotfix.
 //
-// Deterministic revenue attribution across Website, Vendor, Source, Campaign,
-// Buyer, Channel, Signal and Customer-journey dimensions. Revenue is realized
-// from Orders already persisted in Neon (no Stripe, no AI, no accounting
-// integrations). Permission-gated by the 'analytics' resource. Every figure is
-// traceable to its evidence; no fabricated metrics.
+// HONEST revenue posture. Realized revenue comes ONLY from Orders in
+// PLACED / IN_PROGRESS / READY / FULFILLED (no Stripe, no AI, no accounting).
+// When there is no realized revenue we say so plainly, and separately surface
+// revenue PENDING (draft orders) and revenue-INFLUENCED journeys (customers
+// with activity but no realized order). Demo/QA/test customers are excluded.
+// Permission-gated by 'analytics'. Every figure is evidence-backed.
 
 export const dynamic = 'force-dynamic';
 
@@ -64,36 +65,49 @@ export default async function RevenueIntelligencePage() {
   }
 
   const rev = result.data;
-  const hasData = rev.totalOrders > 0;
 
   return (
     <>
       <div className="crm-wf-head">
         <div>
           <h1 className="crm-h1">Revenue Intelligence</h1>
-          <p className="crm-sub">Realized revenue attributed across every dimension. Deterministic, evidence-backed, real Neon data — no Stripe, no AI.</p>
+          <p className="crm-sub">Realized revenue attributed across every dimension. Deterministic, evidence-backed, real Neon data — no Stripe, no AI · {rev.rangeLabel}.</p>
         </div>
       </div>
 
       <div className="crm-analytics-hero">
         <div className="crm-analytics-kpi">
-          <div className="crm-analytics-kpi-label">Total Revenue</div>
-          <div className="crm-analytics-kpi-value">{money(rev.totalRevenueCents)}</div>
-          <div className="crm-analytics-kpi-unit">realized</div>
+          <div className="crm-analytics-kpi-label">Realized Revenue</div>
+          <div className="crm-analytics-kpi-value">{money(rev.realizedRevenueCents)}</div>
+          <div className="crm-analytics-kpi-unit">{rev.realizedOrders} order{rev.realizedOrders === 1 ? '' : 's'}</div>
         </div>
         <div className="crm-analytics-kpi">
-          <div className="crm-analytics-kpi-label">Orders</div>
-          <div className="crm-analytics-kpi-value">{rev.totalOrders}</div>
-          <div className="crm-analytics-kpi-unit">revenue orders</div>
+          <div className="crm-analytics-kpi-label">Revenue Pending</div>
+          <div className="crm-analytics-kpi-value">{money(rev.pendingRevenueCents)}</div>
+          <div className="crm-analytics-kpi-unit">{rev.pendingOrders} draft order{rev.pendingOrders === 1 ? '' : 's'}</div>
+        </div>
+        <div className="crm-analytics-kpi">
+          <div className="crm-analytics-kpi-label">Revenue-influenced journeys</div>
+          <div className="crm-analytics-kpi-value">{rev.influencedJourneys}</div>
+          <div className="crm-analytics-kpi-unit">active, no realized order yet</div>
         </div>
       </div>
 
-      {!hasData ? (
+      {!rev.hasRealizedRevenue ? (
         <div className="crm-panel">
           <p className="crm-empty" style={{ margin: 0 }}>
-            No realized revenue yet. As Orders reach PLACED / IN&nbsp;PROGRESS / READY / FULFILLED, the Brain will
-            attribute every dollar back to the website, vendor, source, campaign, signal and journey that produced it.
+            <strong>No realized revenue yet.</strong> The system is currently tracking calls and website
+            activity, not completed sales. As Orders reach PLACED / IN&nbsp;PROGRESS / READY / FULFILLED,
+            the Brain will attribute every dollar back to the website, vendor, source, campaign, signal and
+            journey that produced it.
           </p>
+          {(rev.pendingRevenueCents > 0 || rev.influencedJourneys > 0) ? (
+            <p className="crm-sub" style={{ marginTop: '0.6rem' }}>
+              Right now: {money(rev.pendingRevenueCents)} in revenue opportunity across {rev.pendingOrders} draft
+              order{rev.pendingOrders === 1 ? '' : 's'}, and {rev.influencedJourneys} revenue-influenced
+              journey{rev.influencedJourneys === 1 ? '' : 's'} with no realized order yet.
+            </p>
+          ) : null}
         </div>
       ) : (
         <>
