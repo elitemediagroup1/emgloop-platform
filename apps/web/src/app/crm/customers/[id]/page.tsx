@@ -13,18 +13,15 @@ import {
 } from '../../../../crm/actions';
 
 // Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2)
-//                    + Sprint 14 (Website Intelligence — Website tab).
+// + Sprint 14 (Website Intelligence — Website tab)
+// + Sprint 15 (Customer Revenue Timeline — Revenue tab).
 //
 // A dedicated operating surface for one customer, read entirely from Neon via
 // the repository layer. Tabs are server-rendered via ?tab= so no client JS is
-// needed. Sprint 14 adds a Website tab that surfaces this customer's website
-// activity (pages, searches, downloads, forms, CTAs, sessions) — reusing the
-// existing timeline UI; website events already flow into ws.interactions via the
-// WebsiteProvider, so this is a presentation-only view over Brain data.
-//
-// Website context (eventType, property, page, query, ...) lives on the
-// Interaction.metadata JSON (written by the NormalizationEngine), so the Website
-// tab reads metadata, while notes/messages keep reading payload as before.
+// needed. Sprint 15 adds a Revenue tab that surfaces this customer's revenue
+// journey (Website Visit -> Search -> CTA -> Call -> Booking -> Revenue -> LTV)
+// via RevenueIntelligenceRepository.customerRevenueTimeline — deterministic,
+// evidence-backed, real Neon data only.
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +32,7 @@ const TABS = [
   'Notes',
   'Messages',
   'Bookings',
+  'Revenue',
   'Signals',
   'AI Activity',
   'Edit',
@@ -62,6 +60,11 @@ function fmt(d: Date | string | null | undefined): string {
   });
 }
 
+function money(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) return '—';
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
 function jsonVal<T = unknown>(bag: unknown, key: string): T | undefined {
   if (bag && typeof bag === 'object' && key in (bag as object)) {
     return (bag as Record<string, T>)[key];
@@ -78,6 +81,14 @@ const KIND_COLOR: Record<string, string> = {
   CHAT: 'var(--crm-blue)',
   NOTE: 'var(--crm-faint)',
   OTHER: 'var(--crm-faint)',
+};
+
+const REVENUE_KIND_COLOR: Record<string, string> = {
+  website: 'var(--crm-blue, #3b82f6)',
+  call: 'var(--crm-amber, #f59e0b)',
+  signal: 'var(--crm-purple, #8b5cf6)',
+  booking: 'var(--crm-accent, #14b8a6)',
+  order: 'var(--crm-accent, #14b8a6)',
 };
 
 function actorLabel(a: string | undefined): string {
@@ -121,12 +132,15 @@ export default async function CustomerWorkspace({
 
   const result = await loadOrFallback(async () => {
     const ws = await crmRepos.crm.getWorkspace(params.id);
-    if (!ws) return { ws: null, assignees: { humans: [], ais: [] } as AssigneeOptions };
+    if (!ws) return { ws: null, assignees: { humans: [], ais: [] } as AssigneeOptions, timeline: null };
     const organizationId = await resolveCrmOrganizationId();
     const assignees = organizationId
       ? await crmRepos.crm.listAssignees(organizationId)
       : ({ humans: [], ais: [] } as AssigneeOptions);
-    return { ws, assignees };
+    const timeline = organizationId
+      ? await crmRepos.revenueIntelligence.customerRevenueTimeline(organizationId, params.id)
+      : null;
+    return { ws, assignees, timeline };
   });
 
   if (!result.ok) return <DbNotConfigured />;
@@ -134,6 +148,7 @@ export default async function CustomerWorkspace({
 
   const ws = result.data.ws;
   const assignees = result.data.assignees;
+  const timeline = result.data.timeline;
   const cid = ws.customer.id;
 
   const notes = ws.interactions.filter((i) => i.kind === 'NOTE');
@@ -295,6 +310,7 @@ export default async function CustomerWorkspace({
               <div className="crm-kv"><span className="k">Bookings</span><span className="v">{ws.bookings.length}</span></div>
               <div className="crm-kv"><span className="k">Signals</span><span className="v">{ws.signals.length}</span></div>
               <div className="crm-kv"><span className="k">Notes</span><span className="v">{notes.length}</span></div>
+              {timeline ? (<div className="crm-kv"><span className="k">Lifetime value</span><span className="v">{money(timeline.lifetimeValueCents)}</span></div>) : null}
               <div className="crm-kv"><span className="k">Assigned AI</span><span className="v">{ws.assignedAIName || '—'}</span></div>
               <div className="crm-kv"><span className="k">Assigned human</span><span className="v">{ws.assignedHumanName || '—'}</span></div>
             </div>
@@ -460,6 +476,59 @@ export default async function CustomerWorkspace({
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+          ) : null}
+
+          {activeTab === 'Revenue' ? (
+            <div className="crm-card">
+              <h3>Customer revenue timeline</h3>
+              <p className="crm-faint" style={{ fontSize: '0.78rem', marginTop: '-0.3rem', marginBottom: '0.8rem' }}>
+                Website Visit → ZIP Search → CTA → Call → Booking → Revenue → Lifetime Value. Deterministic, evidence-backed — real Neon data only.
+              </p>
+              {!timeline ? (
+                <p className="crm-faint">No revenue journey yet. As this customer browses, calls, books, and orders, the Brain will assemble their revenue story here.</p>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                    <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Lifetime value</span><strong>{money(timeline.lifetimeValueCents)}</strong></div>
+                    <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>First touch</span><strong>{fmt(timeline.firstTouchAt)}</strong></div>
+                    <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Converted</span><strong>{fmt(timeline.conversionAt)}</strong></div>
+                  </div>
+                  {timeline.influencedBy.length > 0 ? (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Influenced by</span>
+                      <div className="crm-chips">
+                        {timeline.influencedBy.map((inf) => (
+                          <span className="crm-tag" key={inf}>{inf}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {timeline.entries.length === 0 ? (
+                    <p className="crm-faint">No revenue events recorded yet.</p>
+                  ) : (
+                    <ul className="crm-timeline">
+                      {timeline.entries.map((e, idx) => (
+                        <li key={e.kind + idx + e.at}>
+                          <span className="crm-tl-dot" style={{ background: REVENUE_KIND_COLOR[e.kind] ?? 'var(--crm-faint)' }} />
+                          <div>
+                            <div className="crm-tl-title">
+                              {e.label}
+                              {e.amountCents !== null ? <span className="crm-tag" style={{ marginLeft: '0.5rem' }}>{money(e.amountCents)}</span> : null}
+                            </div>
+                            <div className="crm-tl-meta">
+                              <span className="crm-tag">{e.kind}</span>
+                              {e.detail ? ' · ' + e.detail : ''}
+                              {' · '}
+                              {fmt(e.at)}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
             </div>
           ) : null}
