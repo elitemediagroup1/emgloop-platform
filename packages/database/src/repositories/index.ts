@@ -30,21 +30,58 @@ import { LiveOperationsRepository } from './live-operations.repository';
 import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 
 export * from './types';
-export { CustomerRepository } from './customer.repository';
+export { CustomerRepository, customerDisplayName } from './customer.repository';
 export { InteractionRepository } from './interaction.repository';
 export { BookingRepository } from './booking.repository';
-export { SignalRepository } from './signal.repository';
+export { SignalRepository, signalTypeFromLabel } from './signal.repository';
 export { DomainEventRepository } from './domain-event.repository';
 export { ConversationRepository, MessageRepository } from './messaging.repository';
 export { AIEmployeeRepository } from './ai-employee.repository';
-export { CrmRepository } from './crm.repository';
-export { AuthRepository } from './auth.repository';
-export { IamRepository } from './iam.repository';
-export { OrganizationRepository } from './organization.repository';
-export { AuditRepository } from './audit.repository';
-export { ConversationsRepository } from './conversations.repository';
-export { WorkflowsRepository } from './workflows.repository';
+export type { AIEmployeeView } from './ai-employee.repository';
+export { CrmRepository, PIPELINE_STATUSES } from './crm.repository';
 export type {
+  PipelineStatus,
+  CustomerSortKey,
+  CustomerListFilters,
+  CustomerListRow,
+  CustomerListResult,
+  AssigneeOption,
+  AssigneeOptions,
+  InboxItem,
+  KanbanColumn,
+} from './crm.repository';
+export { AuthRepository } from './auth.repository';
+export type { SessionWithUser } from './auth.repository';
+export {
+  IamRepository,
+  SYSTEM_ROLES,
+  SYSTEM_ROLE_LABELS,
+  roleLabel,
+  matrixAllows,
+  userSystemRole,
+} from './iam.repository';
+export type { Resource, Action, UserListItem } from './iam.repository';
+export { OrganizationRepository } from './organization.repository';
+export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
+export { AuditRepository } from './audit.repository';
+export type { AuditView } from './audit.repository';
+export { ConversationsRepository, CONVERSATION_STATUSES } from './conversations.repository';
+export type {
+  InboxFilters,
+  ConversationListItem,
+  ConversationListResult,
+  ThreadMessage,
+  ConversationWorkspace,
+  SavedView,
+  MergeResult,
+  DuplicateGroup,
+} from './conversations.repository';
+export { WorkflowsRepository, WORKFLOW_TRIGGERS, WORKFLOW_STEP_TYPES } from './workflows.repository';
+export type {
+  WorkflowStepType,
+  WorkflowStep,
+  WorkflowDefinition,
+  TriggerConfig,
   WorkflowListItem,
   WorkflowDetail,
   WorkflowRunView,
