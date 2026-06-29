@@ -22,6 +22,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 export * from './repositories';
+export * from './integration-catalog';
 
 export { IngestionService } from './services/ingestion.service';
 export type { IngestInput, IngestResult } from './services/ingestion.service';
