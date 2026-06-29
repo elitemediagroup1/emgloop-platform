@@ -19,4 +19,5 @@ export * from './revenue';
 export * from './trust';
 export * from './verticals';
 export * from './integration-hub';
+export * from './integration-catalog';
 export * from './services';
