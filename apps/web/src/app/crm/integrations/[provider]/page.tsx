@@ -11,21 +11,21 @@ import {
   fmtTime,
   relativeTime,
 } from '../../../../crm/integration-os';
-import { sdkInstallScript, propertyIdentifier, EMG_WEBSITE_PROPERTIES } from '@emgloop/brain';
+import { sdkInstallScript, propertyIdentifier, EMG_WEBSITE_PROPERTIES } from '@emgloop/database';
 import { LIVE_ORG_SLUG } from '../../../../crm/live-org';
 
-// Integration OS — provider detail / connection wizard (Sprint 16).
+// Integration OS â provider detail / connection wizard (Sprint 16).
 //
 // Generated entirely from the catalog spec + live status. Renders: connection
 // wizard, health center, secret-status checklist (masked), required-config
-// checklist, live event monitor, retry queue and diagnostics — for ANY
+// checklist, live event monitor, retry queue and diagnostics â for ANY
 // provider. Website-class providers additionally render the SDK manager.
 
 export const dynamic = 'force-dynamic';
 
 function Mark({ ok, optional }: { ok: boolean; optional?: boolean }) {
-  if (optional) return <span className="mark opt">–</span>;
-  return ok ? <span className="mark ok">✓</span> : <span className="mark no">!</span>;
+  if (optional) return <span className="mark opt">â</span>;
+  return ok ? <span className="mark ok">â</span> : <span className="mark no">!</span>;
 }
 
 export default async function ProviderDetailPage({
@@ -94,14 +94,14 @@ export default async function ProviderDetailPage({
                     <div className="sgen">{spec.secrets.map((s) => (<div key={s.envVar} className="sd">Set <code>{s.envVar}</code> in the server environment.</div>))}</div>
                   ) : null}
                   {step.generates === 'verification' ? (
-                    <div className="sgen sd">{status.authVerified ? 'Verified — first live event received.' : 'Not verified yet — the OS marks this complete on the first live event.'}</div>
+                    <div className="sgen sd">{status.authVerified ? 'Verified â first live event received.' : 'Not verified yet â the OS marks this complete on the first live event.'}</div>
                   ) : null}
                 </li>
               ))}
             </ol>
           </div>
 
-          {/* SDK Manager — website-class providers only */}
+          {/* SDK Manager â website-class providers only */}
           {isWebsite ? (
             <div className="ios-section">
               <h2>SDK Manager</h2>
@@ -111,8 +111,8 @@ export default async function ProviderDetailPage({
               </p>
               {EMG_WEBSITE_PROPERTIES.map((prop) => (
                 <div key={prop.key} style={{ marginBottom: '1rem' }}>
-                  <div className="st" style={{ fontWeight: 600 }}>{prop.name} <span className="crm-sub">· {prop.domain}</span></div>
-                  <div className="sd">Property id: <code>{propertyIdentifier(prop)}</code> · Installation: Not installed</div>
+                  <div className="st" style={{ fontWeight: 600 }}>{prop.name} <span className="crm-sub">Â· {prop.domain}</span></div>
+                  <div className="sd">Property id: <code>{propertyIdentifier(prop)}</code> Â· Installation: Not installed</div>
                   <code className="ios-codeblock">{sdkInstallScript(prop, LIVE_ORG_SLUG)}</code>
                   <div className="ios-card-foot">
                     <Link className="crm-btn-sm" href={'/crm/integrations/website/property/' + prop.key}>Manage Property</Link>
@@ -133,8 +133,8 @@ export default async function ProviderDetailPage({
                 <tbody>
                   {status.recentEvents.map((e) => (
                     <tr key={e.id}>
-                      <td>{e.eventType ?? '—'}</td>
-                      <td><code className="crm-code-inline">{e.externalId ?? '—'}</code></td>
+                      <td>{e.eventType ?? 'â'}</td>
+                      <td><code className="crm-code-inline">{e.externalId ?? 'â'}</code></td>
                       <td><span className={'crm-integration-status ' + e.status}>{e.status}</span></td>
                       <td>{fmtTime(e.receivedAt)}</td>
                     </tr>
@@ -148,17 +148,17 @@ export default async function ProviderDetailPage({
           <div className="ios-section">
             <h2>Retry Queue</h2>
             {status.retryQueue.length === 0 ? (
-              <p className="crm-empty">Retry queue is empty — all events processed cleanly.</p>
+              <p className="crm-empty">Retry queue is empty â all events processed cleanly.</p>
             ) : (
               <table className="crm-table">
                 <thead><tr><th>Event</th><th>Status</th><th>Received</th><th>Error</th></tr></thead>
                 <tbody>
                   {status.retryQueue.map((e) => (
                     <tr key={e.id}>
-                      <td>{e.eventType ?? '—'}</td>
+                      <td>{e.eventType ?? 'â'}</td>
                       <td><span className={'crm-integration-status ' + e.status}>{e.status}</span></td>
                       <td>{fmtTime(e.receivedAt)}</td>
-                      <td style={{ color: '#f87171' }}>{e.errorMessage ?? '—'}</td>
+                      <td style={{ color: '#f87171' }}>{e.errorMessage ?? 'â'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -194,17 +194,17 @@ export default async function ProviderDetailPage({
             </div>
           </div>
 
-          {/* Secret Status — never reveals values */}
+          {/* Secret Status â never reveals values */}
           <div className="ios-section">
             <h2>Secret Status</h2>
-            <p className="crm-sub" style={{ marginBottom: '0.5rem' }}>Status only — values are never displayed.</p>
+            <p className="crm-sub" style={{ marginBottom: '0.5rem' }}>Status only â values are never displayed.</p>
             {status.secrets.length === 0 ? (
               <p className="crm-empty">No secrets required for this provider.</p>
             ) : status.secrets.map((s) => (
               <div key={s.envVar} className="ios-secret">
                 <div>
                   <div className="name">{s.envVar}</div>
-                  <div className="masked">{s.configured ? '•••••••••••••' : 'not set'}</div>
+                  <div className="masked">{s.configured ? 'â¢â¢â¢â¢â¢â¢â¢â¢â¢â¢â¢â¢â¢' : 'not set'}</div>
                 </div>
                 <span className={'ios-badge ' + (s.configured ? 'connected' : (s.required ? 'error' : 'not_configured'))}>
                   <span className="ios-dot" />{s.configured ? 'Configured' : (s.required ? 'Missing' : 'Optional')}
