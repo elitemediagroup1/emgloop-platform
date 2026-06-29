@@ -5,19 +5,12 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
   },
-  // Sprint 17: serve the EMG Loop SDK at the familiar .js URL. A route segment
-  // containing a dot is treated as a static file and 404s, so the handler lives
-  // at /api/sdk/emg-loop. The rewrite is placed in beforeFiles so it runs BEFORE
-  // static-file resolution - otherwise the .js path 404s before the rewrite.
-  async rewrites() {
-    return {
-      beforeFiles: [
-        { source: '/sdk/emg-loop.js', destination: '/api/sdk/emg-loop' },
-      ],
-      afterFiles: [],
-      fallback: [],
-    };
-  },
 };
+
+// Sprint 17 note: the EMG Loop SDK is served as a static asset at
+// public/sdk/emg-loop.js (CDN-served directly at /sdk/emg-loop.js, the most
+// reliable approach since a Next route segment containing a dot is intercepted
+// as a static file). The identical source is also served programmatically by
+// the route at /api/sdk/emg-loop. No rewrite is needed.
 
 export default nextConfig;
