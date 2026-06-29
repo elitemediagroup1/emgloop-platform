@@ -8,16 +8,40 @@
 // explicit and centralized so both the CallGrid and Website routes behave
 // identically.
 //
-// Deploy context detection uses Netlify's CONTEXT env var (set to 'production'
-// on the live site and 'deploy-preview' / 'branch-deploy' on previews) and falls
-// back to NODE_ENV. Anything that is not clearly production is treated as a
-// non-production preview where reviewers may exercise the pipeline unsigned.
+// Production detection is HOST-BASED first, because Netlify sets NODE_ENV=
+// 'production' even on deploy previews, and the build-time CONTEXT var is not
+// reliably present at request time. The live site is served from a fixed
+// production host; everything else (deploy-preview-*.netlify.app, branch
+// deploys, localhost) is a non-production preview where reviewers may exercise
+// the pipeline unsigned. CONTEXT==='production' is also honoured when present.
+
+/** The canonical production hosts for the live EMG Loop deploy. */
+const PRODUCTION_HOSTS = new Set(['app.emgloop.com']);
 
 /** True only on the live production deploy (never on previews or locally). */
-export function isProductionRuntime(): boolean {
+export function isProductionRuntime(host?: string | null): boolean {
+  // 1. Host-based (most reliable at request time).
+  if (host) {
+    const h = host.toLowerCase().split(':')[0];
+    if (PRODUCTION_HOSTS.has(h)) return true;
+    // Any Netlify preview/branch subdomain is explicitly NON-production.
+    if (h.endsWith('.netlify.app')) return false;
+  }
+  // 2. Explicit Netlify deploy context, when exposed at runtime.
   const ctx = (process.env.CONTEXT ?? '').toLowerCase();
   if (ctx) return ctx === 'production';
+  // 3. With no host and no CONTEXT, be conservative ONLY if we cannot tell it is
+  //    a preview. Without a host signal we fall back to NODE_ENV.
   return (process.env.NODE_ENV ?? '').toLowerCase() === 'production';
+}
+
+/** Extract the request host from standard headers (handles proxies). */
+export function hostOf(req: { headers: { get(name: string): string | null } }): string | null {
+  return (
+    req.headers.get('x-forwarded-host') ||
+    req.headers.get('host') ||
+    null
+  );
 }
 
 /**
@@ -31,8 +55,8 @@ export function isProductionRuntime(): boolean {
  * The per-connection config.allowUnsigned flag can still force-allow in those
  * environments, but it is ignored in production.
  */
-export function mayAllowUnsigned(connectionAllowUnsigned: boolean): boolean {
-  if (isProductionRuntime()) return false;
+export function mayAllowUnsigned(connectionAllowUnsigned: boolean, host?: string | null): boolean {
+  if (isProductionRuntime(host)) return false;
   return connectionAllowUnsigned === true;
 }
 
@@ -45,7 +69,6 @@ export interface VerificationDiagnostic {
   reason?: string;
   timestamp?: number;
   signaturePrefix?: string;
-  /** Whether a signing secret was configured at the time of this delivery. */
   secretConfigured: boolean;
 }
 
