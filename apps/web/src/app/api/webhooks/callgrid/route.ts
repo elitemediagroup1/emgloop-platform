@@ -3,7 +3,7 @@ import { prisma, repositories, IngestionService } from '@emgloop/database';
 import { getCallGridProvider, mapCallgridEventType } from '@emgloop/providers';
 import type { ProviderContext } from '@emgloop/providers';
 import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../crm/live-org';
-import { mayAllowUnsigned, toVerificationDiagnostic } from '../../../../crm/webhook-runtime';
+import { mayAllowUnsigned, toVerificationDiagnostic, hostOf } from '../../../../crm/webhook-runtime';
 
 // CallGrid webhook - Sprint 11 (First Live Integration) + Sprint 17 hardening.
 //
@@ -63,7 +63,8 @@ export async function POST(req: Request) {
 
   const secretConfigured = !!process.env.CALLGRID_WEBHOOK_SECRET;
   // allowUnsigned is honoured ONLY off production; the live site fails closed.
-  const allowUnsigned = mayAllowUnsigned(connection.config?.['allowUnsigned'] === true);
+  const host = hostOf(req);
+  const allowUnsigned = mayAllowUnsigned(connection.config?.['allowUnsigned'] === true, host);
 
   const ctx: ProviderContext = {
     organizationId: org.id,
@@ -138,13 +139,13 @@ export async function POST(req: Request) {
 // GET is a lightweight liveness probe for the webhook URL. It never processes
 // events. It also reports whether a signing secret is configured (boolean only)
 // and whether the live deploy would currently accept unsigned traffic.
-export function GET() {
+export function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     endpoint: 'callgrid-webhook',
     method: 'POST',
     secretConfigured: !!process.env.CALLGRID_WEBHOOK_SECRET,
-    acceptsUnsigned: mayAllowUnsigned(true),
+    acceptsUnsigned: mayAllowUnsigned(true, hostOf(req)),
     capabilities: provider.capabilities(),
   });
 }
