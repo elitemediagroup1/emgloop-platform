@@ -1,15 +1,33 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePermission } from '../../../../../../auth/guard';
-import { LIVE_ORG_SLUG } from '../../../../../../crm/live-org';
-import { EMG_WEBSITE_PROPERTIES, sdkInstallScript, propertyIdentifier } from '@emgloop/database';
+import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../../../crm/live-org';
+import {
+  loadProviderCard,
+  fmtTime,
+  relativeTime,
+  verificationSummary,
+  liveStateLabel,
+  liveStateClass,
+} from '../../../../../../crm/integration-os';
+import {
+  EMG_WEBSITE_PROPERTIES,
+  sdkInstallScript,
+  propertyIdentifier,
+  propertyIngestKey,
+  propertyAllowedDomains,
+} from '@emgloop/database';
 
-// Website SDK  -  single property manager (Sprint 16).
+// Website SDK - single property manager (Sprint 16 + Sprint 17 ingest auth).
 //
-// Management layer only: generates the install <script>, the public property
-// identifier and the (future) ingest key reference for one EMG property. The
-// browser SDK itself is NOT built here. Key rotation is surfaced as an action
-// stub so the operator UX is complete ahead of the backend (Sprint 17+).
+// Management layer for one EMG property. Sprint 17 makes the ingest key REAL:
+// browser events authenticate with a PUBLIC per-property ingest key plus
+// allowed-domain validation (NOT a browser secret - see property-ingest.ts).
+// This page therefore shows the live, non-secret status: the public ingest
+// key, the allowed domains, the install snippet, the last SDK event seen on
+// the website connection, and the latest verification outcome. It never shows
+// any secret value (the server-to-server WEBSITE_WEBHOOK_SECRET is boolean-only
+// elsewhere in the OS).
 
 export const dynamic = 'force-dynamic';
 
@@ -17,8 +35,21 @@ export default async function PropertyPage({ params }: { params: { key: string }
   await requirePermission('integrations', 'view');
   const property = EMG_WEBSITE_PROPERTIES.find((p) => p.key === params.key);
   if (!property) notFound();
+
   const script = sdkInstallScript(property, LIVE_ORG_SLUG);
   const pid = propertyIdentifier(property);
+  const ingestKey = propertyIngestKey(property);
+  const allowedDomains = propertyAllowedDomains(property);
+
+  // Live website-connection status (shared across properties for now). Used to
+  // surface the last SDK event + verification honestly; per-property event
+  // breakdown is a Sprint 18 follow-up (needs per-property ingest keys in the
+  // event store, noted in the report).
+  const { organizationId } = await ensureLiveOrganization();
+  const card = await loadProviderCard(organizationId, 'website');
+  const status = card?.status ?? null;
+  const lastEvent = status?.lastEvent ?? null;
+  const installed = Boolean(lastEvent);
 
   return (
     <>
@@ -29,21 +60,36 @@ export default async function PropertyPage({ params }: { params: { key: string }
             <Link href="/crm/integrations/website" className="crm-link">EMG Websites</Link> / {property.name}
           </p>
           <h1 className="crm-h1">{property.name}</h1>
-          <p className="crm-sub">{property.domain}  -  Installation: Not installed</p>
+          <p className="crm-sub">
+            {property.domain} - Installation: {installed ? 'Installed' : 'Not installed'}
+          </p>
         </div>
+        {status ? (
+          <span className={'ios-badge ' + liveStateClass(status.liveState)}>
+            <span className="ios-dot" />{liveStateLabel(status.liveState)}
+          </span>
+        ) : null}
       </div>
 
       <div className="ios-detail-grid">
         <div>
           <div className="ios-section">
             <h2>Generate Install Code</h2>
-            <p className="crm-sub" style={{ marginBottom: '0.6rem' }}>Paste this snippet into the &lt;head&gt; of {property.domain}. The referenced emg-loop.js is now served live at /sdk/emg-loop.js.</p>
+            <p className="crm-sub" style={{ marginBottom: '0.6rem' }}>Paste this snippet into the &lt;head&gt; of {property.domain}. It carries the public ingest key and is served live from /sdk/emg-loop.js.</p>
             <code className="ios-codeblock">{script}</code>
           </div>
           <div className="ios-section">
             <h2>Verify Installation</h2>
             <p className="crm-sub">Once the SDK is live and the property emits an event, the OS detects it on the website webhook and flips this property to Installed automatically.</p>
-            <p className="crm-empty" style={{ marginTop: '0.6rem' }}>Awaiting first website event for this property.</p>
+            {lastEvent ? (
+              <div className="ios-card-meta" style={{ gridTemplateColumns: '1fr', marginTop: '0.6rem' }}>
+                <div><span className="k">Last SDK Event</span><span className="v">{lastEvent.eventType ?? 'event'}</span></div>
+                <div><span className="k">Seen</span><span className="v">{fmtTime(lastEvent.receivedAt)} ({relativeTime(lastEvent.receivedAt)})</span></div>
+              </div>
+            ) : (
+              <p className="ios-empty" style={{ marginTop: '0.6rem' }}>Awaiting first website event for this property.</p>
+            )}
+            <p className="crm-sub" style={{ marginTop: '0.5rem', fontSize: '0.72rem' }}>Verification: {verificationSummary(status?.lastVerification ?? null)}</p>
           </div>
         </div>
         <div>
@@ -53,21 +99,20 @@ export default async function PropertyPage({ params }: { params: { key: string }
               <div><span className="k">Property Key</span><span className="v">{property.key}</span></div>
               <div><span className="k">Property Identifier</span><span className="v"><code>{pid}</code></span></div>
               <div><span className="k">Organization</span><span className="v">{LIVE_ORG_SLUG}</span></div>
-              <div><span className="k">SDK Version</span><span className="v">not installed</span></div>
+              <div><span className="k">SDK Version</span><span className="v">{installed ? 'detected' : 'not installed'}</span></div>
             </div>
           </div>
           <div className="ios-section">
-            <h2>Ingest Key</h2>
-            <p className="crm-sub" style={{ marginBottom: '0.5rem' }}>Per-property key. Status only  -  the value is shown once at creation by the backend (Sprint 17+) and never again.</p>
+            <h2>Browser Ingest Key</h2>
+            <p className="crm-sub" style={{ marginBottom: '0.5rem' }}>PUBLIC per-property key (ships in the browser; NOT a secret). Browser events are authenticated by this key being active for the property PLUS the request origin matching an allowed domain.</p>
             <div className="ios-secret">
-              <div><div className="name">{pid}_KEY</div><div className="masked">not generated</div></div>
-              <span className="ios-badge not_configured"><span className="ios-dot" />Not generated</span>
+              <div><div className="name">{pid}</div><div className="masked"><code>{ingestKey}</code></div></div>
+              <span className="ios-badge connected"><span className="ios-dot" />Configured</span>
             </div>
-            <div className="ios-card-foot" style={{ marginTop: '0.75rem' }}>
-              <button type="button" className="crm-btn-sm" disabled>Generate Key</button>
-              <button type="button" className="crm-btn-sm" disabled>Rotate Key</button>
+            <div className="ios-card-meta" style={{ gridTemplateColumns: '1fr', marginTop: '0.75rem' }}>
+              <div><span className="k">Allowed Domains</span><span className="v">{allowedDomains.join(', ')}</span></div>
             </div>
-            <p className="crm-sub" style={{ marginTop: '0.5rem', fontSize: '0.72rem' }}>Key generation activates with the SDK backend in a later sprint.</p>
+            <p className="crm-sub" style={{ marginTop: '0.5rem', fontSize: '0.72rem' }}>Server-to-server website events use the signed WEBSITE_WEBHOOK_SECRET tier instead (its value is never shown).</p>
           </div>
         </div>
       </div>
