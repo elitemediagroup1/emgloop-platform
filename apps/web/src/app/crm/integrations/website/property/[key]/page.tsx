@@ -37,7 +37,7 @@ export default async function PropertyPage({ params }: { params: { key: string }
         <div>
           <div className="ios-section">
             <h2>Generate Install Code</h2>
-            <p className="crm-sub" style={{ marginBottom: '0.6rem' }}>Paste this snippet into the &lt;head&gt; of {property.domain}. The referenced emg-loop.js ships in a later sprint.</p>
+            <p className="crm-sub" style={{ marginBottom: '0.6rem' }}>Paste this snippet into the &lt;head&gt; of {property.domain}. The referenced emg-loop.js is now served live at /sdk/emg-loop.js.</p>
             <code className="ios-codeblock">{script}</code>
           </div>
           <div className="ios-section">
