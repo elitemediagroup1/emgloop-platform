@@ -399,19 +399,21 @@ export function webhookUrlFor(spec: ProviderSpec): string | null {
  *  carries the PUBLIC ingest key (data-ingest-key) + property + organization.
  *  The key is public by design (it ships in the browser); it is NOT a secret
  *  and authenticates the property together with allowed-domain validation. */
+/** Generate the EMG Loop SDK install snippet for a property. The snippet
+ *  carries the PUBLIC ingest key (data-ingest-key) + property + organization.
+ *  The key is public by design (it ships in the browser); it is NOT a secret
+ *  and authenticates the property together with allowed-domain validation. */
 export function sdkInstallScript(property: CatalogWebsiteProperty, organizationSlug: string): string {
   return [
-    "<script"
+    "<script",
     '  src="' + APP_URL + '/sdk/emg-loop.js"',
     '  data-property="' + property.key + '"',
     '  data-ingest-key="' + propertyIngestKey(property) + '"',
     '  data-organization="' + organizationSlug + '"',
-    '  async'
-    "</script>"
+    '  async',
+    "</script>",
   ].join('\n');
 }
-
-/** A stable, non-secret public property identifier for the SDK data attribute. */
 export function propertyIdentifier(property: CatalogWebsiteProperty): string {
   return 'emg_' + property.key;
 }
