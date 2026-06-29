@@ -6,12 +6,17 @@ const nextConfig = {
     serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
   },
   // Sprint 17: serve the EMG Loop SDK at the familiar .js URL. A route segment
-  // containing a dot is treated as a static file by the runtime and 404s, so the
-  // handler lives at /api/sdk/emg-loop and this rewrite exposes /sdk/emg-loop.js.
+  // containing a dot is treated as a static file and 404s, so the handler lives
+  // at /api/sdk/emg-loop. The rewrite is placed in beforeFiles so it runs BEFORE
+  // static-file resolution - otherwise the .js path 404s before the rewrite.
   async rewrites() {
-    return [
-      { source: '/sdk/emg-loop.js', destination: '/api/sdk/emg-loop' },
-    ];
+    return {
+      beforeFiles: [
+        { source: '/sdk/emg-loop.js', destination: '/api/sdk/emg-loop' },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
   },
 };
 
