@@ -6,7 +6,7 @@
  * Loop website webhook with retry + offline queue + heartbeat. No third-party
  * analytics libraries. Configure via the script tag data-* attributes:
  *   <script src="https://app.emgloop.com/sdk/emg-loop.js"
- *           data-property="servicesinmycity" data-organization="emg" async><\/script>
+ *           data-property="servicesinmycity" data-ingest-key="pk_emg_servicesinmycity" data-organization="emg" async><\/script>
  *
  * Source of truth: apps/web/src/app/sdk/sdk-source.ts (kept in sync). This
  * static file is what the CDN serves at /sdk/emg-loop.js; /api/sdk/emg-loop
@@ -35,6 +35,7 @@
   var config = {
     property: ds.property || 'website',
     organization: ds.organization || 'emg',
+    ingestKey: ds.ingestKey || ds.key || '',
     endpoint: ds.endpoint || (origin + '/api/webhooks/website'),
     batchSize: parseInt(ds.batchSize, 10) || 10,
     flushIntervalMs: parseInt(ds.flushInterval, 10) || 5000,
@@ -143,7 +144,7 @@
     if (flushing || queue.length === 0) return;
     flushing = true;
     var batch = queue.slice(0, Math.max(config.batchSize, queue.length));
-    var body = JSON.stringify({ property: config.property, organization: config.organization, events: batch });
+    var body = JSON.stringify({ property: config.property, organization: config.organization, ingestKey: config.ingestKey, events: batch });
 
     function onDone(ok) {
       flushing = false;
@@ -172,7 +173,7 @@
     try {
       fetch(config.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-EMG-Ingest-Key': config.ingestKey || '' },
         body: body,
         keepalive: true,
         credentials: 'omit'
@@ -235,7 +236,7 @@
 
   window.emgLoop = {
     version: '1.0.0',
-    config: { property: config.property, organization: config.organization, endpoint: config.endpoint },
+    config: { property: config.property, organization: config.organization, endpoint: config.endpoint, ingestKey: config.ingestKey },
     track: track,
     flush: function () { flush(); },
     identify: function (traits) {
