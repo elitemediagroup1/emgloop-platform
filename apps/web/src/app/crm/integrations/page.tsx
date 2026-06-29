@@ -1,143 +1,158 @@
-import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { ensureLiveOrganization } from '../../../crm/live-org';
-import { requirePermission } from '../../../auth/guard';
-import {
-  loadProviderCards,
-  computeSystemHealth,
-  connectionLabel,
-  healthLabel,
-  relativeTime,
-  type ProviderCard,
-} from '../../../crm/integration-os';
+import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { requirePermission, hasPermission } from '../../../auth/guard';
+import { createIntegrationAction, deleteIntegrationAction } from '../../../crm/integration-actions';
+import { KNOWN_PROVIDERS } from '@emgloop/shared';
 
-// Integration OS — Sprint 16 (The Connection Layer).
-//
-// The admin operations console for every external system. Replaces the static
-// Sprint 10 integrations page with a provider-agnostic operating center driven
-// entirely by the integration catalog + live status engine. Monitoring only —
-// no credentials are entered or displayed here.
+
+// Integrations — Sprint 10 (Loop Intelligence Foundation, Phase 2).
+
 
 export const dynamic = 'force-dynamic';
 
-function pctClass(p: number): string {
-  if (p >= 80) return 'good';
-  if (p >= 50) return 'warn';
-  return 'bad';
-}
 
-function Card({ card }: { card: ProviderCard }) {
-  const { spec, status } = card;
-  return (
-    <div className="ios-card">
-      <div className="ios-card-head">
-        <div>
-          <div className="ios-card-name">{spec.displayName}</div>
-          <div className="ios-card-cat">{spec.category}</div>
-        </div>
-        <span className={'ios-badge ' + status.connection}>
-          <span className="ios-dot" />{connectionLabel(status.connection)}
-        </span>
-      </div>
-      <div className="ios-card-blurb">{spec.blurb}</div>
-      <div className="ios-card-meta">
-        <div><span className="k">Health</span><span className="v">{healthLabel(status.health)}</span></div>
-        <div><span className="k">Last Event</span><span className="v">{relativeTime(status.lastEvent ? status.lastEvent.receivedAt : null)}</span></div>
-        <div><span className="k">Events Today</span><span className="v">{status.eventsToday}</span></div>
-        <div><span className="k">Retry Queue</span><span className="v">{status.retryQueueDepth}</span></div>
-        <div><span className="k">Auth</span><span className="v">{status.authVerified ? 'Verified' : 'Pending'}</span></div>
-        <div><span className="k">Direction</span><span className="v">{spec.direction}</span></div>
-      </div>
-      <div className="ios-card-head">
-        <span className={'ios-readiness ' + spec.readiness}>{spec.readiness.replace('_', ' ')}</span>
-        <Link className="crm-btn-sm" href={'/crm/integrations/' + spec.id}>Open Setup</Link>
-      </div>
-    </div>
-  );
-}
-
-export default async function IntegrationOsPage() {
+export default async function IntegrationsPage() {
   await requirePermission('integrations', 'view');
-  const { organizationId } = await ensureLiveOrganization();
+  const canManage = await hasPermission('integrations', 'create');
+  const orgId = await resolveCrmOrganizationId();
 
   const result = await loadOrFallback(async () => {
-    const cards = await loadProviderCards(organizationId);
-    return { cards, health: computeSystemHealth(cards) };
+    if (!orgId) return null;
+    const [connections, eventCounts] = await Promise.all([
+      crmRepos.integrations.listConnections(orgId),
+      crmRepos.integrations.countEventsByStatus(orgId),
+    ]);
+    return { connections, eventCounts };
   });
 
   if (!result.ok || !result.data) {
     return (
       <>
-        <h1 className="crm-h1">Integration OS</h1>
+        <h1 className="crm-h1">Integrations</h1>
         <DbNotConfigured />
       </>
     );
   }
 
-  const { cards, health } = result.data;
-  const groups: { label: string; ids: string[] }[] = [
-    { label: 'Ingestion', ids: ['callgrid', 'website'] },
-    { label: 'Analytics & Advertising', ids: ['ga4', 'google_ads', 'google_search_console', 'microsoft_clarity', 'meta'] },
-    { label: 'Messaging & AI', ids: ['twilio', 'openai', 'anthropic', 'elevenlabs'] },
-  ];
+  const { connections, eventCounts } = result.data;
+  const ingestionProviders = KNOWN_PROVIDERS['ingestion'];
+  const analyticsProviders = KNOWN_PROVIDERS['analytics'];
+  const totalEvents = Object.values(eventCounts).reduce((a, b) => a + b, 0);
+  const processedEvents = eventCounts['PROCESSED'] ?? 0;
+  const failedEvents = eventCounts['FAILED'] ?? 0;
 
   return (
     <>
       <div className="crm-wf-head">
         <div>
-          <h1 className="crm-h1">Integration OS</h1>
+          <h1 className="crm-h1">Integrations</h1>
           <p className="crm-sub">
-            Connect, monitor, diagnose and manage every external system from one
-            console. Configuration only — no secret values are ever displayed.
+            Configuration only — no real API calls, no OAuth, no credentials stored.
+            Connections are PENDING until a real provider adapter is registered.
           </p>
         </div>
       </div>
 
-      {/* System Integration Health */}
-      <div className="ios-health-bar">
-        <div className="ios-health-overall">
-          <span className={'ios-health-pct ' + pctClass(health.overallPercent)}>{health.overallPercent}%</span>
-          <span className="ios-health-stat"><span className="lbl">Overall</span></span>
-        </div>
-        <div className="ios-health-stat"><span className="num">{health.connected}</span><span className="lbl">Connected</span></div>
-        <div className="ios-health-stat"><span className="num">{health.needsSetup}</span><span className="lbl">Needs Setup</span></div>
-        <div className="ios-health-stat"><span className="num">{health.errors}</span><span className="lbl">Errors</span></div>
-        <div className="ios-health-stat"><span className="num">{health.warnings}</span><span className="lbl">Warnings</span></div>
-      </div>
-
-      {health.missingItems.length > 0 ? (
-        <div className="ios-missing">
-          {health.missingItems.map((m, i) => (
-            <span key={i} className="ios-missing-chip">{m}</span>
-          ))}
+      {totalEvents > 0 ? (
+        <div className="crm-panel" style={{ marginBottom: '1.5rem', display: 'flex', gap: '2rem', fontSize: '0.85rem' }}>
+          <div>
+            <span style={{ color: 'var(--crm-faint)', fontSize: '0.7rem', textTransform: 'uppercase', display: 'block', marginBottom: '0.3rem' }}>Total Events</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 700 }}>{totalEvents}</span>
+          </div>
+          <div>
+            <span style={{ color: 'var(--crm-faint)', fontSize: '0.7rem', textTransform: 'uppercase', display: 'block', marginBottom: '0.3rem' }}>Processed</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--crm-accent)' }}>{processedEvents}</span>
+          </div>
+          <div>
+            <span style={{ color: 'var(--crm-faint)', fontSize: '0.7rem', textTransform: 'uppercase', display: 'block', marginBottom: '0.3rem' }}>Failed</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--crm-red, #f87171)' }}>{failedEvents}</span>
+          </div>
         </div>
       ) : null}
 
-      {/* AI Setup Assistant entry */}
-      <div className="ios-assistant">
-        <div className="prompt">&gt; Connect a provider…</div>
-        <div className="reply">
-          Tell the assistant which system to connect (e.g. <strong>Connect CallGrid</strong>
-          {' '}or <strong>Connect ServicesInMyCity</strong>) and it will generate the webhook,
-          required events, secret checklist and verification steps. {' '}
-          <Link className="crm-link" href="/crm/integrations/assistant">Open the Setup Assistant</Link>.
+      <div style={{ marginBottom: '1.5rem' }}>
+        <h2 className="crm-h2" style={{ marginBottom: '1rem' }}>Active Connections</h2>
+        {connections.length === 0 ? (
+          <p className="crm-empty">No connections configured yet. Add one below.</p>
+        ) : (
+          <div className="crm-integrations-grid">
+            {connections.map((c) => (
+              <div key={c.id} className="crm-integration-card">
+                <div className="crm-integration-card-header">
+                  <span className="crm-integration-card-name">{c.displayName}</span>
+                  <span className="crm-integration-card-category">{c.category}</span>
+                </div>
+                <div className={'crm-integration-status ' + c.status}>{c.status}</div>
+                <div className="crm-integration-card-config">
+                  Provider: <strong>{c.provider}</strong>
+                </div>
+                {c.connectedAt ? (
+                  <div className="crm-integration-card-config">
+                    Connected: {new Date(c.connectedAt).toLocaleDateString()}
+                  </div>
+                ) : null}
+                {canManage ? (
+                  <div className="crm-integration-card-actions">
+                    <form action={deleteIntegrationAction}>
+                      <input type="hidden" name="connectionId" value={c.id} />
+                      <button type="submit" className="crm-btn-sm crm-btn-danger">Remove</button>
+                    </form>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {canManage ? (
+        <div className="crm-panel" style={{ marginBottom: '1.5rem' }}>
+          <h2 className="crm-h2" style={{ marginBottom: '1rem' }}>Add Connection</h2>
+          <p style={{ fontSize: '0.8rem', color: 'var(--crm-muted)', marginBottom: '1rem' }}>
+            Configuration only — no credentials, no API keys, no OAuth.
+          </p>
+          <form action={createIntegrationAction} className="crm-form" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="crm-field">
+              <label className="crm-label">Category</label>
+              <select name="category" className="crm-input" required defaultValue="">
+                <option value="" disabled>Select category</option>
+                <option value="ingestion">ingestion</option>
+                <option value="analytics">analytics</option>
+              </select>
+            </div>
+            <div className="crm-field">
+              <label className="crm-label">Provider</label>
+              <select name="provider" className="crm-input" required defaultValue="">
+                <option value="" disabled>Select provider</option>
+                {[...ingestionProviders, ...analyticsProviders]
+                  .filter((v, i, a) => a.indexOf(v) === i)
+                  .map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+              </select>
+            </div>
+            <div className="crm-field" style={{ flex: 1, minWidth: 180 }}>
+              <label className="crm-label">Display Name</label>
+              <input type="text" name="displayName" className="crm-input" placeholder="e.g. CallGrid Production" />
+            </div>
+            <button type="submit" className="crm-btn">Add Connection</button>
+          </form>
+        </div>
+      ) : null}
+
+      <div className="crm-integration-available">
+        <div className="crm-integration-available-title">Available Ingestion Providers (planned)</div>
+        <div className="crm-provider-chips">
+          {ingestionProviders.map((p) => (<span key={p} className="crm-provider-chip">{p}</span>))}
         </div>
       </div>
 
-      {groups.map((g) => {
-        const groupCards = g.ids
-          .map((id) => cards.find((c) => c.spec.id === id))
-          .filter((c): c is ProviderCard => Boolean(c));
-        if (groupCards.length === 0) return null;
-        return (
-          <div key={g.label} style={{ marginBottom: '1.75rem' }}>
-            <h2 className="crm-h2" style={{ marginBottom: '0.85rem' }}>{g.label}</h2>
-            <div className="ios-grid">
-              {groupCards.map((c) => (<Card key={c.spec.id} card={c} />))}
-            </div>
-          </div>
-        );
-      })}
+      <div className="crm-integration-available">
+        <div className="crm-integration-available-title">Available Analytics Providers (planned)</div>
+        <div className="crm-provider-chips">
+          {analyticsProviders.map((p) => (<span key={p} className="crm-provider-chip">{p}</span>))}
+        </div>
+      </div>
     </>
   );
 }
