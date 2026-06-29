@@ -22,7 +22,7 @@
 // ProviderContext (never stored in this file). Node's built-in crypto keeps
 // dependencies at zero.
 
-import { createHmac, timingSafeEqual } from 'crypto';
+import { verifySignedWebhook } from '../webhook-security';
 import type { ProviderContext } from '../types';
 import type {
   IngestionProvider,
@@ -181,29 +181,12 @@ export class WebsiteProvider implements IngestionProvider {
     headers: Record<string, string>,
     rawBody: string,
   ): Promise<WebhookVerificationResult> {
-    const secret = ctx.credentials?.['webhookSecret'] ?? '';
-    const allowUnsigned = ctx.config?.['allowUnsigned'] === true;
-
-    if (!secret) {
-      return allowUnsigned
-        ? { valid: true, reason: 'unsigned-allowed' }
-        : { valid: false, reason: 'no-secret-configured' };
-    }
-
-    const provided =
-      headers['x-emg-signature'] ??
-      headers['x-website-signature'] ??
-      headers['x-signature'] ??
-      '';
-    if (!provided) {
-      return { valid: false, reason: 'missing-signature-header' };
-    }
-
-    const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
-    const a = Buffer.from(expected, 'utf8');
-    const b = Buffer.from(provided.replace(/^sha256=/, ''), 'utf8');
-    const valid = a.length === b.length && timingSafeEqual(a, b);
-    return valid ? { valid: true } : { valid: false, reason: 'signature-mismatch' };
+    return verifySignedWebhook(headers, rawBody, {
+      secret: ctx.credentials?.['webhookSecret'] ?? '',
+      allowUnsigned: ctx.config?.['allowUnsigned'] === true,
+      signatureHeaders: ['x-emg-signature', 'x-website-signature', 'x-signature'],
+      timestampHeaders: ['x-emg-timestamp', 'x-timestamp'],
+    });
   }
 
   /**
