@@ -1,4 +1,4 @@
-// CallGridProvider — Sprint 11 (First Live Integration).
+// CallGridProvider - Sprint 11 (First Live Integration) + Sprint 17 hardening.
 //
 // The platform's FIRST real ingestion adapter. CallGrid is a call-tracking
 // provider: it delivers webhooks for inbound/answered/missed/completed calls,
@@ -7,15 +7,15 @@
 //
 // This adapter ONLY translates CallGrid's wire format into the platform's
 // provider-agnostic InboundEvent shape. It contains NO business logic and writes
-// NO data — normalization, persistence, signals, and workflows all happen
+// NO data - normalization, persistence, signals, and workflows all happen
 // downstream in the NormalizationEngine. Swapping CallGrid for another call
 // provider means writing another adapter; nothing else changes.
 //
-// No vendor SDK is imported. Webhook authenticity is verified with an HMAC-SHA256
-// signature over the raw body using a shared secret resolved from ProviderContext
-// (never stored in this file). Node's built-in crypto keeps dependencies at zero.
+// No vendor SDK is imported. Sprint 17 routes verification through the shared
+// verifySignedWebhook helper so CallGrid gets HMAC-SHA256 signature checking,
+// timestamp validation and replay protection identically to every other signed
+// ingress. The shared secret is resolved from ProviderContext (never stored here).
 
-import { createHmac, timingSafeEqual } from 'crypto';
 import type { ProviderContext } from '../types';
 import type {
   IngestionProvider,
@@ -25,6 +25,7 @@ import type {
   PollResult,
   WebhookVerificationResult,
 } from '../interfaces/ingestion.provider';
+import { verifySignedWebhook } from '../webhook-security';
 
 // ---- CallGrid raw event vocabulary ----------------------------------------
 // CallGrid sends a "call_status" (or "event") string. We map each to the
@@ -65,15 +66,6 @@ function pick(payload: Record<string, unknown>, keys: string[]): string | undefi
   return undefined;
 }
 
-function pickNumber(payload: Record<string, unknown>, keys: string[]): number | undefined {
-  for (const k of keys) {
-    const v = payload[k];
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) return Number(v);
-  }
-  return undefined;
-}
-
 // ---- Provider --------------------------------------------------------------
 
 export class CallGridProvider implements IngestionProvider {
@@ -84,7 +76,7 @@ export class CallGridProvider implements IngestionProvider {
   };
 
   async healthCheck(_ctx: ProviderContext) {
-    // No outbound network call in this sprint — the adapter is webhook-driven.
+    // No outbound network call in this sprint - the adapter is webhook-driven.
     // Health is "ok" as long as the adapter is registered and resolvable.
     return { ok: true, checkedAt: new Date().toISOString() };
   }
@@ -106,40 +98,24 @@ export class CallGridProvider implements IngestionProvider {
   }
 
   /**
-   * Verify an inbound CallGrid webhook with an HMAC-SHA256 signature.
-   * The shared secret comes from ProviderContext.credentials.webhookSecret.
-   * If no secret is configured the request is rejected (fail closed), except
-   * when ctx.config.allowUnsigned === true (used only for the sandbox/test
-   * connection so reviewers can exercise the pipeline without a real secret).
+   * Verify an inbound CallGrid webhook. Sprint 17 delegates to the shared
+   * verifySignedWebhook helper so signature, timestamp and replay checks are
+   * identical across every signed ingress. The shared secret comes from
+   * ProviderContext.credentials.webhookSecret. If no secret is configured the
+   * request is rejected (fail closed) unless ctx.config.allowUnsigned === true
+   * (sandbox/preview only - production callers must pass allowUnsigned: false).
    */
   async verifyWebhook(
     ctx: ProviderContext,
     headers: Record<string, string>,
     rawBody: string,
   ): Promise<WebhookVerificationResult> {
-    const secret = ctx.credentials?.['webhookSecret'] ?? '';
-    const allowUnsigned = ctx.config?.['allowUnsigned'] === true;
-
-    if (!secret) {
-      return allowUnsigned
-        ? { valid: true, reason: 'unsigned-allowed' }
-        : { valid: false, reason: 'no-secret-configured' };
-    }
-
-    const provided =
-      headers['x-callgrid-signature'] ??
-      headers['x-callgrid-sig'] ??
-      headers['x-signature'] ??
-      '';
-    if (!provided) {
-      return { valid: false, reason: 'missing-signature-header' };
-    }
-
-    const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
-    const a = Buffer.from(expected, 'utf8');
-    const b = Buffer.from(provided.replace(/^sha256=/, ''), 'utf8');
-    const valid = a.length === b.length && timingSafeEqual(a, b);
-    return valid ? { valid: true } : { valid: false, reason: 'signature-mismatch' };
+    return verifySignedWebhook(headers, rawBody, {
+      secret: ctx.credentials?.['webhookSecret'] ?? '',
+      allowUnsigned: ctx.config?.['allowUnsigned'] === true,
+      signatureHeaders: ['x-callgrid-signature', 'x-callgrid-sig', 'x-signature'],
+      timestampHeaders: ['x-callgrid-timestamp', 'x-timestamp'],
+    });
   }
 
   /**
