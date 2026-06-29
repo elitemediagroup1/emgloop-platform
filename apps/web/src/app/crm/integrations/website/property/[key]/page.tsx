@@ -4,7 +4,7 @@ import { requirePermission } from '../../../../../../auth/guard';
 import { LIVE_ORG_SLUG } from '../../../../../../crm/live-org';
 import { EMG_WEBSITE_PROPERTIES, sdkInstallScript, propertyIdentifier } from '@emgloop/database';
 
-// Website SDK â single property manager (Sprint 16).
+// Website SDK  -  single property manager (Sprint 16).
 //
 // Management layer only: generates the install <script>, the public property
 // identifier and the (future) ingest key reference for one EMG property. The
@@ -29,7 +29,7 @@ export default async function PropertyPage({ params }: { params: { key: string }
             <Link href="/crm/integrations/website" className="crm-link">EMG Websites</Link> / {property.name}
           </p>
           <h1 className="crm-h1">{property.name}</h1>
-          <p className="crm-sub">{property.domain} Â· Installation: Not installed</p>
+          <p className="crm-sub">{property.domain}  -  Installation: Not installed</p>
         </div>
       </div>
 
@@ -58,7 +58,7 @@ export default async function PropertyPage({ params }: { params: { key: string }
           </div>
           <div className="ios-section">
             <h2>Ingest Key</h2>
-            <p className="crm-sub" style={{ marginBottom: '0.5rem' }}>Per-property key. Status only â the value is shown once at creation by the backend (Sprint 17+) and never again.</p>
+            <p className="crm-sub" style={{ marginBottom: '0.5rem' }}>Per-property key. Status only  -  the value is shown once at creation by the backend (Sprint 17+) and never again.</p>
             <div className="ios-secret">
               <div><div className="name">{pid}_KEY</div><div className="masked">not generated</div></div>
               <span className="ios-badge not_configured"><span className="ios-dot" />Not generated</span>
