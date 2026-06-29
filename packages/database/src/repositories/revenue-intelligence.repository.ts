@@ -5,8 +5,17 @@
 // in Neon. Attribution dimensions (vendor / source / campaign / website / channel
 // / signal / journey) come from each customer's Interaction.metadata, written by
 // the NormalizationEngine. Every revenue figure is traceable to its evidence.
+//
+// Sprint 15 real-data hotfix:
+//  - Demo / QA / E2E / test customers are EXCLUDED (never deleted) from active
+//    intelligence via operational-filters.isExcludedCustomer.
+//  - Fabricated attribution labels become honest 'Unknown ...' via realAttr.
+//  - Revenue is reported as realized vs pending vs opportunity, so the page is
+//    honest when there are calls/visits but no realized orders.
+//  - Traffic distinguishes known attribution from missing attribution.
 
 import type { PrismaClient, Prisma } from '@prisma/client';
+import { isExcludedCustomer, realAttr, UNKNOWN, since, TRAFFIC_DEFAULT_WINDOW_MS } from './operational-filters';
 
 function jsonStr(value: Prisma.JsonValue | null | undefined, key: string): string | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -17,10 +26,10 @@ function jsonStr(value: Prisma.JsonValue | null | undefined, key: string): strin
   return null;
 }
 
-const UNATTRIBUTED = '(unattributed)';
-
 // Orders in these states count as realized revenue.
 const REVENUE_STATUSES = new Set(['PLACED', 'IN_PROGRESS', 'READY', 'FULFILLED']);
+// Orders in these states are pending (not yet realized, not lost).
+const PENDING_STATUSES = new Set(['DRAFT']);
 
 export interface RankedRevenue {
   key: string;
@@ -40,10 +49,19 @@ export interface RevenueByDimension {
   byJourney: RankedRevenue[];
   totalRevenueCents: number;
   totalOrders: number;
+  // Honest revenue posture.
+  realizedRevenueCents: number;
+  realizedOrders: number;
+  pendingRevenueCents: number;
+  pendingOrders: number;
+  influencedJourneys: number; // customers with activity but no realized revenue
+  hasRealizedRevenue: boolean;
+  rangeLabel: string;
 }
 
 export interface TrafficVendorRow {
   vendor: string;
+  attributed: boolean;
   calls: number;
   qualified: number;
   qualifiedPct: number;
@@ -85,6 +103,15 @@ export interface TrafficIntelligence {
   sources: TrafficSourceRow[];
   campaigns: TrafficCampaignRow[];
   buyers: TrafficBuyerRow[];
+  // Attribution posture for the whole window.
+  totalCalls: number;
+  attributedCalls: number; // calls with a real vendor
+  unattributedCalls: number; // calls missing vendor/source/campaign
+  qualifiedCalls: number;
+  bookings: number;
+  realizedRevenueCents: number;
+  pendingRevenueCents: number;
+  rangeLabel: string;
 }
 
 export interface RevenueTimelineEntry {
@@ -108,13 +135,13 @@ type CustomerWithRelations = Prisma.CustomerGetPayload<{
 }>;
 
 function bump(map: Map<string, RankedRevenue>, key: string | null, label: string | null, cents: number) {
-  const k = key && key.trim() ? key : UNATTRIBUTED;
+  const k = key && key.trim() ? key : UNKNOWN.vendor;
   const existing = map.get(k);
   if (existing) {
     existing.orders += 1;
     existing.revenueCents += cents;
   } else {
-    map.set(k, { key: k, label: label && label.trim() ? label : UNATTRIBUTED, orders: 1, revenueCents: cents });
+    map.set(k, { key: k, label: label && label.trim() ? label : k, orders: 1, revenueCents: cents });
   }
 }
 
@@ -126,6 +153,7 @@ export class RevenueIntelligenceRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   // Pick a customer's dominant attribution from their interactions (latest wins).
+  // Fabricated labels are treated as missing (realAttr -> null).
   private attributionFor(customer: CustomerWithRelations): {
     vendor: string | null;
     source: string | null;
@@ -147,12 +175,12 @@ export class RevenueIntelligenceRepository {
     let buyer: string | null = null;
     let journey: string | null = null;
     for (const i of interactions) {
-      vendor = vendor ?? jsonStr(i.metadata, 'vendor');
-      source = source ?? jsonStr(i.metadata, 'source');
-      campaign = campaign ?? jsonStr(i.metadata, 'campaign');
+      vendor = vendor ?? realAttr(jsonStr(i.metadata, 'vendor'));
+      source = source ?? realAttr(jsonStr(i.metadata, 'source'));
+      campaign = campaign ?? realAttr(jsonStr(i.metadata, 'campaign'));
       website = website ?? jsonStr(i.metadata, 'property') ?? jsonStr(i.metadata, 'website');
       channel = channel ?? (i.channel as string);
-      buyer = buyer ?? jsonStr(i.metadata, 'buyer');
+      buyer = buyer ?? realAttr(jsonStr(i.metadata, 'buyer'));
       journey = journey ?? jsonStr(i.metadata, 'journeyStage') ?? jsonStr(i.metadata, 'intent');
     }
     const signal = customer.signals.length
@@ -161,23 +189,35 @@ export class RevenueIntelligenceRepository {
     return { vendor, source, campaign, website, channel, buyer, signal, journey };
   }
 
-  private revenueOf(customer: CustomerWithRelations): { cents: number; orders: number } {
-    let cents = 0;
-    let orders = 0;
+  private revenueOf(customer: CustomerWithRelations): {
+    realizedCents: number;
+    realizedOrders: number;
+    pendingCents: number;
+    pendingOrders: number;
+  } {
+    let realizedCents = 0;
+    let realizedOrders = 0;
+    let pendingCents = 0;
+    let pendingOrders = 0;
     for (const o of customer.orders) {
-      if (REVENUE_STATUSES.has(String(o.status))) {
-        cents += o.totalCents ?? 0;
-        orders += 1;
+      const st = String(o.status);
+      if (REVENUE_STATUSES.has(st)) {
+        realizedCents += o.totalCents ?? 0;
+        realizedOrders += 1;
+      } else if (PENDING_STATUSES.has(st)) {
+        pendingCents += o.totalCents ?? 0;
+        pendingOrders += 1;
       }
     }
-    return { cents, orders };
+    return { realizedCents, realizedOrders, pendingCents, pendingOrders };
   }
 
   async revenueByDimension(organizationId: string): Promise<RevenueByDimension> {
-    const customers = await this.prisma.customer.findMany({
+    const all = await this.prisma.customer.findMany({
       where: { organizationId },
       include: { interactions: true, bookings: true, orders: true, signals: true },
     });
+    const customers = all.filter((c) => !isExcludedCustomer(c));
 
     const byWebsite = new Map<string, RankedRevenue>();
     const byVendor = new Map<string, RankedRevenue>();
@@ -188,23 +228,32 @@ export class RevenueIntelligenceRepository {
     const bySignal = new Map<string, RankedRevenue>();
     const byJourney = new Map<string, RankedRevenue>();
 
-    let totalRevenueCents = 0;
-    let totalOrders = 0;
+    let realizedRevenueCents = 0;
+    let realizedOrders = 0;
+    let pendingRevenueCents = 0;
+    let pendingOrders = 0;
+    let influencedJourneys = 0;
 
     for (const c of customers) {
-      const { cents, orders } = this.revenueOf(c);
-      if (orders === 0) continue;
+      const { realizedCents, realizedOrders: ro, pendingCents, pendingOrders: po } = this.revenueOf(c);
+      pendingRevenueCents += pendingCents;
+      pendingOrders += po;
+      if (ro === 0) {
+        // Activity without realized revenue = an influenced (pending) journey.
+        if (c.interactions.length > 0) influencedJourneys += 1;
+        continue;
+      }
       const a = this.attributionFor(c);
-      totalRevenueCents += cents;
-      totalOrders += orders;
-      bump(byWebsite, a.website, a.website, cents);
-      bump(byVendor, a.vendor, a.vendor, cents);
-      bump(bySource, a.source, a.source, cents);
-      bump(byCampaign, a.campaign, a.campaign, cents);
-      bump(byBuyer, a.buyer, a.buyer, cents);
-      bump(byChannel, a.channel, a.channel, cents);
-      bump(bySignal, a.signal, a.signal, cents);
-      bump(byJourney, a.journey, a.journey, cents);
+      realizedRevenueCents += realizedCents;
+      realizedOrders += ro;
+      bump(byWebsite, a.website, a.website, realizedCents);
+      bump(byVendor, a.vendor ?? UNKNOWN.vendor, a.vendor ?? UNKNOWN.vendor, realizedCents);
+      bump(bySource, a.source ?? UNKNOWN.source, a.source ?? UNKNOWN.source, realizedCents);
+      bump(byCampaign, a.campaign ?? UNKNOWN.campaign, a.campaign ?? UNKNOWN.campaign, realizedCents);
+      bump(byBuyer, a.buyer ?? UNKNOWN.buyer, a.buyer ?? UNKNOWN.buyer, realizedCents);
+      bump(byChannel, a.channel, a.channel, realizedCents);
+      bump(bySignal, a.signal, a.signal, realizedCents);
+      bump(byJourney, a.journey, a.journey, realizedCents);
     }
 
     return {
@@ -216,16 +265,25 @@ export class RevenueIntelligenceRepository {
       byChannel: ranked(byChannel),
       bySignal: ranked(bySignal),
       byJourney: ranked(byJourney),
-      totalRevenueCents,
-      totalOrders,
+      totalRevenueCents: realizedRevenueCents,
+      totalOrders: realizedOrders,
+      realizedRevenueCents,
+      realizedOrders,
+      pendingRevenueCents,
+      pendingOrders,
+      influencedJourneys,
+      hasRealizedRevenue: realizedOrders > 0,
+      rangeLabel: 'All time',
     };
   }
 
   async trafficIntelligence(organizationId: string): Promise<TrafficIntelligence> {
-    const calls = await this.prisma.interaction.findMany({
-      where: { organizationId, channel: 'PHONE' },
+    const cutoff = since(TRAFFIC_DEFAULT_WINDOW_MS);
+    const allCalls = await this.prisma.interaction.findMany({
+      where: { organizationId, channel: 'PHONE', occurredAt: { gte: cutoff } },
       include: { customer: { include: { orders: true, bookings: true } } },
     });
+    const calls = allCalls.filter((i) => !isExcludedCustomer(i.customer));
 
     interface Acc {
       calls: number;
@@ -235,26 +293,48 @@ export class RevenueIntelligenceRepository {
     }
     const blank = (): Acc => ({ calls: 0, qualified: 0, bookings: 0, revenueCents: 0 });
 
-    const vendors = new Map<string, Acc>();
+    const vendors = new Map<string, Acc & { attributed: boolean }>();
     const sources = new Map<string, { vendor: string; source: string; campaign: string } & Acc>();
     const campaigns = new Map<string, { campaign: string; vendor: string } & Acc>();
     const buyers = new Map<string, Acc & { quality: number }>();
 
-    for (const i of calls) {
-      const vendor = jsonStr(i.metadata, 'vendor') ?? UNATTRIBUTED;
-      const source = jsonStr(i.metadata, 'source') ?? UNATTRIBUTED;
-      const campaign = jsonStr(i.metadata, 'campaign') ?? UNATTRIBUTED;
-      const buyer = jsonStr(i.metadata, 'buyer') ?? UNATTRIBUTED;
-      const qualified = jsonStr(i.metadata, 'qualified') === 'true';
-      const orders = i.customer ? i.customer.orders.filter((o) => REVENUE_STATUSES.has(String(o.status))) : [];
-      const bookings = i.customer ? i.customer.bookings.length : 0;
-      const rev = orders.reduce((s, o) => s + (o.totalCents ?? 0), 0);
+    let totalCalls = 0;
+    let attributedCalls = 0;
+    let qualifiedCalls = 0;
+    let totalBookings = 0;
+    let realizedRevenueCents = 0;
+    let pendingRevenueCents = 0;
 
-      const v = vendors.get(vendor) ?? blank();
+    for (const i of calls) {
+      const vendorReal = realAttr(jsonStr(i.metadata, 'vendor'));
+      const sourceReal = realAttr(jsonStr(i.metadata, 'source'));
+      const campaignReal = realAttr(jsonStr(i.metadata, 'campaign'));
+      const buyerReal = realAttr(jsonStr(i.metadata, 'buyer'));
+      const vendor = vendorReal ?? UNKNOWN.vendor;
+      const source = sourceReal ?? UNKNOWN.source;
+      const campaign = campaignReal ?? UNKNOWN.campaign;
+      const buyer = buyerReal ?? UNKNOWN.buyer;
+      const attributed = Boolean(vendorReal);
+      const qualified = jsonStr(i.metadata, 'qualified') === 'true';
+      const realizedOrders = i.customer ? i.customer.orders.filter((o) => REVENUE_STATUSES.has(String(o.status))) : [];
+      const pendingOrders = i.customer ? i.customer.orders.filter((o) => PENDING_STATUSES.has(String(o.status))) : [];
+      const bookings = i.customer ? i.customer.bookings.length : 0;
+      const rev = realizedOrders.reduce((s, o) => s + (o.totalCents ?? 0), 0);
+      const pend = pendingOrders.reduce((s, o) => s + (o.totalCents ?? 0), 0);
+
+      totalCalls += 1;
+      if (attributed) attributedCalls += 1;
+      if (qualified) qualifiedCalls += 1;
+      if (bookings) totalBookings += 1;
+      realizedRevenueCents += rev;
+      pendingRevenueCents += pend;
+
+      const v = vendors.get(vendor) ?? { ...blank(), attributed };
       v.calls += 1;
       if (qualified) v.qualified += 1;
       v.bookings += bookings ? 1 : 0;
       v.revenueCents += rev;
+      v.attributed = v.attributed || attributed;
       vendors.set(vendor, v);
 
       const sKey = vendor + ' › ' + source + ' › ' + campaign;
@@ -284,14 +364,16 @@ export class RevenueIntelligenceRepository {
       .map(([vendor, a]) => {
         const qualifiedPct = pct(a.qualified, a.calls);
         const conversionPct = pct(a.bookings, a.calls);
-        const insight =
-          conversionPct >= 40
+        const insight = !a.attributed
+          ? 'Missing attribution — vendor/source not provided on these calls.'
+          : conversionPct >= 40
             ? 'High-converting partner — scale spend.'
             : qualifiedPct < 25 && a.calls >= 3
               ? 'Low qualified rate — review lead quality.'
               : 'Steady performance.';
         return {
           vendor,
+          attributed: a.attributed,
           calls: a.calls,
           qualified: a.qualified,
           qualifiedPct,
@@ -302,21 +384,34 @@ export class RevenueIntelligenceRepository {
           insight,
         };
       })
-      .sort((x, y) => y.revenueCents - x.revenueCents);
+      .sort((x, y) => Number(y.attributed) - Number(x.attributed) || y.calls - x.calls);
 
     const sourceRows: TrafficSourceRow[] = Array.from(sources.values())
       .map((s) => ({ vendor: s.vendor, source: s.source, campaign: s.campaign, calls: s.calls, bookings: s.bookings, revenueCents: s.revenueCents }))
-      .sort((x, y) => y.revenueCents - x.revenueCents);
+      .sort((x, y) => y.calls - x.calls);
 
     const campaignRows: TrafficCampaignRow[] = Array.from(campaigns.values())
       .map((c) => ({ campaign: c.campaign, vendor: c.vendor, calls: c.calls, bookings: c.bookings, revenueCents: c.revenueCents, conversionPct: pct(c.bookings, c.calls) }))
-      .sort((x, y) => y.revenueCents - x.revenueCents);
+      .sort((x, y) => y.calls - x.calls);
 
     const buyerRows: TrafficBuyerRow[] = Array.from(buyers.entries())
       .map(([buyer, a]) => ({ buyer, callsDelivered: a.calls, revenueCents: a.revenueCents, conversionPct: pct(a.bookings, a.calls), qualityPct: pct(a.qualified, a.calls) }))
-      .sort((x, y) => y.revenueCents - x.revenueCents);
+      .sort((x, y) => y.callsDelivered - x.callsDelivered);
 
-    return { vendors: vendorRows, sources: sourceRows, campaigns: campaignRows, buyers: buyerRows };
+    return {
+      vendors: vendorRows,
+      sources: sourceRows,
+      campaigns: campaignRows,
+      buyers: buyerRows,
+      totalCalls,
+      attributedCalls,
+      unattributedCalls: totalCalls - attributedCalls,
+      qualifiedCalls,
+      bookings: totalBookings,
+      realizedRevenueCents,
+      pendingRevenueCents,
+      rangeLabel: 'Last 7 days',
+    };
   }
 
   async customerRevenueTimeline(organizationId: string, customerId: string): Promise<CustomerRevenueTimeline | null> {

@@ -1,15 +1,13 @@
 import { requirePermission } from '../../../../auth/guard';
 import LiveFeed from '../LiveFeed';
 
-// Live Operations — Live Call Feed (Sprint 15).
+// Live Operations — Live Call Feed (Sprint 15), real-data hotfix.
 //
-// Every PHONE interaction, attribution-enriched (vendor / source / campaign),
-// with qualified flag, duration, AI/human assignment and next-best-action.
-// Permission-gated by the 'intelligence' resource; polls /api/live/calls every
-// 8s (no websockets). Newest calls first. Real Neon data only.
-//
+// Every recent PHONE interaction (last 24h), attribution-enriched. Missing
+// vendor/source/campaign show honestly as 'Unknown ...' (never a fake partner).
+// Demo/QA/test records excluded. Rows are traceable (provider + event id).
+// Permission-gated by 'intelligence'; polls /api/live/calls. Newest first.
 // Rendering lives inside the LiveFeed client component (variant='calls').
-// Server Components must not pass a render function to a Client Component.
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +19,7 @@ export default async function LiveCallsPage() {
       <div className="crm-wf-head">
         <div>
           <h1 className="crm-h1">Live Calls</h1>
-          <p className="crm-sub">Inbound calls as they land — vendor, source, qualification and next best action. Newest first.</p>
+          <p className="crm-sub">Inbound calls as they land — vendor, source, qualification and next best action. Last 24 hours, newest first.</p>
         </div>
       </div>
 
@@ -30,7 +28,8 @@ export default async function LiveCallsPage() {
           endpoint="/api/live/calls"
           variant="calls"
           intervalMs={8000}
-          emptyText="No calls yet. As CallGrid routes inbound calls, they will appear here in real time."
+          windowLabel="last 24 hours"
+          emptyText="No calls in the last 24 hours. As CallGrid routes inbound calls, they will appear here in real time."
         />
       </div>
     </>
