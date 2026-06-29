@@ -1,8 +1,8 @@
-// @emgloop/brain — package barrel.
+// @emgloop/brain â package barrel.
 //
 // Sprint 12: EMG Brain Foundation. The Brain is the center of the platform; CRM,
 // Analytics, AI Employees, Workflows, Portals and every EMG property are
-// interfaces into it. This package establishes the PERMANENT architecture —
+// interfaces into it. This package establishes the PERMANENT architecture â
 // contracts and deterministic scaffolding only. No AI, no provider integrations,
 // no DB coupling (depends solely on @emgloop/shared). It is intentionally not yet
 // wired into the web app build; future sprints provide concrete implementations.

@@ -5,6 +5,7 @@ import './sprint8.css';
 import './sprint9.css';
 import './sprint10.css';
 import './design-system.css';
+import './sprint16.css';
 import { getSession } from '../../auth/auth';
 import { logoutAction } from '../../auth/actions';
 import { EmgLoopWordmark } from './_brand/Logos';
@@ -37,7 +38,7 @@ const NAV: NavGroup[] = [
       { href: '/crm', label: 'Overview', icon: 'grid' },
       { href: '/crm/intelligence', label: 'Brain', icon: 'brain' },
       { href: '/crm/analytics', label: 'Analytics', icon: 'chart' },
-      { href: '/crm/integrations', label: 'Integrations', icon: 'plug' },
+      { href: '/crm/integrations', label: 'Integration OS', icon: 'plug' },
     ],
   },
   {

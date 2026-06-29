@@ -22,6 +22,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 export * from './repositories';
+export * from './integration-catalog';
 
 export { IngestionService } from './services/ingestion.service';
 export type { IngestInput, IngestResult } from './services/ingestion.service';
@@ -34,6 +35,16 @@ export type {
     NextBestActionContext,
     NextBestActionResult,
 } from './services/next-best-action.service';
+
+export { IntegrationOsService } from './services/integration-os.service';
+export type {
+  ProviderStatus,
+  ProviderStatusInput,
+  ConnectionState,
+  HealthState,
+  SecretStatus,
+  EventRow,
+} from './services/integration-os.service';
 
 export const repositories: Repositories = createRepositories(prisma);
 
