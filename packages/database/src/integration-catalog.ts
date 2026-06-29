@@ -1,11 +1,11 @@
-// @emgloop/brain Ã¢ÂÂ Integration Catalog (Sprint 16, Integration OS).
+// @emgloop/brain — Integration Catalog (Sprint 16, Integration OS).
 //
 // The SINGLE declarative source of truth for every integration the
 // Integration OS knows how to connect, monitor, diagnose and explain. The
 // Integration Center UI is generated entirely from these specs: cards,
 // wizards, setup steps, health rows, required-configuration checklists and
 // diagnostics all read from here. Adding a future provider (Sprint 17+) is a
-// matter of appending ONE spec object plus its adapter + config Ã¢ÂÂ the OS then
+// matter of appending ONE spec object plus its adapter + config — the OS then
 // renders its UI, setup instructions, monitoring and diagnostics automatically.
 //
 // This file contains NO secrets and makes NO network calls. Env var NAMES are
@@ -34,7 +34,7 @@ export interface SetupStep {
   generates?: 'webhook_url' | 'required_events' | 'signing_secret_ref' | 'install_script' | 'api_key' | 'property_id' | 'verification';
 }
 
-/** A reference to a server environment variable. Names only Ã¢ÂÂ never values. */
+/** A reference to a server environment variable. Names only — never values. */
 export interface SecretRef {
   /** The environment variable name, e.g. 'CALLGRID_WEBHOOK_SECRET'. */
   envVar: string;
@@ -45,7 +45,7 @@ export interface SecretRef {
 
 /** The full declarative spec for one provider. */
 export interface ProviderSpec {
-  /** Stable provider id Ã¢ÂÂ matches ProviderConnection.provider + KNOWN_PROVIDERS. */
+  /** Stable provider id — matches ProviderConnection.provider + KNOWN_PROVIDERS. */
   id: string;
   displayName: string;
   category: ProviderCategory;
@@ -80,12 +80,12 @@ export interface ProviderSpec {
 const APP_URL = 'https://app.emgloop.com';
 
 export const INTEGRATION_CATALOG: ProviderSpec[] = [
-  // ---- CallGrid Ã¢ÂÂ first live ingestion adapter (Sprint 11) ----------------
+  // ---- CallGrid — first live ingestion adapter (Sprint 11) ----------------
   {
     id: 'callgrid',
     displayName: 'CallGrid',
     category: 'ingestion',
-    blurb: 'Call-tracking webhooks Ã¢ÂÂ inbound, answered, missed and completed calls.',
+    blurb: 'Call-tracking webhooks — inbound, answered, missed and completed calls.',
     readiness: 'production_ready',
     direction: 'inbound',
     delivery: ['webhook'],
@@ -102,11 +102,11 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
       { title: 'Add the EMG Loop webhook URL', detail: 'Paste the generated production webhook URL.', generates: 'webhook_url' },
       { title: 'Enable the required events', detail: 'Turn on each recommended call event.', generates: 'required_events' },
       { title: 'Set the signing secret', detail: 'Configure CALLGRID_WEBHOOK_SECRET in the server environment so signatures verify.', generates: 'signing_secret_ref' },
-      { title: 'Save and verify', detail: 'Save in CallGrid, then run a test Ã¢ÂÂ the OS detects the first live event.', generates: 'verification' },
+      { title: 'Save and verify', detail: 'Save in CallGrid, then run a test — the OS detects the first live event.', generates: 'verification' },
     ],
     notes: 'Receiver is complete. Until CALLGRID_WEBHOOK_SECRET is set the route runs in allow-unsigned mode; configure it before going live.',
   },
-  // ---- EMG Websites Ã¢ÂÂ second live ingestion adapter (Sprint 14) -----------
+  // ---- EMG Websites — second live ingestion adapter (Sprint 14) -----------
   {
     id: 'website',
     displayName: 'EMG Websites',
@@ -130,14 +130,14 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
       { title: 'Generate an ingest key', detail: 'Create a per-property key (status tracked, value never shown).', generates: 'api_key' },
       { title: 'Deploy and verify', detail: 'Publish the site, then verify the OS receives the first event.', generates: 'verification' },
     ],
-    notes: 'Receiver and SDK management layer exist. The browser JavaScript SDK itself is not built yet Ã¢ÂÂ sites cannot emit events until it ships.',
+    notes: 'Receiver and SDK management layer exist. The browser JavaScript SDK itself is not built yet — sites cannot emit events until it ships.',
   },
-  // ---- Google Analytics 4 Ã¢ÂÂ planned (oauth pull) -------------------------
+  // ---- Google Analytics 4 — planned (oauth pull) -------------------------
   {
     id: 'ga4',
     displayName: 'Google Analytics 4',
     category: 'analytics',
-    blurb: 'Site analytics Ã¢ÂÂ sessions, conversions and acquisition channels.',
+    blurb: 'Site analytics — sessions, conversions and acquisition channels.',
     readiness: 'planned',
     direction: 'inbound',
     delivery: ['oauth_pull', 'polling'],
@@ -151,13 +151,13 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Google', detail: 'Authorize EMG Loop with read-only Analytics scope (OAuth Ã¢ÂÂ Sprint 17+).' },
+      { title: 'Connect Google', detail: 'Authorize EMG Loop with read-only Analytics scope (OAuth — Sprint 17+).' },
       { title: 'Select the GA4 property', detail: 'Choose which Analytics property to sync.', generates: 'property_id' },
       { title: 'Schedule sync', detail: 'Enable scheduled pulls of sessions and conversions.' },
     ],
-    notes: 'Pull-based. Requires an analytics adapter, OAuth manager and a scheduler Ã¢ÂÂ none built yet.',
+    notes: 'Pull-based. Requires an analytics adapter, OAuth manager and a scheduler — none built yet.',
   },
-  // ---- Google Ads Ã¢ÂÂ planned ----------------------------------------------
+  // ---- Google Ads — planned ----------------------------------------------
   {
     id: 'google_ads',
     displayName: 'Google Ads',
@@ -177,12 +177,12 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Google Ads', detail: 'Authorize EMG Loop with read-only Ads scope (OAuth Ã¢ÂÂ Sprint 17+).' },
+      { title: 'Connect Google Ads', detail: 'Authorize EMG Loop with read-only Ads scope (OAuth — Sprint 17+).' },
       { title: 'Select the account', detail: 'Choose the Ads account/customer id to sync.', generates: 'property_id' },
     ],
     notes: 'Pull-based. Adapter + OAuth + scheduler required.',
   },
-  // ---- Google Search Console Ã¢ÂÂ planned -----------------------------------
+  // ---- Google Search Console — planned -----------------------------------
   {
     id: 'google_search_console',
     displayName: 'Google Search Console',
@@ -201,12 +201,12 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Search Console', detail: 'Authorize EMG Loop with read-only Search Console scope (OAuth Ã¢ÂÂ Sprint 17+).' },
+      { title: 'Connect Search Console', detail: 'Authorize EMG Loop with read-only Search Console scope (OAuth — Sprint 17+).' },
       { title: 'Select the property', detail: 'Choose the verified site property to sync.', generates: 'property_id' },
     ],
     notes: 'Pull-based. Adapter + OAuth + scheduler required.',
   },
-  // ---- Microsoft Ads Ã¢ÂÂ planned -------------------------------------------
+  // ---- Microsoft Ads — planned -------------------------------------------
   {
     id: 'microsoft_clarity',
     displayName: 'Microsoft Ads',
@@ -226,12 +226,12 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Microsoft Ads', detail: 'Authorize EMG Loop (OAuth Ã¢ÂÂ Sprint 17+).' },
+      { title: 'Connect Microsoft Ads', detail: 'Authorize EMG Loop (OAuth — Sprint 17+).' },
       { title: 'Select the account', detail: 'Choose the Ads account to sync.', generates: 'property_id' },
     ],
     notes: 'Pull-based. Adapter + OAuth + scheduler required.',
   },
-  // ---- Meta Ã¢ÂÂ planned ----------------------------------------------------
+  // ---- Meta — planned ----------------------------------------------------
   {
     id: 'meta',
     displayName: 'Meta',
@@ -250,17 +250,17 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Meta', detail: 'Authorize the EMG Loop Meta app (OAuth Ã¢ÂÂ Sprint 17+).' },
+      { title: 'Connect Meta', detail: 'Authorize the EMG Loop Meta app (OAuth — Sprint 17+).' },
       { title: 'Select ad accounts & pages', detail: 'Choose which assets to sync.', generates: 'property_id' },
     ],
     notes: 'Pull + webhook hybrid. Adapter + OAuth required.',
   },
-  // ---- Twilio Ã¢ÂÂ planned (messaging/voice) --------------------------------
+  // ---- Twilio — planned (messaging/voice) --------------------------------
   {
     id: 'twilio',
     displayName: 'Twilio',
     category: 'sms',
-    blurb: 'SMS and voice Ã¢ÂÂ inbound/outbound messaging webhooks.',
+    blurb: 'SMS and voice — inbound/outbound messaging webhooks.',
     readiness: 'planned',
     direction: 'bidirectional',
     delivery: ['webhook'],
@@ -280,7 +280,7 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     ],
     notes: 'Mirrors the CallGrid webhook shape; adapter not built yet.',
   },
-  // ---- OpenAI Ã¢ÂÂ planned (outbound AI) ------------------------------------
+  // ---- OpenAI — planned (outbound AI) ------------------------------------
   {
     id: 'openai',
     displayName: 'OpenAI',
@@ -300,7 +300,7 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     ],
     notes: 'Outbound provider. EMG Loop attribution stays deterministic; AI is assistive only.',
   },
-  // ---- Anthropic Ã¢ÂÂ planned (outbound AI) ---------------------------------
+  // ---- Anthropic — planned (outbound AI) ---------------------------------
   {
     id: 'anthropic',
     displayName: 'Anthropic',
@@ -320,7 +320,7 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     ],
     notes: 'Outbound provider. EMG Loop attribution stays deterministic; AI is assistive only.',
   },
-  // ---- ElevenLabs Ã¢ÂÂ planned (outbound voice) -----------------------------
+  // ---- ElevenLabs — planned (outbound voice) -----------------------------
   {
     id: 'elevenlabs',
     displayName: 'ElevenLabs',
@@ -391,7 +391,7 @@ export function webhookUrlFor(spec: ProviderSpec): string | null {
 }
 
 /** Generate the EMG Loop SDK install snippet for a property (management layer
-    only Ã¢ÂÂ the referenced emg-loop.js is not built yet). */
+    only — the referenced emg-loop.js is not built yet). */
 export function sdkInstallScript(property: CatalogWebsiteProperty, organizationSlug: string): string {
   return [
     '<script',
