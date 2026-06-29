@@ -11,11 +11,11 @@ import {
   type ProviderCard,
 } from '../../../crm/integration-os';
 
-// Integration OS — Sprint 16 (The Connection Layer).
+// Integration OS  -  Sprint 16 (The Connection Layer).
 //
 // The admin operations console for every external system. Replaces the static
 // Sprint 10 integrations page with a provider-agnostic operating center driven
-// entirely by the integration catalog + live status engine. Monitoring only —
+// entirely by the integration catalog + live status engine. Monitoring only  - 
 // no credentials are entered or displayed here.
 
 export const dynamic = 'force-dynamic';
@@ -88,7 +88,7 @@ export default async function IntegrationOsPage() {
           <h1 className="crm-h1">Integration OS</h1>
           <p className="crm-sub">
             Connect, monitor, diagnose and manage every external system from one
-            console. Configuration only — no secret values are ever displayed.
+            console. Configuration only  -  no secret values are ever displayed.
           </p>
         </div>
       </div>
@@ -120,7 +120,7 @@ export default async function IntegrationOsPage() {
       ) : null}
 
       <div className="ios-assistant">
-        <div className="prompt">&gt; Connect a provider…</div>
+        <div className="prompt">&gt; Connect a provider...</div>
         <div className="reply">
           Tell the assistant which system to connect (e.g. <strong>Connect CallGrid</strong>
           {' '}or <strong>Connect ServicesInMyCity</strong>) and it will generate the webhook,
