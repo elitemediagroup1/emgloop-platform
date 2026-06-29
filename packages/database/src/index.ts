@@ -35,6 +35,16 @@ export type {
     NextBestActionResult,
 } from './services/next-best-action.service';
 
+export { IntegrationOsService } from './services/integration-os.service';
+export type {
+  ProviderStatus,
+  ProviderStatusInput,
+  ConnectionState,
+  HealthState,
+  SecretStatus,
+  EventRow,
+} from './services/integration-os.service';
+
 export const repositories: Repositories = createRepositories(prisma);
 
 export * from '@prisma/client';
