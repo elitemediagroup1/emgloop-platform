@@ -5,12 +5,12 @@ import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
 import { loadProviderCard, webhookUrlFor, connectionLabel } from '../../../../crm/integration-os';
 import { listProviders } from '@emgloop/database';
 
-// AI Setup Assistant â Sprint 16 (deterministic, no external AI).
+// AI Setup Assistant  -  Sprint 16 (deterministic, no external AI).
 //
 // Type or click a 'Connect <provider>' intent; the assistant resolves it to a
 // catalog provider and replies with the generated webhook, required events,
 // secret checklist, authentication posture and live verification status. The
-// resolver is a deterministic keyword match today â an LLM can be swapped in
+// resolver is a deterministic keyword match today  -  an LLM can be swapped in
 // later without changing this UI contract.
 
 export const dynamic = 'force-dynamic';
@@ -59,7 +59,7 @@ export default async function AssistantPage({
             <Link href="/crm/integrations" className="crm-link">Integration OS</Link> / Setup Assistant
           </p>
           <h1 className="crm-h1">AI Setup Assistant</h1>
-          <p className="crm-sub">Describe what you want to connect. Deterministic today â no external AI required.</p>
+          <p className="crm-sub">Describe what you want to connect. Deterministic today  -  no external AI required.</p>
         </div>
       </div>
 
@@ -92,15 +92,15 @@ export default async function AssistantPage({
             <div className="reply">
               <p>Here is everything to connect <strong>{spec.displayName}</strong> ({connectionLabel(status.connection)}):</p>
               <ul>
-                {webhookUrl ? (<li>Webhook generated â <code>POST {webhookUrl}</code></li>) : (<li>No webhook â this provider connects via {spec.delivery.join('/')}.</li>)}
+                {webhookUrl ? (<li>Webhook generated  -  <code>POST {webhookUrl}</code></li>) : (<li>No webhook  -  this provider connects via {spec.delivery.join('/')}.</li>)}
                 {spec.recommendedEvents ? (<li>Required events: {spec.recommendedEvents.map((e) => (<span key={e} className="ios-eventtag">{e}</span>))}</li>) : null}
-                {spec.secrets.length ? (<li>Secret checklist: {spec.secrets.map((s) => (<span key={s.envVar}> <code>{s.envVar}</code>{status.secrets.find((x) => x.envVar === s.envVar && x.configured) ? ' â' : ' (missing)'}</span>))}</li>) : null}
-                <li>Authentication: {spec.authentication} â {status.authVerified ? 'verified' : 'waiting for first event'}</li>
+                {spec.secrets.length ? (<li>Secret checklist: {spec.secrets.map((s) => (<span key={s.envVar}> <code>{s.envVar}</code>{status.secrets.find((x) => x.envVar === s.envVar && x.configured) ? '  - ' : ' (missing)'}</span>))}</li>) : null}
+                <li>Authentication: {spec.authentication}  -  {status.authVerified ? 'verified' : 'waiting for first event'}</li>
                 <li>{missing.length === 0 ? 'All required secrets are configured.' : ('Configure these before going live: ' + missing.join(', '))}</li>
-                <li>{status.lastEvent ? ('Last event received ' + status.lastEvent.receivedAt) : 'Waiting for first live eventâ¦'}</li>
+                <li>{status.lastEvent ? ('Last event received ' + status.lastEvent.receivedAt) : 'Waiting for first live event - '}</li>
               </ul>
               <p style={{ marginTop: '0.6rem' }}>
-                <Link className="crm-btn-sm" href={'/crm/integrations/' + spec.id}>Open full setup &amp; monitoring â</Link>
+                <Link className="crm-btn-sm" href={'/crm/integrations/' + spec.id}>Open full setup &amp; monitoring  - </Link>
               </p>
             </div>
           </div>
