@@ -3,7 +3,7 @@ import { prisma, repositories, IngestionService } from '@emgloop/database';
 import { getWebsiteProvider, mapWebsiteEventType } from '@emgloop/providers';
 import type { ProviderContext } from '@emgloop/providers';
 import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../crm/live-org';
-import { mayAllowUnsigned, toVerificationDiagnostic } from '../../../../crm/webhook-runtime';
+import { mayAllowUnsigned, toVerificationDiagnostic, hostOf } from '../../../../crm/webhook-runtime';
 
 // Website webhook - Sprint 14 (Website Intelligence) + Sprint 17 hardening.
 //
@@ -59,7 +59,8 @@ export async function POST(req: Request) {
   }
 
   const secretConfigured = !!process.env.WEBSITE_WEBHOOK_SECRET;
-  const allowUnsigned = mayAllowUnsigned(connection.config?.['allowUnsigned'] === true);
+  const host = hostOf(req);
+  const allowUnsigned = mayAllowUnsigned(connection.config?.['allowUnsigned'] === true, host);
 
   const ctx: ProviderContext = {
     organizationId: org.id,
@@ -133,13 +134,13 @@ export async function POST(req: Request) {
 // GET is a lightweight liveness probe for the webhook URL. It never processes
 // events. Reports whether a signing secret is configured (boolean only) and
 // whether the live deploy would currently accept unsigned traffic.
-export function GET() {
+export function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     endpoint: 'website-webhook',
     method: 'POST',
     secretConfigured: !!process.env.WEBSITE_WEBHOOK_SECRET,
-    acceptsUnsigned: mayAllowUnsigned(true),
+    acceptsUnsigned: mayAllowUnsigned(true, hostOf(req)),
     capabilities: provider.capabilities(),
   });
 }
