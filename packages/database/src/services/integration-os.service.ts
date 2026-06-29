@@ -1,11 +1,11 @@
-// IntegrationOsService — Sprint 16 (Integration OS, The Connection Layer).
+// IntegrationOsService  -  Sprint 16 (Integration OS, The Connection Layer).
 //
 // The read-only status engine behind the Integration Center. It derives the
 // LIVE operational state of every provider from data EMG Loop already owns:
 //   - ProviderConnection rows (connection status, connectedAt, lastSyncedAt)
 //   - IntegrationEvent rows  (last event, events today, processed/failed,
 //                             retry queue, last error)
-//   - process.env presence   (whether a required secret is configured —
+//   - process.env presence   (whether a required secret is configured  - 
 //                             BOOLEAN ONLY; values are never read or returned)
 //
 // It makes NO network calls and stores NO state. The catalog (@emgloop/brain)
@@ -22,7 +22,7 @@ export type ConnectionState = 'connected' | 'waiting' | 'error' | 'not_configure
 /** Health rollup for a provider. */
 export type HealthState = 'healthy' | 'degraded' | 'down' | 'unknown';
 
-/** Status of a single required secret — presence only, never the value. */
+/** Status of a single required secret  -  presence only, never the value. */
 export interface SecretStatus {
   envVar: string;
   label: string;
