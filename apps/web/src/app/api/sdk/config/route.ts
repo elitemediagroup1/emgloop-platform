@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import {
   EMG_WEBSITE_PROPERTIES,
   propertyIdentifier,
+  propertyIngestKey,
+  propertyAllowedDomains,
   getProviderSpec,
 } from '@emgloop/database';
 import { EMG_LOOP_SDK_VERSION } from '../../../sdk/sdk-source';
@@ -27,6 +29,8 @@ function configFor(key: string) {
     name: prop.name,
     domain: prop.domain,
     identifier: propertyIdentifier(prop),
+    ingestKey: propertyIngestKey(prop),
+    allowedDomains: propertyAllowedDomains(prop),
     endpoint: APP_URL + '/api/webhooks/website',
     sdkUrl: APP_URL + '/sdk/emg-loop.js',
     sdkVersion: EMG_LOOP_SDK_VERSION,
