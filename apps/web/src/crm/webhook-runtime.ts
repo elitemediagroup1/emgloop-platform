@@ -22,8 +22,8 @@ const PRODUCTION_HOSTS = new Set(['app.emgloop.com']);
 export function isProductionRuntime(host?: string | null): boolean {
   // 1. Host-based (most reliable at request time).
   if (host) {
-    const h = host.toLowerCase().split(':')[0];
-    if (PRODUCTION_HOSTS.has(h)) return true;
+    const h = host.toLowerCase().split(':')[0] ?? '';
+    if (h && PRODUCTION_HOSTS.has(h)) return true;
     // Any Netlify preview/branch subdomain is explicitly NON-production.
     if (h.endsWith('.netlify.app')) return false;
   }
