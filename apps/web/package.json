@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@emgloop/database": "*",
-    "@emgloop/brain": "*",
     "@emgloop/shared": "*",
     "@emgloop/providers": "*",
     "next": "^14.2.5",
