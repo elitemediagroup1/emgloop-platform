@@ -26,14 +26,3 @@
 # publish directory for the App Router build).
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-
-# Sprint 17: serve the EMG Loop SDK at the familiar .js URL. A Next.js route
-# segment containing a dot is treated as a static file by the runtime and 404s,
-# so the handler lives at /api/sdk/emg-loop. This edge rewrite (status 200)
-# transparently maps the public /sdk/emg-loop.js URL onto that handler and runs
-# before static-file resolution, so sites can reference the familiar URL.
-[[redirects]]
-  from = "/sdk/emg-loop.js"
-  to = "/api/sdk/emg-loop"
-  status = 200
-  force = true
