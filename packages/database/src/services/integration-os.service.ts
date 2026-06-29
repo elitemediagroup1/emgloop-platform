@@ -1,17 +1,19 @@
-// IntegrationOsService  -  Sprint 16 (Integration OS, The Connection Layer).
+// IntegrationOsService - Sprint 16 (Integration OS) + Sprint 17 (status wiring).
 //
 // The read-only status engine behind the Integration Center. It derives the
 // LIVE operational state of every provider from data EMG Loop already owns:
-//   - ProviderConnection rows (connection status, connectedAt, lastSyncedAt)
-//   - IntegrationEvent rows  (last event, events today, processed/failed,
-//                             retry queue, last error)
-//   - process.env presence   (whether a required secret is configured  - 
-//                             BOOLEAN ONLY; values are never read or returned)
+// - ProviderConnection rows (connection status, connectedAt, lastSyncedAt,
+//   and the non-secret lastVerification diagnostic written by the webhooks)
+// - IntegrationEvent rows (last event, events today, processed/failed,
+//   retry queue, last error)
+// - process.env presence (whether a required secret is configured -
+//   BOOLEAN ONLY; values are never read or returned)
 //
-// It makes NO network calls and stores NO state. The catalog (@emgloop/brain)
-// supplies the static spec; this service supplies the live numbers. Together
-// they let the Integration Center render cards, health rows, diagnostics and a
-// required-configuration checklist for ANY provider without per-provider code.
+// It makes NO network calls and stores NO state. The catalog supplies the
+// static spec; this service supplies the live numbers. Sprint 17 adds the
+// honest live-state distinction the Integration OS shows: a provider is only
+// 'live' once real events have been PROCESSED - configuring a secret alone
+// makes it 'ready_for_setup', never 'live'.
 
 import type { PrismaClient } from '@prisma/client';
 import { IntegrationRepository } from '../repositories/integration.repository';
@@ -22,7 +24,18 @@ export type ConnectionState = 'connected' | 'waiting' | 'error' | 'not_configure
 /** Health rollup for a provider. */
 export type HealthState = 'healthy' | 'degraded' | 'down' | 'unknown';
 
-/** Status of a single required secret  -  presence only, never the value. */
+/**
+ * Honest go-live posture, independent of health:
+ * - 'live': at least one REAL event has been processed through the pipeline.
+ * - 'ready_for_setup': everything in EMG Loop is configured (required secrets
+ *   present) but no real event has arrived yet - the external system still
+ *   needs to be pointed at us.
+ * - 'needs_setup': required configuration (e.g. a signing secret) is missing.
+ * - 'not_available': provider has no receiver built yet (planned).
+ */
+export type LiveState = 'live' | 'ready_for_setup' | 'needs_setup' | 'not_available';
+
+/** Status of a single required secret - presence only, never the value. */
 export interface SecretStatus {
   envVar: string;
   label: string;
@@ -40,16 +53,30 @@ export interface EventRow {
   errorMessage: string | null;
 }
 
+/** The last non-secret verification diagnostic written by a webhook route. */
+export interface VerificationInfo {
+  at: string;
+  valid: boolean;
+  reason?: string;
+  timestamp?: number;
+  signaturePrefix?: string;
+  secretConfigured: boolean;
+}
+
 /** The full live status snapshot for one provider. */
 export interface ProviderStatus {
   providerId: string;
   connection: ConnectionState;
   connectionStatusLabel: string;
   health: HealthState;
+  liveState: LiveState;
   webhookActive: boolean;
   authVerified: boolean;
+  secretConfigured: boolean;
+  allRequiredSecretsConfigured: boolean;
   lastEvent: EventRow | null;
   lastError: EventRow | null;
+  lastVerification: VerificationInfo | null;
   eventsToday: number;
   eventsProcessed: number;
   eventsFailed: number;
@@ -62,11 +89,12 @@ export interface ProviderStatus {
   lastSyncedAt: string | null;
 }
 
-/** Minimal spec shape this service needs from the catalog (kept local so the
-    database package does not hard-depend on the brain package's types). */
+/** Minimal spec shape this service needs from the catalog. */
 export interface ProviderStatusInput {
   providerId: string;
   hasWebhook: boolean;
+  /** True when no receiver is built yet (planned providers). */
+  planned?: boolean;
   secrets: { envVar: string; label: string; required: boolean }[];
 }
 
@@ -85,6 +113,22 @@ function toRow(e: {
     status: e.status,
     receivedAt: e.receivedAt,
     errorMessage: e.errorMessage,
+  };
+}
+
+/** Safely read the persisted lastVerification diagnostic off a connection config. */
+function readVerification(config: Record<string, unknown> | undefined): VerificationInfo | null {
+  const v = config?.['lastVerification'];
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o['at'] !== 'string' || typeof o['valid'] !== 'boolean') return null;
+  return {
+    at: o['at'] as string,
+    valid: o['valid'] as boolean,
+    reason: typeof o['reason'] === 'string' ? (o['reason'] as string) : undefined,
+    timestamp: typeof o['timestamp'] === 'number' ? (o['timestamp'] as number) : undefined,
+    signaturePrefix: typeof o['signaturePrefix'] === 'string' ? (o['signaturePrefix'] as string) : undefined,
+    secretConfigured: o['secretConfigured'] === true,
   };
 }
 
@@ -118,6 +162,8 @@ export class IntegrationOsService {
     const missingRequiredSecrets = secrets
       .filter((s) => s.required && !s.configured)
       .map((s) => s.envVar);
+    const allRequiredSecretsConfigured = missingRequiredSecrets.length === 0;
+    const secretConfigured = secrets.some((s) => s.required && s.configured) || (secrets.length === 0);
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
@@ -129,10 +175,8 @@ export class IntegrationOsService {
     );
     const lastEvent = recent[0] ?? null;
     const lastError = recent.find((e) => e.status === 'FAILED') ?? null;
+    const lastVerification = readVerification(connection?.config);
 
-    // Derive connection state. A provider that has received events is
-    // connected; one that exists but never delivered is waiting; recent
-    // failures with no successes degrade to error; absent = not configured.
     const hasAnyProcessed = eventsProcessed > 0 || connection?.status === 'CONNECTED';
     let conn: ConnectionState;
     if (!connection) {
@@ -145,7 +189,6 @@ export class IntegrationOsService {
       conn = 'waiting';
     }
 
-    // Health rollup: required secrets missing OR only failures => degraded/down.
     let health: HealthState;
     if (conn === 'not_configured') {
       health = 'unknown';
@@ -159,10 +202,20 @@ export class IntegrationOsService {
       health = 'unknown';
     }
 
+    // Honest go-live posture. Configuring a secret alone is NEVER 'live'.
+    let liveState: LiveState;
+    if (spec.planned) {
+      liveState = 'not_available';
+    } else if (eventsProcessed > 0) {
+      liveState = 'live';
+    } else if (allRequiredSecretsConfigured) {
+      liveState = 'ready_for_setup';
+    } else {
+      liveState = 'needs_setup';
+    }
+
     const connectionStatusLabel = connection?.status ?? 'NOT_CONFIGURED';
     const webhookActive = spec.hasWebhook && hasAnyProcessed;
-    // Authentication is considered verified once at least one signed/accepted
-    // event has been PROCESSED through the pipeline for this provider.
     const authVerified = eventsProcessed > 0;
 
     return {
@@ -170,10 +223,14 @@ export class IntegrationOsService {
       connection: conn,
       connectionStatusLabel,
       health,
+      liveState,
       webhookActive,
       authVerified,
+      secretConfigured,
+      allRequiredSecretsConfigured,
       lastEvent: lastEvent ? toRow(lastEvent) : null,
       lastError: lastError ? toRow(lastError) : null,
+      lastVerification,
       eventsToday,
       eventsProcessed,
       eventsFailed,
