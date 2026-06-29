@@ -37,6 +37,7 @@ function specToInput(spec: ProviderSpec): ProviderStatusInput {
   return {
     providerId: spec.id,
     hasWebhook: Boolean(spec.webhookPath),
+    planned: spec.readiness === 'planned',
     secrets: spec.secrets.map((s) => ({ envVar: s.envVar, label: s.label, required: s.required })),
   };
 }
@@ -153,6 +154,37 @@ export function relativeTime(ts: string | null): string {
   const h = Math.round(m / 60);
   if (h < 24) return h + 'h ago';
   return Math.round(h / 24) + 'd ago';
+}
+
+/** Honest go-live label for the Integration OS. 'Live' ONLY after real events. */
+export function liveStateLabel(s: ProviderStatus['liveState']): string {
+  switch (s) {
+    case 'live': return 'Live';
+    case 'ready_for_setup': return 'Ready for setup';
+    case 'needs_setup': return 'Needs setup';
+    default: return 'Not available';
+  }
+}
+
+/** Map liveState to an existing crm status CSS modifier (no new classes). */
+export function liveStateClass(s: ProviderStatus['liveState']): string {
+  switch (s) {
+    case 'live': return 'CONNECTED';
+    case 'ready_for_setup': return 'PENDING';
+    case 'needs_setup': return 'NOT_CONNECTED';
+    default: return 'NOT_CONNECTED';
+  }
+}
+
+/** Human summary of the last verification diagnostic for the diagnostics panel. */
+export function verificationSummary(v: ProviderStatus['lastVerification']): string {
+  if (!v) return 'No verification recorded yet';
+  const when = relativeTime(v.at);
+  if (v.valid) {
+    const sig = v.signaturePrefix ? ' (sig ' + v.signaturePrefix + ')' : '';
+    return 'Verified ' + when + sig;
+  }
+  return 'Rejected ' + when + (v.reason ? ' - ' + v.reason : '');
 }
 
 export { listProviders, getProviderSpec, allSecretRefs, webhookUrlFor, EMG_WEBSITE_PROPERTIES };
