@@ -1,29 +1,54 @@
 import { NextResponse } from 'next/server';
 import { prisma, repositories, IngestionService } from '@emgloop/database';
-import { getWebsiteProvider, mapWebsiteEventType } from '@emgloop/providers';
-import type { ProviderContext } from '@emgloop/providers';
+import {
+  EMG_WEBSITE_PROPERTIES,
+  propertyIngestKey,
+  propertyAllowedDomains,
+} from '@emgloop/database';
+import { getWebsiteProvider, mapWebsiteEventType, verifyPropertyIngest } from '@emgloop/providers';
+import type { ProviderContext, PropertyIngestIdentity } from '@emgloop/providers';
 import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../crm/live-org';
-import { mayAllowUnsigned, toVerificationDiagnostic, hostOf } from '../../../../crm/webhook-runtime';
+import {
+  mayAllowUnsigned,
+  toVerificationDiagnostic,
+  hostOf,
+  isProductionRuntime,
+} from '../../../../crm/webhook-runtime';
 
 // Website webhook - Sprint 14 (Website Intelligence) + Sprint 17 hardening.
 //
-// The single live ingress point for EMG-owned website events, emitted by the
-// EMG Loop browser SDK (Sprint 17). It mirrors the CallGrid webhook exactly -
-// same transport-only shape, same pipeline, same security posture:
-// 1. Read the RAW body (needed for signature verification before JSON parse).
-// 2. Resolve the live organization + its Website ingestion connection.
-// 3. Verify signature + timestamp + replay via the Website adapter (shared helper).
-// 4. Parse the payload (single event OR a batch) into provider-agnostic events.
-// 5. Hand them to the IngestionService, which runs the full Loop pipeline.
+// The single live ingress point for EMG-owned website events. Sprint 17 gives
+// it TWO clearly-separated authentication tiers, because the two senders have
+// very different trust properties:
 //
-// Sprint 17 security rule: PRODUCTION NEVER ACCEPTS UNSIGNED TRAFFIC. The route
-// fails closed when WEBSITE_WEBHOOK_SECRET is missing on the live deploy. Only a
-// non-production preview may run allow-unsigned so reviewers can test the SDK
-// path. Every delivery records a non-secret verification diagnostic.
+//   A. BROWSER SDK INGEST (the emg-loop.js tracker in untrusted client code).
+//      Browsers cannot hold a secret, so we do NOT pretend these are HMAC
+//      signed. Instead the request must carry a known/active PUBLIC per-property
+//      ingest key (pk_emg_<property>) AND, in production, come from an allowed
+//      domain for that property (Origin/Referer). See verifyPropertyIngest.
+//
+//   B. SERVER-TO-SERVER SIGNED EVENTS (trusted backends sending website data).
+//      These keep the strong HMAC-SHA256 path over WEBSITE_WEBHOOK_SECRET via
+//      the Website adapter (signature + timestamp + replay protection).
+//
+// Which tier applies is chosen by the request itself: an ingest key (header
+// x-emg-ingest-key or body.ingestKey) selects the browser tier; otherwise the
+// signed server-to-server tier is required. Both fail closed in production -
+// the browser tier enforces allowed-domain + known key; the signed tier
+// rejects when WEBSITE_WEBHOOK_SECRET is missing. Every delivery records a
+// non-secret verification diagnostic (mode + outcome, never the key/secret).
 
 export const dynamic = 'force-dynamic';
 
 const provider = getWebsiteProvider();
+
+// Public, non-secret identities the browser tier authenticates against. Built
+// from the catalog so adding a property needs no route change.
+const PROPERTY_IDENTITIES: PropertyIngestIdentity[] = EMG_WEBSITE_PROPERTIES.map((prop) => ({
+  key: prop.key,
+  ingestKey: propertyIngestKey(prop),
+  allowedDomains: propertyAllowedDomains(prop),
+}));
 
 function headerMap(req: Request): Record<string, string> {
   const out: Record<string, string> = {};
@@ -31,6 +56,25 @@ function headerMap(req: Request): Record<string, string> {
     out[k.toLowerCase()] = v;
   });
   return out;
+}
+
+/** Extract the browser-tier ingest key, if present (header wins over body). */
+function readIngestKey(headers: Record<string, string>, payload: Record<string, unknown>): string {
+  const fromHeader = headers['x-emg-ingest-key'];
+  if (typeof fromHeader === 'string' && fromHeader.trim()) return fromHeader.trim();
+  const fromBody = payload['ingestKey'] ?? payload['ingest_key'];
+  return typeof fromBody === 'string' ? fromBody.trim() : '';
+}
+
+/** Origin/Referer host of a browser request (no scheme/port). Empty if absent. */
+function originHostOf(headers: Record<string, string>): string {
+  const raw = headers['origin'] || headers['referer'] || headers['referrer'] || '';
+  if (!raw) return '';
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return raw.replace(/^[a-z]+:\/\//i, '').split('/')[0]?.split(':')[0]?.toLowerCase() ?? '';
+  }
 }
 
 export async function POST(req: Request) {
@@ -58,17 +102,10 @@ export async function POST(req: Request) {
     });
   }
 
-  const secretConfigured = !!process.env.WEBSITE_WEBHOOK_SECRET;
+  const headers = headerMap(req);
   const host = hostOf(req);
-  const allowUnsigned = mayAllowUnsigned(connection.config?.['allowUnsigned'] === true, host);
-
-  const ctx: ProviderContext = {
-    organizationId: org.id,
-    credentials: {
-      webhookSecret: process.env.WEBSITE_WEBHOOK_SECRET ?? '',
-    },
-    config: { allowUnsigned },
-  };
+  const isProd = isProductionRuntime(host);
+  const secretConfigured = !!process.env.WEBSITE_WEBHOOK_SECRET;
 
   let payload: Record<string, unknown>;
   try {
@@ -77,29 +114,81 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'invalid-json' }, { status: 400 });
   }
 
-  // 3. Verify authenticity (signature + timestamp + replay).
-  const verification = await provider.verifyWebhook(ctx, headerMap(req), rawBody);
+  // ---- Choose the authentication tier from the request itself -------------
+  const ingestKey = readIngestKey(headers, payload);
+  const isBrowserTier = ingestKey !== '';
 
-  const diag = toVerificationDiagnostic(verification, secretConfigured);
-  try {
-    await repositories.integrations.updateConnection(org.id, connection.id, {
-      config: { ...connection.config, lastVerification: diag, allowUnsigned: connection.config?.['allowUnsigned'] === true },
-    });
-  } catch {
-    // diagnostics are advisory
-  }
+  let verified = false;
+  let mode: 'browser-ingest' | 'signed-server' = isBrowserTier ? 'browser-ingest' : 'signed-server';
+  let diagPrefix = '';
+  let diagReason: string | undefined;
+  let diagTimestamp: number | undefined;
 
-  if (!verification.valid) {
-    return NextResponse.json(
-      { ok: false, error: 'verification-failed', reason: verification.reason },
-      { status: 401 },
+  if (isBrowserTier) {
+    // A. BROWSER SDK INGEST - public key + allowed-domain. No HMAC (browser).
+    const claimedProperty =
+      typeof payload['property'] === 'string' ? (payload['property'] as string) : undefined;
+    const originHost = originHostOf(headers);
+    const ingest = verifyPropertyIngest(
+      { ingestKey, property: claimedProperty, originHost, enforceDomain: isProd },
+      PROPERTY_IDENTITIES,
     );
+    verified = ingest.valid;
+    diagPrefix = ingest.keyPrefix ?? '';
+    diagReason = ingest.valid
+      ? 'browser-ingest' + (ingest.domainMatched ? '-domain-ok' : '-no-domain')
+      : 'browser:' + (ingest.reason ?? 'rejected');
+
+    if (!verified) {
+      await persistDiag(org.id, connection.id, connection.config, {
+        valid: false, reason: diagReason, signaturePrefix: diagPrefix,
+      }, secretConfigured);
+      return NextResponse.json(
+        { ok: false, error: 'ingest-rejected', mode, reason: ingest.reason },
+        { status: 401 },
+      );
+    }
+  } else {
+    // B. SERVER-TO-SERVER SIGNED EVENTS - strong HMAC over WEBSITE_WEBHOOK_SECRET.
+    const allowUnsigned = mayAllowUnsigned(
+      connection.config?.['allowUnsigned'] === true,
+      host,
+    );
+    const ctx: ProviderContext = {
+      organizationId: org.id,
+      credentials: { webhookSecret: process.env.WEBSITE_WEBHOOK_SECRET ?? '' },
+      config: { allowUnsigned },
+    };
+    const verification = await provider.verifyWebhook(ctx, headers, rawBody);
+    verified = verification.valid;
+    diagPrefix = verification.signaturePrefix ?? '';
+    diagReason = verification.valid ? 'signed-server' : (verification.reason ?? 'rejected');
+    diagTimestamp = verification.timestamp;
+
+    if (!verified) {
+      await persistDiag(org.id, connection.id, connection.config, {
+        valid: false, reason: diagReason, signaturePrefix: diagPrefix, timestamp: diagTimestamp,
+      }, secretConfigured);
+      return NextResponse.json(
+        { ok: false, error: 'verification-failed', mode, reason: verification.reason },
+        { status: 401 },
+      );
+    }
   }
 
-  // 4. Parse into provider-agnostic events (single or batched).
-  const events = await provider.parseWebhook(ctx, payload);
+  // Record the successful verification diagnostic (non-secret).
+  await persistDiag(org.id, connection.id, connection.config, {
+    valid: true, reason: diagReason, signaturePrefix: diagPrefix, timestamp: diagTimestamp,
+  }, secretConfigured);
 
-  // 5. Ingest through the full pipeline.
+  // ---- Parse + ingest through the full pipeline (shared by both tiers) ----
+  const parseCtx: ProviderContext = {
+    organizationId: org.id,
+    credentials: {},
+    config: {},
+  };
+  const events = await provider.parseWebhook(parseCtx, payload);
+
   const service = new IngestionService(prisma);
   const results = await service.ingest({
     organizationId: org.id,
@@ -119,8 +208,9 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    mode,
     received: events.length,
-    verified: verification.valid,
+    verified,
     results: results.map((r) => ({
       externalId: r.externalId,
       status: r.status,
@@ -131,9 +221,32 @@ export async function POST(req: Request) {
   });
 }
 
+/** Persist a non-secret verification diagnostic on the connection (advisory). */
+async function persistDiag(
+  orgId: string,
+  connectionId: string,
+  currentConfig: Record<string, unknown>,
+  result: { valid: boolean; reason?: string; signaturePrefix?: string; timestamp?: number },
+  secretConfigured: boolean,
+): Promise<void> {
+  try {
+    const diag = toVerificationDiagnostic(result, secretConfigured);
+    await repositories.integrations.updateConnection(orgId, connectionId, {
+      config: {
+        ...currentConfig,
+        lastVerification: diag,
+        allowUnsigned: currentConfig?.['allowUnsigned'] === true,
+      },
+    });
+  } catch {
+    // diagnostics are advisory; never block ingestion on a write failure.
+  }
+}
+
 // GET is a lightweight liveness probe for the webhook URL. It never processes
-// events. Reports whether a signing secret is configured (boolean only) and
-// whether the live deploy would currently accept unsigned traffic.
+// events. Reports whether a signing secret is configured (boolean only), the
+// number of known browser-ingest properties, and whether the signed tier would
+// currently accept unsigned traffic on this deploy.
 export function GET(req: Request) {
   return NextResponse.json({
     ok: true,
@@ -141,6 +254,8 @@ export function GET(req: Request) {
     method: 'POST',
     secretConfigured: !!process.env.WEBSITE_WEBHOOK_SECRET,
     acceptsUnsigned: mayAllowUnsigned(true, hostOf(req)),
+    browserIngestProperties: PROPERTY_IDENTITIES.length,
+    enforcesDomain: isProductionRuntime(hostOf(req)),
     capabilities: provider.capabilities(),
   });
 }
