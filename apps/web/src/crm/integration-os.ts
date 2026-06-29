@@ -1,10 +1,10 @@
 import 'server-only';
 
-// Integration OS bridge Ã¢ÂÂ Sprint 16 (The Connection Layer).
+// Integration OS bridge  -  Sprint 16 (The Connection Layer).
 //
 // Server-only glue between the static provider catalog (@emgloop/database) and the
 // live status engine (@emgloop/database). The Integration Center pages call
-// these helpers and render the result Ã¢ÂÂ no provider-specific code lives in the
+// these helpers and render the result  -  no provider-specific code lives in the
 // pages, so a future provider appears automatically once it is in the catalog.
 
 import {
@@ -84,7 +84,7 @@ export function computeSystemHealth(cards: ProviderCard[]): SystemHealth {
       missingItems.push(spec.displayName + ' missing ' + status.missingRequiredSecrets.join(', '));
     } else if (status.connection === 'waiting' && spec.readiness === 'production_ready') {
       warnings += 1;
-      missingItems.push(spec.displayName + ' not verified Ã¢ÂÂ awaiting first event');
+      missingItems.push(spec.displayName + ' not verified  -  awaiting first event');
     }
     if (spec.readiness === 'planned' && status.connection !== 'connected') {
       missingItems.push(spec.displayName + ' not connected');
@@ -138,7 +138,7 @@ export function connectionClass(c: ProviderStatus['connection']): string {
 }
 
 export function fmtTime(ts: string | null): string {
-  if (!ts) return 'Ã¢ÂÂ';
+  if (!ts) return ' - ';
   try { return new Date(ts).toLocaleString(); } catch { return ts; }
 }
 
