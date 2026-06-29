@@ -8,6 +8,15 @@
 
 export * from './types';
 export * from './registry';
+export {
+  verifySignedWebhook,
+  computeSignature,
+  parseTimestamp,
+} from './webhook-security';
+export type {
+  WebhookSecurityResult,
+  WebhookSecurityOptions,
+} from './webhook-security';
 export type {
   IngestionProvider,
   IngestionCapabilities,
