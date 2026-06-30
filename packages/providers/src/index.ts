@@ -59,6 +59,21 @@ import { registerProvider, getProvider, hasProvider } from './registry';
 import type { IngestionProvider } from './interfaces/ingestion.provider';
 
 export { CallGridProvider, mapCallgridEventType, CALLGRID_EVENT_MAP } from './adapters/callgrid.provider';
+// Sprint 17 - CallGrid REST API reconciliation/backfill client.
+export {
+  fetchCallGridCallsPage,
+  fetchAllCallGridCalls,
+  mapCallGridApiRecord,
+  resolveCallGridBaseUrl,
+  parseDurationSeconds,
+  pickField,
+  toNumber,
+  toBool,
+  CallGridApiError,
+  CALLGRID_API_DEFAULT_BASE_URL,
+  CALLGRID_CALLS_PATH,
+} from './adapters/callgrid-api';
+export type { CallGridApiFetchOptions, CallGridApiPage } from './adapters/callgrid-api';
 export {
   WebsiteProvider,
   mapWebsiteEventType,
