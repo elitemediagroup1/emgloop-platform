@@ -15,11 +15,16 @@
 
 import { createHmac, timingSafeEqual } from 'crypto';
 
+/** Which authentication method a CallGrid webhook used to authenticate. */
+export type AuthMethod = 'hmac' | 'bearer' | 'static-header' | 'unsigned-preview';
+
 /** Outcome of a full security check (signature + timestamp + replay). */
 export interface WebhookSecurityResult {
   valid: boolean;
   /** Machine-readable reason when valid === false (or an advisory note). */
   reason?: string;
+  /** Which authentication method succeeded (CallGrid multi-mode auth). */
+  method?: AuthMethod;
   /** The signed timestamp we validated, echoed back for diagnostics (ms epoch). */
   timestamp?: number;
   /** Short, non-secret fingerprint of the accepted signature, for diagnostics. */
@@ -182,4 +187,110 @@ export function verifySignedWebhook(
     timestamp,
     signaturePrefix: sigKey.slice(0, 12),
   };
+}
+
+// ---- CallGrid multi-mode authentication (Sprint 17 compatibility) ----------
+//
+// The real CallGrid webhook UI exposes only STATIC custom headers (e.g. an
+// Authorization header) and has no HMAC signing-secret feature. To stay
+// compatible AND secure, the CallGrid receiver accepts three modes, tried in
+// this order, all against the SAME shared secret (CALLGRID_WEBHOOK_SECRET):
+//   1. HMAC  - existing signed mode, UNCHANGED (verifySignedWebhook).
+//   2. bearer - Authorization: Bearer <secret>, timing-safe compared.
+//   3. static-header - X-EMG-Webhook-Secret: <secret>, timing-safe compared.
+// Only when NO signature header AND no token is present do we fall back to the
+// unsigned-preview allowance (off-production only). Production fails closed.
+//
+// This helper is CallGrid-specific and does NOT change verifySignedWebhook, so
+// the Website SDK path and every other provider are completely unaffected.
+
+/** Constant-time compare of two short ASCII tokens. Never throws on length
+    mismatch and never short-circuits on the first differing byte. */
+export function timingSafeTokenEqual(expected: string, provided: string): boolean {
+  const a = Buffer.from(String(expected ?? ''), 'utf8');
+  const b = Buffer.from(String(provided ?? ''), 'utf8');
+  // Compare against a fixed-length digest so length differences do not leak via
+  // an early return; timingSafeEqual itself requires equal-length buffers.
+  if (a.length === 0 || b.length === 0) return false;
+  const ha = createHmac('sha256', 'len').update(a).digest();
+  const hb = createHmac('sha256', 'len').update(b).digest();
+  return timingSafeEqual(ha, hb) && a.length === b.length;
+}
+
+/** Read the bearer token from an Authorization header, if present. */
+function readBearer(headers: Record<string, string>): string {
+  const raw = headers['authorization'] || headers['Authorization'] || '';
+  const m = /^\s*Bearer\s+(.+)\s*$/i.exec(raw);
+  return m && m[1] ? m[1].trim() : '';
+}
+
+/** Options for CallGrid multi-mode auth. Reuses the HMAC options verbatim. */
+export interface CallGridAuthOptions extends WebhookSecurityOptions {
+  /** Header names to look for a static shared-secret token (lowercased). */
+  staticHeaders?: string[];
+}
+
+/**
+ * Authenticate a CallGrid webhook across HMAC, bearer, and static-header modes.
+ *
+ * Order (fail closed):
+ *  - If a signature header IS present: HMAC is authoritative. Its result
+ *    (success OR failure) is returned as-is, method = 'hmac' on success. We do
+ *    NOT fall through to a token after a failed signature.
+ *  - Else if a bearer token is present: timing-safe compare to the secret.
+ *    method = 'bearer'. Mismatch => invalid-bearer-token.
+ *  - Else if a static-header token is present: timing-safe compare to the
+ *    secret. method = 'static-header'. Mismatch => invalid-static-token.
+ *  - Else (no signature, no token): only the unsigned-preview allowance can
+ *    pass, and only when allowUnsigned is true (off-production). Otherwise
+ *    reject (no-secret-configured / missing-auth).
+ */
+export function verifyCallGridAuth(
+  headers: Record<string, string>,
+  rawBody: string,
+  options: CallGridAuthOptions,
+): WebhookSecurityResult {
+  const secret = options.secret ?? '';
+  const allowUnsigned = options.allowUnsigned === true;
+  const staticHeaders = options.staticHeaders ?? ['x-emg-webhook-secret'];
+
+  // 1. HMAC - authoritative when a signature header is present. Unchanged path.
+  const signaturePresent = readHeader(headers, options.signatureHeaders) !== '';
+  if (signaturePresent) {
+    const hmac = verifySignedWebhook(headers, rawBody, options);
+    return hmac.valid ? { ...hmac, method: 'hmac' } : hmac;
+  }
+
+  // 2 + 3. Token modes require a configured secret. With no secret, only the
+  //         unsigned-preview allowance can pass.
+  const bearer = readBearer(headers);
+  const staticToken = readHeader(headers, staticHeaders);
+
+  if (!secret) {
+    // No secret configured: a presented token cannot be validated -> reject
+    // unless this is a preview that explicitly allows unsigned traffic.
+    if (!bearer && !staticToken && allowUnsigned) {
+      return { valid: true, reason: 'unsigned-allowed', method: 'unsigned-preview' };
+    }
+    return { valid: false, reason: 'no-secret-configured' };
+  }
+
+  // 2. Bearer token mode.
+  if (bearer) {
+    return timingSafeTokenEqual(secret, bearer)
+      ? { valid: true, method: 'bearer', signaturePrefix: bearer.slice(0, 6) }
+      : { valid: false, reason: 'invalid-bearer-token' };
+  }
+
+  // 3. Static-header token mode.
+  if (staticToken) {
+    return timingSafeTokenEqual(secret, staticToken)
+      ? { valid: true, method: 'static-header', signaturePrefix: staticToken.slice(0, 6) }
+      : { valid: false, reason: 'invalid-static-token' };
+  }
+
+  // No signature, no token. Allow only the preview unsigned path.
+  return allowUnsigned
+    ? { valid: true, reason: 'unsigned-allowed', method: 'unsigned-preview' }
+    : { valid: false, reason: 'missing-auth' };
 }
