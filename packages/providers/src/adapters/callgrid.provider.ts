@@ -66,6 +66,31 @@ function pick(payload: Record<string, unknown>, keys: string[]): string | undefi
   return undefined;
 }
 
+
+/** Coerce a string/number field into a finite number, or undefined. */
+function numeric(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(String(value).trim());
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Coerce a CallGrid yes/no/true/1 style flag into a real boolean, or undefined. */
+function boolFrom(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const v = String(value).trim().toLowerCase();
+  if (v === 'yes' || v === 'true' || v === '1' || v === 'y') return true;
+  if (v === 'no' || v === 'false' || v === '0' || v === 'n') return false;
+  return undefined;
+}
+
+/** Drop keys whose value is undefined so a spread never clobbers a real value. */
+function defined(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj)) {
+    if (obj[k] !== undefined) out[k] = obj[k];
+  }
+  return out;
+}
 // ---- Provider --------------------------------------------------------------
 
 export class CallGridProvider implements IngestionProvider {
@@ -143,14 +168,73 @@ export class CallGridProvider implements IngestionProvider {
     const occurredRaw = pick(data, ['occurred_at', 'started_at', 'timestamp', 'created_at']);
     const occurredAt = occurredRaw ? new Date(occurredRaw) : new Date();
 
-    const customerPhone = pick(data, ['caller_number', 'from', 'from_number', 'caller']);
+    // ---- Real CallGrid template body mapping (Sprint 17) -----------------
+    // The live CallGrid webhook UI substitutes flat template keys such as
+    // callerId, inboundState, inboundZip, vendor, source, campaign, buyer,
+    // destination, duration, billable, paid, revenue, payout. Map them onto
+    // the canonical attribute keys the NormalizationEngine / Live Calls /
+    // Traffic Intelligence read, WITHOUT dropping any original field (the
+    // full raw payload is still preserved on .payload). Existing field names
+    // are kept and take precedence so older senders keep working.
+
+    // Caller phone: prefer the real CallGrid key, then legacy aliases.
+    const customerPhone = pick(data, [
+      'callerId',
+      'caller_number',
+      'from',
+      'from_number',
+      'fromNumber',
+      'caller',
+    ]);
+
+    // Attribution + routing dimensions (string).
+    const vendor = pick(data, ['vendor', 'traffic_partner', 'trafficPartner']);
+    const source = pick(data, ['source', 'traffic_source', 'trafficSource']);
+    const campaign = pick(data, ['campaign', 'campaign_name', 'campaignName']);
+    const buyer = pick(data, ['buyer', 'buyer_name', 'buyerName']);
+    const destination = pick(data, ['destination', 'routing_destination', 'routingDestination', 'destination_number']);
+    const callerState = pick(data, ['inboundState', 'caller_state', 'callerState', 'state']);
+    const callerZip = pick(data, ['inboundZip', 'caller_zip', 'callerZip', 'zip', 'zipcode']);
+
+    // Numeric + boolean dimensions. numeric() coerces "135"/"24.00" to number;
+    // boolFrom() coerces yes/no/true/false/1/0 to a real boolean.
+    const durationSeconds = numeric(pick(data, ['duration', 'duration_seconds', 'durationSeconds', 'billable_duration']));
+    const revenue = numeric(pick(data, ['revenue', 'revenue_amount', 'revenueAmount']));
+    const payout = numeric(pick(data, ['payout', 'payout_amount', 'payoutAmount']));
+    const billable = boolFrom(pick(data, ['billable', 'is_billable', 'isBillable']));
+    const paid = boolFrom(pick(data, ['paid', 'is_paid', 'isPaid']));
+
+    // Canonical, normalization-ready payload. Spread the raw data FIRST so
+    // every original key is preserved (backwards compatible), then layer the
+    // canonical keys the downstream readers expect. defined() drops undefined
+    // so we never clobber an existing value with undefined.
+    const normalizedPayload: Record<string, unknown> = {
+      ...data,
+      ...defined({
+        // Live Calls reads fromNumber then caller for the caller column.
+        caller: customerPhone,
+        fromNumber: customerPhone,
+        callerState,
+        callerZip,
+        vendor,
+        source,
+        campaign,
+        buyer,
+        destination,
+        durationSeconds,
+        revenue,
+        payout,
+        billable,
+        paid,
+      }),
+    };
 
     return [
       {
         externalId,
         rawEventType,
         occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
-        payload: data,
+        payload: normalizedPayload,
         customerPhone,
       },
     ];
