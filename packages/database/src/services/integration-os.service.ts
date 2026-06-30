@@ -61,6 +61,8 @@ export interface VerificationInfo {
   timestamp?: number;
   signaturePrefix?: string;
   secretConfigured: boolean;
+  /** Which auth method succeeded (CallGrid multi-mode). */
+  method?: 'hmac' | 'bearer' | 'static-header' | 'unsigned-preview';
 }
 
 /** The full live status snapshot for one provider. */
@@ -129,6 +131,13 @@ function readVerification(config: Record<string, unknown> | undefined): Verifica
     timestamp: typeof o['timestamp'] === 'number' ? (o['timestamp'] as number) : undefined,
     signaturePrefix: typeof o['signaturePrefix'] === 'string' ? (o['signaturePrefix'] as string) : undefined,
     secretConfigured: o['secretConfigured'] === true,
+    method:
+      o['method'] === 'hmac' ||
+      o['method'] === 'bearer' ||
+      o['method'] === 'static-header' ||
+      o['method'] === 'unsigned-preview'
+        ? (o['method'] as VerificationInfo['method'])
+        : undefined,
   };
 }
 
