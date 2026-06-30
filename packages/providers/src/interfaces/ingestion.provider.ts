@@ -44,6 +44,8 @@ export interface IngestionCapabilities {
 export interface WebhookVerificationResult {
   valid: boolean;
   reason?: string;
+  /** Which auth method succeeded (CallGrid multi-mode): hmac | bearer | static-header | unsigned-preview. */
+  method?: 'hmac' | 'bearer' | 'static-header' | 'unsigned-preview';
   /** Signed timestamp validated during verification (ms epoch), if present. */
   timestamp?: number;
   /** Short non-secret fingerprint of the accepted signature, for diagnostics. */
