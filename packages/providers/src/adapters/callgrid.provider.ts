@@ -26,6 +26,7 @@ import type {
   WebhookVerificationResult,
 } from '../interfaces/ingestion.provider';
 import { verifyCallGridAuth } from '../webhook-security';
+import { fetchAllCallGridCalls } from './callgrid-api';
 
 // ---- CallGrid raw event vocabulary ----------------------------------------
 // CallGrid sends a "call_status" (or "event") string. We map each to the
@@ -109,7 +110,7 @@ export class CallGridProvider implements IngestionProvider {
   capabilities(): IngestionCapabilities {
     return {
       webhooks: true,
-      polling: false,
+      polling: true,
       streaming: false,
       eventTypes: [
         'call.inbound',
@@ -240,8 +241,27 @@ export class CallGridProvider implements IngestionProvider {
     ];
   }
 
-  async poll(_ctx: ProviderContext, _options: PollOptions): Promise<PollResult> {
-    // CallGrid is webhook-only in this sprint.
-    return { events: [], hasMore: false };
+  async poll(ctx: ProviderContext, options: PollOptions): Promise<PollResult> {
+    // Reconciliation / backfill layer. Reads completed calls from the CallGrid
+    // REST API (source of truth) so the Loop can fill gaps the webhook missed.
+    // The API key is resolved from ProviderContext.credentials (never stored).
+    const apiKey = ctx.credentials.apiKey || ctx.credentials.callgridApiKey;
+    if (!apiKey) {
+      // No key configured: behave like webhook-only (no polling), do not throw
+      // so callers can degrade gracefully and surface a diagnostic instead.
+      return { events: [], hasMore: false };
+    }
+    const baseUrl =
+      typeof ctx.config?.['apiBaseUrl'] === 'string'
+        ? (ctx.config['apiBaseUrl'] as string)
+        : undefined;
+    const { events } = await fetchAllCallGridCalls({
+      apiKey,
+      since: options.since,
+      limit: options.limit,
+      cursor: options.cursor,
+      baseUrl,
+    });
+    return { events, hasMore: false };
   }
 }
