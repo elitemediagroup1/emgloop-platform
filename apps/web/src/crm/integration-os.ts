@@ -200,4 +200,18 @@ export function verificationSummary(v: ProviderStatus['lastVerification']): stri
   return 'Rejected ' + when + (v.reason ? ' - ' + v.reason : '');
 }
 
+/** One-line summary of the last CallGrid API reconciliation sync. */
+export function apiSyncSummary(s: ProviderStatus['apiSync']): string {
+  if (!s) return 'No API sync run yet';
+  const when = relativeTime(s.at);
+  const parts = [
+    s.fetched + ' fetched',
+    s.imported + ' imported',
+    s.enriched + ' enriched',
+    s.skippedDuplicate + ' duplicate',
+  ];
+  const errs = s.failed > 0 || s.errorCount > 0 ? ', ' + (s.failed + s.errorCount) + ' errors' : '';
+  return 'Synced ' + when + ' (' + s.range + '): ' + parts.join(', ') + errs;
+}
+
 export { listProviders, getProviderSpec, allSecretRefs, webhookUrlFor, EMG_WEBSITE_PROPERTIES };
