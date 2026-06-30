@@ -25,7 +25,7 @@ import type {
   PollResult,
   WebhookVerificationResult,
 } from '../interfaces/ingestion.provider';
-import { verifySignedWebhook } from '../webhook-security';
+import { verifyCallGridAuth } from '../webhook-security';
 
 // ---- CallGrid raw event vocabulary ----------------------------------------
 // CallGrid sends a "call_status" (or "event") string. We map each to the
@@ -110,11 +110,12 @@ export class CallGridProvider implements IngestionProvider {
     headers: Record<string, string>,
     rawBody: string,
   ): Promise<WebhookVerificationResult> {
-    return verifySignedWebhook(headers, rawBody, {
+    return verifyCallGridAuth(headers, rawBody, {
       secret: ctx.credentials?.['webhookSecret'] ?? '',
       allowUnsigned: ctx.config?.['allowUnsigned'] === true,
       signatureHeaders: ['x-callgrid-signature', 'x-callgrid-sig', 'x-signature'],
       timestampHeaders: ['x-callgrid-timestamp', 'x-timestamp'],
+      staticHeaders: ['x-emg-webhook-secret'],
     });
   }
 
