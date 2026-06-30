@@ -70,12 +70,14 @@ export interface VerificationDiagnostic {
   timestamp?: number;
   signaturePrefix?: string;
   secretConfigured: boolean;
+  /** Which auth method succeeded: hmac | bearer | static-header | unsigned-preview. */
+  method?: 'hmac' | 'bearer' | 'static-header' | 'unsigned-preview';
 }
 
 /** Build the diagnostic record from a verification result. Never includes the
     secret or the full signature - only a short non-secret prefix. */
 export function toVerificationDiagnostic(
-  result: { valid: boolean; reason?: string; timestamp?: number; signaturePrefix?: string },
+  result: { valid: boolean; reason?: string; timestamp?: number; signaturePrefix?: string; method?: VerificationDiagnostic['method'] },
   secretConfigured: boolean,
 ): VerificationDiagnostic {
   return {
@@ -85,5 +87,6 @@ export function toVerificationDiagnostic(
     timestamp: result.timestamp,
     signaturePrefix: result.signaturePrefix,
     secretConfigured,
+    method: result.method,
   };
 }
