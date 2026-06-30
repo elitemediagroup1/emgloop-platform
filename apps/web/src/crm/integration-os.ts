@@ -177,12 +177,25 @@ export function liveStateClass(s: ProviderStatus['liveState']): string {
 }
 
 /** Human summary of the last verification diagnostic for the diagnostics panel. */
+/** Human label for the authentication method that last succeeded. */
+export type AuthMethodLabelInput = 'hmac' | 'bearer' | 'static-header' | 'unsigned-preview' | undefined;
+export function authMethodLabel(m: AuthMethodLabelInput): string {
+  switch (m) {
+    case 'hmac': return 'HMAC signature';
+    case 'bearer': return 'Bearer token';
+    case 'static-header': return 'Static header';
+    case 'unsigned-preview': return 'Unsigned (preview)';
+    default: return 'Unknown';
+  }
+}
+
 export function verificationSummary(v: ProviderStatus['lastVerification']): string {
   if (!v) return 'No verification recorded yet';
   const when = relativeTime(v.at);
   if (v.valid) {
     const sig = v.signaturePrefix ? ' (sig ' + v.signaturePrefix + ')' : '';
-    return 'Verified ' + when + sig;
+    const via = v.method ? ' via ' + authMethodLabel(v.method) : '';
+    return 'Verified ' + when + via + sig;
   }
   return 'Rejected ' + when + (v.reason ? ' - ' + v.reason : '');
 }

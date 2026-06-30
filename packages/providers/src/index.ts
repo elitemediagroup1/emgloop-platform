@@ -12,10 +12,14 @@ export {
   verifySignedWebhook,
   computeSignature,
   parseTimestamp,
+  verifyCallGridAuth,
+  timingSafeTokenEqual,
 } from './webhook-security';
 export type {
   WebhookSecurityResult,
   WebhookSecurityOptions,
+  CallGridAuthOptions,
+  AuthMethod,
 } from './webhook-security';
 export {
   verifyPropertyIngest,
