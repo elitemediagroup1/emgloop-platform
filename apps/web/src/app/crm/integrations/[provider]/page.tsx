@@ -8,6 +8,9 @@ import {
   webhookUrlFor,
   connectionLabel,
   healthLabel,
+  liveStateLabel,
+  liveStateClass,
+  verificationSummary,
   fmtTime,
   relativeTime,
 } from '../../../../crm/integration-os';
@@ -59,7 +62,10 @@ export default async function ProviderDetailPage({
           <h1 className="crm-h1">{spec.displayName}</h1>
           <p className="crm-sub">{spec.blurb}</p>
         </div>
-        <span className={'ios-badge ' + status.connection}><span className="ios-dot" />{connectionLabel(status.connection)}</span>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <span className={'ios-badge ' + liveStateClass(status.liveState)}><span className="ios-dot" />{liveStateLabel(status.liveState)}</span>
+          <span className={'ios-badge ' + status.connection}><span className="ios-dot" />{connectionLabel(status.connection)}</span>
+        </div>
       </div>
 
       {/* Health Center row */}
@@ -107,7 +113,7 @@ export default async function ProviderDetailPage({
               <h2>SDK Manager</h2>
               <p className="crm-sub" style={{ marginBottom: '0.85rem' }}>
                 Per-property install code and ingest identifiers. The browser SDK
-                (emg-loop.js) ships in a later sprint; this is the management layer.
+                (emg-loop.js) is now served at /sdk/emg-loop.js - paste the snippet into each property to begin sending events.
               </p>
               {EMG_WEBSITE_PROPERTIES.map((prop) => (
                 <div key={prop.key} style={{ marginBottom: '1rem' }}>
@@ -225,6 +231,9 @@ export default async function ProviderDetailPage({
               <div><span className="k">Retry</span><span className="v">{spec.retrySupported ? 'Yes' : 'No'}</span></div>
               <div><span className="k">Connected</span><span className="v">{fmtTime(status.connectedAt)}</span></div>
               <div><span className="k">Last Sync</span><span className="v">{fmtTime(status.lastSyncedAt)}</span></div>
+              <div><span className="k">Last Verification</span><span className="v">{verificationSummary(status.lastVerification)}</span></div>
+              <div><span className="k">Last Signature</span><span className="v">{status.lastVerification && status.lastVerification.signaturePrefix ? status.lastVerification.signaturePrefix : ' - '}</span></div>
+              <div><span className="k">Secret Configured</span><span className="v">{status.allRequiredSecretsConfigured ? 'Yes' : 'No'}</span></div>
             </div>
             {spec.notes ? (<p className="crm-sub" style={{ marginTop: '0.75rem' }}>{spec.notes}</p>) : null}
           </div>

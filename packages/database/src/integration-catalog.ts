@@ -350,6 +350,9 @@ export interface CatalogWebsiteProperty {
   key: string;
   name: string;
   domain: string;
+  /** Extra hostnames (beyond domain + www.domain) allowed to send browser SDK
+   *  events for this property. Public, non-secret. Optional. */
+  extraDomains?: string[];
 }
 
 export const EMG_WEBSITE_PROPERTIES: CatalogWebsiteProperty[] = [
@@ -392,18 +395,62 @@ export function webhookUrlFor(spec: ProviderSpec): string | null {
 
 /** Generate the EMG Loop SDK install snippet for a property (management layer
     only  -  the referenced emg-loop.js is not built yet). */
+/** Generate the EMG Loop SDK install snippet for a property. The snippet
+ *  carries the PUBLIC ingest key (data-ingest-key) + property + organization.
+ *  The key is public by design (it ships in the browser); it is NOT a secret
+ *  and authenticates the property together with allowed-domain validation. */
+/** Generate the EMG Loop SDK install snippet for a property. The snippet
+ *  carries the PUBLIC ingest key (data-ingest-key) + property + organization.
+ *  The key is public by design (it ships in the browser); it is NOT a secret
+ *  and authenticates the property together with allowed-domain validation. */
 export function sdkInstallScript(property: CatalogWebsiteProperty, organizationSlug: string): string {
   return [
-    '<script',
+    "<script",
     '  src="' + APP_URL + '/sdk/emg-loop.js"',
     '  data-property="' + property.key + '"',
+    '  data-ingest-key="' + propertyIngestKey(property) + '"',
     '  data-organization="' + organizationSlug + '"',
-    '  async>',
-    '</script>',
+    '  async',
+    "</script>",
   ].join('\n');
 }
-
-/** A stable, non-secret public property identifier for the SDK data attribute. */
 export function propertyIdentifier(property: CatalogWebsiteProperty): string {
   return 'emg_' + property.key;
+}
+
+/** The PUBLIC per-property ingest key shipped in the browser SDK snippet.
+ *  Deterministic and non-secret: it identifies the property to the website
+ *  webhook. Real authentication of browser events = this key being known/active
+ *  for the property PLUS the request Origin/Referer matching an allowed domain.
+ *  Server-to-server website events use WEBSITE_WEBHOOK_SECRET (HMAC) instead. */
+export function propertyIngestKey(property: CatalogWebsiteProperty): string {
+  return 'pk_emg_' + property.key;
+}
+
+/** Allowed browser-event hostnames for a property: its domain, the www. host,
+ *  and any explicitly configured extraDomains. All lowercased, public. */
+export function propertyAllowedDomains(property: CatalogWebsiteProperty): string[] {
+  const base = String(property.domain || '').toLowerCase().trim();
+  const set = new Set<string>();
+  if (base) { set.add(base); set.add('www.' + base); }
+  for (const d of property.extraDomains || []) {
+    const h = String(d || '').toLowerCase().trim();
+    if (h) set.add(h);
+  }
+  return Array.from(set);
+}
+
+/** Look up a property by its PUBLIC ingest key (constant-ish, case-insensitive). */
+export function findPropertyByIngestKey(key: string): CatalogWebsiteProperty | undefined {
+  const want = String(key || '').toLowerCase().trim();
+  if (!want) return undefined;
+  return EMG_WEBSITE_PROPERTIES.find((prop) => propertyIngestKey(prop).toLowerCase() === want);
+}
+
+/** True when a request host is permitted to send browser events for a property.
+ *  Matches exact host or a subdomain of an allowed domain. Empty host = false. */
+export function isPropertyDomainAllowed(property: CatalogWebsiteProperty, host: string): boolean {
+  const h = String(host || '').toLowerCase().trim().replace(/:\d+$/, '');
+  if (!h) return false;
+  return propertyAllowedDomains(property).some((d) => h === d || h.endsWith('.' + d));
 }

@@ -8,6 +8,25 @@
 
 export * from './types';
 export * from './registry';
+export {
+  verifySignedWebhook,
+  computeSignature,
+  parseTimestamp,
+} from './webhook-security';
+export type {
+  WebhookSecurityResult,
+  WebhookSecurityOptions,
+} from './webhook-security';
+export {
+  verifyPropertyIngest,
+  normalizeHost,
+  hostMatchesDomains,
+} from './property-ingest';
+export type {
+  PropertyIngestIdentity,
+  PropertyIngestInput,
+  PropertyIngestResult,
+} from './property-ingest';
 export type {
   IngestionProvider,
   IngestionCapabilities,
