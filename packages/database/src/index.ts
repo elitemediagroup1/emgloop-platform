@@ -47,6 +47,7 @@ export type {
   HealthState,
   SecretStatus,
   EventRow,
+  ApiSyncInfo,
 } from './services/integration-os.service';
 
 export const repositories: Repositories = createRepositories(prisma);
