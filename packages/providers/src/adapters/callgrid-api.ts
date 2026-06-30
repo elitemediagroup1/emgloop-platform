@@ -1,0 +1,279 @@
+// CallGrid REST API client - Sprint 17 (Reconciliation / Backfill layer).
+//
+// Webhooks remain the real-time ingress; this client is the SOURCE-OF-TRUTH
+// reconciliation layer. It reads completed calls from the CallGrid REST API so
+// EMG Loop can backfill calls the webhook never delivered and enrich calls that
+// arrived without full attribution. No vendor SDK is imported - this is a thin
+// fetch() client over the documented REST surface.
+//
+// Auth: a CallGrid API key (CALLGRID_API_KEY) is sent as a Bearer token. The
+// key VALUE is never logged or returned. The base URL is configurable via
+// CALLGRID_API_BASE_URL so the exact CallGrid host/path can be confirmed in
+// production without a code change; it defaults to the documented base.
+
+import type { InboundEvent } from '../interfaces/ingestion.provider';
+
+export const CALLGRID_API_DEFAULT_BASE_URL = 'https://api.callgrid.com';
+export const CALLGRID_CALLS_PATH = '/api/call';
+
+/** Options for a single page fetch against the CallGrid calls endpoint. */
+export interface CallGridApiFetchOptions {
+  /** CallGrid API key (Bearer). Never logged. */
+  apiKey: string;
+  /** Inclusive lower bound on call time. */
+  since: Date;
+  /** Inclusive upper bound on call time (defaults to now). */
+  until?: Date;
+  /** Opaque pagination cursor from a previous page. */
+  cursor?: string;
+  /** Max records per page (CallGrid caps this server-side). */
+  limit?: number;
+  /** Override the API base URL (else CALLGRID_API_BASE_URL or the default). */
+  baseUrl?: string;
+  /** Injected fetch for testing; defaults to global fetch. */
+  fetchImpl?: typeof fetch;
+}
+
+export interface CallGridApiPage {
+  /** Raw call records exactly as returned by CallGrid (PascalCase fields). */
+  records: Array<Record<string, unknown>>;
+  /** Cursor for the next page, or undefined when exhausted. */
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
+/** Resolve the API base URL (option > env > documented default). */
+export function resolveCallGridBaseUrl(override?: string): string {
+  return (
+    override ||
+    (typeof process !== 'undefined' && process.env && process.env.CALLGRID_API_BASE_URL) ||
+    CALLGRID_API_DEFAULT_BASE_URL
+  );
+}
+
+/** A small typed error so callers can surface API failures as diagnostics. */
+export class CallGridApiError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'CallGridApiError';
+  }
+}
+
+/** Pull a string from a record trying several key spellings (case-tolerant). */
+export function pickField(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const k of keys) {
+    const v = record[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  }
+  return undefined;
+}
+
+/** Coerce a numeric-ish field to a finite number, or undefined. */
+export function toNumber(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(String(value).replace(/[^0-9.\-]/g, ''));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Coerce yes/no/true/false/1/0 to a real boolean, or undefined. */
+export function toBool(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const v = String(value).trim().toLowerCase();
+  if (v === 'yes' || v === 'true' || v === '1' || v === 'y') return true;
+  if (v === 'no' || v === 'false' || v === '0' || v === 'n') return false;
+  return undefined;
+}
+
+/** Parse a CallGrid duration ("HH:MM:SS" or seconds) into integer seconds. */
+export function parseDurationSeconds(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const s = String(value).trim();
+  if (/^[0-9]+$/.test(s)) return Number(s);
+  const parts = s.split(':').map((p) => Number(p));
+  if (parts.some((n) => !Number.isFinite(n))) return undefined;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 1) return parts[0];
+  return undefined;
+}
+
+/** Drop undefined values so a spread never clobbers a real value. */
+function defined(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj)) if (obj[k] !== undefined) out[k] = obj[k];
+  return out;
+}
+
+/**
+ * Map ONE raw CallGrid API call record into a provider-agnostic InboundEvent.
+ * The CallGrid REST API uses PascalCase names (VendorName, SourceName, ...).
+ * We map them onto the SAME canonical metadata keys the webhook path and the
+ * NormalizationEngine / Live Calls / Traffic Intelligence already read, and we
+ * preserve the full raw record so nothing is lost. apiSource marks the origin.
+ */
+export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEvent {
+  const externalId =
+    pickField(record, ['CallId', 'Id', 'id', 'call_id', 'callId', 'Uuid', 'uuid', 'Sid', 'sid']) ||
+    'callgrid-api-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+  const rawEventType =
+    pickField(record, ['Status', 'CallStatus', 'status', 'Event', 'event']) || 'completed';
+
+  const occurredRaw = pickField(record, [
+    'CallDateTime', 'CallDate', 'StartTime', 'started_at', 'occurred_at', 'Timestamp', 'timestamp',
+  ]);
+  const occurred = occurredRaw ? new Date(occurredRaw) : new Date();
+  const occurredAt = Number.isNaN(occurred.getTime()) ? new Date() : occurred;
+
+  // Caller phone: CallGrid API caller-id spellings.
+  const customerPhone = pickField(record, [
+    'CallerId', 'CallerID', 'callerId', 'Caller', 'FromNumber', 'From', 'AniNumber', 'Ani',
+  ]);
+
+  // Attribution + routing dimensions (CallGrid API PascalCase, with fallbacks).
+  const vendor = pickField(record, ['VendorName', 'Vendor', 'vendor']);
+  const source = pickField(record, ['SourceName', 'Source', 'source']);
+  const campaign = pickField(record, ['CampaignName', 'Campaign', 'campaign']);
+  const buyer = pickField(record, ['BuyerName', 'Buyer', 'buyer']);
+  const destination = pickField(record, ['DestinationName', 'Destination', 'destination']);
+  const callerState = pickField(record, ['InboundState', 'State', 'inboundState', 'callerState']);
+  const callerZip = pickField(record, ['InboundZip', 'Zip', 'ZipCode', 'inboundZip', 'callerZip']);
+
+  const durationSeconds = parseDurationSeconds(
+    pickField(record, ['Duration', 'CallDuration', 'duration', 'BillableDuration']),
+  );
+  const revenue = toNumber(pickField(record, ['Revenue', 'revenue', 'RevenueAmount']));
+  const payout = toNumber(pickField(record, ['Payout', 'payout', 'PayoutAmount']));
+  const billable = toBool(pickField(record, ['Billable', 'billable', 'IsBillable']));
+  const paid = toBool(pickField(record, ['Paid', 'paid', 'IsPaid']));
+
+  const payload: Record<string, unknown> = {
+    ...record,
+    ...defined({
+      caller: customerPhone,
+      fromNumber: customerPhone,
+      callerState,
+      callerZip,
+      vendor,
+      source,
+      campaign,
+      buyer,
+      destination,
+      durationSeconds,
+      revenue,
+      payout,
+      billable,
+      paid,
+      apiSource: 'callgrid-api',
+    }),
+  };
+
+  return {
+    externalId,
+    rawEventType,
+    occurredAt,
+    payload,
+    customerPhone,
+  };
+}
+
+/** Extract the records array from a CallGrid response of unknown envelope shape. */
+function extractRecords(body: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(body)) return body as Array<Record<string, unknown>>;
+  if (body && typeof body === 'object') {
+    const o = body as Record<string, unknown>;
+    for (const key of ['data', 'calls', 'results', 'items', 'records']) {
+      if (Array.isArray(o[key])) return o[key] as Array<Record<string, unknown>>;
+    }
+  }
+  return [];
+}
+
+/** Extract the next-page cursor from a CallGrid response, if present. */
+function extractCursor(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const o = body as Record<string, unknown>;
+  for (const key of ['nextCursor', 'next_cursor', 'cursor', 'nextPageToken', 'next']) {
+    const v = o[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  const paging = o['paging'] || o['pagination'] || o['meta'];
+  if (paging && typeof paging === 'object') {
+    const p = paging as Record<string, unknown>;
+    for (const key of ['nextCursor', 'next_cursor', 'cursor', 'next']) {
+      const v = p[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  }
+  return undefined;
+}
+
+/** Fetch ONE page of CallGrid calls. Throws CallGridApiError on a non-2xx. */
+export async function fetchCallGridCallsPage(
+  options: CallGridApiFetchOptions,
+): Promise<CallGridApiPage> {
+  const doFetch = options.fetchImpl || fetch;
+  const base = resolveCallGridBaseUrl(options.baseUrl).replace(/\/+$/, '');
+  const url = new URL(base + CALLGRID_CALLS_PATH);
+  url.searchParams.set('startDate', options.since.toISOString());
+  url.searchParams.set('endDate', (options.until || new Date()).toISOString());
+  url.searchParams.set('limit', String(options.limit || 100));
+  if (options.cursor) url.searchParams.set('cursor', options.cursor);
+
+  let res: Response;
+  try {
+    res = await doFetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: 'Bearer ' + options.apiKey,
+        Accept: 'application/json',
+      },
+    });
+  } catch (err) {
+    throw new CallGridApiError(
+      'CallGrid API request failed: ' + (err instanceof Error ? err.message : 'network error'),
+    );
+  }
+  if (!res.ok) {
+    throw new CallGridApiError('CallGrid API returned ' + res.status, res.status);
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new CallGridApiError('CallGrid API returned non-JSON body', res.status);
+  }
+  const records = extractRecords(body);
+  const nextCursor = extractCursor(body);
+  return { records, nextCursor, hasMore: Boolean(nextCursor) && records.length > 0 };
+}
+
+/**
+ * Fetch ALL CallGrid calls in a date range, following cursor pagination, and
+ * map each into an InboundEvent. Caps total pages to avoid runaway loops.
+ */
+export async function fetchAllCallGridCalls(
+  options: CallGridApiFetchOptions & { maxPages?: number },
+): Promise<{ events: InboundEvent[]; pages: number; records: number }> {
+  const maxPages = options.maxPages && options.maxPages > 0 ? options.maxPages : 25;
+  const events: InboundEvent[] = [];
+  let cursor = options.cursor;
+  let pages = 0;
+  let records = 0;
+  do {
+    const page = await fetchCallGridCallsPage({ ...options, cursor });
+    pages += 1;
+    records += page.records.length;
+    for (const record of page.records) events.push(mapCallGridApiRecord(record));
+    cursor = page.nextCursor;
+    if (!page.hasMore) break;
+  } while (cursor && pages < maxPages);
+  return { events, pages, records };
+}
