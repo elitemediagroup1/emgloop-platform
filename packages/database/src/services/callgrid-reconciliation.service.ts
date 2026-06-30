@@ -150,13 +150,18 @@ export class CallGridReconciliationService {
           continue;
         }
 
-        const [res] = await this.ingestion.ingest({
+        const ingestResults = await this.ingestion.ingest({
           organizationId: input.organizationId,
           provider: 'callgrid',
           providerConnectionId: input.providerConnectionId ?? null,
           mapEventType: mapReconEventType,
           events: [ev],
         });
+        const res = ingestResults[0];
+        if (!res) {
+          result.failed += 1;
+          continue;
+        }
         if (res.status === 'processed') result.imported += 1;
         else if (res.status === 'duplicate') result.skippedDuplicate += 1;
         else {
