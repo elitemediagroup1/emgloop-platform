@@ -97,11 +97,9 @@ export function parseDurationSeconds(value: string | undefined): number | undefi
   const s = String(value).trim();
   if (/^[0-9]+$/.test(s)) return Number(s);
   const parts = s.split(':').map((p) => Number(p));
-  if (parts.some((n) => !Number.isFinite(n))) return undefined;
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 1) return parts[0];
-  return undefined;
+  if (parts.length === 0 || parts.some((n) => !Number.isFinite(n))) return undefined;
+  // Fold most-significant-first: each segment is one base-60 place.
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
 }
 
 /** Drop undefined values so a spread never clobbers a real value. */
