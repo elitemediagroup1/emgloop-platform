@@ -36,6 +36,9 @@ export type {
     NextBestActionResult,
 } from './services/next-best-action.service';
 
+// Sprint 17 - CallGrid API reconciliation / backfill service.
+export { CallGridReconciliationService, sinceForRange, mapReconEventType } from './services/callgrid-reconciliation.service';
+export type { ReconciliationInput, ReconciliationResult, SyncRange } from './services/callgrid-reconciliation.service';
 export { IntegrationOsService } from './services/integration-os.service';
 export type {
   ProviderStatus,
