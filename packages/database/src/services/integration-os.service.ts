@@ -66,6 +66,21 @@ export interface VerificationInfo {
 }
 
 /** The full live status snapshot for one provider. */
+/** The last CallGrid REST API reconciliation sync diagnostic (no secrets). */
+export interface ApiSyncInfo {
+  at: string;
+  range: string;
+  since: string;
+  until: string;
+  fetched: number;
+  imported: number;
+  enriched: number;
+  skippedDuplicate: number;
+  failed: number;
+  errorCount: number;
+  apiKeyConfigured: boolean;
+}
+
 export interface ProviderStatus {
   providerId: string;
   connection: ConnectionState;
@@ -79,6 +94,7 @@ export interface ProviderStatus {
   lastEvent: EventRow | null;
   lastError: EventRow | null;
   lastVerification: VerificationInfo | null;
+  apiSync: ApiSyncInfo | null;
   eventsToday: number;
   eventsProcessed: number;
   eventsFailed: number;
@@ -141,6 +157,28 @@ function readVerification(config: Record<string, unknown> | undefined): Verifica
   };
 }
 
+/** Safely read the last API-sync diagnostic from connection.config. */
+function readApiSync(config: Record<string, unknown> | undefined): ApiSyncInfo | null {
+  const v = config?.['lastApiSync'];
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o['at'] !== 'string') return null;
+  const num = (k: string): number => (typeof o[k] === 'number' ? (o[k] as number) : 0);
+  return {
+    at: o['at'] as string,
+    range: typeof o['range'] === 'string' ? (o['range'] as string) : '',
+    since: typeof o['since'] === 'string' ? (o['since'] as string) : '',
+    until: typeof o['until'] === 'string' ? (o['until'] as string) : '',
+    fetched: num('fetched'),
+    imported: num('imported'),
+    enriched: num('enriched'),
+    skippedDuplicate: num('skippedDuplicate'),
+    failed: num('failed'),
+    errorCount: num('errorCount'),
+    apiKeyConfigured: o['apiKeyConfigured'] === true,
+  };
+}
+
 export class IntegrationOsService {
   private readonly integrations: IntegrationRepository;
 
@@ -185,6 +223,7 @@ export class IntegrationOsService {
     const lastEvent = recent[0] ?? null;
     const lastError = recent.find((e) => e.status === 'FAILED') ?? null;
     const lastVerification = readVerification(connection?.config);
+    const apiSync = readApiSync(connection?.config);
 
     const hasAnyProcessed = eventsProcessed > 0 || connection?.status === 'CONNECTED';
     let conn: ConnectionState;
@@ -240,6 +279,7 @@ export class IntegrationOsService {
       lastEvent: lastEvent ? toRow(lastEvent) : null,
       lastError: lastError ? toRow(lastError) : null,
       lastVerification,
+      apiSync,
       eventsToday,
       eventsProcessed,
       eventsFailed,
