@@ -93,8 +93,11 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
     webhookPath: '/api/webhooks/callgrid',
     recommendedEvents: ['call.inbound', 'call.answered', 'call.missed', 'call.completed', 'call.voicemail', 'call.transferred'],
     signatureHeaders: ['x-callgrid-signature'],
-    secrets: [{ envVar: 'CALLGRID_WEBHOOK_SECRET', label: 'Webhook signing secret', required: true }],
-    pollingSupported: false,
+    secrets: [
+      { envVar: 'CALLGRID_WEBHOOK_SECRET', label: 'Webhook signing secret', required: true },
+      { envVar: 'CALLGRID_API_KEY', label: 'REST API key (reconciliation/backfill)', required: false },
+    ],
+    pollingSupported: true,
     idempotency: true,
     retrySupported: true,
     setupSteps: [
