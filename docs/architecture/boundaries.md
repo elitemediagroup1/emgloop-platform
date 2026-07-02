@@ -29,7 +29,9 @@ A Sensor **must never**:
 - write to Knowledge or Recommendation layers
 
 Contract: `Sensor` in `packages/providers/src/interfaces/sensor.provider.ts`.
-Output unit: `Fact` in `packages/brain/src/facts.ts`.
+Output unit: `Fact` in `packages/providers/src/facts.ts` (Sensors are the
+producers, so Facts live in the providers package; `@emgloop/brain` re-exports
+them for convenience, preserving the acyclic `brain -> providers` direction).
 
 > A Fact states **what was observed** — never what it means.
 
