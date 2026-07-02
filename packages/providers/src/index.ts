@@ -122,3 +122,11 @@ export function getWebsiteProvider(): IngestionProvider {
   registerWebsite();
   return getProvider<IngestionProvider>('ingestion', 'website');
 }
+
+export type {
+  Sensor,
+  ObserveWindow,
+  ObserveResult,
+} from './interfaces/sensor.provider';
+
+export type { Fact, FactBatch, SensorId } from './facts';
