@@ -21,7 +21,8 @@
     "dependencies": {
           "@prisma/client": "^5.18.0",
           "@emgloop/shared": "*",
-          "@emgloop/providers": "*"
+          "@emgloop/providers": "*",
+          "@emgloop/brain": "*"
     },
     "devDependencies": {
           "prisma": "^5.18.0",
