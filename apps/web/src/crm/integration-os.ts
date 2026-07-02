@@ -201,6 +201,22 @@ export function verificationSummary(v: ProviderStatus['lastVerification']): stri
 }
 
 /** One-line summary of the last CallGrid API reconciliation sync. */
+/**
+ * Production-safe verification label. An 'unsigned-preview' verification is a
+ * preview/test event and must NOT be presented as a live production verification
+ * once the webhook signing secret is configured. In that case we surface a clear
+ * pending state instead of a stale "Verified ... via Unsigned (preview)".
+ */
+export function productionVerificationSummary(
+  v: ProviderStatus['lastVerification'],
+  secretConfigured: boolean,
+): string {
+  if (secretConfigured && (!v || !v.valid || v.method === 'unsigned-preview')) {
+    return 'Awaiting first signed production webhook';
+  }
+  return verificationSummary(v);
+}
+
 export function apiSyncSummary(s: ProviderStatus['apiSync']): string {
   if (!s) return 'No API sync run yet';
   const when = relativeTime(s.at);

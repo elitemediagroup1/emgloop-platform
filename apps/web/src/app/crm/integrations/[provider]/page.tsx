@@ -11,6 +11,7 @@ import {
   liveStateLabel,
   liveStateClass,
   verificationSummary,
+  productionVerificationSummary,
   apiSyncSummary,
   fmtTime,
   relativeTime,
@@ -233,12 +234,14 @@ export default async function ProviderDetailPage({
               <div><span className="k">Retry</span><span className="v">{spec.retrySupported ? 'Yes' : 'No'}</span></div>
               <div><span className="k">Connected</span><span className="v">{fmtTime(status.connectedAt)}</span></div>
               <div><span className="k">Last Sync</span><span className="v">{fmtTime(status.lastSyncedAt)}</span></div>
-              <div><span className="k">Last Verification</span><span className="v">{verificationSummary(status.lastVerification)}</span></div>
+              <div><span className="k">Last Verification</span><span className="v">{productionVerificationSummary(status.lastVerification, status.secretConfigured)}</span></div>
               <div><span className="k">Last API Sync</span><span className="v">{apiSyncSummary(status.apiSync)}</span></div>
               <div><span className="k">Last Signature</span><span className="v">{status.lastVerification && status.lastVerification.signaturePrefix ? status.lastVerification.signaturePrefix : ' - '}</span></div>
               <div><span className="k">Secret Configured</span><span className="v">{status.allRequiredSecretsConfigured ? 'Yes' : 'No'}</span></div>
             </div>
-            {spec.notes ? (<p className="crm-sub" style={{ marginTop: '0.75rem' }}>{spec.notes}</p>) : null}
+            {status.providerId === 'callgrid' && status.secretConfigured ? (
+              <p className="crm-sub" style={{ marginTop: '0.75rem' }}>API sync active; webhook verification pending — awaiting first signed production webhook.</p>
+            ) : spec.notes ? (<p className="crm-sub" style={{ marginTop: '0.75rem' }}>{spec.notes}</p>) : null}
             {status.providerId === 'callgrid' ? <CallGridSync /> : null}
           </div>
         </div>
