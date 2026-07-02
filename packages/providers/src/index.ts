@@ -128,3 +128,5 @@ export type {
   ObserveWindow,
   ObserveResult,
 } from './interfaces/sensor.provider';
+
+export type { Fact, FactBatch, SensorId } from './facts';
