@@ -16,6 +16,7 @@ export * from './identity';
 export * from './graph';
 export * from './knowledge';
 export * from './recommendation';
+export * from './next-best-action';
 export * from './revenue';
 export * from './trust';
 export * from './verticals';
