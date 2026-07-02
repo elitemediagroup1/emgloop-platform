@@ -25,7 +25,7 @@ export interface CallGridApiFetchOptions {
   /** Inclusive upper bound on call time (defaults to now). */
   until?: Date;
   /** Opaque pagination cursor from a previous page. */
-  cursor?: string;
+  cursor?: unknown;
   /** Max records per page (CallGrid caps this server-side). */
   limit?: number;
   /** Override the API base URL (else CALLGRID_API_BASE_URL or the default). */
@@ -38,7 +38,7 @@ export interface CallGridApiPage {
   /** Raw call records exactly as returned by CallGrid (PascalCase fields). */
   records: Array<Record<string, unknown>>;
   /** Cursor for the next page, or undefined when exhausted. */
-  nextCursor?: string;
+  nextCursor?: unknown;
   hasMore: boolean;
 }
 
@@ -251,8 +251,10 @@ export async function fetchCallGridCallsPage(
     throw new CallGridApiError('CallGrid API returned non-JSON body', res.status);
   }
   const records = extractRecords(body);
-  const nextCursor = extractCursor(body);
-  return { records, nextCursor, hasMore: Boolean(nextCursor) && records.length > 0 };
+  const envelope = (body && typeof body === 'object' ? body : {}) as { hasMore?: unknown; nextCursor?: unknown };
+  const apiHasMore = envelope.hasMore === true;
+  const nextCursor: unknown = envelope.nextCursor != null ? envelope.nextCursor : extractCursor(body);
+  return { records, nextCursor, hasMore: (apiHasMore || Boolean(nextCursor)) && records.length > 0 };
 }
 
 /**
