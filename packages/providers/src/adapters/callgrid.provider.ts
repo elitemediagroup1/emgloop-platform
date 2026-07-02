@@ -204,6 +204,16 @@ export class CallGridProvider implements IngestionProvider {
     const payout = numeric(pick(data, ['payout', 'payout_amount', 'payoutAmount']));
     const billable = boolFrom(pick(data, ['billable', 'is_billable', 'isBillable']));
     const paid = boolFrom(pick(data, ['paid', 'is_paid', 'isPaid']));
+  const converted = boolFrom(pick(data, ['converted', 'is_converted', 'isConverted', 'conversion']));
+  // Qualified: a call the buyer/business treats as a real, valuable lead.
+  // Derived from CallGrid's own economic outcome flags so Live Calls /
+  // Traffic Intelligence show qualification instead of a blank column.
+  const qualified =
+    billable === true || converted === true || paid === true
+      ? true
+      : billable === false && converted === false && paid === false
+        ? false
+        : undefined;
 
     // Canonical, normalization-ready payload. Spread the raw data FIRST so
     // every original key is preserved (backwards compatible), then layer the
@@ -227,6 +237,8 @@ export class CallGridProvider implements IngestionProvider {
         payout,
         billable,
         paid,
+        converted,
+        qualified,
       }),
     };
 

@@ -151,6 +151,16 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
   const payout = toNumber(pickField(record, ['Payout', 'payout', 'PayoutAmount']));
   const billable = toBool(pickField(record, ['Billable', 'billable', 'IsBillable']));
   const paid = toBool(pickField(record, ['Paid', 'paid', 'IsPaid']));
+  const converted = toBool(pickField(record, ['Converted', 'converted', 'IsConverted', 'Conversion']));
+  // Qualified: a call the buyer/business considers a real, valuable lead.
+  // Derive deterministically from CallGrid's own economic outcome flags so
+  // Live Calls / Traffic Intelligence show qualification instead of blank.
+  const qualified =
+    billable === true || converted === true || paid === true
+      ? true
+      : billable === false && converted === false && paid === false
+        ? false
+        : undefined;
 
   const payload: Record<string, unknown> = {
     ...record,
@@ -169,6 +179,8 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
       payout,
       billable,
       paid,
+      converted,
+      qualified,
       apiSource: 'callgrid-api',
     }),
   };
