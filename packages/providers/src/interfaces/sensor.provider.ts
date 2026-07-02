@@ -17,7 +17,7 @@
 // Sensor is the target contract they converge on; the two are intentionally
 // aligned (InboundEvent, IngestionCapabilities are reused, not duplicated).
 
-import type { Fact, FactBatch } from '@emgloop/brain';
+import type { Fact, FactBatch } from './facts';
 import type { BaseProvider, ProviderContext, ProviderHealth } from '../types';
 import type { InboundEvent, IngestionCapabilities } from './ingestion.provider';
 
