@@ -13,11 +13,19 @@
 //
 // Sprint 14 (Website Intelligence): the customer's signal pool now also contains
 // website-derived signals (appointment_intent, buying_intent, research_intent,
-// ...). Because the rules read the SAME signal pool, recommendations now reflect
-// BOTH senses — phone and website. Example: a web buying_intent that is later
-// followed by a call increases confidence in a sales-ready recommendation.
+// ...). Because the rules read the SAME shared signal pool, cross-channel
+// intelligence emerges without provider-specific branches.
+//
+// Phase 1 (Brain Boundary): the DECISION logic no longer lives here. It has moved
+// into the Brain — the center of the platform — as the pure capability
+// `recommendNextBestActions` in @emgloop/brain. This service now INVOKES the
+// Brain and remains responsible only for data-layer concerns (reading signals,
+// persisting the advisory Signal + DomainEvent). The Brain owns the decision; the
+// data layer owns persistence. Public types and behaviour are unchanged, so all
+// existing callers observe identical output.
 
 import type { PrismaClient, Interaction, Signal } from '@prisma/client';
+import { recommendNextBestActions, type NbaAction } from '@emgloop/brain';
 
 export type NextBestActionKind =
   | 'assign_ai_employee'
@@ -51,139 +59,27 @@ export interface NextBestActionResult {
   domainEventId: string | null;
 }
 
-function asObject(v: unknown): Record<string, unknown> {
-  return v && typeof v === 'object' && !Array.isArray(v)
-    ? (v as Record<string, unknown>)
-    : {};
-}
-
 export class NextBestActionService {
   constructor(private readonly prisma: PrismaClient) {}
 
   /**
-   * Compute the ranked recommendations for a context. Pure function over the
-   * inputs — no DB reads — so it is easy to test and reason about.
+   * Compute the ranked recommendations for a context. The DECISION itself is
+   * delegated to the Brain (`recommendNextBestActions`); this method only adapts
+   * the data-layer context into the Brain's pure input shape and returns the
+   * Brain's output. No DB reads happen here, so it remains easy to test.
    */
   recommend(ctx: NextBestActionContext): NextBestAction[] {
-    const actions: NextBestAction[] = [];
-    const signalKeys = new Set(ctx.signals.map((s) => s.key));
-    const meta = asObject(ctx.interaction.metadata);
-    const eventType = typeof meta['eventType'] === 'string' ? meta['eventType'] : '';
-
-    // Rule 1 — a missed inbound call is the highest-urgency operational event.
-    if (eventType === 'call.missed' || ctx.interaction.summary?.toLowerCase().includes('missed')) {
-      actions.push({
-        kind: 'create_follow_up',
-        priority: 1,
-        title: 'Call back missed caller',
-        detail: 'An inbound call was missed. Return the call promptly to avoid losing the lead.',
-        hint: { channel: 'phone', dueWithinMinutes: 15 },
-      });
-      actions.push({
-        kind: 'recommend_workflow',
-        priority: 2,
-        title: 'Run missed-call recovery workflow',
-        detail: 'Trigger the missed-call follow-up automation to tag and queue the customer.',
-        hint: { eventName: 'integration.call.missed' },
-      });
-    }
-
-    // Rule 2 — emergency intent should be assigned to a human immediately.
-    if (signalKeys.has('emergency_intent')) {
-      actions.push({
-        kind: 'assign_human',
-        priority: 1,
-        title: 'Assign to a human agent (emergency)',
-        detail: 'Emergency intent detected. Route to a human dispatcher for immediate handling.',
-        hint: { reason: 'emergency_intent' },
-      });
-    }
-
-    // Rule 2b — Sprint 14: website appointment intent is a hot, sales-ready lead.
-    if (signalKeys.has('appointment_intent') || eventType === 'web.appointment_request') {
-      actions.push({
-        kind: 'create_follow_up',
-        priority: 1,
-        title: 'Confirm the requested appointment',
-        detail: 'The customer requested an appointment on the website. Confirm the booking quickly while intent is high.',
-        hint: { reason: 'web_appointment_intent', dueWithinMinutes: 30 },
-      });
-    }
-
-    // Rule 2c — Sprint 14: website buying intent FOLLOWED by a call is high-confidence.
-    // Reads both senses from the shared signal pool — the cross-channel boost.
-    if (signalKeys.has('buying_intent') && ctx.interaction.channel === 'PHONE') {
-      actions.push({
-        kind: 'assign_human',
-        priority: 2,
-        title: 'Prioritize — researched online, now calling',
-        detail: 'This customer showed buying intent on the website and is now on a call. Treat as a high-confidence, sales-ready lead.',
-        hint: { reason: 'web_then_call', confidence: 'high' },
-      });
-    }
-
-    // Rule 2d — Sprint 14: research-only website behaviour deserves nurturing.
-    if (
-      (signalKeys.has('research_intent') || signalKeys.has('comparison_shopper')) &&
-      !signalKeys.has('buying_intent') &&
-      !signalKeys.has('appointment_intent')
-    ) {
-      actions.push({
-        kind: 'recommend_channel',
-        priority: 4,
-        title: 'Nurture an active researcher',
-        detail: 'The customer is researching but has not converted. Share a helpful guide or follow up by email to stay top-of-mind.',
-        hint: { reason: 'web_research', channel: 'email' },
-      });
-    }
-
-    // Rule 3 — a new inbound contact with no owner gets an AI Employee first-touch.
-    if (
-      (ctx.interaction.direction === 'INBOUND') &&
-      !signalKeys.has('emergency_intent')
-    ) {
-      actions.push({
-        kind: 'assign_ai_employee',
-        priority: 3,
-        title: 'Assign default AI Employee for first response',
-        detail: 'Let the default AI Employee acknowledge and qualify this new inbound contact.',
-        hint: { reason: 'first_touch' },
-      });
-    }
-
-    // Rule 4 — phone-preferring customers should be reached by phone.
-    if (signalKeys.has('phone_preference') || ctx.interaction.channel === 'PHONE') {
-      actions.push({
-        kind: 'recommend_channel',
-        priority: 4,
-        title: 'Prefer phone for outreach',
-        detail: 'This customer engages by phone. Use a call for the next outreach attempt.',
-        hint: { channel: 'phone' },
-      });
-    }
-
-    // Rule 5 — service interest without a booking is an operational follow-up.
-    if (signalKeys.has('service_interest') && !signalKeys.has('booking_created')) {
-      actions.push({
-        kind: 'operational_recommendation',
-        priority: 3,
-        title: 'Send a quote / book the service',
-        detail: 'Service interest is present but no booking exists. Provide a quote or schedule the job.',
-        hint: { reason: 'service_interest_no_booking' },
-      });
-    }
-
-    // Always provide at least one baseline action.
-    if (actions.length === 0) {
-      actions.push({
-        kind: 'operational_recommendation',
-        priority: 5,
-        title: 'Review interaction',
-        detail: 'No urgent rule matched. Review the interaction and update the pipeline as needed.',
-      });
-    }
-
-    return actions.sort((a, b) => a.priority - b.priority);
+    const actions: NbaAction[] = recommendNextBestActions({
+      interaction: {
+        channel: ctx.interaction.channel ?? null,
+        direction: ctx.interaction.direction ?? null,
+        summary: ctx.interaction.summary ?? null,
+        metadata: ctx.interaction.metadata,
+      },
+      signalKeys: ctx.signals.map((s) => s.key),
+    });
+    // NbaAction is structurally identical to NextBestAction (same kinds/fields).
+    return actions as NextBestAction[];
   }
 
   /**
