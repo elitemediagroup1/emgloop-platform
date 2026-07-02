@@ -138,7 +138,7 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
   // Attribution + routing dimensions (CallGrid API PascalCase, with fallbacks).
   const vendor = pickField(record, ['VendorName', 'Vendor', 'vendor']);
   const source = pickField(record, ['SourceName', 'Source', 'source']);
-  const campaign = pickField(record, ['CampaignName', 'Campaign', 'campaign']);
+  const campaign = pickField(record, ['CampaignName', 'Campaign', 'campaign', 'CampaignId']);
   const buyer = pickField(record, ['BuyerName', 'Buyer', 'buyer']);
   const destination = pickField(record, ['DestinationName', 'Destination', 'destination']);
   const callerState = pickField(record, ['InboundState', 'State', 'inboundState', 'callerState']);
@@ -222,8 +222,10 @@ export async function fetchCallGridCallsPage(
   const url = new URL(base + CALLGRID_CALLS_PATH);
   url.searchParams.set('startDate', options.since.toISOString());
   url.searchParams.set('endDate', (options.until || new Date()).toISOString());
-  url.searchParams.set('limit', String(options.limit || 100));
-  if (options.cursor) url.searchParams.set('cursor', options.cursor);
+  url.searchParams.set('maxItems', String(options.limit || 100));
+  url.searchParams.set('useCursor', 'true');
+  url.searchParams.set('reportTimeZone', 'US/Eastern');
+  if (options.cursor) url.searchParams.set('searchAfter', JSON.stringify(options.cursor));
 
   let res: Response;
   try {
