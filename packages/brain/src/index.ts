@@ -8,6 +8,7 @@
 // wired into the web app build; future sprints provide concrete implementations.
 
 export * from './types';
+export * from './facts';
 export * from './pipeline';
 export * from './signals';
 export * from './memory';
