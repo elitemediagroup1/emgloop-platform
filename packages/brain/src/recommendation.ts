@@ -83,7 +83,7 @@ export interface RecommendationEngine {
 // existing field is removed or renamed.
 // ---------------------------------------------------------------------------
 
-import type { BrainObjectBase, Confidence, Evidence } from './types';
+import type { BrainObjectBase, Evidence } from './types';
 
 /** A named alternative explanation the engine considered but did not choose.
  *  Loop never presents a single answer as the only possible truth. */
