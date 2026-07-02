@@ -72,7 +72,9 @@ export async function POST(req: Request) {
       ? (connection.config['apiBaseUrl'] as string)
       : undefined;
   const service = new CallGridReconciliationService(prisma);
-  const result = await service.reconcile({
+
+  try {
+    const result = await service.reconcile({
     organizationId: org.id,
     apiKey,
     range,
@@ -102,5 +104,13 @@ export async function POST(req: Request) {
     // diagnostics are advisory; never fail the sync because of them
   }
 
-  return NextResponse.json({ ok: true, result });
+    return NextResponse.json({ ok: true, result });
+  } catch (err) {
+    // Never let an exception escape as a non-JSON framework error page.
+    const message = err instanceof Error ? err.message : 'sync-failed';
+    return NextResponse.json(
+      { ok: false, error: 'sync-failed', detail: message },
+      { status: 500 },
+    );
+  }
 }

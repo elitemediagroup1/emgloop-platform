@@ -1,4 +1,4 @@
-// IngestionService — Sprint 11 (First Live Integration, Phases 2-4 + 7).
+// IngestionService â Sprint 11 (First Live Integration, Phases 2-4 + 7).
 //
 // The orchestration spine for live events. Given verified InboundEvents from a
 // provider adapter, this service runs the full Loop pipeline for each one:
@@ -26,10 +26,10 @@
 // produces InboundEvents the same way and flows through this identical pipeline.
 //
 // Sprint 14 (Website Intelligence) makes this same spine carry the web.* event
-// family — the Brain's second sense — by recognizing web.* canonical types and
+// family â the Brain's second sense â by recognizing web.* canonical types and
 // resolving anonymous website visitors. No new pipeline; just more event types.
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
 import type { InboundEvent } from '@emgloop/providers';
 import { NormalizationEngine } from '../repositories/normalization.repository';
@@ -178,7 +178,7 @@ export class IngestionService {
         customerId: customerId ?? undefined,
         customerEmail: ev.customerEmail,
         customerPhone: ev.customerPhone,
-        durationSeconds: numberFrom(ev.payload, ['duration', 'duration_seconds', 'billable_duration']),
+        durationSeconds: numberFrom(ev.payload, ['durationSeconds', 'duration', 'duration_seconds', 'billable_duration']),
         summary: summaryFor(canonicalType, ev.payload),
         metadata: { ...ev.payload, eventType: canonicalType },
       };
@@ -213,7 +213,7 @@ export class IngestionService {
         }
       }
 
-      // 6. Next Best Action (Phase 7) — rules-based recommendations.
+      // 6. Next Best Action (Phase 7) â rules-based recommendations.
       if (base.interactionId) {
         const allSignals = customerId
           ? await this.prisma.signal.findMany({
@@ -237,9 +237,37 @@ export class IngestionService {
           signals: allSignals,
         });
         base.nextBestActions = nba.actions.map((a) => a.kind);
+        // Surface the top recommendation on the interaction itself so the
+        // Live Calls feed can show a Next Best Action (it reads
+        // metadata.nextBestAction). Advisory + append-only: merge into
+        // existing metadata, never overwrite a real value, never delete.
+        const topAction = nba.actions[0];
+        const interactionId = base.interactionId;
+        if (topAction && interactionId) {
+          const current = await this.prisma.interaction.findUnique({
+            where: { id: interactionId },
+            select: { metadata: true },
+          });
+          const md =
+            current && current.metadata && typeof current.metadata === 'object' && !Array.isArray(current.metadata)
+              ? (current.metadata as Record<string, unknown>)
+              : {};
+          if (md['nextBestAction'] == null) {
+            await this.prisma.interaction.update({
+              where: { id: interactionId },
+              data: {
+                metadata: {
+                  ...md,
+                  nextBestAction: topAction.title,
+                  nextBestActionKind: topAction.kind,
+                } as Prisma.InputJsonValue,
+              },
+            });
+          }
+        }
       }
 
-      // 7. Done — mark PROCESSED.
+      // 7. Done â mark PROCESSED.
       await this.prisma.integrationEvent.update({
         where: { id: record.id },
         data: { status: 'PROCESSED', processedAt: new Date(), error: null },
@@ -259,7 +287,7 @@ export class IngestionService {
 
   /** Resolve a customer by phone/email within the org, creating one if needed so
       the contact is immediately visible in the CRM. Website events frequently
-      arrive without phone/email — those are tracked as anonymous visitor
+      arrive without phone/email â those are tracked as anonymous visitor
       profiles keyed on the visitor/session id so later identified interactions
       merge by the same visitor id. */
   private async resolveCustomer(
@@ -394,7 +422,7 @@ function websiteSummary(eventType: string, payload: Record<string, unknown>): st
   const verb = label[eventType] ?? 'Website event';
   const detail = query || cta || page || category;
   const base = verb + ' on ' + property;
-  return detail ? base + ' — ' + detail : base;
+  return detail ? base + ' â ' + detail : base;
 }
 
 function channelFor(eventType: string): 'PHONE' | 'SMS' | 'EMAIL' | 'WEB_CHAT' | 'OTHER' {

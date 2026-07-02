@@ -30,7 +30,7 @@ const RANGES: { key: SyncRange; label: string }[] = [
 ];
 
 export function CallGridSync() {
-  const [range, setRange] = useState<SyncRange>('24h');
+  const [range, setRange] = useState<SyncRange>('today');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,12 +42,33 @@ export function CallGridSync() {
     try {
       const res = await fetch('/api/integrations/callgrid/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ range }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setError(data?.error || ('Sync failed (' + res.status + ')'));
+
+      // Read the body as text first so a non-JSON response (e.g. a gateway
+      // timeout HTML page on the heavier ranges) never blows up JSON.parse.
+      const raw = await res.text();
+      let data: { ok?: boolean; error?: string; result?: SyncResult } | null = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
+
+      if (data === null) {
+        // Server returned something that isn't JSON. The usual cause is a 504
+        // gateway timeout on a large range — surface a clean, actionable note.
+        if (res.status === 504 || res.status === 502 || res.status === 408) {
+          setError(
+            'Sync took too long for this range and timed out. Try "Today" — the ' +
+              'real-time webhook keeps everything else current.',
+          );
+        } else {
+          setError('Sync failed (' + res.status + '). Please try again.');
+        }
+      } else if (!res.ok || !data.ok) {
+        setError(data.error || ('Sync failed (' + res.status + ')'));
       } else {
         setResult(data.result as SyncResult);
       }
