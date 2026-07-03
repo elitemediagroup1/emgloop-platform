@@ -116,3 +116,35 @@ inbound, "to" for outbound). Creates no new Customer if not found.
 - Customer phone matching: normalize E.164 before lookup
 
 **Not in scope for Sprint 10:** webhook endpoint, API client, recording fetcher.
+
+
+---
+
+## Production Update (Post Sprint 17) — Webhook Attachment Requirement
+
+The sections above are the original Sprint 10 integration plan. Since then, the
+webhook endpoint, HMAC/Bearer verification, and REST reconciliation layer have
+been implemented (see `CALLGRID_RECONCILIATION.md` for the current canonical
+webhook body and field mapping). This section documents a production setup
+requirement discovered after implementation: creating a webhook in CallGrid is
+not enough on its own.
+
+**Confirmed root cause:** CallGrid requires a webhook to be attached to each
+individual campaign. A webhook configured only at the account level will not
+send events for a campaign it has not been attached to - that campaign will
+simply produce no real-time events in Loop, even though the webhook otherwise
+looks correctly configured.
+
+**Setup steps for every environment:**
+
+1. Create one canonical webhook in CallGrid (e.g. "EMG Loop - Production")
+   pointed at `POST /api/webhooks/callgrid`, using the confirmed JSON body
+   template and Bearer/HMAC auth documented in `CALLGRID_RECONCILIATION.md`.
+2. Attach that webhook to every active campaign individually - this must be
+   done per campaign, not once for the whole account.
+3. For each campaign, verify it emits at least one completed call into Loop
+   (`/crm/live/calls`) with correct caller, vendor, source, campaign, and
+   duration before considering that campaign live.
+4. Campaigns without the webhook attached will not stream real-time events to
+   Loop. They will only be caught by the REST reconciliation sync, on whatever
+   schedule/range that sync is configured for - not in real time.
