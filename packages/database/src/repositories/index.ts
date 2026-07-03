@@ -106,6 +106,8 @@ export type {
   LiveCallRow,
   LiveWebsiteRow,
   LiveWebsiteSession,
+  BrainCallWindowRow,
+  BrainCallWindowFilters,
 } from './live-operations.repository';
 export { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 export type {

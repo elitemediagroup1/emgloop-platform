@@ -128,6 +128,44 @@ const CUSTOMER_SELECT = {
   externalId: true,
 } as const;
 
+// ---------------------------------------------------------------------------
+// Phase 1 addition — Brain call-handling window (read-only, caller-ranged).
+//
+// A raw, honest per-interaction view for the Brain's call-handling assembler
+// to classify. Values the platform has not captured are null here — never
+// fabricated — so the assembler (and, upstream, the diagnoser) can treat them
+// as honestly missing rather than a confident zero. This mirrors the same
+// Interaction.metadata keys listLiveCalls already reads; it does not invent
+// any new field or change how those keys are written.
+// ---------------------------------------------------------------------------
+
+export interface BrainCallWindowRow {
+  id: string;
+  occurredAt: string;
+  vendor: string | null;
+  source: string | null;
+  campaign: string | null;
+  buyer: string | null;
+  /** Raw status/event-type string as stored; the caller (Brain-side adapter)
+   * maps this to the diagnoser's CallStatus vocabulary. Never pre-classified
+   * here so the mapping stays a single, auditable place. */
+  callStatusRaw: string | null;
+  durationSeconds: number | null;
+  /** Raw who-ended-the-call string, when the platform has captured it. */
+  endedByRaw: string | null;
+  billable: boolean | null;
+  qualified: boolean | null;
+}
+
+export interface BrainCallWindowFilters {
+  since: Date;
+  until: Date;
+  vendor?: string;
+  buyer?: string;
+  source?: string;
+  campaign?: string;
+}
+
 export class LiveOperationsRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -354,5 +392,56 @@ export class LiveOperationsRepository {
     return Array.from(groups.values())
       .sort((a, b) => (a.lastAt < b.lastAt ? 1 : a.lastAt > b.lastAt ? -1 : 0))
       .slice(0, limit);
+  }
+
+  // Phase 1 addition — Brain call-handling window. Reads reconciled PHONE
+  // interactions over a CALLER-SUPPLIED [since, until] range (not a fixed
+  // recency window), with optional vendor/buyer/source/campaign filters, for
+  // the Brain's call-handling assembler to run on a real analysis window.
+  // Read-only: no writes, no mutation of any record. Does not change
+  // listLiveCalls or any other live-feed behavior.
+  async listBrainCallWindow(
+    organizationId: string,
+    filters: BrainCallWindowFilters,
+  ): Promise<BrainCallWindowRow[]> {
+    const rows = await this.prisma.interaction.findMany({
+      where: {
+        organizationId,
+        channel: 'PHONE',
+        occurredAt: { gte: filters.since, lte: filters.until },
+      },
+      orderBy: { occurredAt: 'asc' },
+      include: { customer: { select: CUSTOMER_SELECT } },
+    });
+
+    const mapped: BrainCallWindowRow[] = rows
+      .filter((i) => !isExcludedCustomer(i.customer) && !isExcludedExternalId(i.externalId))
+      .map((i) => {
+        const md = i.metadata;
+        const durRaw = jsonVal(md, 'durationSeconds');
+        const billableRaw = jsonVal(md, 'billable');
+        const qualifiedRaw = jsonVal(md, 'qualified');
+        return {
+          id: i.id,
+          occurredAt: i.occurredAt.toISOString(),
+          vendor: realAttr(jsonVal(md, 'vendor')),
+          source: realAttr(jsonVal(md, 'source')),
+          campaign: realAttr(jsonVal(md, 'campaign')),
+          buyer: realAttr(jsonVal(md, 'buyer')),
+          callStatusRaw: jsonVal(md, 'callStatus') ?? jsonVal(md, 'eventType') ?? i.kind,
+          durationSeconds: durRaw !== null ? Number(durRaw) : null,
+          endedByRaw: jsonVal(md, 'endedBy'),
+          billable: billableRaw === null ? null : billableRaw === 'true',
+          qualified: qualifiedRaw === null ? null : qualifiedRaw === 'true',
+        };
+      });
+
+    return mapped.filter((r) => {
+      if (filters.vendor && r.vendor !== filters.vendor) return false;
+      if (filters.buyer && r.buyer !== filters.buyer) return false;
+      if (filters.source && r.source !== filters.source) return false;
+      if (filters.campaign && r.campaign !== filters.campaign) return false;
+      return true;
+    });
   }
 }
