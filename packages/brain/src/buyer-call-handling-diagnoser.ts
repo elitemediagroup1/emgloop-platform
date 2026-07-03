@@ -370,7 +370,8 @@ function classify(input: ClassifyInput): ClassifyOutput {
     { cat: 'buyer', n: buyerSignals },
     { cat: 'emg', n: emgSignals },
     { cat: 'vendor', n: vendorSignals },
-  ].sort((a, b) => b.n - a.n);
+  ];
+  scores.sort((a, b) => b.n - a.n);
 
   const top = scores[0];
   const runnerUp = scores[1];
