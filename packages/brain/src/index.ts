@@ -1,3 +1,4 @@
+export * from './brain-activity-verification';
 // @emgloop/brain â package barrel.
 //
 // Sprint 12: EMG Brain Foundation. The Brain is the center of the platform; CRM,
