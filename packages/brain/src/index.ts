@@ -28,3 +28,4 @@ export * from './verticals';
 export * from './integration-hub';
 export * from './services';
 export * from './call-handling-metrics-assembler';
+export * from './call-handling-assembler-verification';
