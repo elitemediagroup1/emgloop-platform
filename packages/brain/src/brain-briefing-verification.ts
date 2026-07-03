@@ -22,7 +22,8 @@
 import type { Evidence } from './types';
 import type { DiagnosticAssessment } from './diagnostics';
 import type { RecommendationEnvelope } from './recommendation';
-import type { BrainActivity, BrainBriefing, BriefingItem } from './brain-briefing';
+import type { BrainActivity } from './brain-activity';
+import type { BrainBriefing, BriefingItem } from './brain-briefing';
 import {
   publishBrainActivity,
 } from './brain-activity';
