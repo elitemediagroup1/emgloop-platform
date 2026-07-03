@@ -19,6 +19,7 @@ export * from './recommendation';
 export * from './next-best-action';
 export * from './diagnostics';
 export * from './diagnostics-recommendation';
+export * from './buyer-call-handling-diagnoser';
 export * from './revenue';
 export * from './trust';
 export * from './verticals';
