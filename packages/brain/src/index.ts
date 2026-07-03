@@ -30,3 +30,4 @@ export * from './services';
 export * from './call-handling-metrics-assembler';
 export * from './call-handling-assembler-verification';
 export * from './brain-briefing';
+export * from './brain-briefing-verification';
