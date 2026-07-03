@@ -1,3 +1,4 @@
+
 // @emgloop/providers — Sprint 1 + Sprint 3 + Sprint 10 + Sprint 11 + Sprint 14.
 //
 // Provider abstraction package barrel. Sprint 11 added the first real ingestion
@@ -130,3 +131,17 @@ export type {
 } from './interfaces/sensor.provider';
 
 export type { Fact, FactBatch, SensorId } from './facts';
+
+
+// PR #41 - CallGrid webhook parser verification harness (pure, framework-free).
+export {
+    runCallGridWebhookVerification,
+    CANONICAL_WEBHOOK_BODY,
+    MINIMAL_UNKNOWN_BODY,
+    LEGACY_TEST_BODY,
+} from './callgrid-webhook-verification';
+export type {
+    CheckResult as CallGridWebhookCheckResult,
+    ScenarioResult as CallGridWebhookScenarioResult,
+    VerificationReport as CallGridWebhookVerificationReport,
+} from './callgrid-webhook-verification';
