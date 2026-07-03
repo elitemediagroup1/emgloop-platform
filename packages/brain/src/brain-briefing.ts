@@ -304,7 +304,8 @@ export function exampleBriefingActivities(): ReadonlyArray<BrainActivity> {
   const scope = { organizationId: 'org_demo', locationId: 'loc_demo' } as const;
 
   // A buyer-root-cause window: enough calls, poor handling -> a real
-  // recommendation at 'high'/'critical' severity.
+  // recommendation at 'high' severity (3 concordant buyer signals: degraded
+  // answer rate, elevated buyer-ended rate, elevated short-call rate).
   const buyer = demonstrateBrainActivityFlow({
     scope,
     subject: 'buyer:acme-insurance',
@@ -315,8 +316,6 @@ export function exampleBriefingActivities(): ReadonlyArray<BrainActivity> {
       buyerEndedRate: 24 / 30,
       callerEndedRate: 6 / 30,
       shortCallRate: 24 / 30,
-      billableRate: 6 / 60,
-      qualifiedRate: 6 / 60,
     },
     activityId: 'act_buyer_1',
     timestamp: new Date('2025-01-02T00:00:00.000Z'),
