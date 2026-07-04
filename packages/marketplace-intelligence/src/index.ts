@@ -1,0 +1,17 @@
+// @emgloop/marketplace-intelligence — package barrel.
+//
+// PR #43 (Marketplace Intelligence Canonical Domain Model). Contracts only: no
+// AI, no provider integrations, no DB coupling, no API, no UI. Depends solely
+// on @emgloop/shared and @emgloop/brain, reusing every Brain contract rather
+// than duplicating it. Not yet wired into the web app build; a future PR
+// decides how/when to populate and surface this model.
+
+export * from './common';
+export * from './campaign-intelligence';
+export * from './buyer-intelligence';
+export * from './source-intelligence';
+export * from './vendor-intelligence';
+export * from './marketplace-funnel';
+export * from './profitability';
+export * from './brain-insight';
+export * from './marketplace-intelligence';
