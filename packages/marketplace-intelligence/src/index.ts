@@ -23,3 +23,9 @@ export * from './marketplace-intelligence';
 // sensor-neutral model. Additive, read-only, wired into no runtime path.
 export * from './callgrid-input';
 export * from './callgrid-assembler';
+
+// PR #45 (CallGrid Assembler verification harness). Pure, framework-free proof
+// that the PR #44 assembler maps fixed CallGrid rows into the canonical model
+// correctly. No test runner is added; it compiles as part of typecheck and may
+// be invoked via runCallGridAssemblerVerification(). No I/O, no runtime wiring.
+export * from './callgrid-assembler-verification';
