@@ -2,6 +2,8 @@ import WorkspaceShell from '../../../workspaces/WorkspaceShell';
 import { requireWorkspace } from '../../../workspaces/guard';
 import { workspaceFor } from '../../../workspaces/config';
 
+export const dynamic = 'force-dynamic';
+
 // Loop OS — EMPLOYEE workspace layout (Phase 2, PR #47).
 //
 // Guards the workspace (server-side, fail-closed via requireWorkspace) and wraps
