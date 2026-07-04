@@ -8,6 +8,8 @@ import './crm/crm.css';
 import './crm/sprint7.css';
 import './crm/design-system.css';
 
+export const dynamic = 'force-dynamic';
+
 // Loop OS — Universal entrance (Phase 2, PR #47).
 //
 // The homepage of Loop IS the login page. There is no marketing homepage and no
