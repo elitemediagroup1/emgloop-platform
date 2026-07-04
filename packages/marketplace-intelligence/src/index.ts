@@ -15,3 +15,11 @@ export * from './marketplace-funnel';
 export * from './profitability';
 export * from './brain-insight';
 export * from './marketplace-intelligence';
+
+// PR #44 (Marketplace Intelligence CallGrid Assembler). The CallGrid input
+// boundary and the pure, unwired assembler that projects reconciled CallGrid
+// report facts into the canonical model above. CallGrid-specific vocabulary is
+// isolated entirely to './callgrid-input'; the assembler emits only the
+// sensor-neutral model. Additive, read-only, wired into no runtime path.
+export * from './callgrid-input';
+export * from './callgrid-assembler';
