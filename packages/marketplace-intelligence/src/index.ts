@@ -29,3 +29,18 @@ export * from './callgrid-assembler';
 // correctly. No test runner is added; it compiles as part of typecheck and may
 // be invoked via runCallGridAssemblerVerification(). No I/O, no runtime wiring.
 export * from './callgrid-assembler-verification';
+
+// PR #46 (Marketplace Intelligence Brain Enrichment). A pure, deterministic,
+// unwired reasoning step: enrichMarketplaceIntelligence() takes an already-
+// assembled snapshot and returns an enriched one with health, confidence,
+// recommendations (RecommendationEnvelope), and insights (BrainActivity)
+// populated from deterministic rules — removing BRAIN_NOT_WIRED where a rule
+// fires and preserving unknowns where evidence is insufficient. No new output
+// shape, no UI/API/DB/schema/runtime wiring/LLM.
+export * from './brain-enrichment';
+
+// PR #46 (Brain Enrichment verification harness). Pure, framework-free proof
+// that enrichMarketplaceIntelligence maps fixed neutral snapshots correctly.
+// No test runner is added; it compiles under typecheck and may be invoked via
+// runBrainEnrichmentVerification(). No I/O, no runtime wiring.
+export * from './brain-enrichment-verification';
