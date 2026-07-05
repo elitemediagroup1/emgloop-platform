@@ -205,3 +205,5 @@
   .loop-cc__health { grid-template-columns: repeat(2, 1fr); }
   .loop-cc__actions-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+.loop-cc-page { display: flex; flex-direction: column; gap: 22px; }
