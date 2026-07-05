@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
 import { loadOrFallback } from '../../../demo/db-health';
 import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
-import { loadProviderCards, computeSystemHealth } from '../../../crm/integration-os';
+import { loadProviderCards, computeSystemHealth, connectionLabel } from '../../../crm/integration-os';
 
 // Loop OS — ADMIN Command Center (PR #51, presentation only).
 //
@@ -265,8 +265,8 @@ export default async function ADMINCommandCenter() {
                 <div className="loop-feed">
                   {(Array.isArray(intg.cards) ? intg.cards.slice(0, 5) : []).map((card: any, i: number) => (
                     <div key={i} className="loop-feed__row">
-                      <span className="loop-feed__label">{(card?.name ?? card?.provider ?? card?.title ?? 'Provider') + ''}</span>
-                      <span className="loop-feed__time">{(card?.connectionLabel ?? card?.status ?? '') + ''}</span>
+                      <span className="loop-feed__label">{(card?.spec?.displayName ?? 'Provider') + ''}</span>
+                      <span className="loop-feed__time">{card?.status?.connection ? connectionLabel(card.status.connection) : ''}</span>
                     </div>
                   ))}
                 </div>
