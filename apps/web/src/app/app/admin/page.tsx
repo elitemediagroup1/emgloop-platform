@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import ShellPage from '../../../workspaces/ShellPage';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
 import { loadOrFallback } from '../../../demo/db-health';
 import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
@@ -144,18 +143,19 @@ export default async function ADMINCommandCenter() {
   const activity = liveActivity.ok && Array.isArray(liveActivity.data) ? liveActivity.data : [];
   const intg = integrations.ok ? integrations.data : null;
 
-  const realizedCents = rev ? (rev.totalRevenueCents ?? 0) : 0;
+  const realizedCents = rev ? (rev.realizedRevenueCents ?? rev.revenueCents ?? 0) : 0;
   const totalCalls = trf ? (trf.totalCalls ?? 0) : 0;
   const attributed = trf ? (trf.attributedCalls ?? 0) : 0;
   const liveNow = calls.length;
 
   return (
-    <ShellPage
-      eyebrow="Admin Workspace"
-      title="Command Center"
-      description="What deserves your attention right now. Healthy systems stay quiet; anything that needs a decision rises to the top."
-      icon="grid"
-    >
+    <div className="loop-cc-page">
+      <header className="loop-pagehead">
+        <span className="loop-eyebrow">Admin Workspace</span>
+        <h1 className="loop-title">Command Center</h1>
+        <p className="loop-subtitle">What deserves your attention right now. Healthy systems stay quiet; anything that needs a decision rises to the top.</p>
+      </header>
+
       <div className="loop-cc">
 
         {/* ROW 1 — health at a glance. Summary first. */}
@@ -291,6 +291,6 @@ export default async function ADMINCommandCenter() {
         </div>
 
       </div>
-    </ShellPage>
+    </div>
   );
 }
