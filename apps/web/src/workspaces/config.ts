@@ -83,55 +83,35 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
   basePath: '/app/admin',
   home: '/app/admin',
   nav: [
-    {
-      label: 'Overview',
-      items: [
+      {
+        label: 'OPERATING SYSTEM',
+        items: [
         { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
         { href: '/app/admin/brain', label: 'Brain', icon: 'brain' },
-        {
-          href: '/app/admin/marketplace-intelligence',
-          label: 'Marketplace Intelligence',
-          icon: 'chart',
-          requires: { resource: 'intelligence', action: 'view' },
-        },
-      ],
-    },
-    {
-      label: 'Operate',
-      items: [
+        { href: '/app/admin/marketplace-intelligence', label: 'Marketplace', icon: 'chart', requires: { resource: 'intelligence', action: 'view' } },
         { href: '/app/admin/operations', label: 'Operations', icon: 'activity' },
-        { href: '/crm', label: 'CRM', icon: 'users' },
+        ],
+      },
+      {
+        label: 'WORKSPACES',
+        items: [
         { href: '/app/admin/businesses', label: 'Businesses', icon: 'building' },
         { href: '/app/admin/creators', label: 'Creators', icon: 'star' },
+        { href: '/crm', label: 'CRM', icon: 'users' },
         { href: '/app/admin/employees', label: 'Employees', icon: 'team' },
-      ],
-    },
-    {
-      label: 'Learn',
-      items: [
+        ],
+      },
+      {
+        label: 'SYSTEM',
+        items: [
         { href: '/app/admin/experiments', label: 'Experiments', icon: 'flow' },
         { href: '/app/admin/knowledge', label: 'Knowledge', icon: 'columns' },
-      ],
-    },
-    {
-      label: 'System',
-      items: [
-        {
-          href: '/app/admin/settings',
-          label: 'Settings',
-          icon: 'cog',
-          requires: { resource: 'settings', action: 'view' },
-        },
+        { href: '/app/admin/integrations', label: 'Integrations', icon: 'plug', requires: { resource: 'integrations', action: 'view' } },
+        { href: '/app/admin/settings', label: 'Settings', icon: 'cog', requires: { resource: 'settings', action: 'view' } },
         { href: '/app/admin/system-health', label: 'System Health', icon: 'activity' },
-        {
-          href: '/app/admin/integrations',
-          label: 'Integrations',
-          icon: 'plug',
-          requires: { resource: 'integrations', action: 'view' },
-        },
-      ],
-    },
-  ],
+        ],
+      },
+    ],
 };
 
 const EMPLOYEE_WORKSPACE: WorkspaceConfig = {
