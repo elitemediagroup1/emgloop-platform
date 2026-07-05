@@ -4,7 +4,7 @@ import { loadOrFallback } from "../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../crm/integration-os";
 
-// EMG Loop â Admin Command Center v2 (Mission Control).
+// EMG Loop - Admin Command Center v2 (Mission Control).
 // PRESENTATION ONLY. This page consumes existing read-only repositories and
 // renders them. It computes no intelligence: the Brain remains the only
 // component that computes. No fabricated metrics, no fake recommendations.
@@ -115,7 +115,7 @@ function RevenueBars({
       {top.map((r, i) => (
         <Bar
           key={i}
-          label={r.label || "â"}
+          label={r.label || "-"}
           value={money(r.revenueCents)}
           pct={pct(r.revenueCents || 0, max)}
         />
@@ -229,8 +229,8 @@ export default async function AdminCommandCenter() {
       href: "/app/admin/marketplace-intelligence",
       icon: "star",
       title: "Marketplace",
-      metric: traffic ? num(traffic.totalCalls) + " calls" : "â",
-      hint: traffic ? num(traffic.attributedCalls) + " attributed Â· " + num(traffic.bookings) + " booked" : "No marketplace data yet",
+      metric: traffic ? num(traffic.totalCalls) + " calls" : "-",
+      hint: traffic ? num(traffic.attributedCalls) + " attributed \u00b7 " + num(traffic.bookings) + " booked" : "No marketplace data yet",
       tone: (traffic ? "good" : "idle") as "good" | "idle",
       loading: false,
     },
@@ -238,8 +238,8 @@ export default async function AdminCommandCenter() {
       href: "/app/admin/revenue",
       icon: "revenue",
       title: "Revenue",
-      metric: rev ? money(revTotal) : "â",
-      hint: rev ? money(revRealized) + " realized Â· " + num(rev.totalOrders) + " orders" : "No revenue yet",
+      metric: rev ? money(revTotal) : "-",
+      hint: rev ? money(revRealized) + " realized \u00b7 " + num(rev.totalOrders) + " orders" : "No revenue yet",
       tone: (rev ? "good" : "idle") as "good" | "idle",
     },
     {
@@ -254,7 +254,7 @@ export default async function AdminCommandCenter() {
       href: "/app/admin/businesses",
       icon: "building",
       title: "Businesses",
-      metric: rev && Array.isArray(rev.byBuyer) ? num(rev.byBuyer.length) : "â",
+      metric: rev && Array.isArray(rev.byBuyer) ? num(rev.byBuyer.length) : "-",
       hint: "Active buyers in your marketplace",
       tone: (rev && Array.isArray(rev.byBuyer) && rev.byBuyer.length > 0 ? "good" : "idle") as "good" | "idle",
     },
@@ -262,7 +262,7 @@ export default async function AdminCommandCenter() {
       href: "/app/admin/creators",
       icon: "users",
       title: "Creator Network",
-      metric: traffic && Array.isArray(traffic.vendors) ? num(traffic.vendors.length) : "â",
+      metric: traffic && Array.isArray(traffic.vendors) ? num(traffic.vendors.length) : "-",
       hint: "Vendors delivering traffic",
       tone: (traffic && Array.isArray(traffic.vendors) && traffic.vendors.length > 0 ? "good" : "idle") as "good" | "idle",
     },
@@ -309,7 +309,7 @@ export default async function AdminCommandCenter() {
             <div className="loop-card__body">
               {attention.length === 0 ? (
                 <div className="loop-quiet">
-                  <span className="loop-quiet__icon" aria-hidden="true">â</span>
+                  <span className="loop-quiet__icon" aria-hidden="true">{"\u2713"}</span>
                   <div>
                     <p className="loop-quiet__title">Everything looks healthy.</p>
                     <p className="loop-quiet__body">No action is required right now. Healthy systems stay quiet.</p>
@@ -324,7 +324,7 @@ export default async function AdminCommandCenter() {
                         <p className="loop-attn__title">{a.title}</p>
                         <p className="loop-attn__detail">{a.detail}</p>
                       </div>
-                      <Link href={a.href} className="loop-attn__cta">Review â</Link>
+                      <Link href={a.href} className="loop-attn__cta">Review {"\u2192"}</Link>
                     </li>
                   ))}
                 </ul>
@@ -335,7 +335,7 @@ export default async function AdminCommandCenter() {
           <section className="loop-card">
             <div className="loop-card__head">
               <h2 className="loop-card__title">Marketplace overview</h2>
-              <Link href="/app/admin/marketplace-intelligence" className="loop-card__cta">Open â</Link>
+              <Link href="/app/admin/marketplace-intelligence" className="loop-card__cta">Open {"\u2192"}</Link>
             </div>
             <div className="loop-card__body">
               {traffic ? (
@@ -393,7 +393,7 @@ export default async function AdminCommandCenter() {
           <section className="loop-card loop-card--brain">
             <div className="loop-card__head">
               <h2 className="loop-card__title">Executive briefing</h2>
-              <Link href="/app/admin/brain" className="loop-card__cta">Open Brain â</Link>
+              <Link href="/app/admin/brain" className="loop-card__cta">Open Brain {"\u2192"}</Link>
             </div>
             <div className="loop-card__body">
               <div className="loop-brief">
@@ -440,7 +440,7 @@ export default async function AdminCommandCenter() {
           <section className="loop-card">
             <div className="loop-card__head">
               <h2 className="loop-card__title">Recent live calls</h2>
-              <Link href="/app/admin/live-calls" className="loop-card__cta">Open â</Link>
+              <Link href="/app/admin/live-calls" className="loop-card__cta">Open {"\u2192"}</Link>
             </div>
             <div className="loop-card__body">
               {Array.isArray(liveCalls) && liveCalls.length > 0 ? (
@@ -462,7 +462,7 @@ export default async function AdminCommandCenter() {
           <section className="loop-card">
             <div className="loop-card__head">
               <h2 className="loop-card__title">Integration status</h2>
-              <Link href="/app/admin/integrations" className="loop-card__cta">Open â</Link>
+              <Link href="/app/admin/integrations" className="loop-card__cta">Open {"\u2192"}</Link>
             </div>
             <div className="loop-card__body">
               {Array.isArray(cards) && cards.length > 0 ? (
