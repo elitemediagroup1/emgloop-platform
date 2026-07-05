@@ -6,56 +6,9 @@ import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
 import type { WorkspaceConfig, NavItem } from './config';
 
-// Loop OS — Workspace Shell (Phase 2, PR #47).
-//
-// The one navigation shell every workspace shares. Same design language as the
-// operating system (it reuses the existing brand wordmark, sidebar icon set,
-// and the crm-* / ds-* presentation classes) — only the NAV differs, driven
-// entirely by the WorkspaceConfig passed in. There is deliberately no role
-// branching here: Admin, Employee, Business, Creator, and Client all render
-// through this same component with a different config.
-//
-// Security note: hiding a nav item is a UX convenience, NEVER the security
-// boundary. Each destination page enforces its own server-side guard
-// (requireSession / requireWorkspacePermission) against the existing IAM
-// matrix. Here we merely DIM items whose permission the session lacks, so the
-// shell tells the truth without becoming the gate.
-
-/** Render one nav item, dimmed when the session lacks its required permission. */
-async function renderItem(item: NavItem, key: string) {
-  const permitted = item.requires
-    ? await hasPermission(item.requires.resource, item.requires.action)
-    : true;
-
-  const inner = (
-    <>
-      <span className="ico">
-        <SidebarIcon name={item.icon} />
-      </span>
-      <span className="lbl">{item.label}</span>
-      {item.soon ? <span className="crm-sb-pill">Shell</span> : null}
-    </>
-  );
-
-  if (!permitted || item.soon) {
-    return (
-      <span key={key} className="crm-sb-link soon" aria-disabled="true">
-        {inner}
-      </span>
-    );
-  }
-  return (
-    <Link key={key} href={item.href} className="crm-sb-link">
-      {inner}
-    </Link>
-  );
-}
-
-function initials(name?: string | null, email?: string | null): string {
-  const src = (name ?? email ?? '?').trim();
-  const parts = src.split(/\s+/).filter(Boolean);
-  const combined = parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('');
-  return combined || src.slice(0, 2).toUpperCase();
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]?.toUpperCase() ?? '').join('') || 'EM';
 }
 
 export default async function WorkspaceShell({
@@ -67,76 +20,103 @@ export default async function WorkspaceShell({
   session: AuthSession;
   children: React.ReactNode;
 }) {
-  // Resolve permission-dimming for every item up front (server-side).
-  const groups = await Promise.all(
-    workspace.nav.map(async (group) => ({
-      label: group.label,
-      items: await Promise.all(
-        group.items.map((item, i) => renderItem(item, group.label + ':' + i)),
-      ),
-    })),
+  const permitted = new Map<string, boolean>();
+  await Promise.all(
+    workspace.nav.flatMap((group) =>
+      group.items.map(async (item: NavItem) => {
+        if (!item.requires) {
+          permitted.set(item.href, true);
+          return;
+        }
+        permitted.set(
+          item.href,
+          await hasPermission(item.requires.resource, item.requires.action),
+        );
+      }),
+    ),
   );
 
   return (
-    <div className="crm">
-      <div className="crm-shell">
-        <aside className="crm-sidebar">
-          <div className="crm-sb-brand">
-            <Link href={workspace.home} aria-label="EMG Loop home">
-              <EmgLoopWordmark height={24} />
-            </Link>
-            <span className="badge">{workspace.label}</span>
+    <div className="loop-os">
+      <div className="loop-shell">
+        <aside className="loop-sidebar">
+          <div className="loop-sb__brand">
+            <EmgLoopWordmark height={22} />
+            <span className="loop-sb__os">OS</span>
           </div>
-
-          <nav className="crm-sb-scroll" aria-label="Primary">
-            {groups.map((group) => (
-              <div key={group.label}>
-                <div className="crm-sb-group-label">{group.label}</div>
-                {group.items}
+          <div className="loop-sb__scroll">
+            {workspace.nav.map((group) => (
+              <div className="loop-sb__group" key={group.label}>
+                <div className="loop-sb__grouplabel">{group.label}</div>
+                {group.items.map((item) => {
+                  const allowed = permitted.get(item.href) ?? true;
+                  const disabled = !allowed || item.soon;
+                  const className = 'loop-sb__link' + (disabled ? ' is-disabled' : '');
+                  const content = (
+                    <>
+                      <span className="loop-sb__ico">
+                        <SidebarIcon name={item.icon} />
+                      </span>
+                      <span>{item.label}</span>
+                      {item.soon ? <span className="loop-sb__soon">Soon</span> : null}
+                    </>
+                  );
+                  return disabled ? (
+                    <span className={className} key={item.href} aria-disabled>
+                      {content}
+                    </span>
+                  ) : (
+                    <Link className={className} href={item.href} key={item.href}>
+                      {content}
+                    </Link>
+                  );
+                })}
               </div>
             ))}
-          </nav>
-
-          <div className="crm-sb-foot">
-            <div className="crm-sb-stat">
-              <span className="crm-dot-live" />
-              <span className="label">Brain Status</span>
-              <span className="val">Online</span>
+          </div>
+          <div className="loop-sb__foot">
+            <div className="loop-sb__stat">
+              <span>Brain</span>
+              <span><span className="loop-dot" /> <b>Online</b></span>
             </div>
-            <div className="crm-sb-stat">
-              <span className="ds-status-dot ok" />
-              <span className="label">System Health</span>
-              <span className="val">Operational</span>
+            <div className="loop-sb__stat">
+              <span>System</span>
+              <b>Operational</b>
             </div>
-            <div className="crm-sb-user">
-              <span className="crm-sb-avatar">{initials(session.name, session.email)}</span>
-              <span className="who">
-                <div className="nm">{session.name ?? session.email ?? 'Account'}</div>
-                <div className="rl">{workspace.label} · {session.roleLabel ?? 'Member'}</div>
+            <div className="loop-sb__user">
+              <span className="loop-sb__avatar">{initials(session.name)}</span>
+              <span>
+                <span className="loop-sb__uname">{session.name}</span>
+                <br />
+                <span className="loop-sb__urole">{session.roleLabel}</span>
               </span>
               <form action={logoutAction}>
-                <button type="submit" className="crm-signout">Exit</button>
+                <button className="loop-sb__signout" type="submit">Sign out</button>
               </form>
             </div>
           </div>
         </aside>
-
-        <div className="crm-content">
-          <header className="crm-appbar">
-            <div className="crm-cmdk" role="button" aria-label="Search (Command K)">
+        <div className="loop-content">
+          <header className="loop-appbar">
+            <div className="loop-crumbs">
+              <b>{workspace.label}</b>
+              <span className="sep">/</span>
+              <span>Overview</span>
+            </div>
+            <div className="loop-search">
               <SidebarIcon name="search" />
-              <span>Search {workspace.label.toLowerCase()} workspace…</span>
-              <span className="kbd">
-                <span className="crm-kbd">⌘</span>
-                <span className="crm-kbd">K</span>
-              </span>
+              <span>Search Loop…</span>
+              <span className="kbd">⌘K</span>
             </div>
-            <div className="crm-appbar-right">
-              <span className="crm-icon-btn" aria-label="Notifications"><SidebarIcon name="bell" /></span>
-              <span className="crm-icon-btn" aria-label="Activity"><SidebarIcon name="activity" /></span>
-            </div>
+            <button className="loop-iconbtn" type="button" aria-label="Notifications">
+              <SidebarIcon name="bell" />
+              <span className="badge" />
+            </button>
+            <button className="loop-iconbtn" type="button" aria-label="Activity">
+              <SidebarIcon name="activity" />
+            </button>
           </header>
-          <main className="crm-main">{children}</main>
+          <main className="loop-main">{children}</main>
         </div>
       </div>
     </div>
