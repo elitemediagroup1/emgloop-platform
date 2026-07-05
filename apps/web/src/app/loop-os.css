@@ -615,3 +615,184 @@
   .loop-os--v5 .loop-os__brief-title{ font-size: 28px; }
 }
 /* ===================== END LOOP OS v5 ===================== */
+
+
+/* ============================================================
+   EMG Loop OS v6 - Executive Focus and Information Architecture
+   Additive layer scoped to .loop-os--v6 (PR 56). Presentation only.
+   Removes duplicated navigation, calms the hero, quiets modules,
+   refines the decision queue, lightens the right rail.
+   ============================================================ */
+
+/* ---- Hero: reassure first ---- */
+.loop-os--v6 .loop-os__brief--v6 {
+  padding: 40px 40px 34px;
+}
+.loop-os--v6 .loop-os__brief--v6 .loop-os__brief-lead {
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  color: var(--loop-text-3);
+  margin-bottom: 10px;
+}
+.loop-os--v6 .loop-os__brief--v6 .loop-os__brief-title {
+  font-size: 34px;
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.loop-os--v6 .loop-os__brief--v6 .loop-os__brief-body {
+  font-size: 16px;
+  color: var(--loop-text-2);
+  margin-top: 10px;
+  max-width: 62ch;
+}
+.loop-os--v6 .loop-os__brief-status {
+  list-style: none;
+  margin: 18px 0 22px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+}
+.loop-os--v6 .loop-os__brief-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  color: var(--loop-text-2);
+}
+.loop-os--v6 .loop-os__brief-statdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--loop-text-3);
+  flex: none;
+}
+.loop-os--v6 .loop-os__brief-stat--ok .loop-os__brief-statdot { background: var(--loop-good); }
+.loop-os--v6 .loop-os__brief-stat--warn .loop-os__brief-statdot { background: var(--loop-warn); }
+.loop-os--v6 .loop-os__brief-stat--idle .loop-os__brief-statdot { background: var(--loop-text-3); }
+.loop-os--v6 .loop-os__brief--v6 .loop-os__brief-cta {
+  margin-top: 4px;
+}
+
+/* ---- Operating modules: quieter launch pads ---- */
+.loop-os--v6 .loop-modgrid--v6 .loop-card {
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+.loop-os--v6 .loop-modgrid--v6 .loop-spark {
+  opacity: 0.28;
+  transition: opacity 0.18s ease;
+}
+.loop-os--v6 .loop-modgrid--v6 .loop-card:hover .loop-spark {
+  opacity: 0.5;
+}
+.loop-os--v6 .loop-modgrid--v6 .loop-card:hover {
+  transform: translateY(-2px);
+}
+
+/* ---- Decision Queue: executive inbox feel ---- */
+.loop-os--v6 .loop-dq--v6 .loop-attn__list {
+  gap: 4px;
+}
+.loop-os--v6 .loop-dq--v6 .loop-attn__row,
+.loop-os--v6 .loop-dq--v6 .loop-attn__list > * {
+  border-radius: var(--loop-radius);
+  transition: background 0.16s ease;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+.loop-os--v6 .loop-dq--v6 .loop-attn__list > *:hover {
+  background: var(--loop-panel-2);
+}
+
+/* ---- Executive Insight: replaces Quick Actions ---- */
+.loop-os--v6 .loop-insight__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.loop-os--v6 .loop-insight__cell {
+  padding: 20px 20px 22px;
+  border: 1px solid var(--loop-line);
+  border-radius: var(--loop-radius-lg);
+  background: var(--loop-panel-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 132px;
+}
+.loop-os--v6 .loop-insight__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--loop-text-3);
+  font-weight: 600;
+}
+.loop-os--v6 .loop-insight__stat {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--loop-text);
+  line-height: 1.15;
+}
+.loop-os--v6 .loop-insight__stat--muted {
+  font-size: 17px;
+  color: var(--loop-text-2);
+  font-weight: 500;
+}
+.loop-os--v6 .loop-insight__note {
+  font-size: 13.5px;
+  color: var(--loop-text-2);
+  line-height: 1.45;
+  margin-top: auto;
+}
+.loop-os--v6 .loop-insight__cell--brain {
+  border-color: var(--loop-line-strong);
+}
+.loop-os--v6 .loop-insight__cta {
+  margin-top: 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--loop-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.loop-os--v6 .loop-insight__cta:hover { color: var(--loop-accent-2); }
+
+/* ---- Right rail: reduce visual dominance a further 15 percent ---- */
+.loop-os--v6 .loop-rail {
+  opacity: 0.94;
+}
+.loop-os--v6 .loop-rail .loop-card {
+  background: var(--loop-panel);
+  box-shadow: none;
+}
+.loop-os--v6 .loop-rail .loop-card + .loop-card {
+  margin-top: 14px;
+}
+
+/* ---- Whitespace and typography breathing room ---- */
+.loop-os--v6 .loop-modgrid--v6 {
+  margin-bottom: 28px;
+}
+.loop-os--v6 .loop-insight {
+  margin-top: 22px;
+}
+
+/* ---- Motion: soft, and respectful of reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .loop-os--v6 .loop-modgrid--v6 .loop-card,
+  .loop-os--v6 .loop-modgrid--v6 .loop-spark,
+  .loop-os--v6 .loop-dq--v6 .loop-attn__list > * {
+    transition: none;
+  }
+  .loop-os--v6 .loop-modgrid--v6 .loop-card:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .loop-os--v6 .loop-insight__grid { grid-template-columns: 1fr; }
+}
