@@ -91,7 +91,7 @@ function Waiting(props: { icon?: string; title: string; body: string; href?: str
   );
 }
 
-function RankRows(props: { rows: any[]; ready: boolean; empty: string; valueKind?: 'money' | 'num' }) {
+function RankRows(props: { rows: any[] | undefined; ready: boolean; empty: string; valueKind?: 'money' | 'num' }) {
   if (!props.ready) {
     return <div className="loop-ranklist">{[0, 1, 2].map((i) => <div key={i} className="loop-skel loop-skel--row" aria-hidden="true" />)}</div>;
   }
