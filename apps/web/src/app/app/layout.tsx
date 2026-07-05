@@ -5,6 +5,7 @@ import '../crm/sprint9.css';
 import '../crm/sprint10.css';
 import '../crm/design-system.css';
 import '../crm/sprint16.css';
+import '../loop-os.css';
 
 // Loop OS — /app layout (Phase 2, PR #47).
 //
