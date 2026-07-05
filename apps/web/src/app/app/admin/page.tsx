@@ -167,7 +167,7 @@ function BriefingItem(props: { icon: string; title: string }) {
       <span className="loop-brief__icon"><SidebarIcon name={props.icon} /></span>
       <div className="loop-brief__text">
         <div className="loop-brief__title">{props.title}</div>
-        <div className="loop-brief__wait">Waiting for today\u2019s briefing.</div>
+        <div className="loop-brief__wait">Waiting for today's briefing.</div>
       </div>
     </div>
   );
@@ -343,8 +343,8 @@ export default async function AdminOperatingSystem() {
           <Module icon="revenue" title="Revenue" metric={money(realizedRevenue)} detail={money(realizedRevenue) + " realized \u00b7 " + num(totalOrders) + " orders"} tone={revenueTone} href="/app/admin/revenue" seed={3} />
           <Module icon="activity" title="Operations" metric={num(liveCount)} unit="Live Calls" detail="In progress right now" tone={opsTone} href="/app/admin/operations" seed={5} />
           <Module icon="building" title="Businesses" metric={num(activeBuyers)} unit="Active Buyers" detail="In your marketplace" tone={bizTone} href="/app/admin/businesses" seed={7} />
-          <Module icon="users" title="Creator Network" metric="\u2014" detail="No creator metrics available yet" tone="idle" href="/app/admin/creators" seed={9} />
-          <Module icon="brain" title="Brain" metric="Standby" detail="Waiting for today\u2019s briefing" tone={brainTone} href="/app/admin/brain" seed={11} />
+          <Module icon="users" title="Creator Network" metric={"\u2014"} detail="No creator metrics available yet" tone="idle" href="/app/admin/creators" seed={9} />
+          <Module icon="brain" title="Brain" metric="Standby" detail="Waiting for today's briefing" tone={brainTone} href="/app/admin/brain" seed={11} />
         </section>
 
         {/* two-column grid: content + persistent right rail */}
@@ -419,7 +419,7 @@ export default async function AdminOperatingSystem() {
                 <span className="loop-badge loop-badge--idle">Standby</span>
               </div>
               <div className="loop-brief__list">
-                <BriefingItem icon="chart" title="Today\u2019s Summary" />
+                <BriefingItem icon="chart" title="Today's Summary" />
                 <BriefingItem icon="star" title="Top Recommendation" />
                 <BriefingItem icon="bell" title="Primary Risk" />
                 <BriefingItem icon="revenue" title="Largest Opportunity" />
