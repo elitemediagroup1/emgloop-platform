@@ -184,16 +184,6 @@ function IntegrationPill(props: { name: string; state: "connected" | "needs" | "
   );
 }
 
-function ActionTile(props: { icon: string; title: string; desc: string; href: string }) {
-  return (
-    <Link href={props.href} className="loop-launch">
-      <span className="loop-launch__icon"><SidebarIcon name={props.icon} /></span>
-      <span className="loop-launch__title">{props.title}</span>
-      <span className="loop-launch__desc">{props.desc}</span>
-    </Link>
-  );
-}
-
 export default async function AdminOperatingSystem() {
   const org = await resolveCrmOrganizationId();
 
@@ -308,16 +298,26 @@ export default async function AdminOperatingSystem() {
   const orderedPills = connectedPills.concat(errorPills, needsPills).slice(0, 6);
 
   return (
-    <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
+    <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5 loop-os--v6">
       <div className="loop-os__main">
-        {/* executive briefing hero */}
-        <header className="loop-os__brief">
+        {/* executive briefing hero (reassure first) */}
+        <header className="loop-os__brief loop-os__brief--v6">
           <div className="loop-os__brief-main">
             <p className="loop-os__brief-lead">{greeting()}, Matt.</p>
             <h1 className={"loop-os__brief-title loop-os__brief-title--" + bannerTone}>{bannerTitle}</h1>
             <p className="loop-os__brief-body">{bannerBody}</p>
+            <ul className="loop-os__brief-status" aria-label="Business status">
+              <li className={"loop-os__brief-stat loop-os__brief-stat--" + (attributed > 0 ? "ok" : "idle")}>
+                <span className="loop-os__brief-statdot" aria-hidden="true" />
+                {attributed > 0 ? "Marketplace activity is healthy." : "Marketplace is quiet right now."}
+              </li>
+              <li className={"loop-os__brief-stat loop-os__brief-stat--" + (errCount > 0 ? "warn" : "ok")}>
+                <span className="loop-os__brief-statdot" aria-hidden="true" />
+                {errCount > 0 ? "Some systems need attention." : "Operations are stable."}
+              </li>
+            </ul>
             <Link href="/app/admin/brain" className="loop-os__brief-cta">
-              Review Briefing <span aria-hidden="true">{"\u2192"}</span>
+              Review Executive Briefing <span aria-hidden="true">{"\u2192"}</span>
             </Link>
           </div>
           <div className="loop-os__brief-chip">
@@ -328,7 +328,7 @@ export default async function AdminOperatingSystem() {
         </header>
 
         {/* operating modules */}
-        <section className="loop-modgrid" aria-label="Operating modules">
+        <section className="loop-modgrid loop-modgrid--v6" aria-label="Operating modules">
           <Module icon="star" title="Marketplace" metric={num(totalCalls)} unit="Calls" detail={num(attributed) + " attributed \u00b7 " + num(bookings) + " booked"} tone={marketplaceTone} href="/app/admin/marketplace" seed={1} />
           <Module icon="revenue" title="Revenue" metric={money(realizedRevenue)} detail={money(realizedRevenue) + " realized \u00b7 " + num(totalOrders) + " orders"} tone={revenueTone} href="/app/admin/revenue" seed={3} />
           <Module icon="activity" title="Operations" metric={num(liveCount)} unit="Live Calls" detail="In progress right now" tone={opsTone} href="/app/admin/operations" seed={5} />
@@ -341,7 +341,7 @@ export default async function AdminOperatingSystem() {
         <div className="loop-grid">
           <div className="loop-grid__content">
             {/* needs attention */}
-            <section id="needs-attention" className="loop-card loop-attn loop-dq">
+            <section id="needs-attention" className="loop-card loop-attn loop-dq loop-dq--v6">
               <div className="loop-card__head">
                 <h2 className="loop-card__title">Decision Queue{attnCount > 0 ? <span className="loop-count">{attnCount}</span> : null}</h2>
                 <span className="loop-card__hint">What to decide next.</span>
@@ -382,20 +382,39 @@ export default async function AdminOperatingSystem() {
               </div>
             </section>
 
-            {/* quick actions */}
-            <section className="loop-card loop-actions">
+            {/* executive insight (replaces duplicated quick actions) */}
+            <section className="loop-card loop-insight" aria-label="Executive insight">
               <div className="loop-card__head">
-                <h2 className="loop-card__title">Quick Actions</h2>
+                <h2 className="loop-card__title">Executive Insight</h2>
+                <span className="loop-card__hint">What is worth knowing right now.</span>
               </div>
-              <div className="loop-launchers">
-                <ActionTile icon="star" title="Marketplace" desc="Review performance" href="/app/admin/marketplace" />
-                <ActionTile icon="revenue" title="Revenue" desc="Track performance" href="/app/admin/revenue" />
-                <ActionTile icon="users" title="CRM" desc="Manage relationships" href="/app/admin/crm" />
-                <ActionTile icon="building" title="Businesses" desc="Manage buyers" href="/app/admin/businesses" />
-                <ActionTile icon="team" title="Creators" desc="Review content" href="/app/admin/creators" />
-                <ActionTile icon="flow" title="Experiments" desc="View results" href="/app/admin/experiments" />
-                <ActionTile icon="plug" title="Integrations" desc="Manage connections" href="/app/admin/integrations" />
-                <ActionTile icon="cog" title="Settings" desc="System settings" href="/app/admin/settings" />
+              <div className="loop-insight__grid">
+                <article className="loop-insight__cell">
+                  <p className="loop-insight__label">Today's Activity</p>
+                  <p className="loop-insight__stat">{attributed > 0 ? attributed.toLocaleString() : "No"} attributed {attributed === 1 ? "call" : "calls"}</p>
+                  <p className="loop-insight__note">
+                    {liveCalls.length > 0
+                      ? liveCalls.length + (liveCalls.length === 1 ? " call is live right now." : " calls are live right now.")
+                      : "No calls are live right now."}
+                  </p>
+                </article>
+                <article className="loop-insight__cell">
+                  <p className="loop-insight__label">Marketplace Momentum</p>
+                  <p className="loop-insight__stat">{qualified > 0 ? qualified.toLocaleString() : "No"} qualified {qualified === 1 ? "call" : "calls"}</p>
+                  <p className="loop-insight__note">
+                    {bookings > 0
+                      ? bookings.toLocaleString() + (bookings === 1 ? " booking so far." : " bookings so far.")
+                      : "No bookings yet."}
+                  </p>
+                </article>
+                <article className="loop-insight__cell loop-insight__cell--brain">
+                  <p className="loop-insight__label">Brain Insight</p>
+                  <p className="loop-insight__stat loop-insight__stat--muted">Preparing today's briefing</p>
+                  <p className="loop-insight__note">The Brain is preparing today's executive briefing. It will appear here once ready.</p>
+                  <Link href="/app/admin/brain" className="loop-insight__cta">
+                    Open Brain <span aria-hidden="true">{"\u2192"}</span>
+                  </Link>
+                </article>
               </div>
             </section>
           </div>
