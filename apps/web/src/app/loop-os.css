@@ -1,7 +1,4 @@
-/* =====================================================================
-   Loop OS — Premium dark experience (PR #48)
-   Scoped ONLY to the universal login (/) and workspace shells (/app/*).
-   New "loop-*" namespace. Never overrides crm-*/ds-* classes.
+/* Loop OS - Premium dark experience (PR 48). Scoped to the login and workspace routes only. New loop- namespace; never overrides existing crm or ds classes. CSS-only motion; no JS; no new deps. */ds-* classes.
    CSS-only motion. No JS. No new dependencies.
    ===================================================================== */
 
