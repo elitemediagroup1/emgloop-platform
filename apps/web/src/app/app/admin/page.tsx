@@ -143,7 +143,7 @@ export default async function ADMINCommandCenter() {
   const activity = liveActivity.ok && Array.isArray(liveActivity.data) ? liveActivity.data : [];
   const intg = integrations.ok ? integrations.data : null;
 
-  const realizedCents = rev ? (rev.realizedRevenueCents ?? rev.revenueCents ?? 0) : 0;
+  const realizedCents = rev ? (rev.totalRevenueCents ?? 0) : 0;
   const totalCalls = trf ? (trf.totalCalls ?? 0) : 0;
   const attributed = trf ? (trf.attributedCalls ?? 0) : 0;
   const liveNow = calls.length;
