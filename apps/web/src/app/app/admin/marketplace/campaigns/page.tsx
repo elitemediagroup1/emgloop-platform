@@ -1,6 +1,5 @@
 // Campaign Intelligence workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
-import { SidebarIcon } from "../../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -228,7 +227,7 @@ export default async function CampaignIntelligencePage() {
           <aside className="loop-rail">
             <div className="loop-card loop-feed">
               <div className="loop-card__head">
-                <p className="loop-card__title">Live calls <span className="loop-count">{liveCalls.length}</span></p>
+                <p className="loop-card__title">Live Calls <span className="loop-count">{liveCalls.length}</span></p>
                 <Link className="loop-card__link" href="/app/admin/marketplace">View all</Link>
               </div>
               {liveCalls.length > 0 ? (
@@ -247,7 +246,7 @@ export default async function CampaignIntelligencePage() {
 
             <div className="loop-card loop-intg">
               <div className="loop-card__head">
-                <p className="loop-card__title">Integration status</p>
+                <p className="loop-card__title">Integration Status</p>
                 <Link className="loop-card__link" href="/app/admin/integrations">View all</Link>
               </div>
               <div className="loop-intg__summary">
@@ -268,12 +267,14 @@ export default async function CampaignIntelligencePage() {
 
             <div className="loop-card">
               <div className="loop-card__head">
-                <p className="loop-card__title">Quick links</p>
+                <span className="loop-card__title">Shortcuts</span>
               </div>
-              <ul className="loop-feed__list">
-                <li className="loop-feed__item"><SidebarIcon name="grid" /><Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link></li>
-                <li className="loop-feed__item"><SidebarIcon name="grid" /><Link className="loop-card__link" href="/app/admin/marketplace-intelligence">Marketplace intelligence</Link></li>
-              </ul>
+              <div className="loop-brief">
+                <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace/buyers">Buyer Operating System</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace/sources">Source / Publisher Operating System</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendor Operating System</Link>
+              </div>
             </div>
           </aside>
         </section>
