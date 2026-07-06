@@ -82,8 +82,8 @@ export default async function BuyerOperatingSystemPage() {
       });
     }
     const withVolume = rankedBuyers.filter((b) => (b.revenueCents || 0) > 0 || (b.orders || 0) > 0);
-    if (withVolume.length > 1) {
-      const lowest = withVolume[withVolume.length - 1];
+    const lowest = withVolume.length > 1 ? withVolume[withVolume.length - 1] : null;
+    if (lowest) {
       decisions.push({
         icon: "activity",
         tone: "idle",
