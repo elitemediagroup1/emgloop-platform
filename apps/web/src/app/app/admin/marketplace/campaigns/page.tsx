@@ -1,3 +1,4 @@
+// Campaign Intelligence workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { SidebarIcon } from "../../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../../demo/db-health";
