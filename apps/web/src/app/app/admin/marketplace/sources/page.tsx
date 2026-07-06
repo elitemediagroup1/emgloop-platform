@@ -104,7 +104,7 @@ export default async function SourceOperatingSystemPage() {
   const totalSourceRevenueCents = aggregatedSources.reduce((sum, s) => sum + s.revenueCents, 0);
 
   // Top source = most active by call volume (existing data only).
-  const topSource: SrcAgg | null = aggregatedSources.length > 0 ? aggregatedSources[0] : null;
+  const topSource: SrcAgg | null = aggregatedSources.length > 0 ? aggregatedSources[0]! : null;
 
   // Executive summary sentence, honest and never fabricated.
   let summary: string;
