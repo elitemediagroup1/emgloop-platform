@@ -3,196 +3,24 @@ import { SidebarIcon } from "../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../crm/integration-os";
+import type { Tone } from "../_loop-os";
+import {
+  money,
+  num,
+  greeting,
+  todayLabel,
+  relTime,
+  clockDuration,
+  Module,
+  Bar,
+  RankedList,
+  AttentionRow,
+  BriefingItem,
+  IntegrationPill,
+  ActionTile,
+} from "../_loop-os";
 
 export const dynamic = "force-dynamic";
-
-function money(cents: number | null | undefined): string {
-  const n = typeof cents === "number" && !Number.isNaN(cents) ? cents : 0;
-  const dollars = n / 100;
-  return "$" + Math.round(dollars).toLocaleString("en-US");
-}
-
-function num(n: number | null | undefined): string {
-  const v = typeof n === "number" && !Number.isNaN(n) ? n : 0;
-  return v.toLocaleString("en-US");
-}
-
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
-}
-
-function todayLabel(): string {
-  try {
-    return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return "";
-  }
-}
-
-function relTime(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const mins = Math.round((Date.now() - t) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return mins + "m ago";
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return hrs + "h ago";
-  return Math.round(hrs / 24) + "d ago";
-}
-
-function clockDuration(seconds: number | null | undefined): string {
-  const s = typeof seconds === "number" && !Number.isNaN(seconds) ? Math.max(0, Math.round(seconds)) : 0;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return String(m).padStart(2, "0") + ":" + String(r).padStart(2, "0");
-}
-
-function sparkPath(seed: number): string {
-  const pts: number[] = [];
-  for (let i = 0; i < 16; i++) {
-    const wob = Math.sin((i + seed) * 0.9) * 14 + Math.cos((i + seed) * 0.5) * 8;
-    pts.push(Math.max(6, Math.min(56, 40 + wob)));
-  }
-  const step = 120 / (pts.length - 1);
-  return pts
-    .map((y, i) => (i === 0 ? "M" : "L") + (i * step).toFixed(1) + " " + y.toFixed(1))
-    .join(" ");
-}
-
-type Tone = "good" | "warn" | "crit" | "idle";
-
-function StatusDot(props: { tone: Tone }) {
-  return <span className={"loop-dot loop-dot--" + props.tone} aria-hidden="true" />;
-}
-
-function Sparkline(props: { seed: number; tone: Tone }) {
-  return (
-    <svg className={"loop-spark loop-spark--" + props.tone} viewBox="0 0 120 62" preserveAspectRatio="none" aria-hidden="true">
-      <path d={sparkPath(props.seed)} fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function Module(props: {
-  icon: string;
-  title: string;
-  metric: string;
-  unit?: string;
-  detail: string;
-  tone: Tone;
-  href: string;
-  seed: number;
-}) {
-  return (
-    <Link href={props.href} className="loop-mod" aria-label={props.title}>
-      <div className="loop-mod__top">
-        <span className="loop-mod__icon"><SidebarIcon name={props.icon} /></span>
-        <span className="loop-mod__name">{props.title}</span>
-        <StatusDot tone={props.tone} />
-      </div>
-      <div className="loop-mod__metric">
-        <span className="loop-mod__value">{props.metric}</span>
-        {props.unit ? <span className="loop-mod__unit">{props.unit}</span> : null}
-      </div>
-      <div className="loop-mod__detail">{props.detail}</div>
-      <Sparkline seed={props.seed} tone={props.tone} />
-    </Link>
-  );
-}
-
-function Bar(props: { label: string; value: string; pct: number; tone: Tone }) {
-  const w = Math.max(0, Math.min(100, props.pct));
-  return (
-    <div className="loop-bar">
-      <div className="loop-bar__head">
-        <span className="loop-bar__label">{props.label}</span>
-        <span className="loop-bar__value">{props.value}</span>
-      </div>
-      <div className="loop-bar__track">
-        <div className={"loop-bar__fill loop-bar__fill--" + props.tone} style={{ width: w + "%" }} />
-      </div>
-    </div>
-  );
-}
-
-type Ranked = { key?: string; label?: string; revenueCents?: number; orders?: number };
-
-function RankedList(props: { icon: string; title: string; rows: Ranked[]; metric: "revenue" | "orders" }) {
-  const rows = (props.rows || []).slice(0, 5);
-  return (
-    <div className="loop-rank">
-      <div className="loop-rank__head">
-        <span className="loop-rank__icon"><SidebarIcon name={props.icon} /></span>
-        <span className="loop-rank__title">{props.title}</span>
-      </div>
-      {rows.length === 0 ? (
-        <div className="loop-rank__empty">No data yet</div>
-      ) : (
-        <ol className="loop-rank__list">
-          {rows.map((r, i) => (
-            <li key={(r.key || r.label || "") + i} className="loop-rank__item">
-              <span className="loop-rank__pos">{i + 1}</span>
-              <span className="loop-rank__name">{r.label || "Unknown"}</span>
-              <span className="loop-rank__num">
-                {props.metric === "revenue" ? money(r.revenueCents) : num(r.orders)}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
-}
-
-function AttentionRow(props: { icon: string; tone: Tone; title: string; detail: string; href: string }) {
-  return (
-    <div className="loop-attn__row">
-      <span className={"loop-attn__icon loop-attn__icon--" + props.tone}><SidebarIcon name={props.icon} /></span>
-      <div className="loop-attn__text">
-        <div className="loop-attn__title">{props.title}</div>
-        <div className="loop-attn__detail">{props.detail}</div>
-      </div>
-      <Link href={props.href} className="loop-attn__cta">Review <span aria-hidden="true">{"\u2192"}</span></Link>
-    </div>
-  );
-}
-
-function BriefingItem(props: { icon: string; title: string }) {
-  return (
-    <div className="loop-brief__item">
-      <span className="loop-brief__icon"><SidebarIcon name={props.icon} /></span>
-      <div className="loop-brief__text">
-        <div className="loop-brief__title">{props.title}</div>
-        <div className="loop-brief__wait">Waiting for today's briefing.</div>
-      </div>
-    </div>
-  );
-}
-
-function IntegrationPill(props: { name: string; state: "connected" | "needs" | "error" }) {
-  const label = props.state === "connected" ? "Connected" : props.state === "error" ? "Error" : "Needs Setup";
-  return (
-    <div className={"loop-intg__pill loop-intg__pill--" + props.state}>
-      <span className="loop-intg__dot" aria-hidden="true" />
-      <span className="loop-intg__name">{props.name}</span>
-      <span className="loop-intg__state">{label}</span>
-    </div>
-  );
-}
-
-function ActionTile(props: { icon: string; title: string; desc: string; href: string }) {
-  return (
-    <Link href={props.href} className="loop-launch">
-      <span className="loop-launch__icon"><SidebarIcon name={props.icon} /></span>
-      <span className="loop-launch__title">{props.title}</span>
-      <span className="loop-launch__desc">{props.desc}</span>
-    </Link>
-  );
-}
 
 export default async function AdminOperatingSystem() {
   const org = await resolveCrmOrganizationId();
