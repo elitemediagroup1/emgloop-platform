@@ -1,6 +1,7 @@
 // Buyer Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { MarketplaceNav } from "../_MarketplaceNav";
+import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -14,7 +15,6 @@ import {
   Module,
   RankedList,
   Bar,
-  AttentionRow,
   BriefingItem,
   IntegrationPill,
 } from "../../../_loop-os";
@@ -239,24 +239,11 @@ export default async function BuyerOperatingSystemPage() {
               )}
             </div>
 
-            <div className="loop-card">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Decision queue</p>
-                {attentionCount > 0 ? <span className="loop-badge loop-badge--idle">{num(attentionCount)}</span> : null}
-              </div>
-              {decisions.length > 0 ? (
-                <div className="loop-attn">
-                  {decisions.map((d, i) => (
-                    <AttentionRow key={i} icon={d.icon} tone={d.tone} title={d.title} detail={d.detail} href="/app/admin/marketplace/buyers" />
-                  ))}
-                </div>
-              ) : (
-                <div className="loop-empty loop-empty--good">
-                  <p className="loop-empty__title">Nothing needs review</p>
-                  <p className="loop-empty__body">No buyer decisions are supported by the current data.</p>
-                </div>
-              )}
-            </div>
+            <MarketplaceDecisionQueue
+                items={decisions}
+                reviewHref="/app/admin/marketplace/buyers"
+                emptyBody="No buyer decisions are supported by the current data."
+              />
 
             <div className="loop-card">
               <div className="loop-card__head">

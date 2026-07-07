@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { MarketplaceNav } from "./_MarketplaceNav";
+import { MarketplaceDecisionQueue } from "./_MarketplaceDecisionQueue";
+import type { MarketplaceDecisionItem } from "./_MarketplaceDecisionQueue";
 import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../crm/crm-data";
@@ -89,6 +91,40 @@ export default async function MarketplaceCommandCenter() {
 
   const marketplaceHealthy = errorPills.length === 0;
   const summaryTone: Tone = errorPills.length > 0 ? "warn" : marketplaceHealthy ? "good" : "idle";
+
+  const decisions: MarketplaceDecisionItem[] = [];
+  if (errorPills.length > 0) {
+    decisions.push({
+      icon: "plug",
+      tone: "crit",
+      title: errorPills.length + " integration error" + (errorPills.length === 1 ? "" : "s"),
+      detail: "Some providers report errors and may need attention to stay healthy.",
+    });
+  }
+  if (unattributed > 0) {
+    decisions.push({
+      icon: "activity",
+      tone: "warn",
+      title: unattributed + " unattributed call" + (unattributed === 1 ? "" : "s"),
+      detail: "Calls without a known source are waiting to be attributed.",
+    });
+  }
+  if (needsPills.length > 0) {
+    decisions.push({
+      icon: "plug",
+      tone: "warn",
+      title: needsPills.length + " provider" + (needsPills.length === 1 ? "" : "s") + " need setup",
+      detail: "Finish connecting providers to unlock full marketplace visibility.",
+    });
+  }
+  if (buyerRows.length > 0 && activeBuyers === 0) {
+    decisions.push({
+      icon: "users",
+      tone: "idle",
+      title: "No active buyers right now",
+      detail: "Buyers exist but none are currently active in the marketplace.",
+    });
+  }
 
   return (
     <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
@@ -219,6 +255,11 @@ export default async function MarketplaceCommandCenter() {
                 <div className="loop-empty__body">Recommendations, risks, and opportunities will appear here once the Brain has persisted a marketplace briefing.</div>
               </div>
             </section>
+            <MarketplaceDecisionQueue
+              items={decisions}
+              reviewHref="/app/admin/marketplace"
+              emptyBody="No marketplace decisions are supported by the current data."
+            />
           </div>
 
           {/* 9. Right rail: live calls + integration status */}

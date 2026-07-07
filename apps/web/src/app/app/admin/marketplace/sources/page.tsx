@@ -1,6 +1,7 @@
 // Source / Publisher Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { MarketplaceNav } from "../_MarketplaceNav";
+import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -14,7 +15,6 @@ import {
   Module,
   RankedList,
   Bar,
-  AttentionRow,
   BriefingItem,
   IntegrationPill,
 } from "../../../_loop-os";
@@ -264,23 +264,11 @@ export default async function SourceOperatingSystemPage() {
               )}
             </div>
 
-            <div className="loop-card">
-              <div className="loop-card__head">
-                <span className="loop-card__title">What to review next</span>
-              </div>
-              {decisions.length > 0 ? (
-                <div className="loop-attn">
-                  {decisions.map((d, i) => (
-                    <AttentionRow key={i} icon={d.icon} tone={d.tone} title={d.title} detail={d.detail} href="/app/admin/marketplace/sources" />
-                  ))}
-                </div>
-              ) : (
-                <div className="loop-empty loop-empty--good">
-                  <p className="loop-empty__title">Nothing needs review</p>
-                  <p className="loop-empty__body">No source issues are surfaced by the current data.</p>
-                </div>
-              )}
-            </div>
+            <MarketplaceDecisionQueue
+                items={decisions}
+                reviewHref="/app/admin/marketplace/sources"
+                emptyBody="No source issues are surfaced by the current data."
+              />
 
             <div className="loop-card">
               <div className="loop-card__head">
