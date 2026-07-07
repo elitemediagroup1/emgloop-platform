@@ -6,6 +6,7 @@ import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../crm/integration-os";
+IntegrationStatusPanel,
 import type { Tone } from "../../_loop-os";
 import {
   money,
@@ -16,7 +17,6 @@ import {
   Module,
   Bar,
   RankedList,
-  IntegrationPill,
 } from "../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -84,10 +84,8 @@ export default async function MarketplaceCommandCenter() {
     else if (label.indexOf("connect") >= 0 && label.indexOf("not") < 0) state = "connected";
     return { name, state };
   });
-  const connectedPills = pills.filter((p) => p.state === "connected");
   const needsPills = pills.filter((p) => p.state === "needs");
   const errorPills = pills.filter((p) => p.state === "error");
-  const orderedPills = connectedPills.concat(errorPills, needsPills).slice(0, 6);
 
   const marketplaceHealthy = errorPills.length === 0;
   const summaryTone: Tone = errorPills.length > 0 ? "warn" : marketplaceHealthy ? "good" : "idle";
@@ -305,25 +303,8 @@ export default async function MarketplaceCommandCenter() {
               )}
             </section>
 
-            <section className="loop-card loop-intg">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Integration Status</h2>
-                <Link href="/app/admin/integrations" className="loop-card__link">View all</Link>
-              </div>
-              <div className="loop-intg__summary">
-                <span className="loop-intg__stat loop-intg__stat--connected">{num(connectedCount)} Connected</span>
-                <span className="loop-intg__stat loop-intg__stat--needs">{num(needsPills.length)} Needs Setup</span>
-                <span className="loop-intg__stat loop-intg__stat--error">{num(errorPills.length)} Errors</span>
-              </div>
-              {orderedPills.length === 0 ? (
-                <div className="loop-quiet">No providers configured.</div>
-              ) : (
-                <div className="loop-intg__grid">
-                  {orderedPills.map((p, i) => (
-                    <IntegrationPill key={p.name + i} name={p.name} state={p.state} />
-                  ))}
-                </div>
-              )}
+            <section className="loop-card loop-intg-panel">
+              <IntegrationStatusPanel cards={cards} health={health} href="/app/admin/integrations" />
             </section>
           </aside>
         </div>
