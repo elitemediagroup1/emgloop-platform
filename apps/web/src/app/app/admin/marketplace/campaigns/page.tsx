@@ -17,6 +17,7 @@ import {
   RankedList,
   Bar,
   IntegrationPill,
+  ContextGroup,
 } from "../../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -312,7 +313,44 @@ export default async function CampaignIntelligencePage() {
                 <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendor Operating System</Link>
               </div>
             </div>
-          </aside>
+          
+          <ContextGroup
+            title="Related"
+            caption="How campaigns connect across your marketplace."
+            links={[
+              {
+                icon: "users",
+                title: "Buyers",
+                detail: "See who is purchasing this campaign traffic.",
+                href: "/app/admin/marketplace/buyers",
+              },
+              {
+                icon: "building",
+                title: "Vendors",
+                detail: "Review the vendors delivering these campaigns.",
+                href: "/app/admin/marketplace/vendors",
+              },
+              {
+                icon: "flow",
+                title: "Sources",
+                detail: "Trace the sources feeding this campaign.",
+                href: "/app/admin/marketplace/sources",
+              },
+              {
+                icon: "activity",
+                title: "Activity",
+                detail: "Follow the live event stream for these campaigns.",
+                href: "/app/admin/marketplace/activity",
+              },
+              {
+                icon: "brain",
+                title: "Brain",
+                detail: "See recommendations that reference campaigns.",
+                href: "/app/admin/brain",
+              },
+            ]}
+          />
+        </aside>
         </section>
       </main>
     </div>
