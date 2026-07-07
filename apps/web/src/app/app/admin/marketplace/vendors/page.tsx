@@ -301,7 +301,7 @@ export default async function VendorOperatingSystemPage() {
                 <BriefingItem icon="brain" title="Vendor briefing waiting for persisted Brain insights" />
               </div>
               <p className="loop-quiet">The Brain computes intelligence on its own schedule. Briefings appear here once persisted.</p>
-              <Link className="loop-card__link" href="/app/brain">Open Brain</Link>
+              <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link>
             </div>
           </div>
         </div>
@@ -361,7 +361,7 @@ export default async function VendorOperatingSystemPage() {
             <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
             <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaign Intelligence</Link>
             <Link className="loop-card__link" href="/app/admin/marketplace/buyers">Buyer Operating System</Link>
-            <Link className="loop-card__link" href="/app/admin/marketplace/sources">Source Operating System</Link>
+            <Link className="loop-card__link" href="/app/admin/marketplace/sources">Source / Publisher Operating System</Link>
           </div>
         </div>
       </aside>
