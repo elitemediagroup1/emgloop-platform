@@ -18,6 +18,7 @@ import {
   BriefingItem,
   ActionTile,
   IntegrationStatusPanel,
+  ContextGroup,
 } from "../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -159,6 +160,45 @@ export default async function AdminOperatingSystem() {
           <Module icon="building" title="Businesses" metric={num(activeBuyers)} unit="Active Buyers" detail="In your marketplace" tone={bizTone} href="/app/admin/businesses" seed={7} />
           <Module icon="users" title="Creator Network" metric={"\u2014"} detail="No creator metrics available yet" tone="idle" href="/app/admin/creators" seed={9} />
           <Module icon="brain" title="Brain" metric="Standby" detail="Waiting for today's briefing" tone={brainTone} href="/app/admin/brain" seed={11} />
+        </section>
+
+        <section className="loop-ctxjump">
+          <ContextGroup
+            title="Jump to"
+            caption="Contextual deep links across your operating system."
+            links={[
+            {
+              icon: "grid",
+              title: "Marketplace",
+              detail: "Open Marketplace to review performance.",
+              href: "/app/admin/marketplace",
+            },
+            {
+              icon: "revenue",
+              title: "Revenue",
+              detail: "View Marketplace to trace revenue.",
+              href: "/app/admin/marketplace",
+            },
+            {
+              icon: "activity",
+              title: "Operations",
+              detail: "View Activity for the live event stream.",
+              href: "/app/admin/marketplace/activity",
+            },
+            {
+              icon: "brain",
+              title: "Brain",
+              detail: "Open Brain for today's intelligence.",
+              href: "/app/admin/brain",
+            },
+            {
+              icon: "plug",
+              title: "Integrations",
+              detail: "Manage Integrations and provider health.",
+              href: "/app/admin/integrations",
+            },
+            ]}
+          />
         </section>
 
         {/* two-column grid: content + persistent right rail */}

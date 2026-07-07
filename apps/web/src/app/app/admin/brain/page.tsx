@@ -9,6 +9,7 @@ import {
   relTime,
   clockDuration,
   IntegrationStatusPanel,
+  ContextGroup,
 } from "../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -324,7 +325,15 @@ export default async function BrainOperatingSystemPage() {
                 </div>
               )}
             </div>
-          </aside>
+          
+          <ContextGroup
+            title="Recommendation context"
+            caption="Where today's recommendations will connect once the Brain runs."
+            links={[]}
+            emptyTitle="Waiting for today's briefing"
+            emptyBody="When a briefing is persisted, each recommendation will show the campaigns, buyers, and workspaces it affects."
+          />
+        </aside>
         </div>
       </main>
     </div>

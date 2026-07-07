@@ -12,6 +12,7 @@ import {
   clockDuration,
   todayLabel,
   IntegrationStatusPanel,
+  ContextGroup,
 } from "../../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -340,7 +341,50 @@ export default async function MarketplaceActivityPage() {
                 </p>
               </div>
             </div>
-          </aside>
+          
+          <ContextGroup
+            title="Event context"
+            caption="Where these events connect across Loop."
+            links={[
+              {
+                icon: "grid",
+                title: "Marketplace",
+                detail: "Open the marketplace these events flow through.",
+                href: "/app/admin/marketplace",
+              },
+              {
+                icon: "chart",
+                title: "Campaigns",
+                detail: "Jump to the campaigns behind these events.",
+                href: "/app/admin/marketplace/campaigns",
+              },
+              {
+                icon: "users",
+                title: "Buyers",
+                detail: "See the buyers connected to this activity.",
+                href: "/app/admin/marketplace/buyers",
+              },
+              {
+                icon: "building",
+                title: "Vendors",
+                detail: "See the vendors connected to this activity.",
+                href: "/app/admin/marketplace/vendors",
+              },
+              {
+                icon: "flow",
+                title: "Sources",
+                detail: "See the sources connected to this activity.",
+                href: "/app/admin/marketplace/sources",
+              },
+              {
+                icon: "brain",
+                title: "Brain",
+                detail: "See how these events inform recommendations.",
+                href: "/app/admin/brain",
+              },
+            ]}
+          />
+        </aside>
         </div>
       </div>
     </div>
