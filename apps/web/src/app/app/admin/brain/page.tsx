@@ -8,7 +8,7 @@ import {
   todayLabel,
   relTime,
   clockDuration,
-  IntegrationPill,
+  IntegrationStatusPanel,
 } from "../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -277,27 +277,8 @@ export default async function BrainOperatingSystemPage() {
               </div>
             </div>
 
-            <div className="loop-card loop-intg">
-              <div className="loop-card__head">
-                <span className="loop-card__title">Integration Status</span>
-              </div>
-              <div className="loop-intg__summary">
-                <span className="loop-intg__stat loop-intg__stat--connected">{num(health.connected)} connected</span>
-                <span className="loop-intg__stat loop-intg__stat--needs">{num(health.needsSetup)} needs setup</span>
-                <span className="loop-intg__stat loop-intg__stat--error">{num(health.errors)} errors</span>
-              </div>
-              {orderedPills.length > 0 ? (
-                <div className="loop-intg__grid">
-                  {orderedPills.map((p) => (
-                    <IntegrationPill key={p.name} name={p.name} state={p.state} />
-                  ))}
-                </div>
-              ) : (
-                <div className="loop-empty">
-                  <p className="loop-empty__title">No providers yet</p>
-                  <p className="loop-empty__body">Connect a source to give the Brain evidence.</p>
-                </div>
-              )}
+            <div className="loop-card loop-intg-panel">
+              <IntegrationStatusPanel cards={cards} health={health} title="Integration Status" />
             </div>
 
             <div className="loop-card loop-feed">
