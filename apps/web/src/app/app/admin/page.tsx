@@ -2,8 +2,7 @@ import Link from "next/link";
 import { SidebarIcon } from "../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../crm/crm-data";
-import { loadProviderCards, computeSystemHealth } from "../../../crm/integration-os";
-IntegrationStatusPanel,
+import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../crm/integration-os";
 import type { Tone } from "../_loop-os";
 import {
   money,
@@ -18,6 +17,7 @@ import {
   AttentionRow,
   BriefingItem,
   ActionTile,
+  IntegrationStatusPanel,
 } from "../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -119,6 +119,17 @@ export default async function AdminOperatingSystem() {
   const qualifiedPct = Math.round((qualified / denom) * 100);
   const bookingsPct = Math.round((bookings / denom) * 100);
 
+  /* integration pills from provider cards (display existing status only) */
+  type Pill = { name: string; state: "connected" | "needs" | "error" };
+  const pills: Pill[] = (cards || []).map((card: any) => {
+    const name = (card && card.spec && (card.spec.displayName || card.spec.name)) || "Provider";
+    const conn = card && card.status ? card.status.connection : undefined;
+    const label = String(connectionLabel(conn) || "").toLowerCase();
+    let state: "connected" | "needs" | "error" = "needs";
+    if (label.indexOf("error") >= 0 || label.indexOf("fail") >= 0) state = "error";
+    else if (label.indexOf("connect") >= 0 && label.indexOf("not") < 0) state = "connected";
+    return { name, state };
+  });
 
   return (
     <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
