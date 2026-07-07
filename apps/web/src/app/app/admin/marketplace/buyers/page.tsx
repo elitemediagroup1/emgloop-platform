@@ -1,5 +1,6 @@
 // Buyer Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { MarketplaceNav } from "../_MarketplaceNav";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -140,6 +141,8 @@ export default async function BuyerOperatingSystemPage() {
             </div>
           </div>
         </header>
+
+        <MarketplaceNav active="buyers" />
 
         <section className="loop-modgrid">
           <Module icon="users" title="Total Buyers" metric={num(totalBuyers)} detail="In your marketplace" tone={hasBuyerData ? "good" : "idle"} href="/app/admin/marketplace/buyers" seed={11} />

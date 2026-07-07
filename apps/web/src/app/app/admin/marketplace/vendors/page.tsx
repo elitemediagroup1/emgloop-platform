@@ -1,5 +1,6 @@
 // Vendor Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { MarketplaceNav } from "../_MarketplaceNav";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -166,6 +167,8 @@ export default async function VendorOperatingSystemPage() {
             <span className="loop-os__brief-chip loop-os__brief-chipdate">{todayLabel()}</span>
           </div>
         </header>
+
+        <MarketplaceNav active="vendors" />
 
         <section className="loop-modgrid">
           <Module icon="columns" title="Total Vendors" metric={hasVendorData ? num(totalVendors) : "0"} detail="Traffic partners with data" tone="good" href="/app/admin/marketplace/vendors" seed={11} />

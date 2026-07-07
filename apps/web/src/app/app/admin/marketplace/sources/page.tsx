@@ -1,5 +1,6 @@
 // Source / Publisher Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { MarketplaceNav } from "../_MarketplaceNav";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -162,6 +163,8 @@ export default async function SourceOperatingSystemPage() {
             <span className="loop-os__brief-chip loop-os__brief-chipdate">{todayLabel()}</span>
           </div>
         </header>
+
+        <MarketplaceNav active="sources" />
 
         <section className="loop-modgrid">
           <Module icon="columns" title="Total Sources" metric={hasSourceData ? num(totalSources) : "0"} detail="Publishers with delivery data" tone="good" href="/app/admin/marketplace/sources" seed={11} />

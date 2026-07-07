@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MarketplaceNav } from "./_MarketplaceNav";
 import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../crm/crm-data";
@@ -114,6 +115,8 @@ export default async function MarketplaceCommandCenter() {
           </div>
         </header>
 
+        <MarketplaceNav active="overview" />
+
         {/* 2. Revenue / Calls / Qualified / Bookings / Buyers / Sources modules */}
         <section className="loop-modgrid" aria-label="Marketplace metrics">
           <Module icon="dollar" title="Revenue" metric={money(totalRevenue)} detail={money(realizedRevenue) + " realized"} tone="good" href="/app/admin/marketplace" seed={2} />
@@ -145,7 +148,7 @@ export default async function MarketplaceCommandCenter() {
             <section className="loop-card">
               <div className="loop-card__head">
                 <h2 className="loop-card__title">Campaign Health</h2>
-                <Link href="/app/admin/marketplace" className="loop-card__link">View all</Link>
+                <Link href="/app/admin/marketplace/campaigns" className="loop-card__link">View all</Link>
               </div>
               {campaignRows.length === 0 ? (
                 <div className="loop-empty">
@@ -161,7 +164,7 @@ export default async function MarketplaceCommandCenter() {
             <section className="loop-card">
               <div className="loop-card__head">
                 <h2 className="loop-card__title">Buyer Performance</h2>
-                <Link href="/app/admin/marketplace" className="loop-card__link">View all</Link>
+                <Link href="/app/admin/marketplace/buyers" className="loop-card__link">View all</Link>
               </div>
               {buyerRows.length === 0 ? (
                 <div className="loop-empty">
@@ -177,7 +180,7 @@ export default async function MarketplaceCommandCenter() {
             <section className="loop-card">
               <div className="loop-card__head">
                 <h2 className="loop-card__title">Source &amp; Publisher Performance</h2>
-                <Link href="/app/admin/marketplace" className="loop-card__link">View all</Link>
+                <Link href="/app/admin/marketplace/sources" className="loop-card__link">View all</Link>
               </div>
               {sourceRows.length === 0 ? (
                 <div className="loop-empty">
@@ -193,7 +196,7 @@ export default async function MarketplaceCommandCenter() {
             <section className="loop-card">
               <div className="loop-card__head">
                 <h2 className="loop-card__title">Vendor Performance</h2>
-                <Link href="/app/admin/marketplace" className="loop-card__link">View all</Link>
+                <Link href="/app/admin/marketplace/vendors" className="loop-card__link">View all</Link>
               </div>
               {vendorRows.length === 0 ? (
                 <div className="loop-empty">
