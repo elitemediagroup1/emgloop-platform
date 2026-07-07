@@ -17,6 +17,7 @@ import {
   Bar,
   BriefingItem,
   IntegrationPill,
+  ContextGroup,
 } from "../../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -342,7 +343,44 @@ export default async function SourceOperatingSystemPage() {
             <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendor Operating System</Link>
           </div>
         </div>
-      </aside>
+      
+          <ContextGroup
+            title="Related"
+            caption="How sources connect across your marketplace."
+            links={[
+              {
+                icon: "chart",
+                title: "Campaigns",
+                detail: "See the campaigns fed by these sources.",
+                href: "/app/admin/marketplace/campaigns",
+              },
+              {
+                icon: "users",
+                title: "Buyers",
+                detail: "See the buyers receiving this source traffic.",
+                href: "/app/admin/marketplace/buyers",
+              },
+              {
+                icon: "building",
+                title: "Vendors",
+                detail: "Review vendors connected to these sources.",
+                href: "/app/admin/marketplace/vendors",
+              },
+              {
+                icon: "brain",
+                title: "Brain",
+                detail: "See recommendations that reference sources.",
+                href: "/app/admin/brain",
+              },
+              {
+                icon: "activity",
+                title: "Activity",
+                detail: "Follow the live event stream for sources.",
+                href: "/app/admin/marketplace/activity",
+              },
+            ]}
+          />
+        </aside>
     </div>
   );
 }
