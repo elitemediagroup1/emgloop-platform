@@ -46,3 +46,29 @@ export * from "./task";
 
 // Structural containers (workspace, project, workflow, stage, milestone, queue)
 export * from "./structure";
+
+// --- Workflow Model (PR #71) ---
+
+// Workflow definition identifiers
+export * from "./workflow-ids";
+
+// Workflow / stage state semantics (mapped to WorkStatus)
+export * from "./states";
+
+// Entry / exit criteria and blockers
+export * from "./criteria";
+
+// Workflow rules (assignment, approval, escalation, handoff)
+export * from "./rules";
+
+// Transitions and decision points
+export * from "./transitions";
+
+// Stage definitions (parallel / sequential / optional / loop / skip)
+export * from "./stages";
+
+// Workflow templates (reusable blueprints)
+export * from "./template";
+
+// Ownership trail (who owned it before / now / next)
+export * from "./ownership-trail";
