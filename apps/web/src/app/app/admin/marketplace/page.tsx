@@ -6,7 +6,6 @@ import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../crm/integration-os";
-IntegrationStatusPanel,
 import type { Tone } from "../../_loop-os";
 import {
   money,
@@ -17,6 +16,7 @@ import {
   Module,
   Bar,
   RankedList,
+  IntegrationStatusPanel,
 } from "../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -84,8 +84,10 @@ export default async function MarketplaceCommandCenter() {
     else if (label.indexOf("connect") >= 0 && label.indexOf("not") < 0) state = "connected";
     return { name, state };
   });
+  const connectedPills = pills.filter((p) => p.state === "connected");
   const needsPills = pills.filter((p) => p.state === "needs");
   const errorPills = pills.filter((p) => p.state === "error");
+  const orderedPills = connectedPills.concat(errorPills, needsPills).slice(0, 6);
 
   const marketplaceHealthy = errorPills.length === 0;
   const summaryTone: Tone = errorPills.length > 0 ? "warn" : marketplaceHealthy ? "good" : "idle";
