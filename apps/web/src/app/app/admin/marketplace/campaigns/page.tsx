@@ -1,5 +1,6 @@
 // Campaign Intelligence workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { MarketplaceNav } from "../_MarketplaceNav";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -114,6 +115,8 @@ export default async function CampaignIntelligencePage() {
             </div>
           </div>
         </header>
+
+        <MarketplaceNav active="campaigns" />
 
         <section className="loop-modgrid">
           <Module icon="chart" title="Campaigns" metric={num(totalCampaigns)} detail="Tracked in marketplace" tone={summaryTone} href="/app/admin/marketplace" seed={11} />
