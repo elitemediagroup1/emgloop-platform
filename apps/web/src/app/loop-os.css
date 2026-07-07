@@ -650,3 +650,192 @@
 .loop-mnav__item--active:hover {
   background: var(--loop-accent-soft);
 }
+
+/* Marketplace Activity Center (PR #67) */
+.loop-actv__summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.loop-actv__sum {
+  background: var(--loop-panel);
+  border: 1px solid var(--loop-line);
+  border-radius: var(--loop-radius);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.loop-actv__sumlabel {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--loop-text-3);
+}
+.loop-actv__sumvalue {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--loop-text);
+  line-height: 1.1;
+}
+.loop-actv__sumsub {
+  font-size: 12px;
+  color: var(--loop-text-2);
+}
+.loop-actv__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.loop-actv__filter {
+  border: 1px solid var(--loop-line);
+  background: var(--loop-panel);
+  color: var(--loop-text-2);
+  border-radius: 999px;
+  padding: 7px 15px;
+  font-size: 13px;
+  line-height: 1;
+}
+.loop-actv__filter--active {
+  border-color: var(--loop-accent);
+  background: var(--loop-accent-soft);
+  color: var(--loop-text);
+}
+.loop-actv__timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.loop-actv__group {
+  margin-bottom: 10px;
+}
+.loop-actv__grouphead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--loop-text-3);
+}
+.loop-actv__grouphead::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--loop-line);
+}
+.loop-actv__event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--loop-radius);
+  transition: background 0.15s ease;
+}
+.loop-actv__event:hover {
+  background: var(--loop-panel-2);
+}
+.loop-actv__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+.loop-actv__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--loop-accent-soft);
+  color: var(--loop-accent);
+  flex-shrink: 0;
+  z-index: 1;
+}
+.loop-actv__connector {
+  position: absolute;
+  top: 40px;
+  bottom: -18px;
+  width: 2px;
+  background: var(--loop-line);
+}
+.loop-actv__event:last-child .loop-actv__connector {
+  display: none;
+}
+.loop-actv__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.loop-actv__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--loop-text);
+}
+.loop-actv__desc {
+  font-size: 13px;
+  color: var(--loop-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.loop-actv__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.loop-actv__rel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--loop-text-3);
+}
+.loop-actv__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+.loop-actv__time {
+  font-size: 12px;
+  color: var(--loop-text-3);
+}
+.loop-actv__view {
+  font-size: 12px;
+  color: var(--loop-accent);
+}
+.loop-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--loop-line);
+  background: var(--loop-panel);
+  color: var(--loop-text-2);
+}
+.loop-pill--call { border-color: rgba(91, 140, 255, 0.4); color: var(--loop-accent); background: var(--loop-accent-soft); }
+.loop-pill--revenue { border-color: rgba(52, 199, 129, 0.4); color: var(--loop-good); }
+.loop-pill--booking { border-color: rgba(52, 199, 129, 0.4); color: var(--loop-good); }
+.loop-pill--integration { border-color: rgba(240, 179, 74, 0.4); color: var(--loop-warn); }
+.loop-pill--campaign { border-color: rgba(91, 140, 255, 0.4); color: var(--loop-accent); }
+.loop-pill--buyer { border-color: var(--loop-line-strong); }
+.loop-pill--source { border-color: var(--loop-line-strong); }
+.loop-pill--vendor { border-color: var(--loop-line-strong); }
+.loop-pill--system { border-color: var(--loop-line-strong); color: var(--loop-text-3); }
+@media (max-width: 900px) {
+  .loop-actv__summary { grid-template-columns: repeat(2, 1fr); }
+}
