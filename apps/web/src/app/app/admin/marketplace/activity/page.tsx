@@ -70,7 +70,14 @@ export default async function MarketplaceActivityPage() {
   const errorPills = pills.filter((p) => p.state === "error");
   const orderedPills = connectedPills.concat(errorPills, needsPills).slice(0, 6);
 
-  const KIND_META: Record<string, { group: string; icon: string; pill: string; tone: string }> = {
+  type MetaEntry = { group: string; icon: string; pill: string; tone: string };
+  const DEFAULT_META: MetaEntry = {
+    group: "Marketplace",
+    icon: "grid",
+    pill: "System",
+    tone: "system",
+  };
+  const KIND_META: Record<string, MetaEntry> = {
     website: { group: "Marketplace", icon: "grid", pill: "System", tone: "system" },
     call: { group: "Live Call", icon: "chart", pill: "Call", tone: "call" },
     workflow: { group: "Operations", icon: "flow", pill: "System", tone: "system" },
@@ -80,7 +87,8 @@ export default async function MarketplaceActivityPage() {
   };
 
   const feed: FeedEvent[] = (liveActivity || []).map((a) => {
-    const meta = KIND_META[a.kind] || KIND_META.website;
+    const meta =
+      (KIND_META[a.kind] as MetaEntry | undefined) || DEFAULT_META;
     return {
       id: a.id,
       kind: a.kind,
@@ -96,7 +104,7 @@ export default async function MarketplaceActivityPage() {
   });
 
   const hasFeed = feed.length > 0;
-  const lastEvent = hasFeed ? feed[0] : null;
+  const lastEvent = feed.length > 0 ? feed[0]! : null;
   const todayCutoff = new Date();
   todayCutoff.setHours(0, 0, 0, 0);
   const activityToday = feed.filter((e) => {
