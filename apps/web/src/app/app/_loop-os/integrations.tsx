@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
+import { SidebarIcon } from "../../crm/_brand/SidebarIcon";
 import { IntegrationPill } from "./panels";
 import { connectionLabel } from "../../../crm/integration-os";
 import type { ProviderCard, SystemHealth } from "../../../crm/integration-os";
