@@ -11,7 +11,7 @@ import {
   relTime,
   clockDuration,
   todayLabel,
-  IntegrationPill,
+  IntegrationStatusPanel,
 } from "../../../_loop-os";
 
 export const dynamic = "force-dynamic";
@@ -65,10 +65,8 @@ export default async function MarketplaceActivityPage() {
     else if (label.indexOf("connect") >= 0 && label.indexOf("not") < 0) state = "connected";
     return { name, state };
   });
-  const connectedPills = pills.filter((p) => p.state === "connected");
   const needsPills = pills.filter((p) => p.state === "needs");
   const errorPills = pills.filter((p) => p.state === "error");
-  const orderedPills = connectedPills.concat(errorPills, needsPills).slice(0, 6);
 
   type MetaEntry = { group: string; icon: string; pill: string; tone: string };
   const DEFAULT_META: MetaEntry = {
@@ -326,25 +324,8 @@ export default async function MarketplaceActivityPage() {
               emptyBody="No marketplace decisions are supported by the current data."
             />
 
-            <section className="loop-card loop-intg">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Integration Status</h2>
-                <Link href="/app/admin/integrations" className="loop-card__link">View all</Link>
-              </div>
-              <div className="loop-intg__summary">
-                <span className="loop-intg__stat loop-intg__stat--connected">{num(connectedPills.length)} Connected</span>
-                <span className="loop-intg__stat loop-intg__stat--needs">{num(needsPills.length)} Needs Setup</span>
-                <span className="loop-intg__stat loop-intg__stat--error">{num(errorPills.length)} Errors</span>
-              </div>
-              {orderedPills.length === 0 ? (
-                <div className="loop-quiet">No providers configured.</div>
-              ) : (
-                <div className="loop-intg__grid">
-                  {orderedPills.map((p, i) => (
-                    <IntegrationPill key={i} name={p.name} state={p.state} />
-                  ))}
-                </div>
-              )}
+            <section className="loop-card loop-intg-panel">
+              <IntegrationStatusPanel cards={cards} health={health} href="/app/admin/integrations" />
             </section>
 
             <div className="loop-card">

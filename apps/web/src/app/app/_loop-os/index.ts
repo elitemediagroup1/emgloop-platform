@@ -4,3 +4,4 @@ export { StatusDot, Sparkline } from "./primitives";
 export { Module, Bar, RankedList } from "./modules";
 export { AttentionRow, BriefingItem, IntegrationPill } from "./panels";
 export { ActionTile } from "./launchers";
+export { IntegrationStatusPanel } from "./integrations";
