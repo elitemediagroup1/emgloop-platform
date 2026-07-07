@@ -72,3 +72,12 @@ export * from "./template";
 
 // Ownership trail (who owned it before / now / next)
 export * from "./ownership-trail";
+
+// Query contracts (declarative filter / sort / paging shapes)
+export * from "./query";
+
+// Read views (denormalized projections that answer operational questions)
+export * from "./read-views";
+
+// Read model facade (the read surface a future runtime exposes)
+export * from "./read-model";
