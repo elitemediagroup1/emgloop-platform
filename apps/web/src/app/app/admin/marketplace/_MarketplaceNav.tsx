@@ -5,7 +5,8 @@ type MarketplaceNavKey =
   | "campaigns"
   | "buyers"
   | "sources"
-  | "vendors";
+  | "vendors"
+  | "activity";
 
 const NAV_ITEMS: { key: MarketplaceNavKey; label: string; href: string }[] = [
   { key: "overview", label: "Overview", href: "/app/admin/marketplace" },
@@ -13,6 +14,7 @@ const NAV_ITEMS: { key: MarketplaceNavKey; label: string; href: string }[] = [
   { key: "buyers", label: "Buyers", href: "/app/admin/marketplace/buyers" },
   { key: "sources", label: "Sources / Publishers", href: "/app/admin/marketplace/sources" },
   { key: "vendors", label: "Vendors", href: "/app/admin/marketplace/vendors" },
+  { key: "activity", label: "Activity", href: "/app/admin/marketplace/activity" },
 ];
 
 export function MarketplaceNav(props: { active: MarketplaceNavKey }) {
