@@ -1,6 +1,8 @@
 // Campaign Intelligence workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { MarketplaceNav } from "../_MarketplaceNav";
+import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
+import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
@@ -100,6 +102,32 @@ export default async function CampaignIntelligencePage() {
     if (cents > 0) return "good";
     if ((r.orders || 0) > 0) return "warn";
     return "idle";
+  }
+
+  const decisions: MarketplaceDecisionItem[] = [];
+  if (errorPills.length > 0) {
+    decisions.push({
+      icon: "plug",
+      tone: "crit",
+      title: errorPills.length + " integration error" + (errorPills.length === 1 ? "" : "s"),
+      detail: "Some providers report errors that can distort campaign attribution.",
+    });
+  }
+  if (needsPills.length > 0) {
+    decisions.push({
+      icon: "plug",
+      tone: "warn",
+      title: needsPills.length + " provider" + (needsPills.length === 1 ? "" : "s") + " need setup",
+      detail: "Finish connecting providers to complete campaign attribution.",
+    });
+  }
+  if (!hasCampaignData || totalCalls === 0) {
+    decisions.push({
+      icon: "chart",
+      tone: "idle",
+      title: "No attributed campaign calls yet",
+      detail: "Campaign performance appears once attributed traffic is recorded.",
+    });
   }
 
   return (
@@ -225,6 +253,11 @@ export default async function CampaignIntelligencePage() {
                 <p className="loop-empty__body">The Brain computes campaign intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link></p>
               </div>
             </div>
+            <MarketplaceDecisionQueue
+              items={decisions}
+              reviewHref="/app/admin/marketplace/campaigns"
+              emptyBody="No campaign decisions are supported by the current data."
+            />
           </div>
 
           <aside className="loop-rail">
