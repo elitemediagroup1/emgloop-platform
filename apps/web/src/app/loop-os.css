@@ -615,3 +615,38 @@
   .loop-os--v5 .loop-os__brief-title{ font-size: 28px; }
 }
 /* ===================== END LOOP OS v5 ===================== */
+
+/* Marketplace section nav (PR #65) */
+.loop-mnav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 6px;
+  margin: 0 0 22px;
+  background: var(--loop-panel);
+  border: 1px solid var(--loop-line);
+  border-radius: var(--loop-radius);
+  animation: loop-fade-up .5s ease both;
+}
+.loop-mnav__item {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--loop-text-3);
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: calc(var(--loop-radius) - 4px);
+  transition: color .15s ease, background .15s ease;
+  white-space: nowrap;
+}
+.loop-mnav__item:hover {
+  color: var(--loop-text);
+  background: var(--loop-bg-2);
+}
+.loop-mnav__item--active {
+  color: var(--loop-text);
+  background: var(--loop-accent-soft);
+}
+.loop-mnav__item--active:hover {
+  background: var(--loop-accent-soft);
+}
