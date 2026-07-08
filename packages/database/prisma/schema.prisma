@@ -1085,3 +1085,153 @@ model DomainEvent {
   @@index([aggregateType, aggregateId])
   @@map("domain_events")
 }
+// ===========================================================================
+// PR #75 — Work OS Blueprint Runtime v1
+// ---------------------------------------------------------------------------
+// The first concrete execution runtime for Loop Work OS.
+//
+// Blueprint      = reusable process template
+// BlueprintStage = one step in the template
+// WorkInstance   = a real execution of a Blueprint
+// WorkStage      = one step of a real execution (copied from BlueprintStage)
+// WorkAssignment = ownership record for a stage (audit of who owned what)
+// WorkNotification = tells the next owner it is their turn (in-app only)
+// WorkComment    = discussion on a work instance / stage
+//
+// v1 NOTES:
+//  - Status / type fields are String scalars (not Prisma enums) to match the
+//    exact lowercase vocabulary in the PR #75 spec
+//    (active|archived, pending|ready|in_progress|completed|skipped, etc.).
+//  - organizationId / userId links are intentional SCALAR ids for v1 (no
+//    @relation back-references) to keep this migration purely additive and
+//    avoid editing the shared Organization / User core models. Reconciling
+//    these into full relations is future work.
+// ===========================================================================
+
+model Blueprint {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  description     String?
+  status          String   @default("active") // active | archived
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  metadata        Json     @default("{}")
+
+  stages BlueprintStage[]
+
+  @@index([organizationId, status])
+  @@map("blueprints")
+}
+
+model BlueprintStage {
+  id                 String   @id @default(cuid())
+  blueprintId        String
+  name               String
+  description        String?
+  position           Int
+  defaultOwnerUserId String?
+  requiresApproval   Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  metadata           Json     @default("{}")
+
+  blueprint Blueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+
+  @@index([blueprintId, position])
+  @@map("blueprint_stages")
+}
+
+model WorkInstance {
+  id              String    @id @default(cuid())
+  organizationId  String
+  blueprintId     String?
+  title           String
+  description     String?
+  status          String    @default("active") // active | completed | cancelled
+  currentStageId  String?
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+  metadata        Json      @default("{}")
+
+  stages        WorkStage[]
+  notifications WorkNotification[]
+  comments      WorkComment[]
+
+  @@index([organizationId, status])
+  @@map("work_instances")
+}
+
+model WorkStage {
+  id                String    @id @default(cuid())
+  workInstanceId    String
+  blueprintStageId  String?
+  name              String
+  description       String?
+  position          Int
+  status            String    @default("pending") // pending | ready | in_progress | completed | skipped
+  ownerUserId       String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  completedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  metadata          Json      @default("{}")
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, status])
+  @@index([workInstanceId, position])
+  @@map("work_stages")
+}
+
+model WorkAssignment {
+  id               String    @id @default(cuid())
+  workInstanceId   String
+  workStageId      String
+  userId           String
+  assignedByUserId String?
+  assignedAt       DateTime  @default(now())
+  unassignedAt     DateTime?
+  metadata         Json      @default("{}")
+
+  @@index([userId])
+  @@index([workStageId])
+  @@map("work_assignments")
+}
+
+model WorkNotification {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  workInstanceId String
+  workStageId    String?
+  type           String    // next_action_ready | assigned | completed | approval_needed
+  title          String
+  body           String
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+  metadata       Json      @default("{}")
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("work_notifications")
+}
+
+model WorkComment {
+  id             String   @id @default(cuid())
+  workInstanceId String
+  workStageId    String?
+  userId         String
+  body           String
+  createdAt      DateTime @default(now())
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([workInstanceId])
+  @@map("work_comments")
+}

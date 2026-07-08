@@ -28,6 +28,7 @@ import { WebsiteAnalyticsRepository } from './website-analytics.repository';
 import { IntelligenceRepository } from './intelligence.repository';
 import { LiveOperationsRepository } from './live-operations.repository';
 import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
+import { WorkRepository } from './work.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -126,6 +127,28 @@ export type {
 // honest attribution, EMG properties, recency windows). Additive only.
 export * from './operational-filters';
 
+// PR #75 — Work OS Blueprint Runtime v1 (concrete execution runtime).
+export {
+  WorkRepository,
+  BLUEPRINT_STATUSES,
+  WORK_INSTANCE_STATUSES,
+  WORK_STAGE_STATUSES,
+  WORK_NOTIFICATION_TYPES,
+} from './work.repository';
+export type {
+  BlueprintStatus,
+  WorkInstanceStatus,
+  WorkStageStatus,
+  WorkNotificationType,
+  CreateBlueprintInput,
+  CreateBlueprintStageInput,
+  CreateWorkFromBlueprintInput,
+  CompleteCurrentStageInput,
+  AssignStageInput,
+  AddWorkCommentInput,
+  WorkInstanceWithStages,
+} from './work.repository';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
@@ -148,6 +171,7 @@ export interface Repositories {
   intelligence: IntelligenceRepository;
   liveOperations: LiveOperationsRepository;
   revenueIntelligence: RevenueIntelligenceRepository;
+  work: WorkRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -173,5 +197,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     intelligence: new IntelligenceRepository(prisma),
     liveOperations: new LiveOperationsRepository(prisma),
     revenueIntelligence: new RevenueIntelligenceRepository(prisma),
+    work: new WorkRepository(prisma),
   };
 }
