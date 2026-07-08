@@ -85,6 +85,7 @@ export interface CreateWorkFromBlueprintInput {
 }
 
 export interface CompleteCurrentStageInput {
+  organizationId: string;
   workInstanceId: string;
   completedByUserId: string;
   // Optional owner for the NEXT stage. If missing and the next stage has no
@@ -93,12 +94,14 @@ export interface CompleteCurrentStageInput {
 }
 
 export interface AssignStageInput {
+  organizationId: string;
   workStageId: string;
   userId: string | null;
   assignedByUserId?: string | null;
 }
 
 export interface AddWorkCommentInput {
+  organizationId: string;
   workInstanceId: string;
   workStageId?: string | null;
   userId: string;
@@ -255,6 +258,10 @@ export class WorkRepository {
       if (!instance) {
         throw new Error(`Work instance not found: ${input.workInstanceId}`);
       }
+      if (instance.organizationId !== input.organizationId) {
+        // Cross-organization access attempt: treat as not found.
+        throw new Error(`Work instance not found: ${input.workInstanceId}`);
+      }
       if (instance.status !== 'active') {
         throw new Error(`Work instance is not active (status: ${instance.status})`);
       }
@@ -344,6 +351,17 @@ export class WorkRepository {
   // Assignment / reassignment
   // ------------------------------------------------------------------
   async assignStage(input: AssignStageInput): Promise<WorkStage> {
+    // Verify the stage belongs to the caller's organization before mutating.
+    const existingStage = await this.prisma.workStage.findUnique({
+      where: { id: input.workStageId },
+      select: { id: true, workInstance: { select: { organizationId: true } } },
+    });
+    if (
+      !existingStage ||
+      existingStage.workInstance.organizationId !== input.organizationId
+    ) {
+      throw new Error(`Work stage not found: ${input.workStageId}`);
+    }
     const stage = await this.prisma.workStage.update({
       where: { id: input.workStageId },
       data: { ownerUserId: input.userId },
@@ -493,6 +511,13 @@ export class WorkRepository {
   // Comments
   // ------------------------------------------------------------------
   async addWorkComment(input: AddWorkCommentInput): Promise<WorkComment> {
+    const instance = await this.prisma.workInstance.findUnique({
+      where: { id: input.workInstanceId },
+      select: { organizationId: true },
+    });
+    if (!instance || instance.organizationId !== input.organizationId) {
+      throw new Error(`Work instance not found: ${input.workInstanceId}`);
+    }
     return this.prisma.workComment.create({
       data: {
         workInstanceId: input.workInstanceId,
