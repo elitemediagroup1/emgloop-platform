@@ -311,6 +311,7 @@ export default async function MarketplaceActivityPage() {
                 <span className="loop-card__title">Shortcuts</span>
               </div>
               <div className="loop-brief">
+                <Link className="loop-card__link" href="/app/admin/work">My Work {"\u2192"}</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaigns</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/buyers">Buyers</Link>
@@ -381,6 +382,12 @@ export default async function MarketplaceActivityPage() {
                 title: "Brain",
                 detail: "See how these events inform recommendations.",
                 href: "/app/admin/brain",
+              },
+              {
+                icon: "flow",
+                title: "My Work",
+                detail: "Open Work OS to act on these events.",
+                href: "/app/admin/work",
               },
             ]}
           />

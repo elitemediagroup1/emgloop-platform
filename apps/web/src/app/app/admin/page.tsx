@@ -192,6 +192,12 @@ export default async function AdminOperatingSystem() {
               href: "/app/admin/brain",
             },
             {
+              icon: "flow",
+              title: "My Work",
+              detail: "Open Work OS to see what to do next.",
+              href: "/app/admin/work",
+            },
+            {
               icon: "plug",
               title: "Integrations",
               detail: "Manage Integrations and provider health.",
@@ -252,6 +258,7 @@ export default async function AdminOperatingSystem() {
                 <h2 className="loop-card__title">Quick Actions</h2>
               </div>
               <div className="loop-launchers">
+                <ActionTile icon="flow" title="My Work" desc="See what to do next" href="/app/admin/work" />
                 <ActionTile icon="star" title="Marketplace" desc="Review performance" href="/app/admin/marketplace" />
                 <ActionTile icon="revenue" title="Revenue" desc="Track performance" href="/app/admin/revenue" />
                 <ActionTile icon="users" title="CRM" desc="Manage relationships" href="/app/admin/crm" />

@@ -169,7 +169,7 @@ export default async function MarketplaceCommandCenter() {
             <section className="loop-card loop-market">
               <div className="loop-card__head">
                 <h2 className="loop-card__title">Marketplace Health</h2>
-                <span className="loop-card__link">{attributedPct}% attributed</span>
+                <Link href="/app/admin/work" className="loop-card__link">Turn this into work {"\u2192"}</Link>
               </div>
               <div className="loop-market__body">
                 <div className="loop-market__bars">
@@ -177,6 +177,7 @@ export default async function MarketplaceCommandCenter() {
                   <Bar label="Qualified Calls" value={num(qualified)} pct={qualifiedPct} tone={qualified > 0 ? "good" : "idle"} />
                   <Bar label="Bookings" value={num(bookings)} pct={bookingsPct} tone={bookings > 0 ? "good" : "idle"} />
                 </div>
+                <p className="loop-card__hint">{attributedPct}% attributed {"\u00b7"} Create follow-up work {"\u00b7"} Coming soon</p>
               </div>
             </section>
 

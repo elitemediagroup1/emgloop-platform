@@ -265,7 +265,7 @@ export default async function BrainOperatingSystemPage() {
           <aside className="loop-rail">
             <div className="loop-card">
               <div className="loop-card__head">
-                <span className="loop-card__title">Marketplace</span>
+                <span className="loop-card__title">Jump to</span>
               </div>
               <div className="loop-brief">
                 <Link className="loop-brief__item" href="/app/admin/marketplace">
@@ -273,6 +273,13 @@ export default async function BrainOperatingSystemPage() {
                   <div className="loop-brief__text">
                     <div className="loop-brief__title">Open Marketplace</div>
                     <div className="loop-brief__wait">Where the Brain&rsquo;s calls become revenue.</div>
+                  </div>
+                </Link>
+                <Link className="loop-brief__item" href="/app/admin/work">
+                  <span className="loop-brief__icon"><SidebarIcon name="flow" /></span>
+                  <div className="loop-brief__text">
+                    <div className="loop-brief__title">Open Work OS</div>
+                    <div className="loop-brief__note">See what to do next across Loop.</div>
                   </div>
                 </Link>
               </div>
