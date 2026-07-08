@@ -12,6 +12,7 @@ import { InteractionRepository } from './interaction.repository';
 import { BookingRepository } from './booking.repository';
 import { SignalRepository } from './signal.repository';
 import { DomainEventRepository } from './domain-event.repository';
+import { LoopEventRepository } from './loop-event.repository';
 import { ConversationRepository, MessageRepository } from './messaging.repository';
 import { AIEmployeeRepository } from './ai-employee.repository';
 import { CrmRepository } from './crm.repository';
@@ -36,6 +37,7 @@ export { InteractionRepository } from './interaction.repository';
 export { BookingRepository } from './booking.repository';
 export { SignalRepository, signalTypeFromLabel } from './signal.repository';
 export { DomainEventRepository } from './domain-event.repository';
+export { LoopEventRepository } from './loop-event.repository';
 export { ConversationRepository, MessageRepository } from './messaging.repository';
 export { AIEmployeeRepository } from './ai-employee.repository';
 export type { AIEmployeeView } from './ai-employee.repository';
@@ -155,6 +157,7 @@ export interface Repositories {
   bookings: BookingRepository;
   signals: SignalRepository;
   domainEvents: DomainEventRepository;
+  loopEvents: LoopEventRepository;
   conversations: ConversationRepository;
   messages: MessageRepository;
   aiEmployees: AIEmployeeRepository;
@@ -181,6 +184,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     bookings: new BookingRepository(prisma),
     signals: new SignalRepository(prisma),
     domainEvents: new DomainEventRepository(prisma),
+    loopEvents: new LoopEventRepository(prisma),
     conversations: new ConversationRepository(prisma),
     messages: new MessageRepository(prisma),
     aiEmployees: new AIEmployeeRepository(prisma),
