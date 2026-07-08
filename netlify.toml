@@ -14,7 +14,10 @@
   # tables that do not exist yet (prevents Prisma P2021 crashes like the
   # Work OS "table does not exist" incident). migrate:deploy only applies
   # already-committed migrations and is a no-op when the DB is already current.
-  command = "npm run migrate:deploy -w @emgloop/database && npm run build -- --filter=@emgloop/web"
+  # Migrations run against DIRECT_DATABASE_URL (unpooled Neon endpoint)
+  # because Prisma Migrate requires a direct connection; the web build
+  # itself still uses the pooled DATABASE_URL.
+  command = "DATABASE_URL=\"$DIRECT_DATABASE_URL\" npm run migrate:deploy -w @emgloop/database && npm run build -- --filter=@emgloop/web"
   # Next.js build output for the web app.
   publish = "apps/web/.next"
 
