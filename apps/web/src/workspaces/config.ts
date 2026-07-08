@@ -90,6 +90,7 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
         { href: '/app/admin/brain', label: 'Brain', icon: 'brain' },
         { href: '/app/admin/marketplace-intelligence', label: 'Marketplace', icon: 'chart', requires: { resource: 'intelligence', action: 'view' } },
         { href: '/app/admin/operations', label: 'Operations', icon: 'activity' },
+        { href: '/app/admin/work', label: 'My Work', icon: 'flow' },
         ],
       },
       {
