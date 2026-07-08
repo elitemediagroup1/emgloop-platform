@@ -10,7 +10,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { requireEmployeeActor, workRepo } from './work-data';
+import { requireEmployeeActor, loadEmployeeInstance, workRepo } from './work-data';
 
 const WORK_ROOT = '/app/employee/work';
 
@@ -23,6 +23,18 @@ export async function completeCurrentStageAction(formData: FormData): Promise<vo
   const nextOwnerUserId = String(formData.get('nextOwnerUserId') ?? '').trim() || null;
 
   if (!workInstanceId) throw new Error('Missing work instance');
+
+  // Server-side ownership check: the UI only shows the Complete control to the
+  // current stage's owner, but never trust the client. Re-load the instance
+  // (organization-scoped) and confirm the acting employee actually owns the
+  // current stage before completing it. Employees can only complete their own
+  // stages; anything else is rejected.
+  const instance = await loadEmployeeInstance(workInstanceId, actor.organizationId);
+  if (!instance) throw new Error('Work instance not found');
+  const current = instance.stages.find((s) => s.id === instance.currentStageId) ?? null;
+  if (!current || current.ownerUserId !== actor.userId) {
+    throw new Error('You can only complete a stage assigned to you');
+  }
 
   await work.completeCurrentStage({
     organizationId: actor.organizationId,
