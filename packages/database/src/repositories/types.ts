@@ -104,3 +104,30 @@ export interface CreateDomainEventInput {
   payload?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
+
+
+// Loop Event Gateway (PR #80) — input types for the immutable event store.
+export interface CreateLoopEventInput {
+  eventId: string;
+  platform: string;
+  site?: string | null;
+  eventType: string;
+  occurredAt: Date;
+  anonymousId?: string | null;
+  userId?: string | null;
+  sessionId?: string | null;
+  pageUrl?: string | null;
+  referrer?: string | null;
+  payload: Record<string, unknown>;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ListLoopEventsFilters {
+  platform?: string;
+  eventType?: string;
+  processed?: boolean;
+  anonymousId?: string;
+  userId?: string;
+  take?: number;
+  skip?: number;
+}
