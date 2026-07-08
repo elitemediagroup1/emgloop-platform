@@ -90,6 +90,7 @@ export async function completeCurrentStageAction(formData: FormData): Promise<vo
   if (!workInstanceId) throw new Error('Missing work instance');
 
   await work.completeCurrentStage({
+    organizationId: actor.organizationId,
     workInstanceId,
     completedByUserId: actor.userId,
     nextOwnerUserId,
@@ -111,6 +112,7 @@ export async function assignStageAction(formData: FormData): Promise<void> {
   if (!workStageId) throw new Error('Missing stage');
 
   await work.assignStage({
+    organizationId: actor.organizationId,
     workStageId,
     userId,
     assignedByUserId: actor.userId,
@@ -133,6 +135,7 @@ export async function addWorkCommentAction(formData: FormData): Promise<void> {
   if (!body) return;
 
   await work.addWorkComment({
+    organizationId: actor.organizationId,
     workInstanceId,
     workStageId,
     userId: actor.userId,
