@@ -122,7 +122,7 @@ export class WorkRepository {
         description: input.description ?? null,
         status: 'active',
         createdByUserId: input.createdByUserId,
-        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+        ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
       },
     });
   }
@@ -136,7 +136,7 @@ export class WorkRepository {
         position: input.position,
         defaultOwnerUserId: input.defaultOwnerUserId ?? null,
         requiresApproval: input.requiresApproval ?? false,
-        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+        ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
       },
     });
   }
@@ -179,7 +179,7 @@ export class WorkRepository {
           description: input.description ?? null,
           status: 'active',
           createdByUserId: input.createdByUserId,
-          metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+          ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
         },
       });
 
@@ -187,8 +187,7 @@ export class WorkRepository {
       // (2) First stage status = ready. (3) Others = pending.
       // (5) First owner = first stage default owner if set, else explicit owner.
       const createdStages: WorkStage[] = [];
-      for (let i = 0; i < blueprint.stages.length; i++) {
-        const bs = blueprint.stages[i];
+      for (const [i, bs] of blueprint.stages.entries()) {
         const isFirst = i === 0;
         const owner = isFirst
           ? bs.defaultOwnerUserId ?? input.firstOwnerUserId ?? null
@@ -212,6 +211,9 @@ export class WorkRepository {
       }
 
       const firstStage = createdStages[0];
+      if (!firstStage) {
+        throw new Error('Failed to create the first work stage');
+      }
 
       // (4) currentStageId = first WorkStage id.
       const updated = await tx.workInstance.update({
@@ -292,8 +294,7 @@ export class WorkRepository {
       }
 
       // (5) Next stage exists -> becomes ready.
-      const nextOwner =
-        input.nextOwnerUserId ?? next.ownerUserId ?? null;
+      const nextOwner = input.nextOwnerUserId ?? next.ownerUserId ?? null;
 
       await tx.workStage.update({
         where: { id: next.id },
@@ -508,13 +509,13 @@ export class WorkRepository {
 
   // tx is either the PrismaClient or a transaction client; both share this API.
   private async recordAssignment(
-    tx: PrismaClient | Parameters<Parameters<PrismaClient['$transaction']>[0]>[0],
+    tx: Prisma.TransactionClient | PrismaClient,
     workInstanceId: string,
     workStageId: string,
     userId: string,
     assignedByUserId: string | null,
   ): Promise<void> {
-    await (tx as PrismaClient).workAssignment.create({
+    await tx.workAssignment.create({
       data: {
         workInstanceId,
         workStageId,
@@ -525,11 +526,11 @@ export class WorkRepository {
   }
 
   private async displayName(
-    tx: PrismaClient | Parameters<Parameters<PrismaClient['$transaction']>[0]>[0],
+    tx: Prisma.TransactionClient | PrismaClient,
     userId: string,
   ): Promise<string> {
     try {
-      const user = await (tx as PrismaClient).user.findUnique({
+      const user = await tx.user.findUnique({
         where: { id: userId },
         select: { name: true, email: true },
       });
