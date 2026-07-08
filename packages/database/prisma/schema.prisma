@@ -1235,3 +1235,36 @@ model WorkComment {
   @@index([workInstanceId])
   @@map("work_comments")
 }
+
+
+// ---------------------------------------------------------------------------
+// Loop Event Gateway (PR #80)
+// Immutable inbound event store for InMyCity producer sites. Additive only:
+// no relations to existing core tables, no changes to existing models.
+// ---------------------------------------------------------------------------
+model LoopEvent {
+  id                String   @id @default(cuid())
+  eventId           String   @unique // producer-supplied idempotency key, e.g. "evt_..."
+  platform          String   // producer platform slug, e.g. "artistsinmycity"
+  site              String?  // originating site, e.g. "artistsinmycity.com"
+  eventType         String   // dotted event name, e.g. "artist.claimed_profile"
+  occurredAt        DateTime // when the event happened on the producer
+  receivedAt        DateTime @default(now()) // when Loop received it
+  anonymousId       String?
+  userId            String?
+  sessionId         String?
+  pageUrl           String?
+  referrer          String?
+  payload           Json     @default("{}")
+  metadata          Json     @default("{}")
+  processed         Boolean  @default(false)
+  processingVersion String?
+  createdAt         DateTime @default(now())
+
+  @@index([platform, eventType])
+  @@index([platform, occurredAt])
+  @@index([processed, receivedAt])
+  @@index([anonymousId])
+  @@index([userId])
+  @@map("loop_events")
+}
