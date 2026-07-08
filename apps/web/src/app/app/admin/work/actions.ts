@@ -41,6 +41,7 @@ export async function createBlueprintAction(formData: FormData): Promise<void> {
   let position = 1;
   for (const stageName of stageNames) {
     await work.createBlueprintStage({
+      organizationId: actor.organizationId,
       blueprintId: blueprint.id,
       name: stageName,
       position,
