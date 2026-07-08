@@ -9,7 +9,12 @@
 
 [build]
   # Install at the workspace root, then build just the web app and its deps.
-  command = "npm run build -- --filter=@emgloop/web"
+  # Apply any pending database migrations to the environment DATABASE_URL
+  # BEFORE building the web app, so the deployed Prisma client never queries
+  # tables that do not exist yet (prevents Prisma P2021 crashes like the
+  # Work OS "table does not exist" incident). migrate:deploy only applies
+  # already-committed migrations and is a no-op when the DB is already current.
+  command = "npm run migrate:deploy -w @emgloop/database && npm run build -- --filter=@emgloop/web"
   # Next.js build output for the web app.
   publish = "apps/web/.next"
 
