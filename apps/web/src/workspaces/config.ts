@@ -125,6 +125,7 @@ const EMPLOYEE_WORKSPACE: WorkspaceConfig = {
       label: 'My Work',
       items: [
         { href: '/app/employee', label: 'Dashboard', icon: 'grid' },
+        { href: '/app/employee/work', label: 'Work OS', icon: 'flow' },
         { href: '/app/employee/businesses', label: 'Assigned Businesses', icon: 'building' },
         { href: '/app/employee/creators', label: 'Assigned Creators', icon: 'star' },
         { href: '/app/employee/campaigns', label: 'Assigned Campaigns', icon: 'flow' },
