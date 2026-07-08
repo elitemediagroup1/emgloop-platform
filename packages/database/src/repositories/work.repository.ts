@@ -63,6 +63,7 @@ export interface CreateBlueprintInput {
 }
 
 export interface CreateBlueprintStageInput {
+  organizationId: string;
   blueprintId: string;
   name: string;
   description?: string | null;
@@ -131,6 +132,14 @@ export class WorkRepository {
   }
 
   async createBlueprintStage(input: CreateBlueprintStageInput): Promise<BlueprintStage> {
+    // Verify the blueprint belongs to the acting organization before mutating.
+    const blueprint = await this.prisma.blueprint.findUnique({
+      where: { id: input.blueprintId },
+      select: { organizationId: true },
+    });
+    if (!blueprint || blueprint.organizationId !== input.organizationId) {
+      throw new Error(`Blueprint not found: ${input.blueprintId}`);
+    }
     return this.prisma.blueprintStage.create({
       data: {
         blueprintId: input.blueprintId,
