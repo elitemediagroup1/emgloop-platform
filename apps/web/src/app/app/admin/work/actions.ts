@@ -38,12 +38,14 @@ export async function createBlueprintAction(formData: FormData): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  for (let i = 0; i < stageNames.length; i++) {
+  let position = 1;
+  for (const stageName of stageNames) {
     await work.createBlueprintStage({
       blueprintId: blueprint.id,
-      name: stageNames[i],
-      position: i + 1,
+      name: stageName,
+      position,
     });
+    position += 1;
   }
 
   revalidatePath(`${WORK_ROOT}/blueprints`);
