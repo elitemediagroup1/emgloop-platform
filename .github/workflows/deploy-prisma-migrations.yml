@@ -1,0 +1,40 @@
+name: Deploy Prisma Migrations
+
+# Permanent production migration workflow.
+# Runs `prisma migrate deploy` to apply any pending migrations to production.
+# Intended to be run AFTER the one-time baseline recovery bootstrap.
+# Manual trigger only — never runs automatically on push, PR, or schedule.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prisma-migrations
+  cancel-in-progress: false
+
+jobs:
+  deploy-migrations:
+    name: Deploy pending Prisma migrations
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx --yes prisma@5.22.0 validate --schema packages/database/prisma/schema.prisma
+
+      - name: Deploy pending migrations
+        run: npx --yes prisma@5.22.0 migrate deploy --schema packages/database/prisma/schema.prisma
+
+      - name: Print migration status
+        run: npx --yes prisma@5.22.0 migrate status --schema packages/database/prisma/schema.prisma
