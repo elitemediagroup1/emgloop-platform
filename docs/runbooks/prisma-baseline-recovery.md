@@ -124,3 +124,75 @@ auto-deploy pipeline **before** baselining would run `migrate deploy` against a
 database with no `_prisma_migrations`, re-triggering the original incident. Once
 baseline + Work OS are confirmed applied, merge #78 and add `migrate status` as
 a CI drift gate.
+
+
+## Running the recovery via the manual GitHub Actions workflow
+
+The recovery script can be run from GitHub Actions instead of a local machine.
+The workflow is `.github/workflows/prisma-baseline-recovery.yml`. It is
+**manual-only** (`workflow_dispatch`), has **no push / pull_request / schedule
+triggers**, and refuses to run unless the operator types an exact confirmation
+phrase. It uses the `DIRECT_DATABASE_URL` GitHub secret and never prints the
+connection string.
+
+### 1. Take a Neon branch/snapshot FIRST (required)
+
+> **WARNING:** This workflow modifies the production database schema. Before
+> running it, create a Neon branch or snapshot of the production database so you
+> can restore instantly if anything goes wrong. Do not proceed without a
+> restore point.
+
+In the Neon console: open the project, go to **Branches**, and create a branch
+from the current production branch (or take a snapshot/restore point). Note the
+branch/snapshot name in your incident log. Rollback = restore this
+branch/snapshot; existing tables are never modified by the script and
+`migrate deploy` runs in a transaction, so restoring returns production to its
+exact prior state.
+
+### 2. Add the `DIRECT_DATABASE_URL` repository secret
+
+The workflow reads the Neon **DIRECT (non-pooled)** connection string from a
+GitHub Actions secret. A human must add it (Claude does not handle credentials):
+
+1. Go to the repository **Settings -> Secrets and variables -> Actions**.
+2. Select the **Secrets** tab and click **New repository secret**.
+3. Name: `DIRECT_DATABASE_URL`
+4. Value: the Neon **direct/unpooled** connection string
+   (the host does **not** contain `-pooler`). Do not use the pooled endpoint.
+5. Click **Add secret**.
+
+The secret is masked in all workflow logs and is only exposed to the recovery
+step as an environment variable -- it is never echoed.
+
+### 3. Run the manual workflow
+
+1. Go to the **Actions** tab.
+2. In the left sidebar select **Prisma Baseline Recovery (manual)**.
+3. Click **Run workflow**.
+4. Choose branch `recovery/prisma-baseline-migrate` (or `main` once merged).
+5. In the **confirm** input, type this text **exactly**:
+
+   ```
+   I understand this will modify production database schema
+   ```
+
+6. Click **Run workflow**.
+
+If the confirmation text does not match exactly, the first step fails and no
+database change is attempted. On success the workflow runs the preflight checks,
+marks the two baseline migrations as applied, deploys the Work OS migration, and
+prints `prisma migrate status`.
+
+### 4. Verify afterward
+
+- The workflow run is green and the final **Print migration status** step shows
+  all migrations applied with **no pending migrations** and no drift.
+- Optionally run the checks in `## Verifying success` above against the database
+  (seven Work OS tables exist, indexes/FKs present, tables selectable).
+- Confirm the application no longer crashes querying `work_stages`.
+- If anything failed: restore the Neon branch/snapshot from step 1. Because the
+  script is guarded by `set -euo pipefail` and preflight aborts, a partial run
+  leaves existing data untouched; restoring the snapshot is the clean rollback.
+
+> This workflow is a one-off. Once baseline recovery has succeeded and
+> `migrate status` is clean in production, it does not need to run again.
