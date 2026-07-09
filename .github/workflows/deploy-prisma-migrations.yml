@@ -28,7 +28,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Validate Prisma schema
         run: npx --yes prisma@5.22.0 validate --schema packages/database/prisma/schema.prisma
