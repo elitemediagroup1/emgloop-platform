@@ -69,6 +69,9 @@ jobs:
       - name: Validate Prisma schema (pinned CLI 5.22.0)
         # Uses the repo's Prisma version, never the latest CLI. This proves the
         # workflow can parse and validate the schema before touching the DB.
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
         run: |
           set -euo pipefail
           npx --yes prisma@5.22.0 --version
@@ -78,6 +81,7 @@ jobs:
         env:
           # Provided via GitHub Actions secret. Must be the Neon DIRECT
           # (non-pooled) connection string. Never printed by the script.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
           DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
         run: |
           set -euo pipefail
@@ -86,8 +90,8 @@ jobs:
       - name: Print migration status
         if: always()
         env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
           DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
         run: |
           set -euo pipefail
-          export DATABASE_URL="$DIRECT_DATABASE_URL"
           npx --yes prisma@5.22.0 migrate status --schema packages/database/prisma/schema.prisma
