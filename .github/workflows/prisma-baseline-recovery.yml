@@ -1,0 +1,82 @@
+name: Prisma Baseline Recovery (manual)
+
+# =============================================================================
+# One-off, MANUAL recovery workflow.
+#
+# It transitions the brownfield production database into Prisma Migrate
+# management and applies the Work OS migration by running
+# scripts/recovery/baseline-and-migrate.sh.
+#
+# This workflow NEVER runs automatically. It has no push / pull_request
+# triggers. It only runs via workflow_dispatch, and only when the operator
+# types the exact confirmation phrase.
+#
+# See docs/runbooks/prisma-baseline-recovery.md before running.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: >-
+          Type exactly: I understand this will modify production database schema
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, or schedule: triggers here. This job must
+# only ever be started by a human via the Actions tab.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prisma-baseline-recovery
+  cancel-in-progress: false
+
+jobs:
+  baseline-recovery:
+    name: Baseline + Work OS recovery
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify confirmation phrase
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
+        run: |
+          set -euo pipefail
+          EXPECTED="I understand this will modify production database schema"
+          if [ "$CONFIRM" != "$EXPECTED" ]; then
+            echo "::error::Confirmation text did not match. Aborting."
+            echo "Expected exactly: $EXPECTED"
+            exit 1
+          fi
+          echo "Confirmation phrase accepted."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run baseline + Work OS recovery
+        env:
+          # Provided via GitHub Actions secret. Must be the Neon DIRECT
+          # (non-pooled) connection string. Never printed by the script.
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          bash scripts/recovery/baseline-and-migrate.sh
+
+      - name: Print migration status
+        if: always()
+        env:
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          export DATABASE_URL="$DIRECT_DATABASE_URL"
+          npx prisma migrate status --schema packages/database/prisma/schema.prisma
