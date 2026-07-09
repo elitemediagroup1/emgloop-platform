@@ -34,6 +34,11 @@ BASELINE_1="20250624000000_sprint_4_real_data_layer"
 BASELINE_2="20250626000000_sprint_11_provider_category_ingestion_analytics"
 WORK_OS="20260707000000_pr75_work_os_blueprint_runtime_v1"
 
+# Pin the Prisma CLI to the version this repo depends on (packages/database
+# declares prisma ^5.x). Using a bare "npx prisma" would download the latest
+# CLI (e.g. 7.x) and fail schema validation. Every Prisma call below uses this.
+PRISMA_VERSION="5.22.0"
+
 # ---- Required env vars ------------------------------------------------------
 # DIRECT_DATABASE_URL must be the Neon DIRECT (non-pooled) connection string.
 # Migrations must never run over the pooled endpoint.
@@ -78,17 +83,17 @@ export DIRECT_DATABASE_URL="$DIRECT_DATABASE_URL"
 # ---- Step 1: baseline — mark existing migrations as already applied ----------
 # Prisma computes and stores the REAL checksums. No fabrication, no fake values.
 echo "==> Marking $BASELINE_1 as applied"
-npx prisma migrate resolve --applied "$BASELINE_1" --schema "$SCHEMA"
+npx prisma@"$PRISMA_VERSION" migrate resolve --applied "$BASELINE_1" --schema "$SCHEMA"
 
 echo "==> Marking $BASELINE_2 as applied"
-npx prisma migrate resolve --applied "$BASELINE_2" --schema "$SCHEMA"
+npx prisma@"$PRISMA_VERSION" migrate resolve --applied "$BASELINE_2" --schema "$SCHEMA"
 
 # ---- Step 2: deploy — applies ONLY unapplied migrations (Work OS) ------------
 echo "==> Deploying unapplied migrations (expected: Work OS only)"
-npx prisma migrate deploy --schema "$SCHEMA"
+npx prisma@"$PRISMA_VERSION" migrate deploy --schema "$SCHEMA"
 
 # ---- Step 3: verify ---------------------------------------------------------
 echo "==> Migration status"
-npx prisma migrate status --schema "$SCHEMA"
+npx prisma@"$PRISMA_VERSION" migrate status --schema "$SCHEMA"
 
 echo "Recovery complete. Expected: 'Database schema is up to date', no drift."
