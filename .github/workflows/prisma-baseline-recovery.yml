@@ -61,7 +61,18 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        # The repo has no committed lockfile, so 'npm ci' cannot be used.
+        # 'npm install' resolves the workspace-declared Prisma (5.x). This step
+        # MUST complete before any Prisma command runs below.
+        run: npm install --no-audit --no-fund
+
+      - name: Validate Prisma schema (pinned CLI 5.22.0)
+        # Uses the repo's Prisma version, never the latest CLI. This proves the
+        # workflow can parse and validate the schema before touching the DB.
+        run: |
+          set -euo pipefail
+          npx --yes prisma@5.22.0 --version
+          npx --yes prisma@5.22.0 validate --schema packages/database/prisma/schema.prisma
 
       - name: Run baseline + Work OS recovery
         env:
@@ -79,4 +90,4 @@ jobs:
         run: |
           set -euo pipefail
           export DATABASE_URL="$DIRECT_DATABASE_URL"
-          npx prisma migrate status --schema packages/database/prisma/schema.prisma
+          npx --yes prisma@5.22.0 migrate status --schema packages/database/prisma/schema.prisma
