@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import './crm.css';
 import './sprint7.css';
 import './sprint8.css';
@@ -23,6 +24,12 @@ import { SidebarIcon } from './_brand/SidebarIcon';
 // Sprint 15 adds Live Operations (Live Activity / Calls / Website Feed) and
 // Traffic & Revenue Intelligence nav links — presentation only. Each linked
 // page enforces its own permission gate server-side (intelligence / analytics).
+//
+// Sprint 17.1 (UX): public auth screens (login, forgot/reset password,
+// accept-invite, unauthorized) render standalone — inside the .crm theme
+// wrapper but WITHOUT the sidebar/app-shell — so the redesigned login is a
+// true edge-to-edge front door for logged-out visitors. This is a
+// presentation-only branch; the session read and auth behavior are UNCHANGED.
 
 export const metadata = {
   title: 'EMG Loop — Operating System',
@@ -30,6 +37,22 @@ export const metadata = {
 
 type NavItem = { href: string; label: string; icon: string; soon?: boolean };
 type NavGroup = { label: string; items: NavItem[] };
+
+// Public routes that render without the authenticated app shell.
+const STANDALONE_PREFIXES = [
+  '/crm/login',
+  '/crm/forgot-password',
+  '/crm/reset-password',
+  '/crm/accept-invite',
+  '/crm/unauthorized',
+];
+
+function isStandalonePath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return STANDALONE_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(p + '/'),
+  );
+}
 
 const NAV: NavGroup[] = [
   {
@@ -94,6 +117,13 @@ export default async function CrmLayout({
   children: React.ReactNode;
 }) {
   const session = await getSession();
+  const pathname = headers().get('x-pathname');
+
+  // Public auth screens: standalone, no app shell (keeps the .crm theme wrapper
+  // so scoped auth styles still apply). Auth behavior is unchanged.
+  if (isStandalonePath(pathname)) {
+    return <div className="crm crm--standalone">{children}</div>;
+  }
 
   return (
     <div className="crm">

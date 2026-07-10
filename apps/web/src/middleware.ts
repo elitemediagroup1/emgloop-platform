@@ -5,6 +5,12 @@
 // real session resolution + permission checks happen server-side in the page
 // guards. Unauthenticated requests to a protected /crm route are redirected to
 // the login page with a ?next param. The auth screens are always public.
+//
+// Sprint 17.1 (UX): additionally forwards an x-pathname request header so the
+// CRM layout can render public auth screens (login, forgot/reset password,
+// accept-invite, unauthorized) as standalone pages without the app shell.
+// This is presentation-only plumbing — the auth gate / redirect logic below
+// is UNCHANGED.
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -18,14 +24,20 @@ const PUBLIC_PATHS = [
   '/crm/unauthorized',
 ];
 
+function withPathname(req: NextRequest) {
+  const headers = new Headers(req.headers);
+  headers.set('x-pathname', req.nextUrl.pathname);
+  return NextResponse.next({ request: { headers } });
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (!pathname.startsWith('/crm')) return NextResponse.next();
+  if (!pathname.startsWith('/crm')) return withPathname(req);
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
-    return NextResponse.next();
+    return withPathname(req);
   }
   const hasSession = Boolean(req.cookies.get(SESSION_COOKIE)?.value);
-  if (hasSession) return NextResponse.next();
+  if (hasSession) return withPathname(req);
   const url = req.nextUrl.clone();
   url.pathname = '/crm/login';
   url.search = '?next=' + encodeURIComponent(pathname);
