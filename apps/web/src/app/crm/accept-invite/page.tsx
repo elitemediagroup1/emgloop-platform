@@ -32,7 +32,7 @@ async function resolveInvite(rawToken: string | undefined): Promise<InviteState>
     return { kind: 'missing' };
   }
 
-  const { iam, organizations } = await repositories();
+  const { iam, organizations } = repositories;
 
   // Never trust client-provided email/org/role. Everything is derived from the
   // token server-side. findInvitationByToken only returns PENDING invitations,
