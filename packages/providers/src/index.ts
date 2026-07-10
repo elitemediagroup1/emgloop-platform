@@ -145,3 +145,16 @@ export type {
     ScenarioResult as CallGridWebhookScenarioResult,
     VerificationReport as CallGridWebhookVerificationReport,
 } from './callgrid-webhook-verification';
+
+// Sprint (PR-1) — Transactional email (Resend).
+// Expose the shared EmailProvider interface types, the Resend adapter, and the
+// existing mock so hosts can send transactional email through the abstraction.
+export type {
+  EmailProvider,
+  EmailAddress,
+  EmailAttachment,
+  SendEmailRequest,
+  SendEmailResult,
+} from './interfaces/email.provider';
+export { ResendEmailProvider } from './adapters/resend-email.provider';
+export { MockEmailProvider } from './mocks/mock-email.provider';
