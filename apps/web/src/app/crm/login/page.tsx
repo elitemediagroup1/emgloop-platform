@@ -4,6 +4,10 @@
 // Creators). Auth logic, action, session and redirect below are UNCHANGED
 // from Sprint 13 — only layout, copy, and onboarding choices were redesigned.
 //
+// Sprint 17.1 (launch safety): Business & Creator are shown as non-interactive
+// "Coming soon" cards (no links, no routes). Only the Employee card is
+// actionable and links to the real invitation acceptance page.
+//
 // Email/password sign-in for the operations console. On submit, the
 // loginAction verifies the password (scrypt) and sets the session cookie.
 
@@ -25,14 +29,25 @@ const CAPABILITIES = [
   'Intelligence',
 ];
 
-const ONBOARDING = [
+type Onboard = {
+  icon: string;
+  key: string;
+  title: string;
+  desc: string;
+  cta: string;
+  href?: string;
+  available: boolean;
+  note?: string;
+};
+
+const ONBOARDING: Onboard[] = [
   {
     icon: '🏢',
     key: 'business',
     title: 'Business',
     desc: 'Run your company with CRM, Work OS, AI Employees, automation, and customer management.',
     cta: 'Start a Business Workspace',
-    href: '#',
+    available: false,
   },
   {
     icon: '🎨',
@@ -40,7 +55,7 @@ const ONBOARDING = [
     title: 'Creator',
     desc: 'Build your creator profile, publish work, collaborate with brands, and grow your audience.',
     cta: 'Join as a Creator',
-    href: '#',
+    available: false,
   },
   {
     icon: '👥',
@@ -49,6 +64,8 @@ const ONBOARDING = [
     desc: "Joining an existing company? Use the invitation your administrator sent you.",
     cta: 'Accept Invitation',
     href: '/crm/accept-invite',
+    available: true,
+    note: 'Invitation-based access',
   },
 ];
 
@@ -64,7 +81,7 @@ export default async function LoginPage({
   return (
     <div className="loop-auth">
       {/* Left — marketing / brand */}
-      <aside className="loop-auth__brand" aria-hidden="false">
+      <aside className="loop-auth__brand">
         <div className="loop-auth__brand-top">
           <EmgLoopWordmark height={30} />
         </div>
@@ -135,20 +152,34 @@ export default async function LoginPage({
               <p className="loop-auth__onboard-sub">Choose how you'll use Loop.</p>
             </div>
             <div className="loop-auth__cards">
-              {ONBOARDING.map((o) => (
-                <Link
-                  key={o.key}
-                  href={o.href}
-                  className="loop-auth__choice"
-                  aria-label={o.cta}
-                  {...(o.href === '#' ? { 'aria-disabled': 'true', tabIndex: 0 } : {})}
-                >
-                  <span className="loop-auth__choice-icon" aria-hidden="true">{o.icon}</span>
-                  <span className="loop-auth__choice-title">{o.title}</span>
-                  <span className="loop-auth__choice-desc">{o.desc}</span>
-                  <span className="loop-auth__choice-cta">{o.cta}</span>
-                </Link>
-              ))}
+              {ONBOARDING.map((o) =>
+                o.available && o.href ? (
+                  <Link
+                    key={o.key}
+                    href={o.href}
+                    className="loop-auth__choice"
+                    aria-label={o.cta}
+                  >
+                    <span className="loop-auth__choice-icon" aria-hidden="true">{o.icon}</span>
+                    <span className="loop-auth__choice-title">{o.title}</span>
+                    <span className="loop-auth__choice-desc">{o.desc}</span>
+                    {o.note ? <span className="loop-auth__choice-note">{o.note}</span> : null}
+                    <span className="loop-auth__choice-cta">{o.cta}</span>
+                  </Link>
+                ) : (
+                  <div
+                    key={o.key}
+                    className="loop-auth__choice loop-auth__choice--soon"
+                    aria-disabled="true"
+                  >
+                    <span className="loop-auth__choice-badge">Coming soon</span>
+                    <span className="loop-auth__choice-icon" aria-hidden="true">{o.icon}</span>
+                    <span className="loop-auth__choice-title">{o.title}</span>
+                    <span className="loop-auth__choice-desc">{o.desc}</span>
+                    <span className="loop-auth__choice-cta loop-auth__choice-cta--muted">{o.cta}</span>
+                  </div>
+                )
+              )}
             </div>
           </section>
         </div>
