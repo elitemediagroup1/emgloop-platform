@@ -302,3 +302,43 @@
   .crm .loop-auth__choice { transition: none; }
   .crm .loop-auth__choice:hover { transform: none; }
 }
+
+/* ---- Sprint 17.1: "Coming soon" non-interactive cards (Business/Creator) ---- */
+.crm .loop-auth__choice--soon {
+  position: relative;
+  cursor: default;
+  opacity: 0.8;
+}
+/* No hover/lift/pointer affordance — these are not actionable yet. */
+.crm .loop-auth__choice--soon:hover {
+  border-color: var(--crm-border, #262a33);
+  background: rgba(255,255,255,0.02);
+  transform: none;
+}
+.crm .loop-auth__choice-badge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #b9c0d0;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+.crm .loop-auth__choice-cta--muted {
+  color: var(--crm-faint, #8b93a7);
+}
+.crm .loop-auth__choice--soon:hover .loop-auth__choice-cta--muted {
+  color: var(--crm-faint, #8b93a7);
+}
+.crm .loop-auth__choice-note {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #9aa2b4;
+  text-transform: uppercase;
+}
