@@ -37,7 +37,7 @@ function isProduction(): boolean {
 /** Parses a "Name <email@host>" or bare "email@host" string into EmailAddress. */
 function parseAddress(raw: string): EmailAddress {
   const m = raw.match(/^\s*(.*?)\s*<\s*([^>]+)\s*>\s*$/);
-  if (m) return { name: m[1] || undefined, email: m[2] };
+  if (m) return { name: m[1] || undefined, email: m[2]! };
   return { email: raw.trim() };
 }
 
