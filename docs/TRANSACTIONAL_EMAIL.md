@@ -96,3 +96,104 @@ invite/reset tokens, or complete token-bearing URLs.
 
 Do not commit real keys. Do not paste tokens or full reset/invite URLs into
 logs, tickets, or chat.
+
+
+## Invitation URL format
+
+Invitation emails link to the invitation acceptance route:
+
+```
+${NEXT_PUBLIC_APP_URL}/crm/accept-invite?token=<plaintext invitation token>
+```
+
+The plaintext token appears **only** in the URL query string and in the server-side
+form submission that accepts the invitation. It is never logged. Only the hashed
+token (`hashToken(token)`) is stored, matching the existing invitation storage.
+
+The password reset email links to the existing reset route:
+
+```
+${NEXT_PUBLIC_APP_URL}/crm/reset-password?token=<plaintext reset token>
+```
+
+Both routes and their `token` query parameter were confirmed against the actual
+Next.js app router source (Next 14, synchronous `searchParams`).
+
+## Invitation acceptance route
+
+Route: `/crm/accept-invite` (server component, `apps/web/src/app/crm/accept-invite/page.tsx`).
+Server action: `acceptInviteAction` in `apps/web/src/auth/actions.ts`.
+
+The page derives all invitation details (email, organization, role) from the token
+server-side via `iam.findInvitationByToken(hashToken(token))`. Client form fields
+cannot influence which invitation is accepted; only the full name and password are
+taken from the form.
+
+### States handled
+
+- **Valid** — shows the invited email, organization name (if available) and role,
+  plus a form (full name, password, confirm password) and the primary button
+  "Create account and join EMG Loop".
+- **Missing token** — treated as an invalid link.
+- **Invalid / revoked / already accepted** — `findInvitationByToken` only returns
+  `PENDING` invitations, so revoked and already-accepted links resolve to a generic
+  "invalid or no longer active" message with no internal details. The user is
+  directed to sign in or to request a new invitation.
+- **Expired** — when `expiresAt` is in the past, an "expired" message is shown and
+  the user is directed to ask an administrator for a new invitation.
+- **Submission failure** — validation errors (missing name, password too short,
+  passwords do not match) redirect back to the form with a safe `error` message on
+  the query string; the token is preserved so the form still works. Provider and
+  database internals are never shown.
+
+### Acceptance behavior
+
+On a valid submission the action:
+
+1. Re-validates the token server-side and checks expiry.
+2. Reuses the existing user record created at invite time (looked up by
+   organization + email) so a single invitation can never create more than one
+   account. If no record exists it creates one from the stored invitation's
+   organization and role.
+3. Hashes the password with the existing `hashPassword` (scrypt) and stores it via
+   the existing auth repository, then activates the user.
+4. Marks the invitation `ACCEPTED` via `acceptInvitation`. Because the status leaves
+   `PENDING`, reopening the same link cannot create a second account.
+5. Establishes a normal session using the existing `login()` helper (no second
+   session system) and redirects to `/crm`. If session creation cannot complete,
+   the user is redirected to `/crm/login` with a success message.
+
+Password policy: minimum 8 characters, matching the existing password reset flow.
+
+## Delivery-failure behavior
+
+Invitation creation and email delivery are intentionally **not** wrapped in a
+distributed rollback (the repository does not provide one). For this integration:
+
+- `createInvitation` (and the invite-time user record) may remain valid even if the
+  Resend send fails.
+- A delivery failure surfaces as a clear server-side error to the admin action; the
+  invitation is not silently reported as delivered.
+- The admin can revoke and reissue, or resend, using the existing invitation
+  management. Error handling never creates a duplicate invitation automatically.
+
+Missing configuration follows the existing rule: in production a missing
+`RESEND_API_KEY` throws a clear server error (never a false "sent"); in
+non-production it logs a safe warning and skips sending without exposing secrets or
+tokens.
+
+## Manual end-to-end test (must be executed by a human; not yet run)
+
+1. As an admin, invite an alternate email address from the CRM users screen.
+2. Confirm the email arrives from `Loop <loop@emgloop.com>`.
+3. Confirm replies target `matt@elitemediagroup.io`.
+4. Click the invite CTA and confirm it opens `/crm/accept-invite`.
+5. Enter a full name and a password (>= 8 chars, matching confirmation).
+6. Submit and confirm the account is created under the correct organization and
+   role.
+7. Confirm the invitation now shows as accepted.
+8. Confirm you are signed in (or can sign in) as the new user.
+9. Reopen the same invite link and confirm it can no longer create another account
+   (shows invalid / no longer active).
+10. Trigger a password reset for the same user, confirm the reset email arrives, and
+    confirm its link completes a successful reset at `/crm/reset-password`.
