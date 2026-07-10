@@ -19,6 +19,7 @@ import {
   getSession,
 } from './auth';
 import { ensureCrmIdentity } from './bootstrap';
+import { sendPasswordResetEmail } from '../lib/email/email-service';
 
 export async function loginAction(formData: FormData): Promise<void> {
   await ensureCrmIdentity();
@@ -85,6 +86,12 @@ export async function requestResetAction(formData: FormData): Promise<void> {
       entityType: 'user',
       entityId: user.id,
     });
+    // PR-1: send the reset email INSIDE the user-found branch only, preserving
+    // anti-enumeration (nothing is sent or revealed when the account does not
+    // exist). Uses the plaintext token; only the hash is persisted.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const resetUrl = `${appUrl}/crm/reset-password?token=${encodeURIComponent(token)}`;
+    await sendPasswordResetEmail({ to: user.email, name: user.name ?? undefined, resetUrl });
     redirect('/crm/forgot-password?sent=1&token=' + token);
   }
   redirect('/crm/forgot-password?sent=1');
