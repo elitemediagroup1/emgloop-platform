@@ -123,3 +123,85 @@ export async function resetPasswordAction(formData: FormData): Promise<void> {
   });
   redirect('/crm/login?reset=1');
 }
+export async function acceptInviteAction(formData: FormData) {
+  const rawToken = String(formData.get('token') ?? '').trim();
+  const name = String(formData.get('name') ?? '').trim();
+  const password = String(formData.get('password') ?? '');
+  const confirm = String(formData.get('confirm') ?? '');
+
+  // Preserve the token on the URL for redirects back to the form.
+  const backToForm = (message: string) =>
+    redirect(
+      '/crm/accept-invite?token=' +
+        encodeURIComponent(rawToken) +
+        '&error=' +
+        encodeURIComponent(message),
+    );
+
+  if (!rawToken) {
+    redirect('/crm/login?error=' + encodeURIComponent('Invalid invitation link'));
+  }
+  if (!name) {
+    backToForm('Please enter your full name');
+  }
+  if (password.length < 8) {
+    backToForm('Password must be at least 8 characters');
+  }
+  if (password !== confirm) {
+    backToForm('Passwords do not match');
+  }
+
+  const { iam, auth } = await repositories();
+
+  // Derive the invitation entirely from the token (never trust client fields).
+  const invitation = await iam.findInvitationByToken(hashToken(rawToken));
+  if (!invitation) {
+    // Covers unknown, already-accepted, revoked and consumed tokens.
+    redirect(
+      '/crm/login?error=' +
+        encodeURIComponent('This invitation link is invalid or is no longer active'),
+    );
+  }
+
+  if (invitation.expiresAt.getTime() < Date.now()) {
+    redirect(
+      '/crm/login?error=' +
+        encodeURIComponent('This invitation has expired. Please ask an administrator for a new one'),
+    );
+  }
+
+  // The invited employee's user record is created at invite time. Reuse it so a
+  // single invitation can never create more than one account.
+  const existing = await auth.findUserByEmail(invitation.organizationId, invitation.email);
+  const passwordHash = await hashPassword(password);
+
+  let userEmail = invitation.email;
+  if (existing) {
+    await auth.setPasswordHash(existing.id, passwordHash);
+    await iam.activateUser(invitation.organizationId, existing.id);
+    userEmail = existing.email;
+  } else {
+    const created = await iam.createUser({
+      organizationId: invitation.organizationId,
+      email: invitation.email,
+      name: name || undefined,
+      systemRole: invitation.systemRole,
+      passwordHash,
+    });
+    await iam.activateUser(invitation.organizationId, created.id);
+    userEmail = created.email;
+  }
+
+  // Mark the invitation accepted (idempotent: status flips out of PENDING so the
+  // same link cannot create a second account).
+  await iam.acceptInvitation(invitation.id);
+
+  // Establish a normal session using the existing auth/session logic. Never
+  // invent a second session system.
+  const result = await login({ email: userEmail, password });
+  if (!result.ok) {
+    redirect('/crm/login?message=' + encodeURIComponent('Your account is ready. Please sign in.'));
+  }
+
+  redirect('/crm');
+}
