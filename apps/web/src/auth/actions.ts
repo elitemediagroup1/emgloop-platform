@@ -1,6 +1,6 @@
 'use server';
 
-// Auth server actions — Sprint 7 (Identity, Authentication & Organizations).
+// Auth server actions â Sprint 7 (Identity, Authentication & Organizations).
 //
 // Form actions for the login / logout / forgot-password / reset-password flows.
 // Email + password only. Every action goes through the auth core (which uses
@@ -151,7 +151,7 @@ export async function acceptInviteAction(formData: FormData) {
     backToForm('Passwords do not match');
   }
 
-  const { iam, auth } = await repositories();
+  const { iam, auth } = repositories;
 
   // Derive the invitation entirely from the token (never trust client fields).
   const invitation = await iam.findInvitationByToken(hashToken(rawToken));
@@ -173,7 +173,7 @@ export async function acceptInviteAction(formData: FormData) {
   // The invited employee's user record is created at invite time. Reuse it so a
   // single invitation can never create more than one account.
   const existing = await auth.findUserByEmail(invitation.organizationId, invitation.email);
-  const passwordHash = await hashPassword(password);
+  const passwordHash = hashPassword(password);
 
   let userEmail = invitation.email;
   if (existing) {
