@@ -1,6 +1,6 @@
 'use server';
 
-// Auth server actions — Sprint 7 (Identity, Authentication & Organizations).
+// Auth server actions â Sprint 7 (Identity, Authentication & Organizations).
 //
 // Form actions for the login / logout / forgot-password / reset-password flows.
 // Email + password only. Every action goes through the auth core (which uses
@@ -19,6 +19,7 @@ import {
   getSession,
 } from './auth';
 import { ensureCrmIdentity } from './bootstrap';
+import { sendPasswordResetEmail } from '../lib/email/email-service';
 
 export async function loginAction(formData: FormData): Promise<void> {
   await ensureCrmIdentity();
@@ -85,6 +86,12 @@ export async function requestResetAction(formData: FormData): Promise<void> {
       entityType: 'user',
       entityId: user.id,
     });
+    // PR-1: send the reset email INSIDE the user-found branch only, preserving
+    // anti-enumeration (nothing is sent or revealed when the account does not
+    // exist). Uses the plaintext token; only the hash is persisted.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const resetUrl = `${appUrl}/crm/reset-password?token=${encodeURIComponent(token)}`;
+    await sendPasswordResetEmail({ to: user.email, name: user.name ?? undefined, resetUrl });
     redirect('/crm/forgot-password?sent=1&token=' + token);
   }
   redirect('/crm/forgot-password?sent=1');
@@ -115,4 +122,86 @@ export async function resetPasswordAction(formData: FormData): Promise<void> {
     entityId: consumed!.userId,
   });
   redirect('/crm/login?reset=1');
+}
+export async function acceptInviteAction(formData: FormData) {
+  const rawToken = String(formData.get('token') ?? '').trim();
+  const name = String(formData.get('name') ?? '').trim();
+  const password = String(formData.get('password') ?? '');
+  const confirm = String(formData.get('confirm') ?? '');
+
+  // Preserve the token on the URL for redirects back to the form.
+  const backToForm = (message: string) =>
+    redirect(
+      '/crm/accept-invite?token=' +
+        encodeURIComponent(rawToken) +
+        '&error=' +
+        encodeURIComponent(message),
+    );
+
+  if (!rawToken) {
+    redirect('/crm/login?error=' + encodeURIComponent('Invalid invitation link'));
+  }
+  if (!name) {
+    backToForm('Please enter your full name');
+  }
+  if (password.length < 8) {
+    backToForm('Password must be at least 8 characters');
+  }
+  if (password !== confirm) {
+    backToForm('Passwords do not match');
+  }
+
+  const { iam, auth } = repositories;
+
+  // Derive the invitation entirely from the token (never trust client fields).
+  const invitation = await iam.findInvitationByToken(hashToken(rawToken));
+  if (!invitation) {
+    // Covers unknown, already-accepted, revoked and consumed tokens.
+    redirect(
+      '/crm/login?error=' +
+        encodeURIComponent('This invitation link is invalid or is no longer active'),
+    );
+  }
+
+  if (invitation.expiresAt.getTime() < Date.now()) {
+    redirect(
+      '/crm/login?error=' +
+        encodeURIComponent('This invitation has expired. Please ask an administrator for a new one'),
+    );
+  }
+
+  // The invited employee's user record is created at invite time. Reuse it so a
+  // single invitation can never create more than one account.
+  const existing = await auth.findUserByEmail(invitation.organizationId, invitation.email);
+  const passwordHash = hashPassword(password);
+
+  let userEmail = invitation.email;
+  if (existing) {
+    await auth.setPasswordHash(existing.id, passwordHash);
+    await iam.activateUser(invitation.organizationId, existing.id);
+    userEmail = existing.email;
+  } else {
+    const created = await iam.createUser({
+      organizationId: invitation.organizationId,
+      email: invitation.email,
+      name: name || undefined,
+      systemRole: invitation.systemRole,
+      passwordHash,
+    });
+    await iam.activateUser(invitation.organizationId, created.id);
+    userEmail = created.email;
+  }
+
+  // Mark the invitation accepted (idempotent: status flips out of PENDING so the
+  // same link cannot create a second account).
+  await iam.acceptInvitation(invitation.id);
+
+  // Establish a normal session using the existing auth/session logic. Never
+  // invent a second session system.
+  const result = await login({ email: userEmail, password });
+  if (!result.ok) {
+    redirect('/crm/login?message=' + encodeURIComponent('Your account is ready. Please sign in.'));
+  }
+
+  redirect('/crm');
 }
