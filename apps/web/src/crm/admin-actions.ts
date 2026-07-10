@@ -16,6 +16,7 @@ import { repositories } from '@emgloop/database';
 import { SystemRole } from '@emgloop/database';
 import { newToken, hashToken } from '../auth/auth';
 import { requirePermission } from '../auth/guard';
+import { sendInviteEmail } from '../lib/email/email-service';
 
 function parseRole(v: unknown): SystemRole {
   const s = String(v ?? '');
@@ -47,6 +48,10 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
     tokenHash: hashToken(token),
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   });
+  // PR-1: send the invitation email using the plaintext token (only the hash is stored).
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+  const inviteUrl = `${appUrl}/crm/accept-invite?token=${encodeURIComponent(token)}`;
+  await sendInviteEmail({ to: email, name: name || undefined, inviteUrl });
   await repositories.audit.record({
     organizationId: session.organizationId,
     userId: session.userId,
