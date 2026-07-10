@@ -1,4 +1,4 @@
-/* Sprint 7 — Identity, Authentication & Organizations.
+/* Sprint 7 â Identity, Authentication & Organizations.
    Additive styles scoped under .crm for the auth screens, settings, and the
    admin tables (users, organizations, AI employees, audit). Extends the
    Sprint 5/6 dark operations theme; nothing here leaks outside .crm. */
@@ -140,3 +140,165 @@
 /* Account chip in the top bar */
 .crm .crm-account { display:flex; align-items:center; gap:10px; font-size:12.5px; color: var(--crm-faint,#8b93a7); }
 .crm .crm-account .who { color: var(--crm-text,#e6e8ee); font-weight:600; }
+
+
+/* =========================================================================
+   Sprint 17 — Authentication Experience Redesign (UX only)
+   Split-screen "front door" for the Loop ecosystem. Scoped under .crm so it
+   never leaks outside the console. No auth/session/logic changes — these are
+   purely presentational styles for /crm/login.
+   ========================================================================= */
+
+.crm .loop-auth {
+  min-height: calc(100vh - 56px);
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  background: var(--crm-bg, #0d0f14);
+}
+
+/* ---- Left / brand ---- */
+.crm .loop-auth__brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 56px 56px 40px;
+  background:
+    radial-gradient(1200px 600px at 12% -10%, rgba(124,92,255,0.20), transparent 60%),
+    radial-gradient(900px 500px at 90% 110%, rgba(80,120,255,0.14), transparent 55%),
+    linear-gradient(160deg, #0b0d12 0%, #0e1119 60%, #0b0d12 100%);
+  border-right: 1px solid var(--crm-border, #262a33);
+  overflow: hidden;
+}
+.crm .loop-auth__brand-top { position: relative; z-index: 1; }
+.crm .loop-auth__brand-body { position: relative; z-index: 1; max-width: 460px; }
+.crm .loop-auth__headline {
+  font-size: clamp(30px, 3.4vw, 48px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  margin: 0 0 20px;
+  color: #f4f5fa;
+}
+.crm .loop-auth__lede {
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--crm-faint, #8b93a7);
+  margin: 0 0 30px;
+  max-width: 420px;
+}
+.crm .loop-auth__caps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.crm .loop-auth__cap {
+  font-size: 13px;
+  font-weight: 500;
+  color: #d7dbe6;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(6px);
+}
+.crm .loop-auth__brand-foot { position: relative; z-index: 1; opacity: 0.65; }
+
+/* ---- Right / panel ---- */
+.crm .loop-auth__panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 56px 40px;
+  overflow-y: auto;
+}
+.crm .loop-auth__panel-inner {
+  width: 100%;
+  max-width: 440px;
+  margin: auto 0;
+}
+.crm .loop-auth__mobile-brand { display: none; margin-bottom: 24px; }
+
+.crm .loop-auth__card {
+  background: var(--crm-panel, #14161c);
+  border: 1px solid var(--crm-border, #262a33);
+  border-radius: 16px;
+  padding: 32px 30px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+}
+.crm .loop-auth__title { font-size: 22px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+.crm .loop-auth__sub { color: var(--crm-faint, #8b93a7); font-size: 14px; margin: 0 0 22px; }
+
+.crm .loop-auth__links {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  font-size: 13.5px;
+}
+.crm .loop-auth__links a { color: var(--crm-accent, #7c5cff); text-decoration: none; }
+.crm .loop-auth__links a:hover { text-decoration: underline; }
+.crm .loop-auth__links a:focus-visible {
+  outline: 2px solid var(--crm-accent, #7c5cff);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---- Onboarding choices ---- */
+.crm .loop-auth__onboard { margin-top: 34px; }
+.crm .loop-auth__onboard-head { margin-bottom: 16px; }
+.crm .loop-auth__onboard-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+.crm .loop-auth__onboard-sub { font-size: 13.5px; color: var(--crm-faint, #8b93a7); margin: 0; }
+.crm .loop-auth__cards { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.crm .loop-auth__choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--crm-border, #262a33);
+  background: rgba(255,255,255,0.02);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.crm .loop-auth__choice:hover {
+  border-color: rgba(124,92,255,0.55);
+  background: rgba(124,92,255,0.06);
+  transform: translateY(-1px);
+}
+.crm .loop-auth__choice:focus-visible {
+  outline: 2px solid var(--crm-accent, #7c5cff);
+  outline-offset: 2px;
+}
+.crm .loop-auth__choice-icon { font-size: 22px; line-height: 1; }
+.crm .loop-auth__choice-title { font-size: 15px; font-weight: 650; color: #eef0f6; }
+.crm .loop-auth__choice-desc { font-size: 12.8px; line-height: 1.5; color: var(--crm-faint, #8b93a7); }
+.crm .loop-auth__choice-cta {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--crm-accent, #7c5cff);
+}
+.crm .loop-auth__choice:hover .loop-auth__choice-cta { color: #a48bff; }
+
+/* ---- Responsive: stack, login first ---- */
+@media (max-width: 900px) {
+  .crm .loop-auth { grid-template-columns: 1fr; }
+  .crm .loop-auth__brand { display: none; }
+  .crm .loop-auth__mobile-brand { display: block; }
+  .crm .loop-auth__panel { padding: 32px 20px; }
+}
+@media (max-width: 480px) {
+  .crm .loop-auth__card { padding: 24px 20px; }
+  .crm .loop-auth__panel { padding: 24px 14px; }
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .crm .loop-auth__choice { transition: none; }
+  .crm .loop-auth__choice:hover { transform: none; }
+}
