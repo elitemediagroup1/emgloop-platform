@@ -20,54 +20,8 @@ import { EmgLoopWordmark, EliteMediaGroupMark } from '../_brand/Logos';
 
 export const dynamic = 'force-dynamic';
 
-const CAPABILITIES = [
-  'CRM',
-  'Work OS',
-  'AI Employees',
-  'Marketplace',
-  'Automation',
-  'Intelligence',
-];
 
-type Onboard = {
-  icon: string;
-  key: string;
-  title: string;
-  desc: string;
-  cta: string;
-  href?: string;
-  available: boolean;
-  note?: string;
-};
 
-const ONBOARDING: Onboard[] = [
-  {
-    icon: '🏢',
-    key: 'business',
-    title: 'Business',
-    desc: 'Run your company with CRM, Work OS, AI Employees, automation, and customer management.',
-    cta: 'Start a Business Workspace',
-    available: false,
-  },
-  {
-    icon: '🎨',
-    key: 'creator',
-    title: 'Creator',
-    desc: 'Build your creator profile, publish work, collaborate with brands, and grow your audience.',
-    cta: 'Join as a Creator',
-    available: false,
-  },
-  {
-    icon: '👥',
-    key: 'employee',
-    title: 'Employee',
-    desc: "Joining an existing company? Use the invitation your administrator sent you.",
-    cta: 'Accept Invitation',
-    href: '/crm/accept-invite',
-    available: true,
-    note: 'Invitation-based access',
-  },
-];
 
 export default async function LoginPage({
   searchParams,
@@ -87,20 +41,17 @@ export default async function LoginPage({
         </div>
         <div className="loop-auth__brand-body">
           <h2 className="loop-auth__headline">
-            One Operating System.
-            <br />Every Business.
-            <br />Every Employee.
-            <br />Every Creator.
+            Run your business.
+            <br />Keep your team moving.
           </h2>
           <p className="loop-auth__lede">
-            The front door to the entire Loop ecosystem — where businesses,
-            employees, creators, and AI work together.
+            CRM, work management, automation, and intelligence&mdash;all
+            connected in Loop.
           </p>
-          <ul className="loop-auth__caps" aria-label="Loop platform capabilities">
-            {CAPABILITIES.map((c) => (
-              <li key={c} className="loop-auth__cap">{c}</li>
-            ))}
-          </ul>
+          <p className="loop-auth__statement">
+            Understand what is happening. Assign what comes next. Keep every
+            workflow moving.
+          </p>
         </div>
         <div className="loop-auth__brand-foot">
           <EliteMediaGroupMark height={16} />
@@ -142,45 +93,40 @@ export default async function LoginPage({
 
             <div className="loop-auth__links">
               <Link href="/crm/forgot-password">Forgot password?</Link>
-              <Link href="/dashboard">Back to dashboard</Link>
             </div>
           </section>
 
           <section className="loop-auth__onboard" aria-labelledby="loop-onboard-title">
             <div className="loop-auth__onboard-head">
               <h2 id="loop-onboard-title" className="loop-auth__onboard-title">New to Loop?</h2>
-              <p className="loop-auth__onboard-sub">Choose how you'll use Loop.</p>
+              <p className="loop-auth__onboard-sub">Choose the access that fits you.</p>
             </div>
-            <div className="loop-auth__cards">
-              {ONBOARDING.map((o) =>
-                o.available && o.href ? (
-                  <Link
-                    key={o.key}
-                    href={o.href}
-                    className="loop-auth__choice"
-                    aria-label={o.cta}
-                  >
-                    <span className="loop-auth__choice-icon" aria-hidden="true">{o.icon}</span>
-                    <span className="loop-auth__choice-title">{o.title}</span>
-                    <span className="loop-auth__choice-desc">{o.desc}</span>
-                    {o.note ? <span className="loop-auth__choice-note">{o.note}</span> : null}
-                    <span className="loop-auth__choice-cta">{o.cta}</span>
-                  </Link>
-                ) : (
-                  <div
-                    key={o.key}
-                    className="loop-auth__choice loop-auth__choice--soon"
-                    aria-disabled="true"
-                  >
-                    <span className="loop-auth__choice-badge">Coming soon</span>
-                    <span className="loop-auth__choice-icon" aria-hidden="true">{o.icon}</span>
-                    <span className="loop-auth__choice-title">{o.title}</span>
-                    <span className="loop-auth__choice-desc">{o.desc}</span>
-                    <span className="loop-auth__choice-cta loop-auth__choice-cta--muted">{o.cta}</span>
-                  </div>
-                )
-              )}
-            </div>
+            <ul className="loop-auth__access" role="list">
+              <li className="loop-auth__row loop-auth__row--soon" aria-disabled="true">
+                <div className="loop-auth__row-main">
+                  <span className="loop-auth__row-title">Business workspace</span>
+                  <span className="loop-auth__row-desc">Create and operate your company in Loop.</span>
+                </div>
+                <span className="loop-auth__row-badge">Coming soon</span>
+              </li>
+              <li className="loop-auth__row loop-auth__row--soon" aria-disabled="true">
+                <div className="loop-auth__row-main">
+                  <span className="loop-auth__row-title">Creator workspace</span>
+                  <span className="loop-auth__row-desc">Manage your profile, collaborations, and opportunities.</span>
+                </div>
+                <span className="loop-auth__row-badge">Coming soon</span>
+              </li>
+              <li className="loop-auth__row loop-auth__row--action">
+                <Link href="/crm/accept-invite" className="loop-auth__row-link">
+                  <span className="loop-auth__row-main">
+                    <span className="loop-auth__row-title">Employee access</span>
+                    <span className="loop-auth__row-desc">Joining an existing company? Use the invitation your administrator sent.</span>
+                  </span>
+                  <span className="loop-auth__row-cta" aria-hidden="true">&rarr;</span>
+                  <span className="loop-auth__row-action-label">Accept invitation</span>
+                </Link>
+              </li>
+            </ul>
           </section>
         </div>
       </main>
