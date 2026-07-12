@@ -1,73 +1,19 @@
-// CRM Login — Sprint 7 (Identity, Authentication & Organizations).
-// Sprint 17: Authentication Experience Redesign (UX only). Split-screen
-// front-door presentation for the Loop ecosystem (Businesses, Employees,
-// Creators). Auth logic, action, session and redirect below are UNCHANGED
-// from Sprint 13 — only layout, copy, and onboarding choices were redesigned.
-//
-// Sprint 17.1 (launch safety): Business & Creator are shown as non-interactive
-// "Coming soon" cards (no links, no routes). Only the Employee card is
-// actionable and links to the real invitation acceptance page.
-//
-// Email/password sign-in for the operations console. On submit, the
-// loginAction verifies the password (scrypt) and sets the session cookie.
+/**
+ * CRM Login — Loop front door.
+ * Presentation layer only. Authentication, sessions, and routing are unchanged.
+ */
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { loginAction } from '../../../auth/actions';
 import { getSession } from '../../../auth/auth';
 import { ensureCrmIdentity } from '../../../auth/bootstrap';
-import { EmgLoopWordmark, EliteMediaGroupMark } from '../_brand/Logos';
+import { EmgLoopWordmark } from '../_brand/Logos';
 
 export const dynamic = 'force-dynamic';
 
-const CAPABILITIES = [
-  'CRM',
-  'Work OS',
-  'AI Employees',
-  'Marketplace',
-  'Automation',
-  'Intelligence',
-];
 
-type Onboard = {
-  icon: string;
-  key: string;
-  title: string;
-  desc: string;
-  cta: string;
-  href?: string;
-  available: boolean;
-  note?: string;
-};
 
-const ONBOARDING: Onboard[] = [
-  {
-    icon: '🏢',
-    key: 'business',
-    title: 'Business',
-    desc: 'Run your company with CRM, Work OS, AI Employees, automation, and customer management.',
-    cta: 'Start a Business Workspace',
-    available: false,
-  },
-  {
-    icon: '🎨',
-    key: 'creator',
-    title: 'Creator',
-    desc: 'Build your creator profile, publish work, collaborate with brands, and grow your audience.',
-    cta: 'Join as a Creator',
-    available: false,
-  },
-  {
-    icon: '👥',
-    key: 'employee',
-    title: 'Employee',
-    desc: "Joining an existing company? Use the invitation your administrator sent you.",
-    cta: 'Accept Invitation',
-    href: '/crm/accept-invite',
-    available: true,
-    note: 'Invitation-based access',
-  },
-];
 
 export default async function LoginPage({
   searchParams,
@@ -87,23 +33,22 @@ export default async function LoginPage({
         </div>
         <div className="loop-auth__brand-body">
           <h2 className="loop-auth__headline">
-            One Operating System.
-            <br />Every Business.
-            <br />Every Employee.
-            <br />Every Creator.
+            Run your business.
+            <br />
+            Keep your team moving.
           </h2>
           <p className="loop-auth__lede">
-            The front door to the entire Loop ecosystem — where businesses,
-            employees, creators, and AI work together.
+            Loop brings together CRM, work management, automation, AI employees,
+            customer activity, and reporting into one operating system.
           </p>
-          <ul className="loop-auth__caps" aria-label="Loop platform capabilities">
-            {CAPABILITIES.map((c) => (
-              <li key={c} className="loop-auth__cap">{c}</li>
-            ))}
-          </ul>
-        </div>
-        <div className="loop-auth__brand-foot">
-          <EliteMediaGroupMark height={16} />
+          <div className="loop-auth__platforms" aria-hidden="true">
+            <span className="loop-auth__platform">CRM</span>
+            <span className="loop-auth__platform">Work OS</span>
+            <span className="loop-auth__platform">Automation</span>
+            <span className="loop-auth__platform">AI Employees</span>
+            <span className="loop-auth__platform">Marketplace</span>
+            <span className="loop-auth__platform">Intelligence</span>
+          </div>
         </div>
       </aside>
 
@@ -115,8 +60,8 @@ export default async function LoginPage({
           </div>
 
           <section className="loop-auth__card" aria-labelledby="loop-signin-title">
-            <h1 id="loop-signin-title" className="loop-auth__title">Sign in</h1>
-            <p className="loop-auth__sub">Welcome back to your Loop workspace.</p>
+            <h1 className="loop-auth__title">Sign in</h1>
+            <p className="loop-auth__sub">Access your Loop workspace.</p>
 
             {searchParams.error ? (
               <div className="crm-auth-error" role="alert">{searchParams.error}</div>
@@ -142,45 +87,18 @@ export default async function LoginPage({
 
             <div className="loop-auth__links">
               <Link href="/crm/forgot-password">Forgot password?</Link>
-              <Link href="/dashboard">Back to dashboard</Link>
             </div>
           </section>
 
-          <section className="loop-auth__onboard" aria-labelledby="loop-onboard-title">
-            <div className="loop-auth__onboard-head">
-              <h2 id="loop-onboard-title" className="loop-auth__onboard-title">New to Loop?</h2>
-              <p className="loop-auth__onboard-sub">Choose how you'll use Loop.</p>
-            </div>
-            <div className="loop-auth__cards">
-              {ONBOARDING.map((o) =>
-                o.available && o.href ? (
-                  <Link
-                    key={o.key}
-                    href={o.href}
-                    className="loop-auth__choice"
-                    aria-label={o.cta}
-                  >
-                    <span className="loop-auth__choice-icon" aria-hidden="true">{o.icon}</span>
-                    <span className="loop-auth__choice-title">{o.title}</span>
-                    <span className="loop-auth__choice-desc">{o.desc}</span>
-                    {o.note ? <span className="loop-auth__choice-note">{o.note}</span> : null}
-                    <span className="loop-auth__choice-cta">{o.cta}</span>
-                  </Link>
-                ) : (
-                  <div
-                    key={o.key}
-                    className="loop-auth__choice loop-auth__choice--soon"
-                    aria-disabled="true"
-                  >
-                    <span className="loop-auth__choice-badge">Coming soon</span>
-                    <span className="loop-auth__choice-icon" aria-hidden="true">{o.icon}</span>
-                    <span className="loop-auth__choice-title">{o.title}</span>
-                    <span className="loop-auth__choice-desc">{o.desc}</span>
-                    <span className="loop-auth__choice-cta loop-auth__choice-cta--muted">{o.cta}</span>
-                  </div>
-                )
-              )}
-            </div>
+          <section className="loop-auth__needaccess">
+            <div className="loop-auth__divider" role="presentation" />
+            <h2 className="loop-auth__needaccess-title">Need access?</h2>
+            <p className="loop-auth__needaccess-sub">
+              Employees receive an invitation from their administrator.
+            </p>
+            <Link className="loop-auth__invite-btn" href="/crm/accept-invite">
+              Accept Invitation
+            </Link>
           </section>
         </div>
       </main>
