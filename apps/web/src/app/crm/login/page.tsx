@@ -1,15 +1,7 @@
-// CRM Login — Sprint 7 (Identity, Authentication & Organizations).
-// Sprint 17: Authentication Experience Redesign (UX only). Split-screen
-// front-door presentation for the Loop ecosystem (Businesses, Employees,
-// Creators). Auth logic, action, session and redirect below are UNCHANGED
-// from Sprint 13 — only layout, copy, and onboarding choices were redesigned.
-//
-// Sprint 17.1 (launch safety): Business & Creator are shown as non-interactive
-// "Coming soon" cards (no links, no routes). Only the Employee card is
-// actionable and links to the real invitation acceptance page.
-//
-// Email/password sign-in for the operations console. On submit, the
-// loginAction verifies the password (scrypt) and sets the session cookie.
+/**
+ * CRM Login — Loop front door.
+ * Presentation layer only. Authentication, sessions, and routing are unchanged.
+ */
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -41,17 +33,19 @@ export default async function LoginPage({
         </div>
         <div className="loop-auth__brand-body">
           <h2 className="loop-auth__headline">
-            Run your business.
-            <br />Keep your team moving.
+            Every Customer.
+            <br />
+            Every Employee.
+            <br />
+            Every Workflow.
+            <br />
+            One Operating System.
           </h2>
           <p className="loop-auth__lede">
-            CRM, work management, automation, and intelligence&mdash;all
-            connected in Loop.
+            Loop connects your CRM, work, automation, AI employees, and customer
+            activity into one operating system your company runs on.
           </p>
-          <p className="loop-auth__statement">
-            Understand what is happening. Assign what comes next. Keep every
-            workflow moving.
-          </p>
+          <p className="loop-auth__statement">Powered by Elite Media Group</p>
         </div>
         <div className="loop-auth__brand-foot">
           <EliteMediaGroupMark height={16} />
@@ -66,8 +60,8 @@ export default async function LoginPage({
           </div>
 
           <section className="loop-auth__card" aria-labelledby="loop-signin-title">
-            <h1 id="loop-signin-title" className="loop-auth__title">Sign in</h1>
-            <p className="loop-auth__sub">Welcome back to your Loop workspace.</p>
+            <h1 className="loop-auth__title">Sign in</h1>
+            <p className="loop-auth__sub">Access your Loop workspace.</p>
 
             {searchParams.error ? (
               <div className="crm-auth-error" role="alert">{searchParams.error}</div>
@@ -96,37 +90,15 @@ export default async function LoginPage({
             </div>
           </section>
 
-          <section className="loop-auth__onboard" aria-labelledby="loop-onboard-title">
-            <div className="loop-auth__onboard-head">
-              <h2 id="loop-onboard-title" className="loop-auth__onboard-title">New to Loop?</h2>
-              <p className="loop-auth__onboard-sub">Choose the access that fits you.</p>
-            </div>
-            <ul className="loop-auth__access" role="list">
-              <li className="loop-auth__row loop-auth__row--soon" aria-disabled="true">
-                <div className="loop-auth__row-main">
-                  <span className="loop-auth__row-title">Business workspace</span>
-                  <span className="loop-auth__row-desc">Create and operate your company in Loop.</span>
-                </div>
-                <span className="loop-auth__row-badge">Coming soon</span>
-              </li>
-              <li className="loop-auth__row loop-auth__row--soon" aria-disabled="true">
-                <div className="loop-auth__row-main">
-                  <span className="loop-auth__row-title">Creator workspace</span>
-                  <span className="loop-auth__row-desc">Manage your profile, collaborations, and opportunities.</span>
-                </div>
-                <span className="loop-auth__row-badge">Coming soon</span>
-              </li>
-              <li className="loop-auth__row loop-auth__row--action">
-                <Link href="/crm/accept-invite" className="loop-auth__row-link">
-                  <span className="loop-auth__row-main">
-                    <span className="loop-auth__row-title">Employee access</span>
-                    <span className="loop-auth__row-desc">Joining an existing company? Use the invitation your administrator sent.</span>
-                  </span>
-                  <span className="loop-auth__row-cta" aria-hidden="true">&rarr;</span>
-                  <span className="loop-auth__row-action-label">Accept invitation</span>
-                </Link>
-              </li>
-            </ul>
+          <section className="loop-auth__needaccess">
+            <div className="loop-auth__divider" role="presentation" />
+            <h2 className="loop-auth__needaccess-title">Need access?</h2>
+            <p className="loop-auth__needaccess-sub">
+              Employees receive an invitation from their administrator.
+            </p>
+            <Link className="loop-auth__needaccess-link" href="/crm/accept-invite">
+              Accept Invitation →
+            </Link>
           </section>
         </div>
       </main>
