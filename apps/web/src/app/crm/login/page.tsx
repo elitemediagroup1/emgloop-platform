@@ -41,14 +41,10 @@ export default async function LoginPage({
             Loop brings together CRM, work management, automation, AI employees,
             customer activity, and reporting into one operating system.
           </p>
-          <div className="loop-auth__platforms" aria-hidden="true">
-            <span className="loop-auth__platform">CRM</span>
-            <span className="loop-auth__platform">Work OS</span>
-            <span className="loop-auth__platform">Automation</span>
-            <span className="loop-auth__platform">AI Employees</span>
-            <span className="loop-auth__platform">Marketplace</span>
-            <span className="loop-auth__platform">Intelligence</span>
-          </div>
+          <p className="loop-auth__mission">
+            Everything your team needs to manage customers, work, automation, and
+            AI from one workspace.
+          </p>
         </div>
       </aside>
 
