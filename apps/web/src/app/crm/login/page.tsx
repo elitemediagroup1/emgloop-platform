@@ -8,7 +8,7 @@ import { redirect } from 'next/navigation';
 import { loginAction } from '../../../auth/actions';
 import { getSession } from '../../../auth/auth';
 import { ensureCrmIdentity } from '../../../auth/bootstrap';
-import { EmgLoopWordmark, EliteMediaGroupMark } from '../_brand/Logos';
+import { EmgLoopWordmark } from '../_brand/Logos';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,22 +33,22 @@ export default async function LoginPage({
         </div>
         <div className="loop-auth__brand-body">
           <h2 className="loop-auth__headline">
-            Every Customer.
+            Run your business.
             <br />
-            Every Employee.
-            <br />
-            Every Workflow.
-            <br />
-            One Operating System.
+            Keep your team moving.
           </h2>
           <p className="loop-auth__lede">
-            Loop connects your CRM, work, automation, AI employees, and customer
-            activity into one operating system your company runs on.
+            Loop brings together CRM, work management, automation, AI employees,
+            customer activity, and reporting into one operating system.
           </p>
-          <p className="loop-auth__statement">Powered by Elite Media Group</p>
-        </div>
-        <div className="loop-auth__brand-foot">
-          <EliteMediaGroupMark height={16} />
+          <div className="loop-auth__platforms" aria-hidden="true">
+            <span className="loop-auth__platform">CRM</span>
+            <span className="loop-auth__platform">Work OS</span>
+            <span className="loop-auth__platform">Automation</span>
+            <span className="loop-auth__platform">AI Employees</span>
+            <span className="loop-auth__platform">Marketplace</span>
+            <span className="loop-auth__platform">Intelligence</span>
+          </div>
         </div>
       </aside>
 
@@ -96,8 +96,8 @@ export default async function LoginPage({
             <p className="loop-auth__needaccess-sub">
               Employees receive an invitation from their administrator.
             </p>
-            <Link className="loop-auth__needaccess-link" href="/crm/accept-invite">
-              Accept Invitation →
+            <Link className="loop-auth__invite-btn" href="/crm/accept-invite">
+              Accept Invitation
             </Link>
           </section>
         </div>
