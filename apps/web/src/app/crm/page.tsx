@@ -7,6 +7,7 @@
 // health card. No AI, no writes, no schema or auth changes.
 
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { prisma } from '@emgloop/database';
 import { requireSession } from '../../auth/guard';
 import { SidebarIcon } from './_brand/SidebarIcon';
@@ -23,6 +24,23 @@ function greeting(): string {
 export default async function CrmDashboard() {
   const session = await requireSession('/crm');
   const orgId = session.organizationId;
+
+  // Sprint 21 — first-login Owner Setup Wizard gate.
+  // Owners/admins whose organization has not completed setup are routed to
+  // the wizard. Completion is stored on Organization.settings.onboarding.
+  // Employees and completed organizations fall through to the dashboard.
+  const setupRole = session.systemRole;
+  if (setupRole === 'OWNER' || setupRole === 'ADMIN') {
+    const orgForSetup = await prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { settings: true },
+    });
+    const onboarding = (orgForSetup?.settings as { onboarding?: { completedAt?: string } } | null)
+      ?.onboarding;
+    if (!onboarding?.completedAt) {
+      redirect('/crm/setup');
+    }
+  }
 
   const [customers, openConversations, users, aiEmployees, pendingInvites] =
     await Promise.all([

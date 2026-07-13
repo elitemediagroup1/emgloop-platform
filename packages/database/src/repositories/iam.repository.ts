@@ -17,7 +17,7 @@
 // the Loop Intelligence Foundation (Phases 2–5).
 
 
-import type { PrismaClient, User, Invitation } from '@prisma/client';
+import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
 
 
@@ -324,6 +324,29 @@ export class IamRepository {
     await this.prisma.invitation.update({
       where: { id },
       data: { status: 'ACCEPTED', acceptedAt: new Date() },
+    });
+  }
+
+  async updateUserProfile(params: {
+    organizationId: string;
+    userId: string;
+    name: string;
+    profile: Record<string, unknown>;
+  }): Promise<User> {
+    const existing = await this.prisma.user.findFirst({
+      where: { id: params.userId, organizationId: params.organizationId },
+    });
+    if (!existing) {
+      throw new Error('User not found in organization');
+    }
+    const currentMetadata =
+      existing.metadata && typeof existing.metadata === 'object'
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
+    const nextMetadata = { ...currentMetadata, profile: params.profile };
+    return this.prisma.user.update({
+      where: { id: params.userId },
+      data: { name: params.name, metadata: nextMetadata as Prisma.InputJsonValue },
     });
   }
 }
