@@ -104,3 +104,66 @@ export function passwordResetTemplate(params: { name?: string; resetUrl: string 
   ].join('\n');
   return { subject, html, text };
 }
+
+/**
+ * Internal notification for a public "Request Access" submission.
+ *
+ * Sent to the EMG operations inbox so a human can review and, if approved,
+ * issue an invitation through the existing admin flow. Contains only the
+ * values the requester submitted (already validated + normalized server-side).
+ * All interpolated values are HTML-escaped to avoid markup injection.
+ */
+export function accessRequestTemplate(params: {
+  fullName: string;
+  email: string;
+  company: string;
+  accessType: string;
+  roleTitle: string;
+  reason: string;
+  submittedAt: Date;
+}): RenderedEmail {
+  const esc = (value: string): string =>
+    String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const role = params.roleTitle.trim() ? params.roleTitle : 'Not provided';
+  const submitted = params.submittedAt.toISOString().replace('T', ' ').replace(/\..+/, ' UTC');
+
+  const nextStep =
+    'Review this request in EMG operations. If approved, create or invite the ' +
+    'user through Loop\u2019s existing administration flow so Loop sends the ' +
+    'secure invitation link.';
+
+  const bodyHtml =
+    '<table style="border-collapse:collapse;font-size:14px;line-height:1.6;">' +
+    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Full name</td><td>' + esc(params.fullName) + '</td></tr>' +
+    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Work email</td><td>' + esc(params.email) + '</td></tr>' +
+    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Company or organization</td><td>' + esc(params.company) + '</td></tr>' +
+    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Requested access</td><td>' + esc(params.accessType) + '</td></tr>' +
+    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Role or title</td><td>' + esc(role) + '</td></tr>' +
+    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;vertical-align:top;">Reason</td><td style="white-space:pre-wrap;">' + esc(params.reason) + '</td></tr>' +
+    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Submitted</td><td>' + esc(submitted) + '</td></tr>' +
+    '</table>' +
+    '<p style="font-size:13px;color:#6b7280;margin:20px 0 0;">' + esc(nextStep) + '</p>';
+
+  const text =
+    'New Loop Access Request\n\n' +
+    'Full name:\n' + params.fullName + '\n\n' +
+    'Work email:\n' + params.email + '\n\n' +
+    'Company or organization:\n' + params.company + '\n\n' +
+    'Requested access:\n' + params.accessType + '\n\n' +
+    'Role or title:\n' + role + '\n\n' +
+    'Reason:\n' + params.reason + '\n\n' +
+    'Submitted:\n' + submitted + '\n\n' +
+    nextStep + '\n';
+
+  return {
+    subject: 'Loop access request \u2014 ' + params.accessType + ' \u2014 ' + params.fullName,
+    html: shell('New Loop Access Request', bodyHtml),
+    text,
+  };
+}
