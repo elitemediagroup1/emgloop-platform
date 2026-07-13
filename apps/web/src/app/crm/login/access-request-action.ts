@@ -86,7 +86,7 @@ function rateLimited(ip: string): boolean {
 function clientIp(): string {
   const h = headers();
   const fwd = h.get('x-nf-client-connection-ip') || h.get('x-forwarded-for') || '';
-  return fwd.split(',')[0].trim() || 'unknown';
+  return fwd.split(',')[0]?.trim() || 'unknown';
 }
 
 const GENERIC_SUCCESS: AccessRequestResult = {
