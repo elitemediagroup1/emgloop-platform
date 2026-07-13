@@ -15,10 +15,10 @@ import { createPortal } from 'react-dom';
 import { submitAccessRequest } from './access-request-action';
 
 const ACCESS_TYPE_OPTIONS = [
-  'Employee workspace',
-  'Creator workspace',
-  'Business workspace',
-  'Partner or vendor access',
+  'Employee',
+  'Company Administrator',
+  'Creator',
+  'Partner / Vendor',
   'Other',
 ];
 
@@ -122,8 +122,6 @@ export function RequestAccessModal() {
         email: String(data.get('email') ?? ''),
         company: String(data.get('company') ?? ''),
         accessType: String(data.get('accessType') ?? ''),
-        roleTitle: String(data.get('roleTitle') ?? ''),
-        reason: String(data.get('reason') ?? ''),
         website: String(data.get('website') ?? ''),
         renderedAt,
       });
@@ -174,9 +172,9 @@ export function RequestAccessModal() {
                   Request received
                 </h2>
                 <p id={descId} className="loop-reqaccess__subtitle">
-                  Thank you. An EMG administrator will review your request. If
-                  approved, you will receive a secure invitation email with
-                  instructions to access Loop.
+                  Complete the form below and we&apos;ll review your request. If
+                  approved, you&apos;ll receive a secure email with instructions
+                  to access Loop.
                 </p>
                 <div className="loop-reqaccess__actions">
                   <button
@@ -191,11 +189,12 @@ export function RequestAccessModal() {
             ) : (
               <form className="loop-reqaccess__form" onSubmit={handleSubmit} noValidate>
                 <h2 id={titleId} className="loop-reqaccess__title">
-                  Request access to Loop
+                  Request Access
                 </h2>
                 <p id={descId} className="loop-reqaccess__subtitle">
-                  Tell us who you are and which workspace you need. An EMG
-                  administrator will review your request.
+                  Complete the form below and we&apos;ll review your request. If
+                  approved, you&apos;ll receive a secure email with instructions
+                  to access Loop.
                 </p>
 
                 {status === 'error' && message ? (
@@ -287,36 +286,9 @@ export function RequestAccessModal() {
                   ) : null}
                 </div>
 
-                <div className="loop-reqaccess__field">
-                  <label htmlFor="ra-roleTitle">Role or title</label>
-                  <input
-                    id="ra-roleTitle"
-                    name="roleTitle"
-                    type="text"
-                    maxLength={100}
-                    placeholder="e.g. Operations, Sales, Creator, Administrator, Vendor"
-                    aria-invalid={Boolean(errors.roleTitle) || undefined}
-                  />
-                  {errors.roleTitle ? (
-                    <span className="loop-reqaccess__fielderr">{errors.roleTitle}</span>
-                  ) : null}
-                </div>
-
-                <div className="loop-reqaccess__field">
-                  <label htmlFor="ra-reason">Why do you need access?</label>
-                  <textarea
-                    id="ra-reason"
-                    name="reason"
-                    required
-                    minLength={10}
-                    maxLength={1000}
-                    rows={4}
-                    aria-invalid={Boolean(errors.reason) || undefined}
-                  />
-                  {errors.reason ? (
-                    <span className="loop-reqaccess__fielderr">{errors.reason}</span>
-                  ) : null}
-                </div>
+                <p className="loop-reqaccess__hint">
+                  We&apos;ll review your request before granting access.
+                </p>
 
                 <div className="loop-reqaccess__actions">
                   <button
