@@ -149,8 +149,6 @@ export async function sendAccessRequestEmail(params: {
   email: string;
   company: string;
   accessType: string;
-  roleTitle: string;
-  reason: string;
   submittedAt: Date;
 }): Promise<void> {
   const to = process.env.LOOP_ACCESS_REQUEST_TO?.trim();
