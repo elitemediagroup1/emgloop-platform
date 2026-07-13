@@ -22,7 +22,11 @@ import type {
   SendEmailRequest,
 } from '@emgloop/providers';
 
-import { inviteTemplate, passwordResetTemplate } from './templates';
+import {
+  accessRequestTemplate,
+  inviteTemplate,
+  passwordResetTemplate,
+} from './templates';
 
 interface EmailConfig {
   apiKey: string;
@@ -71,6 +75,7 @@ async function send(
   to: EmailAddress,
   rendered: { subject: string; html: string; text: string },
   purpose: string,
+  replyToOverride?: EmailAddress,
 ): Promise<void> {
   const config = readConfig();
 
@@ -94,7 +99,9 @@ async function send(
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
-    ...(config.replyTo ? { replyTo: config.replyTo } : {}),
+    ...((replyToOverride ?? config.replyTo)
+      ? { replyTo: (replyToOverride ?? config.replyTo) as EmailAddress }
+      : {}),
   };
 
   const result = await provider.sendEmail(
@@ -128,4 +135,42 @@ export async function sendPasswordResetEmail(params: {
 }): Promise<void> {
   const rendered = passwordResetTemplate({ name: params.name, resetUrl: params.resetUrl });
   await send({ email: params.to, name: params.name }, rendered, 'password-reset');
+}
+
+/**
+ * Send the internal "Request Access" notification to the EMG operations inbox.
+ *
+ * Recipient is `LOOP_ACCESS_REQUEST_TO` (never hardcoded in the provider).
+ * Reply-To is set to the requester's email so the team can reply directly.
+ * This creates no user, session, or invitation — it is a notification only.
+ */
+export async function sendAccessRequestEmail(params: {
+  fullName: string;
+  email: string;
+  company: string;
+  accessType: string;
+  roleTitle: string;
+  reason: string;
+  submittedAt: Date;
+}): Promise<void> {
+  const to = process.env.LOOP_ACCESS_REQUEST_TO?.trim();
+  if (!to) {
+    if (isProduction()) {
+      throw new Error(
+        'Email configuration error: LOOP_ACCESS_REQUEST_TO is not set.',
+      );
+    }
+    console.warn(
+      '[email-service] LOOP_ACCESS_REQUEST_TO not set; skipping access-request notification (non-production).',
+    );
+    return;
+  }
+
+  const rendered = accessRequestTemplate(params);
+  await send(
+    { email: to },
+    rendered,
+    'access-request',
+    { email: params.email, name: params.fullName },
+  );
 }

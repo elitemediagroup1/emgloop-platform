@@ -9,6 +9,7 @@ import { loginAction } from '../../../auth/actions';
 import { getSession } from '../../../auth/auth';
 import { ensureCrmIdentity } from '../../../auth/bootstrap';
 import { EmgLoopWordmark } from '../_brand/Logos';
+import { RequestAccessModal } from './RequestAccessModal';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,14 +42,10 @@ export default async function LoginPage({
             Loop brings together CRM, work management, automation, AI employees,
             customer activity, and reporting into one operating system.
           </p>
-          <div className="loop-auth__platforms" aria-hidden="true">
-            <span className="loop-auth__platform">CRM</span>
-            <span className="loop-auth__platform">Work OS</span>
-            <span className="loop-auth__platform">Automation</span>
-            <span className="loop-auth__platform">AI Employees</span>
-            <span className="loop-auth__platform">Marketplace</span>
-            <span className="loop-auth__platform">Intelligence</span>
-          </div>
+          <p className="loop-auth__mission">
+            Everything your team needs to manage customers, work, automation, and
+            AI from one workspace.
+          </p>
         </div>
       </aside>
 
@@ -94,11 +91,9 @@ export default async function LoginPage({
             <div className="loop-auth__divider" role="presentation" />
             <h2 className="loop-auth__needaccess-title">Need access?</h2>
             <p className="loop-auth__needaccess-sub">
-              Employees receive an invitation from their administrator.
+              Request access to the appropriate Loop workspace.
             </p>
-            <Link className="loop-auth__invite-btn" href="/crm/accept-invite">
-              Accept Invitation
-            </Link>
+            <RequestAccessModal />
           </section>
         </div>
       </main>

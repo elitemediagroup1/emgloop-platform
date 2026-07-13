@@ -141,11 +141,10 @@
 .crm .crm-account { display:flex; align-items:center; gap:10px; font-size:12.5px; color: var(--crm-faint,#8b93a7); }
 .crm .crm-account .who { color: var(--crm-text,#e6e8ee); font-weight:600; }
 
-
 /* =========================================================================
-   Sprint 19 — Final Loop Login Experience (presentation only)
-   Two-column secure front door. 55% left (what Loop is) / 45% right (sign-in).
-   Scoped under .crm. No auth/session/routing changes — purely presentational.
+   Sprint 20 — Login polish (presentation only)
+   Quieter, denser, more enterprise. Two-column front door unchanged in
+   structure. Scoped under .crm. No auth/session/routing changes.
    ========================================================================= */
 
 .crm .loop-auth {
@@ -168,7 +167,7 @@
 }
 
 .crm .loop-auth__brand-top {
-  margin-bottom: 44px;
+  margin-bottom: 40px;
 }
 
 .crm .loop-auth__brand-top svg {
@@ -177,16 +176,16 @@
 }
 
 .crm .loop-auth__brand-body {
-  max-width: 560px;
+  max-width: 520px;
 }
 
 .crm .loop-auth__headline {
   font-weight: 800;
-  font-size: 64px;
-  line-height: 1.05;
-  letter-spacing: -0.03em;
+  font-size: 56px;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
   margin: 0 0 24px;
-  max-width: 520px;
+  max-width: 480px;
   color: #f4f5fa;
 }
 
@@ -194,24 +193,18 @@
   font-size: 18px;
   line-height: 1.6;
   color: var(--crm-faint, #8b93a7);
-  margin: 0 0 40px;
+  margin: 0 0 24px;
   max-width: 430px;
 }
 
-/* Six informational platform labels — two columns, three rows */
-.crm .loop-auth__platforms {
-  display: grid;
-  grid-template-columns: repeat(2, max-content);
-  column-gap: 32px;
-  row-gap: 18px;
-  margin: 0;
-}
-
-.crm .loop-auth__platform {
+/* Single informational mission line (replaces platform labels) */
+.crm .loop-auth__mission {
   font-size: 16px;
   font-weight: 500;
-  color: #f4f5fa;
-  opacity: 0.7;
+  line-height: 1.6;
+  color: var(--crm-faint, #8b93a7);
+  margin: 0;
+  max-width: 420px;
 }
 
 /* ---- Right: authentication panel ---- */
@@ -224,12 +217,13 @@
 
 .crm .loop-auth__panel-inner {
   width: 100%;
-  max-width: 460px;
+  max-width: 480px;
+  transform: translateX(-24px);
 }
 
 .crm .loop-auth__mobile-brand {
   display: none;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .crm .loop-auth__mobile-brand svg {
@@ -239,24 +233,24 @@
 
 /* Sign-in card */
 .crm .loop-auth__card {
-  background: var(--crm-panel, #14161c);
-  border: 1px solid var(--crm-border, #262a33);
+  background: #171922;
+  border: 1px solid #2c313c;
   border-radius: 18px;
-  padding: 48px;
+  padding: 44px;
 }
 
 .crm .loop-auth__title {
-  font-size: 40px;
+  font-size: 44px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   color: #f4f5fa;
 }
 
 .crm .loop-auth__sub {
   font-size: 16px;
   color: var(--crm-faint, #8b93a7);
-  margin: 0 0 26px;
+  margin: 0 0 24px;
 }
 
 .crm .loop-auth__links {
@@ -282,7 +276,7 @@
   border-radius: 4px;
 }
 
-/* ---- Need access ---- */
+/* ---- Need access (grouped) ---- */
 .crm .loop-auth__needaccess {
   margin-top: 32px;
 }
@@ -290,13 +284,13 @@
 .crm .loop-auth__divider {
   height: 1px;
   background: var(--crm-border, #262a33);
-  margin: 0 0 32px;
+  margin: 0 0 24px;
 }
 
 .crm .loop-auth__needaccess-title {
   font-size: 18px;
   font-weight: 600;
-  margin: 0 0 8px;
+  margin: 0 0 12px;
   color: #eef0f6;
 }
 
@@ -304,7 +298,7 @@
   font-size: 16px;
   line-height: 1.55;
   color: var(--crm-faint, #8b93a7);
-  margin: 0 0 18px;
+  margin: 0 0 20px;
 }
 
 /* Outlined secondary button */
@@ -312,11 +306,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
-  padding: 0 22px;
+  height: 46px;
+  padding: 0 24px;
   background: transparent;
-  border: 1px solid #7c5cff;
-  border-radius: 8px;
+  border: 2px solid #7c5cff;
+  border-radius: 10px;
   color: #f4f5fa;
   font-size: 14px;
   font-weight: 600;
@@ -325,7 +319,7 @@
 }
 
 .crm .loop-auth__invite-btn:hover {
-  background: rgba(124,92,255,0.12);
+  background: rgba(124,92,255,0.05);
   border-color: #a48bff;
 }
 
@@ -345,9 +339,11 @@
   }
   .crm .loop-auth__panel {
     padding: 40px 20px;
+    justify-content: center;
   }
   .crm .loop-auth__panel-inner {
     max-width: 460px;
+    transform: none;
   }
   .crm .loop-auth__mobile-brand {
     display: block;
@@ -356,13 +352,215 @@
 
 @media (max-width: 1200px) {
   .crm .loop-auth__headline {
-    font-size: 48px;
+    font-size: 44px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .crm .loop-auth__links a,
   .crm .loop-auth__invite-btn {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   Request Access modal (public login page)
+   Scoped .loop-reqaccess__* — uses existing Loop palette only.
+   ============================================================ */
+.loop-reqaccess__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 12, 0.72);
+  overflow-y: auto;
+}
+
+.loop-reqaccess__dialog {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  margin: auto;
+  padding: 32px;
+  background: #171922;
+  border: 1px solid #2c313c;
+  border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  color: #eef0f6;
+}
+
+.loop-reqaccess__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #8b93a7;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.loop-reqaccess__close:hover {
+  background: #1e222a;
+  color: #eef0f6;
+}
+
+.loop-reqaccess__title {
+  margin: 0 32px 8px 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #f4f5fa;
+}
+
+.loop-reqaccess__subtitle {
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #8b93a7;
+}
+
+.loop-reqaccess__error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: rgba(255, 155, 155, 0.08);
+  border: 1px solid #ff9b9b;
+  border-radius: 8px;
+  color: #ff9b9b;
+  font-size: 13px;
+}
+
+/* Honeypot — visually hidden, still submitted, not announced. */
+.loop-reqaccess__hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.loop-reqaccess__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.loop-reqaccess__field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+.loop-reqaccess__field input,
+.loop-reqaccess__field select,
+.loop-reqaccess__field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: #0b0d12;
+  border: 1px solid #2c313c;
+  border-radius: 10px;
+  color: #f4f5fa;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+.loop-reqaccess__field textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+.loop-reqaccess__field input:focus,
+.loop-reqaccess__field select:focus,
+.loop-reqaccess__field textarea:focus {
+  outline: none;
+  border-color: #7c5cff;
+}
+.loop-reqaccess__field input[aria-invalid='true'],
+.loop-reqaccess__field select[aria-invalid='true'],
+.loop-reqaccess__field textarea[aria-invalid='true'] {
+  border-color: #ff9b9b;
+}
+
+.loop-reqaccess__fielderr {
+  font-size: 12px;
+  color: #ff9b9b;
+}
+
+.loop-reqaccess__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.loop-reqaccess__cancel {
+  height: 44px;
+  padding: 0 20px;
+  background: transparent;
+  border: 1px solid #2c313c;
+  border-radius: 10px;
+  color: #cbd5e1;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.loop-reqaccess__cancel:hover {
+  border-color: #3a4150;
+  color: #eef0f6;
+}
+
+.loop-reqaccess__submit {
+  height: 44px;
+  padding: 0 22px;
+  background: linear-gradient(180deg, #8b6dff, #6d4eff);
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.loop-reqaccess__submit:hover {
+  filter: brightness(1.06);
+}
+.loop-reqaccess__cancel:disabled,
+.loop-reqaccess__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.loop-reqaccess__confirm .loop-reqaccess__subtitle {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 560px) {
+  .loop-reqaccess__overlay {
+    padding: 16px;
+    align-items: flex-start;
+  }
+  .loop-reqaccess__dialog {
+    padding: 24px;
+    border-radius: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loop-reqaccess__close,
+  .loop-reqaccess__field input,
+  .loop-reqaccess__field select,
+  .loop-reqaccess__field textarea,
+  .loop-reqaccess__cancel,
+  .loop-reqaccess__submit {
     transition: none;
   }
 }
