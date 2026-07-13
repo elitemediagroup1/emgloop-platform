@@ -63,6 +63,87 @@ export function RequestAccessModal() {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+
+  return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  // Move focus into the dialog when opened.
+  useEffect(() => {
+    if (open && status !== 'success') {
+      requestAnimationFrame(() => firstFieldRef.current?.focus());
+    }
+  }, [open, status]);
+
+  // Escape to close + focus trap.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeModal();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [open, closeModal]);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (status === 'submitting') return;
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    setStatus('submitting');
+    setErrors({});
+    setMessage('');
+    try {
+      const result = await submitAccessRequest({
+        fullName: String(data.get('fullName') ?? ''),
+        email: String(data.get('email') ?? ''),
+        company: String(data.get('company') ?? ''),
+        accessType: String(data.get('accessType') ?? ''),
+        roleTitle: String(data.get('roleTitle') ?? ''),
+        reason: String(data.get('reason') ?? ''),
+        website: String(data.get('website') ?? ''),
+        renderedAt,
+      });
+      if (result.ok) {
+        setStatus('success');
+      } else {
+        setStatus('error');
+        setErrors(result.errors ?? {});
+        setMessage(
+          result.message ??
+            "We couldn't submit your request right now. Please try again.",
+        );
+        // form values are preserved because we never reset the form on error
+      }
+    } catch {
+      setStatus('error');
+      setMessage("We couldn't submit your request right now. Please try again.");
+    }
+  }
+
   const overlayNode = (
         <div
           className="loop-reqaccess__overlay"
@@ -259,86 +340,6 @@ export function RequestAccessModal() {
           </div>
         </div>
   );
-
-  return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  // Move focus into the dialog when opened.
-  useEffect(() => {
-    if (open && status !== 'success') {
-      requestAnimationFrame(() => firstFieldRef.current?.focus());
-    }
-  }, [open, status]);
-
-  // Escape to close + focus trap.
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeModal();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const root = dialogRef.current;
-      if (!root) return;
-      const focusable = root.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first || !last) return;
-      const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [open, closeModal]);
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (status === 'submitting') return;
-    const form = e.currentTarget;
-    const data = new FormData(form);
-    setStatus('submitting');
-    setErrors({});
-    setMessage('');
-    try {
-      const result = await submitAccessRequest({
-        fullName: String(data.get('fullName') ?? ''),
-        email: String(data.get('email') ?? ''),
-        company: String(data.get('company') ?? ''),
-        accessType: String(data.get('accessType') ?? ''),
-        roleTitle: String(data.get('roleTitle') ?? ''),
-        reason: String(data.get('reason') ?? ''),
-        website: String(data.get('website') ?? ''),
-        renderedAt,
-      });
-      if (result.ok) {
-        setStatus('success');
-      } else {
-        setStatus('error');
-        setErrors(result.errors ?? {});
-        setMessage(
-          result.message ??
-            "We couldn't submit your request right now. Please try again.",
-        );
-        // form values are preserved because we never reset the form on error
-      }
-    } catch {
-      setStatus('error');
-      setMessage("We couldn't submit your request right now. Please try again.");
-    }
-  }
 
   return (
     <>
