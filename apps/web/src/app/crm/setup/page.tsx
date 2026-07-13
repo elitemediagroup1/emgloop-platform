@@ -29,6 +29,31 @@ export default async function SetupPage() {
     workspace?: Record<string, unknown>;
   };
 
+  const owner = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { name: true, metadata: true },
+  });
+  const ownerName = owner?.name ?? '';
+  const savedProfile =
+      owner?.metadata && typeof owner.metadata === 'object'
+        ? ((owner.metadata as Record<string, unknown>).profile as
+            | Record<string, unknown>
+            | undefined)
+        : undefined;
+  const str = (v: unknown): string =>
+      typeof v === 'string' ? v : '';
+  const [derivedFirst, ...derivedRest] = ownerName.trim().split(/\s+/);
+  const profile = {
+      firstName: savedProfile ? str(savedProfile.firstName) : (derivedFirst ?? ''),
+      lastName: savedProfile
+        ? str(savedProfile.lastName)
+        : derivedRest.join(' '),
+      preferredName: savedProfile ? str(savedProfile.preferredName) : '',
+      jobTitle: savedProfile ? str(savedProfile.jobTitle) : '',
+      phone: savedProfile ? str(savedProfile.phone) : '',
+      timezone: savedProfile ? str(savedProfile.timezone) : '',
+  };
+
   // Completed organizations never see the wizard again.
   if (settings.onboarding?.completedAt) {
     redirect('/crm');
@@ -41,6 +66,12 @@ export default async function SetupPage() {
     orgTimezone: org?.timezone ?? 'UTC',
     userName: session.name ?? '',
     userEmail: session.email ?? '',
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    preferredName: profile.preferredName,
+    jobTitle: profile.jobTitle,
+    userPhone: profile.phone,
+    userTimezone: profile.timezone,
   };
 
   return <SetupWizard initial={initial} />;
