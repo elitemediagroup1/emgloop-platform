@@ -20,6 +20,12 @@ interface Initial {
   orgTimezone: string;
   userName: string;
   userEmail: string;
+  firstName: string;
+  lastName: string;
+  preferredName: string;
+  jobTitle: string;
+  userPhone: string;
+  userTimezone: string;
 }
 
 interface WizardState {
@@ -82,13 +88,13 @@ export function SetupWizard({ initial }: { initial: Initial }) {
   const [done, setDone] = useState(false);
 
   const [state, setState] = useState<WizardState>({
-    firstName: '',
-    lastName: '',
-    preferredName: '',
-    jobTitle: '',
+    firstName: initial.firstName,
+    lastName: initial.lastName,
+    preferredName: initial.preferredName,
+    jobTitle: initial.jobTitle,
     company: initial.orgName,
-    userPhone: '',
-    userTimezone: initial.orgTimezone,
+    userPhone: initial.userPhone,
+    userTimezone: initial.userTimezone || initial.orgTimezone,
     orgName: initial.orgName,
     orgWebsite: '',
     orgEmail: initial.userEmail,
@@ -152,6 +158,12 @@ export function SetupWizard({ initial }: { initial: Initial }) {
     setError('');
     try {
       const fd = new FormData();
+      fd.set('firstName', state.firstName);
+      fd.set('lastName', state.lastName);
+      fd.set('preferredName', state.preferredName);
+      fd.set('jobTitle', state.jobTitle);
+      fd.set('userPhone', state.userPhone);
+      fd.set('userTimezone', state.userTimezone);
       fd.set('orgName', state.orgName);
       fd.set('orgTimezone', state.orgTimezone);
       fd.set('orgIndustry', state.orgIndustry);
@@ -223,8 +235,9 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                   <div className="loop-setup__avatar" aria-hidden="true">
                     {(state.firstName[0] || 'A').toUpperCase()}
                   </div>
-                  <span className="loop-setup__photonote">
-                    Profile photo upload is coming soon.
+                  <span className="setup-photo-label">
+                    <span className="setup-photo-label-title">Profile photo</span>
+                    <span className="setup-photo-label-note">Coming soon</span>
                   </span>
                 </div>
 
