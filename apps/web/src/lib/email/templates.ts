@@ -118,8 +118,6 @@ export function accessRequestTemplate(params: {
   email: string;
   company: string;
   accessType: string;
-  roleTitle: string;
-  reason: string;
   submittedAt: Date;
 }): RenderedEmail {
   const esc = (value: string): string =>
@@ -130,7 +128,6 @@ export function accessRequestTemplate(params: {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
 
-  const role = params.roleTitle.trim() ? params.roleTitle : 'Not provided';
   const submitted = params.submittedAt.toISOString().replace('T', ' ').replace(/\..+/, ' UTC');
 
   const nextStep =
@@ -144,8 +141,6 @@ export function accessRequestTemplate(params: {
     '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Work email</td><td>' + esc(params.email) + '</td></tr>' +
     '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Company or organization</td><td>' + esc(params.company) + '</td></tr>' +
     '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Requested access</td><td>' + esc(params.accessType) + '</td></tr>' +
-    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Role or title</td><td>' + esc(role) + '</td></tr>' +
-    '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;vertical-align:top;">Reason</td><td style="white-space:pre-wrap;">' + esc(params.reason) + '</td></tr>' +
     '<tr><td style="padding:2px 12px 2px 0;color:#6b7280;">Submitted</td><td>' + esc(submitted) + '</td></tr>' +
     '</table>' +
     '<p style="font-size:13px;color:#6b7280;margin:20px 0 0;">' + esc(nextStep) + '</p>';
@@ -156,8 +151,6 @@ export function accessRequestTemplate(params: {
     'Work email:\n' + params.email + '\n\n' +
     'Company or organization:\n' + params.company + '\n\n' +
     'Requested access:\n' + params.accessType + '\n\n' +
-    'Role or title:\n' + role + '\n\n' +
-    'Reason:\n' + params.reason + '\n\n' +
     'Submitted:\n' + submitted + '\n\n' +
     nextStep + '\n';
 
