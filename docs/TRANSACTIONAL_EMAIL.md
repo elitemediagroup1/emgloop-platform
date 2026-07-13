@@ -97,7 +97,6 @@ invite/reset tokens, or complete token-bearing URLs.
 Do not commit real keys. Do not paste tokens or full reset/invite URLs into
 logs, tickets, or chat.
 
-
 ## Invitation URL format
 
 Invitation emails link to the invitation acceptance route:
@@ -197,3 +196,86 @@ tokens.
    (shows invalid / no longer active).
 10. Trigger a password reset for the same user, confirm the reset email arrives, and
     confirm its link completes a successful reset at `/crm/reset-password`.
+
+## Public access-request intake (Request Access)
+
+The public login page (`/crm/login`) shows a **Request Access** button instead
+of linking unknown visitors to `/crm/accept-invite`. It opens a modal that
+collects an access request and sends it to EMG operations for manual review.
+
+Submitting the public form does **not** create a user, session, or invitation,
+does not assign a role, does not grant access, does not reveal whether an email
+already exists, and does not redirect to `/crm/accept-invite`. It is an intake
+notification only. After a human approves, an admin issues an invitation through
+the **existing** invite flow, which is unchanged.
+
+### Flow
+
+```
+Public request (modal)
+-> apps/web/src/app/crm/login/access-request-action.ts  (server action; validates + rate-limits)
+-> apps/web/src/lib/email/email-service.ts  sendAccessRequestEmail(...)
+-> @emgloop/providers ResendEmailProvider
+-> Resend
+-> notification delivered to LOOP_ACCESS_REQUEST_TO
+```
+
+### New public API
+
+```ts
+sendAccessRequestEmail({ fullName, email, company, accessType, roleTitle, reason, submittedAt })
+```
+
+- **To:** `process.env.LOOP_ACCESS_REQUEST_TO` (never hardcoded in the provider adapter).
+- **From:** `process.env.LOOP_EMAIL_FROM` (reused).
+- **Reply-To:** the requester's submitted email, so the EMG team can reply directly.
+- **Subject:** `Loop access request — {Access Type} — {Full Name}` (built from validated/normalized values to prevent header injection).
+
+### New required environment variable
+
+| Variable | Required | Example |
+| --- | --- | --- |
+| `LOOP_ACCESS_REQUEST_TO` | yes (production) | `hello@elitemediagroup.io` |
+
+The existing variables remain required: `RESEND_API_KEY`, `LOOP_EMAIL_FROM`,
+`LOOP_EMAIL_REPLY_TO` (optional), `NEXT_PUBLIC_APP_URL`. Do not commit real keys.
+
+### Missing configuration
+
+Same policy as the rest of the service: in **production** a missing
+`LOOP_ACCESS_REQUEST_TO` throws a clear server error (never a false "sent"); in
+**non-production** it logs a safe warning and skips sending. The modal only shows
+success when the email was actually delivered; otherwise it shows
+"We couldn't submit your request right now. Please try again." and preserves the
+entered values.
+
+### Spam / abuse protection
+
+- **Honeypot** hidden field: if populated, the server returns a generic success without sending.
+- **Timing check:** a form-render timestamp is included; submissions completed unrealistically fast are silently no-op'd.
+- **Rate limit:** best-effort in-memory per-IP throttle in the server action. The
+  repository has no shared rate-limit utility, and serverless instances do not
+  share memory, so this is a smallest-safe deterrent rather than a durable limit.
+  A future sprint can move this to a shared store if needed.
+- **Generic responses:** the form never reveals whether an email/organization
+  already exists, and never surfaces provider/database internals.
+
+### Logging policy
+
+Only sanitized operational logs (request received, access type, success/failure
+category). The access-request reason, email body, secrets, and tokens are never logged.
+
+### Data storage
+
+v1 does not persist access requests to a database (no suitable auditable intake
+model exists yet). The request is validated, emailed to `LOOP_ACCESS_REQUEST_TO`,
+and confirmed on-screen. It never touches the Invitation table and never creates a
+user. A future sprint may add an in-app Access Requests queue.
+
+### Manual live test (must be executed by a human; not yet run)
+
+1. Set `LOOP_ACCESS_REQUEST_TO`, `RESEND_API_KEY`, `LOOP_EMAIL_FROM` (and optionally `LOOP_EMAIL_REPLY_TO`) in the preview environment.
+2. Open `/crm/login`, click **Request Access**, complete and submit the form.
+3. Confirm a notification arrives at `hello@elitemediagroup.io`.
+4. Confirm **From** is `Loop <loop@emgloop.com>` and **Reply** targets the requester's email.
+5. Confirm no user, session, or invitation was created.
