@@ -37,7 +37,7 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 interface SetupResult {
   ok: boolean;
-  error?: string;
+  message?: string;
 }
 
 function clean(value: FormDataEntryValue | null, maxLength: number): string {
@@ -79,13 +79,13 @@ export async function completeSetupAction(
   const userTimezone = clean(formData.get('userTimezone'), 80);
 
   if (!firstName) {
-    return { ok: false, error: 'First name is required.' };
+    return { ok: false, message: 'First name is required.' };
   }
   if (!lastName) {
-    return { ok: false, error: 'Last name is required.' };
+    return { ok: false, message: 'Last name is required.' };
   }
   if (!jobTitle) {
-    return { ok: false, error: 'Job title is required.' };
+    return { ok: false, message: 'Job title is required.' };
   }
   if (
     CONTROL_CHARS.test(firstName) ||
@@ -93,7 +93,7 @@ export async function completeSetupAction(
     CONTROL_CHARS.test(preferredName) ||
     CONTROL_CHARS.test(jobTitle)
   ) {
-    return { ok: false, error: 'Names and title contain invalid characters.' };
+    return { ok: false, message: 'Names and title contain invalid characters.' };
   }
 
   const displayName = preferredName || `${firstName} ${lastName}`;
@@ -172,7 +172,7 @@ export async function completeSetupAction(
       },
     });
   } catch {
-    return { ok: false, error: 'We could not save your setup. Please try again.' };
+    return { ok: false, message: 'We could not save your setup. Please try again.' };
   }
 
   // Audit logging is non-blocking; a completed setup must not be undone by an
