@@ -19,10 +19,10 @@ import { sendAccessRequestEmail } from '../../../lib/email/email-service';
 
 /** Allow-list of access types. The browser value is never trusted. */
 const ACCESS_TYPES = [
-  'Employee workspace',
-  'Creator workspace',
-  'Business workspace',
-  'Partner or vendor access',
+  'Employee',
+  'Company Administrator',
+  'Creator',
+  'Partner / Vendor',
   'Other',
 ] as const;
 
@@ -33,8 +33,6 @@ export interface AccessRequestInput {
   email: string;
   company: string;
   accessType: string;
-  roleTitle: string;
-  reason: string;
   /** Honeypot: must be empty for a real human. */
   website: string;
   /** Client render timestamp (ms since epoch) used for a timing check. */
@@ -124,16 +122,12 @@ export async function submitAccessRequest(
   const email = stripControl(clean(input.email)).toLowerCase();
   const company = stripControl(clean(input.company));
   const accessTypeRaw = stripControl(clean(input.accessType));
-  const roleTitle = stripControl(clean(input.roleTitle));
-  const reason = clean(input.reason);
 
   const errors: Record<string, string> = {};
   if (!fullName || fullName.length > 100) errors.fullName = 'Enter your full name (max 100 characters).';
   if (!email || email.length > 254 || !EMAIL_RE.test(email)) errors.email = 'Enter a valid work email.';
   if (!company || company.length > 150) errors.company = 'Enter your company or organization (max 150 characters).';
   if (!ACCESS_TYPES.includes(accessTypeRaw as AccessType)) errors.accessType = 'Select an access type.';
-  if (roleTitle.length > 100) errors.roleTitle = 'Role or title is too long (max 100 characters).';
-  if (reason.length < 10 || reason.length > 1000) errors.reason = 'Tell us why you need access (10–1000 characters).';
 
   if (Object.keys(errors).length > 0) {
     return { ok: false, errors, message: 'Please correct the highlighted fields.' };
@@ -148,8 +142,6 @@ export async function submitAccessRequest(
       email,
       company,
       accessType,
-      roleTitle,
-      reason,
       submittedAt,
     });
   } catch (err) {
