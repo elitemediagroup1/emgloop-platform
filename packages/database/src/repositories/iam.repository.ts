@@ -326,4 +326,27 @@ export class IamRepository {
       data: { status: 'ACCEPTED', acceptedAt: new Date() },
     });
   }
+
+  async updateUserProfile(params: {
+    organizationId: string;
+    userId: string;
+    name: string;
+    profile: Record<string, unknown>;
+  }): Promise<User> {
+    const existing = await this.prisma.user.findFirst({
+      where: { id: params.userId, organizationId: params.organizationId },
+    });
+    if (!existing) {
+      throw new Error('User not found in organization');
+    }
+    const currentMetadata =
+      existing.metadata && typeof existing.metadata === 'object'
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
+    const nextMetadata = { ...currentMetadata, profile: params.profile };
+    return this.prisma.user.update({
+      where: { id: params.userId },
+      data: { name: params.name, metadata: nextMetadata },
+    });
+  }
 }
