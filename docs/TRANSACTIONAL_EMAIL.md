@@ -223,7 +223,7 @@ Public request (modal)
 ### New public API
 
 ```ts
-sendAccessRequestEmail({ fullName, email, company, accessType, roleTitle, reason, submittedAt })
+sendAccessRequestEmail({ fullName, email, company, accessType, submittedAt })
 ```
 
 - **To:** `process.env.LOOP_ACCESS_REQUEST_TO` (never hardcoded in the provider adapter).
@@ -263,7 +263,7 @@ entered values.
 ### Logging policy
 
 Only sanitized operational logs (request received, access type, success/failure
-category). The access-request reason, email body, secrets, and tokens are never logged.
+category). The access-request email body, secrets, and tokens are never logged.
 
 ### Data storage
 
