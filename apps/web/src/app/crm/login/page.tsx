@@ -9,6 +9,7 @@ import { loginAction } from '../../../auth/actions';
 import { getSession } from '../../../auth/auth';
 import { ensureCrmIdentity } from '../../../auth/bootstrap';
 import { EmgLoopWordmark } from '../_brand/Logos';
+import { RequestAccessModal } from './RequestAccessModal';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,11 +91,9 @@ export default async function LoginPage({
             <div className="loop-auth__divider" role="presentation" />
             <h2 className="loop-auth__needaccess-title">Need access?</h2>
             <p className="loop-auth__needaccess-sub">
-              Employees receive an invitation from their administrator.
+              Request access to the appropriate Loop workspace.
             </p>
-            <Link className="loop-auth__invite-btn" href="/crm/accept-invite">
-              Accept Invitation
-            </Link>
+            <RequestAccessModal />
           </section>
         </div>
       </main>
