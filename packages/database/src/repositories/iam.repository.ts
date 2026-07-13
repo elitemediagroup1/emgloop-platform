@@ -17,7 +17,7 @@
 // the Loop Intelligence Foundation (Phases 2–5).
 
 
-import type { PrismaClient, User, Invitation } from '@prisma/client';
+import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
 
 
@@ -346,7 +346,7 @@ export class IamRepository {
     const nextMetadata = { ...currentMetadata, profile: params.profile };
     return this.prisma.user.update({
       where: { id: params.userId },
-      data: { name: params.name, metadata: nextMetadata },
+      data: { name: params.name, metadata: nextMetadata as Prisma.InputJsonValue },
     });
   }
 }
