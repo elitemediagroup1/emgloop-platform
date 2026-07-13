@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { submitAccessRequest } from './access-request-action';
 
 const ACCESS_TYPE_OPTIONS = [
@@ -29,6 +30,11 @@ export function RequestAccessModal() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [renderedAt, setRenderedAt] = useState(0);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -148,7 +154,8 @@ export function RequestAccessModal() {
         Request Access
       </button>
 
-      {open ? (
+      {open && mounted
+        ? createPortal(
         <div
           className="loop-reqaccess__overlay"
           onMouseDown={(e) => {
@@ -343,7 +350,9 @@ export function RequestAccessModal() {
             )}
           </div>
         </div>
-      ) : null}
+            document.body,
+          )
+        : null}
     </>
   );
 }
