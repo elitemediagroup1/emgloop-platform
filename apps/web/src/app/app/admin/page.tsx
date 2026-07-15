@@ -1,349 +1,254 @@
-import Link from "next/link";
-import { SidebarIcon } from "../../crm/_brand/SidebarIcon";
-import { loadOrFallback } from "../../../demo/db-health";
-import { crmRepos, resolveCrmOrganizationId } from "../../../crm/crm-data";
-import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../crm/integration-os";
-import type { Tone } from "../_loop-os";
-import {
-  money,
-  num,
-  greeting,
-  todayLabel,
-  relTime,
-  clockDuration,
-  Module,
-  Bar,
-  RankedList,
-  AttentionRow,
-  BriefingItem,
-  ActionTile,
-  IntegrationStatusPanel,
-  ContextGroup,
-} from "../_loop-os";
+import Link from 'next/link';
+import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
+import { loadWorkspaceHome } from './workspace-home-data';
+import { markHomeNotificationReadAction } from './workspace-home-actions';
 
-export const dynamic = "force-dynamic";
+// Sprint 24 — Canonical Workspace Home (/app/admin).
+//
+// The single post-login dashboard for OWNER / ADMIN / MANAGER, rendered inside
+// the existing ADMIN WorkspaceShell (layout.tsx already guards + wraps). All
+// data comes from loadWorkspaceHome(), which is session-scoped and truthful.
+// This file is presentation only: no Prisma, no demo store, no fabricated
+// metrics, no hardcoded person or organization.
 
-export default async function AdminOperatingSystem() {
-  const org = await resolveCrmOrganizationId();
+export const dynamic = 'force-dynamic';
 
-  const revenueR = org
-    ? await loadOrFallback(async () => crmRepos.revenueIntelligence.revenueByDimension(org))
-    : { ok: false as const };
-  const trafficR = org
-    ? await loadOrFallback(async () => crmRepos.revenueIntelligence.trafficIntelligence(org))
-    : { ok: false as const };
-  const liveCallsR = org
-    ? await loadOrFallback(async () => crmRepos.liveOperations.listLiveCalls(org))
-    : { ok: false as const };
-  const liveActivityR = org
-    ? await loadOrFallback(async () => crmRepos.liveOperations.listLiveActivity(org))
-    : { ok: false as const };
-  const integrationsR = org
-    ? await loadOrFallback(async () => {
-        const cards = await loadProviderCards(org);
-        return { cards, health: computeSystemHealth(cards) };
-      })
-    : { ok: false as const };
+function relTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  const diff = Date.now() - then;
+  const m = Math.round(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.round(h / 24);
+  return d + 'd ago';
+}
 
-  const rev = revenueR.ok ? revenueR.data : null;
-  const traffic = trafficR.ok ? trafficR.data : null;
-  const liveCalls = liveCallsR.ok ? liveCallsR.data : [];
-  const liveActivity = liveActivityR.ok ? liveActivityR.data : [];
-  const integrations = integrationsR.ok ? integrationsR.data : null;
-  const cards = integrations ? integrations.cards : [];
-  const health = integrations ? integrations.health : null;
+export default async function WorkspaceHome() {
+  const data = await loadWorkspaceHome();
+  const { header, nextAction, workSummary, myWork, notifications, intake, crm, recentActivity, quickActions, gettingStarted } = data;
 
-  const now = new Date();
-  const dateLabel = todayLabel();
-
-  /* ---- surface (never fabricate) attention items from existing data ---- */
-  type Attn = { icon: string; tone: Tone; title: string; detail: string; href: string };
-  const attention: Attn[] = [];
-  const warnCount = health ? (health.warnings || 0) : 0;
-  const needsSetup = health ? (health.needsSetup || 0) : 0;
-  const errCount = health ? (health.errors || 0) : 0;
-  const unattributed = traffic ? (traffic.unattributedCalls || 0) : 0;
-  if (errCount > 0) {
-    attention.push({ icon: "plug", tone: "crit", title: errCount + " integration " + (errCount === 1 ? "error" : "errors"), detail: "A provider connection is failing and needs attention.", href: "/app/admin/integrations" });
-  }
-  if (warnCount > 0) {
-    attention.push({ icon: "plug", tone: "warn", title: warnCount + " integration " + (warnCount === 1 ? "warning" : "warnings"), detail: "Some providers need attention to stay healthy.", href: "/app/admin/integrations" });
-  }
-  if (needsSetup > 0) {
-    attention.push({ icon: "cog", tone: "warn", title: needsSetup + " " + (needsSetup === 1 ? "provider needs" : "providers need") + " setup", detail: "Finish connecting to unlock full marketplace visibility.", href: "/app/admin/integrations" });
-  }
-  if (unattributed > 0) {
-    attention.push({ icon: "activity", tone: "warn", title: unattributed + " unattributed " + (unattributed === 1 ? "call" : "calls"), detail: "Calls without a known source are waiting to be attributed.", href: "/app/admin/marketplace" });
-  }
-
-  const attnCount = attention.length;
-  let bannerTone: Tone = "good";
-  let bannerTitle = "Everything operating normally";
-  let bannerBody = "No critical issues detected. Business is running smoothly.";
-  if (errCount > 0) {
-    bannerTone = "crit";
-    bannerTitle = "Critical issue detected";
-    bannerBody = "A provider connection needs immediate attention.";
-  } else if (attnCount > 0) {
-    bannerTone = "warn";
-    bannerTitle = attnCount + (attnCount === 1 ? " thing needs" : " decisions need") + " your attention";
-    bannerBody = "Nothing critical. Review when you have a moment.";
-  }
-
-  /* ---- module metrics (display existing values only) ---- */
-  const totalCalls = traffic ? (traffic.totalCalls || 0) : 0;
-  const attributed = traffic ? (traffic.attributedCalls || 0) : 0;
-  const qualified = traffic ? (traffic.qualifiedCalls || 0) : 0;
-  const bookings = traffic ? (traffic.bookings || 0) : 0;
-  const totalRevenue = rev ? (rev.totalRevenueCents || 0) : 0;
-  const realizedRevenue = rev ? (rev.realizedRevenueCents || 0) : 0;
-  const totalOrders = rev ? (rev.totalOrders || 0) : 0;
-  const liveCount = liveCalls.length;
-  const buyerRows = rev ? (rev.byBuyer || []) : [];
-  const campaignRows = rev ? (rev.byCampaign || []) : [];
-  const sourceRows = rev ? (rev.bySource || []) : [];
-  const vendorRows = rev ? (rev.byVendor || []) : [];
-  const activeBuyers = buyerRows.length;
-  const connectedCount = health ? (health.connected || 0) : 0;
-  const overallPercent = health ? (health.overallPercent || 0) : 0;
-
-  const marketplaceTone: Tone = totalCalls > 0 ? "good" : "idle";
-  const revenueTone: Tone = realizedRevenue > 0 ? "good" : "idle";
-  const opsTone: Tone = liveCount > 0 ? "good" : "idle";
-  const bizTone: Tone = activeBuyers > 0 ? "good" : "idle";
-  const creatorTone: Tone = "good";
-  const brainTone: Tone = "idle";
-
-  /* pure-css marketplace visual proportions (relative to totalCalls) */
-  const denom = Math.max(1, totalCalls);
-  const attributedPct = Math.round((attributed / denom) * 100);
-  const qualifiedPct = Math.round((qualified / denom) * 100);
-  const bookingsPct = Math.round((bookings / denom) * 100);
-
-  /* integration pills from provider cards (display existing status only) */
-  type Pill = { name: string; state: "connected" | "needs" | "error" };
-  const pills: Pill[] = (cards || []).map((card: any) => {
-    const name = (card && card.spec && (card.spec.displayName || card.spec.name)) || "Provider";
-    const conn = card && card.status ? card.status.connection : undefined;
-    const label = String(connectionLabel(conn) || "").toLowerCase();
-    let state: "connected" | "needs" | "error" = "needs";
-    if (label.indexOf("error") >= 0 || label.indexOf("fail") >= 0) state = "error";
-    else if (label.indexOf("connect") >= 0 && label.indexOf("not") < 0) state = "connected";
-    return { name, state };
-  });
+  const summaryCards = [
+    { key: 'assigned', label: 'Assigned to Me', value: workSummary.assignedToMe },
+    { key: 'ready', label: 'Ready Now', value: workSummary.readyNow },
+    { key: 'waiting', label: 'Waiting / Blocked', value: workSummary.waitingBlocked },
+    { key: 'completed', label: 'Completed Today', value: workSummary.completedToday },
+  ];
 
   return (
-    <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
-      <div className="loop-os__main">
-        {/* executive briefing hero */}
-        <header className="loop-os__brief">
-          <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">{greeting()}, Matt.</p>
-            <h1 className={"loop-os__brief-title loop-os__brief-title--" + bannerTone}>{bannerTitle}</h1>
-            <p className="loop-os__brief-body">{bannerBody}</p>
-            <Link href="/app/admin/brain" className="loop-os__brief-cta">
-              Review Briefing <span aria-hidden="true">{"\u2192"}</span>
-            </Link>
-          </div>
-          <div className="loop-os__brief-chip">
-            <SidebarIcon name="calendar" />
-            <span className="loop-os__brief-chiptoday">Today</span>
-            <span className="loop-os__brief-chipdate">{dateLabel}</span>
+    <div className="loop-os wh">
+      <div className="wh__main">
+
+        {/* A. HEADER */}
+        <header className="wh-header">
+          <div>
+            <p className="wh-header__greeting">{header.greeting}, {header.displayName}.</p>
+            <div className="wh-header__meta">
+              <span className="wh-header__org">{header.organizationName}</span>
+              <span className="wh-header__dot" aria-hidden="true">·</span>
+              <span>{header.dateLabel}</span>
+              <span className="wh-header__dot" aria-hidden="true">·</span>
+              <span className="wh-header__role">{header.roleLabel}</span>
+            </div>
           </div>
         </header>
 
-        {/* operating modules */}
-        <section className="loop-modgrid" aria-label="Operating modules">
-          <Module icon="star" title="Marketplace" metric={num(totalCalls)} unit="Calls" detail={num(attributed) + " attributed \u00b7 " + num(bookings) + " booked"} tone={marketplaceTone} href="/app/admin/marketplace" seed={1} />
-          <Module icon="revenue" title="Revenue" metric={money(realizedRevenue)} detail={money(realizedRevenue) + " realized \u00b7 " + num(totalOrders) + " orders"} tone={revenueTone} href="/app/admin/revenue" seed={3} />
-          <Module icon="activity" title="Operations" metric={num(liveCount)} unit="Live Calls" detail="In progress right now" tone={opsTone} href="/app/admin/operations" seed={5} />
-          <Module icon="building" title="Businesses" metric={num(activeBuyers)} unit="Active Buyers" detail="In your marketplace" tone={bizTone} href="/app/admin/businesses" seed={7} />
-          <Module icon="users" title="Creator Network" metric={"\u2014"} detail="No creator metrics available yet" tone="idle" href="/app/admin/creators" seed={9} />
-          <Module icon="brain" title="Brain" metric="Standby" detail="Waiting for today's briefing" tone={brainTone} href="/app/admin/brain" seed={11} />
-        </section>
-
-        <section className="loop-ctxjump">
-          <ContextGroup
-            title="Jump to"
-            caption="Contextual deep links across your operating system."
-            links={[
-            {
-              icon: "grid",
-              title: "Marketplace",
-              detail: "Open Marketplace to review performance.",
-              href: "/app/admin/marketplace",
-            },
-            {
-              icon: "revenue",
-              title: "Revenue",
-              detail: "View Marketplace to trace revenue.",
-              href: "/app/admin/marketplace",
-            },
-            {
-              icon: "activity",
-              title: "Operations",
-              detail: "View Activity for the live event stream.",
-              href: "/app/admin/marketplace/activity",
-            },
-            {
-              icon: "brain",
-              title: "Brain",
-              detail: "Open Brain for today's intelligence.",
-              href: "/app/admin/brain",
-            },
-            {
-              icon: "flow",
-              title: "My Work",
-              detail: "Open Work OS to see what to do next.",
-              href: "/app/admin/work",
-            },
-            {
-              icon: "plug",
-              title: "Integrations",
-              detail: "Manage Integrations and provider health.",
-              href: "/app/admin/integrations",
-            },
-            ]}
-          />
-        </section>
-
-        {/* two-column grid: content + persistent right rail */}
-        <div className="loop-grid">
-          <div className="loop-grid__content">
-            {/* needs attention */}
-            <section id="needs-attention" className="loop-card loop-attn loop-dq">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Decision Queue{attnCount > 0 ? <span className="loop-count">{attnCount}</span> : null}</h2>
-                <span className="loop-card__hint">What to decide next.</span>
-              </div>
-              {attnCount === 0 ? (
-                <div className="loop-empty loop-empty--good">
-                  <span className="loop-empty__glyph">{"\u2713"}</span>
-                  <div className="loop-empty__title">Everything looks healthy.</div>
-                  <div className="loop-empty__body">No action is required right now. Healthy systems stay quiet.</div>
-                </div>
-              ) : (
-                <div className="loop-attn__list">
-                  {attention.map((a, i) => (
-                    <AttentionRow key={a.title + i} icon={a.icon} tone={a.tone} title={a.title} detail={a.detail} href={a.href} />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* marketplace overview */}
-            <section className="loop-card loop-market">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Marketplace Overview</h2>
-                <Link href="/app/admin/marketplace" className="loop-card__link">Open Marketplace <span aria-hidden="true">{"\u2192"}</span></Link>
-              </div>
-              <div className="loop-market__body">
-                <div className="loop-market__bars">
-                  <Bar label="Attributed Calls" value={num(attributed)} pct={attributedPct} tone="good" />
-                  <Bar label="Qualified Calls" value={num(qualified)} pct={qualifiedPct} tone="good" />
-                  <Bar label="Bookings" value={num(bookings)} pct={bookingsPct} tone="warn" />
-                </div>
-                <div className="loop-market__ranks">
-                  <RankedList icon="star" title="Top Campaigns" rows={campaignRows} metric="orders" />
-                  <RankedList icon="building" title="Top Buyers" rows={buyerRows} metric="orders" />
-                  <RankedList icon="flow" title="Top Sources" rows={sourceRows} metric="orders" />
-                  <RankedList icon="plug" title="Top Vendors" rows={vendorRows} metric="orders" />
-                </div>
-              </div>
-            </section>
-
-            {/* quick actions */}
-            <section className="loop-card loop-actions">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Quick Actions</h2>
-              </div>
-              <div className="loop-launchers">
-                <ActionTile icon="flow" title="My Work" desc="See what to do next" href="/app/admin/work" />
-                <ActionTile icon="star" title="Marketplace" desc="Review performance" href="/app/admin/marketplace" />
-                <ActionTile icon="revenue" title="Revenue" desc="Track performance" href="/app/admin/revenue" />
-                <ActionTile icon="users" title="CRM" desc="Manage relationships" href="/app/admin/crm" />
-                <ActionTile icon="building" title="Businesses" desc="Manage buyers" href="/app/admin/businesses" />
-                <ActionTile icon="team" title="Creators" desc="Review content" href="/app/admin/creators" />
-                <ActionTile icon="flow" title="Experiments" desc="View results" href="/app/admin/experiments" />
-                <ActionTile icon="plug" title="Integrations" desc="Manage connections" href="/app/admin/integrations" />
-                <ActionTile icon="cog" title="Settings" desc="System settings" href="/app/admin/settings" />
-              </div>
-            </section>
+        {/* B. NEXT ACTION */}
+        <section className="wh-card wh-next" aria-label="Next action">
+          <div className="wh-card__head">
+            <h2 className="wh-card__title">Next Action</h2>
           </div>
-
-          {/* persistent right rail */}
-          <aside className="loop-rail" aria-label="Executive rail">
-            {/* executive briefing */}
-            <section className="loop-card loop-brief">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Executive Briefing</h2>
-                <span className="loop-badge loop-badge--idle">Standby</span>
+          {nextAction ? (
+            <div className="wh-next__body">
+              <div className="wh-next__info">
+                <div className="wh-next__title">{nextAction.title}</div>
+                <div className="wh-next__stage">
+                  <SidebarIcon name="flow" size={13} /> {nextAction.stageName}
+                </div>
               </div>
-              <div className="loop-brief__list">
-                <BriefingItem icon="chart" title="Today's Summary" />
-                <BriefingItem icon="star" title="Top Recommendation" />
-                <BriefingItem icon="bell" title="Primary Risk" />
-                <BriefingItem icon="revenue" title="Largest Opportunity" />
-              </div>
-              <Link href="/app/admin/brain" className="loop-brief__open">Open Brain <span aria-hidden="true">{"\u2192"}</span></Link>
-              <p className="loop-brief__note">The Brain computes intelligence on its own schedule. Briefings appear here once persisted.</p>
-            </section>
+              <Link href={nextAction.href} className="wh-btn wh-btn--primary">Open Work</Link>
+            </div>
+          ) : (
+            <div className="wh-empty">You{'\u2019'}re caught up. No action is waiting on you.</div>
+          )}
+        </section>
 
-            {/* recent activity */}
-            <section className="loop-card loop-feed">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Recent Activity</h2>
-                <Link href="/app/admin/operations" className="loop-card__link">View all</Link>
-              </div>
-              {liveActivity.length === 0 ? (
-                <div className="loop-quiet">No recent activity.</div>
-              ) : (
-                <ul className="loop-feed__list">
-                  {liveActivity.slice(0, 6).map((a: any, i: number) => (
-                    <li key={(a.id || "") + i} className="loop-feed__item">
-                      <span className="loop-feed__dot" aria-hidden="true" />
-                      <span className="loop-feed__label">{a.label || a.kind || "Event"}</span>
-                      <span className="loop-feed__time">{relTime(a.at)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+        {/* C. MY WORK SUMMARY */}
+        <section className="wh-summary" aria-label="My work summary">
+          {summaryCards.map((c) => (
+            <div key={c.key} className="wh-summary__card">
+              <div className="wh-summary__value">{c.value}</div>
+              <div className="wh-summary__label">{c.label}</div>
+            </div>
+          ))}
+        </section>
 
-            {/* live calls */}
-            <section className="loop-card loop-feed">
-              <div className="loop-card__head">
-                <h2 className="loop-card__title">Live Calls{liveCount > 0 ? <span className="loop-count">{liveCount}</span> : null}</h2>
-                <Link href="/app/admin/operations" className="loop-card__link">View all</Link>
-              </div>
-              {liveCalls.length === 0 ? (
-                <div className="loop-quiet">No live calls right now.</div>
-              ) : (
-                <ul className="loop-feed__list">
-                  {liveCalls.slice(0, 6).map((c: any, i: number) => (
-                    <li key={(c.id || "") + i} className="loop-feed__item">
-                      <span className="loop-feed__phone" aria-hidden="true"><SidebarIcon name="chat" /></span>
-                      <span className="loop-feed__label">{c.caller || c.customerName || "Caller"}</span>
-                      <span className="loop-feed__time">{clockDuration(c.durationSeconds)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+        {/* D + E. TWO COLUMN: My Work (~65%) + Notifications (~35%) */}
+        <div className="wh-row wh-row--work">
+          {/* D. MY WORK */}
+          <section className="wh-card wh-mywork" aria-label="My work">
+            <div className="wh-card__head">
+              <h2 className="wh-card__title">My Work</h2>
+              <Link href="/app/admin/work" className="wh-card__link">View All My Work</Link>
+            </div>
+            {myWork.length === 0 ? (
+              <div className="wh-empty">You have no assigned work.</div>
+            ) : (
+              <ul className="wh-list">
+                {myWork.map((w) => (
+                  <li key={w.workInstanceId} className="wh-list__row">
+                    <Link href={w.href} className="wh-list__main">
+                      <span className="wh-list__title">{w.title}</span>
+                      <span className="wh-list__sub">{w.stageName}</span>
+                    </Link>
+                    <span className={'wh-tag wh-tag--' + (w.status === 'ready' ? 'ready' : 'progress')}>
+                      {w.status === 'ready' ? 'Ready' : 'In progress'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-            {/* integration status */}
-            <section className="loop-card loop-intg-panel">
-              <IntegrationStatusPanel cards={cards} health={health} href="/app/admin/integrations" />
-            </section>
-          </aside>
+          {/* E. NOTIFICATIONS */}
+          <section className="wh-card wh-notes" aria-label="Notifications">
+            <div className="wh-card__head">
+              <h2 className="wh-card__title">
+                Notifications
+                {notifications.unreadCount > 0 ? (
+                  <span className="wh-count">{notifications.unreadCount}</span>
+                ) : null}
+              </h2>
+            </div>
+            {notifications.items.length === 0 ? (
+              <div className="wh-empty">No new notifications.</div>
+            ) : (
+              <ul className="wh-list">
+                {notifications.items.map((n) => (
+                  <li key={n.id} className="wh-note">
+                    <div className="wh-note__body">
+                      {n.href ? (
+                        <Link href={n.href} className="wh-note__title">{n.title}</Link>
+                      ) : (
+                        <span className="wh-note__title">{n.title}</span>
+                      )}
+                      <span className="wh-note__text">{n.body}</span>
+                      <span className="wh-note__time">{relTime(n.createdAtIso)}</span>
+                    </div>
+                    <form action={markHomeNotificationReadAction}>
+                      <input type="hidden" name="notificationId" value={n.id} />
+                      <button type="submit" className="wh-note__read" aria-label="Mark read">
+                        Mark read
+                      </button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
 
-        {/* footer status */}
-        <footer className="loop-foot">
-          <span className="loop-foot__dot" aria-hidden="true" />
-          <span className="loop-foot__label">All Systems Online</span>
-          {health ? <span className="loop-foot__meta">{num(overallPercent)}% integration health</span> : null}
-        </footer>
+        {/* F + G. TWO COLUMN: Business Intake (50%) + CRM Overview (50%) */}
+        <div className="wh-row wh-row--half">
+          {/* F. BUSINESS INTAKE — admin/owner/manager only */}
+          {data.isAdmin ? (
+            <section className="wh-card" aria-label="Business intake">
+              <div className="wh-card__head">
+                <h2 className="wh-card__title">Business Intake</h2>
+              </div>
+              {intake.length === 0 ? (
+                <div className="wh-empty">Nothing needs review.</div>
+              ) : (
+                <div className="wh-metrics">
+                  {intake.map((c) => (
+                    <Link key={c.key} href={c.href} className="wh-metric">
+                      <span className="wh-metric__value">{c.count}</span>
+                      <span className="wh-metric__label">{c.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+              <p className="wh-note-line">Access requests are currently delivered by email.</p>
+            </section>
+          ) : null}
+
+          {/* G. CRM OVERVIEW */}
+          <section className="wh-card" aria-label="CRM overview">
+            <div className="wh-card__head">
+              <h2 className="wh-card__title">CRM Overview</h2>
+            </div>
+            {crm.every((c) => c.count === 0) ? (
+              <div className="wh-empty">No CRM activity yet.</div>
+            ) : (
+              <div className="wh-metrics">
+                {crm.map((c) => (
+                  <Link key={c.key} href={c.href} className="wh-metric">
+                    <span className="wh-metric__value">{c.count}</span>
+                    <span className="wh-metric__label">{c.label}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* H. RECENT ACTIVITY (full width) */}
+        <section className="wh-card wh-activity" aria-label="Recent activity">
+          <div className="wh-card__head">
+            <h2 className="wh-card__title">Recent Activity</h2>
+            {data.isAdmin ? <Link href="/crm/audit" className="wh-card__link">View Audit Log</Link> : null}
+          </div>
+          {recentActivity.length === 0 ? (
+            <div className="wh-empty">No recent activity yet.</div>
+          ) : (
+            <ul className="wh-feed">
+              {recentActivity.map((a) => (
+                <li key={a.id} className="wh-feed__item">
+                  <span className="wh-feed__dot" aria-hidden="true" />
+                  <span className="wh-feed__label">{a.label}</span>
+                  <span className="wh-feed__actor">{a.actorName}</span>
+                  <span className="wh-feed__time">{relTime(a.createdAtIso)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* I. QUICK ACTIONS */}
+        <section className="wh-card wh-quick" aria-label="Quick actions">
+          <div className="wh-card__head">
+            <h2 className="wh-card__title">Quick Actions</h2>
+          </div>
+          <div className="wh-quick__grid">
+            {quickActions.map((q) => (
+              <Link key={q.key} href={q.href} className="wh-quick__tile">
+                <span className="wh-quick__icon"><SidebarIcon name={q.icon} size={16} /></span>
+                <span className="wh-quick__label">{q.label}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* J. GETTING STARTED — only while org is still early-stage */}
+        {gettingStarted.show ? (
+          <section className="wh-card wh-getstarted" aria-label="Getting started">
+            <div className="wh-card__head">
+              <h2 className="wh-card__title">Getting Started</h2>
+            </div>
+            <ul className="wh-check">
+              {gettingStarted.items.map((c) => (
+                <li key={c.key} className={'wh-check__row' + (c.done ? ' is-done' : '')}>
+                  <span className="wh-check__mark" aria-hidden="true">
+                    {c.done ? '\u2713' : ''}
+                  </span>
+                  <span className="wh-check__label">{c.label}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
       </div>
     </div>
   );
