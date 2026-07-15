@@ -80,6 +80,18 @@ const STEP_TITLES = [
   'Ready',
 ];
 
+const Field = ({
+  label,
+  required,
+  children,
+  hint,
+}: {
+  label: string;
+  required?: boolean;
+  children: ReactNode;
+  hint?: string;
+}) => (
+
 export function SetupWizard({ initial }: { initial: Initial }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -192,18 +204,6 @@ export function SetupWizard({ initial }: { initial: Initial }) {
       setSubmitting(false);
     }
   }, [state]);
-
-  const Field = ({
-    label,
-    required,
-    children,
-    hint,
-  }: {
-    label: string;
-    required?: boolean;
-    children: ReactNode;
-    hint?: string;
-  }) => (
     <label className="loop-setup__field">
       <span className="loop-setup__label">
         {label}
