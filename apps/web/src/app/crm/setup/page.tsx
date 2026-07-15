@@ -35,24 +35,29 @@ export default async function SetupPage() {
   });
   const ownerName = owner?.name ?? '';
   const savedProfile =
-      owner?.metadata && typeof owner.metadata === 'object'
-        ? ((owner.metadata as Record<string, unknown>).profile as
-            | Record<string, unknown>
-            | undefined)
-        : undefined;
+    owner?.metadata && typeof owner.metadata === 'object'
+      ? ((owner.metadata as Record<string, unknown>).profile as
+          | Record<string, unknown>
+          | undefined)
+      : undefined;
   const str = (v: unknown): string =>
-      typeof v === 'string' ? v : '';
+    typeof v === 'string' ? v : '';
   const [derivedFirst, ...derivedRest] = ownerName.trim().split(/\s+/);
   const profile = {
-      firstName: savedProfile ? str(savedProfile.firstName) : (derivedFirst ?? ''),
-      lastName: savedProfile
-        ? str(savedProfile.lastName)
-        : derivedRest.join(' '),
-      preferredName: savedProfile ? str(savedProfile.preferredName) : '',
-      jobTitle: savedProfile ? str(savedProfile.jobTitle) : '',
-      phone: savedProfile ? str(savedProfile.phone) : '',
-      timezone: savedProfile ? str(savedProfile.timezone) : '',
+    firstName: savedProfile ? str(savedProfile.firstName) : (derivedFirst ?? ''),
+    lastName: savedProfile
+      ? str(savedProfile.lastName)
+      : derivedRest.join(' '),
+    preferredName: savedProfile ? str(savedProfile.preferredName) : '',
+    jobTitle: savedProfile ? str(savedProfile.jobTitle) : '',
+    phone: savedProfile ? str(savedProfile.phone) : '',
+    timezone: savedProfile ? str(savedProfile.timezone) : '',
   };
+
+  // Prefer the organization's own primary email (persisted under
+  // settings.workspace.primaryEmail) so the Organization step defaults to the
+  // company address rather than the logged-in owner's personal email.
+  const orgEmail = str(settings.workspace?.primaryEmail);
 
   // Completed organizations never see the wizard again.
   if (settings.onboarding?.completedAt) {
@@ -62,6 +67,7 @@ export default async function SetupPage() {
   const initial = {
     orgName: org?.name ?? '',
     orgSlug: org?.slug ?? '',
+    orgEmail,
     orgIndustry: org?.industry ?? 'GENERIC',
     orgTimezone: org?.timezone ?? 'UTC',
     userName: session.name ?? '',

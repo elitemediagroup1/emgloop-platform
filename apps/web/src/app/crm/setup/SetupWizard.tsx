@@ -1,13 +1,13 @@
 'use client';
 
-// Sprint 21 — Owner Setup Wizard (client).
+// Sprint 22 — Owner Setup Wizard (client).
 //
-// Six-step, calm/minimal first-login flow. Wizard values live in local React
+// Five-step, calm/minimal first-login flow. Wizard values live in local React
 // state and are carried between steps (no server round-trip per step). Only on
 // the final "Enter Loop" does the completion server action persist the mapped
 // fields and the onboarding marker, then redirect to the canonical workspace.
-// Placeholders (profile photo upload, connected services) are clearly labelled
-// and never pretend to work.
+// The profile photo area is a clearly labelled placeholder and never pretends
+// to work.
 
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
@@ -16,6 +16,7 @@ import { completeSetupAction } from './setup-actions';
 interface Initial {
   orgName: string;
   orgSlug: string;
+  orgEmail: string;
   orgIndustry: string;
   orgTimezone: string;
   userName: string;
@@ -34,7 +35,6 @@ interface WizardState {
   lastName: string;
   preferredName: string;
   jobTitle: string;
-  company: string;
   userPhone: string;
   userTimezone: string;
   // Step 2 — organization (name/industry/timezone -> columns; rest -> settings)
@@ -49,12 +49,10 @@ interface WizardState {
   workspaceName: string;
   landingPage: string;
   theme: string;
-  // Step 5 — AI preferences (-> settings.aiPreferences)
+  // Step 4 — AI preferences (-> settings.aiPreferences)
   aiPreferredName: string;
   communicationStyle: string;
   decisionStyle: string;
-  dailyBrief: boolean;
-  weeklySummary: boolean;
 }
 
 const INDUSTRY_OPTIONS: Array<{ value: string; label: string }> = [
@@ -69,13 +67,12 @@ const INDUSTRY_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'FITNESS', label: 'Fitness' },
 ];
 
-const SIZE_OPTIONS = ['1–10', '11–50', '51–200', '201–500', '500+'];
+const SIZE_OPTIONS = ['1\u201310', '11\u201350', '51\u2013200', '201\u2013500', '500+'];
 
 const STEP_TITLES = [
   'Your profile',
   'Organization',
   'Your workspace',
-  'Connected services',
   'AI preferences',
   'Ready',
 ];
@@ -113,12 +110,11 @@ export function SetupWizard({ initial }: { initial: Initial }) {
     lastName: initial.lastName,
     preferredName: initial.preferredName,
     jobTitle: initial.jobTitle,
-    company: initial.orgName,
     userPhone: initial.userPhone,
     userTimezone: initial.userTimezone || initial.orgTimezone,
     orgName: initial.orgName,
     orgWebsite: '',
-    orgEmail: initial.userEmail,
+    orgEmail: initial.orgEmail || initial.userEmail,
     orgPhone: '',
     orgTimezone: initial.orgTimezone,
     orgIndustry: initial.orgIndustry,
@@ -129,8 +125,6 @@ export function SetupWizard({ initial }: { initial: Initial }) {
     aiPreferredName: '',
     communicationStyle: 'balanced',
     decisionStyle: 'recommend',
-    dailyBrief: true,
-    weeklySummary: true,
   });
 
   const set = useCallback(
@@ -139,23 +133,23 @@ export function SetupWizard({ initial }: { initial: Initial }) {
     [],
   );
 
-  const workspaceUrl = useMemo(
-    () => 'app.emgloop.com/' + (initial.orgSlug || 'workspace'),
-    [initial.orgSlug],
-  );
+  const workspaceUrl = useMemo(() => {
+    const rawSlug = initial.orgSlug || '';
+    const slug = rawSlug.includes('servicesinmycity-demo') ? '' : rawSlug;
+    return slug ? 'app.emgloop.com/' + slug : 'app.emgloop.com';
+  }, [initial.orgSlug]);
 
   const totalSteps = STEP_TITLES.length;
   const progress = Math.round(((step + 1) / totalSteps) * 100);
 
-  // Step 1 requires first/last/job title/company. Step 2 requires org name +
-  // primary email. All other steps may continue freely.
+  // Step 1 requires first/last/job title. Step 2 requires org name + primary
+  // email. All other steps may continue freely.
   const canContinue = useMemo(() => {
     if (step === 0) {
       return (
         state.firstName.trim() !== '' &&
         state.lastName.trim() !== '' &&
-        state.jobTitle.trim() !== '' &&
-        state.company.trim() !== ''
+        state.jobTitle.trim() !== ''
       );
     }
     if (step === 1) {
@@ -198,8 +192,6 @@ export function SetupWizard({ initial }: { initial: Initial }) {
       fd.set('aiPreferredName', state.aiPreferredName || state.preferredName);
       fd.set('communicationStyle', state.communicationStyle);
       fd.set('decisionStyle', state.decisionStyle);
-      if (state.dailyBrief) fd.set('dailyBrief', 'on');
-      if (state.weeklySummary) fd.set('weeklySummary', 'on');
 
       const result = await completeSetupAction(fd);
       if (result.ok) {
@@ -223,7 +215,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
               <div className="loop-setup__progress-bar" style={{ width: progress + '%' }} />
             </div>
             <p className="loop-setup__stepindicator">
-              Step {step + 1} of {totalSteps} · {STEP_TITLES[step]}
+              Step {step + 1} of {totalSteps} \u00B7 {STEP_TITLES[step]}
             </p>
 
             {step === 0 ? (
@@ -273,14 +265,6 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     onChange={(e) => set('jobTitle', e.target.value)}
                   />
                 </Field>
-                <Field label="Company" required>
-                  <input
-                    type="text"
-                    value={state.company}
-                    maxLength={150}
-                    onChange={(e) => set('company', e.target.value)}
-                  />
-                </Field>
                 <Field label="Phone">
                   <input
                     type="tel"
@@ -294,7 +278,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
 
             {step === 1 ? (
               <section className="loop-setup__step">
-                <h1 className="loop-setup__heading">Tell us about your organization</h1>
+                <h1 className="loop-setup__heading">Tell us about your company</h1>
 
                 <Field label="Organization name" required>
                   <input
@@ -312,7 +296,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     onChange={(e) => set('orgWebsite', e.target.value)}
                   />
                 </Field>
-                <Field label="Primary email" required>
+                <Field label="Primary company email" required>
                   <input
                     type="email"
                     value={state.orgEmail}
@@ -320,7 +304,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     onChange={(e) => set('orgEmail', e.target.value)}
                   />
                 </Field>
-                <Field label="Primary phone">
+                <Field label="Primary company phone">
                   <input
                     type="tel"
                     value={state.orgPhone}
@@ -328,7 +312,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     onChange={(e) => set('orgPhone', e.target.value)}
                   />
                 </Field>
-                <Field label="Time zone">
+                <Field label="Time zone" required>
                   <input
                     type="text"
                     value={state.orgTimezone}
@@ -336,11 +320,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     onChange={(e) => set('orgTimezone', e.target.value)}
                   />
                 </Field>
-                <div className="loop-setup__field">
-                  <span className="loop-setup__label">Company logo</span>
-                  <div className="loop-setup__logoph" aria-hidden="true">Logo upload coming soon</div>
-                </div>
-                <Field label="Industry">
+                <Field label="Industry" required>
                   <select
                     value={state.orgIndustry}
                     onChange={(e) => set('orgIndustry', e.target.value)}
@@ -350,12 +330,12 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="Company size">
+                <Field label="Company size" required>
                   <select
                     value={state.companySize}
                     onChange={(e) => set('companySize', e.target.value)}
                   >
-                    <option value="">Select…</option>
+                    <option value="">Select\u2026</option>
                     {SIZE_OPTIONS.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
@@ -401,34 +381,6 @@ export function SetupWizard({ initial }: { initial: Initial }) {
 
             {step === 3 ? (
               <section className="loop-setup__step">
-                <h1 className="loop-setup__heading">Connect your business tools</h1>
-                <div className="loop-setup__services">
-                  {[
-                    'Google Workspace',
-                    'Microsoft 365',
-                    'Slack',
-                    'HubSpot',
-                  ].map((name) => (
-                    <div key={name} className="loop-setup__service">
-                      <div className="loop-setup__service-head">
-                        <span className="loop-setup__service-name">{name}</span>
-                        <span className="loop-setup__badge">Not connected</span>
-                      </div>
-                      <button type="button" className="loop-setup__connect" disabled>
-                        Connect
-                      </button>
-                      <span className="loop-setup__soon">Coming soon</span>
-                    </div>
-                  ))}
-                </div>
-                <p className="loop-setup__note">
-                  You&apos;ll be able to connect these services after setup.
-                </p>
-              </section>
-            ) : null}
-
-            {step === 4 ? (
-              <section className="loop-setup__step">
                 <h1 className="loop-setup__heading">How should Loop work with you?</h1>
 
                 <Field label="Preferred name for AI">
@@ -459,26 +411,10 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     <option value="challenge">Challenge my thinking</option>
                   </select>
                 </Field>
-                <label className="loop-setup__check">
-                  <input
-                    type="checkbox"
-                    checked={state.dailyBrief}
-                    onChange={(e) => set('dailyBrief', e.target.checked)}
-                  />
-                  <span>Daily executive brief</span>
-                </label>
-                <label className="loop-setup__check">
-                  <input
-                    type="checkbox"
-                    checked={state.weeklySummary}
-                    onChange={(e) => set('weeklySummary', e.target.checked)}
-                  />
-                  <span>Weekly executive summary</span>
-                </label>
               </section>
             ) : null}
 
-            {step === 5 ? (
+            {step === 4 ? (
               <section className="loop-setup__step loop-setup__step--ready">
                 <div className="loop-setup__check-circle" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="34" height="34" fill="none">
@@ -491,11 +427,9 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                     />
                   </svg>
                 </div>
-                <h1 className="loop-setup__heading">Your workspace is ready.</h1>
-                <p className="loop-setup__subtitle">Loop has everything it needs to begin.</p>
-                <p className="loop-setup__body">
-                  You can now begin inviting employees, connecting services, and
-                  managing your business.
+                <h1 className="loop-setup__heading">You&apos;re ready to use Loop.</h1>
+                <p className="loop-setup__subtitle">
+                  Your workspace has been created and your organization is ready.
                 </p>
               </section>
             ) : null}
@@ -534,7 +468,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                   onClick={handleComplete}
                   disabled={submitting}
                 >
-                  {submitting ? 'Finishing…' : 'Enter Loop'}
+                  {submitting ? 'Finishing\u2026' : 'Enter Loop'}
                 </button>
               )}
             </div>
@@ -552,16 +486,11 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                 />
               </svg>
             </div>
-            <h1 className="loop-setup__heading">Your workspace is ready.</h1>
-            <p className="loop-setup__subtitle">Loop has everything it needs to begin.</p>
+            <h1 className="loop-setup__heading">You&apos;re ready to use Loop.</h1>
+            <p className="loop-setup__subtitle">
+              Your workspace has been created and your organization is ready.
+            </p>
             <div className="loop-setup__actions loop-setup__actions--center">
-              <button
-                type="button"
-                className="loop-setup__secondary"
-                onClick={() => router.push('/crm/settings')}
-              >
-                Review settings
-              </button>
               <button
                 type="button"
                 className="loop-setup__continue"
@@ -570,6 +499,13 @@ export function SetupWizard({ initial }: { initial: Initial }) {
                 Enter Loop
               </button>
             </div>
+            <button
+              type="button"
+              className="loop-setup__textlink"
+              onClick={() => router.push('/crm/settings')}
+            >
+              Review settings later
+            </button>
           </section>
         )}
       </div>
