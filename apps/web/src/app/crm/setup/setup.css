@@ -280,3 +280,34 @@
   .loop-setup__services { grid-template-columns: 1fr; }
   .loop-setup__actions { flex-wrap: wrap; }
 }
+
+/* Sprint 22 — profile photo placeholder label (stacked title + note). */
+.setup-photo-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-photo-label-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1d1d1f;
+}
+
+.setup-photo-label-note {
+  font-size: 12px;
+  color: #86868b;
+}
+
+/* Sprint 22 — finish page secondary text link ("Review settings later"). */
+.loop-setup__textlink {
+  margin-top: 12px;
+  border: none;
+  background: transparent;
+  color: #6e6e73;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.loop-setup__textlink:hover { color: #1d1d1f; }
