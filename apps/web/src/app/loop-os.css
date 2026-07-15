@@ -1110,3 +1110,109 @@ a.wh-note__title:hover { text-decoration: underline; }
   .wh-row--work .wh-notes { order: -1; }
   .wh-metrics { grid-template-columns: 1fr; }
 }
+
+
+/* ===================== SPRINT 25 — EXECUTIVE OPERATING SYSTEM =====================
+   Additive to the Sprint 24 .wh- namespace. Same tokens (--loop-*), same visual
+   language: no new colors, typography, or layout system. This block only (1)
+   increases density ~20% via .wh--dense, (2) styles the new executive elements
+   (summary line, compact next action, clickable buckets, actionable intake, CRM
+   highlights, color-coded activity/notification icons). Presentation only. */
+
+/* Density: reduce vertical gaps ~20% and card padding, keep type sizes. */
+.wh--dense .wh__main { gap: 19px; padding: clamp(16px, 2.4vw, 30px); }
+.wh--dense .wh-row { gap: 19px; }
+.wh--dense .wh-summary { gap: 12px; }
+.wh--dense .wh-card { padding: 16px; }
+.wh--dense .wh-card__head { margin-bottom: 11px; }
+.wh--dense .wh-header { padding: 2px 2px 0; }
+
+/* Executive summary line — one calm sentence group under the greeting. */
+.wh-summline {
+  margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px 14px;
+  font-size: 14px; color: var(--loop-text-2); line-height: 1.5; max-width: 90ch;
+}
+.wh-summline__part { display: inline-flex; align-items: center; gap: 8px; }
+.wh-summline__part::before {
+  content: ''; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--loop-accent); flex: none; box-shadow: 0 0 8px var(--loop-accent);
+}
+
+/* B. Next Action — compact (~120px), title + verb inline. */
+.wh-next--compact { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 92px; max-height: 140px; }
+.wh-next__lead { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wh-next__eyebrow { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 700; }
+.wh-next__title { font-size: 16px; font-weight: 640; color: var(--loop-text); }
+.wh-next__title--calm { font-weight: 550; color: var(--loop-text-2); font-size: 14px; }
+.wh-next__stage { display: inline-flex; align-items: center; gap: 6px; color: var(--loop-text-2); font-size: 12.5px; }
+
+/* C. Work summary cards — now clickable filters, active state. */
+a.wh-summary__card { display: flex; flex-direction: column; text-decoration: none; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+a.wh-summary__card:hover { border-color: var(--loop-line-strong); transform: translateY(-2px); }
+a.wh-summary__card.is-active { border-color: var(--loop-accent); background: var(--loop-accent-soft); }
+a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
+
+/* D. My Work — richer rows with meta + action button. */
+.wh-card__scope { margin-left: 10px; font-size: 11px; font-weight: 600; color: var(--loop-accent-2); background: var(--loop-accent-soft); padding: 2px 8px; border-radius: 999px; letter-spacing: .01em; }
+.wh-work { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--loop-line); }
+.wh-work:last-child { border-bottom: 0; }
+.wh-work__main { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.wh-work__title { color: var(--loop-text); font-size: 13.5px; font-weight: 600; text-decoration: none; }
+.wh-work__title:hover { text-decoration: underline; }
+.wh-work__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--loop-text-3); font-size: 12px; }
+.wh-work__stage { color: var(--loop-text-2); }
+.wh-work__dot { color: var(--loop-text-3); }
+.wh-work__assigned { color: var(--loop-text-3); }
+.wh-tag--done { color: var(--loop-text-3); border-color: var(--loop-line-strong); }
+.wh-tag--pending { color: var(--loop-warn); border-color: rgba(242,180,91,0.4); }
+.wh-emptyblock { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 8px 0; }
+
+/* Buttons — ghost + small variants (reuse existing .wh-btn base). */
+.wh-btn--sm { padding: 6px 12px; font-size: 12px; }
+.wh-btn--ghost { background: transparent; color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); }
+.wh-btn--ghost:hover { color: var(--loop-text); border-color: var(--loop-accent); background: var(--loop-elev); }
+
+/* E. Notifications — leading category icon. */
+.wh-note { align-items: flex-start; }
+.wh-note__icon { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; flex: none; background: var(--loop-elev); color: var(--loop-accent-2); margin-top: 1px; }
+.wh-note__icon--assigned { color: var(--loop-accent-2); background: var(--loop-accent-soft); }
+.wh-note__icon--next_action_ready { color: var(--loop-good); background: rgba(55,211,155,0.12); }
+.wh-note__icon--completed { color: var(--loop-good); background: rgba(55,211,155,0.12); }
+.wh-note__icon--approval_needed { color: var(--loop-warn); background: rgba(242,180,91,0.14); }
+
+/* F. Business Intake — actionable rows, not bare counts. */
+.wh-intake { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.wh-intake__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--loop-line); }
+.wh-intake__row:last-child { border-bottom: 0; }
+.wh-intake__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wh-intake__label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.wh-intake__title { font-size: 13.5px; font-weight: 600; color: var(--loop-text); overflow: hidden; text-overflow: ellipsis; }
+.wh-intake__detail { font-size: 12px; color: var(--loop-text-2); }
+.wh-intake__empty { font-size: 13px; color: var(--loop-text-3); }
+.wh-intake__side { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* G. CRM Overview — highlight rows (newest entities + counts). */
+.wh-crm { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.wh-crm__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--loop-line); }
+.wh-crm__row:last-child { border-bottom: 0; }
+.wh-crm__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wh-crm__label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.wh-crm__title { font-size: 14px; font-weight: 650; color: var(--loop-text); overflow: hidden; text-overflow: ellipsis; }
+.wh-crm__detail { font-size: 12px; color: var(--loop-text-2); }
+
+/* H. Recent Activity — color-categorized leading icon. */
+.wh-feed__item { gap: 12px; }
+.wh-feed__icon { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; flex: none; background: var(--loop-elev); color: var(--loop-text-2); }
+.wh-feed__icon--work { color: var(--loop-accent-2); background: var(--loop-accent-soft); }
+.wh-feed__icon--customer { color: var(--loop-good); background: rgba(55,211,155,0.12); }
+.wh-feed__icon--invitation { color: var(--loop-warn); background: rgba(242,180,91,0.14); }
+.wh-feed__icon--auth { color: var(--loop-accent-2); background: var(--loop-accent-soft); }
+.wh-feed__icon--system { color: var(--loop-text-3); background: var(--loop-elev); }
+.wh--dense .wh-feed__item { padding: 8px 0; }
+
+/* Density responsive: keep single column + notifications-first on small screens. */
+@media (max-width: 900px) {
+  .wh-next--compact { flex-direction: column; align-items: flex-start; max-height: none; }
+  .wh-summline { gap: 6px; }
+}
+/* ===================== END SPRINT 25 ===================== */
