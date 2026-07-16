@@ -4,7 +4,7 @@ import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
 import { SidebarIcon } from "../../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../../demo/db-health";
-import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
+import { crmRepos, requireCrmContext } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
 import {
   num,
@@ -41,7 +41,7 @@ type FeedEvent = {
 };
 
 export default async function MarketplaceActivityPage() {
-  const org = await resolveCrmOrganizationId();
+  const { organizationId: org } = await requireCrmContext();
   const liveActivityR = org
     ? await loadOrFallback(async () => crmRepos.liveOperations.listLiveActivity(org))
     : { ok: false as const };
