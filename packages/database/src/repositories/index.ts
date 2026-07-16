@@ -1,7 +1,8 @@
 // Repository layer barrel — Sprint 4 (Real Data Layer) + Sprint 7 (Identity)
 // + Sprint 8 (Conversations & the Unified Inbox) + Sprint 9 (Workflows)
 // + Sprint 10 (Loop Intelligence Foundation) + Sprint 14 (Website Intelligence)
-// + Sprint 15 (Live Operations, Traffic & Revenue Intelligence).
+// + Sprint 15 (Live Operations, Traffic & Revenue Intelligence)
+// + Verified Knowledge Service (kg.v1 — distinct from RAG/embeddings).
 //
 // One import surface for the whole platform's persistence.
 
@@ -30,6 +31,7 @@ import { IntelligenceRepository } from './intelligence.repository';
 import { LiveOperationsRepository } from './live-operations.repository';
 import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 import { WorkRepository } from './work.repository';
+import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -151,6 +153,11 @@ export type {
   WorkInstanceWithStages,
 } from './work.repository';
 
+// Verified Knowledge Service (kg.v1) — durable verified knowledge graph,
+// distinct from the embedding / RAG document store. Additive only.
+export { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
+export type { ImportOutcome } from './verified-knowledge.repository';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
@@ -175,6 +182,7 @@ export interface Repositories {
   liveOperations: LiveOperationsRepository;
   revenueIntelligence: RevenueIntelligenceRepository;
   work: WorkRepository;
+  verifiedKnowledge: VerifiedKnowledgeRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -202,5 +210,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     liveOperations: new LiveOperationsRepository(prisma),
     revenueIntelligence: new RevenueIntelligenceRepository(prisma),
     work: new WorkRepository(prisma),
+    verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
   };
 }
