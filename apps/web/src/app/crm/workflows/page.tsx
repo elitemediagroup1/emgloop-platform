@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../auth/guard';
 import { toggleWorkflowActiveAction } from '../../../crm/workflow-actions';
 
@@ -37,9 +37,9 @@ export default async function WorkflowsPage() {
   const canManage = await hasPermission('workflows', 'create');
   const canToggle = await hasPermission('workflows', 'update');
 
+  const { organizationId } = await requireCrmContext();
+
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId) return { empty: true as const };
     const workflows = await crmRepos.workflows.listWorkflows(organizationId);
     return { empty: false as const, workflows };
   });
