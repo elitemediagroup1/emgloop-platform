@@ -27,8 +27,11 @@ apps/web/src/crm/crm-data.ts now exports:
   session organization. A cross-org id returns false so callers treat it as
   not found / unauthorized.
 
-The demo-only organization resolver has been removed from crm-data.ts. It is no
-longer importable by production code. Development seeding is unchanged.
+The demo-only organization resolver is retained in crm-data.ts only as a
+@deprecated transitional export so the not-yet-migrated feature/owner/API
+surfaces (PR 2 and PR 3) still compile; it is no longer imported by any surface
+secured in PR 1, and will be deleted in the final Sprint 28 PR once no
+production module imports it. Development seeding is unchanged.
 
 ## Reads secured in PR 1
 
