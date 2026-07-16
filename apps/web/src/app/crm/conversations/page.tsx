@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import {
   createSavedViewAction,
@@ -75,11 +75,9 @@ export default async function ConversationsPage({
     q: search || undefined,
   };
 
+  const { organizationId } = await requireCrmContext();
+
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId) {
-      return { empty: true as const };
-    }
     const [list, assignees, savedViews] = await Promise.all([
       crmRepos.conversationsInbox.listConversations(organizationId, {
         status: (STATUSES as string[]).includes(statusFilter)
