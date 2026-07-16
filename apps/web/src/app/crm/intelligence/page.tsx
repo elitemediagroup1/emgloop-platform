@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 
 // Loop Intelligence — Sprint 10 engine, re-skinned as the signature Brain
@@ -28,7 +28,7 @@ export default async function IntelligencePage() {
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const orgId = await resolveCrmOrganizationId();
+  const { organizationId: orgId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
     if (!orgId) return null;
