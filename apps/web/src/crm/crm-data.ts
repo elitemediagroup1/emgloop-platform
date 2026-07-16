@@ -71,6 +71,42 @@ export async function customerBelongsToOrg(
 }
 
 /**
+ * Fail-closed ownership guard for single-conversation reads/mutations that
+ * otherwise operate on a raw conversationId. Returns true only when the
+ * conversation belongs to the caller's session organization; a cross-org id
+ * returns false so callers can treat it as not-found / unauthorized.
+ */
+export async function conversationBelongsToOrg(
+  organizationId: string,
+  conversationId: string,
+): Promise<boolean> {
+  if (!organizationId || !conversationId) return false;
+  const row = await prisma.conversation.findFirst({
+    where: { id: conversationId, organizationId },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+/**
+ * Fail-closed ownership guard for single-workflow reads/mutations that
+ * otherwise operate on a raw workflowId. Returns true only when the workflow
+ * belongs to the caller's session organization; a cross-org id returns false
+ * so callers can treat it as not-found / unauthorized.
+ */
+export async function workflowBelongsToOrg(
+  organizationId: string,
+  workflowId: string,
+): Promise<boolean> {
+  if (!organizationId || !workflowId) return false;
+  const row = await prisma.workflow.findFirst({
+    where: { id: workflowId, organizationId },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+/**
  * @deprecated TRANSITIONAL — Sprint 28. Resolves a fixed seed organization by
  * slug. This is the pre-Sprint-28 behavior and is NOT session-scoped. It is
  * retained ONLY so the not-yet-migrated CRM feature pages, owner Brain and

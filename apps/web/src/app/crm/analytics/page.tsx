@@ -1,5 +1,5 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 
 // Analytics — Sprint 10 (Loop Intelligence Foundation, Phase 4)
@@ -23,7 +23,7 @@ export default async function AnalyticsPage() {
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000); // last 30 days
 
-  const orgId = await resolveCrmOrganizationId();
+  const { organizationId: orgId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
     if (!orgId) return null;

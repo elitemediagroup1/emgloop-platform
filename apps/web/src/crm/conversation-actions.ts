@@ -13,6 +13,7 @@ import { revalidatePath } from 'next/cache';
 import { repositories, CONVERSATION_STATUSES } from '@emgloop/database';
 import type { ConversationStatus } from '@emgloop/database';
 import { requirePermission } from '../auth/guard';
+import { conversationBelongsToOrg } from './crm-data';
 
 function parseStatus(v: unknown): ConversationStatus | null {
   const s = String(v ?? '');
@@ -36,6 +37,8 @@ export async function sendMessageAction(formData: FormData): Promise<void> {
   const conversationId = String(formData.get('conversationId') ?? '').trim();
   const body = String(formData.get('body') ?? '').trim();
   if (!conversationId || !body) return;
+  // Fail closed: never write into a conversation from another organization.
+  if (!(await conversationBelongsToOrg(session.organizationId, conversationId))) return;
   const message = await repositories.conversationsInbox.sendAgentMessage({
     organizationId: session.organizationId,
     conversationId,
@@ -60,6 +63,8 @@ export async function setConversationStatusAction(formData: FormData): Promise<v
   const conversationId = String(formData.get('conversationId') ?? '').trim();
   const status = parseStatus(formData.get('status'));
   if (!conversationId || !status) return;
+  // Fail closed: cross-org conversation ids cannot be mutated.
+  if (!(await conversationBelongsToOrg(session.organizationId, conversationId))) return;
   await repositories.conversationsInbox.setStatus(conversationId, status);
   await repositories.audit.record({
     organizationId: session.organizationId,
@@ -80,6 +85,8 @@ export async function setConversationAssigneeAction(formData: FormData): Promise
   const raw = String(formData.get('assigneeId') ?? '').trim();
   if (!conversationId) return;
   const assigneeId = raw === '' || raw === 'none' ? null : raw;
+  // Fail closed: cross-org conversation ids cannot be mutated.
+  if (!(await conversationBelongsToOrg(session.organizationId, conversationId))) return;
   await repositories.conversationsInbox.setAssignee(conversationId, assigneeId);
   await repositories.audit.record({
     organizationId: session.organizationId,

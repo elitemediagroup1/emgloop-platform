@@ -20,7 +20,7 @@ import type {
   TriggerConfig,
 } from '@emgloop/database';
 import { requirePermission } from '../auth/guard';
-import { resolveCrmOrganizationId } from './crm-data';
+import { workflowBelongsToOrg } from './crm-data';
 
 function parseTrigger(v: unknown): WorkflowTrigger {
   const s = String(v ?? '').trim().toUpperCase();
@@ -45,8 +45,7 @@ function refresh(workflowId?: string) {
 
 export async function createWorkflowAction(formData: FormData): Promise<void> {
   const session = await requirePermission('workflows', 'create');
-  const organizationId = await resolveCrmOrganizationId();
-  if (!organizationId) return;
+  const organizationId = session.organizationId;
   const name = String(formData.get('name') ?? '').trim();
   if (!name) return;
   const description = String(formData.get('description') ?? '').trim() || null;
@@ -80,6 +79,8 @@ export async function updateWorkflowMetaAction(formData: FormData): Promise<void
   const session = await requirePermission('workflows', 'update');
   const id = String(formData.get('workflowId') ?? '').trim();
   if (!id) return;
+  // Fail closed: cross-org workflow ids cannot be mutated.
+  if (!(await workflowBelongsToOrg(session.organizationId, id))) return;
   const name = String(formData.get('name') ?? '').trim();
   const description = String(formData.get('description') ?? '').trim() || null;
   const trigger = parseTrigger(formData.get('trigger'));
@@ -112,6 +113,8 @@ export async function addStepAction(formData: FormData): Promise<void> {
   const id = String(formData.get('workflowId') ?? '').trim();
   const type = parseStepType(formData.get('type'));
   if (!id || !type) return;
+  // Fail closed: cross-org workflow ids cannot be mutated.
+  if (!(await workflowBelongsToOrg(session.organizationId, id))) return;
 
   const config: Record<string, unknown> = {};
   switch (type) {
@@ -159,6 +162,8 @@ export async function removeStepAction(formData: FormData): Promise<void> {
   const indexRaw = String(formData.get('index') ?? '').trim();
   const index = Number.parseInt(indexRaw, 10);
   if (!id || Number.isNaN(index)) return;
+  // Fail closed: cross-org workflow ids cannot be mutated.
+  if (!(await workflowBelongsToOrg(session.organizationId, id))) return;
   const current = await repositories.workflows.getWorkflow(id);
   if (!current) return;
   const nextSteps = current.definition.steps.filter((_, i) => i !== index);
@@ -181,6 +186,8 @@ export async function toggleWorkflowActiveAction(formData: FormData): Promise<vo
   const session = await requirePermission('workflows', 'update');
   const id = String(formData.get('workflowId') ?? '').trim();
   if (!id) return;
+  // Fail closed: cross-org workflow ids cannot be mutated.
+  if (!(await workflowBelongsToOrg(session.organizationId, id))) return;
   const active = String(formData.get('active') ?? '').trim() === 'true';
   await repositories.workflows.setActive(id, active);
   await repositories.audit.record({
