@@ -75,14 +75,6 @@ export default async function WorkspaceShell({
             ))}
           </div>
           <div className="loop-sb__foot">
-            <div className="loop-sb__stat">
-              <span>Brain</span>
-              <span><span className="loop-dot" /> <b>Online</b></span>
-            </div>
-            <div className="loop-sb__stat">
-              <span>System</span>
-              <b>Operational</b>
-            </div>
             <div className="loop-sb__user">
               <span className="loop-sb__avatar">{initials(session.name)}</span>
               <span>
@@ -103,18 +95,14 @@ export default async function WorkspaceShell({
               <span className="sep">/</span>
               <span>Overview</span>
             </div>
-            <div className="loop-search">
-              <SidebarIcon name="search" />
-              <span>Search Loop…</span>
-              <span className="kbd">⌘K</span>
-            </div>
-            <button className="loop-iconbtn" type="button" aria-label="Notifications">
+            {/* Sprint 27: Search + Activity removed (no session-scoped
+               backend wired to the shell yet). Notifications links to the
+               real Work OS notifications; no fake unread badge is shown
+               because AuthSession carries no unread count and this sprint
+               adds no new notification query. */}
+            <Link className="loop-iconbtn" href="/app/admin/work" aria-label="View work notifications">
               <SidebarIcon name="bell" />
-              <span className="badge" />
-            </button>
-            <button className="loop-iconbtn" type="button" aria-label="Activity">
-              <SidebarIcon name="activity" />
-            </button>
+            </Link>
           </header>
           <main className="loop-main">{children}</main>
         </div>
