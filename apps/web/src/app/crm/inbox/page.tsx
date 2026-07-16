@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 
 // Activity inbox — Sprint 6 (Internal CRM, Phase 2).
 //
@@ -67,9 +67,9 @@ export default async function InboxPage({
 }) {
   const kindFilter = (searchParams?.kind ?? '').trim();
 
+  const { organizationId } = await requireCrmContext();
+
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId) return { empty: true as const, items: [] };
     const items = await crmRepos.crm.inboxFeed(organizationId, 100);
     return { empty: false as const, items };
   });
