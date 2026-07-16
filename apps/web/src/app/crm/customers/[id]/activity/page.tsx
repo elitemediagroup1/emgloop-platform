@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../../../crm/crm-data';
+import { crmRepos } from '../../../../../crm/crm-data';
 import { requirePermission } from '../../../../../auth/guard';
 
 // Per-customer activity / audit view — Sprint 8 (Conversations, Phase 3).
@@ -28,15 +28,18 @@ export default async function CustomerActivityPage({
 }: {
   params: { id: string };
 }) {
-  await requirePermission('customers', 'view');
+  const { organizationId } = await requirePermission('customers', 'view');
 
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
     if (!organizationId) return { empty: true as const, rows: [], name: '' };
     const [rows, workspace] = await Promise.all([
       crmRepos.conversationsInbox.customerActivity(organizationId, params.id, 200),
       crmRepos.crm.getWorkspace(params.id),
     ]);
+    // Fail closed: ignore a customer that is not in the caller's organization.
+    if (workspace && workspace.customer.organizationId !== organizationId) {
+      return { empty: true as const, rows: [], name: 'Customer' };
+    }
     return { empty: false as const, rows, name: workspace ? workspace.name : 'Customer' };
   });
 
