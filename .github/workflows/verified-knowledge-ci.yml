@@ -1,0 +1,56 @@
+# Verified Knowledge Service — CI (secret-free validator)
+#
+# Runs on pull requests and on pushes to the feature branch. It validates the
+# verified knowledge service WITHOUT any production credentials or Neon access:
+#
+#   - installs workspace deps (prisma generate runs against the schema only;
+#     a dummy DATABASE_URL string is enough — no connection is made)
+#   - typechecks the whole monorepo
+#   - runs the secret-free unit + contract tests (@emgloop/shared, @emgloop/database)
+#
+# This workflow intentionally does NOT run migrations and does NOT touch
+# production. Live migration + env config remain the manual, secret-bearing
+# deploy-prisma-migrations.yml workflow's responsibility.
+
+name: verified-knowledge-ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/verified-knowledge-service]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy, non-secret connection string. Prisma only needs a syntactically
+      # valid URL to GENERATE the client; it never connects during CI.
+      DATABASE_URL: 'postgresql://ci:ci@localhost:5432/ci?schema=public'
+      # A throwaway service secret so route modules that read it don't crash if
+      # imported. It authorises nothing real and is not a production value.
+      LOOP_EVENT_SECRET: 'ci-not-a-real-secret'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (@emgloop/shared)
+        run: npm run -w @emgloop/shared test
+
+      - name: Test (@emgloop/database)
+        run: npm run -w @emgloop/database test
