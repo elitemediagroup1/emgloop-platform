@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
-import { can } from '../../../auth/auth';
+import { crmRepos } from '../../../crm/crm-data';
+import { can, getSession } from '../../../auth/auth';
 
 // Traffic Intelligence API — Sprint 15 (Traffic Intelligence).
 //
@@ -18,7 +18,11 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
   }
 
-  const orgId = await resolveCrmOrganizationId();
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  }
+  const orgId = session.organizationId;
   if (!orgId) {
     return NextResponse.json({ ok: true, traffic: null, orgReady: false });
   }

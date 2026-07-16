@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../demo/db-health";
-import { crmRepos, resolveCrmOrganizationId } from "../../../../crm/crm-data";
+import { crmRepos, requireCrmContext } from "../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../crm/integration-os";
 import {
   num,
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 type Pill = { name: string; state: "connected" | "needs" | "error" };
 
 export default async function BrainOperatingSystemPage() {
-  const org = await resolveCrmOrganizationId();
+  const { organizationId: org } = await requireCrmContext();
 
   const liveCallsR = org
     ? await loadOrFallback(async () => crmRepos.liveOperations.listLiveCalls(org))
