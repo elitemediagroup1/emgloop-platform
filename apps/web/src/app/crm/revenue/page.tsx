@@ -1,5 +1,5 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import type { RankedRevenue } from '@emgloop/database';
 
@@ -48,7 +48,7 @@ function RevenuePanel({ title, rows, empty }: { title: string; rows: RankedReven
 export default async function RevenueIntelligencePage() {
   await requirePermission('analytics', 'view');
 
-  const orgId = await resolveCrmOrganizationId();
+  const { organizationId: orgId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
     if (!orgId) return null;
