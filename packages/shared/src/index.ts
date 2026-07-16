@@ -8,6 +8,8 @@
 // provenance / lifecycle) produced and consumed by PetsInMyCity. Distinct from any
 // embedding / RAG document store. See ./knowledge.ts.
 export * from './knowledge';
+// Contract fixture (illustrative Austin-shaped batch) for the kg.v1 contract test.
+export * from './knowledge-contract.fixture';
 
 // --- Provider categories (mirrors the provider abstraction package) ---
 // Sprint 10 adds 'ingestion' and 'analytics' for the integration/intelligence layer.
