@@ -2,7 +2,7 @@ import Link from "next/link";
 import { SidebarIcon } from "../../crm/_brand/SidebarIcon";
 import type { Tone, Ranked } from "./types";
 import { money, num } from "./format";
-import { StatusDot, Sparkline } from "./primitives";
+import { StatusDot } from "./primitives";
 
 export function Module(props: {
   icon: string;
@@ -12,7 +12,7 @@ export function Module(props: {
   detail: string;
   tone: Tone;
   href: string;
-  seed: number;
+  seed?: number; // Sprint 27: retained for callers; no longer renders a chart
 }) {
   return (
     <Link href={props.href} className="loop-mod" aria-label={props.title}>
@@ -26,7 +26,6 @@ export function Module(props: {
         {props.unit ? <span className="loop-mod__unit">{props.unit}</span> : null}
       </div>
       <div className="loop-mod__detail">{props.detail}</div>
-      <Sparkline seed={props.seed} tone={props.tone} />
     </Link>
   );
 }

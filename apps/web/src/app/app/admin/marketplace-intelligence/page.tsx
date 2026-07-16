@@ -1,34 +1,19 @@
-import ShellPage from '../../../../workspaces/ShellPage';
+import { redirect } from 'next/navigation';
 import { requireWorkspacePermission } from '../../../../workspaces/guard';
 
-// Loop OS — Admin · Marketplace Intelligence (Phase 2, PR #47).
+// Sprint 27 — Owner Shell Cleanup and Truthfulness.
 //
-// Marketplace Intelligence is an ADMIN workspace surface — not "CallGrid
-// Analytics", not "Reports". It is provider-neutral: CallGrid, Ringba, Twilio,
-// Meta, Google Ads, TikTok, HubSpot, Salesforce, Stripe, and internal systems
-// are all Sensors that feed the SAME canonical model (packages/marketplace-
-// intelligence, PR #43–#46). This page is the shell only; it will CONSUME the
-// canonical MarketplaceIntelligence snapshot (already assembled + Brain-enriched
-// elsewhere) and never compute intelligence itself.
-//
-// Gated server-side by the existing IAM matrix (resource 'intelligence'), so
-// only roles the matrix permits can reach it — no UI-only hiding.
+// The Owner sidebar's "Marketplace" now points at the REAL Marketplace
+// command center (/app/admin/marketplace). This former placeholder route is
+// kept only so any existing bookmark or deep link still resolves: it enforces
+// the same IAM gate and then redirects to the real page. No placeholder /
+// "Nothing here yet" shell is rendered anymore, and there is no duplicate
+// Marketplace implementation.
 
-export default async function MarketplaceIntelligencePage() {
+export const dynamic = 'force-dynamic';
+
+export default async function MarketplaceIntelligenceRedirect() {
+  // Preserve the original authorization semantics before forwarding.
   await requireWorkspacePermission('ADMIN', 'intelligence', 'view');
-
-  return (
-    <ShellPage
-      eyebrow="Admin Workspace · Provider-neutral"
-      title="Marketplace Intelligence"
-      description="One canonical, sensor-agnostic view of the marketplace. Sensors change; Marketplace Intelligence does not."
-      icon="chart"
-      plannedFor={[
-        'Consumes the canonical MarketplaceIntelligence snapshot (PR #43).',
-        'Reads Brain-enriched health, confidence, recommendations, and insights (PR #46).',
-        'Sensors: CallGrid, Ringba, Twilio, Meta, Google Ads, TikTok, HubSpot, Salesforce, Stripe, internal.',
-        'Never CallGrid Analytics; never Reports; always provider-neutral.',
-      ]}
-    />
-  );
+  redirect('/app/admin/marketplace');
 }

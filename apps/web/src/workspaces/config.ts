@@ -77,42 +77,38 @@ export interface WorkspaceConfig {
 // deny-by-default matrix the CRM already uses (resource 'intelligence').
 // ---------------------------------------------------------------------------
 
+// Sprint 27 — Owner Shell Cleanup and Truthfulness.
+//
+// The Owner (ADMIN) sidebar now links ONLY to real, session-organization-
+// scoped surfaces that exist today: Dashboard, Brain (honest empty states),
+// Marketplace (the real command center at /app/admin/marketplace), and My Work.
+//
+// Deliberately NOT in the sidebar (see docs/sprint-28-crm-org-scoping.md):
+//   - Employees, Integrations, Settings and CRM: their mature implementations
+//     live under /crm/*, but /crm is currently resolved through a hardcoded
+//     "servicesinmycity-demo" organization (apps/web/src/crm/crm-data.ts) rather
+//     than the authenticated session. Linking Matt there would show DEMO data,
+//     so they are withheld until Sprint 28 makes /crm session-org-aware.
+//   - Operations, Businesses, Creators, Experiments, Knowledge, System Health:
+//     no production implementation exists yet, so they are removed from nav
+//     instead of shown as placeholder / "Soon" items. The catch-all route
+//     still resolves typed URLs; nothing in navigation points to a placeholder.
 const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
   label: 'Admin',
   basePath: '/app/admin',
   home: '/app/admin',
   nav: [
-      {
-        label: 'OPERATING SYSTEM',
-        items: [
+    {
+      label: 'OPERATING SYSTEM',
+      items: [
         { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
         { href: '/app/admin/brain', label: 'Brain', icon: 'brain' },
-        { href: '/app/admin/marketplace-intelligence', label: 'Marketplace', icon: 'chart', requires: { resource: 'intelligence', action: 'view' } },
-        { href: '/app/admin/operations', label: 'Operations', icon: 'activity' },
+        { href: '/app/admin/marketplace', label: 'Marketplace', icon: 'chart', requires: { resource: 'intelligence', action: 'view' } },
         { href: '/app/admin/work', label: 'My Work', icon: 'flow' },
-        ],
-      },
-      {
-        label: 'WORKSPACES',
-        items: [
-        { href: '/app/admin/businesses', label: 'Businesses', icon: 'building' },
-        { href: '/app/admin/creators', label: 'Creators', icon: 'star' },
-        { href: '/crm', label: 'CRM', icon: 'users' },
-        { href: '/app/admin/employees', label: 'Employees', icon: 'team' },
-        ],
-      },
-      {
-        label: 'SYSTEM',
-        items: [
-        { href: '/app/admin/experiments', label: 'Experiments', icon: 'flow' },
-        { href: '/app/admin/knowledge', label: 'Knowledge', icon: 'columns' },
-        { href: '/app/admin/integrations', label: 'Integrations', icon: 'plug', requires: { resource: 'integrations', action: 'view' } },
-        { href: '/app/admin/settings', label: 'Settings', icon: 'cog', requires: { resource: 'settings', action: 'view' } },
-        { href: '/app/admin/system-health', label: 'System Health', icon: 'activity' },
-        ],
-      },
-    ],
+      ],
+    },
+  ],
 };
 
 const EMPLOYEE_WORKSPACE: WorkspaceConfig = {
