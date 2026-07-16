@@ -11,7 +11,11 @@
 // pipeline kanban move action.
 
 import { revalidatePath } from 'next/cache';
-import { crmRepos, resolveCrmOrganizationId } from './crm-data';
+import {
+  crmRepos,
+  requireCrmContext,
+  customerBelongsToOrg,
+} from './crm-data';
 import { PIPELINE_STATUSES, type PipelineStatus } from '@emgloop/database';
 
 /** Author of a note. Mirrors the schema ActorType so the UI can distinguish. */
@@ -52,8 +56,8 @@ export async function addNoteAction(formData: FormData): Promise<void> {
       : 'HUMAN_AGENT';
   if (!customerId || !body) return;
 
-  const organizationId = await resolveCrmOrganizationId();
-  if (!organizationId) return;
+  const { organizationId } = await requireCrmContext();
+  if (!(await customerBelongsToOrg(organizationId, customerId))) return;
 
   await crmRepos.interactions.create({
     organizationId,
@@ -73,6 +77,8 @@ export async function setStatusAction(formData: FormData): Promise<void> {
   const customerId = String(formData.get('customerId') ?? '').trim();
   const status = String(formData.get('status') ?? '') as PipelineStatus;
   if (!customerId || !PIPELINE_STATUSES.includes(status)) return;
+  const { organizationId } = await requireCrmContext();
+  if (!(await customerBelongsToOrg(organizationId, customerId))) return;
   await crmRepos.crm.setPipelineStatus(customerId, status);
   refresh(customerId);
   revalidatePath('/crm/pipeline');
@@ -83,6 +89,8 @@ export async function addTagAction(formData: FormData): Promise<void> {
   const customerId = String(formData.get('customerId') ?? '').trim();
   const tag = String(formData.get('tag') ?? '').trim();
   if (!customerId || !tag) return;
+  const { organizationId } = await requireCrmContext();
+  if (!(await customerBelongsToOrg(organizationId, customerId))) return;
   await crmRepos.crm.addTag(customerId, tag);
   refresh(customerId);
 }
@@ -92,6 +100,8 @@ export async function removeTagAction(formData: FormData): Promise<void> {
   const customerId = String(formData.get('customerId') ?? '').trim();
   const tag = String(formData.get('tag') ?? '').trim();
   if (!customerId || !tag) return;
+  const { organizationId } = await requireCrmContext();
+  if (!(await customerBelongsToOrg(organizationId, customerId))) return;
   await crmRepos.crm.removeTag(customerId, tag);
   refresh(customerId);
 }
@@ -111,6 +121,8 @@ export async function setAssignmentAction(formData: FormData): Promise<void> {
   const aiName = formData.has('aiName')
     ? String(formData.get('aiName') ?? '').trim()
     : undefined;
+  const { organizationId } = await requireCrmContext();
+  if (!(await customerBelongsToOrg(organizationId, customerId))) return;
   await crmRepos.crm.setAssignment(customerId, {
     ...(humanName !== undefined ? { humanName: humanName || null } : {}),
     ...(aiName !== undefined ? { aiName: aiName || null } : {}),
@@ -136,6 +148,8 @@ export async function updateCustomerFieldsAction(
     const v = formData.get(k);
     return v === null ? undefined : String(v).trim();
   };
+  const { organizationId } = await requireCrmContext();
+  if (!(await customerBelongsToOrg(organizationId, customerId))) return;
   await crmRepos.crm.updateCustomerFields(customerId, {
     firstName: str('firstName') || null,
     lastName: str('lastName') || null,
@@ -155,8 +169,7 @@ export async function bulkSetStatusAction(formData: FormData): Promise<void> {
   const ids = parseIds(formData);
   const status = String(formData.get('status') ?? '') as PipelineStatus;
   if (ids.length === 0 || !PIPELINE_STATUSES.includes(status)) return;
-  const organizationId = await resolveCrmOrganizationId();
-  if (!organizationId) return;
+  const { organizationId } = await requireCrmContext();
   await crmRepos.crm.bulkSetStatus(organizationId, ids, status);
   refreshLists();
 }
@@ -166,8 +179,7 @@ export async function bulkAddTagAction(formData: FormData): Promise<void> {
   const ids = parseIds(formData);
   const tag = String(formData.get('tag') ?? '').trim();
   if (ids.length === 0 || !tag) return;
-  const organizationId = await resolveCrmOrganizationId();
-  if (!organizationId) return;
+  const { organizationId } = await requireCrmContext();
   await crmRepos.crm.bulkAddTag(organizationId, ids, tag);
   refreshLists();
 }
@@ -182,8 +194,7 @@ export async function bulkAssignAction(formData: FormData): Promise<void> {
   const aiName = formData.has('aiName')
     ? String(formData.get('aiName') ?? '').trim()
     : undefined;
-  const organizationId = await resolveCrmOrganizationId();
-  if (!organizationId) return;
+  const { organizationId } = await requireCrmContext();
   await crmRepos.crm.bulkAssign(organizationId, ids, {
     ...(humanName !== undefined ? { humanName: humanName || null } : {}),
     ...(aiName !== undefined ? { aiName: aiName || null } : {}),
@@ -199,6 +210,8 @@ export async function movePipelineAction(formData: FormData): Promise<void> {
   const customerId = String(formData.get('customerId') ?? '').trim();
   const status = String(formData.get('status') ?? '') as PipelineStatus;
   if (!customerId || !PIPELINE_STATUSES.includes(status)) return;
+  const { organizationId } = await requireCrmContext();
+  if (!(await customerBelongsToOrg(organizationId, customerId))) return;
   await crmRepos.crm.setPipelineStatus(customerId, status);
   revalidatePath('/crm/pipeline');
   revalidatePath('/crm/customers');
