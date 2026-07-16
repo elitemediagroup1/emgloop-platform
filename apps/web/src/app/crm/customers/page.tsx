@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import {
   PIPELINE_STATUSES,
   type PipelineStatus,
@@ -79,6 +79,7 @@ export default async function CustomersPage({
 }: {
   searchParams: SP;
 }) {
+  const { organizationId } = await requireCrmContext();
   const sp = searchParams ?? {};
   const q = sp.q ?? '';
   const statusFilter = (PIPELINE_STATUSES as string[]).includes(sp.status ?? '')
@@ -94,7 +95,6 @@ export default async function CustomersPage({
   const page = Math.max(1, parseInt(sp.page ?? '1', 10) || 1);
 
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
     if (!organizationId) {
       return {
         empty: true as const,
@@ -127,11 +127,8 @@ export default async function CustomersPage({
         <h1 className="crm-h1">Customers</h1>
         <p className="crm-sub">Internal operations console.</p>
         <div className="crm-panel crm-empty" style={{ marginTop: '1rem' }}>
-          No customers yet. Run an{' '}
-          <Link href="/demo/intake" style={{ color: 'var(--crm-accent)' }}>
-            intake
-          </Link>{' '}
-          to create the first one.
+          No customers yet. Customers appear here as they are captured for
+          your organization.
         </div>
       </>
     );
