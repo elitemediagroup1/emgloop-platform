@@ -1,5 +1,5 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { mergeCustomersAction } from '../../../crm/conversation-actions';
 
@@ -15,11 +15,9 @@ import { mergeCustomersAction } from '../../../crm/conversation-actions';
 export const dynamic = 'force-dynamic';
 
 export default async function MergePage() {
-  await requirePermission('customers', 'delete');
+  const { organizationId } = await requirePermission('customers', 'delete');
 
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId) return { empty: true as const, groups: [] };
     const groups = await crmRepos.conversationsInbox.findDuplicates(organizationId);
     return { empty: false as const, groups };
   });

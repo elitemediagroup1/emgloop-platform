@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
 import { PIPELINE_STATUSES, type AssigneeOptions } from '@emgloop/database';
 import {
   addNoteAction,
@@ -130,10 +130,15 @@ export default async function CustomerWorkspace({
     ? (searchParams!.tab as Tab)
     : 'Overview';
 
+  const { organizationId } = await requireCrmContext();
+
   const result = await loadOrFallback(async () => {
     const ws = await crmRepos.crm.getWorkspace(params.id);
+    // Fail closed: a customer from another organization is treated as not found.
+    if (ws && ws.customer.organizationId !== organizationId) {
+      return { ws: null, assignees: { humans: [], ais: [] } as AssigneeOptions, timeline: null };
+    }
     if (!ws) return { ws: null, assignees: { humans: [], ais: [] } as AssigneeOptions, timeline: null };
-    const organizationId = await resolveCrmOrganizationId();
     const assignees = organizationId
       ? await crmRepos.crm.listAssignees(organizationId)
       : ({ humans: [], ais: [] } as AssigneeOptions);

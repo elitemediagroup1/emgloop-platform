@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { PIPELINE_STATUSES } from '@emgloop/database';
 import { movePipelineAction } from '../../../crm/actions';
 
@@ -36,9 +36,9 @@ function relTime(iso: string | null): string {
 }
 
 export default async function PipelinePage() {
+  const { organizationId } = await requireCrmContext();
+
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId) return { empty: true as const, columns: [] };
     const columns = await crmRepos.crm.kanbanBoard(organizationId);
     return { empty: false as const, columns };
   });
