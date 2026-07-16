@@ -3,6 +3,12 @@
 // Cross-cutting types, constants, and helpers shared by web, api, and providers.
 // Industry-agnostic by design — verticals extend via metadata, not new enums here.
 
+// --- Verified Knowledge domain (kg.v1) ---
+// The verified fact graph (entities / claims / relationships / sources /
+// provenance / lifecycle) produced and consumed by PetsInMyCity. Distinct from any
+// embedding / RAG document store. See ./knowledge.ts.
+export * from './knowledge';
+
 // --- Provider categories (mirrors the provider abstraction package) ---
 // Sprint 10 adds 'ingestion' and 'analytics' for the integration/intelligence layer.
 export const PROVIDER_CATEGORIES = [
