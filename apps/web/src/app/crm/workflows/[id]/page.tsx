@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../../crm/crm-data';
+import { crmRepos, requireCrmContext, workflowBelongsToOrg } from '../../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../../auth/guard';
 import { PIPELINE_STATUSES } from '@emgloop/database';
 import {
@@ -68,9 +68,14 @@ export default async function WorkflowBuilderPage({
   await requirePermission('workflows', 'view');
   const canEdit = await hasPermission('workflows', 'update');
 
+  const { organizationId } = await requireCrmContext();
+
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId) return { empty: true as const };
+    // Fail closed: a workflow id from another organization is treated as
+    // not-found, so cross-org builder URLs cannot load or edit it.
+    if (!(await workflowBelongsToOrg(organizationId, params.id))) {
+      return { empty: true as const };
+    }
     const [workflow, runs, customerList, conversationList] = await Promise.all([
       crmRepos.workflows.getWorkflow(params.id),
       crmRepos.workflows.listRuns(params.id, 25),
