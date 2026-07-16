@@ -3,7 +3,7 @@ import Link from "next/link";
 import { MarketplaceNav } from "../_MarketplaceNav";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
-import { crmRepos, resolveCrmOrganizationId } from "../../../../../crm/crm-data";
+import { crmRepos, requireCrmContext } from "../../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
 import type { Tone, Ranked } from "../../../_loop-os";
 import {
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 type Pill = { name: string; state: "connected" | "needs" | "error" };
 
 export default async function BuyerOperatingSystemPage() {
-  const org = await resolveCrmOrganizationId();
+  const { organizationId: org } = await requireCrmContext();
 
   const revenueR = org
     ? await loadOrFallback(async () => crmRepos.revenueIntelligence.revenueByDimension(org))
