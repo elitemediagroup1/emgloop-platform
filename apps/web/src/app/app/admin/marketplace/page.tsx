@@ -4,7 +4,7 @@ import { MarketplaceDecisionQueue } from "./_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "./_MarketplaceDecisionQueue";
 import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { loadOrFallback } from "../../../../demo/db-health";
-import { crmRepos, resolveCrmOrganizationId } from "../../../../crm/crm-data";
+import { crmRepos, requireCrmContext } from "../../../../crm/crm-data";
 import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../crm/integration-os";
 import type { Tone } from "../../_loop-os";
 import {
@@ -22,7 +22,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function MarketplaceCommandCenter() {
-  const org = await resolveCrmOrganizationId();
+  const { organizationId: org } = await requireCrmContext();
 
   const revenueR = org
     ? await loadOrFallback(async () => crmRepos.revenueIntelligence.revenueByDimension(org))
