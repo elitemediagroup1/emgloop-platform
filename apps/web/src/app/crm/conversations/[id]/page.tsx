@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../../crm/crm-data';
+import { crmRepos, requireCrmContext, conversationBelongsToOrg } from '../../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../../auth/guard';
 import {
   sendMessageAction,
@@ -47,10 +47,13 @@ export default async function ConversationWorkspacePage({
 }) {
   await requirePermission('inbox', 'view');
   const canWrite = await hasPermission('inbox', 'update');
+  const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId) return { empty: true as const };
+    // Fail closed: a conversation id from another organization is treated as
+    // not-found rather than loaded, so cross-org detail URLs cannot leak data.
+    const owned = await conversationBelongsToOrg(organizationId, params.id);
+    if (!owned) return { empty: true as const };
     const [workspace, assignees] = await Promise.all([
       crmRepos.conversationsInbox.getWorkspace(params.id),
       crmRepos.crm.listAssignees(organizationId),
