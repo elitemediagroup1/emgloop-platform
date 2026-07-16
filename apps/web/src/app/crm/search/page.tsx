@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { crmRepos, resolveCrmOrganizationId } from '../../../crm/crm-data';
+import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 
 // Global customer search — Sprint 5 (Internal CRM, Phase 1).
 //
@@ -17,10 +17,11 @@ export default async function SearchPage({
 }) {
   const q = (searchParams?.q ?? '').trim();
 
+  const { organizationId } = await requireCrmContext();
+
   const result = await loadOrFallback(async () => {
-    const organizationId = await resolveCrmOrganizationId();
-    if (!organizationId || !q) {
-      return { rows: [], total: 0, hasOrg: Boolean(organizationId) };
+    if (!q) {
+      return { rows: [], total: 0, hasOrg: true };
     }
     const list = await crmRepos.crm.listCustomers(organizationId, {
       search: q,
