@@ -17,7 +17,7 @@ export default async function ADMINLayout({
 }) {
   const session = await requireWorkspace('ADMIN');
   return (
-    <WorkspaceShell workspace={workspaceFor('ADMIN')} session={session}>
+    <WorkspaceShell shell={workspaceFor('ADMIN')} session={session}>
       {children}
     </WorkspaceShell>
   );

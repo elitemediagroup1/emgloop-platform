@@ -1,10 +1,25 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { logoutAction } from '../auth/actions';
 import { hasPermission } from '../auth/guard';
 import { EmgLoopWordmark } from '../app/crm/_brand/Logos';
 import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
-import type { WorkspaceConfig, NavItem } from './config';
+import type { ShellConfig, NavItem } from './config';
+import { resolveNavLabel } from './config';
+
+// Loop OS — WorkspaceShell.
+//
+// Sprint 29B: THE application shell. Every signed-in surface renders through
+// this component — the five role workspaces under /app AND the CRM under /crm.
+// It takes a ShellConfig (label + nav) and a session; it has no role branching
+// and no knowledge of which surface it is drawing. Adding a surface is a config
+// entry, never a new shell.
+//
+// It renders CHROME ONLY (sidebar, header, breadcrumb, main slot). It never
+// loads data, never decides authorization, and is never the security boundary:
+// `requires` here only greys out a nav link, while each destination still
+// enforces its own server-side gate on arrival.
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
@@ -12,17 +27,23 @@ function initials(name: string): string {
 }
 
 export default async function WorkspaceShell({
-  workspace,
+  shell,
   session,
   children,
 }: {
-  workspace: WorkspaceConfig;
+  shell: ShellConfig;
   session: AuthSession;
   children: React.ReactNode;
 }) {
+  // Breadcrumb leaf, resolved from the path the middleware forwards. Falls back
+  // to the shell root's own label so an unmatched path never renders an empty
+  // crumb.
+  const pathname = headers().get('x-pathname');
+  const crumb = resolveNavLabel(shell, pathname) ?? 'Overview';
+
   const permitted = new Map<string, boolean>();
   await Promise.all(
-    workspace.nav.flatMap((group) =>
+    shell.nav.flatMap((group) =>
       group.items.map(async (item: NavItem) => {
         if (!item.requires) {
           permitted.set(item.href, true);
@@ -45,7 +66,7 @@ export default async function WorkspaceShell({
             <span className="loop-sb__os">OS</span>
           </div>
           <div className="loop-sb__scroll">
-            {workspace.nav.map((group) => (
+            {shell.nav.map((group) => (
               <div className="loop-sb__group" key={group.label}>
                 <div className="loop-sb__grouplabel">{group.label}</div>
                 {group.items.map((item) => {
@@ -91,9 +112,11 @@ export default async function WorkspaceShell({
         <div className="loop-content">
           <header className="loop-appbar">
             <div className="loop-crumbs">
-              <b>{workspace.label}</b>
+              <Link href={shell.home}>
+                <b>{shell.label}</b>
+              </Link>
               <span className="sep">/</span>
-              <span>Overview</span>
+              <span>{crumb}</span>
             </div>
             {/* Sprint 27: Search + Activity removed (no session-scoped
                backend wired to the shell yet). Notifications links to the

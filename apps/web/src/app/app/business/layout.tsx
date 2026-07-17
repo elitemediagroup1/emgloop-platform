@@ -17,7 +17,7 @@ export default async function BUSINESSOWNERLayout({
 }) {
   const session = await requireWorkspace('BUSINESS_OWNER');
   return (
-    <WorkspaceShell workspace={workspaceFor('BUSINESS_OWNER')} session={session}>
+    <WorkspaceShell shell={workspaceFor('BUSINESS_OWNER')} session={session}>
       {children}
     </WorkspaceShell>
   );
