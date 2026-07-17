@@ -5,8 +5,14 @@
 #
 #   - installs workspace deps (prisma generate runs against the schema only;
 #     a dummy DATABASE_URL string is enough — no connection is made)
-#   - typechecks the whole monorepo
-#   - runs the secret-free unit + contract tests (@emgloop/shared, @emgloop/database)
+#   - typechecks the packages this feature actually changes
+#   - runs the secret-free unit + contract tests
+#
+# Scope note: typecheck is limited to @emgloop/shared and @emgloop/database (the
+# packages this PR modifies). A repo-wide `turbo run typecheck` also surfaces
+# PRE-EXISTING type errors in unrelated packages (e.g. marketplace-intelligence)
+# that predate this branch and are out of scope for the verified knowledge
+# service; fixing those is deliberately left to their owners.
 #
 # This workflow intentionally does NOT run migrations and does NOT touch
 # production. Live migration + env config remain the manual, secret-bearing
@@ -48,8 +54,11 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Typecheck (@emgloop/shared)
+        run: npm run -w @emgloop/shared typecheck
+
+      - name: Typecheck (@emgloop/database)
+        run: npm run -w @emgloop/database typecheck
 
       - name: Test (@emgloop/shared)
         run: npm run -w @emgloop/shared test
