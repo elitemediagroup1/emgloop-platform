@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
-import { ensureLiveOrganization } from '../../../../crm/live-org';
 import { requirePermission } from '../../../../auth/guard';
+import { requireCrmContext } from '../../../../crm/crm-data';
 import {
   loadProviderCard,
   webhookUrlFor,
@@ -40,7 +40,7 @@ export default async function ProviderDetailPage({
   params: { provider: string };
 }) {
   await requirePermission('integrations', 'view');
-  const { organizationId } = await ensureLiveOrganization();
+  const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
     return loadProviderCard(organizationId, params.provider);
