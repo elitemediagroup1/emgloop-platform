@@ -31,5 +31,5 @@ export function getHealth(): HealthReport {
 
 if (require.main === module) {
   // eslint-disable-next-line no-console
-  console.log(\`\${PLATFORM.name} API — \`, getHealth());
+  console.log(`${PLATFORM.name} API — `, getHealth());
 }
