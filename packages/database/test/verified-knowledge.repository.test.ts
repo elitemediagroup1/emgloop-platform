@@ -4,8 +4,9 @@
 // database and NO production credentials: it drives the repository against a
 // small in-memory fake Prisma client that mimics the vk_* delegates used by the
 // repository (create / update / findUnique / findFirst / findMany / count) plus
-// $transaction. This verifies tenant scoping, idempotency, and append-only
-// versioning behaviour deterministically.
+// $transaction and the `include: { source: true }` relation on provenance. This
+// verifies tenant scoping, idempotency, and append-only versioning behaviour
+// deterministically.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,8 +33,18 @@ function matches(row: Row, where: Row): boolean {
   });
 }
 
-function makeDelegate() {
+// A delegate optionally resolves relations named in an `include` via a resolver
+// map keyed by relation name -> (row) => relatedRow.
+function makeDelegate(resolvers: Record<string, (row: Row) => Row | null> = {}) {
   const rows: Row[] = [];
+  function withIncludes(row: Row, include?: Row): Row {
+    if (!include) return row;
+    const out = { ...row };
+    for (const [rel, on] of Object.entries(include)) {
+      if (on && resolvers[rel]) out[rel] = resolvers[rel](row);
+    }
+    return out;
+  }
   return {
     __rows: rows,
     async findUnique({ where }: { where: Row }) {
@@ -42,8 +53,8 @@ function makeDelegate() {
     async findFirst({ where }: { where: Row }) {
       return rows.find((r) => matches(r, where ?? {})) ?? null;
     },
-    async findMany({ where }: { where?: Row } = {}) {
-      return rows.filter((r) => matches(r, where ?? {}));
+    async findMany({ where, include }: { where?: Row; include?: Row } = {}) {
+      return rows.filter((r) => matches(r, where ?? {})).map((r) => withIncludes(r, include));
     },
     async count({ where }: { where?: Row } = {}) {
       return rows.filter((r) => matches(r, where ?? {})).length;
@@ -63,16 +74,19 @@ function makeDelegate() {
 }
 
 function makeFakePrisma() {
-  const delegates: Row = {
-    verifiedKnowledgeSource: makeDelegate(),
-    verifiedKnowledgeEntity: makeDelegate(),
-    verifiedKnowledgeEntityVersion: makeDelegate(),
-    verifiedKnowledgeClaim: makeDelegate(),
-    verifiedKnowledgeClaimVersion: makeDelegate(),
-    verifiedKnowledgeRelationship: makeDelegate(),
-    verifiedKnowledgeProvenance: makeDelegate(),
-    verifiedKnowledgeImportBatch: makeDelegate(),
-  };
+  const delegates: Row = {};
+  delegates.verifiedKnowledgeSource = makeDelegate();
+  delegates.verifiedKnowledgeEntity = makeDelegate();
+  delegates.verifiedKnowledgeEntityVersion = makeDelegate();
+  delegates.verifiedKnowledgeClaim = makeDelegate();
+  delegates.verifiedKnowledgeClaimVersion = makeDelegate();
+  delegates.verifiedKnowledgeRelationship = makeDelegate();
+  // Provenance resolves its `source` relation by the source's internal id.
+  delegates.verifiedKnowledgeProvenance = makeDelegate({
+    source: (row: Row) =>
+      delegates.verifiedKnowledgeSource.__rows.find((s: Row) => s.id === row.sourceId) ?? null,
+  });
+  delegates.verifiedKnowledgeImportBatch = makeDelegate();
   delegates.$transaction = async (fn: (tx: Row) => Promise<unknown>) => fn(delegates);
   return delegates;
 }
