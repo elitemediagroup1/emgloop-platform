@@ -5,13 +5,10 @@
 // layer (no direct Prisma for feature logic, no mock data, no in-memory
 // state).
 //
-// Sprint 28 — Organization scoping. New and migrated production CRM requests
-// are scoped to the AUTHENTICATED session organization via requireCrmContext().
-// The legacy demo-only organization resolver (resolveCrmOrganizationId, keyed
-// by a fixed seed-organization slug) is retained TRANSITIONALLY and marked
-// @deprecated below, only so CRM feature pages, owner Brain/Marketplace, and
-// API routes not yet migrated (Sprint 28 PR 2 and PR 3) still compile. It will
-// be deleted in the final Sprint 28 PR. Development seeding is unchanged.
+// Sprint 28 — Organization scoping (complete). Every production CRM request
+// derives its organization from the AUTHENTICATED session via requireCrmContext().
+// The legacy demo-only slug resolver has been removed; there is no demo-org
+// fallback in production. Development seeding is unchanged.
 
 import 'server-only';
 import {
@@ -104,26 +101,6 @@ export async function workflowBelongsToOrg(
     select: { id: true },
   });
   return row !== null;
-}
-
-/**
- * @deprecated TRANSITIONAL — Sprint 28. Resolves a fixed seed organization by
- * slug. This is the pre-Sprint-28 behavior and is NOT session-scoped. It is
- * retained ONLY so the not-yet-migrated CRM feature pages, owner Brain and
- * Marketplace pages, and API route handlers still compile during the staged
- * migration (Sprint 28 PR 2 and PR 3). Do NOT introduce new callers. Every new
- * or migrated production read/write must use requireCrmContext() instead. This
- * function and CRM_ORG_SLUG will be deleted in the final Sprint 28 PR once no
- * production module imports them.
- */
-export const CRM_ORG_SLUG = 'servicesinmycity-demo';
-
-export async function resolveCrmOrganizationId(): Promise<string | null> {
-  const org = await prisma.organization.findUnique({
-    where: { slug: CRM_ORG_SLUG },
-    select: { id: true },
-  });
-  return org ? org.id : null;
 }
 
 export { repos as crmRepos };

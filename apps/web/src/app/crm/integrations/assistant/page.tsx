@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requirePermission } from '../../../../auth/guard';
-import { ensureLiveOrganization } from '../../../../crm/live-org';
+import { requireCrmContext } from '../../../../crm/crm-data';
 import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
 import { loadProviderCard, webhookUrlFor, connectionLabel } from '../../../../crm/integration-os';
 import { listProviders } from '@emgloop/database';
@@ -38,7 +38,7 @@ export default async function AssistantPage({
   searchParams: { q?: string };
 }) {
   await requirePermission('integrations', 'view');
-  const { organizationId } = await ensureLiveOrganization();
+  const { organizationId } = await requireCrmContext();
   const query = (searchParams.q ?? '').trim();
   const providerId = query ? resolveProvider(query) : null;
 

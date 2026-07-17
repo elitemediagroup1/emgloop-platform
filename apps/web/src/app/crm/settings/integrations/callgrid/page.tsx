@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../../../demo/db-health';
 import { crmRepos } from '../../../../../crm/crm-data';
-import { ensureLiveOrganization } from '../../../../../crm/live-org';
+import { requireCrmContext } from '../../../../../crm/crm-data';
 import { requirePermission } from '../../../../../auth/guard';
 
 // CallGrid admin — Sprint 11 (First Live Integration, Phase 8).
@@ -29,7 +29,7 @@ export default async function CallGridAdminPage() {
   await requirePermission('integrations', 'view');
 
   // Promote/resolve the live org so the connection + counts exist to display.
-  const { organizationId } = await ensureLiveOrganization();
+  const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
     const [connections, counts, recent] = await Promise.all([

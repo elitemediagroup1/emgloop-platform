@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePermission } from '../../../../../../auth/guard';
-import { LIVE_ORG_SLUG, ensureLiveOrganization } from '../../../../../../crm/live-org';
+import { requireCrmContext } from '../../../../../../crm/crm-data';
+import { LIVE_ORG_SLUG } from '../../../../../../crm/live-org';
 import {
   loadProviderCard,
   fmtTime,
@@ -45,7 +46,7 @@ export default async function PropertyPage({ params }: { params: { key: string }
   // surface the last SDK event + verification honestly; per-property event
   // breakdown is a Sprint 18 follow-up (needs per-property ingest keys in the
   // event store, noted in the report).
-  const { organizationId } = await ensureLiveOrganization();
+  const { organizationId } = await requireCrmContext();
   const card = await loadProviderCard(organizationId, 'website');
   const status = card?.status ?? null;
   const lastEvent = status?.lastEvent ?? null;

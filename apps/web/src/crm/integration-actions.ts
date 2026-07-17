@@ -13,12 +13,11 @@
 import { revalidatePath } from 'next/cache';
 import { repositories } from '@emgloop/database';
 import { requirePermission } from '../auth/guard';
-import { resolveCrmOrganizationId } from './crm-data';
 
 
 export async function createIntegrationAction(formData: FormData): Promise<void> {
   const session = await requirePermission('integrations', 'create');
-  const orgId = await resolveCrmOrganizationId();
+  const orgId = session.organizationId;
   if (!orgId) return;
 
   const category = formData.get('category') as string;
@@ -49,7 +48,7 @@ export async function createIntegrationAction(formData: FormData): Promise<void>
 
 export async function deleteIntegrationAction(formData: FormData): Promise<void> {
   const session = await requirePermission('integrations', 'delete');
-  const orgId = await resolveCrmOrganizationId();
+  const orgId = session.organizationId;
   if (!orgId) return;
 
   const connectionId = formData.get('connectionId') as string;
