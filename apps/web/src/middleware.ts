@@ -17,10 +17,16 @@ import type { NextRequest } from 'next/server';
 
 const SESSION_COOKIE = 'emgloop_session';
 
+// Public auth screens. These must stay in sync with STANDALONE_PREFIXES in
+// apps/web/src/app/crm/layout.tsx, which renders exactly these paths without
+// the authenticated app shell. /crm/accept-invite is public by design: the
+// invitee has no account yet, so the page derives everything from the signed
+// invitation token server-side and never reads a session.
 const PUBLIC_PATHS = [
   '/crm/login',
   '/crm/forgot-password',
   '/crm/reset-password',
+  '/crm/accept-invite',
   '/crm/unauthorized',
 ];
 
