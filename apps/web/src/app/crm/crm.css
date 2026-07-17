@@ -2,21 +2,16 @@
    A self-contained dark operations theme scoped under .crm so it never affects
    the existing light marketing/demo pages. Neon accent matches EMG Loop. */
 
+/* Sprint 29B — ONE design-token source.
+   The 14 --crm-* tokens formerly declared here were dead: design-system.css
+   redefines every one of them on this same .crm selector and wins purely by
+   import order, so the product's entire palette depended on the order of two
+   import lines. They are removed; design-system.css is now the only place a
+   --crm-* token is defined. Verified: the 14 were a strict subset of the 31
+   design-system.css declares, so this changes nothing visually.
+   Not in scope: --crm-* and --loop-* are still two separate palettes. Merging
+   them is a visible redesign and belongs to its own sprint. */
 .crm {
-  --crm-bg: #0a0c10;
-  --crm-panel: #11151c;
-  --crm-panel-2: #161b24;
-  --crm-border: #232a36;
-  --crm-text: #e6edf3;
-  --crm-muted: #8b97a7;
-  --crm-faint: #5b6675;
-  --crm-accent: #00e5a0;
-  --crm-accent-dim: rgba(0, 229, 160, 0.12);
-  --crm-blue: #4aa8ff;
-  --crm-purple: #b07cff;
-  --crm-amber: #ffc24a;
-  --crm-red: #ff6b6b;
-  --crm-green: #7ee0b0;
   min-height: 100vh;
   background: var(--crm-bg);
   color: var(--crm-text);
@@ -29,42 +24,14 @@
 .crm a { color: inherit; text-decoration: none; }
 .crm * { box-sizing: border-box; }
 
-.crm-topbar {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  height: 52px;
-  padding: 0 1.25rem;
-  border-bottom: 1px solid var(--crm-border);
-  background: linear-gradient(180deg, #0d1117, #0a0c10);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-.crm-brand {
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.crm-brand .dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--crm-accent);
-  box-shadow: 0 0 10px var(--crm-accent);
-}
-.crm-nav { display: flex; gap: 0.25rem; margin-left: 1rem; }
-.crm-nav a {
-  padding: 0.35rem 0.7rem;
-  border-radius: 6px;
-  color: var(--crm-muted);
-  font-weight: 500;
-}
-.crm-nav a:hover { background: var(--crm-panel-2); color: var(--crm-text); }
-.crm-nav a.active { background: var(--crm-accent-dim); color: var(--crm-accent); }
-.crm-topbar .spacer { margin-left: auto; }
+/* Sprint 29B: the CRM app-shell chrome that lived here is REMOVED.
+   - .crm-topbar/.crm-brand/.crm-nav were the Sprint 5 horizontal top bar.
+     They were ALREADY dead before this sprint: Sprint 13 replaced them with a
+     left sidebar and never deleted them. Verified: zero component references.
+   - .crm-main was the CRM's own content slot. Sprint 29B moved /crm onto the
+     shared WorkspaceShell, whose slot is .loop-main, so it is dead now.
+   .crm-h1 / .crm-sub below are LIVE (25 pages) and are untouched. */
 
-.crm-main { padding: 1.25rem 1.5rem 3rem; max-width: 1320px; margin: 0 auto; }
 .crm-h1 { font-size: 1.4rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 .crm-sub { color: var(--crm-muted); margin: 0.25rem 0 0; font-size: 0.85rem; }
 .crm-muted { color: var(--crm-muted); }
