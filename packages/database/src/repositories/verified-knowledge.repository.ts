@@ -16,7 +16,7 @@
 // current-version pointer without destroying prior versions.
 
 import type { PrismaClient } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createHash } from 'crypto';
 import type {
   KnowledgeScope,
   KnowledgeClaimObject,
