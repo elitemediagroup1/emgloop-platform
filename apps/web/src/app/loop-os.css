@@ -1172,3 +1172,39 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
   .wh-summline { gap: 6px; }
 }
 /* ===================== END SPRINT 25 ===================== */
+
+
+/* ===================== SPRINT 30 — EXECUTIVE WORKSPACE =====================
+   Additive to the Sprint 24/25 .wh- namespace. Same tokens, same visual
+   language — this block only styles markup introduced when the page was
+   regrouped by decision (attention rows, the two-button next action, and the
+   getting-started card). No new colors, typography, or layout system. */
+
+/* Needs-attention rows — leading category icon, mirrors the feed/note icons. */
+.wh-att__icon {
+  display: inline-grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 8px; flex: none; background: var(--loop-elev);
+  color: var(--loop-text-2); margin-top: 1px;
+}
+.wh-att__icon--work { color: var(--loop-accent-2); background: var(--loop-accent-soft); }
+.wh-att__icon--conversation { color: var(--loop-warn); background: rgba(242,180,91,0.14); }
+.wh-att__icon--request { color: var(--loop-good); background: rgba(55,211,155,0.12); }
+.wh-att__icon--invitation { color: var(--loop-text-2); background: var(--loop-elev); }
+.wh-att__kind { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+
+/* Next Action with two buttons (Open + Complete stage) on the Work surface. */
+.wh-next__actions { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* Empty-state guidance — the "what should I do next?" line under every empty
+   state. Muted and smaller than the primary line, capped for readability. */
+.wh-empty__next { margin: 0; color: var(--loop-text-3); font-size: 12.5px; line-height: 1.55; max-width: 62ch; }
+
+/* Getting Started — quietly de-emphasized; it is scaffolding, not a decision. */
+.wh-getstarted { border-style: dashed; background: transparent; }
+.wh-getstarted .wh-card__title { color: var(--loop-text-2); }
+
+@media (max-width: 900px) {
+  .wh-next__actions { width: 100%; }
+  .wh-next__actions .wh-btn { flex: 1; text-align: center; justify-content: center; }
+}
+/* ===================== END SPRINT 30 ===================== */

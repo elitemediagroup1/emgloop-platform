@@ -1,24 +1,35 @@
 import 'server-only';
 
-// Sprint 25 — Executive Operating System data loader (/app/admin).
+// Sprint 30 — Executive Workspace data loader (/app/admin).
 //
-// Evolves the Sprint 24 canonical Workspace Home from a REPORTING page into an
-// executive command center. Same non-negotiables carry over: identity is ALWAYS
-// derived from the authenticated session (never URL/client input); every read is
-// scoped to session.organizationId; the existing repository layer is reused; no
-// new engine, no demo store, no mock providers, no servicesinmycity resolver,
-// NO Prisma schema changes, no fabricated data.
+// The owner's home answers three questions, in this order:
+//   1. What needs attention today?   -> attention[]  (decisions, oldest first)
+//   2. What should happen next?      -> nextAction + work buckets
+//   3. What happened recently?       -> recentActivity + completedToday
 //
-// Sprint 25 additions are TRUTH-ONLY and reuse existing queries:
-//   - executiveSummary: 1-3 sentences composed purely from counts already read.
-//   - work buckets (assigned / ready / blocked / completed today) as real rows,
-//     so the summary cards can filter the My Work list without a new concept.
-//   - actionable intake items (oldest pending invitation, an unassigned work
-//     item, the newest open conversation) instead of bare numbers.
-//   - CRM newest customer + newest conversation (real createdAt ordering).
-//   - color category for each activity row (derived from the audit action).
-// Anything unsupported by the schema stays omitted (no due dates, no per-user
-// CRM ownership, no per-org Loop events, no access-request count).
+// Non-negotiables carried forward from Sprint 25 and unchanged: identity is
+// ALWAYS derived from the authenticated session (never URL/client input); every
+// read is scoped to session.organizationId; no new engine, no demo store, no
+// mock providers, NO Prisma schema change, no fabricated data.
+//
+// WHAT THIS LOADER DELIBERATELY DOES NOT PROVIDE, AND WHY
+//
+//   "Overdue work" — NOT REPRESENTABLE. Neither WorkInstance nor WorkStage has
+//   a due date (see packages/database/prisma/schema.prisma). There is no
+//   deadline to be late against, so nothing here claims one. The honest signal
+//   we CAN derive is age: how long a stage has been ready/waiting, measured
+//   from WorkStage.startedAt. It is surfaced as "waiting 6d" — a fact — and
+//   never as "overdue", which would imply a commitment that was never made.
+//
+//   "Work requiring approval" — NOT WIRED. BlueprintStage.requiresApproval is a
+//   TEMPLATE flag; createWorkFromBlueprint does not copy it onto the WorkStage
+//   it creates, WorkStage has no such column, and the 'approval_needed'
+//   notification type is declared in WORK_NOTIFICATION_TYPES but never emitted
+//   by any code path. There is therefore no approval state to read. Rendering an
+//   "Awaiting your approval" bucket would be fabricated functionality. It is
+//   omitted until the runtime actually supports it.
+//
+// Both gaps need a schema change + migration and are tracked as follow-ups.
 
 import { prisma, createRepositories, roleLabel } from '@emgloop/database';
 import type {
@@ -32,6 +43,13 @@ import { requireWorkspace } from '../../../workspaces/guard';
 import { hasPermission } from '../../../auth/guard';
 
 const repos = createRepositories(prisma);
+
+// A conversation is "stalled" when nothing has been said on it for longer than
+// this. It is a product threshold, not a computed insight — so every label it
+// produces states the rule out loud ("no reply in 3d") rather than asserting an
+// opinion ("needs attention"). Changing this number changes only what we choose
+// to surface; it never changes what the data says.
+const STALL_HOURS = 24;
 
 // The four selectable work buckets. Also the accepted ?filter= values.
 export type WorkFilter = 'assigned' | 'ready' | 'blocked' | 'completed';
@@ -73,7 +91,7 @@ export interface MyWorkItem {
   stageName: string;
   status: string;        // ready | in_progress | pending | completed
   verb: string;          // Open | Resume | Review | Complete
-  assignedLabel: string; // human "assigned" date from the stage/instance
+  assignedLabel: string; // human "assigned"/"waiting" line from real timestamps
   href: string;
 }
 
@@ -86,27 +104,22 @@ export interface NotificationView {
   href: string | null;
 }
 
-// One actionable intake item (a real entity that needs a decision), not a count.
-export interface IntakeItem {
+/**
+ * One concrete thing that needs a decision from the owner today.
+ *
+ * Every field traces to a row. 'reason' states the REAL RULE that put the item
+ * here ("ready 3d ago, no owner"), never a judgement ("important"). Items are
+ * ranked purely by how long they have been waiting — the oldest neglected thing
+ * is first — which is a fact about the data, not a priority we invented.
+ */
+export interface AttentionItem {
   key: string;
-  label: string;         // section label, e.g. "Pending Invitations"
-  count: number;         // real total for the framing line
-  primaryTitle: string;  // the concrete item, e.g. an email or work title
-  primaryDetail: string; // supporting line, e.g. "Invited 2d ago"
-  href: string;
-  cta: string;           // Review | Assign | Open
-  empty: boolean;        // true => show the truthful empty line
-  emptyLabel: string;
-}
-
-export interface CrmHighlight {
-  key: string;
-  label: string;
+  kind: 'work' | 'conversation' | 'request' | 'invitation';
+  kindLabel: string;
   title: string;
-  detail: string;
+  reason: string;
   href: string;
   cta: string;
-  present: boolean;
 }
 
 export interface ActivityItem {
@@ -115,13 +128,6 @@ export interface ActivityItem {
   actorName: string;
   category: string;      // work | customer | invitation | auth | system
   createdAtIso: string;
-}
-
-export interface QuickAction {
-  key: string;
-  label: string;
-  href: string;
-  icon: string;
 }
 
 export interface ChecklistItem {
@@ -134,16 +140,17 @@ export interface WorkspaceHomeData {
   isAdmin: boolean;
   header: WorkspaceHomeHeader;
   executiveSummary: string[];
+  attention: AttentionItem[];
+  attentionTotal: number;
   nextAction: NextActionView | null;
   workSummary: WorkSummary;
   activeFilter: WorkFilter;
   myWork: MyWorkItem[];        // already filtered to activeFilter
-  crmTotals: { totalCustomers: number; openConversations: number };
   notifications: { unreadCount: number; items: NotificationView[] };
-  intake: IntakeItem[];
-  crm: CrmHighlight[];
   recentActivity: ActivityItem[];
-  quickActions: QuickAction[];
+  completedTodayCount: number;
+  canCreateWork: boolean;
+  canViewAudit: boolean;
   gettingStarted: { show: boolean; items: ChecklistItem[] };
 }
 
@@ -172,14 +179,13 @@ function relTime(from: Date, now: Date): string {
   return d + 'd ago';
 }
 
-function relWait(from: Date, now: Date): string {
+/** Bare age ("6d", "3h") — the caller supplies the framing word. */
+function age(from: Date, now: Date): string {
   const m = Math.round((now.getTime() - from.getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return 'waiting ' + m + 'm';
+  if (m < 60) return Math.max(m, 1) + 'm';
   const h = Math.round(m / 60);
-  if (h < 24) return 'waiting ' + h + 'h';
-  const d = Math.round(h / 24);
-  return 'waiting ' + d + 'd';
+  if (h < 24) return h + 'h';
+  return Math.round(h / 24) + 'd';
 }
 
 function jsonObj(v: unknown): Record<string, unknown> {
@@ -263,9 +269,9 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
   const now = new Date();
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
+  const stallCutoff = new Date(now.getTime() - STALL_HOURS * 3600 * 1000);
 
-  // One round of parallel, organization-scoped reads. Every query below already
-  // existed in Sprint 24 or in the shared repositories; nothing new conceptually.
+  // One round of parallel, organization-scoped reads.
   const [
     actingUser,
     organization,
@@ -274,21 +280,17 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     myCompletedStagesToday,
     myBlockedStages,
     notificationsRaw,
-    pendingInvitationsCount,
-    oldestPendingInvite,
+    pendingInvitations,
     unassignedWorkRaw,
     openConversationsCount,
-    unassignedConversationsCount,
-    totalCustomers,
-    serviceRequestsNew,
-    newestCustomer,
-    newestOpenConversation,
+    stalledConversationsRaw,
+    stalledConversationsCount,
+    newServiceRequests,
+    newServiceRequestsCount,
+    completedTodayCount,
     auditRows,
-    canInviteUsers,
-    canCreateCustomers,
-    canManageSettings,
-    canViewAudit,
     canCreateWork,
+    canViewAudit,
   ] = await Promise.all([
     prisma.user.findFirst({
       where: { id: userId, organizationId },
@@ -326,36 +328,61 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
       take: 20,
     }),
     work.listNotifications(userId, organizationId),
-    prisma.invitation.count({ where: { organizationId, status: 'PENDING' } }),
-    prisma.invitation.findFirst({
+    // Pending invitations, oldest first. expiresAt is real, so an invite that
+    // has lapsed can say so instead of sitting silently.
+    prisma.invitation.findMany({
       where: { organizationId, status: 'PENDING' },
       orderBy: { createdAt: 'asc' },
-      select: { email: true, createdAt: true },
+      select: { id: true, email: true, createdAt: true, expiresAt: true },
+      take: 10,
     }),
     work.listUnassignedWork(organizationId),
     prisma.conversation.count({ where: { organizationId, status: 'OPEN' } }),
-    prisma.conversation.count({ where: { organizationId, status: 'OPEN', assigneeId: null } }),
-    prisma.customer.count({ where: { organizationId } }),
-    prisma.serviceRequest.count({ where: { organizationId, status: 'NEW' } }),
-    prisma.customer.findFirst({
-      where: { organizationId },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, firstName: true, lastName: true, createdAt: true },
-    }),
-    prisma.conversation.findFirst({
-      where: { organizationId, status: 'OPEN' },
-      orderBy: { createdAt: 'desc' },
+    // Stalled = OPEN and silent since the cutoff. A conversation with no
+    // messages at all falls back to its creation time — it has been silent
+    // since it existed, which is the same fact.
+    prisma.conversation.findMany({
+      where: {
+        organizationId,
+        status: 'OPEN',
+        OR: [
+          { lastMessageAt: { lt: stallCutoff } },
+          { lastMessageAt: null, createdAt: { lt: stallCutoff } },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
       select: {
         id: true, subject: true, createdAt: true, lastMessageAt: true,
         customer: { select: { firstName: true, lastName: true } },
       },
     }),
-    repos.audit.list(organizationId, { take: 8 }),
-    hasPermission('users', 'create'),
-    hasPermission('customers', 'create'),
-    hasPermission('settings', 'view'),
-    hasPermission('audit', 'view'),
+    prisma.conversation.count({
+      where: {
+        organizationId,
+        status: 'OPEN',
+        OR: [
+          { lastMessageAt: { lt: stallCutoff } },
+          { lastMessageAt: null, createdAt: { lt: stallCutoff } },
+        ],
+      },
+    }),
+    prisma.serviceRequest.findMany({
+      where: { organizationId, status: 'NEW' },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+      select: {
+        id: true, summary: true, category: true, createdAt: true,
+        customer: { select: { firstName: true, lastName: true } },
+      },
+    }),
+    prisma.serviceRequest.count({ where: { organizationId, status: 'NEW' } }),
+    prisma.workInstance.count({
+      where: { organizationId, status: 'completed', completedAt: { gte: startOfDay } },
+    }),
+    repos.audit.list(organizationId, { take: 6 }),
     hasPermission('workflows', 'create'),
+    hasPermission('audit', 'view'),
   ]);
 
   // ----- Header -----
@@ -378,27 +405,34 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
 
   const assignedItems: MyWorkItem[] = [];
   const readyItems: MyWorkItem[] = [];
+  // Waiting time drives ordering, so keep it alongside each row.
+  const waitingSince = new Map<string, number>();
   for (const inst of myWorkRaw) {
     const stage = ownsActionable(inst);
     if (!stage) continue;
-    const started = stage.startedAt ?? inst.createdAt;
+    const started = new Date(stage.startedAt ?? inst.createdAt);
     const item: MyWorkItem = {
       workInstanceId: inst.id,
       title: inst.title,
       stageName: stage.name,
       status: stage.status,
       verb: stageVerb(stage.status),
-      assignedLabel: 'Assigned ' + relTime(new Date(started), now),
+      assignedLabel: 'Waiting ' + age(started, now),
       href: '/app/admin/work/' + inst.id,
     };
+    waitingSince.set(inst.id, started.getTime());
     assignedItems.push(item);
     if (stage.status === 'ready') readyItems.push(item);
   }
-  assignedItems.sort((a, b) => {
+  // Ready before in-progress, then longest-waiting first. Age is the only
+  // ranking signal the schema supports — there are no priorities or due dates.
+  const byReadyThenAge = (a: MyWorkItem, b: MyWorkItem) => {
     const rank = (s: string) => (s === 'ready' ? 0 : 1);
     if (rank(a.status) !== rank(b.status)) return rank(a.status) - rank(b.status);
-    return a.title.localeCompare(b.title);
-  });
+    return (waitingSince.get(a.workInstanceId) ?? 0) - (waitingSince.get(b.workInstanceId) ?? 0);
+  };
+  assignedItems.sort(byReadyThenAge);
+  readyItems.sort(byReadyThenAge);
 
   const blockedItems: MyWorkItem[] = [];
   const blockedInstanceIds = new Set<string>();
@@ -458,9 +492,9 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
       }
     : null;
 
-  // ----- Notifications (five newest UNREAD) -----
+  // ----- Notifications (three newest UNREAD) -----
   const unread = notificationsRaw.filter((n: WorkNotification) => !n.readAt);
-  const notificationItems: NotificationView[] = unread.slice(0, 5).map((n) => ({
+  const notificationItems: NotificationView[] = unread.slice(0, 3).map((n) => ({
     id: n.id,
     title: n.title,
     body: n.body,
@@ -469,139 +503,133 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     href: n.workInstanceId ? '/app/admin/work/' + n.workInstanceId : null,
   }));
 
-  // ----- Executive summary (composed ONLY from counts already read) -----
-  const summary: string[] = [];
-  const urgent = workSummary.readyNow;
-  if (urgent > 0) {
-    summary.push('You have ' + urgent + (urgent === 1 ? ' work item ready for you.' : ' work items ready for you.'));
-  } else if (workSummary.assignedToMe > 0) {
-    summary.push('No work is waiting on you right now.');
-  } else {
-    summary.push('You have no assigned work today.');
-  }
-  if (openConversationsCount > 0) {
-    summary.push(openConversationsCount + (openConversationsCount === 1 ? ' customer conversation needs attention.' : ' customer conversations need attention.'));
-  }
-  if (pendingInvitationsCount > 0) {
-    summary.push(pendingInvitationsCount + (pendingInvitationsCount === 1 ? ' employee invitation is awaiting acceptance.' : ' employee invitations are awaiting acceptance.'));
-  } else {
-    summary.push('No employee requests are waiting.');
-  }
-  if (unassignedWorkRaw.length > 0) {
-    summary.push(unassignedWorkRaw.length + (unassignedWorkRaw.length === 1 ? ' work item needs an owner.' : ' work items need an owner.'));
-  }
+  // ----- Needs attention: concrete decisions, ranked oldest-waiting first -----
+  // Each entry pairs a real row with the rule that surfaced it. Nothing here is
+  // scored, inferred or ranked by opinion.
+  const attentionRaw: { item: AttentionItem; since: number }[] = [];
 
-  // ----- Business Intake (actionable items, admin-only, org-scoped) -----
-  const inviteItem: IntakeItem = {
-    key: 'invites',
-    label: 'Pending Invitations',
-    count: pendingInvitationsCount,
-    primaryTitle: oldestPendingInvite?.email ?? '',
-    primaryDetail: oldestPendingInvite ? 'Invited ' + relTime(new Date(oldestPendingInvite.createdAt), now) : '',
-    href: '/crm/users',
-    cta: 'Review',
-    empty: pendingInvitationsCount === 0,
-    emptyLabel: 'No pending invitations.',
-  };
-  const firstUnassigned = unassignedWorkRaw[0];
-  const unassignedItem: IntakeItem = {
-    key: 'unassigned-work',
-    label: 'Unassigned Work',
-    count: unassignedWorkRaw.length,
-    primaryTitle: firstUnassigned ? firstUnassigned.workInstance.title : '',
-    primaryDetail: firstUnassigned ? 'Needs an owner: ' + firstUnassigned.name : '',
-    href: '/app/admin/work',
-    cta: 'Assign',
-    empty: unassignedWorkRaw.length === 0,
-    emptyLabel: 'All work is assigned.',
-  };
-  const convCustomer = newestOpenConversation ? customerName(newestOpenConversation.customer) : '';
-  const convWaitFrom = newestOpenConversation
-    ? new Date(newestOpenConversation.lastMessageAt ?? newestOpenConversation.createdAt)
-    : null;
-  const conversationItem: IntakeItem = {
-    key: 'open-conversations',
-    label: 'Open Conversations',
-    count: openConversationsCount,
-    primaryTitle: newestOpenConversation ? (newestOpenConversation.subject || convCustomer) : '',
-    primaryDetail: convWaitFrom ? convCustomer + ' \u00b7 ' + relWait(convWaitFrom, now) : '',
-    href: '/crm/conversations',
-    cta: 'Open',
-    empty: openConversationsCount === 0,
-    emptyLabel: 'No open conversations.',
-  };
-  const intake: IntakeItem[] = [inviteItem, unassignedItem, conversationItem];
-
-  // ----- CRM Overview (org-scoped; newest entities, NO per-user ownership) -----
-  const crm: CrmHighlight[] = [
-    {
-      key: 'customers',
-      label: 'Total Customers',
-      title: String(totalCustomers),
-      detail: totalCustomers === 1 ? '1 customer in your CRM' : totalCustomers + ' customers in your CRM',
-      href: '/crm/customers',
-      cta: 'View all',
-      present: true,
-    },
-    {
-      key: 'open-convos',
-      label: 'Open Conversations',
-      title: String(openConversationsCount),
-      detail: unassignedConversationsCount > 0
-        ? unassignedConversationsCount + ' unassigned'
-        : (openConversationsCount === 0 ? 'None open' : 'All assigned'),
-      href: '/crm/conversations',
-      cta: 'View all',
-      present: true,
-    },
-    {
-      key: 'newest-customer',
-      label: 'Newest Customer',
-      title: newestCustomer ? customerName(newestCustomer) : '',
-      detail: newestCustomer ? 'Added ' + relTime(new Date(newestCustomer.createdAt), now) : '',
-      href: newestCustomer ? '/crm/customers/' + newestCustomer.id : '/crm/customers',
-      cta: 'Open',
-      present: Boolean(newestCustomer),
-    },
-    {
-      key: 'newest-conversation',
-      label: 'Newest Conversation',
-      title: newestOpenConversation ? (newestOpenConversation.subject || convCustomer) : '',
-      detail: convWaitFrom ? convCustomer + ' \u00b7 ' + relWait(convWaitFrom, now) : '',
-      href: newestOpenConversation ? '/crm/conversations' : '/crm/conversations',
-      cta: 'Reply',
-      present: Boolean(newestOpenConversation),
-    },
-  ];
-  if (serviceRequestsNew > 0) {
-    crm.push({
-      key: 'service-requests',
-      label: 'New Service Requests',
-      title: String(serviceRequestsNew),
-      detail: serviceRequestsNew === 1 ? '1 request to qualify' : serviceRequestsNew + ' requests to qualify',
-      href: '/crm/customers',
-      cta: 'Review',
-      present: true,
+  for (const s of unassignedWorkRaw) {
+    const since = new Date(s.startedAt ?? s.workInstance.createdAt);
+    attentionRaw.push({
+      since: since.getTime(),
+      item: {
+        key: 'work:' + s.id,
+        kind: 'work',
+        kindLabel: 'Work',
+        title: s.workInstance.title,
+        reason: s.name + ' · ready ' + age(since, now) + ', no owner',
+        href: '/app/admin/work/' + s.workInstanceId,
+        cta: 'Assign',
+      },
     });
   }
 
-  // ----- Recent Activity (org-scoped audit log, max 8, color-categorized) -----
-  const recentActivity: ActivityItem[] = auditRows.slice(0, 8).map((r: AuditView) => ({
+  for (const c of stalledConversationsRaw) {
+    const last = new Date(c.lastMessageAt ?? c.createdAt);
+    const who = customerName(c.customer);
+    attentionRaw.push({
+      since: last.getTime(),
+      item: {
+        key: 'conv:' + c.id,
+        kind: 'conversation',
+        kindLabel: 'Conversation',
+        title: c.subject || who,
+        reason: c.lastMessageAt
+          ? who + ' · no reply in ' + age(last, now)
+          : who + ' · opened ' + age(last, now) + ' ago, no messages',
+        href: '/crm/conversations',
+        cta: 'Reply',
+      },
+    });
+  }
+
+  for (const r of newServiceRequests) {
+    const since = new Date(r.createdAt);
+    const who = customerName(r.customer);
+    attentionRaw.push({
+      since: since.getTime(),
+      item: {
+        key: 'req:' + r.id,
+        kind: 'request',
+        kindLabel: 'Service request',
+        title: r.summary || r.category || 'Service request',
+        reason: who + ' · unqualified for ' + age(since, now),
+        href: '/crm/customers',
+        cta: 'Qualify',
+      },
+    });
+  }
+
+  for (const inv of pendingInvitations) {
+    const since = new Date(inv.createdAt);
+    const expired = new Date(inv.expiresAt).getTime() < now.getTime();
+    attentionRaw.push({
+      since: since.getTime(),
+      item: {
+        key: 'inv:' + inv.id,
+        kind: 'invitation',
+        kindLabel: 'Invitation',
+        title: inv.email,
+        reason: expired
+          ? 'Invite expired · sent ' + age(since, now) + ' ago, never accepted'
+          : 'Invited ' + age(since, now) + ' ago, not accepted yet',
+        href: '/crm/users',
+        cta: expired ? 'Re-invite' : 'Review',
+      },
+    });
+  }
+
+  attentionRaw.sort((a, b) => a.since - b.since);
+  const attention = attentionRaw.slice(0, 6).map((a) => a.item);
+  const attentionTotal =
+    unassignedWorkRaw.length +
+    stalledConversationsCount +
+    newServiceRequestsCount +
+    pendingInvitations.length;
+
+  // ----- Executive summary (composed ONLY from counts already read) -----
+  const summary: string[] = [];
+  if (workSummary.readyNow > 0) {
+    summary.push(
+      workSummary.readyNow +
+        (workSummary.readyNow === 1 ? ' work item is ready for you.' : ' work items are ready for you.'),
+    );
+  }
+  if (unassignedWorkRaw.length > 0) {
+    summary.push(
+      unassignedWorkRaw.length +
+        (unassignedWorkRaw.length === 1 ? ' work item needs an owner.' : ' work items need an owner.'),
+    );
+  }
+  if (stalledConversationsCount > 0) {
+    summary.push(
+      stalledConversationsCount +
+        (stalledConversationsCount === 1 ? ' conversation has gone quiet.' : ' conversations have gone quiet.'),
+    );
+  }
+  if (newServiceRequestsCount > 0) {
+    summary.push(
+      newServiceRequestsCount +
+        (newServiceRequestsCount === 1 ? ' service request is unqualified.' : ' service requests are unqualified.'),
+    );
+  }
+  if (summary.length === 0) {
+    summary.push(
+      openConversationsCount > 0
+        ? 'Nothing is waiting on you. ' + openConversationsCount + ' conversation' +
+          (openConversationsCount === 1 ? ' is' : 's are') + ' open and moving.'
+        : 'Nothing is waiting on you.',
+    );
+  }
+
+  // ----- Recent Activity (org-scoped audit log, max 6, color-categorized) -----
+  const recentActivity: ActivityItem[] = auditRows.slice(0, 6).map((r: AuditView) => ({
     id: r.id,
     label: activityLabel(r.action),
     actorName: r.actorName,
     category: activityCategory(r.action),
     createdAtIso: r.createdAt,
   }));
-
-  // ----- Quick Actions (Sprint 25 order; only real routes + permitted actions) -----
-  const quickActions: QuickAction[] = [];
-  if (canCreateWork) quickActions.push({ key: 'create-work', label: 'Create Work', href: '/app/admin/work/new', icon: 'flow' });
-  if (canCreateCustomers) quickActions.push({ key: 'add-customer', label: 'Add Customer', href: '/crm/customers', icon: 'users' });
-  if (canInviteUsers) quickActions.push({ key: 'invite', label: 'Invite Employee', href: '/crm/users', icon: 'team' });
-  quickActions.push({ key: 'my-work', label: 'View My Work', href: '/app/admin/work', icon: 'columns' });
-  if (canManageSettings) quickActions.push({ key: 'settings', label: 'Organization Settings', href: '/crm/settings', icon: 'cog' });
-  if (canViewAudit) quickActions.push({ key: 'audit', label: 'View Audit Log', href: '/crm/audit', icon: 'activity' });
 
   // ----- Getting Started (real DB state; hidden once every item is complete) -----
   const orgSettings = jsonObj(organization?.settings);
@@ -628,16 +656,17 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     isAdmin: true,
     header,
     executiveSummary: summary,
+    attention,
+    attentionTotal,
     nextAction,
     workSummary,
     activeFilter,
     myWork,
-    crmTotals: { totalCustomers, openConversations: openConversationsCount },
     notifications: { unreadCount: unread.length, items: notificationItems },
-    intake,
-    crm,
     recentActivity,
-    quickActions,
+    completedTodayCount,
+    canCreateWork,
+    canViewAudit,
     gettingStarted: { show: !allDone, items: checklist },
   };
 }
