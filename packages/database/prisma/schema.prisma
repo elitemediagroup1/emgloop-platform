@@ -1268,3 +1268,238 @@ model LoopEvent {
   @@index([userId])
   @@map("loop_events")
 }
+
+// ===========================================================================
+// Verified Knowledge domain (kg.v1)  —  feature/verified-knowledge-service
+// ===========================================================================
+// A DISTINCT verified fact graph produced/consumed by PetsInMyCity (and future
+// EMG properties). This is NOT an embedding / RAG document store: it stores
+// verified entities, claims, relationships, sources, provenance and lifecycle
+// history with full versioning. Loop persists and returns these objects; the
+// producer's Knowledge Delivery Platform (KDP) remains the delivery authority.
+//
+// Tenancy follows the loop_events precedent: additive tables with plain scalar
+// scope columns (platform / property / organizationId) and NO foreign keys to
+// existing production tables, so the migration stays purely additive and does
+// not require a provisioned Organization row. Scope isolation is enforced at the
+// query level by the repository. Stable producer ids are unique WITHIN a scope,
+// so the composite uniqueness keys always include (platform, property, ...).
+
+model VerifiedKnowledgeSource {
+  id             String   @id @default(cuid())
+  // scope
+  platform       String
+  property       String
+  organizationId String?
+  // stable producer-supplied id (unique within scope)
+  sourceKey      String
+  tier           Int?
+  kind           String?
+  title          String?
+  publisher      String?
+  url            String?
+  accessed       DateTime?
+  publishedAt    DateTime?
+  quote          String?
+  capturedBy     String?
+  authorityScope String?
+  limitations    String?
+  reviewCadence  String?
+  attributes     Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  provenance VerifiedKnowledgeProvenance[]
+
+  @@unique([platform, property, sourceKey])
+  @@index([platform, property, organizationId])
+  @@map("vk_sources")
+}
+
+model VerifiedKnowledgeEntity {
+  id             String   @id @default(cuid())
+  platform       String
+  property       String
+  organizationId String?
+  entityKey      String   // stable producer-supplied id
+  type           String
+  name           String?
+  aliases        String[] @default([])
+  status         String?
+  confidence     String?
+  verification   String?
+  safetyCritical Boolean  @default(false)
+  attributes     Json     @default("{}")
+  currentVersion Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  versions VerifiedKnowledgeEntityVersion[]
+
+  @@unique([platform, property, entityKey])
+  @@index([platform, property, organizationId])
+  @@index([platform, property, type])
+  @@map("vk_entities")
+}
+
+model VerifiedKnowledgeEntityVersion {
+  id             String   @id @default(cuid())
+  entityId       String
+  version        Int
+  type           String
+  name           String?
+  aliases        String[] @default([])
+  status         String?
+  confidence     String?
+  verification   String?
+  safetyCritical Boolean  @default(false)
+  attributes     Json     @default("{}")
+  importBatchId  String?
+  createdAt      DateTime @default(now())
+
+  entity VerifiedKnowledgeEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, version])
+  @@index([entityId])
+  @@map("vk_entity_versions")
+}
+
+model VerifiedKnowledgeClaim {
+  id             String    @id @default(cuid())
+  platform       String
+  property       String
+  organizationId String?
+  claimKey       String    // stable producer-supplied id
+  subject        String
+  predicate      String
+  value          Json      @default("{}")
+  confidence     String?
+  verification   String?
+  safetyCritical Boolean   @default(false)
+  validFrom      DateTime?
+  validUntil     DateTime?
+  expires        DateTime?
+  reviewBy       DateTime?
+  note           String?
+  currentVersion Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  versions VerifiedKnowledgeClaimVersion[]
+
+  @@unique([platform, property, claimKey])
+  @@index([platform, property, organizationId, subject])
+  @@index([platform, property, subject, predicate])
+  @@map("vk_claims")
+}
+
+model VerifiedKnowledgeClaimVersion {
+  id             String    @id @default(cuid())
+  claimId        String
+  version        Int
+  subject        String
+  predicate      String
+  value          Json      @default("{}")
+  confidence     String?
+  verification   String?
+  safetyCritical Boolean   @default(false)
+  validFrom      DateTime?
+  validUntil     DateTime?
+  expires        DateTime?
+  reviewBy       DateTime?
+  note           String?
+  importBatchId  String?
+  createdAt      DateTime  @default(now())
+
+  claim VerifiedKnowledgeClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, version])
+  @@index([claimId])
+  @@map("vk_claim_versions")
+}
+
+model VerifiedKnowledgeRelationship {
+  id             String   @id @default(cuid())
+  platform       String
+  property       String
+  organizationId String?
+  edgeKey        String   // stable producer-supplied id
+  edge           String   // predicate / relation type
+  fromKey        String   // subject entity key
+  toKey          String   // object entity key
+  confidence     String?
+  verification   String?
+  attributes     Json     @default("{}")
+  currentVersion Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([platform, property, edgeKey])
+  @@index([platform, property, organizationId])
+  @@index([platform, property, fromKey, edge])
+  @@index([platform, property, toKey, edge])
+  @@map("vk_relationships")
+}
+
+model VerifiedKnowledgeProvenance {
+  id             String   @id @default(cuid())
+  platform       String
+  property       String
+  organizationId String?
+  sourceId       String
+  targetType     String   // 'entity' | 'claim' | 'relationship'
+  targetKey      String   // stable key of the target within scope
+  supports       String?  // supported field / claim note
+  verifiedAt     DateTime?
+  verifier       String?
+  createdAt      DateTime @default(now())
+
+  source VerifiedKnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, targetType, targetKey])
+  @@index([platform, property, targetType, targetKey])
+  @@map("vk_provenance")
+}
+
+model VerifiedKnowledgeLifecycleEvent {
+  id             String   @id @default(cuid())
+  platform       String
+  property       String
+  organizationId String?
+  objectType     String   // 'entity' | 'claim' | 'relationship'
+  objectKey      String
+  previousStatus String?
+  newStatus      String?
+  transitionAt   DateTime @default(now())
+  actor          String?
+  reason         String?
+  supportingRef  String?
+  importBatchId  String?
+  createdAt      DateTime @default(now())
+
+  @@index([platform, property, objectType, objectKey])
+  @@map("vk_lifecycle_events")
+}
+
+model VerifiedKnowledgeImportBatch {
+  id             String   @id @default(cuid())
+  platform       String
+  property       String
+  organizationId String?
+  idempotencyKey String
+  contractVersion String
+  payloadHash    String   // hash of the batch; same key + different payload => conflict
+  status         String   @default("completed") // 'started' | 'completed' | 'failed'
+  inserted       Int      @default(0)
+  updated        Int      @default(0)
+  skipped        Int      @default(0)
+  failed         Int      @default(0)
+  traceId        String?
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([platform, property, idempotencyKey])
+  @@index([platform, property, organizationId])
+  @@map("vk_import_batches")
+}

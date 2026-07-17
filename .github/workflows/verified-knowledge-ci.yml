@@ -1,0 +1,67 @@
+# Verified Knowledge Service — CI (secret-free validator)
+#
+# Runs on pull requests and on pushes to the feature branch. It validates the
+# verified knowledge service WITHOUT any production credentials or Neon access:
+#
+#   - installs workspace deps (prisma generate runs against the schema only;
+#     a dummy DATABASE_URL string is enough — no connection is made)
+#   - typechecks the packages this feature actually changes
+#   - runs the secret-free unit + contract tests
+#
+# Scope note: typecheck is limited to @emgloop/shared and @emgloop/database (the
+# packages this PR modifies). A repo-wide `turbo run typecheck` also surfaces
+# PRE-EXISTING type errors in unrelated packages (e.g. marketplace-intelligence)
+# that predate this branch and are out of scope for the verified knowledge
+# service; fixing those is deliberately left to their owners.
+#
+# This workflow intentionally does NOT run migrations and does NOT touch
+# production. Live migration + env config remain the manual, secret-bearing
+# deploy-prisma-migrations.yml workflow's responsibility.
+#
+# Note: this monorepo does not commit a lockfile, so we use `npm install`
+# (not `npm ci`) and do not enable npm caching (which requires a lockfile).
+
+name: verified-knowledge-ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/verified-knowledge-service]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy, non-secret connection string. Prisma only needs a syntactically
+      # valid URL to GENERATE the client; it never connects during CI.
+      DATABASE_URL: 'postgresql://ci:ci@localhost:5432/ci?schema=public'
+      # A throwaway service secret so route modules that read it don't crash if
+      # imported. It authorises nothing real and is not a production value.
+      LOOP_EVENT_SECRET: 'ci-not-a-real-secret'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck (@emgloop/shared)
+        run: npm run -w @emgloop/shared typecheck
+
+      - name: Typecheck (@emgloop/database)
+        run: npm run -w @emgloop/database typecheck
+
+      - name: Test (@emgloop/shared)
+        run: npm run -w @emgloop/shared test
+
+      - name: Test (@emgloop/database)
+        run: npm run -w @emgloop/database test
