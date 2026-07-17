@@ -32,6 +32,7 @@ import { LiveOperationsRepository } from './live-operations.repository';
 import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
+import { MarketplaceCallRepository } from './marketplace-call.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -158,6 +159,17 @@ export type {
 export { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 export type { ImportOutcome } from './verified-knowledge.repository';
 
+// MarketplaceCall — sensor-neutral operational call projection for Intelligence.
+export { MarketplaceCallRepository, aggregateRows } from './marketplace-call.repository';
+export type { CallWindowAggregate, CallDimensionAggregate, BackfillResult } from './marketplace-call.repository';
+export {
+  projectInteractionToMarketplaceCall,
+} from './marketplace-call-projection';
+export type {
+  MarketplaceCallProjection,
+  InteractionForProjection,
+} from './marketplace-call-projection';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
@@ -183,6 +195,7 @@ export interface Repositories {
   revenueIntelligence: RevenueIntelligenceRepository;
   work: WorkRepository;
   verifiedKnowledge: VerifiedKnowledgeRepository;
+  marketplaceCalls: MarketplaceCallRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -211,5 +224,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     revenueIntelligence: new RevenueIntelligenceRepository(prisma),
     work: new WorkRepository(prisma),
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
+    marketplaceCalls: new MarketplaceCallRepository(prisma),
   };
 }

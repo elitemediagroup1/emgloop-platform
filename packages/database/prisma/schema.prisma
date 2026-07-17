@@ -1503,3 +1503,89 @@ model VerifiedKnowledgeImportBatch {
   @@index([platform, property, organizationId])
   @@map("vk_import_batches")
 }
+
+// ---------------------------------------------------------------------------
+// MarketplaceCall — the canonical, sensor-neutral operational projection of a
+// call. This is NOT a CallGrid table: `provider` records which sensor produced
+// the row (CallGrid today; Ringba/Invoca/an internal auction tomorrow project
+// into the SAME shape). The raw Interaction + Interaction.metadata remain the
+// audit record and are never stopped or deleted; this row is the normalized,
+// queryable projection the Intelligence layer reads instead of parsing JSON.
+//
+// Invariants (see docs/CALLGRID_INTELLIGENCE_FOUNDATION.md §Persistence):
+//   • Idempotent: unique on (provider, externalId) — re-projecting is an upsert.
+//   • Traceable: interactionId + provider + externalId point back to the source.
+//   • Money is integer CENTS. Unknown values are null, NEVER defaulted to 0.
+//   • Attribution is nullable EXTERNAL-reference ids only — no Buyer/Vendor/
+//     Source/Campaign tables are introduced here; canonical entities come later
+//     and can be linked without rewriting rows.
+//   • sourceOccurredAt (when the call happened) is separate from createdAt/
+//     updatedAt (when Loop wrote/updated the projection).
+// ---------------------------------------------------------------------------
+model MarketplaceCall {
+  id             String  @id @default(cuid())
+  organizationId String
+
+  // Provenance: `provider` is the sensor id (e.g. 'callgrid'). Sensor-neutral.
+  provider    String
+  externalId  String
+  // Traceability back to the raw source event (Interaction.id). Kept as a plain
+  // reference (not a formal relation) so the raw Interaction model is untouched.
+  interactionId String?
+
+  // When the call actually occurred at the source.
+  sourceOccurredAt DateTime
+
+  // Status / disposition. `status` is the canonical event type; `rawStatus` is
+  // the provider-native string (preserves BUSY/FAILED/REJECTED distinctions the
+  // coarse taxonomy collapses).
+  status          String?
+  rawStatus       String?
+  endedBy         String?
+  durationSeconds Int?
+
+  // Attribution — nullable external-reference ids + best-known labels.
+  buyerExternalId       String?
+  buyerLabel            String?
+  vendorExternalId      String?
+  vendorLabel           String?
+  sourceExternalId      String?
+  sourceLabel           String?
+  campaignExternalId    String?
+  campaignLabel         String?
+  destinationExternalId String?
+
+  // Geo (nullable — only the webhook path supplies these today).
+  callerState String?
+  callerZip   String?
+
+  // Economics — integer CENTS, null when unmeasured (never 0-defaulted).
+  revenueCents Int?
+  payoutCents  Int?
+  costCents    Int?
+  rateCents    Int?
+
+  // Outcome flags — null when the sensor did not say.
+  qualified Boolean?
+  billable  Boolean?
+  converted Boolean?
+  paid      Boolean?
+  completed Boolean?
+  noRoute   Boolean?
+  duplicate Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, externalId])
+  @@index([organizationId, sourceOccurredAt])
+  @@index([organizationId, buyerExternalId])
+  @@index([organizationId, vendorExternalId])
+  @@index([organizationId, sourceExternalId])
+  @@index([organizationId, campaignExternalId])
+  @@index([organizationId, status])
+  @@index([organizationId, qualified])
+  @@index([organizationId, billable])
+  @@index([organizationId, converted])
+  @@map("marketplace_calls")
+}
