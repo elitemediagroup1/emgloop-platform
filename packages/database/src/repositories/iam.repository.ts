@@ -264,9 +264,20 @@ export class IamRepository {
   }
 
   async softRemoveUser(organizationId: string, userId: string): Promise<void> {
-    await this.prisma.user.updateMany({
-      where: { id: userId, organizationId },
-      data: { status: 'DISABLED', metadata: { removedAt: new Date().toISOString() } },
+    // The metadata bag carries systemRole AND passwordHash. It must be MERGED,
+    // never replaced: overwriting it stripped both, so a re-enabled user came
+    // back with no password and silently defaulted to EMPLOYEE. Mirrors the
+    // read-modify-write pattern used by setRole above; the findFirst keeps the
+    // write scoped to the caller's organization.
+    const user = await this.prisma.user.findFirst({ where: { id: userId, organizationId } });
+    if (!user) return;
+    const m = meta(user);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: 'DISABLED',
+        metadata: { ...m, removedAt: new Date().toISOString() },
+      },
     });
   }
 
