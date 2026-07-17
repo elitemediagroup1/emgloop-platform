@@ -16,7 +16,7 @@
     "seed": "prisma db seed",
     "studio": "prisma studio",
     "format": "prisma format",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
