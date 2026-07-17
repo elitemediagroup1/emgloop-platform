@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
-import { ensureLiveOrganization } from '../../../crm/live-org';
+import { requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import {
   loadProviderCards,
@@ -58,7 +58,7 @@ function Card({ card }: { card: ProviderCard }) {
 
 export default async function IntegrationOsPage() {
   await requirePermission('integrations', 'view');
-  const { organizationId } = await ensureLiveOrganization();
+  const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
     const cards = await loadProviderCards(organizationId);
