@@ -60,7 +60,6 @@
   --crm-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --crm-dur: 160ms;
 
-  --crm-sidebar-w: 248px;
 
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
     Roboto, Helvetica, Arial, sans-serif;
@@ -81,78 +80,19 @@
 /* =====================================================================
    App shell (left sidebar + content). Layout markup lives in layout.tsx.
    ===================================================================== */
-.crm-shell { display: flex; min-height: 100vh; }
-
-.crm-sidebar {
-  width: var(--crm-sidebar-w);
-  flex: 0 0 var(--crm-sidebar-w);
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(180deg, rgba(17,24,39,0.92), rgba(11,15,20,0.96));
-  border-right: 1px solid var(--crm-border);
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow: hidden;
-}
-.crm-sb-brand {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 1.05rem 1.1rem 0.9rem;
-  border-bottom: 1px solid var(--crm-border-soft);
-}
-.crm-sb-brand .logo { height: 26px; width: auto; display: block; }
-.crm-sb-brand .badge {
-  margin-left: auto; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--crm-accent);
-  background: var(--crm-accent-dim); border: 1px solid var(--crm-accent-soft);
-  border-radius: 999px; padding: 0.12rem 0.45rem;
-}
-.crm-sb-scroll { flex: 1; overflow-y: auto; padding: 0.6rem 0.6rem 0.4rem; }
-.crm-sb-scroll::-webkit-scrollbar { width: 8px; }
-.crm-sb-scroll::-webkit-scrollbar-thumb { background: var(--crm-border); border-radius: 8px; }
-
-.crm-sb-group-label {
-  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.09em;
-  color: var(--crm-faint); font-weight: 700;
-  padding: 0.85rem 0.7rem 0.35rem;
-}
-.crm-sb-link {
-  display: flex; align-items: center; gap: 0.65rem;
-  padding: 0.5rem 0.7rem; margin: 0.08rem 0;
-  border-radius: var(--crm-radius-sm);
-  color: var(--crm-muted); font-weight: 500; font-size: 0.85rem;
-  position: relative; transition: background var(--crm-dur) var(--crm-ease),
-    color var(--crm-dur) var(--crm-ease);
-}
-.crm-sb-link .ico {
-  width: 17px; height: 17px; flex: 0 0 17px; opacity: 0.85;
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.crm-sb-link:hover { background: var(--crm-hover); color: var(--crm-text); }
-.crm-sb-link.active {
-  background: linear-gradient(90deg, var(--crm-accent-dim), transparent);
-  color: var(--crm-text);
-}
-.crm-sb-link.active::before {
-  content: ''; position: absolute; left: -0.6rem; top: 50%;
-  transform: translateY(-50%); width: 3px; height: 18px;
-  border-radius: 0 3px 3px 0; background: var(--crm-accent);
-  box-shadow: 0 0 10px var(--crm-accent);
-}
-.crm-sb-link.soon { opacity: 0.55; cursor: default; }
-.crm-sb-pill {
-  margin-left: auto; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--crm-faint);
-  border: 1px solid var(--crm-border); border-radius: 999px; padding: 0.05rem 0.4rem;
-}
-
-.crm-sb-foot { border-top: 1px solid var(--crm-border-soft); padding: 0.7rem; }
-.crm-sb-stat {
-  display: flex; align-items: center; gap: 0.55rem;
-  padding: 0.4rem 0.55rem; border-radius: var(--crm-radius-sm); font-size: 0.78rem;
-}
-.crm-sb-stat .label { color: var(--crm-muted); }
-.crm-sb-stat .val { margin-left: auto; font-weight: 600; color: var(--crm-text); }
+/* =====================================================================
+   Sprint 29B — the CRM app-shell rules that lived here are REMOVED.
+   ---------------------------------------------------------------------
+   /crm no longer hand-renders a sidebar/appbar: it renders the shared
+   WorkspaceShell (src/workspaces/WorkspaceShell.tsx), which is styled by
+   the .loop-* rules in app/loop-os.css. Every selector removed here
+   (.crm-shell, .crm-sidebar, the .crm-sb- family, .crm-content, .crm-appbar,
+   .crm-cmdk, .crm-kbd, .crm-icon-btn, .crm-main) was verified referenced by
+   ZERO components after the migration. The replacement is complete, so the
+   original is retired in the same sprint rather than left to rot.
+   .crm-dot-live is KEPT below: it is a live-status dot still used by
+   pages, not shell chrome.
+   ===================================================================== */
 .crm-dot-live {
   width: 8px; height: 8px; border-radius: 50%; background: var(--crm-green);
   box-shadow: 0 0 0 0 rgba(52,211,153,0.6); animation: crm-pulse 2.2s infinite;
@@ -162,59 +102,6 @@
   70% { box-shadow: 0 0 0 7px rgba(52,211,153,0); }
   100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
 }
-.crm-sb-user {
-  display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;
-  padding: 0.5rem 0.55rem; border-radius: var(--crm-radius-sm);
-  background: var(--crm-card); border: 1px solid var(--crm-border);
-}
-.crm-sb-avatar {
-  width: 30px; height: 30px; border-radius: 8px; flex: 0 0 30px;
-  background: var(--crm-brand-grad); color: #fff; font-weight: 700; font-size: 0.78rem;
-  display: flex; align-items: center; justify-content: center;
-}
-.crm-sb-user .who { min-width: 0; }
-.crm-sb-user .who .nm { font-weight: 600; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.crm-sb-user .who .rl { color: var(--crm-faint); font-size: 0.7rem; }
-.crm-signout {
-  margin-left: auto; background: transparent; border: 1px solid var(--crm-border);
-  color: var(--crm-muted); border-radius: 7px; padding: 0.3rem 0.5rem;
-  font-size: 0.72rem; cursor: pointer; transition: all var(--crm-dur) var(--crm-ease);
-}
-.crm-signout:hover { color: var(--crm-red); border-color: var(--crm-red); }
-
-/* ----- Content column ----- */
-.crm-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.crm-appbar {
-  display: flex; align-items: center; gap: 0.85rem;
-  height: 58px; padding: 0 1.4rem;
-  border-bottom: 1px solid var(--crm-border);
-  background: rgba(11,15,20,0.72); backdrop-filter: blur(10px);
-  position: sticky; top: 0; z-index: 20;
-}
-.crm-cmdk {
-  display: flex; align-items: center; gap: 0.5rem;
-  min-width: 280px; max-width: 420px; flex: 1;
-  background: var(--crm-card); border: 1px solid var(--crm-border);
-  color: var(--crm-faint); border-radius: 10px; padding: 0.45rem 0.7rem;
-  font-size: 0.83rem; cursor: text;
-}
-.crm-cmdk .kbd {
-  margin-left: auto; display: inline-flex; gap: 0.2rem;
-}
-.crm-kbd {
-  font: 600 0.68rem 'Inter', system-ui; color: var(--crm-muted);
-  background: var(--crm-panel); border: 1px solid var(--crm-border);
-  border-radius: 5px; padding: 0.05rem 0.35rem;
-}
-.crm-appbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.7rem; }
-.crm-icon-btn {
-  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 9px; border: 1px solid var(--crm-border); background: var(--crm-card);
-  color: var(--crm-muted); cursor: pointer; transition: all var(--crm-dur) var(--crm-ease);
-}
-.crm-icon-btn:hover { color: var(--crm-text); border-color: var(--crm-accent); }
-
-.crm-main { padding: 1.5rem 1.6rem 3.5rem; max-width: 1400px; margin: 0; width: 100%; }
 
 /* =====================================================================
    Component upgrades (shared classes used across every page)
@@ -379,11 +266,30 @@ a.crm-card:hover, .crm-card.hoverable:hover {
   .crm *, .crm *::before, .crm *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
 
-/* Mobile: sidebar collapses to icon strip (functional, not focus) */
-@media (max-width: 860px) {
-  .crm { --crm-sidebar-w: 64px; }
-  .crm-sb-brand .logo, .crm-sb-link span.lbl, .crm-sb-group-label,
-  .crm-sb-foot .label, .crm-sb-user .who, .crm-sb-pill, .crm-sb-brand .badge { display: none; }
-  .crm-sb-link { justify-content: center; }
-  .crm-cmdk { min-width: 0; }
+/* Sprint 29B: the mobile sidebar-collapse block was removed with the CRM
+   app-shell rules it targeted. The shared shell owns its own responsive
+   behaviour in app/loop-os.css. */
+
+/* =====================================================================
+   Sprint 29B — CRM content embedded in the shared WorkspaceShell.
+   ---------------------------------------------------------------------
+   The CRM's pages depend on the --crm-* tokens, which are scoped to .crm,
+   so the .crm wrapper survives around the CONTENT while the surrounding
+   chrome (sidebar/header) is now the shared .loop-os shell.
+
+   .crm must NOT be hoisted onto the shell root: `.crm a { color: inherit }`
+   (specificity 0,1,1) would override `.loop-sb__link` (0,1,0) and strip the
+   sidebar link colours.
+
+   Inside the shell's <main> slot, .crm's own full-page framing has to stand
+   down — otherwise it forces a second 100vh column and repaints the page
+   background over the shell's. Tokens, typography and every component rule
+   are untouched, so pages render exactly as before.
+
+   Declared last in this file so it wins over the .crm block above it by
+   source order at equal specificity.
+   ===================================================================== */
+.crm--embedded {
+  min-height: 0;
+  background: transparent;
 }

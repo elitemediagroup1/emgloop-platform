@@ -56,16 +56,28 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-export interface WorkspaceConfig {
-  role: WorkspaceRole;
-  /** Human label for the workspace, shown in the shell header. */
+/**
+ * Sprint 29B — the contract EVERY shell surface is described by.
+ *
+ * A shell is "a sidebar + a header + a nav tree over a base path". A Workspace
+ * is one KIND of shell (a role-scoped one), and the CRM is another (a
+ * surface-scoped one). Separating ShellConfig from WorkspaceConfig lets both
+ * render through the SAME WorkspaceShell without inventing a fake workspace
+ * role for the CRM — the role vocabulary stays exactly as it is.
+ */
+export interface ShellConfig {
+  /** Human label for the surface, shown as the breadcrumb root. */
   label: string;
-  /** Route prefix that scopes every page in this workspace. */
+  /** Route prefix that scopes every page in this shell. */
   basePath: string;
-  /** Where the user lands after login / when hitting the workspace root. */
+  /** Where the user lands when hitting the shell root. */
   home: string;
-  /** The grouped navigation the shell renders for this role. */
+  /** The grouped navigation the shell renders. */
   nav: NavGroup[];
+}
+
+export interface WorkspaceConfig extends ShellConfig {
+  role: WorkspaceRole;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,4 +251,117 @@ export const WORKSPACES: Record<WorkspaceRole, WorkspaceConfig> = {
 /** Look up a workspace by role. */
 export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
   return WORKSPACES[role];
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 29B — the CRM shell.
+//
+// This nav was previously a hardcoded NAV const inside app/crm/layout.tsx,
+// which meant the platform had two navigation systems that shared no code. It
+// now lives here so there is exactly ONE nav registry and ONE shell component.
+//
+// The items, their order, their labels, their icons and the two 'soon'
+// placeholders are carried over VERBATIM from the old layout: this sprint
+// unifies the MECHANISM, not the policy.
+//
+// Deliberately NO `requires` on any item. The CRM sidebar has never been
+// permission-gated — every item renders for every signed-in member, and each
+// destination enforces its own server-side gate on arrival. Adding `requires`
+// here would silently remove items from people's sidebars, which is a product
+// decision, not a refactor. Gate them in a later sprint, one at a time.
+// ---------------------------------------------------------------------------
+export const CRM_SHELL: ShellConfig = {
+  label: 'CRM',
+  basePath: '/crm',
+  home: '/crm',
+  nav: [
+    {
+      label: 'Intelligence',
+      items: [
+        { href: '/crm', label: 'Overview', icon: 'grid' },
+        { href: '/crm/intelligence', label: 'Brain', icon: 'brain' },
+        { href: '/crm/analytics', label: 'Analytics', icon: 'chart' },
+        { href: '/crm/integrations', label: 'Integration OS', icon: 'plug' },
+      ],
+    },
+    {
+      label: 'Live Operations',
+      items: [
+        { href: '/crm/live/activity', label: 'Live Activity', icon: 'activity' },
+        { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat' },
+        { href: '/crm/live/websites', label: 'Live Website Feed', icon: 'grid' },
+      ],
+    },
+    {
+      label: 'Operations',
+      items: [
+        { href: '/crm/customers', label: 'Customers', icon: 'users' },
+        { href: '/crm/conversations', label: 'Conversations', icon: 'chat' },
+        { href: '/crm/pipeline', label: 'Pipeline', icon: 'columns' },
+        { href: '/crm/inbox', label: 'Calendar', icon: 'calendar' },
+        { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot' },
+        { href: '/crm/workflows', label: 'Workflows', icon: 'flow' },
+      ],
+    },
+    {
+      label: 'Growth',
+      items: [
+        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue' },
+        { href: '/crm/traffic', label: 'Traffic', icon: 'chart' },
+        { href: '/crm/organizations', label: 'Organizations', icon: 'building' },
+        { href: '#creators', label: 'Creators', icon: 'star', soon: true },
+        { href: '#business-portal', label: 'Business Portal', icon: 'portal', soon: true },
+      ],
+    },
+    {
+      label: 'Workspace',
+      items: [
+        { href: '/crm/users', label: 'Team', icon: 'team' },
+        { href: '/crm/settings', label: 'Settings', icon: 'cog' },
+      ],
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Sprint 29B — public auth screens.
+//
+// These render standalone (no shell): the caller has no session yet. This list
+// is the single source of truth and MUST stay in sync with PUBLIC_PATHS in
+// apps/web/src/middleware.ts. They drifted apart once and made the entire
+// invite flow unreachable (fixed in Sprint 29A); keeping the list here, next to
+// the shell config, is what makes the two reviewable together.
+// ---------------------------------------------------------------------------
+export const STANDALONE_PREFIXES: readonly string[] = [
+  '/crm/login',
+  '/crm/forgot-password',
+  '/crm/reset-password',
+  '/crm/accept-invite',
+  '/crm/unauthorized',
+];
+
+/** True when a path is a public auth screen that renders without the shell. */
+export function isStandalonePath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return STANDALONE_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(p + '/'),
+  );
+}
+
+/**
+ * Resolve the breadcrumb leaf for a path: the longest nav href that prefixes
+ * it. Longest-match matters because a shell's home ('/crm') prefixes every one
+ * of its pages. Returns null when nothing matches, so the shell can fall back.
+ */
+export function resolveNavLabel(shell: ShellConfig, pathname: string | null): string | null {
+  if (!pathname) return null;
+  let best: NavItem | null = null;
+  for (const group of shell.nav) {
+    for (const item of group.items) {
+      if (item.href.startsWith('#')) continue;
+      const isMatch = pathname === item.href || pathname.startsWith(item.href + '/');
+      if (isMatch && (!best || item.href.length > best.href.length)) best = item;
+    }
+  }
+  return best ? best.label : null;
 }

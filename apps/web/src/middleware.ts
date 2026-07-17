@@ -50,6 +50,14 @@ export function middleware(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
+// Sprint 29B: /app is matched so the x-pathname header reaches the shared
+// WorkspaceShell there too — its breadcrumb resolves from the current path, and
+// one breadcrumb system means one source for that path.
+//
+// This is header plumbing ONLY. The auth gate above is unchanged and still
+// applies exclusively to /crm: the first line of middleware() returns early for
+// any non-/crm path, so /app remains ungated at the edge and continues to rely
+// on requireWorkspace() in its layouts. No route gains or loses protection.
 export const config = {
-  matcher: ['/crm/:path*'],
+  matcher: ['/crm/:path*', '/app/:path*'],
 };

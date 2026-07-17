@@ -17,7 +17,7 @@ export default async function CREATORLayout({
 }) {
   const session = await requireWorkspace('CREATOR');
   return (
-    <WorkspaceShell workspace={workspaceFor('CREATOR')} session={session}>
+    <WorkspaceShell shell={workspaceFor('CREATOR')} session={session}>
       {children}
     </WorkspaceShell>
   );

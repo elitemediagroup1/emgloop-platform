@@ -20,56 +20,12 @@
 @media (prefers-reduced-motion: reduce) { .loop-os *, .loop-os *::before, .loop-os *::after { animation: none !important; transition: none !important; } }
 
 
-/* ===================== LOGIN ===================== */
-.loop-auth { display: grid; grid-template-columns: 1.05fr 0.95fr; min-height: 100vh;
-  background: radial-gradient(1200px 600px at 12% -10%, rgba(91,140,255,0.14), transparent 60%), radial-gradient(900px 500px at 100% 110%, rgba(122,162,255,0.10), transparent 55%), var(--loop-bg); }
-.loop-auth__stage { position: relative; padding: clamp(40px, 6vw, 88px); display: flex; flex-direction: column; justify-content: space-between; border-right: 1px solid var(--loop-line); overflow: hidden; }
-.loop-auth__brandrow { display: flex; align-items: center; gap: 12px; position: relative; z-index: 2; animation: loop-fade .6s ease both; }
-.loop-auth__osbadge { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; color: var(--loop-accent-2); border: 1px solid var(--loop-line-strong); padding: 4px 9px; border-radius: 999px; background: var(--loop-accent-soft); }
-.loop-auth__hero { position: relative; z-index: 2; max-width: 30ch; }
-.loop-auth__headline { font-size: clamp(30px, 3.6vw, 52px); line-height: 1.05; font-weight: 680; letter-spacing: -0.02em; margin: 0 0 20px; color: var(--loop-text); animation: loop-fade-up .7s ease both .05s; }
-.loop-auth__verbs { display: flex; gap: 10px; flex-wrap: wrap; margin: 0; animation: loop-fade-up .7s ease both .12s; }
-.loop-auth__verb { font-size: 13px; letter-spacing: .02em; color: var(--loop-text-2); display: inline-flex; align-items: center; gap: 8px; }
-.loop-auth__verb::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--loop-accent); box-shadow: 0 0 10px var(--loop-accent); }
-.loop-auth__ready { position: relative; z-index: 2; display: grid; gap: 10px; animation: loop-fade-up .8s ease both .2s; }
-.loop-auth__ready-title { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 700; }
-.loop-ready-item { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--loop-text-2); }
-.loop-ready-item .tick { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(55,211,155,0.12); color: var(--loop-good); font-size: 11px; border: 1px solid rgba(55,211,155,0.28); animation: loop-pulse 3.6s ease-in-out infinite; }
-.loop-ready-item:nth-child(2) .tick { animation-delay: .3s; } .loop-ready-item:nth-child(3) .tick { animation-delay: .6s; }
-.loop-ready-item:nth-child(4) .tick { animation-delay: .9s; } .loop-ready-item:nth-child(5) .tick { animation-delay: 1.2s; }
-.loop-auth__net { position: absolute; inset: 0; z-index: 1; opacity: .5; pointer-events: none; }
-.loop-auth__net .edge { stroke: rgba(91,140,255,0.35); stroke-width: 1; fill: none; stroke-dasharray: 4 8; animation: loop-dash 9s linear infinite; }
-.loop-auth__net .node { fill: rgba(122,162,255,0.55); animation: loop-pulse 4s ease-in-out infinite; }
-.loop-auth__net .node.n2 { animation-delay: .8s; } .loop-auth__net .node.n3 { animation-delay: 1.6s; }
-.loop-auth__net .node.n4 { animation-delay: 2.4s; } .loop-auth__net .node.n5 { animation-delay: 3.2s; }
-
-
-.loop-auth__panel { display: flex; align-items: center; justify-content: center; padding: clamp(28px, 4vw, 64px); background: var(--loop-bg-2); }
-.loop-auth__card { width: 100%; max-width: 400px; background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: var(--loop-radius-lg); padding: 40px 36px; box-shadow: var(--loop-shadow); animation: loop-fade-up .6s ease both .1s; }
-.loop-auth__card h2 { font-size: 22px; font-weight: 640; letter-spacing: -0.01em; margin: 0 0 6px; }
-.loop-auth__card .sub { font-size: 13.5px; color: var(--loop-text-2); margin: 0 0 26px; }
-.loop-field { display: block; margin-bottom: 16px; }
-.loop-field__label { display: block; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; margin-bottom: 7px; }
-.loop-input { width: 100%; box-sizing: border-box; background: var(--loop-bg); color: var(--loop-text); border: 1px solid var(--loop-line-strong); border-radius: 10px; padding: 12px 14px; font-size: 14px; font-family: inherit; transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; outline: none; }
-.loop-input::placeholder { color: var(--loop-text-3); }
-.loop-input:hover { border-color: rgba(255,255,255,0.2); }
-.loop-input:focus { border-color: var(--loop-accent); box-shadow: 0 0 0 3px var(--loop-accent-soft); background: var(--loop-panel-2); }
-.loop-input:invalid:not(:placeholder-shown) { border-color: rgba(242,104,138,0.6); }
-.loop-authrow { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 22px; }
-.loop-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--loop-text-2); cursor: pointer; user-select: none; }
-.loop-check input { accent-color: var(--loop-accent); width: 15px; height: 15px; }
-.loop-link { color: var(--loop-accent-2); font-size: 13px; text-decoration: none; transition: color .15s ease; }
-.loop-link:hover { color: #a9c2ff; text-decoration: underline; }
-.loop-btn { width: 100%; border: none; cursor: pointer; font-family: inherit; font-size: 14.5px; font-weight: 600; color: #05070d; background: linear-gradient(180deg, #7aa2ff, #5b8cff); border-radius: 11px; padding: 13px 16px; transition: transform .12s ease, box-shadow .18s ease, filter .18s ease; box-shadow: 0 8px 22px -8px rgba(91,140,255,0.7); }
-.loop-btn:hover { filter: brightness(1.06); box-shadow: 0 12px 28px -8px rgba(91,140,255,0.85); }
-.loop-btn:active { transform: translateY(1px); }
-.loop-btn:focus-visible { outline: 2px solid var(--loop-accent-2); outline-offset: 2px; }
-.loop-auth__error { font-size: 13px; color: #ffb9c8; background: rgba(242,104,138,0.1); border: 1px solid rgba(242,104,138,0.3); border-radius: 10px; padding: 10px 12px; margin-bottom: 18px; animation: loop-fade .3s ease both; }
-.loop-auth__foot { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--loop-line); font-size: 12.5px; color: var(--loop-text-3); text-align: center; }
-.loop-auth__demo { margin-top: 10px; font-size: 11.5px; color: var(--loop-text-3); }
-.loop-auth__demo code { color: var(--loop-text-2); background: var(--loop-elev); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
-@media (max-width: 900px) { .loop-auth { grid-template-columns: 1fr; } .loop-auth__stage { display: none; } .loop-auth__panel { min-height: 100vh; } }
-
+/* Sprint 29B: the LOGIN block (51 lines, .loop-auth* + .loop-btn/.loop-input/
+   .loop-field/.loop-link/.loop-check/.loop-ready-item) was removed. It was dead:
+   every one of its selectors was referenced by zero components. The live login
+   at /crm/login is styled by `.crm .loop-auth*` in crm/sprint7.css. Sprint 29B
+   imports this file into the /crm tree for the shared shell, which would have
+   woken these rules up and collided with the real login. Deleted, not hidden. */
 
 /* ===================== OS SHELL ===================== */
 .loop-shell { display: grid; grid-template-columns: 264px 1fr; min-height: 100vh; background: var(--loop-bg); }

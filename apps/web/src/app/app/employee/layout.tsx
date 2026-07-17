@@ -17,7 +17,7 @@ export default async function EMPLOYEELayout({
 }) {
   const session = await requireWorkspace('EMPLOYEE');
   return (
-    <WorkspaceShell workspace={workspaceFor('EMPLOYEE')} session={session}>
+    <WorkspaceShell shell={workspaceFor('EMPLOYEE')} session={session}>
       {children}
     </WorkspaceShell>
   );

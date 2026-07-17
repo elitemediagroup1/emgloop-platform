@@ -17,7 +17,7 @@ export default async function CLIENTLayout({
 }) {
   const session = await requireWorkspace('CLIENT');
   return (
-    <WorkspaceShell workspace={workspaceFor('CLIENT')} session={session}>
+    <WorkspaceShell shell={workspaceFor('CLIENT')} session={session}>
       {children}
     </WorkspaceShell>
   );
