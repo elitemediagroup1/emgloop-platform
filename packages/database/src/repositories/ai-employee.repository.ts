@@ -95,8 +95,8 @@ export class AIEmployeeRepository {
     return rows.map(toView);
   }
 
-  async getView(id: string): Promise<AIEmployeeView | null> {
-    const e = await this.prisma.aIEmployee.findUnique({ where: { id } });
+  async getView(organizationId: string, id: string): Promise<AIEmployeeView | null> {
+    const e = await this.prisma.aIEmployee.findFirst({ where: { id, organizationId } });
     return e ? toView(e) : null;
   }
 
@@ -134,6 +134,7 @@ export class AIEmployeeRepository {
   }
 
   async updateEmployee(
+    organizationId: string,
     id: string,
     fields: {
       name?: string;
@@ -148,10 +149,15 @@ export class AIEmployeeRepository {
       voiceProvider?: string;
       aiProvider?: string;
     },
-  ): Promise<AIEmployee> {
-    const existing = await this.prisma.aIEmployee.findUnique({ where: { id } });
-    const attrs = existing ? jsonObj(existing.attributes) : {};
-    const prefs = existing ? jsonObj(existing.providerPrefs) : {};
+  ): Promise<AIEmployee | null> {
+    // Fail closed: resolve the row WITHIN the caller's organization first. A
+    // cross-org (or unknown) id resolves to null and performs no write.
+    const existing = await this.prisma.aIEmployee.findFirst({
+      where: { id, organizationId },
+    });
+    if (!existing) return null;
+    const attrs = jsonObj(existing.attributes);
+    const prefs = jsonObj(existing.providerPrefs);
     const data: Record<string, unknown> = {};
     if (fields.name !== undefined) data.name = fields.name.trim();
     if (fields.title !== undefined) data.title = fields.title;
@@ -174,14 +180,21 @@ export class AIEmployeeRepository {
     return this.prisma.aIEmployee.update({ where: { id }, data });
   }
 
-  archive(id: string): Promise<AIEmployee> {
-    return this.prisma.aIEmployee.update({
-      where: { id },
-      data: { status: 'ARCHIVED' },
-    });
+  async archive(organizationId: string, id: string): Promise<AIEmployee | null> {
+    return this.setStatus(organizationId, id, 'ARCHIVED');
   }
 
-  setStatus(id: string, status: AIEmployeeStatus): Promise<AIEmployee> {
+  async setStatus(
+    organizationId: string,
+    id: string,
+    status: AIEmployeeStatus,
+  ): Promise<AIEmployee | null> {
+    // Fail closed: a cross-org (or unknown) id performs no write.
+    const existing = await this.prisma.aIEmployee.findFirst({
+      where: { id, organizationId },
+      select: { id: true },
+    });
+    if (!existing) return null;
     return this.prisma.aIEmployee.update({ where: { id }, data: { status } });
   }
 }

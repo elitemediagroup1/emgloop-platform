@@ -144,7 +144,11 @@ export async function createOrganizationAction(formData: FormData): Promise<void
 
 export async function updateOrgProfileAction(formData: FormData): Promise<void> {
   const session = await requirePermission('organizations', 'update');
-  const id = String(formData.get('orgId') ?? '') || session.organizationId;
+  // The organization ALWAYS comes from the signed session, never from the
+  // submitted form. A client-supplied orgId was previously honoured here, which
+  // let any holder of organizations:update rename any organization on the
+  // platform while the audit row was attributed to the caller's own org.
+  const id = session.organizationId;
   await repositories.organizations.updateProfile(id, {
     name: formData.has('name') ? String(formData.get('name')) : undefined,
     timezone: formData.has('timezone') ? String(formData.get('timezone')) : undefined,
@@ -233,7 +237,10 @@ export async function updateAIEmployeeAction(formData: FormData): Promise<void> 
   if (!id) return;
   const statusRaw = String(formData.get('status') ?? '');
   const validStatus = ['DRAFT', 'ACTIVE', 'PAUSED', 'ARCHIVED'].includes(statusRaw);
-  await repositories.aiEmployees.updateEmployee(id, {
+  // Scoped to the session organization: a cross-org id updates nothing and is
+  // treated as not-found, so no audit entry is written for a write that did
+  // not happen.
+  const updated = await repositories.aiEmployees.updateEmployee(session.organizationId, id, {
     name: formData.has('name') ? String(formData.get('name')) : undefined,
     title: formData.has('title') ? String(formData.get('title')) : undefined,
     department: formData.has('department') ? String(formData.get('department')) : undefined,
@@ -241,6 +248,7 @@ export async function updateAIEmployeeAction(formData: FormData): Promise<void> 
     aiProvider: formData.has('aiProvider') ? String(formData.get('aiProvider')) : undefined,
     status: validStatus ? (statusRaw as any) : undefined,
   });
+  if (!updated) return;
   await repositories.audit.record({
     organizationId: session.organizationId,
     userId: session.userId,
@@ -256,7 +264,9 @@ export async function archiveAIEmployeeAction(formData: FormData): Promise<void>
   const session = await requirePermission('aiEmployees', 'update');
   const id = String(formData.get('id') ?? '');
   if (!id) return;
-  await repositories.aiEmployees.archive(id);
+  // Scoped to the session organization: a cross-org id archives nothing.
+  const archived = await repositories.aiEmployees.archive(session.organizationId, id);
+  if (!archived) return;
   await repositories.audit.record({
     organizationId: session.organizationId,
     userId: session.userId,
