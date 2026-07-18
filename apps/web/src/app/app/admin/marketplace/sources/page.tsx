@@ -1,5 +1,6 @@
 // Source / Publisher Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { hasValue } from "@emgloop/shared";
 import { MarketplaceNav } from "../_MarketplaceNav";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
@@ -44,8 +45,10 @@ export default async function SourceOperatingSystemPage() {
     ? await loadOrFallback(async () => loadProviderCards(org))
     : { ok: false as const };
 
-  const rev = revenueR.ok ? revenueR.data : null;
-  const traffic = trafficR.ok ? trafficR.data : null;
+  // The repository now produces Truth. Unwrap once here: a non-value state
+  // (ERROR / UNKNOWN) becomes null, which this page already renders as absent.
+  const rev = revenueR.ok && hasValue(revenueR.data) ? revenueR.data.value : null;
+  const traffic = trafficR.ok && hasValue(trafficR.data) ? trafficR.data.value : null;
   const liveCalls = liveCallsR.ok ? liveCallsR.data : [];
   const liveActivity = liveActivityR.ok ? liveActivityR.data : [];
   const cards = integrationsR.ok ? integrationsR.data : [];

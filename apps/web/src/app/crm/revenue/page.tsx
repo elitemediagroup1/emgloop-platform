@@ -1,4 +1,5 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { hasValue } from '@emgloop/shared';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { PartialDataNotice } from '../../app/_loop-os';
@@ -65,7 +66,18 @@ export default async function RevenueIntelligencePage() {
     );
   }
 
-  const rev = result.data;
+  // The repository produces Truth. Unwrap once here; a non-value state (ERROR
+  // from a failed read, UNKNOWN from insufficient evidence) falls through to the
+  // same honest "unavailable" screen rather than rendering zeros.
+  if (!hasValue(result.data)) {
+    return (
+      <>
+        <h1 className="crm-h1">Revenue Intelligence</h1>
+        <DbNotConfigured />
+      </>
+    );
+  }
+  const rev = result.data.value;
 
   return (
     <>

@@ -37,6 +37,14 @@
 
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { isExcludedCustomer, realAttr, UNKNOWN, since, TRAFFIC_DEFAULT_WINDOW_MS } from './operational-filters';
+import {
+  measure,
+  success,
+  partial,
+  sumKnown,
+  type Truth,
+  type TruthMeta,
+} from '@emgloop/shared';
 
 // --- Bounded-read caps ----------------------------------------------------
 // Sized against a 1024MB serverless function with ~250MB of Next.js/Node
@@ -302,25 +310,81 @@ export class RevenueIntelligenceRepository {
     realizedOrders: number;
     pendingCents: number;
     pendingOrders: number;
+    /** Orders counted in the totals above whose amount was never captured. */
+    unpricedOrders: number;
   } {
-    let realizedCents = 0;
-    let realizedOrders = 0;
-    let pendingCents = 0;
-    let pendingOrders = 0;
-    for (const o of customer.orders) {
-      const st = String(o.status);
-      if (REVENUE_STATUSES.has(st)) {
-        realizedCents += o.totalCents ?? 0;
-        realizedOrders += 1;
-      } else if (PENDING_STATUSES.has(st)) {
-        pendingCents += o.totalCents ?? 0;
-        pendingOrders += 1;
-      }
-    }
-    return { realizedCents, realizedOrders, pendingCents, pendingOrders };
+    // An order whose total the system never captured is NOT a $0 order. It used
+    // to be summed as `totalCents ?? 0`, which quietly reported an unpriced
+    // order as worthless and folded it into a total presented as complete.
+    // sumKnown adds only what is known and counts what is not.
+    const realized = customer.orders.filter((o) => REVENUE_STATUSES.has(String(o.status)));
+    const pending = customer.orders.filter((o) => PENDING_STATUSES.has(String(o.status)));
+    const r = sumKnown(realized.map((o) => o.totalCents));
+    const p = sumKnown(pending.map((o) => o.totalCents));
+    return {
+      realizedCents: r.total,
+      realizedOrders: realized.length,
+      pendingCents: p.total,
+      pendingOrders: pending.length,
+      unpricedOrders: r.missing + p.missing,
+    };
   }
 
-  async revenueByDimension(organizationId: string): Promise<RevenueByDimension> {
+  // --- Public API: measurements are produced as Truth -----------------------
+  //
+  // The repository is the canonical producer of Truth, so a consumer can never
+  // receive a bare number it has to interpret. `measure()` turns a thrown read
+  // into ERROR rather than letting it surface as an empty result that renders
+  // as zero, and the bounded-read coverage maps onto PARTIAL.
+  //
+  // `now` is injected so the measurement timestamp is caller-controlled and the
+  // repository stays free of an internal clock.
+
+  /** Build the Truth posture for a completed report from its own coverage. */
+  private classifyReport<T extends { coverage: QueryCoverage }>(report: T, meta: TruthMeta): Truth<T> {
+    if (report.coverage.complete) return success(report, meta);
+    return partial(
+      report,
+      {
+        observed: report.coverage.rowsScanned,
+        // The bounded reads know what they scanned, not what exists. Inventing
+        // a denominator here would fake completeness.
+        total: null,
+        reason: {
+          code: 'bounded-read-incomplete',
+          summary: report.coverage.reasons.join(' '),
+          unblockedBy: 'Ship SQL aggregation so this read no longer needs a cap.',
+        },
+      },
+      meta,
+    );
+  }
+
+  async revenueByDimension(
+    organizationId: string,
+    now: Date = new Date(),
+  ): Promise<Truth<RevenueByDimension>> {
+    const meta: TruthMeta = { measuredAt: now.toISOString(), subject: 'revenue.byDimension' };
+    return measure(
+      () => this.computeRevenueByDimension(organizationId),
+      (report, m) => this.classifyReport(report, m),
+      meta,
+    );
+  }
+
+  async trafficIntelligence(
+    organizationId: string,
+    now: Date = new Date(),
+  ): Promise<Truth<TrafficIntelligence>> {
+    const meta: TruthMeta = { measuredAt: now.toISOString(), subject: 'traffic.intelligence' };
+    return measure(
+      () => this.computeTrafficIntelligence(organizationId),
+      (report, m) => this.classifyReport(report, m),
+      meta,
+    );
+  }
+
+  private async computeRevenueByDimension(organizationId: string): Promise<RevenueByDimension> {
     const startedAt = Date.now();
 
     // Bounded read. Fetch one row past the cap so overflow is detectable
@@ -397,12 +461,16 @@ export class RevenueIntelligenceRepository {
     let realizedOrders = 0;
     let pendingRevenueCents = 0;
     let pendingOrders = 0;
+    // Orders counted in the totals whose amount was never captured. Their
+    // presence makes any revenue total a LOWER BOUND, not a complete figure.
+    let unpricedOrders = 0;
     let influencedJourneys = 0;
 
     for (const c of customers) {
-      const { realizedCents, realizedOrders: ro, pendingCents, pendingOrders: po } = this.revenueOf(c);
+      const { realizedCents, realizedOrders: ro, pendingCents, pendingOrders: po, unpricedOrders: unpriced } = this.revenueOf(c);
       pendingRevenueCents += pendingCents;
       pendingOrders += po;
+      unpricedOrders += unpriced;
       if (ro === 0) {
         // Activity without realized revenue = an influenced (pending) journey.
         if (c.interactions.length > 0) influencedJourneys += 1;
@@ -419,6 +487,12 @@ export class RevenueIntelligenceRepository {
       bump(byChannel, a.channel, a.channel, realizedCents);
       bump(bySignal, a.signal, a.signal, realizedCents);
       bump(byJourney, a.journey, a.journey, realizedCents);
+    }
+
+    if (unpricedOrders > 0) {
+      reasons.push(
+        `${unpricedOrders} counted order(s) have no captured amount; revenue totals are a lower bound.`,
+      );
     }
 
     const durationMs = Date.now() - startedAt;
@@ -458,7 +532,7 @@ export class RevenueIntelligenceRepository {
     };
   }
 
-  async trafficIntelligence(organizationId: string): Promise<TrafficIntelligence> {
+  private async computeTrafficIntelligence(organizationId: string): Promise<TrafficIntelligence> {
     const startedAt = Date.now();
     const cutoff = since(TRAFFIC_DEFAULT_WINDOW_MS);
 

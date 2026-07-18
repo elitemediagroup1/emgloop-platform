@@ -1,4 +1,5 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { hasValue } from '@emgloop/shared';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { PartialDataNotice } from '../../app/_loop-os';
@@ -36,7 +37,18 @@ export default async function TrafficIntelligencePage() {
     );
   }
 
-  const traffic = result.data;
+  // The repository produces Truth. Unwrap once here; a non-value state (ERROR
+  // from a failed read, UNKNOWN from insufficient evidence) falls through to the
+  // same honest "unavailable" screen rather than rendering zeros.
+  if (!hasValue(result.data)) {
+    return (
+      <>
+        <h1 className="crm-h1">Traffic Intelligence</h1>
+        <DbNotConfigured />
+      </>
+    );
+  }
+  const traffic = result.data.value;
   const hasData = traffic.totalCalls > 0;
   const attrPct = traffic.totalCalls > 0 ? Math.round((traffic.attributedCalls / traffic.totalCalls) * 100) : 0;
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { serializeTruth, hasValue, isPartial } from '@emgloop/shared';
 import { crmRepos } from '../../../crm/crm-data';
 import { can, getSession } from '../../../auth/auth';
 
@@ -30,10 +31,15 @@ export async function GET() {
   // `partial` is hoisted to the top level so a consumer cannot read the totals
   // without also seeing that the underlying scan was capped. See CAPS in
   // revenue-intelligence.repository.ts — this stays until SQL aggregation ships.
+  // Serialized as Truth, so a client receives the state and its provenance
+  // rather than a bare number it would have to interpret for itself.
+  // `partial` stays hoisted for consumers that already read it.
   return NextResponse.json({
     ok: true,
-    revenue,
-    partial: !revenue.coverage.complete,
+    revenue: hasValue(revenue) ? revenue.value : null,
+    truth: serializeTruth(revenue),
+    state: revenue.state,
+    partial: isPartial(revenue),
     orgReady: true,
     at: new Date().toISOString(),
   });

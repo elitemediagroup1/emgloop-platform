@@ -206,7 +206,9 @@ boundary.**
 | CallGrid confidence coverage metric | ✅ Fixed — no longer defaults unknown coverage to 0 |
 | CRM Analytics "Avg Response" | ✅ Fixed — renders unmeasured, not "0 min" |
 | Brain confidence display | ✅ Fixed — renders "unscored", not "0%" |
-| `RevenueIntelligenceRepository` | ⚠️ Returns `QueryCoverage`; maps onto PARTIAL, not yet Truth. Sums `totalCents ?? 0` |
+| `RevenueIntelligenceRepository` | ✅ Migrated — returns `Truth<T>`; unpriced orders degrade the read to PARTIAL |
+| Revenue/Traffic API routes | ✅ Serialize Truth (`truth`, `state`, `partial`) |
+| Marketplace sub-pages · CRM revenue/traffic | ✅ Consume Truth at the load boundary |
 | `MarketplaceCallRepository.aggregateWindow` | ⚠️ Sums `?? 0`; per-dimension coverage counts exist but are not propagated |
 | CallGrid `analyze.ts` prior-window lookups | ⚠️ `?? 0` treats an absent prior buyer as $0 earned, manufacturing infinite growth |
 | Marketplace sub-pages (4) | ❌ 43 zero-coercions, recorded as a shrinking debt ledger |
@@ -217,14 +219,20 @@ boundary.**
 
 **Migration order** — highest leverage first, each independently shippable:
 
-1. **Repository aggregates** — `revenue-intelligence` and `marketplace-call` summation. This is where
-   the zero is manufactured; everything downstream inherits it.
-2. **The provider boundary** — `toNumber`/`numeric` returning Truth with an `unavailable` reason
-   naming CallGrid would give every downstream layer provenance for free.
-3. `RevenueIntelligenceRepository` public API → `Truth<T>` (its `QueryCoverage` already maps to PARTIAL).
-4. `RevenueHeadline` / `BriefingRevenue` → Truth, so the headline KPI carries its own posture.
-5. Marketplace sub-pages, lowering the debt ledger as each migrates.
-6. Executive Dashboard, API routes (`serializeTruth`), CRM surfaces.
+1. **`MarketplaceCallRepository.aggregateWindow`** — `bump()` still sums `rev ?? 0` per dimension.
+   Window-level coverage counts exist (`callsWithRevenue`); per-dimension ones do not.
+2. **`RevenueHeadline` / `BriefingRevenue`** → Truth, so the platform's headline KPI carries its
+   own posture instead of `number | null`.
+3. **CallGrid `analyze.ts`** — `priorBuyerRev.get(k) ?? 0` treats a buyer absent from the prior
+   window as having earned $0, manufacturing infinite growth.
+4. Marketplace sub-pages' internal rendering, lowering the debt ledger as each migrates.
+5. Executive Dashboard, remaining CRM surfaces.
+
+**Explicitly NOT migrating: the provider boundary.** `toNumber()` returning `number | undefined`
+and `MarketplaceCall.revenueCents: number | null` are correct — they faithfully record "the sensor
+did not say". Wrapping each parsed field in Truth would attach an identical `unavailable` reason to
+every one, adding ceremony and no information. **Truth belongs at the aggregate boundary, not the
+row boundary**: the fabrication happens when nulls are summed, not when they are stored.
 
 **Rule for new code, effective now:** any *new* measurement returns `Truth<T>`. This is enforced —
 see §11. Migration of existing code is incremental; regression is not permitted.

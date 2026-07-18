@@ -22,6 +22,8 @@ import {
   measuredList,
   measuredBounded,
   measure,
+  sumKnown,
+  truthFromSum,
   errorFromException,
   weakestState,
   // guards
@@ -378,4 +380,66 @@ test('a Truth always carries when it was measured', () => {
     assert.equal(t.measuredAt, AT, `${t.state} lost its timestamp`);
     assert.ok(Array.isArray(t.evidence), `${t.state} must carry an evidence array`);
   }
+});
+
+// --- Coverage-aware summation ----------------------------------------------
+// The four-way mapping below is where fabricated zeros were actually born.
+
+const SUM_REASON: Reason = { code: 'order-total-missing', summary: 'Some orders carry no total.' };
+
+test('sumKnown never coerces a missing value to zero', () => {
+  const s = sumKnown([100, null, 200, undefined, Number.NaN]);
+  assert.equal(s.total, 300, 'only known values are summed');
+  assert.equal(s.counted, 2);
+  assert.equal(s.missing, 3, 'null, undefined and NaN all count as missing');
+});
+
+test('no rows at all is EMPTY — measured, genuinely nothing', () => {
+  const t = truthFromSum(sumKnown([]), SUM_REASON, meta);
+  assert.equal(t.state, 'empty');
+  assert.equal(hasValue(t) && t.value, 0);
+});
+
+test('all rows carrying a value is SUCCESS', () => {
+  const t = truthFromSum(sumKnown([100, 250]), SUM_REASON, meta);
+  assert.equal(t.state, 'success');
+  assert.equal(hasValue(t) && t.value, 350);
+});
+
+test('some rows missing is PARTIAL with a real denominator, not a silent total', () => {
+  const t = truthFromSum(sumKnown([100, null, 200]), SUM_REASON, meta);
+  assert.equal(t.state, 'partial');
+  assert.equal(hasValue(t) && t.value, 300);
+  assert.ok(isPartial(t));
+  if (isPartial(t)) {
+    assert.equal(t.coverage.observed, 2);
+    assert.equal(t.coverage.total, 3);
+    assert.match(t.coverage.reason.summary, /1 of 3/);
+    assert.match(t.coverage.reason.summary, /lower bound/);
+  }
+});
+
+test('rows that exist but carry no values at all is UNKNOWN, never zero', () => {
+  // The case `?? 0` got most wrong: five unpriced orders summed to 0, reading as
+  // "worth nothing" rather than "we cannot price these".
+  const t = truthFromSum(sumKnown([null, null, undefined]), SUM_REASON, meta);
+  assert.equal(t.state, 'unknown');
+  assert.equal(hasValue(t), false);
+  assert.equal(mayRenderZero(t), false);
+  assert.equal(renderTruth(t, money).text, UNKNOWN_DISPLAY);
+  assert.match(reasonOf(t)?.summary ?? '', /None of the 3/);
+});
+
+test('a coverage-aware sum never renders zero unless it earned it', () => {
+  const cases: Array<[string, Array<number | null>]> = [
+    ['all missing', [null, null]],
+    ['some missing', [5, null]],
+  ];
+  for (const [name, values] of cases) {
+    const d = renderTruth(truthFromSum(sumKnown(values), SUM_REASON, meta), money);
+    assert.notEqual(d.text, '$0', `${name} must not render as $0`);
+    assert.equal(d.trustworthy, false, `${name} is not trustworthy`);
+  }
+  // And the honest zero still works.
+  assert.equal(renderTruth(truthFromSum(sumKnown([]), SUM_REASON, meta), money).text, '$0');
 });

@@ -28,20 +28,20 @@ import Link from "next/link";
 import { MarketplaceNav } from "./_MarketplaceNav";
 import { MarketplaceCoverage, CoverageUnavailable, HighestPriority } from "./_MarketplaceCoverage";
 import { loadMarketplaceCoverage } from "./marketplace-coverage-data";
+import type { MarketplaceCoverageReport } from "@emgloop/intelligence";
 import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
-import { loadOrFallback } from "../../../../demo/db-health";
 import { crmRepos, requireCrmContext } from "../../../../crm/crm-data";
 import { money, num, todayLabel, PartialDataNotice } from "../../_loop-os";
 import {
   renderTruth,
-  measuredBounded,
   failed,
   hasValue,
   foldTruth,
+  mapTruth,
   type Truth,
   type TruthMeta,
 } from "@emgloop/shared";
-import type { QueryCoverage } from "@emgloop/database";
+import type { RevenueByDimension, TrafficIntelligence } from "@emgloop/database";
 
 export const dynamic = "force-dynamic";
 
@@ -66,93 +66,45 @@ function Metric(props: { label: string; truth: Truth<number>; format: (n: number
   );
 }
 
-/**
- * Bridge a bounded repository read onto Truth.
- *
- * `QueryCoverage` already encodes exactly what PARTIAL means — a completed read
- * over a capped slice — so this is a projection, not a reinterpretation. A
- * failed read becomes ERROR rather than a zero, which is the whole point.
- *
- * `total` is null on purpose: the bounded reads know how many rows they scanned
- * but not how many exist. Inventing a denominator would fake completeness.
- */
-function readToTruth<D>(
-  result: { ok: true; data: D } | { ok: false; cause: string; message: string },
-  select: (d: D) => { value: number; coverage: QueryCoverage },
-  meta: TruthMeta,
-): Truth<number> {
-  if (!result.ok) {
-    return failed<number>(
-      {
-        code: result.cause === "not-configured" ? "db-not-configured" : "db-unavailable",
-        summary: result.message,
-        retryable: result.cause !== "not-configured",
-      },
-      meta,
-    );
-  }
-  const { value, coverage } = select(result.data);
-  return measuredBounded(
-    value,
-    {
-      capBound: coverage.capReached,
-      coverage: {
-        observed: coverage.rowsScanned,
-        total: null,
-        reason: {
-          code: "bounded-read-capped",
-          summary: coverage.reasons.join(" ") || "The scan was capped to stay within its memory budget.",
-          unblockedBy: "Ship SQL aggregation so this read no longer needs a cap.",
-        },
-      },
-      isZero: value === 0,
-    },
-    meta,
-  );
-}
-
 export default async function MarketplaceCommandCenter() {
   const { organizationId: org } = await requireCrmContext();
   const now = new Date();
   const meta: TruthMeta = { measuredAt: now.toISOString() };
 
-  const noOrg = { ok: false as const, cause: "read-failed", message: "No organization is resolved for this session." };
+  const noOrgError = {
+    code: "repository-exception" as const,
+    summary: "No organization is resolved for this session.",
+    retryable: false,
+  };
 
-  const revenueR = org
-    ? await loadOrFallback(async () => crmRepos.revenueIntelligence.revenueByDimension(org))
-    : noOrg;
-  const trafficR = org
-    ? await loadOrFallback(async () => crmRepos.revenueIntelligence.trafficIntelligence(org))
-    : noOrg;
+  // The repository produces Truth directly, so loadOrFallback is no longer used
+  // here: measure() already converts a thrown read into ERROR, and wrapping it
+  // again would only re-flatten the state this migration exists to preserve.
+  const revenueT = org
+    ? await crmRepos.revenueIntelligence.revenueByDimension(org, now)
+    : failed<RevenueByDimension>(noOrgError, meta);
+  const trafficT = org
+    ? await crmRepos.revenueIntelligence.trafficIntelligence(org, now)
+    : failed<TrafficIntelligence>(noOrgError, meta);
 
   const coverage = org
     ? await loadMarketplaceCoverage(org, now)
     : {
-        report: failed<never>({ code: "repository-exception", summary: noOrg.message, retryable: false }, meta),
+        report: failed<MarketplaceCoverageReport>(noOrgError, meta),
         priority: [],
-        callsIngested: failed<number>({ code: "repository-exception", summary: noOrg.message, retryable: false }, meta),
+        callsIngested: failed<number>(noOrgError, meta),
       };
 
-  // Each figure is its own measurement with its own posture.
-  const revenue = readToTruth(revenueR, (d) => ({ value: d.realizedRevenueCents, coverage: d.coverage }), {
-    ...meta,
-    subject: "marketplace.realizedRevenue",
-  });
-  const calls = readToTruth(trafficR, (d) => ({ value: d.totalCalls, coverage: d.coverage }), {
-    ...meta,
-    subject: "marketplace.calls",
-  });
-  const qualified = readToTruth(trafficR, (d) => ({ value: d.qualifiedCalls, coverage: d.coverage }), {
-    ...meta,
-    subject: "marketplace.qualified",
-  });
-  const bookings = readToTruth(trafficR, (d) => ({ value: d.bookings, coverage: d.coverage }), {
-    ...meta,
-    subject: "marketplace.bookings",
-  });
+  const rev = hasValue(revenueT) ? revenueT.value : null;
+  const traffic = hasValue(trafficT) ? trafficT.value : null;
 
-  const rev = revenueR.ok ? revenueR.data : null;
-  const traffic = trafficR.ok ? trafficR.data : null;
+  // Each figure inherits the posture of the read it came from: mapTruth carries
+  // SUCCESS/PARTIAL through to the value and leaves ERROR/UNKNOWN untouched, so
+  // a failed read cannot become a zero on the way to the tile.
+  const revenue: Truth<number> = mapTruth(revenueT, (d) => d.realizedRevenueCents);
+  const calls: Truth<number> = mapTruth(trafficT, (d) => d.totalCalls);
+  const qualified: Truth<number> = mapTruth(trafficT, (d) => d.qualifiedCalls);
+  const bookings: Truth<number> = mapTruth(trafficT, (d) => d.bookings);
 
   return (
     <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">

@@ -97,6 +97,84 @@ export function measuredBounded<T>(
   return opts.isZero ? empty(value, meta) : success(value, meta);
 }
 
+// --- Coverage-aware summation ----------------------------------------------
+//
+// This is where fabricated zeros are actually born. `total += value ?? 0` looks
+// harmless and is the single most common way an unknown becomes a confident
+// number: a row whose amount the provider never sent contributes 0, and the sum
+// is then presented as complete. Row-level nulls are honest — the sensor really
+// did not say — so the fix is not to wrap every field, it is to stop LOSING
+// that fact when the rows are added up.
+
+export interface SumCoverage {
+  /** Sum of the values that were actually known. */
+  total: number;
+  /** Rows that carried a value. */
+  counted: number;
+  /** Rows examined whose value was absent. */
+  missing: number;
+}
+
+/** Sum only what is known, and keep count of what was not. Never coerces null to 0. */
+export function sumKnown(values: Iterable<number | null | undefined>): SumCoverage {
+  let total = 0;
+  let counted = 0;
+  let missing = 0;
+  for (const v of values) {
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      total += v;
+      counted += 1;
+    } else {
+      missing += 1;
+    }
+  }
+  return { total, counted, missing };
+}
+
+/**
+ * Turn a coverage-aware sum into the right Truth state.
+ *
+ * The four-way mapping is the whole point, and each branch is a different fact:
+ *
+ *   no rows at all           → EMPTY   (measured; genuinely nothing)
+ *   all rows carried a value → SUCCESS (complete)
+ *   some rows did            → PARTIAL (a lower bound, with real coverage)
+ *   rows existed, none did   → UNKNOWN (we have rows but know no amounts)
+ *
+ * That last case is the one `?? 0` got most wrong: summing five orders whose
+ * totals are all unknown produced `0`, which reads as "these orders were worth
+ * nothing" rather than "we cannot price these orders".
+ */
+export function truthFromSum(sum: SumCoverage, reason: Reason, meta: TruthMeta): Truth<number> {
+  const examined = sum.counted + sum.missing;
+
+  if (examined === 0) return empty(0, meta);
+  if (sum.missing === 0) return success(sum.total, meta);
+
+  if (sum.counted === 0) {
+    return unknown<number>(
+      {
+        ...reason,
+        summary: `${reason.summary} None of the ${examined} record(s) examined carried a value.`,
+      },
+      meta,
+    );
+  }
+
+  return partial(
+    sum.total,
+    {
+      observed: sum.counted,
+      total: examined,
+      reason: {
+        ...reason,
+        summary: `${reason.summary} ${sum.missing} of ${examined} record(s) had no value, so this total is a lower bound.`,
+      },
+    },
+    meta,
+  );
+}
+
 /** Map a thrown value onto a structured TruthError. Transient causes stay retryable. */
 export function errorFromException(e: unknown): TruthError {
   const message = e instanceof Error ? e.message : String(e);
