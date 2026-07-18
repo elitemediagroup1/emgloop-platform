@@ -55,8 +55,14 @@ function computeConfidence(input: CallGridIntelligenceInput): number {
   let c = 0.3;
   if (current.calls >= 10) c += 0.2;
   if (prior) c += 0.15;
-  const revCoverage = ratio(current.callsWithRevenue, current.calls) ?? 0;
-  if (revCoverage >= 0.8) c += 0.1;
+  // `ratio` deliberately returns undefined on a zero denominator rather than a
+  // misleading value, so it must not be defaulted here — least of all inside a
+  // COVERAGE metric, where "unknown coverage" and "zero coverage" collapsing
+  // into one number would corrupt the very figure that says how much we know.
+  // (The `calls === 0` guard above means undefined is currently unreachable;
+  // handling it explicitly keeps that true if the guard ever moves.)
+  const revCoverage = ratio(current.callsWithRevenue, current.calls);
+  if (revCoverage !== undefined && revCoverage >= 0.8) c += 0.1;
   if (input.bids) c += 0.05;
   return Math.min(c, 0.7);
 }
