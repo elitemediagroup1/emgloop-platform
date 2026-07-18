@@ -91,6 +91,12 @@ function pick(payload: Record<string, unknown>, keys: string[]): string | undefi
           const v = payload[k];
           if (typeof v === 'string' && v.trim()) return v.trim();
           if (typeof v === 'number') return String(v);
+          // JSON booleans MUST be readable here. CallGrid sends billable /
+          // converted / paid / noRoute as real booleans, and returning undefined
+          // for them made the derived `qualified` flag undefined for every such
+          // call — so qualified counts and qualification rate silently
+          // under-reported against calls that were unambiguously billable.
+          if (typeof v === 'boolean') return String(v);
     }
     return undefined;
 }

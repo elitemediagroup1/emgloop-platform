@@ -534,13 +534,18 @@ export class RevenueIntelligenceRepository {
 
   private async computeTrafficIntelligence(organizationId: string): Promise<TrafficIntelligence> {
     const startedAt = Date.now();
-    const cutoff = since(TRAFFIC_DEFAULT_WINDOW_MS);
+    const now = new Date();
+    const cutoff = since(TRAFFIC_DEFAULT_WINDOW_MS, now);
 
     // Bounded read, newest calls first. Interaction.payload is NOT selected,
     // and the customer's bookings are counted rather than hydrated — only
     // `bookings.length` was ever used, so _count is exact, not lossy.
     const page = await this.prisma.interaction.findMany({
-      where: { organizationId, channel: 'PHONE', occurredAt: { gte: cutoff } },
+      // Half-open [cutoff, now). The upper bound matters: without it a call
+      // timestamped in the future — provider clock skew, or a bad source
+      // timestamp — is counted inside "last 7 days". The MarketplaceCall reads
+      // already use gte/lt; this read was the asymmetric one.
+      where: { organizationId, channel: 'PHONE', occurredAt: { gte: cutoff, lt: now } },
       orderBy: { occurredAt: 'desc' },
       take: CAPS.calls + 1,
       select: {

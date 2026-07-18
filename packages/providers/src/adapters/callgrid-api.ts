@@ -86,6 +86,11 @@ export function pickField(
           const v = record[k];
           if (typeof v === 'string' && v.trim()) return v.trim();
           if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+          // See pick() in callgrid.provider.ts: CallGrid sends billable /
+          // converted / paid / duplicate as real JSON booleans, and dropping
+          // them here made the derived `qualified` flag undefined for every
+          // such call.
+          if (typeof v === 'boolean') return String(v);
     }
     return undefined;
 }
@@ -93,7 +98,21 @@ export function pickField(
 /** Coerce a numeric-ish field to a finite number, or undefined. */
 export function toNumber(value: string | undefined): number | undefined {
     if (value === undefined) return undefined;
-    const n = Number(String(value).replace(/[^0-9.\-]/g, ''));
+    const raw = String(value).trim();
+    if (raw === '') return undefined;
+    // Strip formatting ($, commas, currency suffixes) but NOT to the point of
+    // inventing a number. The previous version stripped every non-numeric
+    // character and then trusted Number(''), which is 0 — so a CallGrid field
+    // reading "N/A", "none" or "pending" was stored as a measured $0.00 rather
+    // than left unknown. That is a fabricated measurement, and it also poisoned
+    // reconciliation: a wrong 0 counts as a real value and permanently blocks
+    // the correct figure from ever being filled in.
+    const stripped = raw.replace(/[^0-9.\-]/g, '');
+    if (stripped === '' || stripped === '-' || stripped === '.') return undefined;
+    // Reject inputs that were mostly non-numeric text ("n/a" -> ""), keeping
+    // legitimately formatted money ("$1,234.50", "24.00 USD").
+    if (!/[0-9]/.test(raw)) return undefined;
+    const n = Number(stripped);
     return Number.isFinite(n) ? n : undefined;
 }
 

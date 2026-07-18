@@ -52,11 +52,24 @@ export const dynamic = "force-dynamic";
  * the six states, and the formatter it calls only ever sees a measured number.
  * A state without a value cannot reach this component's output as a digit.
  */
-function Metric(props: { label: string; truth: Truth<number>; format: (n: number) => string }) {
+function Metric(props: {
+  label: string;
+  /**
+   * The period this figure covers. REQUIRED, because these tiles do not share
+   * one: realized revenue is all-time while calls/qualified/bookings are a
+   * 7-day window. Rendering them unlabelled invited exactly the wrong division
+   * (all-time revenue ÷ 7-day calls), so the window is now impossible to omit.
+   */
+  window: string;
+  truth: Truth<number>;
+  format: (n: number) => string;
+}) {
   const d = renderTruth(props.truth, props.format);
   return (
     <div className={"loop-mod loop-mod--" + d.tone}>
-      <div className="loop-mod__label">{props.label}</div>
+      <div className="loop-mod__label">
+        {props.label} <span className="loop-mod__window">{props.window}</span>
+      </div>
       <div className="loop-mod__metric">{d.text}</div>
       <div className="loop-mod__detail">
         {d.qualifier ? <span className="loop-mod__qual">{d.qualifier}</span> : null}
@@ -142,10 +155,10 @@ export default async function MarketplaceCommandCenter() {
 
         {/* Every figure switches on its Truth state. No null checks, no zeros. */}
         <section className="loop-modgrid" aria-label="Marketplace metrics">
-          <Metric label="Realized revenue" truth={revenue} format={money} />
-          <Metric label="Calls" truth={calls} format={num} />
-          <Metric label="Qualified" truth={qualified} format={num} />
-          <Metric label="Bookings" truth={bookings} format={num} />
+          <Metric label="Realized revenue" window="All time" truth={revenue} format={money} />
+          <Metric label="Calls" window="Last 7 days" truth={calls} format={num} />
+          <Metric label="Qualified" window="Last 7 days" truth={qualified} format={num} />
+          <Metric label="Bookings" window="Last 7 days" truth={bookings} format={num} />
         </section>
 
         {/* The truth center. */}
