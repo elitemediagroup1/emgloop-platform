@@ -117,6 +117,7 @@ export type {
 } from './live-operations.repository';
 export { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 export type {
+  QueryCoverage,
   RankedRevenue,
   RevenueByDimension,
   TrafficVendorRow,

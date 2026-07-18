@@ -13,9 +13,103 @@
 //  - Revenue is reported as realized vs pending vs opportunity, so the page is
 //    honest when there are calls/visits but no realized orders.
 //  - Traffic distinguishes known attribution from missing attribution.
+//
+// Bounded-read mitigation (incident: Runtime.OutOfMemory on the Marketplace
+// routes). Both aggregate reads used to be unbounded: revenueByDimension loaded
+// every Customer in the org with `include: { interactions: true, ... }` — all
+// time, every relation, and crucially every Interaction.payload (raw provider
+// webhook bodies). trafficIntelligence loaded every PHONE Interaction in the
+// 7-day window with the same full-row problem plus a nested customer join.
+//
+// The reads are now bounded three ways, WITHOUT changing revenue math:
+//   1. Explicit `select` of only the columns the calculation reads. Notably
+//      Interaction.payload is never loaded, and revenueByDimension no longer
+//      joins bookings (it never used them).
+//   2. Hard row caps (see CAPS below). When a cap binds, the result is reported
+//      as PARTIAL via `coverage` — never presented as a complete total.
+//   3. Newest-first ordering, so a capped result is the most recent slice
+//      rather than an arbitrary one.
+//
+// This is a mitigation, not the fix. The real fix is to push these aggregates
+// down into SQL GROUP BY so nothing is hydrated into JS at all — not written
+// yet, and it needs the repo's zero-raw-SQL rule resolved first. Until that
+// lands and proves parity, these caps stay and `coverage` stays truthful.
 
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { isExcludedCustomer, realAttr, UNKNOWN, since, TRAFFIC_DEFAULT_WINDOW_MS } from './operational-filters';
+
+// --- Bounded-read caps ----------------------------------------------------
+// Sized against a 1024MB serverless function with ~250MB of Next.js/Node
+// baseline. The dominant cost is Interaction rows: with `payload` dropped, a
+// hydrated row is roughly 1-2KB of JS objects, and Prisma's own result
+// materialisation multiplies that several times over.
+export const CAPS = {
+  /** Customers scanned per revenueByDimension call (newest lastSeenAt first). */
+  customers: 2_000,
+  /** Interactions hydrated per customer for attribution (newest first). */
+  interactionsPerCustomer: 25,
+  /** Orders hydrated per customer for revenue summation. */
+  ordersPerCustomer: 500,
+  /** PHONE interactions scanned per trafficIntelligence call (newest first). */
+  calls: 10_000,
+} as const;
+
+/**
+ * Honest completeness posture for a bounded aggregate read. When `complete` is
+ * false the totals are a lower bound over the scanned slice, not the org total.
+ * Callers MUST surface this rather than rendering the numbers as final.
+ */
+export interface QueryCoverage {
+  complete: boolean;
+  capReached: boolean;
+  /** Operator-facing explanations of which cap bound. Contains no PII. */
+  reasons: string[];
+  rowsScanned: number;
+  durationMs: number;
+}
+
+/**
+ * Approximate the JSON payload size actually pulled over the wire, by sampling
+ * rather than stringifying everything (which would itself cost memory). Returns
+ * an estimate in bytes for the whole set, extrapolated from the sample.
+ */
+function approxJsonBytes(values: Array<Prisma.JsonValue | null | undefined>, sampleSize = 100): number {
+  if (values.length === 0) return 0;
+  const n = Math.min(sampleSize, values.length);
+  let sampled = 0;
+  for (let i = 0; i < n; i += 1) {
+    try {
+      sampled += JSON.stringify(values[i] ?? null).length;
+    } catch {
+      // Circular / non-serialisable — ignore, this is an estimate only.
+    }
+  }
+  return Math.round((sampled / n) * values.length);
+}
+
+/**
+ * Structured instrumentation for a bounded read. Deliberately emits only
+ * shapes and sizes — never metadata contents, customer fields, or any PII.
+ */
+function logBoundedRead(entry: {
+  query: string;
+  organizationId: string;
+  windowFrom: string | null;
+  windowLabel: string;
+  rowsScanned: number;
+  rowsAfterExclusion: number;
+  capReached: boolean;
+  reasons: string[];
+  durationMs: number;
+  approxMetadataBytes: number;
+}): void {
+  const line = JSON.stringify({ evt: 'bounded_read', ...entry });
+  if (entry.capReached) {
+    console.warn(line);
+  } else {
+    console.info(line);
+  }
+}
 
 function jsonStr(value: Prisma.JsonValue | null | undefined, key: string): string | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -57,6 +151,7 @@ export interface RevenueByDimension {
   influencedJourneys: number; // customers with activity but no realized revenue
   hasRealizedRevenue: boolean;
   rangeLabel: string;
+  coverage: QueryCoverage;
 }
 
 export interface TrafficVendorRow {
@@ -112,6 +207,7 @@ export interface TrafficIntelligence {
   realizedRevenueCents: number;
   pendingRevenueCents: number;
   rangeLabel: string;
+  coverage: QueryCoverage;
 }
 
 export interface RevenueTimelineEntry {
@@ -130,9 +226,21 @@ export interface CustomerRevenueTimeline {
   influencedBy: string[];
 }
 
-type CustomerWithRelations = Prisma.CustomerGetPayload<{
-  include: { interactions: true; bookings: true; orders: true; signals: true };
-}>;
+// Structural minimums for the calculations below. Declaring what the maths
+// actually reads — rather than a full Prisma payload — is what lets the queries
+// `select` narrowly. Full Prisma rows remain assignable to these.
+interface AttributionSource {
+  interactions: ReadonlyArray<{
+    occurredAt: Date;
+    channel: string;
+    metadata: Prisma.JsonValue;
+  }>;
+  signals: ReadonlyArray<{ type: string; createdAt: Date }>;
+}
+
+interface RevenueSource {
+  orders: ReadonlyArray<{ status: string; totalCents: number | null }>;
+}
 
 function bump(map: Map<string, RankedRevenue>, key: string | null, label: string | null, cents: number) {
   const k = key && key.trim() ? key : UNKNOWN.vendor;
@@ -154,7 +262,7 @@ export class RevenueIntelligenceRepository {
 
   // Pick a customer's dominant attribution from their interactions (latest wins).
   // Fabricated labels are treated as missing (realAttr -> null).
-  private attributionFor(customer: CustomerWithRelations): {
+  private attributionFor(customer: AttributionSource): {
     vendor: string | null;
     source: string | null;
     campaign: string | null;
@@ -189,7 +297,7 @@ export class RevenueIntelligenceRepository {
     return { vendor, source, campaign, website, channel, buyer, signal, journey };
   }
 
-  private revenueOf(customer: CustomerWithRelations): {
+  private revenueOf(customer: RevenueSource): {
     realizedCents: number;
     realizedOrders: number;
     pendingCents: number;
@@ -213,10 +321,67 @@ export class RevenueIntelligenceRepository {
   }
 
   async revenueByDimension(organizationId: string): Promise<RevenueByDimension> {
-    const all = await this.prisma.customer.findMany({
+    const startedAt = Date.now();
+
+    // Bounded read. Fetch one row past the cap so overflow is detectable
+    // without a second COUNT query. Newest-seen customers first, so a capped
+    // result is the most recent slice rather than an arbitrary page.
+    // `bookings` is deliberately not joined — this calculation never read it.
+    const page = await this.prisma.customer.findMany({
       where: { organizationId },
-      include: { interactions: true, bookings: true, orders: true, signals: true },
+      orderBy: { lastSeenAt: 'desc' },
+      take: CAPS.customers + 1,
+      select: {
+        // Fields read by isExcludedCustomer.
+        tags: true,
+        email: true,
+        phone: true,
+        externalId: true,
+        firstName: true,
+        lastName: true,
+        // Fields read by attributionFor. Interaction.payload is NOT selected.
+        interactions: {
+          orderBy: { occurredAt: 'desc' },
+          take: CAPS.interactionsPerCustomer,
+          select: { occurredAt: true, channel: true, metadata: true },
+        },
+        // Only the newest signal is used; ordering + take:1 is exact, not lossy.
+        signals: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { type: true, createdAt: true },
+        },
+        // Fields read by revenueOf.
+        orders: {
+          take: CAPS.ordersPerCustomer,
+          select: { status: true, totalCents: true },
+        },
+        _count: { select: { interactions: true, orders: true } },
+      },
     });
+
+    const overflowed = page.length > CAPS.customers;
+    const all = overflowed ? page.slice(0, CAPS.customers) : page;
+
+    const reasons: string[] = [];
+    if (overflowed) {
+      reasons.push(
+        `Customer scan capped at ${CAPS.customers}; older customers by last-seen are excluded from these totals.`,
+      );
+    }
+    const truncatedInteractions = all.filter((c) => c._count.interactions > CAPS.interactionsPerCustomer).length;
+    if (truncatedInteractions > 0) {
+      reasons.push(
+        `${truncatedInteractions} customer(s) have more than ${CAPS.interactionsPerCustomer} interactions; attribution used the most recent ${CAPS.interactionsPerCustomer} only.`,
+      );
+    }
+    const truncatedOrders = all.filter((c) => c._count.orders > CAPS.ordersPerCustomer).length;
+    if (truncatedOrders > 0) {
+      reasons.push(
+        `${truncatedOrders} customer(s) have more than ${CAPS.ordersPerCustomer} orders; revenue for those customers is understated.`,
+      );
+    }
+
     const customers = all.filter((c) => !isExcludedCustomer(c));
 
     const byWebsite = new Map<string, RankedRevenue>();
@@ -256,6 +421,21 @@ export class RevenueIntelligenceRepository {
       bump(byJourney, a.journey, a.journey, realizedCents);
     }
 
+    const durationMs = Date.now() - startedAt;
+    const capReached = reasons.length > 0;
+    logBoundedRead({
+      query: 'revenueByDimension',
+      organizationId,
+      windowFrom: null,
+      windowLabel: 'All time',
+      rowsScanned: all.length,
+      rowsAfterExclusion: customers.length,
+      capReached,
+      reasons,
+      durationMs,
+      approxMetadataBytes: approxJsonBytes(all.flatMap((c) => c.interactions.map((i) => i.metadata))),
+    });
+
     return {
       byWebsite: ranked(byWebsite),
       byVendor: ranked(byVendor),
@@ -274,15 +454,56 @@ export class RevenueIntelligenceRepository {
       influencedJourneys,
       hasRealizedRevenue: realizedOrders > 0,
       rangeLabel: 'All time',
+      coverage: { complete: !capReached, capReached, reasons, rowsScanned: all.length, durationMs },
     };
   }
 
   async trafficIntelligence(organizationId: string): Promise<TrafficIntelligence> {
+    const startedAt = Date.now();
     const cutoff = since(TRAFFIC_DEFAULT_WINDOW_MS);
-    const allCalls = await this.prisma.interaction.findMany({
+
+    // Bounded read, newest calls first. Interaction.payload is NOT selected,
+    // and the customer's bookings are counted rather than hydrated — only
+    // `bookings.length` was ever used, so _count is exact, not lossy.
+    const page = await this.prisma.interaction.findMany({
       where: { organizationId, channel: 'PHONE', occurredAt: { gte: cutoff } },
-      include: { customer: { include: { orders: true, bookings: true } } },
+      orderBy: { occurredAt: 'desc' },
+      take: CAPS.calls + 1,
+      select: {
+        metadata: true,
+        customer: {
+          select: {
+            tags: true,
+            email: true,
+            phone: true,
+            externalId: true,
+            firstName: true,
+            lastName: true,
+            orders: { take: CAPS.ordersPerCustomer, select: { status: true, totalCents: true } },
+            _count: { select: { bookings: true, orders: true } },
+          },
+        },
+      },
     });
+
+    const overflowed = page.length > CAPS.calls;
+    const allCalls = overflowed ? page.slice(0, CAPS.calls) : page;
+
+    const reasons: string[] = [];
+    if (overflowed) {
+      reasons.push(
+        `Call scan capped at ${CAPS.calls} for this window; older calls in the window are excluded from these totals.`,
+      );
+    }
+    const truncatedOrders = allCalls.filter(
+      (i) => i.customer !== null && i.customer._count.orders > CAPS.ordersPerCustomer,
+    ).length;
+    if (truncatedOrders > 0) {
+      reasons.push(
+        `${truncatedOrders} call(s) belong to customers with more than ${CAPS.ordersPerCustomer} orders; revenue for those calls is understated.`,
+      );
+    }
+
     const calls = allCalls.filter((i) => !isExcludedCustomer(i.customer));
 
     interface Acc {
@@ -318,7 +539,7 @@ export class RevenueIntelligenceRepository {
       const qualified = jsonStr(i.metadata, 'qualified') === 'true';
       const realizedOrders = i.customer ? i.customer.orders.filter((o) => REVENUE_STATUSES.has(String(o.status))) : [];
       const pendingOrders = i.customer ? i.customer.orders.filter((o) => PENDING_STATUSES.has(String(o.status))) : [];
-      const bookings = i.customer ? i.customer.bookings.length : 0;
+      const bookings = i.customer ? i.customer._count.bookings : 0;
       const rev = realizedOrders.reduce((s, o) => s + (o.totalCents ?? 0), 0);
       const pend = pendingOrders.reduce((s, o) => s + (o.totalCents ?? 0), 0);
 
@@ -398,6 +619,21 @@ export class RevenueIntelligenceRepository {
       .map(([buyer, a]) => ({ buyer, callsDelivered: a.calls, revenueCents: a.revenueCents, conversionPct: pct(a.bookings, a.calls), qualityPct: pct(a.qualified, a.calls) }))
       .sort((x, y) => y.callsDelivered - x.callsDelivered);
 
+    const durationMs = Date.now() - startedAt;
+    const capReached = reasons.length > 0;
+    logBoundedRead({
+      query: 'trafficIntelligence',
+      organizationId,
+      windowFrom: cutoff.toISOString(),
+      windowLabel: 'Last 7 days',
+      rowsScanned: allCalls.length,
+      rowsAfterExclusion: calls.length,
+      capReached,
+      reasons,
+      durationMs,
+      approxMetadataBytes: approxJsonBytes(allCalls.map((i) => i.metadata)),
+    });
+
     return {
       vendors: vendorRows,
       sources: sourceRows,
@@ -411,6 +647,7 @@ export class RevenueIntelligenceRepository {
       realizedRevenueCents,
       pendingRevenueCents,
       rangeLabel: 'Last 7 days',
+      coverage: { complete: !capReached, capReached, reasons, rowsScanned: allCalls.length, durationMs },
     };
   }
 

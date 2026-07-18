@@ -14,6 +14,7 @@ import {
   todayLabel,
   Module,
   RankedList,
+  PartialDataNotice,
   Bar,
   BriefingItem,
   IntegrationPill,
@@ -144,6 +145,8 @@ export default async function BuyerOperatingSystemPage() {
         </header>
 
         <MarketplaceNav active="buyers" />
+
+        <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
         <section className="loop-modgrid">
           <Module icon="users" title="Total Buyers" metric={num(totalBuyers)} detail="In your marketplace" tone={hasBuyerData ? "good" : "idle"} href="/app/admin/marketplace/buyers" seed={11} />

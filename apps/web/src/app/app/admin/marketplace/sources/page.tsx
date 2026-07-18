@@ -14,6 +14,7 @@ import {
   todayLabel,
   Module,
   RankedList,
+  PartialDataNotice,
   Bar,
   BriefingItem,
   IntegrationPill,
@@ -166,6 +167,8 @@ export default async function SourceOperatingSystemPage() {
         </header>
 
         <MarketplaceNav active="sources" />
+
+        <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
         <section className="loop-modgrid">
           <Module icon="columns" title="Total Sources" metric={hasSourceData ? num(totalSources) : "0"} detail="Publishers with delivery data" tone="good" href="/app/admin/marketplace/sources" seed={11} />

@@ -16,6 +16,7 @@ import {
   Module,
   Bar,
   RankedList,
+  PartialDataNotice,
   IntegrationStatusPanel,
 } from "../../_loop-os";
 
@@ -152,6 +153,8 @@ export default async function MarketplaceCommandCenter() {
         </header>
 
         <MarketplaceNav active="overview" />
+
+        <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
         {/* 2. Revenue / Calls / Qualified / Bookings / Buyers / Sources modules */}
         <section className="loop-modgrid" aria-label="Marketplace metrics">

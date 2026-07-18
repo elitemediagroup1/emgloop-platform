@@ -15,6 +15,7 @@ import {
   todayLabel,
   Module,
   RankedList,
+  PartialDataNotice,
   Bar,
   IntegrationPill,
   ContextGroup,
@@ -146,6 +147,8 @@ export default async function CampaignIntelligencePage() {
         </header>
 
         <MarketplaceNav active="campaigns" />
+
+        <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
         <section className="loop-modgrid">
           <Module icon="chart" title="Campaigns" metric={num(totalCampaigns)} detail="Tracked in marketplace" tone={summaryTone} href="/app/admin/marketplace" seed={11} />

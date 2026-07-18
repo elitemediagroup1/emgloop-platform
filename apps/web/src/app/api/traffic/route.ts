@@ -28,5 +28,12 @@ export async function GET() {
   }
 
   const traffic = await crmRepos.revenueIntelligence.trafficIntelligence(orgId);
-  return NextResponse.json({ ok: true, traffic, orgReady: true, at: new Date().toISOString() });
+  // See the note in api/revenue/route.ts — capped scans must never read as complete.
+  return NextResponse.json({
+    ok: true,
+    traffic,
+    partial: !traffic.coverage.complete,
+    orgReady: true,
+    at: new Date().toISOString(),
+  });
 }

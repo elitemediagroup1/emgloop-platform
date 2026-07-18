@@ -1,6 +1,7 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
+import { PartialDataNotice } from '../../app/_loop-os';
 import type { RankedRevenue } from '@emgloop/database';
 
 // Revenue Intelligence — Sprint 15, real-data hotfix.
@@ -74,6 +75,8 @@ export default async function RevenueIntelligencePage() {
           <p className="crm-sub">Realized revenue attributed across every dimension. Deterministic, evidence-backed, real Neon data — no Stripe, no AI · {rev.rangeLabel}.</p>
         </div>
       </div>
+
+      <PartialDataNotice coverage={rev.coverage} />
 
       <div className="crm-analytics-hero">
         <div className="crm-analytics-kpi">

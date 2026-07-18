@@ -27,5 +27,14 @@ export async function GET() {
   }
 
   const revenue = await crmRepos.revenueIntelligence.revenueByDimension(orgId);
-  return NextResponse.json({ ok: true, revenue, orgReady: true, at: new Date().toISOString() });
+  // `partial` is hoisted to the top level so a consumer cannot read the totals
+  // without also seeing that the underlying scan was capped. See CAPS in
+  // revenue-intelligence.repository.ts — this stays until SQL aggregation ships.
+  return NextResponse.json({
+    ok: true,
+    revenue,
+    partial: !revenue.coverage.complete,
+    orgReady: true,
+    at: new Date().toISOString(),
+  });
 }
