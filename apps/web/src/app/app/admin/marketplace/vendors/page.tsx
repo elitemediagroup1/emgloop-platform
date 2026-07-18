@@ -14,6 +14,7 @@ import {
   todayLabel,
   Module,
   RankedList,
+  PartialDataNotice,
   Bar,
   BriefingItem,
   IntegrationPill,
@@ -170,6 +171,8 @@ export default async function VendorOperatingSystemPage() {
         </header>
 
         <MarketplaceNav active="vendors" />
+
+        <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
         <section className="loop-modgrid">
           <Module icon="columns" title="Total Vendors" metric={hasVendorData ? num(totalVendors) : "0"} detail="Traffic partners with data" tone="good" href="/app/admin/marketplace/vendors" seed={11} />

@@ -1,6 +1,7 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
+import { PartialDataNotice } from '../../app/_loop-os';
 
 // Traffic Intelligence — Sprint 15, real-data hotfix.
 //
@@ -47,6 +48,8 @@ export default async function TrafficIntelligencePage() {
           <p className="crm-sub">Vendors, sources, campaigns and buyers — calls, qualified %, conversion and revenue. Deterministic attribution, real Neon data · {traffic.rangeLabel}.</p>
         </div>
       </div>
+
+      <PartialDataNotice coverage={traffic.coverage} />
 
       {!hasData ? (
         <div className="crm-panel">
