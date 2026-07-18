@@ -143,6 +143,76 @@ export class MarketplaceCallRepository {
     })) as CallRow[];
     return aggregateRows(rows);
   }
+
+  /**
+   * Count how many calls in a window actually carry each capability's data.
+   *
+   * Feeds the Marketplace Coverage surface, which answers "what does the Brain
+   * know, and what does it not". Every field on MarketplaceCall is nullable and
+   * never 0-defaulted, so a null genuinely means the sensor did not say — which
+   * is what makes this countable rather than guessed.
+   *
+   * Implemented as COUNTs, not row reads: nothing is hydrated into JS, so this
+   * stays cheap however large the tenant grows. Counting is also the only
+   * honest primitive here — a sampled read could not distinguish "absent" from
+   * "not looked at".
+   */
+  async coverageObservations(
+    organizationId: string,
+    since: Date,
+    until: Date,
+  ): Promise<{ callsIngested: number; populated: Record<string, number> }> {
+    const window = { organizationId, sourceOccurredAt: { gte: since, lt: until } };
+    const countWhere = (extra: Prisma.MarketplaceCallWhereInput): Promise<number> =>
+      this.prisma.marketplaceCall.count({ where: { ...window, ...extra } });
+
+    // An attribution dimension counts as present if EITHER the external id or
+    // the human label arrived — either one is enough to reason about it.
+    const eitherSet = (idField: string, labelField: string): Prisma.MarketplaceCallWhereInput =>
+      ({ OR: [{ [idField]: { not: null } }, { [labelField]: { not: null } }] }) as Prisma.MarketplaceCallWhereInput;
+
+    const [
+      callsIngested,
+      revenue,
+      payout,
+      buyers,
+      vendors,
+      sources,
+      campaigns,
+      connectivity,
+      duplicates,
+    ] = await Promise.all([
+      this.prisma.marketplaceCall.count({ where: window }),
+      countWhere({ revenueCents: { not: null } }),
+      countWhere({ payoutCents: { not: null } }),
+      countWhere(eitherSet('buyerExternalId', 'buyerLabel')),
+      countWhere(eitherSet('vendorExternalId', 'vendorLabel')),
+      countWhere(eitherSet('sourceExternalId', 'sourceLabel')),
+      countWhere(eitherSet('campaignExternalId', 'campaignLabel')),
+      // Connectivity is knowable if the sensor said anything about how the call
+      // ended — the canonical status, the provider-native one, or the no-route flag.
+      countWhere({
+        OR: [{ status: { not: null } }, { rawStatus: { not: null } }, { noRoute: { not: null } }],
+      }),
+      countWhere({ duplicate: { not: null } }),
+    ]);
+
+    return {
+      callsIngested,
+      populated: {
+        // A call always evidences itself; the capability is the denominator.
+        calls: callsIngested,
+        revenue,
+        payout,
+        buyers,
+        vendors,
+        sources,
+        campaigns,
+        connectivity,
+        duplicates,
+      },
+    };
+  }
 }
 
 // --- Pure aggregation (exported for testing without a database) -------------

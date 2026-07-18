@@ -17,20 +17,41 @@ export function isDatabaseConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL);
 }
 
+/** Why a read did not produce data. The caller needs this to be honest on screen. */
+export type LoadFailure =
+  /** No DATABASE_URL in this environment — nothing was attempted. */
+  | { ok: false; cause: 'not-configured'; message: string }
+  /** A read was attempted and failed: unreachable host, missing migration, auth. */
+  | { ok: false; cause: 'read-failed'; message: string };
+
+export type LoadResult<T> = { ok: true; data: T } | LoadFailure;
+
 /**
- * Run an async database operation, returning { ok: true, data } on success or
- * { ok: false } if the database is not configured or the call throws (e.g. a
- * connection error). Never rejects, so server components can render a fallback.
+ * Run an async database operation without ever rejecting, so a server component
+ * can render a fallback.
+ *
+ * It now reports WHY it failed. The previous version returned a bare
+ * `{ ok: false }`, so every caller collapsed "the database is unreachable" and
+ * "this organization has no data" into the same empty render — a total outage
+ * was pixel-identical to a healthy, empty marketplace. A failure is not an
+ * empty state, and a caller cannot tell the operator the difference unless this
+ * function tells the caller first.
  */
-export async function loadOrFallback<T>(
-  fn: () => Promise<T>,
-): Promise<{ ok: true; data: T } | { ok: false }> {
-  if (!isDatabaseConfigured()) return { ok: false };
+export async function loadOrFallback<T>(fn: () => Promise<T>): Promise<LoadResult<T>> {
+  if (!isDatabaseConfigured()) {
+    return { ok: false, cause: 'not-configured', message: DB_NOT_CONFIGURED_MESSAGE };
+  }
   try {
     return { ok: true, data: await fn() };
-  } catch {
-    // Missing migration, unreachable host, auth failure, etc. — degrade.
-    return { ok: false };
+  } catch (error) {
+    return {
+      ok: false,
+      cause: 'read-failed',
+      message:
+        error instanceof Error
+          ? `The database read did not complete: ${error.message}`
+          : 'The database read did not complete.',
+    };
   }
 }
 
