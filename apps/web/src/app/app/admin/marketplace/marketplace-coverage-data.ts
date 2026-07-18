@@ -15,46 +15,76 @@ import {
   type MarketplaceCoverageReport,
   type CapabilityCoverage,
 } from '@emgloop/intelligence';
+import {
+  measure,
+  success,
+  empty,
+  measuredCount,
+  type Truth,
+  type TruthMeta,
+} from '@emgloop/shared';
 import { crmRepos } from '../../../../crm/crm-data';
 
 /** Matches the traffic window the rest of the Marketplace reports against. */
 const WINDOW_DAYS = 7;
 const WINDOW_LABEL = 'Last 7 days';
 
-export type CoverageLoad =
-  | { ok: true; report: MarketplaceCoverageReport; priority: CapabilityCoverage[] }
-  /** The read itself failed. NOT the same as "no data" — never render zeros for this. */
-  | { ok: false; reason: string };
+export interface MarketplaceCoverageResult {
+  /** The coverage report itself. ERROR when the read failed — never an empty report. */
+  report: Truth<MarketplaceCoverageReport>;
+  /** Ranked unblocking work, derived from the report. */
+  priority: CapabilityCoverage[];
+  /** Calls ingested in the window, as its own measurement. EMPTY when truly zero. */
+  callsIngested: Truth<number>;
+}
 
+/**
+ * Load marketplace coverage as Truth.
+ *
+ * `measure()` converts a thrown read into ERROR, so a database outage can never
+ * arrive at the page as an empty report. That distinction is the entire point:
+ * "no calls in this window" and "we could not ask" are different facts, and the
+ * operator must be able to tell them apart.
+ */
 export async function loadMarketplaceCoverage(
   organizationId: string,
   now: Date = new Date(),
-): Promise<CoverageLoad> {
-  try {
-    const until = now;
-    const since = new Date(until.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+): Promise<MarketplaceCoverageResult> {
+  const until = now;
+  const since = new Date(until.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const meta: TruthMeta = { measuredAt: until.toISOString(), subject: 'marketplace.coverage' };
 
-    const observations = await crmRepos.marketplaceCalls.coverageObservations(
-      organizationId,
-      since,
-      until,
-    );
+  const report = await measure<MarketplaceCoverageReport>(
+    async () => {
+      const observations = await crmRepos.marketplaceCalls.coverageObservations(
+        organizationId,
+        since,
+        until,
+      );
+      return assessMarketplaceCoverage({
+        windowLabel: WINDOW_LABEL,
+        callsIngested: observations.callsIngested,
+        populated: observations.populated,
+      });
+    },
+    // A coverage report is never "empty" — it always describes 13 capabilities,
+    // even when every one of them is undetermined. So a completed read is SUCCESS.
+    (value, m) => success(value, m),
+    meta,
+  );
 
-    const report = assessMarketplaceCoverage({
-      windowLabel: WINDOW_LABEL,
-      callsIngested: observations.callsIngested,
-      populated: observations.populated,
-    });
+  // Calls ingested is a separate measurement with its own posture: a completed
+  // count of 0 is EMPTY (measured, genuinely none), not UNKNOWN.
+  const callsIngested: Truth<number> =
+    report.state === 'success'
+      ? measuredCount(report.value.callsIngested, { ...meta, subject: 'marketplace.callsIngested' })
+      : report.state === 'error'
+        ? { ...report, subject: 'marketplace.callsIngested' }
+        : empty(0, { ...meta, subject: 'marketplace.callsIngested' });
 
-    return { ok: true, report, priority: rankUnblockingWork(report) };
-  } catch (error) {
-    // Surfaced to the operator as an explicit unavailable state, never as zero.
-    return {
-      ok: false,
-      reason:
-        error instanceof Error
-          ? `The marketplace coverage read failed: ${error.message}`
-          : 'The marketplace coverage read failed for an unknown reason.',
-    };
-  }
+  return {
+    report,
+    priority: report.state === 'success' ? rankUnblockingWork(report.value) : [],
+    callsIngested,
+  };
 }

@@ -1348,3 +1348,12 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
 /* An unmeasured metric must not read like a confident zero. */
 .loop-mod--unknown .loop-mod__metric { color: var(--loop-text-3); }
 .loop-mod--unknown .loop-mod__detail { color: var(--loop-warn); }
+
+/* Truth-state metric tones. Each of the six states must look different. */
+.loop-mod--good .loop-mod__metric { color: var(--loop-text); }
+.loop-mod--neutral .loop-mod__metric { color: var(--loop-text-2); }
+.loop-mod--caution .loop-mod__metric { color: var(--loop-warn); }
+.loop-mod--critical .loop-mod__metric { color: var(--loop-crit); }
+.loop-mod__qual { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); margin-right: 8px; }
+.loop-mod--caution .loop-mod__qual { color: var(--loop-warn); }
+.loop-mod--critical .loop-mod__qual { color: var(--loop-crit); }
