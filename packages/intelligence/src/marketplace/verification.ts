@@ -127,3 +127,126 @@ if (process.argv[1] && process.argv[1].includes('marketplace/verification')) {
     process.exit(1);
   }
 }
+
+// --- Engine, scoring, health and summary -----------------------------------
+
+import { runMarketplaceIntelligence, MARKETPLACE_RULES, unbuiltRules } from './engine';
+import { rankScored, marketplaceHealth, marketplaceSummary, scoreFinding } from './score';
+import { assessMarketplaceCoverage } from '../coverage';
+
+const AT = '2026-07-19T00:00:00.000Z';
+const ctxFor = (callsIngested: number, populated: Record<string, number>) => ({
+  coverage: assessMarketplaceCoverage({ windowLabel: 'Last 7 days', callsIngested, populated }),
+  measuredAt: AT,
+});
+
+export function verifyMarketplaceEngine(): { passed: true; checks: string[] } {
+  const checks: string[] = [];
+
+  // --- Positive: a real coverage gap produces a finding --------------------
+  const gapCtx = ctxFor(108, { calls: 108, revenue: 95, payout: 97, buyers: 108, connectivity: 108 });
+  const gap = runMarketplaceIntelligence(gapCtx);
+  const revenue = gap.findings.find((f) => f.id === 'revenue-coverage-risk');
+  assert(!!revenue, 'a revenue coverage gap must produce a finding');
+  assert(revenue!.whatHappened.includes('95 of 108'), 'the finding states the real ratio');
+  assert(revenue!.impact.kind === 'volume-only', 'volume is known, value is not');
+  assert(revenue!.recommendedAction !== null, 'a quantified-volume finding may recommend');
+  checks.push('positive: a revenue coverage gap fires with the real ratio and a recommendation');
+
+  // --- Negative: full coverage is silent -----------------------------------
+  const full = runMarketplaceIntelligence(ctxFor(108, { calls: 108, revenue: 108, payout: 108, buyers: 108, connectivity: 108 }));
+  assert(!full.findings.some((f) => f.id === 'revenue-coverage-risk'), 'full coverage must be SILENT');
+  assert(!full.findings.some((f) => f.id === 'payout-coverage-risk'), 'full payout coverage must be silent');
+  checks.push('negative: complete coverage produces no finding — silence is the correct output');
+
+  // --- Missing evidence: zero calls ----------------------------------------
+  const empty = runMarketplaceIntelligence(ctxFor(0, {}));
+  assert(!empty.findings.some((f) => f.id === 'revenue-coverage-risk'), 'no calls means no coverage claim');
+  checks.push('missing evidence: an empty window makes no coverage claim');
+
+  // --- Coverage threshold: below minimum sample, withheld ------------------
+  const tiny = runMarketplaceIntelligence(ctxFor(3, { calls: 3, revenue: 1 }));
+  assert(
+    !tiny.findings.some((f) => f.id === 'revenue-coverage-risk'),
+    'below the rule minimum, no finding may publish',
+  );
+  assert(tiny.withheld.some((w) => w.ruleId === 'revenue-coverage-risk'), 'and it must be REPORTED as withheld');
+  checks.push('coverage threshold: 3 calls is below minimum — withheld, and the withholding is surfaced');
+
+  // --- Owner attribution ----------------------------------------------------
+  assert(revenue!.owner === 'platform', 'a sensor gap is owned by the platform, not the buyer');
+  const transcripts = gap.findings.find((f) => f.id === 'transcript-capability-missing');
+  assert(!!transcripts, 'a structurally absent capability produces a finding');
+  checks.push('owner attribution: a sensor coverage gap is attributed to the platform');
+
+  // --- Recommendation suppression -------------------------------------------
+  assert(
+    transcripts!.recommendedAction === null,
+    'an unquantified capability gap must NOT instruct',
+  );
+  assert(transcripts!.missingEvidence.length > 0, 'but it must still say what it would need');
+  checks.push('recommendation suppression: unquantified findings describe, never instruct');
+
+  // --- Unbuilt rules are named, not hidden ---------------------------------
+  assert(unbuiltRules().length === 3, 'the three bid rules are declared unbuilt');
+  assert(
+    unbuiltRules().every((r) => r.needs.length > 20),
+    'each unbuilt rule states what it needs',
+  );
+  assert(
+    !MARKETPLACE_RULES.some((r) => ['rate-limiting', 'capacity', 'bid-pricing'].includes(r.id)),
+    'no bid rule may be built without bid evidence',
+  );
+  checks.push('unbuilt rules are named with what they need, and none were built on absent evidence');
+
+  // --- Ranking is by business impact, not difficulty -----------------------
+  const ranked = rankScored(gap.findings);
+  const severities = ranked.map((r) => r.severity);
+  assert(
+    severities.indexOf('informational') === -1 || severities.indexOf('informational') >= severities.lastIndexOf('high'),
+    'informational findings never outrank quantified ones',
+  );
+  checks.push('ranking: quantified impact outranks informational, regardless of fix difficulty');
+
+  // --- Health: unknowns reduce, and zero calls is not zero health ----------
+  const healthFull = marketplaceHealth(ctxFor(108, { calls: 108, revenue: 108, payout: 108, buyers: 108, connectivity: 108 }).coverage);
+  const healthGap = marketplaceHealth(gapCtx.coverage);
+  assert(healthGap.score < healthFull.score, 'missing coverage must LOWER the score');
+  assert(healthFull.score < 100, 'unavailable capabilities cap the ceiling below 100');
+  assert(!!healthFull.caveat, 'and the cap is stated, not hidden');
+  const healthEmpty = marketplaceHealth(ctxFor(0, {}).coverage);
+  assert(healthEmpty.band === 'unmeasured', 'no calls is UNMEASURED, never a zero score');
+  checks.push('health: unknowns reduce it, missing capabilities cap it, an empty window is unmeasured');
+
+  // --- Summary is generated, not hardcoded ---------------------------------
+  const summary = marketplaceSummary(gapCtx.coverage, gap, healthGap);
+  assert(summary.some((l) => l.includes('108')), 'summary reflects the real call count');
+  assert(summary.some((l) => l.includes('95 of 108')), 'summary reflects real revenue coverage');
+  const other = marketplaceSummary(
+    ctxFor(7, { calls: 7, revenue: 7, payout: 7 }).coverage,
+    runMarketplaceIntelligence(ctxFor(7, { calls: 7, revenue: 7, payout: 7 })),
+    marketplaceHealth(ctxFor(7, { calls: 7, revenue: 7, payout: 7 }).coverage),
+  );
+  assert(!other.some((l) => l.includes('108')), 'a different window produces different prose');
+  assert(other.some((l) => l.includes('complete across all 7')), 'and states full coverage when true');
+  checks.push('summary is generated from live figures — a different window yields different prose');
+
+  // --- Scoring never invents magnitude -------------------------------------
+  const scored = scoreFinding(transcripts!);
+  assert(scored.score === 0, 'an unquantified finding scores 0 magnitude, not a guess');
+  assert(scored.actionable === false, 'and is not actionable');
+  checks.push('scoring: an unquantified finding scores zero magnitude rather than a fabricated one');
+
+  return { passed: true, checks };
+}
+
+if (process.argv[1] && process.argv[1].includes('marketplace/verification')) {
+  try {
+    const r = verifyMarketplaceEngine();
+    for (const c of r.checks) console.log(`  ✓ ${c}`);
+    console.log(`\n${r.checks.length} engine checks passed.`);
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  }
+}

@@ -1361,3 +1361,26 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
 /* A KPI's reporting window. Never optional — tiles in one row may cover
    different periods, and an unlabelled row invites the wrong comparison. */
 .loop-mod__window { font-size: 10.5px; font-weight: 600; letter-spacing: .04em; color: var(--loop-text-3); text-transform: none; }
+
+/* --- Marketplace Intelligence -------------------------------------------- */
+.mkt-intel__health { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.mkt-intel__health--healthy { color: var(--loop-good); background: rgba(52,199,129,.14); }
+.mkt-intel__health--degraded { color: var(--loop-warn); background: rgba(240,179,60,.16); }
+.mkt-intel__health--impaired { color: var(--loop-crit); background: rgba(240,90,90,.14); }
+.mkt-intel__health--unmeasured { color: var(--loop-text-2); background: var(--loop-elev); }
+.mkt-intel__summary { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
+.mkt-intel__summary-line { margin: 0; font-size: 14.5px; color: var(--loop-text); }
+.mkt-intel__caveat { margin: 10px 0 0; font-size: 12.5px; color: var(--loop-warn); }
+.mkt-intel__list { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; background: var(--loop-line); border: 1px solid var(--loop-line); border-radius: var(--cc-radius); overflow: hidden; }
+.mkt-intel__item { background: var(--loop-panel); padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+.mkt-intel__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.mkt-intel__what { font-size: 14.5px; font-weight: 600; color: var(--loop-text); }
+.mkt-intel__sev { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+.mkt-intel__sev--critical { color: var(--loop-crit); background: rgba(240,90,90,.16); }
+.mkt-intel__sev--high { color: var(--loop-warn); background: rgba(240,179,60,.18); }
+.mkt-intel__sev--moderate { color: var(--loop-warn); background: rgba(240,179,60,.10); }
+.mkt-intel__sev--informational { color: var(--loop-text-2); background: var(--loop-elev); }
+.mkt-intel__evidence { font-size: 12.5px; color: var(--loop-text-2); }
+.mkt-intel__ev-list { margin: 4px 0 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 3px; }
+.mkt-intel__action { margin: 0; font-size: 13px; color: var(--loop-text); }
+.mkt-intel__gaps { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--loop-line); font-size: 12.5px; color: var(--loop-text-2); }

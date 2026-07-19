@@ -26,9 +26,15 @@
 
 import Link from "next/link";
 import { MarketplaceNav } from "./_MarketplaceNav";
-import { MarketplaceCoverage, CoverageUnavailable, HighestPriority } from "./_MarketplaceCoverage";
+import { MarketplaceCoverage, CoverageUnavailable, MarketplaceIntelligence } from "./_MarketplaceCoverage";
 import { loadMarketplaceCoverage } from "./marketplace-coverage-data";
-import type { MarketplaceCoverageReport } from "@emgloop/intelligence";
+import {
+  runMarketplaceIntelligence,
+  rankScored,
+  marketplaceHealth,
+  marketplaceSummary,
+  type MarketplaceCoverageReport,
+} from "@emgloop/intelligence";
 import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { crmRepos, requireCrmContext } from "../../../../crm/crm-data";
 import { money, num, todayLabel } from "../../_loop-os";
@@ -116,6 +122,22 @@ export default async function MarketplaceCommandCenter() {
         callsIngested: failed<number>(noOrgError, meta),
       };
 
+  // The engine runs over the SAME coverage report the panel renders, so the
+  // narrative and the numbers cannot drift apart.
+  const intelligence = hasValue(coverage.report)
+    ? (() => {
+        const ctx = { coverage: coverage.report.value, measuredAt: now.toISOString() };
+        const engine = runMarketplaceIntelligence(ctx);
+        const health = marketplaceHealth(ctx.coverage);
+        return {
+          engine,
+          scored: rankScored(engine.findings),
+          health,
+          summary: marketplaceSummary(ctx.coverage, engine, health),
+        };
+      })()
+    : null;
+
   return (
     <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
       <div className="loop-os__main">
@@ -173,7 +195,16 @@ export default async function MarketplaceCommandCenter() {
           />
         )}
 
-        {coverage.priority.length > 0 ? <HighestPriority items={coverage.priority} /> : null}
+        {/* Reasoning, not reporting. Ranked by business impact. */}
+        {intelligence ? (
+          <MarketplaceIntelligence
+            scored={intelligence.scored}
+            withheld={intelligence.engine.withheld}
+            unbuilt={intelligence.engine.unbuilt}
+            health={intelligence.health}
+            summary={intelligence.summary}
+          />
+        ) : null}
       </div>
     </div>
   );

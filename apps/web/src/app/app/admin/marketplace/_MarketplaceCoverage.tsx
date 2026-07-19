@@ -16,6 +16,7 @@
 
 import type { CapabilityCoverage, CoverageStatus, MarketplaceCoverageReport } from '@emgloop/intelligence';
 import { SidebarIcon } from '../../../crm/_brand/SidebarIcon';
+import type { ScoredFinding, MarketplaceHealth } from '@emgloop/intelligence';
 
 const STATUS_LABEL: Record<CoverageStatus, string> = {
   available: 'Available',
@@ -142,46 +143,141 @@ export function CoverageUnavailable(props: { reason: string }) {
 }
 
 /**
- * Highest-priority unblocking work, ranked by evidence tier.
+ * Marketplace Intelligence.
  *
- * Replaces the old decision queue entry "9 providers need setup", which was a
- * count of unconfigured integrations dressed as a decision. Each item states
- * what it unlocks as a countable capability — never an invented percentage
- * improvement, which would be the exact fabrication this workspace exists to end.
+ * Replaces "Highest Priority", which ranked by how cheap a fix was. This ranks
+ * by BUSINESS IMPACT — a costed finding outranks a cheap one worth nothing.
+ *
+ * Investigation Mode is inline rather than behind a click: every finding shows
+ * its evidence, coverage, owner, confidence, why the engine concluded it, and
+ * what it could not see. Nothing is hidden, because a conclusion an executive
+ * cannot audit is one they cannot safely act on.
  */
-export function HighestPriority(props: { items: CapabilityCoverage[] }) {
-  if (props.items.length === 0) return null;
+export function MarketplaceIntelligence(props: {
+  scored: ScoredFinding[];
+  withheld: Array<{ ruleId: string; reason: string; needs: string }>;
+  unbuilt: ReadonlyArray<{ id: string; purpose: string; needs: string }>;
+  health: MarketplaceHealth;
+  summary: string[];
+}) {
+  const { scored, withheld, unbuilt, health, summary } = props;
+
+  const risks = scored.filter((s) => s.severity !== 'informational');
+  const coverageIssues = scored.filter((s) => s.finding.category === 'provider');
+  const recommendations = scored.filter((s) => s.actionable);
 
   return (
-    <section className="loop-card mkt-pri" aria-labelledby="mkt-pri-title">
+    <section className="loop-card mkt-intel" aria-labelledby="mkt-intel-title">
       <div className="loop-card__head">
-        <h2 className="loop-card__title" id="mkt-pri-title">
-          Highest priority
+        <h2 className="loop-card__title" id="mkt-intel-title">
+          Marketplace Intelligence
         </h2>
-        <span className="mkt-cov__window">Ranked by what Loop can act on first</span>
+        <span className={"mkt-intel__health mkt-intel__health--" + health.band}>
+          {health.band === "unmeasured" ? "Unmeasured" : health.score + "/100 " + health.band}
+        </span>
       </div>
 
-      <ol className="mkt-pri__list">
-        {props.items.slice(0, 5).map((c) => (
-          <li key={c.id} className="mkt-pri__item">
-            <div className="mkt-pri__title">{c.unblockedBy}</div>
-            <p className="mkt-pri__line">
-              <span className="mkt-cov__key">Blocked by</span> {TIER_LABEL[c.tier ?? ''] ?? 'Unknown'} —{' '}
-              {c.reason}
-            </p>
-            <p className="mkt-pri__line">
-              <span className="mkt-cov__key">Unlocks</span>
-              <span className="mkt-pri__unlocks">
-                {c.unlocks.map((u) => (
-                  <span key={u} className="mkt-cov__chip">
-                    {u}
-                  </span>
-                ))}
-              </span>
-            </p>
-          </li>
+      {/* Executive summary — generated from the same figures the findings use. */}
+      <div className="mkt-intel__summary">
+        {summary.map((line) => (
+          <p key={line} className="mkt-intel__summary-line">{line}</p>
         ))}
-      </ol>
+      </div>
+
+      {health.caveat ? <p className="mkt-intel__caveat">{health.caveat}</p> : null}
+
+      {scored.length === 0 ? (
+        <p className="mkt-cov__evidence">
+          No risks were found in this window. Every rule that ran either found complete coverage or
+          withheld for the reasons listed below — none were silently skipped.
+        </p>
+      ) : (
+        <ol className="mkt-intel__list">
+          {scored.map((s) => (
+            <li key={s.finding.id} className={"mkt-intel__item mkt-intel__item--" + s.severity}>
+              <div className="mkt-intel__head">
+                <span className={"mkt-intel__sev mkt-intel__sev--" + s.severity}>{s.severity}</span>
+                <span className="mkt-intel__what">{s.finding.whatHappened}</span>
+              </div>
+
+              {/* 2. Why */}
+              <p className="mkt-cov__reason">
+                <span className="mkt-cov__key">Why</span> {s.finding.why}
+              </p>
+
+              {/* 3. Owner + 4. Impact */}
+              <p className="mkt-cov__reason">
+                <span className="mkt-cov__key">Owner</span> {s.finding.owner}
+                {" · "}
+                <span className="mkt-cov__key">Impact</span>{" "}
+                {s.finding.impact.kind === "measured"
+                  ? s.finding.impact.lostOpportunities.toLocaleString() + " opportunities"
+                  : s.finding.impact.kind === "volume-only"
+                    ? s.finding.impact.lostOpportunities.toLocaleString() + " call(s) affected — value unknown"
+                    : "not quantifiable"}
+              </p>
+
+              {/* 6. Evidence — Investigation Mode, inline. */}
+              <div className="mkt-intel__evidence">
+                <span className="mkt-cov__key">Evidence</span>
+                <ul className="mkt-intel__ev-list">
+                  {s.finding.evidence.map((e) => (
+                    <li key={e.statement}>
+                      {e.statement}: <strong>{e.observed.toLocaleString()}</strong>
+                      {e.denominator !== null ? " of " + e.denominator.toLocaleString() : ""}
+                      <span className="mkt-cov__cite"> {e.source}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* 5. Confidence, with its basis. */}
+              <p className="mkt-cov__reason">
+                <span className="mkt-cov__key">Confidence</span>
+                {Math.round(s.finding.confidence.value * 100)}% — {s.finding.confidence.basis}
+              </p>
+
+              {/* 7. Recommendation, or an honest absence. */}
+              {s.finding.recommendedAction ? (
+                <p className="mkt-intel__action">
+                  <span className="mkt-cov__key">Do next</span> {s.finding.recommendedAction}
+                </p>
+              ) : (
+                <p className="mkt-cov__reason">
+                  <span className="mkt-cov__key">No action offered</span> the impact cannot be sized,
+                  so recommending work would be guesswork.
+                </p>
+              )}
+
+              {s.finding.missingEvidence.length > 0 ? (
+                <p className="mkt-cov__reason">
+                  <span className="mkt-cov__key">Could not see</span>{" "}
+                  {s.finding.missingEvidence.join("; ")}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {/* What the engine considered but could not say. Never hidden. */}
+      {withheld.length > 0 || unbuilt.length > 0 ? (
+        <div className="mkt-intel__gaps">
+          <div className="mkt-cov__key">What the engine could not conclude</div>
+          <ul className="mkt-intel__ev-list">
+            {withheld.map((w) => (
+              <li key={w.ruleId}>
+                <strong>{w.ruleId}</strong> — {w.reason} Needs: {w.needs}
+              </li>
+            ))}
+            {unbuilt.map((u) => (
+              <li key={u.id}>
+                <strong>{u.id}</strong> — not built. {u.purpose} Needs: {u.needs}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }
