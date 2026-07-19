@@ -44,6 +44,8 @@ export interface CallGridSourceCall {
   duplicate?: boolean | null;
   /** CallGrid states profit directly (tag CallProfit). Used as an invariant. */
   profit?: number | null;
+  /** CallGrid's Net Profit — profit AFTER telco cost. A distinct field. */
+  netProfit?: number | null;
 }
 
 /** The same call as Loop persisted it, read from MarketplaceCall. */
@@ -184,6 +186,45 @@ export const BUSINESS_DEFINITIONS: readonly BusinessDefinition[] = [
       '"Connectivity is known" and "the call connected" are different statements — the first is about ' +
       'our coverage, the second about the call. Consume the real connected/connectFailed/noConnect ' +
       'fields before reporting a connection rate.',
+  },
+  {
+    metric: 'Profit',
+    callgridTerm: 'Profit',
+    status: 'different',
+    loopDefinition:
+      'Loop derives margin as revenue - payout - cost. That is CallGrid\'s NET Profit, not its Profit.',
+    callgridDefinition: 'Profit = Revenue - Payout. Telco cost is NOT subtracted.',
+    recommendation: 'remap',
+    note:
+      'Proven by the CallGrid report of 2026-07-18: 540.17 - 461.30 = 78.87 = stated Profit, and ' +
+      'Margin % 14.60 reproduces exactly. The Home Insurance row is decisive — Revenue 0, Payout 0, ' +
+      'Profit 0, Net Profit -0.04 — a pure-cost call whose Profit would read -0.04 if cost were ' +
+      'included. Loop\'s derived margin must be labelled Net Profit, or it overstates cost by ' +
+      'subtracting it from the wrong figure.',
+  },
+  {
+    metric: 'Net profit',
+    callgridTerm: 'Net Profit',
+    status: 'equivalent',
+    loopDefinition: 'Loop\'s currently-derived margin: revenue - payout - cost.',
+    callgridDefinition: 'Net Profit = Revenue - Payout - Cost. Net Margin % 12.05 reproduces exactly.',
+    recommendation: 'compare',
+    note:
+      'This — not Profit — is what Loop has been computing all along. Comparing it is valid; the ' +
+      'defect was only ever the label.',
+  },
+  {
+    metric: 'Duplicate calls',
+    callgridTerm: 'Duplicate',
+    status: 'different',
+    loopDefinition:
+      'MarketplaceCall.duplicate exists as a column but NEITHER adapter maps it, so it is null on every row.',
+    callgridDefinition: 'Duplicate — a real reported field; 4 on 2026-07-18.',
+    recommendation: 'remap',
+    note:
+      'A column that exists and is never written is worse than one that does not exist: duplicate ' +
+      'suppression silently does nothing while appearing supported. Loop would report 0/null against ' +
+      'CallGrid\'s 4. Map it in both adapters before any duplicate-rate figure is shown.',
   },
   {
     metric: 'Duration',
@@ -472,29 +513,62 @@ export function reconcile(
     check('Calls carrying revenue', srcRevenue.counted, lpRevenue.counted, 0, fmtNum),
   ];
 
-  // --- Invariant: CallGrid's own profit vs revenue - payout - cost ---------
-  // This does NOT settle dollars-vs-cents in absolute terms — both sides could
-  // be cents and still agree. What it catches is a unit mismatch BETWEEN the
-  // economic fields, and any arithmetic error in how Loop derives margin.
+  // --- Invariants, corrected against the CallGrid report of 2026-07-18 ------
+  //
+  // I originally asserted profit == revenue - payout - cost. That is WRONG, and
+  // it would have emitted a false failure on every record carrying telco cost.
+  // CallGrid's own daily report settles it:
+  //
+  //   FE Inbounds RTB   497.27 - 422.69 = 74.58  = stated Profit
+  //   Pest Control RTB   42.90 -  38.61 =  4.29  = stated Profit
+  //   Totals            540.17 - 461.30 = 78.87  = stated Profit
+  //   Net Profit 65.11 => 78.87 - 65.11 = 13.76  = telco cost
+  //
+  // Both margins reproduce exactly: 78.87/540.17 = 14.60% (Margin %),
+  // 65.11/540.17 = 12.05% (Net Margin %).
+  //
+  // The decisive row is Home Insurance: Revenue 0, Payout 0, Profit 0, but Net
+  // Profit -0.04. A pure-cost call. If Profit included cost it would read -0.04.
+  //
+  //   Profit     = Revenue - Payout            (cost NOT subtracted)
+  //   Net Profit = Revenue - Payout - Cost
   for (const s of src) {
-    const stated = toCents(s.profit, opts.sourceMoneyUnit);
     const rev = toCents(s.revenue, opts.sourceMoneyUnit);
     const pay = toCents(s.payout, opts.sourceMoneyUnit);
     const cst = toCents(s.cost, opts.sourceMoneyUnit);
-    if (stated === null || rev === null) continue;
-    const derived = rev - (pay ?? 0) - (cst ?? 0);
-    if (Math.abs(derived - stated) > tol) {
-      fieldMismatches.push({
-        metric: `profit-invariant[${s.call_id}]`,
-        sourceValue: fmtMoney(stated),
-        loopValue: fmtMoney(derived),
-        difference: fmtMoney(derived - stated),
-        status: 'fail',
-        reason:
-          "CallGrid's stated profit does not equal revenue - payout - cost. Either the economic " +
-          'fields are not all in the same unit, or margin is defined differently than Loop assumes.',
-        affected: [s.call_id],
-      });
+    const statedProfit = toCents(s.profit, opts.sourceMoneyUnit);
+    const statedNet = toCents(s.netProfit, opts.sourceMoneyUnit);
+
+    if (statedProfit !== null && rev !== null) {
+      const derived = rev - (pay ?? 0);
+      if (Math.abs(derived - statedProfit) > tol) {
+        fieldMismatches.push({
+          metric: `profit-invariant[${s.call_id}]`,
+          sourceValue: fmtMoney(statedProfit),
+          loopValue: fmtMoney(derived),
+          difference: fmtMoney(derived - statedProfit),
+          status: 'fail',
+          reason:
+            "CallGrid's stated Profit does not equal Revenue - Payout. Either the economic fields " +
+            'are not all in the same unit, or Profit is defined differently than this report showed.',
+          affected: [s.call_id],
+        });
+      }
+    }
+
+    if (statedNet !== null && statedProfit !== null) {
+      const derivedNet = statedProfit - (cst ?? 0);
+      if (Math.abs(derivedNet - statedNet) > tol) {
+        fieldMismatches.push({
+          metric: `net-profit-invariant[${s.call_id}]`,
+          sourceValue: fmtMoney(statedNet),
+          loopValue: fmtMoney(derivedNet),
+          difference: fmtMoney(derivedNet - statedNet),
+          status: 'fail',
+          reason: "CallGrid's Net Profit does not equal Profit - Cost.",
+          affected: [s.call_id],
+        });
+      }
     }
   }
 

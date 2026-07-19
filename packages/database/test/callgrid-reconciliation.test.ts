@@ -167,23 +167,24 @@ test('the report renders a readable table', () => {
 
 // --- Profit invariant (Sprint 33: CallGrid sends CallProfit) ----------------
 
-test("CallGrid's stated profit is checked against revenue - payout - cost", () => {
-  // Consistent: 25.50 - 10 - 1.50 = 14.00
+test("CallGrid's stated Profit is checked against Revenue - Payout", () => {
+  // CORRECTED: this test originally asserted revenue - payout - COST, which is
+  // CallGrid's Net Profit. The daily report of 2026-07-18 proved Profit does not
+  // subtract cost. The old assertion was encoding my mistake.
   const ok = reconcile(
-    [srcCall({ call_id: 'a', revenue: 25.5, payout: 10, cost: 1.5, profit: 14 })],
+    [srcCall({ call_id: 'a', revenue: 25.5, payout: 10, cost: 1.5, profit: 15.5 })],
     [loopCall({ externalId: 'a' })],
     opts,
   );
   assert.equal(ok.fieldMismatches.filter((m) => m.metric.startsWith('profit-invariant')).length, 0);
 
-  // Inconsistent: stated profit disagrees with the arithmetic.
   const bad = reconcile(
     [srcCall({ call_id: 'a', revenue: 25.5, payout: 10, cost: 1.5, profit: 99 })],
     [loopCall({ externalId: 'a' })],
     opts,
   );
   const m = bad.fieldMismatches.find((x) => x.metric.startsWith('profit-invariant'));
-  assert.ok(m, 'a profit that contradicts the arithmetic must be reported');
+  assert.ok(m, 'a Profit contradicting Revenue - Payout must be reported');
   assert.match(m!.reason ?? '', /same unit|defined differently/i);
 });
 
@@ -260,4 +261,72 @@ test('the matrix is grounded, not aspirational', () => {
       assert.notEqual(d.status, 'equivalent', `${d.metric} has no CallGrid term — cannot be equivalent`);
     }
   }
+});
+
+// --- Ground truth: the CallGrid report for 2026-07-18 (US/Eastern) ----------
+//
+// Real reported figures, used as fixtures. These correct an invariant I had
+// wrong: I asserted profit == revenue - payout - cost, which is CallGrid's NET
+// Profit. Profit does not subtract cost.
+
+test('Profit = Revenue - Payout, and cost is NOT subtracted', () => {
+  // FE Inbounds RTB: 497.27 - 422.69 = 74.58, with telco cost also present.
+  const r = reconcile(
+    [srcCall({ call_id: 'a', revenue: 497.27, payout: 422.69, cost: 6.88, profit: 74.58 })],
+    [loopCall({ externalId: 'a', revenueCents: 49727, payoutCents: 42269, costCents: 688 })],
+    opts,
+  );
+  assert.equal(
+    r.fieldMismatches.filter((m) => m.metric.startsWith('profit-invariant')).length,
+    0,
+    'a cost-bearing record must NOT fail the profit invariant',
+  );
+});
+
+test('the old invariant would have failed this real record', () => {
+  // Guards the regression directly: revenue - payout - cost = 67.70, not 74.58.
+  const revenue = 497.27, payout = 422.69, cost = 6.88, statedProfit = 74.58;
+  assert.equal(+(revenue - payout).toFixed(2), statedProfit, 'correct formula');
+  assert.notEqual(+(revenue - payout - cost).toFixed(2), statedProfit, 'the formula I had was wrong');
+});
+
+test('Net Profit = Profit - Cost, checked separately', () => {
+  const ok = reconcile(
+    [srcCall({ call_id: 'a', revenue: 540.17, payout: 461.30, cost: 13.76, profit: 78.87, netProfit: 65.11 })],
+    [loopCall({ externalId: 'a' })],
+    opts,
+  );
+  assert.equal(ok.fieldMismatches.filter((m) => m.metric.startsWith('net-profit-invariant')).length, 0);
+
+  const bad = reconcile(
+    [srcCall({ call_id: 'a', revenue: 540.17, payout: 461.30, cost: 13.76, profit: 78.87, netProfit: 99.99 })],
+    [loopCall({ externalId: 'a' })],
+    opts,
+  );
+  assert.ok(bad.fieldMismatches.find((m) => m.metric.startsWith('net-profit-invariant')));
+});
+
+test('a pure-cost call: Revenue 0, Payout 0, Profit 0, Net Profit negative', () => {
+  // The Home Insurance row — decisive proof that Profit excludes cost.
+  const r = reconcile(
+    [srcCall({ call_id: 'a', revenue: 0, payout: 0, cost: 0.04, profit: 0, netProfit: -0.04 })],
+    [loopCall({ externalId: 'a', revenueCents: 0, payoutCents: 0, costCents: 4 })],
+    opts,
+  );
+  assert.equal(r.fieldMismatches.filter((m) => m.metric.includes('invariant')).length, 0);
+});
+
+test('Profit and Net Profit are classified differently in the matrix', () => {
+  const profit = BUSINESS_DEFINITIONS.find((d) => d.metric === 'Profit');
+  const net = BUSINESS_DEFINITIONS.find((d) => d.metric === 'Net profit');
+  assert.equal(profit?.status, 'different', "Loop's derived margin is not CallGrid's Profit");
+  assert.equal(profit?.recommendation, 'remap');
+  assert.equal(net?.status, 'equivalent', "it IS CallGrid's Net Profit");
+});
+
+test('Duplicate is registered as unmapped rather than silently reporting zero', () => {
+  const dup = BUSINESS_DEFINITIONS.find((d) => d.metric === 'Duplicate calls');
+  assert.equal(dup?.status, 'different');
+  assert.equal(dup?.recommendation, 'remap');
+  assert.match(dup?.loopDefinition ?? '', /NEITHER adapter maps it/);
 });

@@ -81,7 +81,35 @@ export async function GET(req: Request) {
   if (Number.isNaN(day.getTime())) {
     return NextResponse.json({ ok: false, error: 'invalid-date' }, { status: 400 });
   }
-  const since = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()));
+  // WINDOW BOUNDARY — this is why counts disagreed.
+  //
+  // Reconciliation pulled 108 records over the UTC day while CallGrid's own
+  // report showed 106 over the EASTERN day. Two different 24-hour spans, four
+  // hours apart. That is not data loss and not an ingestion defect; it is the
+  // same reportTimeZone=US/Eastern vs UTC-parse mismatch recorded as assumptions
+  // T2/T3. Counts cannot agree until both sides use one boundary.
+  //
+  // `tz=eastern` (the default, matching what the API is asked to report in)
+  // aligns the window with CallGrid's report. `tz=utc` keeps the raw UTC day for
+  // comparison against Loop's own UTC-stored timestamps.
+  const tz = url.searchParams.get('tz') === 'utc' ? 'utc' : 'eastern';
+  // US/Eastern is UTC-4 during DST, UTC-5 outside it. Derived from the date
+  // itself rather than assumed, so a February window is not silently shifted.
+  const easternOffsetHours = (() => {
+    const probe = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 12));
+    const label = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      timeZoneName: 'short',
+    }).format(probe);
+    return label.includes('EDT') ? 4 : 5;
+  })();
+
+  const since =
+    tz === 'utc'
+      ? new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()))
+      : new Date(
+          Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), easternOffsetHours),
+        );
   const until = new Date(since.getTime() + 24 * 60 * 60 * 1000);
 
   // Money unit is DECLARED per run, never guessed. `dollars` matches what
@@ -228,7 +256,14 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    window: { since: since.toISOString(), until: until.toISOString(), day: since.toISOString().slice(0, 10) },
+    window: {
+      since: since.toISOString(),
+      until: until.toISOString(),
+      day: dateParam ?? since.toISOString().slice(0, 10),
+      // Which 24-hour span was compared. A count gap between tz=eastern and
+      // tz=utc is a boundary artefact, not missing data.
+      timezone: tz === 'utc' ? 'UTC' : `US/Eastern (UTC-${easternOffsetHours})`,
+    },
     declaredSourceMoneyUnit: sourceMoneyUnit,
     counts: {
       sourceRecords: report.sourceRecords,
