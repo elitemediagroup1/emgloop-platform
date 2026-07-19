@@ -10,7 +10,7 @@
 //  - Soft, append-only intelligence (Signal) is first-class, not bolted on.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
@@ -199,38 +199,38 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
-  id         String             @id @default(cuid())
-  name       String
-  slug       String             @unique
-  industry   IndustryType       @default(GENERIC)
-  status     OrganizationStatus @default(TRIAL)
-  timezone   String             @default("UTC")
+  id        String             @id @default(cuid())
+  name      String
+  slug      String             @unique
+  industry  IndustryType       @default(GENERIC)
+  status    OrganizationStatus @default(TRIAL)
+  timezone  String             @default("UTC")
   // Source attribution. ServicesInMyCity is the FIRST data source, not the product.
-  sourceKey  String?            // e.g. "servicesinmycity"
-  settings   Json               @default("{}")
-  metadata   Json               @default("{}")
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
+  sourceKey String? // e.g. "servicesinmycity"
+  settings  Json               @default("{}")
+  metadata  Json               @default("{}")
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
-  locations           Location[]
-  users               User[]
-  roles               Role[]
-  customers           Customer[]
-  interactions        Interaction[]
-  conversations       Conversation[]
-  messages            Message[]
-  bookings            Booking[]
-  orders              Order[]
-  serviceRequests     ServiceRequest[]
-  signals             Signal[]
-  workflows           Workflow[]
-  workflowRuns        WorkflowRun[]
-  aiAgents            AIAgent[]
-  aiEmployees            AIEmployee[]
-  voiceProfiles       VoiceProfile[]
-  providerConnections ProviderConnection[]
-  integrationEvents   IntegrationEvent[]
-  auditLogs           AuditLog[]
+  locations               Location[]
+  users                   User[]
+  roles                   Role[]
+  customers               Customer[]
+  interactions            Interaction[]
+  conversations           Conversation[]
+  messages                Message[]
+  bookings                Booking[]
+  orders                  Order[]
+  serviceRequests         ServiceRequest[]
+  signals                 Signal[]
+  workflows               Workflow[]
+  workflowRuns            WorkflowRun[]
+  aiAgents                AIAgent[]
+  aiEmployees             AIEmployee[]
+  voiceProfiles           VoiceProfile[]
+  providerConnections     ProviderConnection[]
+  integrationEvents       IntegrationEvent[]
+  auditLogs               AuditLog[]
   domainEvents            DomainEvent[]
   // --- Sprint 2: identity & OS core ---
   organizationSettings    OrganizationSettings?
@@ -273,7 +273,7 @@ model Location {
   orders          Order[]
   serviceRequests ServiceRequest[]
   aiAgents        AIAgent[]
-  aiEmployees    AIEmployee[]
+  aiEmployees     AIEmployee[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -283,7 +283,7 @@ model Location {
 model Role {
   id             String   @id @default(cuid())
   organizationId String
-  name           String   // e.g. "owner", "manager", "agent"
+  name           String // e.g. "owner", "manager", "agent"
   description    String?
   isSystem       Boolean  @default(false)
   permissions    Json     @default("[]") // array of permission keys
@@ -307,7 +307,7 @@ model User {
   phone          String?
   status         UserStatus @default(INVITED)
   // Auth is provider-agnostic: store external auth subject, never raw passwords.
-  authProvider   String?    // e.g. "clerk", "auth0", "supabase"
+  authProvider   String? // e.g. "clerk", "auth0", "supabase"
   externalAuthId String?
   lastLoginAt    DateTime?
   metadata       Json       @default("{}")
@@ -317,7 +317,7 @@ model User {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
-  assignedConversations Conversation[] @relation("ConversationAssignee")
+  assignedConversations Conversation[]  @relation("ConversationAssignee")
   auditLogs             AuditLog[]
   // --- Sprint 2 ---
   sentInvitations       Invitation[]    @relation("InvitationInviter")
@@ -337,7 +337,7 @@ model User {
 model Customer {
   id             String   @id @default(cuid())
   organizationId String
-  externalId     String?  // id in the source system (e.g. ServicesInMyCity)
+  externalId     String? // id in the source system (e.g. ServicesInMyCity)
   firstName      String?
   lastName       String?
   email          String?
@@ -379,7 +379,7 @@ model Interaction {
   occurredAt     DateTime             @default(now())
   summary        String?
   // Provider attribution without provider lock-in.
-  provider       String?              // e.g. "telnyx", "twilio"
+  provider       String? // e.g. "telnyx", "twilio"
   externalId     String?
   payload        Json                 @default("{}")
   metadata       Json                 @default("{}")
@@ -411,10 +411,10 @@ model Conversation {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  assignee     User?        @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  aiAgent      AIAgent?     @relation(fields: [aiAgentId], references: [id], onDelete: SetNull)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignee     User?         @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  aiAgent      AIAgent?      @relation(fields: [aiAgentId], references: [id], onDelete: SetNull)
   messages     Message[]
   interactions Interaction[]
   signals      Signal[]
@@ -429,7 +429,7 @@ model Message {
   organizationId String
   conversationId String
   actorType      ActorType
-  actorId        String?     // userId, customerId, or aiAgentId depending on actorType
+  actorId        String? // userId, customerId, or aiAgentId depending on actorType
   type           MessageType @default(TEXT)
   body           String?
   // Provider attribution (e.g. message SID) without coupling to a provider.
@@ -453,24 +453,24 @@ model Message {
 // ---------------------------------------------------------------------------
 
 model Booking {
-  id             String        @id @default(cuid())
-  organizationId String
-  locationId     String?
-  customerId     String?
-  status         BookingStatus @default(REQUESTED)
-  title          String?
-  startAt        DateTime
-  endAt          DateTime?
-  partySize      Int?          // covers restaurant tables, group appointments
+  id               String        @id @default(cuid())
+  organizationId   String
+  locationId       String?
+  customerId       String?
+  status           BookingStatus @default(REQUESTED)
+  title            String?
+  startAt          DateTime
+  endAt            DateTime?
+  partySize        Int? // covers restaurant tables, group appointments
   // Calendar provider abstraction.
-  calendarProvider   String?
-  calendarEventId    String?
+  calendarProvider String?
+  calendarEventId  String?
   // Industry shape (service type, stylist, room, table, etc.) lives here.
-  items          Json          @default("[]")
-  attributes     Json          @default("{}")
-  metadata       Json          @default("{}")
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  items            Json          @default("[]")
+  attributes       Json          @default("{}")
+  metadata         Json          @default("{}")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
@@ -482,28 +482,28 @@ model Booking {
 }
 
 model Order {
-  id             String          @id @default(cuid())
-  organizationId String
-  locationId     String?
-  customerId     String?
-  status         OrderStatus     @default(DRAFT)
-  fulfillment    FulfillmentType @default(PICKUP)
-  number         String?         // human-facing order number
-  currency       String          @default("USD")
-  subtotalCents  Int             @default(0)
-  taxCents       Int             @default(0)
-  tipCents       Int             @default(0)
-  totalCents     Int             @default(0)
+  id                String          @id @default(cuid())
+  organizationId    String
+  locationId        String?
+  customerId        String?
+  status            OrderStatus     @default(DRAFT)
+  fulfillment       FulfillmentType @default(PICKUP)
+  number            String? // human-facing order number
+  currency          String          @default("USD")
+  subtotalCents     Int             @default(0)
+  taxCents          Int             @default(0)
+  tipCents          Int             @default(0)
+  totalCents        Int             @default(0)
   // Line items kept as JSON so any vertical (pizza, retail, services) fits.
-  items          Json            @default("[]")
+  items             Json            @default("[]")
   // Payment provider abstraction — no Stripe coupling in the core.
   paymentProvider   String?
   paymentExternalId String?
-  scheduledFor   DateTime?
-  attributes     Json            @default("{}")
-  metadata       Json            @default("{}")
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  scheduledFor      DateTime?
+  attributes        Json            @default("{}")
+  metadata          Json            @default("{}")
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
@@ -517,20 +517,20 @@ model Order {
 
 // A lead / quote-style request (home services, law firms, etc.).
 model ServiceRequest {
-  id             String               @id @default(cuid())
-  organizationId String
-  locationId     String?
-  customerId     String?
-  status         ServiceRequestStatus @default(NEW)
-  source         String?              // e.g. "servicesinmycity", "web", "phone"
-  category       String?              // industry-defined service category
-  summary        String?
-  details        Json                 @default("{}")
+  id                  String               @id @default(cuid())
+  organizationId      String
+  locationId          String?
+  customerId          String?
+  status              ServiceRequestStatus @default(NEW)
+  source              String? // e.g. "servicesinmycity", "web", "phone"
+  category            String? // industry-defined service category
+  summary             String?
+  details             Json                 @default("{}")
   estimatedValueCents Int?
-  attributes     Json                 @default("{}")
-  metadata       Json                 @default("{}")
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  attributes          Json                 @default("{}")
+  metadata            Json                 @default("{}")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
@@ -548,12 +548,12 @@ model Signal {
   customerId     String?
   conversationId String?
   type           SignalType
-  key            String     // machine key, e.g. "churn_risk"
-  label          String?    // human label
+  key            String // machine key, e.g. "churn_risk"
+  label          String? // human label
   valueNumber    Float?
   valueString    String?
-  confidence     Float?     // 0..1
-  source         String?    // model / agent that produced it
+  confidence     Float? // 0..1
+  source         String? // model / agent that produced it
   observedAt     DateTime   @default(now())
   metadata       Json       @default("{}")
   createdAt      DateTime   @default(now())
@@ -598,7 +598,7 @@ model WorkflowRun {
   organizationId String
   workflowId     String
   status         WorkflowRunStatus @default(PENDING)
-  triggeredBy    String?           // event id / user id / schedule
+  triggeredBy    String? // event id / user id / schedule
   input          Json              @default("{}")
   output         Json              @default("{}")
   error          String?
@@ -626,8 +626,8 @@ model AIAgent {
   name           String
   type           AIAgentType @default(CHAT)
   // The model provider is abstracted (Claude today, others tomorrow).
-  modelProvider  String?     // e.g. "anthropic"
-  model          String?     // e.g. "claude-..."
+  modelProvider  String? // e.g. "anthropic"
+  model          String? // e.g. "claude-..."
   systemPrompt   String?
   config         Json        @default("{}")
   isActive       Boolean     @default(false)
@@ -678,11 +678,11 @@ model AIEmployee {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  location        Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  voiceProfile    VoiceProfile?    @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
-  agent           AIAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  permissions     Permission[]
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location     Location?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  voiceProfile VoiceProfile? @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
+  agent        AIAgent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  permissions  Permission[]
 
   @@index([organizationId, status])
   @@index([organizationId, locationId])
@@ -694,8 +694,8 @@ model VoiceProfile {
   organizationId String
   name           String
   // Voice provider abstraction (ElevenLabs today, others later).
-  voiceProvider  String?  // e.g. "elevenlabs"
-  voiceId        String?  // provider-specific voice id
+  voiceProvider  String? // e.g. "elevenlabs"
+  voiceId        String? // provider-specific voice id
   language       String   @default("en")
   gender         String?
   config         Json     @default("{}") // stability, similarity, speed, etc.
@@ -706,7 +706,7 @@ model VoiceProfile {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   aiAgents     AIAgent[]
-  aiEmployees   AIEmployee[]
+  aiEmployees  AIEmployee[]
 
   @@index([organizationId])
   @@map("voice_profiles")
@@ -718,23 +718,23 @@ model VoiceProfile {
 
 // A tenant's connection to an external provider (one row per connected provider).
 model ProviderConnection {
-  id             String           @id @default(cuid())
-  organizationId String
-  category       ProviderCategory
-  provider       String           // e.g. "anthropic", "twilio", "telnyx", "stripe"
-  displayName    String?
-  status         ConnectionStatus @default(PENDING)
+  id                String           @id @default(cuid())
+  organizationId    String
+  category          ProviderCategory
+  provider          String // e.g. "anthropic", "twilio", "telnyx", "stripe"
+  displayName       String?
+  status            ConnectionStatus @default(PENDING)
   externalAccountId String?
   // Secrets are NOT stored raw here in production — store a reference to a
   // secrets manager. Kept generic and provider-agnostic.
-  credentialsRef String?
-  config         Json             @default("{}")
-  scopes         String[]         @default([])
-  connectedAt    DateTime?
-  lastSyncedAt   DateTime?
-  metadata       Json             @default("{}")
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  credentialsRef    String?
+  config            Json             @default("{}")
+  scopes            String[]         @default([])
+  connectedAt       DateTime?
+  lastSyncedAt      DateTime?
+  metadata          Json             @default("{}")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   integrationEvents IntegrationEvent[]
@@ -751,8 +751,8 @@ model IntegrationEvent {
   providerConnectionId String?
   category             ProviderCategory?
   provider             String?
-  eventType            String                 // provider-defined event name
-  externalId           String?                // provider event/delivery id (idempotency)
+  eventType            String // provider-defined event name
+  externalId           String? // provider event/delivery id (idempotency)
   status               IntegrationEventStatus @default(RECEIVED)
   payload              Json                   @default("{}")
   error                String?
@@ -774,19 +774,19 @@ model IntegrationEvent {
 // ---------------------------------------------------------------------------
 
 model AuditLog {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
   userId         String?
   actorType      ActorType @default(SYSTEM)
-  action         String   // e.g. "customer.updated", "booking.canceled"
+  action         String // e.g. "customer.updated", "booking.canceled"
   entityType     String?
   entityId       String?
   before         Json?
   after          Json?
   ip             String?
   userAgent      String?
-  metadata       Json     @default("{}")
-  createdAt      DateTime @default(now())
+  metadata       Json      @default("{}")
+  createdAt      DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -795,7 +795,6 @@ model AuditLog {
   @@index([entityType, entityId])
   @@map("audit_logs")
 }
-
 
 // ===========================================================================
 // SPRINT 2 — Identity & Operating-System Core
@@ -864,17 +863,17 @@ model OrganizationSettings {
 }
 
 model OrganizationPreferences {
-  id              String   @id @default(cuid())
-  organizationId  String   @unique
-  locale          String   @default("en-US")
-  dateFormat      String   @default("MM/DD/YYYY")
-  timeFormat      String   @default("12h")
-  weekStart       Int      @default(0)
-  currency        String   @default("USD")
-  notifications   Json     @default("{}")
-  metadata        Json     @default("{}")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  locale         String   @default("en-US")
+  dateFormat     String   @default("MM/DD/YYYY")
+  timeFormat     String   @default("12h")
+  weekStart      Int      @default(0)
+  currency       String   @default("USD")
+  notifications  Json     @default("{}")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -965,7 +964,7 @@ model UserSession {
 }
 
 model Permission {
-  id             String           @id @default(cuid())
+  id             String                @id @default(cuid())
   organizationId String
   systemRole     SystemRole?
   subjectType    PermissionSubjectType @default(HUMAN_USER)
@@ -974,15 +973,16 @@ model Permission {
   aiEmployeeId   String?
   resource       String
   action         String
-  effect         PermissionEffect @default(ALLOW)
-  conditions     Json             @default("{}")
-  metadata       Json             @default("{}")
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  effect         PermissionEffect      @default(ALLOW)
+  conditions     Json                  @default("{}")
+  metadata       Json                  @default("{}")
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  aiEmployee     AIEmployee?      @relation(fields: [aiEmployeeId], references: [id], onDelete: SetNull)
+  aiEmployee AIEmployee? @relation(fields: [aiEmployeeId], references: [id], onDelete: SetNull)
+
   @@index([organizationId, resource, action])
   @@map("permissions")
 }
@@ -1070,9 +1070,9 @@ enum PermissionSubjectType {
 model DomainEvent {
   id             String   @id @default(cuid())
   organizationId String
-  name           String   // dotted event name, e.g. "booking.confirmed"
-  aggregateType  String?  // e.g. "customer", "booking"
-  aggregateId    String?  // id of the aggregate the event concerns
+  name           String // dotted event name, e.g. "booking.confirmed"
+  aggregateType  String? // e.g. "customer", "booking"
+  aggregateId    String? // id of the aggregate the event concerns
   payload        Json     @default("{}")
   metadata       Json     @default("{}")
   occurredAt     DateTime @default(now())
@@ -1085,6 +1085,7 @@ model DomainEvent {
   @@index([aggregateType, aggregateId])
   @@map("domain_events")
 }
+
 // ===========================================================================
 // PR #75 — Work OS Blueprint Runtime v1
 // ---------------------------------------------------------------------------
@@ -1209,7 +1210,7 @@ model WorkNotification {
   userId         String
   workInstanceId String
   workStageId    String?
-  type           String    // next_action_ready | assigned | completed | approval_needed
+  type           String // next_action_ready | assigned | completed | approval_needed
   title          String
   body           String
   readAt         DateTime?
@@ -1236,7 +1237,6 @@ model WorkComment {
   @@map("work_comments")
 }
 
-
 // ---------------------------------------------------------------------------
 // Loop Event Gateway (PR #80)
 // Immutable inbound event store for InMyCity producer sites. Additive only:
@@ -1245,9 +1245,9 @@ model WorkComment {
 model LoopEvent {
   id                String   @id @default(cuid())
   eventId           String   @unique // producer-supplied idempotency key, e.g. "evt_..."
-  platform          String   // producer platform slug, e.g. "artistsinmycity"
-  site              String?  // originating site, e.g. "artistsinmycity.com"
-  eventType         String   // dotted event name, e.g. "artist.claimed_profile"
+  platform          String // producer platform slug, e.g. "artistsinmycity"
+  site              String? // originating site, e.g. "artistsinmycity.com"
+  eventType         String // dotted event name, e.g. "artist.claimed_profile"
   occurredAt        DateTime // when the event happened on the producer
   receivedAt        DateTime @default(now()) // when Loop received it
   anonymousId       String?
@@ -1286,7 +1286,7 @@ model LoopEvent {
 // so the composite uniqueness keys always include (platform, property, ...).
 
 model VerifiedKnowledgeSource {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   // scope
   platform       String
   property       String
@@ -1305,9 +1305,9 @@ model VerifiedKnowledgeSource {
   authorityScope String?
   limitations    String?
   reviewCadence  String?
-  attributes     Json     @default("{}")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  attributes     Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   provenance VerifiedKnowledgeProvenance[]
 
@@ -1321,7 +1321,7 @@ model VerifiedKnowledgeEntity {
   platform       String
   property       String
   organizationId String?
-  entityKey      String   // stable producer-supplied id
+  entityKey      String // stable producer-supplied id
   type           String
   name           String?
   aliases        String[] @default([])
@@ -1369,7 +1369,7 @@ model VerifiedKnowledgeClaim {
   platform       String
   property       String
   organizationId String?
-  claimKey       String    // stable producer-supplied id
+  claimKey       String // stable producer-supplied id
   subject        String
   predicate      String
   value          Json      @default("{}")
@@ -1423,10 +1423,10 @@ model VerifiedKnowledgeRelationship {
   platform       String
   property       String
   organizationId String?
-  edgeKey        String   // stable producer-supplied id
-  edge           String   // predicate / relation type
-  fromKey        String   // subject entity key
-  toKey          String   // object entity key
+  edgeKey        String // stable producer-supplied id
+  edge           String // predicate / relation type
+  fromKey        String // subject entity key
+  toKey          String // object entity key
   confidence     String?
   verification   String?
   attributes     Json     @default("{}")
@@ -1442,17 +1442,17 @@ model VerifiedKnowledgeRelationship {
 }
 
 model VerifiedKnowledgeProvenance {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   platform       String
   property       String
   organizationId String?
   sourceId       String
-  targetType     String   // 'entity' | 'claim' | 'relationship'
-  targetKey      String   // stable key of the target within scope
-  supports       String?  // supported field / claim note
+  targetType     String // 'entity' | 'claim' | 'relationship'
+  targetKey      String // stable key of the target within scope
+  supports       String? // supported field / claim note
   verifiedAt     DateTime?
   verifier       String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   source VerifiedKnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
@@ -1466,7 +1466,7 @@ model VerifiedKnowledgeLifecycleEvent {
   platform       String
   property       String
   organizationId String?
-  objectType     String   // 'entity' | 'claim' | 'relationship'
+  objectType     String // 'entity' | 'claim' | 'relationship'
   objectKey      String
   previousStatus String?
   newStatus      String?
@@ -1482,22 +1482,22 @@ model VerifiedKnowledgeLifecycleEvent {
 }
 
 model VerifiedKnowledgeImportBatch {
-  id             String   @id @default(cuid())
-  platform       String
-  property       String
-  organizationId String?
-  idempotencyKey String
+  id              String   @id @default(cuid())
+  platform        String
+  property        String
+  organizationId  String?
+  idempotencyKey  String
   contractVersion String
-  payloadHash    String   // hash of the batch; same key + different payload => conflict
-  status         String   @default("completed") // 'started' | 'completed' | 'failed'
-  inserted       Int      @default(0)
-  updated        Int      @default(0)
-  skipped        Int      @default(0)
-  failed         Int      @default(0)
-  traceId        String?
-  error          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  payloadHash     String // hash of the batch; same key + different payload => conflict
+  status          String   @default("completed") // 'started' | 'completed' | 'failed'
+  inserted        Int      @default(0)
+  updated         Int      @default(0)
+  skipped         Int      @default(0)
+  failed          Int      @default(0)
+  traceId         String?
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([platform, property, idempotencyKey])
   @@index([platform, property, organizationId])
@@ -1523,12 +1523,12 @@ model VerifiedKnowledgeImportBatch {
 //     updatedAt (when Loop wrote/updated the projection).
 // ---------------------------------------------------------------------------
 model MarketplaceCall {
-  id             String  @id @default(cuid())
+  id             String @id @default(cuid())
   organizationId String
 
   // Provenance: `provider` is the sensor id (e.g. 'callgrid'). Sensor-neutral.
-  provider    String
-  externalId  String
+  provider      String
+  externalId    String
   // Traceability back to the raw source event (Interaction.id). Kept as a plain
   // reference (not a formal relation) so the raw Interaction model is untouched.
   interactionId String?
@@ -1539,9 +1539,9 @@ model MarketplaceCall {
   // Status / disposition. `status` is the canonical event type; `rawStatus` is
   // the provider-native string (preserves BUSY/FAILED/REJECTED distinctions the
   // coarse taxonomy collapses).
-  status          String?
-  rawStatus       String?
-  endedBy         String?
+  status                   String?
+  rawStatus                String?
+  endedBy                  String?
   // CONNECTED duration: elapsed time AFTER the call connects, per CallGrid's
   // CallDuration. Renamed from `durationSeconds` (Sprint 37) because that name
   // read as total elapsed time and invited comparison against total-duration
@@ -1549,7 +1549,7 @@ model MarketplaceCall {
   // and must never populate this field.
   //
   // @map keeps the physical column so no migration is required.
-  connectedDurationSeconds Int? @map("durationSeconds")
+  connectedDurationSeconds Int?    @map("durationSeconds")
 
   // Attribution — nullable external-reference ids + best-known labels.
   buyerExternalId       String?
@@ -1606,4 +1606,233 @@ model MarketplaceCall {
   @@index([organizationId, billable])
   @@index([organizationId, converted])
   @@map("marketplace_calls")
+}
+
+// ---------------------------------------------------------------------------
+// Auction reporting — verified aggregate snapshots
+// ---------------------------------------------------------------------------
+//
+// These three models store CallGrid's AGGREGATE report output. They are not
+// event tables. CallGrid exposes no event-level bid or ping record, so a
+// `MarketplaceBid` row would be a fabrication with a plausible schema — the
+// most expensive kind.
+//
+// TWO GRAINS, DELIBERATELY UNJOINED
+//   MarketplaceBidSourceSnapshot       one row per SOURCE per report window
+//   MarketplacePingDestinationSnapshot one row per DESTINATION per report window
+//
+// Source and destination are opposite sides of the marketplace. There is no
+// foreign key between them and no shared identifier, because the provider
+// asserts no relationship between them. Nothing may join them by name.
+//
+// UNITS
+//   *Cents    integer cents. Converted once, at the ingestion boundary, by the
+//             same `Math.round(dollars * 100)` rule MarketplaceCall uses. The
+//             dollars premise is EVIDENCE-GATED per run — see
+//             MarketplaceReportRun.moneyUnitEvidence. It is not assumed here.
+//   *Percent  percentage POINTS as the provider reported them: 14.473684 means
+//             14.473684%. Provider rates are stored verbatim and never
+//             recomputed over them; Loop-derived rates are computed at read
+//             time from counts, where the denominator is explicit.
+//
+// NULL vs ZERO
+//   Every metric is nullable. Null means the provider did not report the field.
+//   Zero means the provider reported zero. Ingestion never coerces one into the
+//   other.
+
+/// Aggregate bid statistics for one source over one report window.
+/// Combines GET /api/reports/bidStats with GET /api/reports/bidStats/rejections,
+/// which share the source grain and are joined on sourceId within one window.
+model MarketplaceBidSourceSnapshot {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Sensor id, e.g. 'callgrid'. Sensor-neutral by design.
+  provider String
+
+  /// Inclusive window as REQUESTED, in UTC. See reportTimezone.
+  reportWindowStart DateTime
+  reportWindowEnd   DateTime
+
+  /// The timezone Loop requested the window in. NOT a claim about the timezone
+  /// CallGrid buckets in: the three GET report endpoints accept no
+  /// reportTimeZone parameter, so provider-side bucketing is UNVERIFIED.
+  reportTimezone String
+
+  /// Provider-native source id. The only legitimate join key.
+  sourceExternalId String
+  sourceName       String?
+
+  // Provenance
+  sourceEndpoint      String
+  sourcePage          Int?
+  sourceTotalPages    Int?
+  providerPayloadHash String
+  fetchedAt           DateTime
+
+  // Observed bidStats metrics — null means not reported.
+  total    Int?
+  bids     Int?
+  rated    Int?
+  won      Int?
+  rejected Int?
+
+  totalBidAmountCents Int?
+  totalWonAmountCents Int?
+  avgBidCents         Int?
+  avgWinningBidCents  Int?
+
+  /// Provider-reported rates, in percentage points, stored verbatim.
+  winRatePercent    Float?
+  bidRatePercent    Float?
+  rejectRatePercent Float?
+
+  // Observed bidStats/rejections metrics. Null means the rejections report
+  // returned no row for this source — which is NOT the same as zero rejections.
+  rejectedDetail   Int?
+  callerIdRejected Int?
+  closed           Int?
+  paused           Int?
+  /// Provider `duplicate`. Distinct from duplicateBids; never summed together.
+  duplicateCaller  Int?
+  duplicateBids    Int?
+  failedAcceptance Int?
+  failedTagRules   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, provider, reportWindowStart, reportWindowEnd, sourceExternalId], name: "bid_source_snapshot_identity")
+  @@index([organizationId, reportWindowStart])
+  @@index([organizationId, provider, sourceExternalId])
+  @@map("marketplace_bid_source_snapshots")
+}
+
+/// Aggregate ping statistics for one destination over one report window.
+/// Source: GET /api/reports/pingStats.
+model MarketplacePingDestinationSnapshot {
+  id             String @id @default(cuid())
+  organizationId String
+
+  provider String
+
+  reportWindowStart DateTime
+  reportWindowEnd   DateTime
+  reportTimezone    String
+
+  destinationExternalId String
+  destinationName       String?
+
+  /// The provider's own row date. pingStats buckets rows per day, so a
+  /// multi-day window returns one row per destination PER DAY. Ingestion is
+  /// single-day; this field is what lets it prove that rather than assume it.
+  providerRowDate DateTime?
+
+  // Provenance
+  sourceEndpoint      String
+  sourcePage          Int?
+  sourceTotalPages    Int?
+  providerPayloadHash String
+  fetchedAt           DateTime
+
+  // Observed metrics — null means not reported.
+  accepted         Int?
+  agents           Int?
+  failedAcceptance Int?
+  failedTagRules   Int?
+  minRevenue       Int?
+  missingAmount    Int?
+  invalidNumber    Int?
+  durationElapsed  Int?
+  pingTimeout      Int?
+  apiFailed        Int?
+  rateLimited      Int?
+  suppressed       Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, provider, reportWindowStart, reportWindowEnd, destinationExternalId], name: "ping_destination_snapshot_identity")
+  @@index([organizationId, reportWindowStart])
+  @@index([organizationId, provider, destinationExternalId])
+  @@map("marketplace_ping_destination_snapshots")
+}
+
+/// One ingestion attempt against one report endpoint for one window.
+///
+/// This exists so that "no rows" can be told apart from "we could not read the
+/// report". Without it, a 500 and an empty day are the same absence of data,
+/// and the platform would render a provider outage as zero marketplace activity.
+model MarketplaceReportRun {
+  id             String @id @default(cuid())
+  organizationId String
+
+  provider       String
+  /// 'bidStats' | 'bidRejections' | 'pingStats'. Not an enum: the set is defined
+  /// by what the provider verifiably exposes, and widening it must be a code
+  /// change with evidence, not a migration.
+  endpoint       String
+  /// The HTTP path actually called.
+  sourceEndpoint String
+
+  reportWindowStart DateTime
+  reportWindowEnd   DateTime
+  reportTimezone    String
+
+  status MarketplaceReportRunStatus
+
+  /// Set only for non-success statuses. Never contains the credential.
+  errorClassification String?
+  errorDetail         String?
+
+  fetchedAt        DateTime
+  pagesFetched     Int?
+  sourceTotalPages Int?
+  rowCount         Int?
+  /// True when pagination hit its cap. A truncated report is never reconciled
+  /// or aggregated as if it were complete.
+  truncated        Boolean  @default(false)
+
+  inserted Int @default(0)
+  updated  Int @default(0)
+  skipped  Int @default(0)
+  failed   Int @default(0)
+
+  /// Provider footerTotals, verbatim. Kept SEPARATE from recomputedTotals so a
+  /// provider/Loop disagreement stays visible instead of being averaged away.
+  providerFooterTotals Json?
+  /// Totals Loop recomputed by summing the rows it stored.
+  recomputedTotals     Json?
+
+  /// Whether the dollars premise behind every *Cents column was PROVEN for this
+  /// run (a money field carried fractional decimals) or merely consistent with
+  /// the data (all integers). Money-based findings are gated on 'proven-dollars'.
+  moneyUnitEvidence String?
+
+  /// Row keys actually returned, for drift detection against the observed contract.
+  observedRowKeys Json?
+
+  providerPayloadHash String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, provider, endpoint, reportWindowStart, reportWindowEnd], name: "report_run_identity")
+  @@index([organizationId, provider, endpoint, fetchedAt])
+  @@map("marketplace_report_runs")
+}
+
+enum MarketplaceReportRunStatus {
+  /// Every declared page read, rows stored.
+  SUCCESS
+  /// Read cleanly, provider returned no rows. A real, reportable fact.
+  EMPTY
+  /// Non-2xx or network failure.
+  ENDPOINT_FAILURE
+  /// 2xx whose body was not JSON.
+  MALFORMED_RESPONSE
+  /// 2xx JSON whose shape we could not read. NEVER treated as empty.
+  UNKNOWN_ENVELOPE
+  /// Some pages read, page budget exhausted before totalPages.
+  PARTIAL_PAGINATION
 }

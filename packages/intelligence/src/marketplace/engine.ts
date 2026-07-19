@@ -60,6 +60,19 @@ export interface GatedContext {
   metric(metricId: string): MetricEvidence;
   /** The underlying capability, for reason/citation text. */
   capability(metricId: string): CapabilityCoverage | undefined;
+  /**
+   * The measured scalar behind a metric, when the domain has one.
+   *
+   * Kept OUT of `MetricEvidence` deliberately. The Evidence Engine records the
+   * evidential position on a metric — where it came from, how complete it is,
+   * whether it can be trusted — not the quantity itself. Coverage metrics have
+   * no single scalar at all, so a `value` on the platform type would be null
+   * for the domain that engine was written for.
+   *
+   * Returns null when the domain supplies no value for this metric. A rule must
+   * treat null as unknown, never as zero.
+   */
+  value(metricId: string): number | null;
 }
 
 export interface MarketplaceRule {
@@ -344,7 +357,10 @@ function checkRequirements(
     return {
       ruleId: rule.id,
       reason: `Sample of ${evidence.populationSize} is below this rule's declared minimum of ${rule.requires.minimumSampleSize}.`,
-      needs: `At least ${rule.requires.minimumSampleSize} calls in the window.`,
+      // "records", not "calls": this gate is shared with auction reporting,
+      // whose population is report rows. Naming one domain's unit here would
+      // make the other domain's suppression message read as a lie.
+      needs: `At least ${rule.requires.minimumSampleSize} records in the window.`,
       suppressedBy: 'intelligence-engine',
     };
   }
@@ -401,6 +417,31 @@ export function runMarketplaceIntelligence(input: {
   );
 
   // --- Layer 2 -------------------------------------------------------------
+  return {
+    ...runRules(MARKETPLACE_RULES, evidence, (metricId) =>
+      input.coverage.capabilities.find((c) => c.id === metricId)),
+    evidence,
+    unbuilt: unbuiltRules(),
+  };
+}
+
+/**
+ * Layer 2, over any rule set and any Layer 1 report.
+ *
+ * Extracted from `runMarketplaceIntelligence` so auction reporting runs through
+ * THIS gate rather than growing a second one beside it. A second gate would
+ * drift — and the first thing to drift would be the suppression rules, which is
+ * the one part of this system whose whole purpose is to be strict.
+ *
+ * Behaviour is unchanged for the marketplace caller: same order of checks, same
+ * suppression reasons, same `publishFinding` contract.
+ */
+export function runRules(
+  rules: readonly MarketplaceRule[],
+  evidence: EvidenceReport,
+  capabilityFor: (metricId: string) => CapabilityCoverage | undefined = () => undefined,
+  valueFor: (metricId: string) => number | null = () => null,
+): Omit<EngineResult, 'evidence' | 'unbuilt'> {
   const findings: MarketplaceFinding[] = [];
   const withheld: RuleSuppression[] = [];
 
@@ -418,10 +459,11 @@ export function runMarketplaceIntelligence(input: {
       }
       return m;
     },
-    capability: (metricId) => input.coverage.capabilities.find((c) => c.id === metricId),
+    capability: capabilityFor,
+    value: valueFor,
   };
 
-  for (const rule of MARKETPLACE_RULES) {
+  for (const rule of rules) {
     const suppression = checkRequirements(rule, evidence);
     if (suppression) {
       withheld.push(suppression);
@@ -440,11 +482,5 @@ export function runMarketplaceIntelligence(input: {
       });
   }
 
-  return {
-    evidence,
-    findings: rankFindings(findings),
-    withheld,
-    unbuilt: unbuiltRules(),
-    rulesEvaluated: MARKETPLACE_RULES.length,
-  };
+  return { findings: rankFindings(findings), withheld, rulesEvaluated: rules.length };
 }

@@ -33,6 +33,7 @@ import { RevenueIntelligenceRepository } from './revenue-intelligence.repository
 import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
+import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -171,6 +172,31 @@ export type {
   InteractionForProjection,
 } from './marketplace-call-projection';
 
+// Auction reporting — verified AGGREGATE bid/ping snapshots. Not event tables.
+export { MarketplaceAuctionRepository } from './marketplace-auction.repository';
+export type { UpsertCounts, ReportRunRecord } from './marketplace-auction.repository';
+export {
+  anchorMoneyUnit,
+  centsOrNull,
+  countOrNull,
+  percentOrNull,
+  collidingDestinations,
+  projectBidSourceSnapshots,
+  projectPingDestinationSnapshots,
+  recomputeTotals,
+  sumOrNull,
+  BID_MONEY_FIELDS,
+} from './marketplace-auction-projection';
+export type {
+  AuctionGrain,
+  MoneyUnitEvidence,
+  AuctionWindow,
+  BidSourceSnapshot,
+  BidSourceSnapshotInput,
+  PingDestinationSnapshot,
+  PingDestinationSnapshotInput,
+} from './marketplace-auction-projection';
+
 export interface Repositories {
   customers: CustomerRepository;
   interactions: InteractionRepository;
@@ -197,6 +223,7 @@ export interface Repositories {
   work: WorkRepository;
   verifiedKnowledge: VerifiedKnowledgeRepository;
   marketplaceCalls: MarketplaceCallRepository;
+  marketplaceAuction: MarketplaceAuctionRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -226,5 +253,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     work: new WorkRepository(prisma),
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
     marketplaceCalls: new MarketplaceCallRepository(prisma),
+    marketplaceAuction: new MarketplaceAuctionRepository(prisma),
   };
 }

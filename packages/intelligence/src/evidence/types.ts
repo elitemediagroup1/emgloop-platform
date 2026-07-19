@@ -127,6 +127,22 @@ export interface MetricObservation {
   missingProviderData?: readonly string[];
   /** When the source says the underlying data was current, if it says. */
   sourceObservedAt?: string | null;
+  /**
+   * Set when the DOMAIN knows the metric must not be reasoned over, for a
+   * reason the engine cannot derive from counts.
+   *
+   * The engine withholds on absence and contradiction because both are visible
+   * in the observation itself. Some obstacles are not: auction money metrics
+   * are unusable when the provider's unit was never proven, and no arrangement
+   * of observed/total expresses that. The alternatives were both wrong —
+   * `structurallyAbsent` scores at the CEILING and does not withhold, and
+   * calling it a contradiction would claim two sources disagree when only one
+   * spoke.
+   *
+   * The engine stays domain-free: it does not interpret the reason, only
+   * honours the refusal.
+   */
+  unusable?: { reason: string } | null;
 }
 
 /** What a domain implements to join the platform. */

@@ -164,3 +164,54 @@ export { MockEmailProvider } from './mocks/mock-email.provider';
 // CallGrid canonical occurrence-timestamp resolver.
 export { resolveCallOccurrence, NON_OCCURRENCE_TIMESTAMP_FIELDS } from './adapters/callgrid-occurrence';
 export type { ResolvedOccurrence } from './adapters/callgrid-occurrence';
+
+// CallGrid aggregate report contract + Phase 1 live verification probe.
+export {
+  CALLGRID_REPORT_CONTRACTS,
+  FIELDS_ABSENT_FROM_CONTRACT,
+  EXCLUDED_FIELDS,
+  probeReportContract,
+  extractRows,
+  measureNumerics,
+  observedNullable,
+  redact,
+} from './adapters/callgrid-reports';
+export type {
+  ReportEndpointContract,
+  ReportProbeInput,
+  ReportProbeResult,
+  NumericRepresentation,
+  EvidenceGrade,
+} from './adapters/callgrid-reports';
+
+// CallGrid aggregate report client — the three endpoints VERIFIED live on
+// 2026-07-18. `callStats` (POST /api/reports/stats) returned HTTP 400 and has
+// deliberately no client here.
+export {
+  VERIFIED_REPORT_PATHS,
+  REPORT_GRAIN,
+  CallGridReportError,
+  metric,
+  parseBidStatsRow,
+  parseBidRejectionsRow,
+  parsePingStatsRow,
+  distinctProviderOrgIds,
+  hashPayload,
+  fetchReportPage,
+  fetchWholeReport,
+  scrub,
+  CALL_STATS_CONTRACT,
+  callStatsRequestBody,
+} from './adapters/callgrid-report-client';
+export type {
+  VerifiedReportEndpoint,
+  BidStatsRow,
+  BidRejectionsRow,
+  PingStatsRow,
+  ReportRow,
+  FooterTotals,
+  ReportPage,
+  ReportFetchInput,
+  PaginateInput,
+  PaginatedReport,
+} from './adapters/callgrid-report-client';

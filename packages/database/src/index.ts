@@ -52,6 +52,22 @@ export * from './connection-resilience';
 export * from './repositories';
 export * from './integration-catalog';
 
+// Auction report ingestion — bounded, single-UTC-day, idempotent.
+export { AuctionReportIngestionService, BID_TOTAL_FIELDS, REJECTION_TOTAL_FIELDS, PING_TOTAL_FIELDS } from './services/auction-report-ingestion.service';
+export type { AuctionIngestInput, AuctionIngestResult, EndpointOutcome } from './services/auction-report-ingestion.service';
+
+// Auction reconciliation — pure comparison + classification.
+export {
+  reconcileGrain,
+  reconcileTotals,
+  DEFECT_CLASSIFICATIONS,
+  BID_FIELD_PLAN,
+  REJECTION_FIELD_PLAN,
+  PING_FIELD_PLAN,
+  NON_SUMMABLE_FOOTER_FIELDS,
+} from './services/auction-reconciliation';
+export type { DiffClassification, FieldDiff, GrainReconciliation, ReconcileGrainInput } from './services/auction-reconciliation';
+
 export { IngestionService } from './services/ingestion.service';
 export type { IngestInput, IngestResult } from './services/ingestion.service';
 export { deriveSignals, SIGNAL_REGISTRY } from './services/signal-registry';
