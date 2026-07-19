@@ -164,3 +164,22 @@ export { MockEmailProvider } from './mocks/mock-email.provider';
 // CallGrid canonical occurrence-timestamp resolver.
 export { resolveCallOccurrence, NON_OCCURRENCE_TIMESTAMP_FIELDS } from './adapters/callgrid-occurrence';
 export type { ResolvedOccurrence } from './adapters/callgrid-occurrence';
+
+// CallGrid aggregate report contract + Phase 1 live verification probe.
+export {
+  CALLGRID_REPORT_CONTRACTS,
+  FIELDS_ABSENT_FROM_CONTRACT,
+  EXCLUDED_FIELDS,
+  probeReportContract,
+  extractRows,
+  measureNumerics,
+  observedNullable,
+  redact,
+} from './adapters/callgrid-reports';
+export type {
+  ReportEndpointContract,
+  ReportProbeInput,
+  ReportProbeResult,
+  NumericRepresentation,
+  EvidenceGrade,
+} from './adapters/callgrid-reports';
