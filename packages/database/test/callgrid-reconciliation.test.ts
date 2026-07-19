@@ -330,3 +330,54 @@ test('Duplicate is registered as unmapped rather than silently reporting zero', 
   assert.equal(dup?.recommendation, 'remap');
   assert.match(dup?.loopDefinition ?? '', /NEITHER adapter maps it/);
 });
+
+// --- Why aggregate EQUALITY alone cannot prove the money unit --------------
+//
+// Recorded because the reasoning is subtle and will otherwise be re-litigated.
+// The harness applies the same x100 to the source that centsOrNull applies to
+// the ingested value, so a comparison is self-consistent under either unit
+// hypothesis. What discriminates them is the ABSOLUTE value against CallGrid's
+// independently published report.
+
+test('equality alone is tautological — both unit hypotheses reconcile to $0.00', () => {
+  const src = (revenue: number) => [
+    { call_id: 'a', started_at: '2026-07-18T12:00:00.000Z', revenue, payout: 0, profit: revenue },
+  ];
+  const lp = (cents: number) => [
+    {
+      externalId: 'a', sourceOccurredAt: new Date('2026-07-18T12:00:00.000Z'),
+      durationSeconds: null, revenueCents: cents, payoutCents: 0, costCents: null,
+      buyerLabel: null, campaignLabel: null, sourceLabel: null,
+      qualified: null, converted: null, duplicate: null,
+    },
+  ];
+
+  // A: source states dollars. B: source states cents and Loop inflates 100x.
+  const a = reconcile(src(540.17) as never, lp(54017) as never, opts);
+  const b = reconcile(src(54017) as never, lp(5401700) as never, opts);
+
+  const rev = (r: typeof a) => r.aggregates.find((c) => c.metric === 'Revenue')!;
+  assert.equal(rev(a).status, 'pass', 'dollars hypothesis reconciles');
+  assert.equal(rev(b).status, 'pass', 'cents hypothesis ALSO reconciles');
+  assert.equal(rev(a).difference, '$0.00');
+  assert.equal(rev(b).difference, '$0.00');
+});
+
+test('the ABSOLUTE value discriminates: only one hypothesis renders $540.17', () => {
+  // CallGrid's published report for 2026-07-18 states Revenue $540.17.
+  const asDollars = Math.round(540.17 * 100); // centsOrNull on a dollar figure
+  const asCents = Math.round(54017 * 100); // centsOrNull on a minor-unit figure
+  assert.equal(asDollars, 54017, 'dollars hypothesis stores 54017 cents -> renders $540.17');
+  assert.equal(asCents, 5401700, 'cents hypothesis stores 5401700 -> renders $54,017.00');
+  assert.notEqual(asDollars, asCents, 'the two are distinguishable by value, not by equality');
+});
+
+test('the profit invariant and margins are scale-invariant and cannot settle the unit', () => {
+  // Both hold under a uniform 100x inflation, so they corroborate the ARITHMETIC
+  // and not the UNIT. Worth pinning so neither is later cited as unit evidence.
+  for (const k of [1, 100]) {
+    const rev = 540.17 * k, pay = 461.30 * k, profit = 78.87 * k;
+    assert.ok(Math.abs(rev - pay - profit) < 0.011 * k, 'profit invariant holds at scale ' + k);
+    assert.ok(Math.abs(profit / rev - 0.146) < 0.001, 'margin identical at scale ' + k);
+  }
+});

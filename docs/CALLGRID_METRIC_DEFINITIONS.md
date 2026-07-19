@@ -251,3 +251,44 @@ documented "when the call actually occurred" — which reads as start.
 Reconciliation defaults to the **US/Eastern** day, matching `reportTimeZone=US/Eastern`. `?tz=utc`
 selects the raw UTC day. The offset is derived per-date via `Intl` (UTC-4 in EDT, UTC-5 in EST), so a
 winter window is not silently shifted.
+
+
+---
+
+## 12. Money unit — VERIFIED (2026-07-19)
+
+**Verdict: CallGrid states decimal DOLLARS. `centsOrNull`'s `Math.round(n * 100)` is correct.**
+
+### What did NOT prove it
+
+Aggregate equality alone is **tautological**. The reconciliation harness applies the same `x100` to
+the source that `centsOrNull` applies to the ingested value, so the comparison is self-consistent
+under either hypothesis. Demonstrated concretely:
+
+| Hypothesis | Source raw | Loop stored | Reconciles? |
+|---|---|---|---|
+| A — source is dollars | `540.17` | `54017` cents | ✅ $0.00 difference |
+| B — source is cents | `54017` | `5401700` cents | ✅ $0.00 difference |
+
+Both pass. The profit invariant (`revenue − payout = profit`) and both margin percentages are
+**scale-invariant** — they hold under a uniform 100× inflation — so they corroborate the arithmetic,
+not the unit.
+
+### What DID prove it
+
+The **absolute value**, anchored to CallGrid's independently published report for 2026-07-18, which
+states Revenue **$540.17**.
+
+- Under A, Loop stores 54,017 cents and renders **$540.17** — matching the report.
+- Under B, Loop stores 5,401,700 cents and renders **$54,017.00** — off by 100×.
+
+The observed reconciliation output was **$540.17**. Hypothesis B is excluded by the value.
+
+Payout ($461.30) and Profit ($78.87) reproduce the same result independently, and the profit
+invariant confirms the three figures are internally consistent at that scale.
+
+### Scope of this verification
+
+Verified for **revenue, payout and profit on the CallGrid REST path** for 2026-07-18. It does not
+extend to `rate` (never observed) and is a same-unit assumption for `cost`, which is corroborated by
+Net Profit reproducing at 12.05% but not independently anchored.
