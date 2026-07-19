@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { crmRepos, requireCrmContext } from '../../../../../crm/crm-data';
 import { can } from '../../../../../auth/auth';
-import { fetchAllCallGridCalls, pickField, toNumber } from '@emgloop/providers';
+import { fetchCallGridCallsPage, pickField, toNumber } from '@emgloop/providers';
 import {
   reconcile,
   type CallGridSourceCall,
@@ -44,6 +44,10 @@ export const dynamic = 'force-dynamic';
 
 /** Hard ceiling so a wide day cannot pull an unbounded number of pages. */
 const MAX_RECORDS = 500;
+/** Records requested per page. */
+const PAGE_SIZE = 100;
+/** Belt-and-braces page ceiling, so a provider that always reports hasMore terminates. */
+const MAX_PAGES = 10;
 
 /** Short, stable, non-reversible handle for a provider record id. */
 const handle = (id: string): string => createHash('sha256').update(id).digest('hex').slice(0, 10);
@@ -86,10 +90,35 @@ export async function GET(req: Request) {
   const unitParam = url.searchParams.get('unit');
   const sourceMoneyUnit = unitParam === 'cents' ? 'cents' : 'dollars';
 
-  let raw: Array<Record<string, unknown>>;
+  // Paginate over RAW records.
+  //
+  // The first version called fetchAllCallGridCalls, which returns
+  // `{ events, pages, records }` — an OBJECT — and cast it to an array with
+  // `as unknown as Array<...>`. That double cast defeated the type checker, and
+  // the object reached `.slice()` at runtime: "t.slice is not a function".
+  // TypeScript would have rejected it without the cast, so the cast WAS the bug.
+  //
+  // fetchCallGridCallsPage is also the correct function for this route:
+  // fetchAllCallGridCalls returns InboundEvents already mapped through the
+  // adapter, but reconciliation must compare against what CallGrid actually
+  // sent, before Loop's own interpretation of it.
+  const raw: Array<Record<string, unknown>> = [];
   try {
-    const pages = await fetchAllCallGridCalls({ apiKey, since, until, limit: MAX_RECORDS });
-    raw = (pages as unknown as Array<Record<string, unknown>>) ?? [];
+    let cursor: unknown = undefined;
+    let pages = 0;
+    while (raw.length < MAX_RECORDS && pages < MAX_PAGES) {
+      const page = await fetchCallGridCallsPage({
+        apiKey,
+        since,
+        until,
+        limit: Math.min(PAGE_SIZE, MAX_RECORDS - raw.length),
+        cursor,
+      });
+      pages += 1;
+      raw.push(...page.records);
+      if (!page.hasMore || !page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
   } catch (error) {
     // The message may name a host or status; it must never carry the key.
     return NextResponse.json(
@@ -196,7 +225,14 @@ export async function GET(req: Request) {
     counts: {
       sourceRecords: report.sourceRecords,
       loopRecords: report.loopRecords,
+      rawRecordsFetched: raw.length,
       capped: raw.length >= MAX_RECORDS,
+    },
+    // The live response contract, recorded by the first successful run. KEYS
+    // ONLY — never values — so this diagnostic cannot leak a phone number, a
+    // recording URL, or anything the provider echoed back.
+    observedShape: {
+      recordKeys: raw[0] ? Object.keys(raw[0]).slice(0, 60) : [],
     },
     moneyUnit: { verdict: moneyUnitVerdict, evidence: moneyEvidence },
     reconciliation: {

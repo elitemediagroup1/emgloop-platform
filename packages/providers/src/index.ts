@@ -63,6 +63,8 @@ export { CallGridProvider, mapCallgridEventType, CALLGRID_EVENT_MAP } from './ad
 // Sprint 17 - CallGrid REST API reconciliation/backfill client.
 export {
   fetchCallGridCallsPage,
+  extractRecordsOrNull,
+  describeShape,
   fetchAllCallGridCalls,
   mapCallGridApiRecord,
   resolveCallGridBaseUrl,

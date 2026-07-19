@@ -264,15 +264,51 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
 }
 
 /** Extract the records array from a CallGrid response of unknown envelope shape. */
-function extractRecords(body: unknown): Array<Record<string, unknown>> {
-    if (Array.isArray(body)) return body as Array<Record<string, unknown>>;
+/** Envelope shapes CallGrid may legitimately return, in precedence order. */
+const RECORD_ENVELOPE_KEYS = ['data', 'calls', 'results', 'items', 'records'] as const;
+
+/**
+ * Locate the records array inside a CallGrid response.
+ *
+ * Returns null when the envelope is UNRECOGNISED, which is deliberately
+ * different from an empty page. The previous version returned `[]` for both, so
+ * a response shape we do not understand was indistinguishable from a day with
+ * no calls — it would have reported "0 calls, reconciled clean" against a
+ * marketplace that had traffic. A shape we cannot parse is an error, not a zero.
+ */
+export function extractRecordsOrNull(
+  body: unknown,
+): { records: Array<Record<string, unknown>>; envelope: string } | null {
+    if (Array.isArray(body)) {
+          return { records: body as Array<Record<string, unknown>>, envelope: 'array' };
+    }
     if (body && typeof body === 'object') {
           const o = body as Record<string, unknown>;
-          for (const key of ['data', 'calls', 'results', 'items', 'records']) {
-                  if (Array.isArray(o[key])) return o[key] as Array<Record<string, unknown>>;
+          for (const key of RECORD_ENVELOPE_KEYS) {
+                  if (Array.isArray(o[key])) {
+                            return { records: o[key] as Array<Record<string, unknown>>, envelope: key };
+                  }
           }
     }
-    return [];
+    return null;
+}
+
+/**
+ * Describe a response shape for an error message: top-level KEYS ONLY.
+ *
+ * Never includes values, so a diagnostic cannot leak a phone number, a
+ * recording URL, or a credential echoed back by the provider.
+ */
+export function describeShape(body: unknown): string {
+    if (Array.isArray(body)) return 'array';
+    if (body === null) return 'null';
+    if (typeof body !== 'object') return typeof body;
+    const keys = Object.keys(body as Record<string, unknown>).slice(0, 20);
+    return `object{${keys.join(',')}}`;
+}
+
+function extractRecords(body: unknown): Array<Record<string, unknown>> {
+    return extractRecordsOrNull(body)?.records ?? [];
 }
 
 /** Extract the next-page cursor from a CallGrid response, if present. */
@@ -331,7 +367,16 @@ export async function fetchCallGridCallsPage(
     } catch {
           throw new CallGridApiError('CallGrid API returned non-JSON body', res.status);
     }
-    const records = extractRecords(body);
+    const parsed = extractRecordsOrNull(body);
+    if (!parsed) {
+          // Keys only — never values. An unparseable envelope must fail loudly
+          // rather than masquerade as a day with no calls.
+          throw new CallGridApiError(
+                  'CallGrid API returned an unrecognised response shape: ' + describeShape(body),
+                  res.status,
+                );
+    }
+    const records = parsed.records;
     const envelope = (body && typeof body === 'object' ? body : {}) as { hasMore?: unknown; nextCursor?: unknown };
     const apiHasMore = envelope.hasMore === true;
     const nextCursor: unknown = envelope.nextCursor != null ? envelope.nextCursor : extractCursor(body);
