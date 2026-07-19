@@ -7,6 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { toNumber, pickField, parseDurationSeconds } from '../src/adapters/callgrid-api';
+import { boolFrom } from '../src/adapters/callgrid.provider';
+import { parseTimestamp } from '../src/webhook-security';
 
 // --- Defect 1.2: unknown money became a measured $0.00 ---------------------
 
@@ -68,4 +70,26 @@ test('duration parses both integer seconds and HH:MM:SS', () => {
 test('a non-numeric duration is unknown, not zero', () => {
   assert.equal(parseDurationSeconds('N/A'), undefined);
   assert.equal(parseDurationSeconds(undefined), undefined);
+});
+
+// --- Defect: fractional unix epoch resolved to 1970 -------------------------
+
+test('a fractional unix-seconds timestamp is not misread as milliseconds', () => {
+  // The old heuristic classified by STRING LENGTH: "1752854400.123" is 14
+  // characters, was treated as milliseconds, and resolved to 1970-01-21 —
+  // silently moving the call out of every reporting window.
+  const iso = (v: string) => new Date(parseTimestamp(v)).toISOString();
+  assert.equal(iso('1752854400'), '2025-07-18T16:00:00.000Z', 'unix seconds');
+  assert.equal(iso('1752854400000'), '2025-07-18T16:00:00.000Z', 'unix milliseconds');
+  assert.equal(iso('1752854400.123'), '2025-07-18T16:00:00.123Z', 'fractional seconds');
+  assert.equal(iso('01752854400'), '2025-07-18T16:00:00.000Z', 'zero-padded seconds');
+});
+
+test('CallGrid boolean strings are all interpreted', () => {
+  // Every value in the CallGrid webhook template is quoted, so booleans arrive
+  // as strings — "true"/"True"/"1"/"yes" must all resolve.
+  for (const t of ['true', 'True', 'TRUE', '1', 'yes', 'y']) assert.equal(boolFrom(t), true, t);
+  for (const f of ['false', 'False', '0', 'no', 'n']) assert.equal(boolFrom(f), false, f);
+  assert.equal(boolFrom(''), undefined, 'empty stays unknown');
+  assert.equal(boolFrom('maybe'), undefined, 'unrecognised stays unknown');
 });

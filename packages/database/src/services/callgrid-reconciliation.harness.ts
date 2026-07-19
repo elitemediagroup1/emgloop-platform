@@ -42,6 +42,8 @@ export interface CallGridSourceCall {
   qualified?: boolean | null;
   converted?: boolean | null;
   duplicate?: boolean | null;
+  /** CallGrid states profit directly (tag CallProfit). Used as an invariant. */
+  profit?: number | null;
 }
 
 /** The same call as Loop persisted it, read from MarketplaceCall. */
@@ -308,6 +310,32 @@ export function reconcile(
     check('Average duration (s)', avg(srcDur), avg(lpDur), 1, fmtNum),
     check('Calls carrying revenue', srcRevenue.counted, lpRevenue.counted, 0, fmtNum),
   ];
+
+  // --- Invariant: CallGrid's own profit vs revenue - payout - cost ---------
+  // This does NOT settle dollars-vs-cents in absolute terms — both sides could
+  // be cents and still agree. What it catches is a unit mismatch BETWEEN the
+  // economic fields, and any arithmetic error in how Loop derives margin.
+  for (const s of src) {
+    const stated = toCents(s.profit, opts.sourceMoneyUnit);
+    const rev = toCents(s.revenue, opts.sourceMoneyUnit);
+    const pay = toCents(s.payout, opts.sourceMoneyUnit);
+    const cst = toCents(s.cost, opts.sourceMoneyUnit);
+    if (stated === null || rev === null) continue;
+    const derived = rev - (pay ?? 0) - (cst ?? 0);
+    if (Math.abs(derived - stated) > tol) {
+      fieldMismatches.push({
+        metric: `profit-invariant[${s.call_id}]`,
+        sourceValue: fmtMoney(stated),
+        loopValue: fmtMoney(derived),
+        difference: fmtMoney(derived - stated),
+        status: 'fail',
+        reason:
+          "CallGrid's stated profit does not equal revenue - payout - cost. Either the economic " +
+          'fields are not all in the same unit, or margin is defined differently than Loop assumes.',
+        affected: [s.call_id],
+      });
+    }
+  }
 
   const failures = [...fieldMismatches, ...aggregates].filter((c) => c.status === 'fail');
   const unverifiable = aggregates.filter((c) => c.status === 'unverifiable');

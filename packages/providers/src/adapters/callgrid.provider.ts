@@ -109,7 +109,7 @@ function numeric(value: string | undefined): number | undefined {
 }
 
 /** Coerce a CallGrid yes/no/true/1 style flag into a real boolean, or undefined. */
-function boolFrom(value: string | undefined): boolean | undefined {
+export function boolFrom(value: string | undefined): boolean | undefined {
     if (value === undefined) return undefined;
     const v = String(value).trim().toLowerCase();
     if (v === 'yes' || v === 'true' || v === '1' || v === 'y') return true;
@@ -282,6 +282,14 @@ export class CallGridProvider implements IngestionProvider {
         // cost is CallGrid's telco-cost field (there is no separate 'Telco' tag);
       // mirrored onto both 'cost' and 'telco' metadata keys so either reader works.
       const cost = numeric(pick(data, ['cost', 'telco', 'telco_cost', 'telcoCost']));
+        // CallGrid states profit directly (tag CallProfit). Loop previously
+        // discarded it and derived margin as revenue - payout - cost instead.
+        // Carrying the source value gives an authoritative figure AND an
+        // independent invariant: profit should equal revenue - payout - cost.
+        // That is the cheapest available check that our money handling and
+        // CallGrid's agree — it will not settle dollars-vs-cents on its own,
+        // but it catches a unit mismatch BETWEEN the economic fields.
+        const profit = numeric(pick(data, ['profit', 'net_profit', 'netProfit', 'gross_profit']));
         const billable = boolFrom(pick(data, ['billable', 'is_billable', 'isBillable']));
         const paid = boolFrom(pick(data, ['paid', 'is_paid', 'isPaid']));
         const converted = boolFrom(pick(data, ['converted', 'is_converted', 'isConverted', 'conversion']));
@@ -324,6 +332,7 @@ export class CallGridProvider implements IngestionProvider {
                         destination: destinationName,
                         durationSeconds,
                         revenue,
+                        profit,
                         payout,
                         cost,
                         telco: cost,

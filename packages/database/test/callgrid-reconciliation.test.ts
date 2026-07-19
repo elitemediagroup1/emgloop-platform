@@ -154,3 +154,30 @@ test('the report renders a readable table', () => {
   assert.match(out, /Revenue/);
   assert.match(out, /PASS/);
 });
+
+// --- Profit invariant (Sprint 33: CallGrid sends CallProfit) ----------------
+
+test("CallGrid's stated profit is checked against revenue - payout - cost", () => {
+  // Consistent: 25.50 - 10 - 1.50 = 14.00
+  const ok = reconcile(
+    [srcCall({ call_id: 'a', revenue: 25.5, payout: 10, cost: 1.5, profit: 14 })],
+    [loopCall({ externalId: 'a' })],
+    opts,
+  );
+  assert.equal(ok.fieldMismatches.filter((m) => m.metric.startsWith('profit-invariant')).length, 0);
+
+  // Inconsistent: stated profit disagrees with the arithmetic.
+  const bad = reconcile(
+    [srcCall({ call_id: 'a', revenue: 25.5, payout: 10, cost: 1.5, profit: 99 })],
+    [loopCall({ externalId: 'a' })],
+    opts,
+  );
+  const m = bad.fieldMismatches.find((x) => x.metric.startsWith('profit-invariant'));
+  assert.ok(m, 'a profit that contradicts the arithmetic must be reported');
+  assert.match(m!.reason ?? '', /same unit|defined differently/i);
+});
+
+test('the profit invariant is skipped when profit is not supplied', () => {
+  const r = reconcile([srcCall({ call_id: 'a', profit: null })], [loopCall({ externalId: 'a' })], opts);
+  assert.equal(r.fieldMismatches.filter((m) => m.metric.startsWith('profit-invariant')).length, 0);
+});
