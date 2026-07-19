@@ -54,3 +54,16 @@ export const repositories: Repositories = createRepositories(prisma);
 
 export * from '@prisma/client';
 export default prisma;
+
+// CallGrid live reconciliation harness (pure; runs against any record source).
+export {
+  reconcile,
+  formatReconcileReport,
+} from './services/callgrid-reconciliation.harness';
+export type {
+  CallGridSourceCall,
+  LoopCall,
+  ReconcileReport,
+  ReconcileOptions,
+  FieldCheck,
+} from './services/callgrid-reconciliation.harness';

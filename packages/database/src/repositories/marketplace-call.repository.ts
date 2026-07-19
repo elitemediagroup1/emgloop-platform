@@ -153,6 +153,54 @@ export class MarketplaceCallRepository {
   }
 
   /**
+   * Read-only window listing for live reconciliation against CallGrid.
+   *
+   * Selects only the columns the comparison needs — no caller phone, no raw
+   * payload — so a reconciliation response cannot carry PII it never loaded.
+   */
+  async listWindowForReconciliation(
+    organizationId: string,
+    since: Date,
+    until: Date,
+    take: number,
+  ): Promise<
+    Array<{
+      externalId: string;
+      sourceOccurredAt: Date;
+      durationSeconds: number | null;
+      revenueCents: number | null;
+      payoutCents: number | null;
+      costCents: number | null;
+      buyerLabel: string | null;
+      campaignLabel: string | null;
+      sourceLabel: string | null;
+      qualified: boolean | null;
+      converted: boolean | null;
+      duplicate: boolean | null;
+    }>
+  > {
+    return this.prisma.marketplaceCall.findMany({
+      where: { organizationId, sourceOccurredAt: { gte: since, lt: until } },
+      orderBy: { sourceOccurredAt: 'asc' },
+      take,
+      select: {
+        externalId: true,
+        sourceOccurredAt: true,
+        durationSeconds: true,
+        revenueCents: true,
+        payoutCents: true,
+        costCents: true,
+        buyerLabel: true,
+        campaignLabel: true,
+        sourceLabel: true,
+        qualified: true,
+        converted: true,
+        duplicate: true,
+      },
+    });
+  }
+
+  /**
    * The canonical CallGrid window metrics, each as Truth.
    *
    * This is the authoritative operational read for the Marketplace. It reads
