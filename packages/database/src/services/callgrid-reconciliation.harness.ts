@@ -78,7 +78,145 @@ export interface ReconcileOptions {
   moneyToleranceCents?: number;
 }
 
-export type CheckStatus = 'pass' | 'fail' | 'unverifiable';
+export type CheckStatus = 'pass' | 'fail' | 'unverifiable' | 'definition-mismatch';
+
+/** Whether two terms name the same business concept at all. */
+export type DefinitionStatus = 'equivalent' | 'different' | 'unknown';
+
+/** What to do about a term that is not equivalent. */
+export type DefinitionAction = 'compare' | 'rename' | 'remap' | 'keep-separate';
+
+export interface BusinessDefinition {
+  /** Loop's term, as it appears in the reconciliation. */
+  metric: string;
+  /** CallGrid's term, or null when CallGrid has no such concept. */
+  callgridTerm: string | null;
+  status: DefinitionStatus;
+  loopDefinition: string;
+  callgridDefinition: string;
+  recommendation: DefinitionAction;
+  note: string;
+}
+
+/**
+ * The Business Definition Matrix.
+ *
+ * A reconciliation can only fail honestly on metrics that MEAN the same thing.
+ * Reporting "Qualified: source 0, Loop 41, FAIL" is not a data defect — CallGrid
+ * has no notion of qualified at all, so the comparison was never valid. Doing
+ * that repeatedly trains an operator to ignore the report, which is worse than
+ * having no report.
+ *
+ * Every entry is derived from code, not from the similarity of the two names.
+ */
+export const BUSINESS_DEFINITIONS: readonly BusinessDefinition[] = [
+  {
+    metric: 'Calls',
+    callgridTerm: 'Call record',
+    status: 'equivalent',
+    loopDefinition: 'One MarketplaceCall row per (provider, externalId) in the window.',
+    callgridDefinition: 'One call record per CallId.',
+    recommendation: 'compare',
+    note: 'Directly comparable. The unique key matches CallGrid\'s own idempotency key.',
+  },
+  {
+    metric: 'Revenue',
+    callgridTerm: 'CallRevenue',
+    status: 'equivalent',
+    loopDefinition: 'Sum of non-null revenueCents. Nulls reduce coverage rather than summing as 0.',
+    callgridDefinition: 'Per-call revenue as stated by CallGrid.',
+    recommendation: 'compare',
+    note: 'Same concept. The UNIT is still unproven — comparison must declare it, never guess.',
+  },
+  {
+    metric: 'Payout',
+    callgridTerm: 'CallPayout',
+    status: 'equivalent',
+    loopDefinition: 'Sum of non-null payoutCents.',
+    callgridDefinition: 'Per-call payout as stated by CallGrid.',
+    recommendation: 'compare',
+    note: 'Same concept, same unit caveat as Revenue.',
+  },
+  {
+    metric: 'Billable calls',
+    callgridTerm: 'CallBillable',
+    status: 'equivalent',
+    loopDefinition: 'Count where billable === true. Null is not counted as false.',
+    callgridDefinition: 'Per-call billable flag.',
+    recommendation: 'compare',
+    note: 'Direct 1:1 field mapping, confirmed by the webhook template.',
+  },
+  {
+    metric: 'Converted calls',
+    callgridTerm: 'CallConverted',
+    status: 'equivalent',
+    loopDefinition: 'Count where converted === true.',
+    callgridDefinition: 'Per-call converted flag.',
+    recommendation: 'compare',
+    note:
+      'Direct 1:1 field mapping (converted <- CallConverted), confirmed by the webhook template. ' +
+      'Note this flag is one of the three inputs Loop uses to derive its own "qualified" — compare ' +
+      'converted here, never the derivation.',
+  },
+  {
+    metric: 'Qualified calls',
+    callgridTerm: null,
+    status: 'different',
+    loopDefinition: 'DERIVED by Loop: billable === true OR converted === true OR paid === true.',
+    callgridDefinition: 'No such concept. CallGrid sends no qualified field of any kind.',
+    recommendation: 'rename',
+    note:
+      'A Loop invention presented as a sensor fact — it is even stored on MarketplaceCall.qualified ' +
+      'beside genuine provider flags. It measures "the call produced a positive commercial outcome", ' +
+      'not "the call met a qualification standard", and an executive reading a qualification RATE ' +
+      'will read it as call quality. Rename to monetizedCalls (or similar) and never reconcile it.',
+  },
+  {
+    metric: 'Connected calls',
+    callgridTerm: 'CallNoRoute (inverse, partial)',
+    status: 'different',
+    loopDefinition:
+      'Loop has NO connected field. Coverage infers "connectivity is known" from status, rawStatus or noRoute being non-null.',
+    callgridDefinition:
+      'CallGrid exposes connected / connectFailed / noConnect as distinct facts; the webhook template sends only noRoute.',
+    recommendation: 'remap',
+    note:
+      '"Connectivity is known" and "the call connected" are different statements — the first is about ' +
+      'our coverage, the second about the call. Consume the real connected/connectFailed/noConnect ' +
+      'fields before reporting a connection rate.',
+  },
+  {
+    metric: 'Duration',
+    callgridTerm: 'CallDuration',
+    status: 'unknown',
+    loopDefinition: 'durationSeconds, treated as TOTAL call duration in seconds.',
+    callgridDefinition:
+      'CallDuration — scope unstated. CallGrid separately exposes a billable duration.',
+    recommendation: 'keep-separate',
+    note:
+      'Three distinct quantities (total, connected, billable) may be collapsing into one column: the ' +
+      'adapter alias list falls back to billable_duration, so if the primary key is absent BILLABLE ' +
+      'duration lands in a field named total duration. Scope must be confirmed before any duration ' +
+      'comparison is meaningful.',
+  },
+  {
+    metric: 'Average duration',
+    callgridTerm: null,
+    status: 'unknown',
+    loopDefinition: 'Sum of known durations / count of calls WITH a duration. Unknowns excluded, not zeroed.',
+    callgridDefinition: 'Denominator unknown — may divide by all calls, including unconnected ones.',
+    recommendation: 'keep-separate',
+    note:
+      'Inherits the Duration scope question, and adds a denominator question. Two averages over ' +
+      'different denominators are different metrics even when both are labelled "average duration".',
+  },
+] as const;
+
+const DEFINITION_BY_METRIC = new Map(BUSINESS_DEFINITIONS.map((d) => [d.metric, d]));
+
+/** The definition for a metric, if one is registered. */
+export const definitionFor = (metric: string): BusinessDefinition | undefined =>
+  DEFINITION_BY_METRIC.get(metric);
 
 export interface FieldCheck {
   metric: string;
@@ -103,6 +241,12 @@ export interface ReconcileReport {
   fieldMismatches: FieldCheck[];
   /** Aggregate comparisons — the numbers an executive actually reads. */
   aggregates: FieldCheck[];
+  /**
+   * Metrics that were NOT compared because Loop and CallGrid do not measure the
+   * same business concept. These are never failures — they are naming and
+   * mapping decisions, and each carries a recommended action.
+   */
+  definitionMismatches: FieldCheck[];
   passed: boolean;
   summary: string;
 }
@@ -126,6 +270,23 @@ function check(
   fmt: (n: number | null) => string,
   affected: string[] = [],
 ): FieldCheck {
+  // A metric whose definitions differ cannot fail a VALUE comparison, because
+  // the comparison was never valid. Reporting it as a data defect would send
+  // someone hunting an ingestion bug that does not exist.
+  const definition = definitionFor(metric);
+  if (definition && definition.status !== 'equivalent') {
+    return {
+      metric,
+      sourceValue: fmt(source),
+      loopValue: fmt(loop),
+      difference: 'not comparable',
+      status: 'definition-mismatch',
+      reason:
+        `Business definition ${definition.status}: ${definition.note} ` +
+        `Recommended action: ${definition.recommendation}.`,
+      affected,
+    };
+  }
   // Unknown on either side is NOT a pass and NOT a fail — it is unverifiable,
   // and collapsing it into either would misrepresent the state of the audit.
   if (source === null || loop === null) {
@@ -337,17 +498,29 @@ export function reconcile(
     }
   }
 
-  const failures = [...fieldMismatches, ...aggregates].filter((c) => c.status === 'fail');
+  const all = [...fieldMismatches, ...aggregates];
+  const failures = all.filter((c) => c.status === 'fail');
   const unverifiable = aggregates.filter((c) => c.status === 'unverifiable');
+  const definitionMismatches = all.filter((c) => c.status === 'definition-mismatch');
+
+  // A definition mismatch does NOT fail reconciliation. It is a naming or
+  // mapping decision, not a data defect, and treating it as a failure would
+  // train an operator to ignore genuine failures alongside it.
   const passed = failures.length === 0 && missingInLoop.length === 0 && extraInLoop.length === 0;
 
-  const summary = passed
-    ? `Reconciled ${src.length} source record(s) with no mismatches.` +
-      (unverifiable.length > 0
-        ? ` ${unverifiable.length} metric(s) UNVERIFIABLE — the source did not supply them.`
-        : '')
-    : `${failures.length} mismatch(es), ${missingInLoop.length} record(s) missing from Loop, ` +
-      `${extraInLoop.length} extra record(s) in Loop.`;
+  const notes = [
+    unverifiable.length > 0
+      ? `${unverifiable.length} metric(s) UNVERIFIABLE — the source did not supply them.`
+      : '',
+    definitionMismatches.length > 0
+      ? `${definitionMismatches.length} metric(s) NOT COMPARED — Loop and CallGrid measure different concepts.`
+      : '',
+  ].filter(Boolean).join(' ');
+
+  const summary = (passed
+    ? `Reconciled ${src.length} source record(s) with no value mismatches.`
+    : `${failures.length} value mismatch(es), ${missingInLoop.length} record(s) missing from Loop, ` +
+      `${extraInLoop.length} extra record(s) in Loop.`) + (notes ? ` ${notes}` : '');
 
   return {
     window: { since: opts.since.toISOString(), until: opts.until.toISOString() },
@@ -355,8 +528,9 @@ export function reconcile(
     loopRecords: lp.length,
     missingInLoop,
     extraInLoop,
-    fieldMismatches,
+    fieldMismatches: fieldMismatches.filter((c) => c.status !== 'definition-mismatch'),
     aggregates,
+    definitionMismatches,
     passed,
     summary,
   };
@@ -365,7 +539,14 @@ export function reconcile(
 /** Render a report as a fixed-width table for a PR body or a terminal. */
 export function formatReconcileReport(r: ReconcileReport): string {
   const rows = r.aggregates.map((c) => {
-    const mark = c.status === 'pass' ? 'PASS' : c.status === 'fail' ? 'FAIL' : 'UNVERIFIABLE';
+    const mark =
+      c.status === 'pass'
+        ? 'PASS'
+        : c.status === 'fail'
+          ? 'FAIL'
+          : c.status === 'definition-mismatch'
+            ? 'NOT COMPARABLE'
+            : 'UNVERIFIABLE';
     return `| ${c.metric.padEnd(24)} | ${c.sourceValue.padStart(14)} | ${c.loopValue.padStart(14)} | ${c.difference.padStart(12)} | ${mark} |`;
   });
   return [

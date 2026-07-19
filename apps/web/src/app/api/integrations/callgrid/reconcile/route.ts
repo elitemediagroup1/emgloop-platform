@@ -254,6 +254,9 @@ export async function GET(req: Request) {
       missingInLoop: report.missingInLoop.map(handle),
       extraInLoop: report.extraInLoop.map(handle),
       aggregates: report.aggregates,
+      // Metrics NOT compared because Loop and CallGrid measure different
+      // business concepts. These are naming/mapping decisions, never failures.
+      definitionMismatches: report.definitionMismatches,
       fieldMismatches: report.fieldMismatches.slice(0, 50).map((m) => ({
         ...m,
         metric: m.metric.replace(/\[([^\]]+)\]/, (_, id: string) => `[${handle(id)}]`),

@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   reconcile,
   formatReconcileReport,
+  BUSINESS_DEFINITIONS,
   type CallGridSourceCall,
   type LoopCall,
 } from '../src/services/callgrid-reconciliation.harness';
@@ -140,12 +141,21 @@ test('field mismatches name the affected record so it can be investigated', () =
 });
 
 test('aggregate counts of outcome flags are compared', () => {
+  // Converted IS a direct CallGrid field, so a count gap is a genuine failure.
   const r = reconcile(
-    [srcCall({ call_id: 'a', qualified: true }), srcCall({ call_id: 'b', qualified: false })],
-    [loopCall({ externalId: 'a', qualified: true }), loopCall({ externalId: 'b', qualified: true })],
+    [srcCall({ call_id: 'a', converted: true }), srcCall({ call_id: 'b', converted: false })],
+    [loopCall({ externalId: 'a', converted: true }), loopCall({ externalId: 'b', converted: true })],
     opts,
   );
-  assert.equal(r.aggregates.find((c) => c.metric === 'Qualified calls')?.status, 'fail');
+  assert.equal(r.aggregates.find((c) => c.metric === 'Converted calls')?.status, 'fail');
+
+  // Qualified is NOT — it is a Loop derivation, so the same gap is not a failure.
+  const q = reconcile(
+    [srcCall({ call_id: 'a', qualified: null })],
+    [loopCall({ externalId: 'a', qualified: true })],
+    opts,
+  );
+  assert.equal(q.aggregates.find((c) => c.metric === 'Qualified calls')?.status, 'definition-mismatch');
 });
 
 test('the report renders a readable table', () => {
@@ -180,4 +190,74 @@ test("CallGrid's stated profit is checked against revenue - payout - cost", () =
 test('the profit invariant is skipped when profit is not supplied', () => {
   const r = reconcile([srcCall({ call_id: 'a', profit: null })], [loopCall({ externalId: 'a' })], opts);
   assert.equal(r.fieldMismatches.filter((m) => m.metric.startsWith('profit-invariant')).length, 0);
+});
+
+// --- Business Definition Matrix --------------------------------------------
+//
+// A reconciliation may only fail on metrics that MEAN the same thing.
+// "Qualified: source 0, Loop 41, FAIL" is not a data defect — CallGrid has no
+// notion of qualified — and reporting it as one trains an operator to ignore
+// the report, which is worse than having no report.
+
+test('a metric CallGrid does not measure is NOT reported as a failure', () => {
+  const r = reconcile(
+    [srcCall({ call_id: 'a', qualified: null }), srcCall({ call_id: 'b', qualified: null })],
+    [loopCall({ externalId: 'a', qualified: true }), loopCall({ externalId: 'b', qualified: true })],
+    opts,
+  );
+  const q = r.aggregates.find((c) => c.metric === 'Qualified calls');
+  assert.equal(q?.status, 'definition-mismatch', 'qualified is a Loop derivation, not a CallGrid fact');
+  assert.notEqual(q?.status, 'fail');
+  assert.equal(q?.difference, 'not comparable');
+});
+
+test('a definition mismatch does not fail the whole reconciliation', () => {
+  const r = reconcile([srcCall({ call_id: 'a' })], [loopCall({ externalId: 'a' })], opts);
+  assert.equal(r.passed, true, 'values agree, so reconciliation passes');
+  assert.ok(r.definitionMismatches.length > 0, 'but incomparable metrics are still surfaced');
+  assert.equal(
+    r.definitionMismatches.every((d) => d.status === 'definition-mismatch'),
+    true,
+  );
+});
+
+test('every definition mismatch carries a recommended action', () => {
+  const r = reconcile([srcCall({ call_id: 'a' })], [loopCall({ externalId: 'a' })], opts);
+  for (const d of r.definitionMismatches) {
+    assert.match(
+      d.reason ?? '',
+      /Recommended action: (compare|rename|remap|keep-separate)/,
+      `${d.metric} must recommend an action`,
+    );
+  }
+});
+
+test('equivalent metrics are still compared normally', () => {
+  // The matrix must not become a way to excuse real failures.
+  const r = reconcile(
+    [srcCall({ call_id: 'a', revenue: 10 })],
+    [loopCall({ externalId: 'a', revenueCents: 9999 })],
+    opts,
+  );
+  const rev = r.aggregates.find((c) => c.metric === 'Revenue');
+  assert.equal(rev?.status, 'fail', 'Revenue IS equivalent, so a value gap is a real failure');
+  assert.equal(r.passed, false);
+});
+
+test('definition mismatches are excluded from the failure count', () => {
+  const r = reconcile([srcCall({ call_id: 'a' })], [loopCall({ externalId: 'a' })], opts);
+  assert.doesNotMatch(r.summary, /^[1-9][0-9]* value mismatch/, 'no value mismatches reported');
+  assert.match(r.summary, /NOT COMPARED/, 'but the incomparable ones are named');
+});
+
+test('the matrix is grounded, not aspirational', () => {
+  for (const d of BUSINESS_DEFINITIONS) {
+    assert.ok(d.loopDefinition.length > 20, `${d.metric} needs a real Loop definition`);
+    assert.ok(d.callgridDefinition.length > 15, `${d.metric} needs a real CallGrid definition`);
+    assert.ok(d.note.length > 30, `${d.metric} needs a substantive note`);
+    // A metric CallGrid does not measure must not be marked equivalent.
+    if (d.callgridTerm === null) {
+      assert.notEqual(d.status, 'equivalent', `${d.metric} has no CallGrid term — cannot be equivalent`);
+    }
+  }
 });
