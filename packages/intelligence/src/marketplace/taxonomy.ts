@@ -75,6 +75,8 @@ export interface FailureMode {
 }
 
 const KB = 'callgrid.com/knowledge-base/call-bidding-error-codes-explained';
+/** The authoritative machine contract: api.callgrid.com/openapi (public, OpenAPI 3.0.0). */
+const OAS = 'api.callgrid.com/openapi';
 
 /**
  * The verified failure modes.
@@ -216,6 +218,123 @@ export const FAILURE_MODES: readonly FailureMode[] = [
     providerCode: '5001',
     citation: KB,
     exclusive: true,
+  },
+  // --- Verified from the OpenAPI report contracts -------------------------
+  // These come from /api/reports/bidStats/rejections and /api/reports/pingStats.
+  // The rejection vocabulary there is RICHER than the published error codes:
+  // minRevenue, missingAmount, invalidNumber, durationElapsed, pingTimeout,
+  // apiFailed and suppressed have no 4001-5001 equivalent at all. A taxonomy
+  // built only from the error-codes article would have silently dropped them.
+  {
+    id: 'destination-closed',
+    label: 'Destination was closed',
+    category: 'configuration',
+    owner: 'buyer',
+    actionable: true,
+    meaning: 'The destination was outside its operating hours or otherwise closed to traffic.',
+    providerDefinition: 'Rejected: destination closed',
+    providerCode: 'rejections.closed',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'acceptance-parse-failed',
+    label: "Buyer's acceptance response could not be read",
+    category: 'provider',
+    owner: 'buyer',
+    actionable: true,
+    meaning:
+      "The buyer replied, but the response could not be parsed. An integration fault on the buyer side, NOT a decline — counting it as a rejection would blame the wrong party.",
+    providerDefinition: 'Rejected: failed acceptance parsing',
+    providerCode: 'rejections.failedAcceptance',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'below-minimum-revenue',
+    label: 'Bid was below the minimum accepted price',
+    category: 'pricing',
+    owner: 'buyer',
+    actionable: true,
+    meaning:
+      'The bid did not clear the destination\'s revenue floor. The first genuinely PRICING-driven loss in the taxonomy — distinct from losing an auction on price.',
+    providerDefinition: 'Rejected: below minimum revenue',
+    providerCode: 'pingStats.minRevenue',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'bid-amount-missing',
+    label: 'Bid arrived with no amount',
+    category: 'provider',
+    owner: 'source',
+    actionable: true,
+    meaning: 'A bid was submitted without a price. An integration defect, not a commercial decision.',
+    providerDefinition: 'Rejected: missing bid amount',
+    providerCode: 'pingStats.missingAmount',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'invalid-number',
+    label: 'Phone number was invalid',
+    category: 'eligibility',
+    owner: 'source',
+    actionable: true,
+    meaning: 'The supplied number failed validation. A traffic-quality problem at the source.',
+    providerDefinition: 'Rejected: invalid phone number',
+    providerCode: 'pingStats.invalidNumber',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'duration-elapsed',
+    label: 'Offer expired before it could be used',
+    category: 'latency',
+    owner: 'source',
+    actionable: true,
+    meaning: 'The permitted duration elapsed before the opportunity was converted.',
+    providerDefinition: 'Rejected: duration seconds exceeded',
+    providerCode: 'pingStats.durationElapsed',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'ping-timeout',
+    label: 'Buyer did not respond in time',
+    category: 'latency',
+    owner: 'buyer',
+    actionable: true,
+    meaning:
+      'The destination did not answer the ping within the allowed window. Latency, not price — a fast cheap buyer beats a slow expensive one here.',
+    providerDefinition: 'Rejected: ping timeout',
+    providerCode: 'pingStats.pingTimeout',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'buyer-api-failed',
+    label: "Buyer's system errored",
+    category: 'provider',
+    owner: 'buyer',
+    actionable: true,
+    meaning: 'The destination API failed outright. An availability problem on the buyer side.',
+    providerDefinition: 'Rejected: api failure',
+    providerCode: 'pingStats.apiFailed',
+    citation: OAS,
+    exclusive: 'unknown',
+  },
+  {
+    id: 'suppressed',
+    label: 'Suppressed by policy',
+    category: 'compliance',
+    owner: 'platform',
+    actionable: false,
+    meaning: 'Deliberately suppressed. Working as intended; not recoverable demand.',
+    providerDefinition: 'Rejected: suppressed',
+    providerCode: 'pingStats.suppressed',
+    citation: OAS,
+    exclusive: 'unknown',
   },
 ] as const;
 

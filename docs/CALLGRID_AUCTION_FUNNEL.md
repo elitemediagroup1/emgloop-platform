@@ -200,3 +200,103 @@ Module 2's ingestion design differs completely between those.
 The reporting endpoint · report field names · report money units · percentage representation ·
 latency unit · whether event-level bid records exist at all · whether `Made` and `Won` in the report
 share the denominator the error codes imply.
+
+
+---
+
+## 8. CORRECTION + verified API contract (Sprint 39b)
+
+### Correction: I was wrong that no bid-reporting API was documented
+
+Section 7 concluded *"no bid-reporting API is documented in any public CallGrid source."* **That was
+wrong.** The OpenAPI specification is **publicly readable, unauthenticated**, at:
+
+```
+https://api.callgrid.com/openapi     →  200, 249 KB, OpenAPI 3.0.0, 35 paths
+```
+
+I had probed `/api/documentation/json` and `/api/oapi.json` — both 401 — and never tried `/openapi`.
+
+**Methodological lesson worth keeping:** unauthenticated probing cannot prove an endpoint does *not*
+exist on this API. Auth fires before routing, so a nonsense path also returns 401. **Only the spec is
+authoritative.** The discovery endpoint built in Sprint 38 inherits this flaw — its 401s would have
+been uninformative.
+
+### Verified report contract
+
+| Endpoint | Method | Grouping | Envelope |
+|---|---|---|---|
+| `/api/reports/bidStats` | GET | **source only** | `data[]`, `totalPages`, `footerTotals` |
+| `/api/reports/bidStats/rejections` | GET | **source only** | same |
+| `/api/reports/pingStats` | GET | **destination only** | + `count` |
+| `/api/reports/stats` | POST | **pivotable** (Campaign/Buyer/Source/Destination/InboundState) | + `aggregations` |
+
+- **Auth:** the spec declares `apiKey` **in query string**, not Bearer. Our client sends Bearer and it
+  works, so both are accepted — but the spec's scheme is the documented one.
+- **Paging:** `page` (zero-based) + `limit`, with `totalPages`. Distinct from `/api/call`'s cursor model.
+- **Filters:** `startDate`/`endDate` (ISO 8601, **inclusive both ends** — note `/api/call` uses
+  half-open), `search`, `sortColumn`, `sortDirection`, `organizationId`.
+- **`footerTotals`** is the report's own totals row — the ideal anchor for reconciliation, exactly the
+  absolute-value anchoring that settled the call layer's money unit.
+
+### FINDING: the five-way grouping requirement is NOT satisfiable
+
+The business requirement asks for bid metrics grouped by Campaign, Buyer, Destination, Vendor and
+Source. The API does not offer that:
+
+- `bidStats` and `rejections` are **by source only** — no grouping parameter exists.
+- `pingStats` is **by destination only**.
+- Only `/reports/stats` pivots — and it is a **call** statistics endpoint, not a bid one.
+
+**Campaign-, buyer- and vendor-level bid metrics cannot be retrieved.** Any Module 2 design promising
+them would be promising something the provider does not expose.
+
+### FINDING: the report UI and the API use DIFFERENT denominators
+
+The spec documents its rates as formulas. Checked against the owner's report:
+
+| Rate | Spec formula | Spec result | Report shows |
+|---|---|---|---|
+| `bidRate` | `bids / total × 100` | **57.34%** | Made % **8.16%** |
+| `rejectRate` | `rejected / total × 100` | **52.66%** | Reject % **91.84%** |
+| `winRate` | `won / bids × 100` | **0.04%** | Win % **0.04%** ✅ |
+
+Only `winRate` agrees. The report's Made % is `made / bids` and its Reject % is `rejected / bids`,
+while the API divides both by `total` (ping attempts).
+
+**Consequence:** if Loop consumed `rejectRate` from the API and labelled it "Reject %", it would show
+**52.66%** where the operator's own report shows **91.84%** — a 39-point discrepancy on identical
+underlying data. This is precisely the denominator trap the rule contract withholds on.
+
+Note also there is **no `made` field** in `bidStats`; the nearest is `rated`. Whether `rated` is the
+report's `Made` is **unverified**.
+
+### FINDING: the rejection vocabulary is richer than the error codes
+
+`pingStats` exposes `minRevenue`, `missingAmount`, `invalidNumber`, `durationElapsed`, `pingTimeout`,
+`apiFailed`, `suppressed` and `agents` — **none of which map to the 4001–5001 error codes.** A
+taxonomy built only from the error-codes article would have silently dropped nine failure modes,
+including the only two latency modes and the only pricing mode.
+
+The taxonomy now carries **19 modes** across 9 categories, each citing either the KB article or the
+OpenAPI contract.
+
+### Recommended schema — now designable, still not written
+
+Discovery has cleared for these four endpoints, so a schema can now be designed *against a contract*
+rather than a guess. The shape the evidence supports:
+
+- **Aggregate snapshots, not event-level rows.** All four endpoints return aggregates. There is no
+  per-bid record, so a `MarketplaceBid` event table would be inventing granularity the source does
+  not have.
+- **Two snapshot entities**, because the grouping keys genuinely differ: one keyed by **source**
+  (bidStats + rejections merge cleanly — same key, same window), one keyed by **destination**
+  (pingStats).
+- **Deterministic key:** `provider + organizationId + windowStart + windowEnd + groupingType +
+  groupingExternalId`, since the API exposes no stable snapshot id.
+- **Nullable everything.** Unknown is never zero — a metric the report omits must not persist as 0.
+- **Store `footerTotals` alongside the rows**, so every ingest carries its own reconciliation anchor.
+
+**Not written as a migration**, because two questions remain open and both change the schema: whether
+`rated` is the report's `Made`, and whether the money fields are dollars or minor units. Both are
+answerable in one authenticated call.
