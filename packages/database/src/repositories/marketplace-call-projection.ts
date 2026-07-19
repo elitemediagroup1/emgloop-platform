@@ -41,7 +41,7 @@ export interface MarketplaceCallProjection {
   status: string | null;
   rawStatus: string | null;
   endedBy: string | null;
-  durationSeconds: number | null;
+  connectedDurationSeconds: number | null;
   buyerExternalId: string | null;
   buyerLabel: string | null;
   vendorExternalId: string | null;
@@ -121,7 +121,7 @@ export function projectInteractionToMarketplaceCall(
     status: strOrNull(m.eventType),
     rawStatus: strOrNull(m.callStatus) ?? strOrNull(m.status),
     endedBy: strOrNull(m.endedBy),
-    durationSeconds: numOrNull(m.durationSeconds),
+    connectedDurationSeconds: numOrNull(m.durationSeconds),
     buyerExternalId: strOrNull(m.buyerId),
     buyerLabel: realAttr(strOrNull(m.buyer)),
     vendorExternalId: strOrNull(m.vendorId),

@@ -29,6 +29,7 @@
 // false / 'completed') so downstream readers see an honest 'unknown'.
 
 import type { ProviderContext } from '../types';
+import { resolveCallOccurrence } from './callgrid-occurrence';
 import type {
     IngestionProvider,
     IngestionCapabilities,
@@ -224,18 +225,20 @@ export class CallGridProvider implements IngestionProvider {
       // webhook-security's replay/timestamp checks) applies the same 10-digit vs
       // 13-digit heuristic. Older senders that post an ISO-ish timestamp under a
       // legacy key are still supported as a fallback.
-      const occurredAtUnixRaw = pick(data, ['occurredAtUnix', 'UTCUnixTime']);
-        const legacyOccurredRaw = pick(data, ['occurred_at', 'started_at', 'timestamp', 'created_at']);
-        let occurredAt: Date;
-        if (occurredAtUnixRaw !== undefined) {
-                const ms = parseTimestamp(occurredAtUnixRaw);
-                occurredAt = Number.isFinite(ms) ? new Date(ms) : new Date();
-        } else if (legacyOccurredRaw) {
-                const d = new Date(legacyOccurredRaw);
-                occurredAt = Number.isNaN(d.getTime()) ? new Date() : d;
-        } else {
-                occurredAt = new Date();
-        }
+      // Canonical precedence: UTCUnixTimeMs > UTCISODate > UTCUnixTime > legacy.
+      // createdAt/updatedAt are NEVER consulted — they describe the record, not
+      // the call, and using one produced a 16s discrepancy on a real record.
+      // A record whose time cannot be established is REJECTED rather than
+      // stamped with the ingestion time, which would drop it into whatever
+      // reporting window happened to be open.
+      const occurrence = resolveCallOccurrence(data);
+      if (!occurrence.at) {
+              throw new Error(
+                      'CallGrid event carries no usable occurrence timestamp ' +
+                      '(UTCUnixTimeMs / UTCISODate / UTCUnixTime all absent or invalid)',
+                    );
+      }
+      const occurredAt = occurrence.at;
 
       // Caller phone: canonical key is 'callerId'; legacy aliases kept.
       const customerPhone = pick(data, [

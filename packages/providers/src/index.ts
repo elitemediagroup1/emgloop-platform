@@ -160,3 +160,7 @@ export type {
 } from './interfaces/email.provider';
 export { ResendEmailProvider } from './adapters/resend-email.provider';
 export { MockEmailProvider } from './mocks/mock-email.provider';
+
+// CallGrid canonical occurrence-timestamp resolver.
+export { resolveCallOccurrence, NON_OCCURRENCE_TIMESTAMP_FIELDS } from './adapters/callgrid-occurrence';
+export type { ResolvedOccurrence } from './adapters/callgrid-occurrence';

@@ -341,11 +341,11 @@ test('Duplicate is registered as unmapped rather than silently reporting zero', 
 
 test('equality alone is tautological — both unit hypotheses reconcile to $0.00', () => {
   const src = (revenue: number) => [
-    { call_id: 'a', started_at: '2026-07-18T12:00:00.000Z', revenue, payout: 0, profit: revenue },
+    { call_id: 'a', started_at: '2026-07-02T12:00:00.000Z', revenue, payout: 0, profit: revenue },
   ];
   const lp = (cents: number) => [
     {
-      externalId: 'a', sourceOccurredAt: new Date('2026-07-18T12:00:00.000Z'),
+      externalId: 'a', sourceOccurredAt: new Date('2026-07-02T12:00:00.000Z'),
       durationSeconds: null, revenueCents: cents, payoutCents: 0, costCents: null,
       buyerLabel: null, campaignLabel: null, sourceLabel: null,
       qualified: null, converted: null, duplicate: null,
@@ -380,4 +380,86 @@ test('the profit invariant and margins are scale-invariant and cannot settle the
     assert.ok(Math.abs(rev - pay - profit) < 0.011 * k, 'profit invariant holds at scale ' + k);
     assert.ok(Math.abs(profit / rev - 0.146) < 0.001, 'margin identical at scale ' + k);
   }
+});
+
+// --- Timestamp comparison: the real record --------------------------------
+
+const REAL_ISO = '2026-07-18T23:41:46.712Z';
+/** The fixture `opts` window is 07-01..07-08; the real record is 07-18. */
+const julyOpts = {
+  since: new Date('2026-07-18T00:00:00.000Z'),
+  until: new Date('2026-07-19T00:00:00.000Z'),
+  sourceMoneyUnit: 'dollars' as const,
+};
+const REAL_SEC_ONLY = '2026-07-18T23:41:46.000Z';
+const RECORD_CREATED = '2026-07-18T23:42:02.716Z'; // createdAt — NOT the call time
+
+test('comparing against UTCUnixTimeMs yields a 0ms difference', () => {
+  const r = reconcile(
+    [srcCall({ call_id: 'a', started_at: REAL_ISO })],
+    [loopCall({ externalId: 'a', sourceOccurredAt: new Date(REAL_ISO) })],
+    julyOpts,
+  );
+  assert.equal(r.sourceRecords, 1, 'the record must fall inside the window');
+  assert.equal(r.fieldMismatches.filter((m) => m.metric.startsWith('timestamp')).length, 0);
+});
+
+test('a legacy second-precision row reports PRECISION LOSS, not a mismatch', () => {
+  // Projected from UTCUnixTime before the resolver existed: 712ms truncated.
+  const r = reconcile(
+    [srcCall({ call_id: 'a', started_at: REAL_ISO })],
+    [loopCall({ externalId: 'a', sourceOccurredAt: new Date(REAL_SEC_ONLY) })],
+    julyOpts,
+  );
+  const m = r.fieldMismatches.find((x) => x.metric.startsWith('timestamp-precision'));
+  assert.ok(m, 'must be reported');
+  assert.equal(m!.status, 'unverifiable', 'precision loss is NOT a failure');
+  assert.equal(m!.difference, '-712ms');
+  assert.match(m!.reason ?? '', /lost\s+milliseconds|Re-run the backfill/i);
+  assert.equal(r.passed, true, 'sub-second precision loss must not fail reconciliation');
+});
+
+test('a whole-record-time substitution IS still a real mismatch', () => {
+  // The original defect: comparing occurredAt against createdAt, ~16s later.
+  const r = reconcile(
+    [srcCall({ call_id: 'a', started_at: RECORD_CREATED })],
+    [loopCall({ externalId: 'a', sourceOccurredAt: new Date(REAL_ISO) })],
+    julyOpts,
+  );
+  const m = r.fieldMismatches.find((x) => x.metric.startsWith('timestamp['));
+  assert.ok(m, 'a 16-second gap is a genuine mismatch, not precision loss');
+  assert.equal(m!.status, 'fail');
+  assert.equal(r.passed, false);
+});
+
+// --- Connected duration ----------------------------------------------------
+
+test('connected duration uses the same measured denominator on both sides', () => {
+  const r = reconcile(
+    [
+      srcCall({ call_id: 'a', duration_seconds: 100 }),
+      srcCall({ call_id: 'b', duration_seconds: null }),
+    ],
+    [
+      loopCall({ externalId: 'a', durationSeconds: 100 }),
+      loopCall({ externalId: 'b', durationSeconds: null }),
+    ],
+    opts,
+  );
+  const cov = r.aggregates.find((c) => c.metric === 'Calls carrying connected duration');
+  assert.equal(cov?.status, 'pass');
+  assert.equal(cov?.sourceValue, '1', 'unmeasured calls are excluded from the denominator');
+
+  const avg = r.aggregates.find((c) => c.metric === 'Average connected duration (s)');
+  assert.equal(avg?.sourceValue, '100', 'averaged over measured calls only, not over all calls');
+});
+
+test('the duration metric is named for connected duration, not total', () => {
+  const r = reconcile([srcCall({ call_id: 'a' })], [loopCall({ externalId: 'a' })], opts);
+  assert.ok(r.aggregates.find((c) => c.metric === 'Connected duration total (s)'));
+  assert.equal(
+    r.aggregates.find((c) => c.metric === 'Total duration (s)'),
+    undefined,
+    'must not present connected duration as total elapsed duration',
+  );
 });

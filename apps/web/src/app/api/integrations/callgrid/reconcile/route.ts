@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { crmRepos, requireCrmContext } from '../../../../../crm/crm-data';
 import { can } from '../../../../../auth/auth';
-import { fetchCallGridCallsPage, pickField, toNumber } from '@emgloop/providers';
+import { fetchCallGridCallsPage, pickField, toNumber, resolveCallOccurrence } from '@emgloop/providers';
 import {
   reconcile,
   type CallGridSourceCall,
@@ -163,8 +163,13 @@ export async function GET(req: Request) {
   // are the ones the confirmed webhook template uses.
   const source: CallGridSourceCall[] = raw.slice(0, MAX_RECORDS).map((r) => ({
     call_id: pickField(r, ['id', 'CallId', 'Id', 'call_id', 'callId']) ?? '',
-    started_at: pickField(r, ['createdAt', 'CallDateTime', 'StartTime', 'started_at', 'occurredAtUnix']) ?? '',
-    duration_seconds: toNumber(pickField(r, ['callDuration', 'Duration', 'duration', 'durationSeconds'])) ?? null,
+    // Canonical precedence: UTCUnixTimeMs > UTCISODate > UTCUnixTime > legacy.
+    // `createdAt` was FIRST here and is record-creation time — it ran ~16s after
+    // the event on a real record, producing a phantom timestamp mismatch.
+    started_at: resolveCallOccurrence(r).at?.toISOString() ?? '',
+    // CallDuration = CONNECTED duration. BillableDuration is a different
+    // quantity and is deliberately not accepted as a fallback.
+    duration_seconds: toNumber(pickField(r, ['callDuration', 'CallDuration', 'Duration', 'duration'])) ?? null,
     revenue: toNumber(pickField(r, ['revenue', 'Revenue'])) ?? null,
     payout: toNumber(pickField(r, ['payout', 'Payout'])) ?? null,
     cost: toNumber(pickField(r, ['cost', 'Cost'])) ?? null,
@@ -187,7 +192,7 @@ export async function GET(req: Request) {
   const loop: LoopCall[] = loopRows.map((c) => ({
     externalId: c.externalId,
     sourceOccurredAt: c.sourceOccurredAt,
-    durationSeconds: c.durationSeconds,
+    durationSeconds: c.connectedDurationSeconds,
     revenueCents: c.revenueCents,
     payoutCents: c.payoutCents,
     costCents: c.costCents,

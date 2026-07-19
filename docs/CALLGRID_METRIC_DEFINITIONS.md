@@ -292,3 +292,63 @@ invariant confirms the three figures are internally consistent at that scale.
 Verified for **revenue, payout and profit on the CallGrid REST path** for 2026-07-18. It does not
 extend to `rate` (never observed) and is a same-unit assumption for `cost`, which is corroborated by
 Net Profit reproducing at 12.05% but not independently anchored.
+
+
+---
+
+## 13. Sprint 37 — duration and timestamp semantics
+
+### Connected duration (was: duration)
+
+**`CallDuration` = elapsed time AFTER the call connects.** Per direct CallGrid evidence.
+
+Renamed `durationSeconds` → `connectedDurationSeconds` across schema, projection, repositories and
+reconciliation. UI terminology is **Connected Duration** / **Average Connected Duration**.
+
+- **Do not** present it as total elapsed duration.
+- **Do not** compare it against a report TCD unless TCD is independently confirmed to use the same
+  connected definition.
+- **Billable duration is a third quantity** and is never accepted as a fallback — the alias was
+  removed from both adapters in Sprint 36.
+
+No migration: `connectedDurationSeconds Int? @map("durationSeconds")`, confirmed empty by
+`prisma migrate diff`.
+
+Average is `sum of measured connected durations ÷ count of records carrying one` — the same
+denominator on both sides. Dividing by all calls would treat an unmeasured call as zero-length.
+
+### Occurrence timestamp — precedence and precision
+
+One canonical resolver: `packages/providers/src/adapters/callgrid-occurrence.ts`.
+
+| Priority | Field | Precision |
+|---|---|---|
+| 1 | `UTCUnixTimeMs` | milliseconds |
+| 2 | `UTCISODate` | milliseconds |
+| 3 | `UTCUnixTime` | seconds |
+| 4 | documented legacy aliases | varies |
+| 5 | **reject** | — |
+
+**`createdAt` and `updatedAt` are never consulted at any level.** They describe the RECORD, not the
+call. Using `createdAt` is what produced the phantom 16-second mismatch:
+
+```
+Loop stored           2026-07-18T23:41:46.000Z   (from UTCUnixTime)
+Reconciliation used   2026-07-18T23:42:02.716Z   (createdAt — the record, ~16s later)
+CallGrid canonical    2026-07-18T23:41:46.712Z   (UTCISODate / UTCUnixTimeMs)
+```
+
+A record with no usable timestamp is **rejected**, never stamped with the ingestion time — that would
+drop it into whatever reporting window happened to be open.
+
+A **sub-second** difference is classified as **legacy precision loss** (`unverifiable`), not a
+semantic mismatch: rows projected from `UTCUnixTime` truncate the milliseconds. Re-running the
+backfill restores full precision where the raw Interaction retained `UTCUnixTimeMs`. It does not fail
+reconciliation. A whole-second difference still fails.
+
+### Lifecycle meaning — NOT claimed
+
+We have no evidence stating whether this instant is call initiation, bid time, or connection. It is
+labelled **"CallGrid canonical event timestamp"** and nothing stronger.
+
+**Open question for CallGrid:** which lifecycle event does `UTCUnixTime` mark?

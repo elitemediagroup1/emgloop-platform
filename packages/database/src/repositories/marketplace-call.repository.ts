@@ -167,7 +167,7 @@ export class MarketplaceCallRepository {
     Array<{
       externalId: string;
       sourceOccurredAt: Date;
-      durationSeconds: number | null;
+      connectedDurationSeconds: number | null;
       revenueCents: number | null;
       payoutCents: number | null;
       costCents: number | null;
@@ -186,7 +186,7 @@ export class MarketplaceCallRepository {
       select: {
         externalId: true,
         sourceOccurredAt: true,
-        durationSeconds: true,
+        connectedDurationSeconds: true,
         revenueCents: true,
         payoutCents: true,
         costCents: true,

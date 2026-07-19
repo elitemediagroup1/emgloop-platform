@@ -401,7 +401,26 @@ export function reconcile(
     if (!l) continue;
 
     const st = new Date(s.started_at);
-    if (!Number.isNaN(st.getTime()) && st.getTime() !== l.sourceOccurredAt.getTime()) {
+    const deltaMs = Number.isNaN(st.getTime()) ? 0 : l.sourceOccurredAt.getTime() - st.getTime();
+
+    // A sub-second delta is LEGACY PRECISION LOSS, not a semantic mismatch: a
+    // row projected from UTCUnixTime (epoch SECONDS) before the resolver existed
+    // truncates the milliseconds that UTCUnixTimeMs carries. Re-running the
+    // backfill restores full precision where the raw Interaction retained it.
+    if (!Number.isNaN(st.getTime()) && deltaMs !== 0 && Math.abs(deltaMs) < 1000) {
+      fieldMismatches.push({
+        metric: `timestamp-precision[${s.call_id}]`,
+        sourceValue: st.toISOString(),
+        loopValue: l.sourceOccurredAt.toISOString(),
+        difference: `${deltaMs}ms`,
+        status: 'unverifiable',
+        reason:
+          'Sub-second difference: this row was projected from UTCUnixTime (epoch seconds) and lost ' +
+          'milliseconds. Not a semantic mismatch. Re-run the backfill to restore precision where the ' +
+          'raw Interaction retained UTCUnixTimeMs.',
+        affected: [s.call_id],
+      });
+    } else if (!Number.isNaN(st.getTime()) && st.getTime() !== l.sourceOccurredAt.getTime()) {
       fieldMismatches.push({
         metric: `timestamp[${id}]`,
         sourceValue: st.toISOString(),
@@ -511,8 +530,14 @@ export function reconcile(
     // difference that is really a coverage gap.
     check('Revenue', srcRevenue.counted === 0 ? null : srcRevenue.total, lpRevenue.counted === 0 ? null : lpRevenue.total, tol, fmtMoney),
     check('Payout', srcPayout.counted === 0 ? null : srcPayout.total, lpPayout.counted === 0 ? null : lpPayout.total, tol, fmtMoney),
-    check('Total duration (s)', srcDur.counted === 0 ? null : srcDur.total, lpDur.counted === 0 ? null : lpDur.total, 0, fmtNum),
-    check('Average duration (s)', avg(srcDur), avg(lpDur), 1, fmtNum),
+    // CONNECTED duration (CallGrid CallDuration = elapsed after connect).
+    // Deliberately NOT compared against a report TCD unless TCD is
+    // independently confirmed to use the same definition.
+    check('Connected duration total (s)', srcDur.counted === 0 ? null : srcDur.total, lpDur.counted === 0 ? null : lpDur.total, 0, fmtNum),
+    // Same denominator on both sides: measured durations only. Dividing by all
+    // calls would silently treat an unmeasured call as a zero-length one.
+    check('Average connected duration (s)', avg(srcDur), avg(lpDur), 1, fmtNum),
+    check('Calls carrying connected duration', srcDur.counted, lpDur.counted, 0, fmtNum),
     check('Calls carrying revenue', srcRevenue.counted, lpRevenue.counted, 0, fmtNum),
   ];
 

@@ -1542,7 +1542,14 @@ model MarketplaceCall {
   status          String?
   rawStatus       String?
   endedBy         String?
-  durationSeconds Int?
+  // CONNECTED duration: elapsed time AFTER the call connects, per CallGrid's
+  // CallDuration. Renamed from `durationSeconds` (Sprint 37) because that name
+  // read as total elapsed time and invited comparison against total-duration
+  // figures that measure something else. Billable duration is a THIRD quantity
+  // and must never populate this field.
+  //
+  // @map keeps the physical column so no migration is required.
+  connectedDurationSeconds Int? @map("durationSeconds")
 
   // Attribution — nullable external-reference ids + best-known labels.
   buyerExternalId       String?

@@ -27,6 +27,7 @@
 // left unknown, never fabricated.
 
 import type { InboundEvent } from '../interfaces/ingestion.provider';
+import { resolveCallOccurrence } from './callgrid-occurrence';
 
 export const CALLGRID_API_DEFAULT_BASE_URL = 'https://api.callgrid.com';
 export const CALLGRID_CALLS_PATH = '/api/call';
@@ -167,11 +168,17 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
   // Real field is 'createdAt'. Previously absent from the candidate list, so
   // occurredAt always fell back to "now" (sync execution time), corrupting
   // Today / Last 7 Days date-window bucketing.
-  const occurredRaw = pickField(record, [
-        'createdAt', 'CallDateTime', 'CallDate', 'StartTime', 'started_at', 'occurred_at', 'Timestamp', 'timestamp',
-      ]);
-    const occurred = occurredRaw ? new Date(occurredRaw) : new Date();
-    const occurredAt = Number.isNaN(occurred.getTime()) ? new Date() : occurred;
+  // Canonical precedence — see callgrid-occurrence.ts. `createdAt` was FIRST in
+  // the old alias list, which is record-creation time and ran ~16s after the
+  // event on a real record.
+  const occurrence = resolveCallOccurrence(record);
+  if (!occurrence.at) {
+        throw new CallGridApiError(
+                'CallGrid record carries no usable occurrence timestamp ' +
+                '(UTCUnixTimeMs / UTCISODate / UTCUnixTime all absent or invalid)',
+              );
+  }
+  const occurredAt = occurrence.at;
 
   // Caller phone: real field is 'from'. Destination number: real field is 'to'.
   const customerPhone = pickField(record, [
