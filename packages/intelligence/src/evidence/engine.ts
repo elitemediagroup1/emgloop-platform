@@ -96,6 +96,7 @@ function deriveFreshness(
  *
  *   - nothing was examined      -> withheld (unknown is not zero)
  *   - sources contradict        -> withheld (conflicting speech beats silence)
+ *   - the domain declared it unusable -> withheld (see MetricObservation.unusable)
  *
  * Partial coverage does NOT withhold. A lower bound with its coverage attached
  * is useful; discarding it would lose real information.
@@ -111,9 +112,10 @@ export function assessEvidence<TInput>(
   const metrics: MetricEvidence[] = observations.map((o) => {
     const contradictions = o.contradictions ?? [];
     const structurallyAbsent = o.structurallyAbsent !== null;
+    const unusable = o.unusable ?? null;
     const freshness = deriveFreshness(o, measuredAt, contributor.staleAfterMs);
 
-    const confidence = deriveConfidence({
+    const derived = deriveConfidence({
       observed: o.observed,
       total: o.total,
       sampleSize: populationSize,
@@ -121,6 +123,11 @@ export function assessEvidence<TInput>(
       stale: freshness.stale,
       contradictionCount: contradictions.length,
     });
+
+    // A metric the domain has refused carries no confidence. Leaving the
+    // derived score visible would let a caller that ignores `withheld` read a
+    // healthy-looking number off a metric its own domain declared unusable.
+    const confidence = unusable !== null ? 0 : derived;
 
     const unknowns = [...(o.unknowns ?? [])];
     const missingProviderData = [...(o.missingProviderData ?? [])];
@@ -140,7 +147,8 @@ export function assessEvidence<TInput>(
     // examined — its truth does not depend on the sample, which is why
     // deriveConfidence scores it at the ceiling. Withholding it here would
     // discard a fact the engine can state with certainty.
-    const withheld = (nothingExamined && !structurallyAbsent) || contradictions.length > 0;
+    const withheld =
+      (nothingExamined && !structurallyAbsent) || contradictions.length > 0 || unusable !== null;
 
     return {
       metricId: o.metricId,
@@ -155,11 +163,16 @@ export function assessEvidence<TInput>(
       contradictions,
       missingProviderData,
       withheld,
+      // Ordered most-fundamental first, so the reason names the cause rather
+      // than a symptom: nothing to measure beats disagreement about the
+      // measurement, which beats a domain-specific refusal.
       withheldReason: nothingExamined && !structurallyAbsent
         ? contributor.emptyScopeReason(input)
         : contradictions.length > 0
           ? `Sources disagree about this metric: ${contradictions[0]!.statement}`
-          : null,
+          : unusable !== null
+            ? unusable.reason
+            : null,
     };
   });
 

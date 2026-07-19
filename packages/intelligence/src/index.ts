@@ -37,3 +37,6 @@ export * from './marketplace/taxonomy';
 export * from './marketplace/rule';
 export * from './marketplace/engine';
 export * from './marketplace/score';
+export * from './marketplace/auction-funnel';
+export * from './marketplace/auction-evidence';
+export * from './marketplace/auction-rules';

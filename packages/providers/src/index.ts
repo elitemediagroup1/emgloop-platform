@@ -183,3 +183,35 @@ export type {
   NumericRepresentation,
   EvidenceGrade,
 } from './adapters/callgrid-reports';
+
+// CallGrid aggregate report client — the three endpoints VERIFIED live on
+// 2026-07-18. `callStats` (POST /api/reports/stats) returned HTTP 400 and has
+// deliberately no client here.
+export {
+  VERIFIED_REPORT_PATHS,
+  REPORT_GRAIN,
+  CallGridReportError,
+  metric,
+  parseBidStatsRow,
+  parseBidRejectionsRow,
+  parsePingStatsRow,
+  distinctProviderOrgIds,
+  hashPayload,
+  fetchReportPage,
+  fetchWholeReport,
+  scrub,
+  CALL_STATS_CONTRACT,
+  callStatsRequestBody,
+} from './adapters/callgrid-report-client';
+export type {
+  VerifiedReportEndpoint,
+  BidStatsRow,
+  BidRejectionsRow,
+  PingStatsRow,
+  ReportRow,
+  FooterTotals,
+  ReportPage,
+  ReportFetchInput,
+  PaginateInput,
+  PaginatedReport,
+} from './adapters/callgrid-report-client';
