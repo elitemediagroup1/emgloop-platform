@@ -256,7 +256,8 @@ if (process.argv[1] && process.argv[1].includes('marketplace/verification')) {
 // Layer 1 measures trustworthiness. Layer 2 reasons only over what cleared it.
 // These tests prove the SEPARATION holds, not merely that the output is right.
 
-import { assessConfidence, availableMetric } from './confidence';
+import { assessEvidence, availableMetric } from '../evidence/engine';
+import { marketplaceEvidenceContributor } from './evidence';
 import { MARKETPLACE_RULES as RULES } from './engine';
 
 export function verifyTwoLayerArchitecture(): { passed: true; checks: string[] } {
@@ -266,12 +267,13 @@ export function verifyTwoLayerArchitecture(): { passed: true; checks: string[] }
   const emptyCtx = ctxFor(0, {});
 
   // --- Layer 1 in isolation ------------------------------------------------
-  const conf = assessConfidence(covered.coverage, AT);
+  const conf = assessEvidence(marketplaceEvidenceContributor, { coverage: covered.coverage }, AT);
   assert(conf.metrics.length === covered.coverage.capabilities.length, 'every capability is assessed');
   const rev = availableMetric(conf, 'revenue')!;
   assert(!!rev, 'revenue is available at 95/108');
   assert(rev.coverage!.observed === 95 && rev.coverage!.total === 108, 'coverage is carried through');
-  assert(rev.evidence.length === 2, 'evidence accompanies the metric');
+  assert(rev.provenance.length === 1, 'exactly one provenance entry accompanies the metric');
+  assert(rev.provenance[0]!.derivation.length > 0, 'and it states how the value was derived');
   assert(rev.missingProviderData.length > 0, 'missing provider data is named');
   assert(rev.confidence > 0 && rev.confidence <= 0.9, 'confidence is earned and capped at 0.9');
   checks.push('Layer 1 outputs confidence, coverage, evidence, unknowns and missing provider data');
@@ -280,11 +282,11 @@ export function verifyTwoLayerArchitecture(): { passed: true; checks: string[] }
   checks.push('Layer 1 never asserts total certainty');
 
   // --- Layer 1 withholds when it cannot measure ---------------------------
-  const emptyConf = assessConfidence(emptyCtx.coverage, AT);
+  const emptyConf = assessEvidence(marketplaceEvidenceContributor, { coverage: emptyCtx.coverage }, AT);
   assert(emptyConf.withheld.length > 0, 'an empty window withholds metrics');
   assert(emptyConf.available.length < emptyConf.metrics.length, 'withheld metrics are excluded from available');
   assert(
-    emptyConf.withheld.every((m) => (m.withheldReason ?? '').length > 20),
+    emptyConf.withheld.every((m: { withheldReason: string | null }) => (m.withheldReason ?? '').length > 20),
     'every withholding states why',
   );
   assert(
@@ -337,9 +339,9 @@ export function verifyTwoLayerArchitecture(): { passed: true; checks: string[] }
 
   // --- The engine exposes Layer 1's output for audit ----------------------
   const run = runMarketplaceIntelligence(covered);
-  assert(!!run.confidence, 'the result carries the confidence report');
-  assert(run.confidence.metrics.length > 0, 'so the whole chain is auditable');
-  checks.push('the engine result carries Layer 1 output, so the chain is auditable end to end');
+  assert(!!run.evidence, 'the result carries the evidence report');
+  assert(run.evidence.metrics.length > 0, 'so the whole chain is auditable');
+  checks.push('the engine result carries Layer 1 evidence, so the chain is auditable end to end');
 
   // --- Business rules UNCHANGED by the refactor ---------------------------
   assert(run.findings.length === 4, 'the same four findings as before the refactor');
