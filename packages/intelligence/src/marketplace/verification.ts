@@ -272,7 +272,8 @@ export function verifyTwoLayerArchitecture(): { passed: true; checks: string[] }
   const rev = availableMetric(conf, 'revenue')!;
   assert(!!rev, 'revenue is available at 95/108');
   assert(rev.coverage!.observed === 95 && rev.coverage!.total === 108, 'coverage is carried through');
-  assert(rev.provenance.length > 0, 'provenance accompanies the metric');
+  assert(rev.provenance.length === 1, 'exactly one provenance entry accompanies the metric');
+  assert(rev.provenance[0]!.derivation.length > 0, 'and it states how the value was derived');
   assert(rev.missingProviderData.length > 0, 'missing provider data is named');
   assert(rev.confidence > 0 && rev.confidence <= 0.9, 'confidence is earned and capped at 0.9');
   checks.push('Layer 1 outputs confidence, coverage, evidence, unknowns and missing provider data');

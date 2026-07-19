@@ -28,6 +28,7 @@ export * from './callgrid/verification';
 // Explains why marketplace opportunity is lost BEFORE a call exists.
 // Domain model and rule contract only — no ingestion until discovery completes.
 // Platform Evidence Engine — consumed by every intelligence module.
+// Supersedes marketplace/confidence.ts, which is retired in the same change.
 export * from './evidence/types';
 export * from './evidence/engine';
 export * from './evidence/verification';
