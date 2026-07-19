@@ -29,3 +29,6 @@ export * from './callgrid/verification';
 // Domain model and rule contract only — no ingestion until discovery completes.
 export * from './marketplace/taxonomy';
 export * from './marketplace/rule';
+export * from './marketplace/confidence';
+export * from './marketplace/engine';
+export * from './marketplace/score';
