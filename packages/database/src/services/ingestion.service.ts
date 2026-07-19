@@ -33,6 +33,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
 import type { InboundEvent } from '@emgloop/providers';
 import { NormalizationEngine } from '../repositories/normalization.repository';
+import { MarketplaceCallRepository } from '../repositories/marketplace-call.repository';
 import { WorkflowsRepository } from '../repositories/workflows.repository';
 import { deriveSignals } from './signal-registry';
 import { NextBestActionService } from './next-best-action.service';
@@ -90,10 +91,12 @@ function asString(payload: Record<string, unknown>, key: string): string | undef
 
 export class IngestionService {
   private readonly normalizer: NormalizationEngine;
+  private readonly marketplaceCalls: MarketplaceCallRepository;
   private readonly nextBestAction: NextBestActionService;
 
   constructor(private readonly prisma: PrismaClient) {
     this.normalizer = new NormalizationEngine(prisma, new WorkflowsRepository(prisma));
+    this.marketplaceCalls = new MarketplaceCallRepository(prisma);
     this.nextBestAction = new NextBestActionService(prisma);
   }
 
@@ -186,6 +189,47 @@ export class IngestionService {
       base.interactionId = normResult.interactionId;
       base.domainEventId = normResult.domainEventId;
       base.signalIds = [...normResult.signalIds];
+
+      // 4b. Project the call into MarketplaceCall — the canonical operational
+      // read model.
+      //
+      // This was the gap that made the read model empty. Ingestion wrote the
+      // Interaction and stopped; nothing here referenced MarketplaceCall at
+      // all. The only population path was a lazy backfill triggered by loading
+      // the Brain admin page, scoped to that page's own 7-day window and only
+      // when the window was already empty. Live reconciliation proved the
+      // result: 108 calls at CallGrid, 0 rows in Loop.
+      //
+      // NON-FATAL BY DESIGN. The Interaction is the source of truth and the
+      // projection is rebuildable from it via projectWindow(), so a projection
+      // failure must never fail ingestion — that would turn a read-model bug
+      // into lost provider data, and the webhook would return non-2xx and
+      // trigger CallGrid retries for an event we already stored.
+      if (normResult.interactionId) {
+        try {
+          const row = await this.prisma.interaction.findUnique({
+            where: { id: normResult.interactionId },
+            select: {
+              id: true, organizationId: true, provider: true, externalId: true,
+              channel: true, occurredAt: true, metadata: true,
+              customer: {
+                select: { tags: true, email: true, phone: true, externalId: true, firstName: true, lastName: true },
+              },
+            },
+          });
+          if (row) await this.marketplaceCalls.projectInteraction(row);
+        } catch (error) {
+          // Recorded, never rethrown. projectWindow() can rebuild this row later.
+          console.warn(
+            JSON.stringify({
+              evt: 'marketplace_call_projection_failed',
+              interactionId: normResult.interactionId,
+              provider,
+              reason: error instanceof Error ? error.message : 'unknown',
+            }),
+          );
+        }
+      }
 
       // 5. SignalRegistry enrichment (Phase 4). Append-only, advisory.
       if (customerId && !normResult.wasIdempotent) {

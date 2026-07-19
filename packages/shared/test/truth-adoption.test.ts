@@ -46,6 +46,15 @@ const ALLOWLIST: ReadonlyArray<{ file: string; match: string; reason: string }> 
       'Its Truth-returning counterpart for UI consumption is coverageObservations().',
   },
   {
+    file: 'packages/database/src/repositories/interaction.repository.ts',
+    match: 'countPhoneInWindow',
+    reason:
+      'Pipeline diagnostic for the CallGrid reconciliation report, not an executive metric. Its zero ' +
+      'is the informative case — it is precisely how an operator distinguishes "ingestion never landed" ' +
+      'from "ingestion landed but the projection did not". A Truth wrapper would obscure that signal, ' +
+      'and the route surfaces a read failure as a 500 rather than as a count.',
+  },
+  {
     file: 'apps/web/src/app/app/_loop-os/format.ts',
     match: '?? 0',
     reason:

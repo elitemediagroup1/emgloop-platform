@@ -171,6 +171,14 @@ export async function GET(req: Request) {
     duplicate: c.duplicate,
   }));
 
+  // Pipeline diagnostics: where records exist along the chain. This is what
+  // turns "Loop shows 0" into "the projection stopped HERE".
+  const phoneInteractions = await crmRepos.interactions.countPhoneInWindow(
+    organizationId,
+    since,
+    until,
+  );
+
   const report = reconcile(source, loop, { since, until, sourceMoneyUnit });
 
   // --- Money-unit evidence -------------------------------------------------
@@ -227,6 +235,10 @@ export async function GET(req: Request) {
       loopRecords: report.loopRecords,
       rawRecordsFetched: raw.length,
       capped: raw.length >= MAX_RECORDS,
+      // CallGrid -> Interaction -> MarketplaceCall, at a glance. If
+      // phoneInteractions is high and loopRecords is 0, ingestion works and the
+      // PROJECTION is the gap. If both are 0, ingestion itself never landed.
+      phoneInteractions,
     },
     // The live response contract, recorded by the first successful run. KEYS
     // ONLY — never values — so this diagnostic cannot leak a phone number, a
