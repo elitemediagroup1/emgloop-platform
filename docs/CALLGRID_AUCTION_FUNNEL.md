@@ -156,3 +156,47 @@ Only then do intelligence rules become defensible. A recommendation such as *"yo
 uncompetitive"* built on an unverified denominator would be exactly the fabrication this audit
 lineage exists to prevent — and it would be far more damaging than a missing feature, because an
 operator would act on it.
+
+
+---
+
+## 7. Discovery findings (Sprint 39) — reference material read, access still blocked
+
+CallGrid's published business documentation was read directly. It is **business reference material,
+not an API contract**, and is treated as such.
+
+| Source | Classification | What it gave us |
+|---|---|---|
+| `callgrid.com/glossary` | **Documented** | Only 4 relevant terms (Campaign, Buyer, Destination, RTB), written as marketing copy. **The entire failure vocabulary is absent** — no Ping, Made, Won, Rejected, Rate Limited, Duplicate Ping, Tag Rules or Capped. |
+| `/knowledge-base/call-bidding-error-codes-explained` | **Documented — high value** | Ten error codes, each with a verbatim explanation **and CallGrid's own attribution of who fixes it**. This is the taxonomy's foundation. |
+| `/knowledge-base/bid-api` | **Documented** | The Bid API is `POST/GET bid.callgrid.com/api/bid/{Grid-ID}` — a **different host** from `api.callgrid.com`. `dynamicBid` is documented as "Bid amount in USD". |
+| Bid **reporting** endpoint | **UNKNOWN** | **Not documented anywhere.** The Bid API guide covers submitting bids only; no `/reports`, no `bidStats`, no aggregates, no grouping. |
+| `api.callgrid.com` OpenAPI | **BLOCKED** | 401 — needs a credential. |
+
+### The finding that shapes Module 2
+
+**No bid-reporting API is documented in any public CallGrid source.** The Bid API is for *submitting*
+bids into CallGrid; it is not an analytics interface.
+
+That raises a real possibility the discovery endpoint exists to settle: **the bid report the owner
+sees may be a first-party UI report with no public API at all.** If every candidate path 404s, the
+next question is not "which endpoint" but "CSV export, browser network capture, or nothing" — and
+Module 2's ingestion design differs completely between those.
+
+### What the error-code documentation settled
+
+1. **Duplicate caller ≠ duplicate request.** `4005` is *"already been processed and paid out"*;
+   `4008` is *"a bid request was submitted more than once"*. That explains the report's Duplicate 18
+   against Duplicate Ping 66,092 — they are different measures, now confirmed rather than inferred.
+2. **Categories provably overlap.** CallGrid's own description of `4004` (Capacity Check Failed)
+   includes *"tag rule failure"* — which is separately `4009`. So the same cause can surface under two
+   codes. `taxonomyIsSummable()` returns **false** because of this, and a "dominant failure reason" is
+   not yet a valid claim.
+3. **Ownership is CallGrid's attribution, not our inference** — publisher/source for caller-id and
+   tag-rule failures, buyer or campaign owner for capacity, platform for blocks and number pools.
+
+### Still UNKNOWN
+
+The reporting endpoint · report field names · report money units · percentage representation ·
+latency unit · whether event-level bid records exist at all · whether `Made` and `Won` in the report
+share the denominator the error codes imply.
