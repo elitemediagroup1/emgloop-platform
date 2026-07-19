@@ -197,8 +197,10 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
     const callerState = pickField(record, ['InboundState', 'State', 'inboundState', 'callerState']);
     const callerZip = pickField(record, ['InboundZip', 'Zip', 'ZipCode', 'inboundZip', 'callerZip']);
 
+  // 'BillableDuration' removed — see the note in callgrid.provider.ts. Billable
+  // duration is a distinct business quantity and must not populate total duration.
   const durationSeconds = parseDurationSeconds(
-        pickField(record, ['callDuration', 'Duration', 'CallDuration', 'duration', 'BillableDuration']),
+        pickField(record, ['callDuration', 'Duration', 'CallDuration', 'duration']),
       );
     const revenue = toNumber(pickField(record, ['revenue', 'Revenue', 'RevenueAmount']));
     const payout = toNumber(pickField(record, ['payout', 'Payout', 'PayoutAmount']));

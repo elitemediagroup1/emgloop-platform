@@ -1566,7 +1566,18 @@ model MarketplaceCall {
   rateCents    Int?
 
   // Outcome flags — null when the sensor did not say.
-  qualified Boolean?
+  // RENAMED from `qualified` (Sprint 36). CallGrid sends no qualified field of
+  // any kind — this is DERIVED by Loop as billable OR converted OR paid, and
+  // sat here beside genuine provider flags where it was indistinguishable from
+  // one. It means "the call produced a positive commercial outcome", NOT "the
+  // call met a qualification standard", and an executive reading a
+  // qualification RATE reads it as call quality.
+  //
+  // @map keeps the physical column `qualified` so this rename needs NO
+  // migration: migrations here are manually dispatched, and a code/schema skew
+  // would take production down. Rename the column itself in a dedicated
+  // migration when one is being deployed anyway.
+  monetized Boolean? @map("qualified")
   billable  Boolean?
   converted Boolean?
   paid      Boolean?
@@ -1584,7 +1595,7 @@ model MarketplaceCall {
   @@index([organizationId, sourceExternalId])
   @@index([organizationId, campaignExternalId])
   @@index([organizationId, status])
-  @@index([organizationId, qualified])
+  @@index([organizationId, monetized])
   @@index([organizationId, billable])
   @@index([organizationId, converted])
   @@map("marketplace_calls")

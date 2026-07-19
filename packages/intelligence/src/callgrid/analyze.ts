@@ -50,7 +50,7 @@ export const THRESHOLDS = {
   minDimensionCalls: 5,
   /** Margin fall of at least this % (period over period) is a compression risk. */
   marginCompressionPct: 15,
-  /** A qualified/conversion-rate fall of at least this % is deterioration. */
+  /** A monetized/conversion-rate fall of at least this % is deterioration. */
   rateDeteriorationPct: 20,
   /** Qualified rate at or above this marks a scale candidate. */
   highQualifiedRate: 0.5,
@@ -104,14 +104,14 @@ export interface CallGridAnalysis {
 
 // Rates over a window, each undefined when its denominator is 0.
 function qualifiedRate(w: CallGridWindow): number | undefined {
-  return ratio(w.qualified, w.calls);
+  return ratio(w.monetized, w.calls);
 }
 function conversionRate(w: CallGridWindow): number | undefined {
   return ratio(w.converted, w.calls);
 }
 
 function dimQualifiedRate(d: CallGridDimensionWindow): number | undefined {
-  return ratio(d.qualified, d.calls);
+  return ratio(d.monetized, d.calls);
 }
 
 // ---------------------------------------------------------------------------
@@ -316,14 +316,14 @@ export function computeRisks(input: CallGridIntelligenceInput): TaggedRecommenda
             b.label,
             'buyer',
             0.55,
-            `Buyer ${b.label}'s qualified-call rate fell ${fmtPct(pct)} (${fmtRate(priR)} → ${fmtRate(curR)}) across ${b.calls} calls — the calls sent are converting to qualified leads less often.`,
+            `Buyer ${b.label}'s monetized-call rate fell ${fmtPct(pct)} (${fmtRate(priR)} → ${fmtRate(curR)}) across ${b.calls} calls — the calls sent are converting to monetized leads less often.`,
             `Buyer ${b.label} is deteriorating. Confirm routing and criteria before revenue follows.`,
             `Review the calls routed to ${b.label} for a criteria or routing change; open a conversation with the buyer.`,
-            'Restoring the qualified rate protects revenue attributable to this buyer.',
+            'Restoring the monetized rate protects revenue attributable to this buyer.',
             'medium',
-            'A sustained qualified-rate decline typically precedes a revenue decline for the buyer.',
+            'A sustained monetized-rate decline typically precedes a revenue decline for the buyer.',
             `Revenue at risk on ${b.label}: ${usd(b.revenueCents)}/window.`,
-            [`${b.label} qualified rate ${fmtRate(priR)} → ${fmtRate(curR)}`, `${b.calls} calls this window`],
+            [`${b.label} monetized rate ${fmtRate(priR)} → ${fmtRate(curR)}`, `${b.calls} calls this window`],
             ['Transcript-level rejection causes would confirm whether the decline is criteria, routing, or lead quality.'],
             ['Whether the cause is buyer criteria, source quality, or routing.'],
           ),
@@ -378,7 +378,7 @@ export function computeOpportunities(input: CallGridIntelligenceInput): TaggedRe
   const opps: TaggedRecommendation[] = [];
   const priorSourceRev = new Map((prior?.sources ?? []).map((s) => [s.key, s.revenueCents]));
 
-  // Scale candidates: high qualified rate + positive margin, ranked by margin.
+  // Scale candidates: high monetized rate + positive margin, ranked by margin.
   const scaleCandidates = [...current.sources, ...current.campaigns]
     .filter((d) => d.calls >= THRESHOLDS.minDimensionCalls)
     .map((d) => ({ d, qr: dimQualifiedRate(d), margin: marginCentsOf(d) }))
@@ -398,18 +398,18 @@ export function computeOpportunities(input: CallGridIntelligenceInput): TaggedRe
         ...(input.locationId ? { locationId: input.locationId } : {}),
         recommendation: `Increase allocation to ${c.d.label} — it qualifies ${fmtRate(c.qr!)} of calls at ${usd(c.margin)} margin${rising ? ' and is growing' : ''}.`,
         action: 'operational_recommendation',
-        reason: `${c.d.label} is a high-quality, profitable leg: ${c.d.calls} calls, ${fmtRate(c.qr!)} qualified, ${usd(c.margin)} gross margin${rising ? ', with revenue rising versus the prior window' : ''}.`,
+        reason: `${c.d.label} is a high-quality, profitable leg: ${c.d.calls} calls, ${fmtRate(c.qr!)} monetized, ${usd(c.margin)} gross margin${rising ? ', with revenue rising versus the prior window' : ''}.`,
         rootCause: 'unknown',
         confidence: rising ? 0.6 : 0.5,
         evidence: [
-          evidenceRow(`${c.d.label}: ${c.d.calls} calls, ${fmtRate(c.qr!)} qualified`),
+          evidenceRow(`${c.d.label}: ${c.d.calls} calls, ${fmtRate(c.qr!)} monetized`),
           evidenceRow(`Gross margin ${usd(c.margin)}`),
           ...(rising ? [evidenceRow('Revenue rising vs prior window')] : []),
         ],
         missingEvidence: input.bids ? [] : ['Bid/auction facts would confirm headroom to win more of this traffic.'],
         unknowns: prior ? [] : ['Whether this strength is sustained — no prior window to compare.'],
         suggestedAction: `Raise budget or routing weight toward ${c.d.label} and re-measure next window.`,
-        expectedOutcome: { statement: `More qualified calls at a comparable ${usd(c.margin)}-margin profile.`, metric: 'qualified_calls' },
+        expectedOutcome: { statement: `More monetized calls at a comparable ${usd(c.margin)}-margin profile.`, metric: 'qualified_calls' },
         risk: { level: 'low', description: 'Scaling a source can regress quality as volume grows; re-measure.', costOfInaction: 'Leaving a profitable, high-quality source under-allocated forgoes margin.' },
         businessImpact: `Grows profitable volume on the best-performing traffic.`,
       }),

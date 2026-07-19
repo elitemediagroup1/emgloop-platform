@@ -274,8 +274,12 @@ export class CallGridProvider implements IngestionProvider {
       // boolFrom() coerces yes/no/true/false/1/0 to a real boolean. A field CallGrid
       // omitted stays undefined and is dropped by defined() below - never coerced
       // to 0/false.
+      // NOTE: 'billable_duration' was the last alias here. If the primary keys
+      // were ever absent, BILLABLE duration would be stored in a field named
+      // TOTAL duration — two different business quantities silently collapsing
+      // into one column. Removed: an absent duration must stay unknown.
       const durationSeconds = numeric(
-              pick(data, ['durationSeconds', 'duration', 'duration_seconds', 'billable_duration']),
+              pick(data, ['durationSeconds', 'duration', 'duration_seconds']),
             );
         const revenue = numeric(pick(data, ['revenue', 'revenue_amount', 'revenueAmount']));
         const payout = numeric(pick(data, ['payout', 'payout_amount', 'payoutAmount']));

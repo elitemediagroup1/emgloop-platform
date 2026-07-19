@@ -105,7 +105,7 @@ export async function verifyMarketplaceCall(): Promise<VerificationResult> {
   assert(p!.payoutCents === null, 'absent payout must be null, not 0');
   assert(p!.costCents === null, 'absent cost must be null, not 0');
   assert(p!.converted === null, 'absent converted must be null, not false');
-  assert(p!.qualified === true, 'present qualified must be true');
+  assert(p!.monetized === true, 'a present metadata.qualified projects onto the renamed `monetized` field');
   assert(p!.buyerLabel === 'Acme' && p!.buyerExternalId === 'b1', 'attribution id + label must project');
   checks.push('pure mapper: decimal dollars → integer cents; absent values null (not 0/false)');
 

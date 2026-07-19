@@ -94,5 +94,5 @@ test('absent economics stay null and are never defaulted to zero', () => {
   assert.ok(p);
   assert.equal(p!.revenueCents, null, 'unknown revenue is null, not 0');
   assert.equal(p!.payoutCents, null);
-  assert.equal(p!.qualified, null, 'a missing flag is unknown, not false');
+  assert.equal(p!.monetized, null, 'a missing flag is unknown, not false');
 });

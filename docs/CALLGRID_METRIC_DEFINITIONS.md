@@ -188,3 +188,66 @@ multiplication. There is no other `×100` or `÷100` in the ingestion path.
 **Two ingestion paths with different parsers.** The webhook and API adapters do not share their
 numeric or duration parsing, so the same call can yield different stored values depending on which
 path ingested it first. This is a known defect (Sprint 32, §1.3/2.1).
+
+---
+
+## 11. Sprint 36 — semantic corrections
+
+### `qualified` → `monetized` (RENAMED)
+
+CallGrid sends **no qualified field of any kind**. Loop derived
+`billable ∨ converted ∨ paid` and stored it on `MarketplaceCall.qualified`, beside genuine provider
+flags, where it was indistinguishable from one. It measures *"the call produced a positive
+commercial outcome"*, not *"the call met a qualification standard"* — and an executive reading a
+qualification **rate** reads it as call quality.
+
+Renamed across schema, repositories, intelligence contract, and UI (tile now reads **Monetized**).
+
+**No migration was required.** The Prisma field is `monetized @map("qualified")`, so the physical
+column is unchanged — confirmed by `prisma migrate diff`, which reports an empty migration.
+Migrations here are manually dispatched, so a code/schema skew would take production down; the
+column itself can be renamed in a dedicated migration when one is being deployed anyway.
+
+**The metadata key stays `qualified`.** `Interaction.metadata` is stored historical payload and
+cannot be rewritten. Only the canonical field is renamed.
+
+### Profit vs Net Profit (CORRECTED)
+
+Proven by CallGrid's report for 2026-07-18:
+
+```
+Profit     = Revenue − Payout            540.17 − 461.30 = 78.87   (Margin %    14.60)
+Net Profit = Revenue − Payout − Cost     78.87  −  13.76 = 65.11   (Net Margin % 12.05)
+```
+
+Loop's derived margin is CallGrid's **Net Profit**, not its Profit.
+
+### Duration (NARROWED)
+
+`billable_duration` / `BillableDuration` removed from the total-duration alias lists. If the primary
+key were ever absent, **billable** duration would have landed in a field named **total** duration.
+An absent duration now stays unknown.
+
+**Scope remains UNVERIFIED.** The tag is `CallDuration`; whether it means total elapsed, connected,
+or talk time is not stated anywhere available to us.
+
+### Timestamp (UNVERIFIED — documented, not guessed)
+
+| | |
+|---|---|
+| Loop stores | `MarketplaceCall.sourceOccurredAt` ← `Interaction.occurredAt` ← `occurredAtUnix` (tag `UTCUnixTime`) |
+| Timezone | **Resolved.** The tag name states UTC; it is an unambiguous epoch |
+| Lifecycle event | **Unresolved.** `UTCUnixTime` does not say whether it is call START or END |
+
+This matters: CallGrid's report distinguishes `Ended` (106) from `Completed` (104), so lifecycle
+events are tracked separately upstream. If `UTCUnixTime` is the END time, a call starting 23:58 and
+ending 00:03 is attributed to the following day, while Loop's field is named `sourceOccurredAt` and
+documented "when the call actually occurred" — which reads as start.
+
+**Question for CallGrid:** does `UTCUnixTime` represent call start or call end?
+
+### Window boundary
+
+Reconciliation defaults to the **US/Eastern** day, matching `reportTimeZone=US/Eastern`. `?tz=utc`
+selects the raw UTC day. The offset is derived per-date via `Intl` (UTC-4 in EDT, UTC-5 in EST), so a
+winter window is not silently shifted.

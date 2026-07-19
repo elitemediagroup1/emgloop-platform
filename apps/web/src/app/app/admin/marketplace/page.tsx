@@ -104,7 +104,7 @@ export default async function MarketplaceCommandCenter() {
         revenueCents: failed<number>(noOrgError, meta),
         payoutCents: failed<number>(noOrgError, meta),
         costCents: failed<number>(noOrgError, meta),
-        qualified: failed<number>(noOrgError, meta),
+        monetized: failed<number>(noOrgError, meta),
         converted: failed<number>(noOrgError, meta),
       };
 
@@ -153,7 +153,7 @@ export default async function MarketplaceCommandCenter() {
           <Metric label="Calls" window={WINDOW_LABEL} truth={metrics.calls} format={num} />
           <Metric label="Revenue" window={WINDOW_LABEL} truth={metrics.revenueCents} format={money} />
           <Metric label="Payout" window={WINDOW_LABEL} truth={metrics.payoutCents} format={money} />
-          <Metric label="Qualified" window={WINDOW_LABEL} truth={metrics.qualified} format={num} />
+          <Metric label="Monetized" window={WINDOW_LABEL} truth={metrics.monetized} format={num} />
           <Metric label="Converted" window={WINDOW_LABEL} truth={metrics.converted} format={num} />
         </section>
 

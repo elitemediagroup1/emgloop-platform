@@ -164,14 +164,17 @@ export const BUSINESS_DEFINITIONS: readonly BusinessDefinition[] = [
     metric: 'Qualified calls',
     callgridTerm: null,
     status: 'different',
-    loopDefinition: 'DERIVED by Loop: billable === true OR converted === true OR paid === true.',
+    loopDefinition:
+      'RENAMED to `monetized` (Sprint 36). DERIVED by Loop: billable OR converted OR paid.',
     callgridDefinition: 'No such concept. CallGrid sends no qualified field of any kind.',
     recommendation: 'rename',
     note:
       'A Loop invention presented as a sensor fact — it is even stored on MarketplaceCall.qualified ' +
       'beside genuine provider flags. It measures "the call produced a positive commercial outcome", ' +
       'not "the call met a qualification standard", and an executive reading a qualification RATE ' +
-      'will read it as call quality. Rename to monetizedCalls (or similar) and never reconcile it.',
+      'would read it as call quality. RENAMED to `monetized` across the schema, repositories, ' +
+      'intelligence contract and UI; the physical column is @map-ed so no migration was required. ' +
+      'The metadata KEY stays `qualified` because it is stored historical payload. Never reconcile it.',
   },
   {
     metric: 'Connected calls',

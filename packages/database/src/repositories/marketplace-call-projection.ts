@@ -57,7 +57,7 @@ export interface MarketplaceCallProjection {
   payoutCents: number | null;
   costCents: number | null;
   rateCents: number | null;
-  qualified: boolean | null;
+  monetized: boolean | null;
   billable: boolean | null;
   converted: boolean | null;
   paid: boolean | null;
@@ -138,7 +138,9 @@ export function projectInteractionToMarketplaceCall(
     // 'cost' is telco cost; 'telco' is its mirror — prefer 'cost'.
     costCents: centsOrNull(m.cost ?? m.telco),
     rateCents: centsOrNull(m.rate),
-    qualified: boolOrNull(m.qualified),
+    // The metadata KEY stays `qualified` — it is stored historical payload and
+    // cannot be rewritten. The canonical field is honestly named.
+    monetized: boolOrNull(m.qualified),
     billable: boolOrNull(m.billable),
     converted: boolOrNull(m.converted),
     paid: boolOrNull(m.paid),

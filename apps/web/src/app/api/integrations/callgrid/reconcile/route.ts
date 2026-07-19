@@ -194,7 +194,9 @@ export async function GET(req: Request) {
     buyerLabel: c.buyerLabel,
     campaignLabel: c.campaignLabel,
     sourceLabel: c.sourceLabel,
-    qualified: c.qualified,
+    // Loop's derived flag, honestly named. CallGrid has no equivalent, so the
+    // harness classifies it as a definition mismatch rather than comparing it.
+    qualified: c.monetized,
     converted: c.converted,
     duplicate: c.duplicate,
   }));
@@ -215,13 +217,22 @@ export async function GET(req: Request) {
   // dollars assumption holds; if it became 25 cents, it does not.
   const loopById = new Map(loop.map((l) => [l.externalId, l]));
   const moneyEvidence = source
-    .filter((s) => typeof s.revenue === 'number' && loopById.has(s.call_id))
+    // Sample only records that can actually settle the unit. A zero-revenue
+    // record proves nothing — 0 dollars and 0 cents are the same number — and
+    // the day's report shows whole campaigns at 0.00, so an unfiltered sample
+    // can be entirely uninformative.
+    .filter((s) => typeof s.revenue === 'number' && s.revenue > 0)
+    .filter((s) => typeof s.payout === 'number' && s.payout > 0)
+    .filter((s) => s.profit !== null && s.profit !== undefined)
+    .filter((s) => loopById.has(s.call_id))
     .slice(0, 5)
     .map((s) => {
       const l = loopById.get(s.call_id)!;
       const statedProfit = s.profit ?? null;
-      const derived =
-        typeof s.revenue === 'number' ? s.revenue - (s.payout ?? 0) - (s.cost ?? 0) : null;
+      // Profit = Revenue - Payout. Cost is NOT subtracted (proven by the
+      // CallGrid report of 2026-07-18); Net Profit is the cost-bearing figure.
+      const derivedProfit =
+        typeof s.revenue === 'number' ? +(s.revenue - (s.payout ?? 0)).toFixed(2) : null;
       return {
         record: handle(s.call_id),
         sourceRevenue: s.revenue,
@@ -231,14 +242,20 @@ export async function GET(req: Request) {
         loopRevenueCents: l.revenueCents,
         loopPayoutCents: l.payoutCents,
         loopCostCents: l.costCents,
-        // If this ratio is 100 the source is dollars; if 1, the source is
-        // already minor units and centsOrNull is inflating by 100x.
+        // 100 => the source states dollars and centsOrNull is correct.
+        //   1 => the source is ALREADY minor units and Loop inflates by 100x.
         revenueRatioLoopOverSource:
           typeof s.revenue === 'number' && s.revenue !== 0 && l.revenueCents !== null
             ? Number((l.revenueCents / s.revenue).toFixed(4))
             : null,
+        payoutRatioLoopOverSource:
+          typeof s.payout === 'number' && s.payout !== 0 && l.payoutCents !== null
+            ? Number((l.payoutCents / s.payout).toFixed(4))
+            : null,
         profitInvariantHolds:
-          statedProfit === null || derived === null ? null : Math.abs(derived - statedProfit) < 0.011,
+          statedProfit === null || derivedProfit === null
+            ? null
+            : Math.abs(derivedProfit - statedProfit) < 0.011,
       };
     });
 
@@ -247,7 +264,8 @@ export async function GET(req: Request) {
     .filter((r): r is number => r !== null);
   const moneyUnitVerdict =
     ratios.length === 0
-      ? 'indeterminate: no record carried both a source revenue and a projected value'
+      ? `indeterminate: no sampled record had revenue > 0, payout > 0, a stated profit AND a matching ` +
+        `Loop row (${source.length} source record(s) examined, ${loop.length} in Loop)`
       : ratios.every((r) => Math.abs(r - 100) < 0.5)
         ? 'PROVEN dollars: Loop cents == source x 100 on every sampled record'
         : ratios.every((r) => Math.abs(r - 1) < 0.01)
