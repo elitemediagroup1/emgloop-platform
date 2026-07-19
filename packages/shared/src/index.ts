@@ -166,3 +166,11 @@ export interface NormalizedEvent {
   summary?: string;
   metadata: Metadata; // full source payload context
 }
+
+// --- Truth States (mandatory platform architecture) ---
+// The canonical semantic model for what the platform actually knows: SUCCESS,
+// EMPTY, PARTIAL, UNKNOWN, UNAVAILABLE, ERROR. Every repository, service,
+// intelligence module and UI surface uses this one model — there are no special
+// cases. Only SUCCESS and EMPTY may render a numeric zero, and the type system
+// enforces it rather than asking engineers to remember. See docs/TRUTH_STATES.md.
+export * from './truth';

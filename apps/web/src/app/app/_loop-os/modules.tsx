@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SidebarIcon } from "../../crm/_brand/SidebarIcon";
 import type { Tone, Ranked } from "./types";
-import { money, num } from "./format";
+import { moneyOrUnknown, numOrUnknown } from "./format";
 import { StatusDot } from "./primitives";
 
 export function Module(props: {
@@ -62,7 +62,9 @@ export function RankedList(props: { icon: string; title: string; rows: Ranked[];
               <span className="loop-rank__pos">{i + 1}</span>
               <span className="loop-rank__name">{r.label || "Unknown"}</span>
               <span className="loop-rank__num">
-                {props.metric === "revenue" ? money(r.revenueCents) : num(r.orders)}
+                {/* A ranked row may carry no revenue/order figure at all. That is
+                    unknown, not zero — render it as such. */}
+                {props.metric === "revenue" ? moneyOrUnknown(r.revenueCents) : numOrUnknown(r.orders)}
               </span>
             </li>
           ))}

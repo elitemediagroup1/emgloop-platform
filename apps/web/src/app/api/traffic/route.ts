@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { serializeTruth, hasValue, isPartial } from '@emgloop/shared';
 import { crmRepos } from '../../../crm/crm-data';
 import { can, getSession } from '../../../auth/auth';
 
@@ -29,10 +30,15 @@ export async function GET() {
 
   const traffic = await crmRepos.revenueIntelligence.trafficIntelligence(orgId);
   // See the note in api/revenue/route.ts — capped scans must never read as complete.
+  // Serialized as Truth, so a client receives the state and its provenance
+  // rather than a bare number it would have to interpret for itself.
+  // `partial` stays hoisted for consumers that already read it.
   return NextResponse.json({
     ok: true,
-    traffic,
-    partial: !traffic.coverage.complete,
+    traffic: hasValue(traffic) ? traffic.value : null,
+    truth: serializeTruth(traffic),
+    state: traffic.state,
+    partial: isPartial(traffic),
     orgReady: true,
     at: new Date().toISOString(),
   });

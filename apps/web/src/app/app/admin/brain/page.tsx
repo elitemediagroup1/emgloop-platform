@@ -22,8 +22,13 @@ export const dynamic = "force-dynamic";
 // the ONLY headline KPI (mission rule); everything else is explanation. Every
 // section that lacks evidence renders an honest "Not enough data", never "0".
 
+// Confidence that was never computed is unknown, not 0%. Rendering "0%
+// confidence" reads as "the Brain is certain this is worthless", which is a
+// different and much stronger claim than "the Brain did not score this".
+// The header above promises this page never shows a fabricated 0; this is where
+// that promise was being broken.
 function confPct(c: number | undefined): string {
-  return `${Math.round((c ?? 0) * 100)}%`;
+  return c === undefined ? "unscored" : `${Math.round(c * 100)}%`;
 }
 
 function changeArrow(d: IntelligenceChange["direction"]): string {

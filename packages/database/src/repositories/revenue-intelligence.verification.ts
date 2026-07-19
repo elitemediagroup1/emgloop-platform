@@ -18,6 +18,18 @@
 
 import { RevenueIntelligenceRepository, CAPS } from './revenue-intelligence.repository';
 import type { PrismaClient } from '@prisma/client';
+import { hasValue, isPartial, isSuccess, type Truth } from '@emgloop/shared';
+
+/**
+ * Unwrap a Truth for assertion purposes. Fails loudly on a non-value state —
+ * a harness that silently defaulted would defeat the point of the migration.
+ */
+function unwrap<T>(t: Truth<T>, what: string): T {
+  if (!hasValue(t)) {
+    throw new Error(`VERIFICATION FAILED: ${what} expected a value-bearing Truth, got '${t.state}'`);
+  }
+  return t.value;
+}
 
 // --- Model rows -------------------------------------------------------------
 
@@ -224,13 +236,17 @@ export async function verifyBoundedReads(): Promise<{ passed: true; checks: stri
   const repo = new RevenueIntelligenceRepository(small as unknown as PrismaClient);
 
   // --- 1. Complete reads report complete coverage ---------------------------
-  const rev = await repo.revenueByDimension(ORG);
+  const revT = await repo.revenueByDimension(ORG);
+  const rev = unwrap(revT, 'revenueByDimension');
+  assert(isSuccess(revT), 'an under-cap revenue read must be SUCCESS, not partial');
   assert(rev.coverage.complete === true, 'under-cap revenue read must report complete coverage');
   assert(rev.coverage.capReached === false, 'under-cap revenue read must not report capReached');
   assert(rev.coverage.reasons.length === 0, 'complete coverage carries no reasons');
   checks.push('under-cap revenue read reports complete coverage with no reasons');
 
-  const traffic = await repo.trafficIntelligence(ORG);
+  const trafficT = await repo.trafficIntelligence(ORG);
+  const traffic = unwrap(trafficT, 'trafficIntelligence');
+  assert(isSuccess(trafficT), 'an under-cap traffic read must be SUCCESS, not partial');
   assert(traffic.coverage.complete === true, 'under-cap traffic read must report complete coverage');
   assert(traffic.coverage.reasons.length === 0, 'complete traffic coverage carries no reasons');
   checks.push('under-cap traffic read reports complete coverage with no reasons');
@@ -285,7 +301,9 @@ export async function verifyBoundedReads(): Promise<{ passed: true; checks: stri
     }),
   );
   const bigRepo = new RevenueIntelligenceRepository(big as unknown as PrismaClient);
-  const capped = await bigRepo.revenueByDimension(ORG);
+  const cappedT = await bigRepo.revenueByDimension(ORG);
+  const capped = unwrap(cappedT, 'capped revenueByDimension');
+  assert(isPartial(cappedT), 'a capped read must be PARTIAL, never SUCCESS');
   assert(capped.coverage.complete === false, 'a binding customer cap must report incomplete coverage');
   assert(capped.coverage.capReached === true, 'a binding cap must set capReached');
   assert(capped.coverage.reasons.length > 0, 'a binding cap must explain itself');
@@ -322,13 +340,61 @@ export async function verifyBoundedReads(): Promise<{ passed: true; checks: stri
       orders: [{ status: 'FULFILLED', totalCents: 100 }],
     }),
   ];
-  const chattyRev = await new RevenueIntelligenceRepository(chatty as unknown as PrismaClient).revenueByDimension(ORG);
+  const chattyRevT = await new RevenueIntelligenceRepository(chatty as unknown as PrismaClient).revenueByDimension(ORG);
+  const chattyRev = unwrap(chattyRevT, 'chatty revenueByDimension');
   assert(chattyRev.coverage.complete === false, 'truncated per-customer interactions must be reported as partial');
   assert(
     chattyRev.coverage.reasons.some((r) => r.includes(String(CAPS.interactionsPerCustomer))),
     'the reason names the per-customer interaction cap',
   );
   checks.push('per-customer interaction truncation surfaces as partial coverage, not silence');
+
+  // --- 9. An unpriced order is not a $0 order ------------------------------
+  // Previously `realizedCents += o.totalCents ?? 0` reported an order whose
+  // amount was never captured as worthless, inside a total presented as
+  // complete. It must now degrade the whole read to PARTIAL.
+  const unpriced = new FakePrisma();
+  unpriced.rows = [
+    customer({
+      id: 'c1',
+      organizationId: ORG,
+      interactions: [
+        { occurredAt: recent(5), channel: 'PHONE', metadata: { vendor: 'Acme' }, payload: {}, organizationId: ORG, customerId: 'c1' },
+      ],
+      orders: [
+        { status: 'FULFILLED', totalCents: 10_000 },
+        // Captured as fulfilled, but the amount was never recorded.
+        { status: 'FULFILLED', totalCents: null as unknown as number },
+      ],
+    }),
+  ];
+  const unpricedT = await new RevenueIntelligenceRepository(unpriced as unknown as PrismaClient).revenueByDimension(ORG);
+  const unpricedRev = unwrap(unpricedT, 'unpriced revenueByDimension');
+  assert(
+    unpricedRev.realizedRevenueCents === 10_000,
+    `only the known amount is summed (got ${unpricedRev.realizedRevenueCents})`,
+  );
+  assert(unpricedRev.realizedOrders === 2, 'both orders are still counted as realized');
+  assert(isPartial(unpricedT), 'an unpriced order must degrade the read to PARTIAL, never SUCCESS');
+  assert(
+    unpricedRev.coverage.reasons.some((r) => r.includes('no captured amount')),
+    'coverage must explain that an amount was missing',
+  );
+  checks.push('an order with no captured amount is a lower bound, not a $0 order');
+
+  // --- 10. A failed read is ERROR, never an empty report -------------------
+  const broken = {
+    customer: {
+      findMany: async () => {
+        throw new Error('connection terminated unexpectedly');
+      },
+    },
+    interaction: { findMany: async () => [] },
+  };
+  const brokenT = await new RevenueIntelligenceRepository(broken as unknown as PrismaClient).revenueByDimension(ORG);
+  assert(brokenT.state === 'error', `a failed read must be ERROR (got '${brokenT.state}')`);
+  assert(!hasValue(brokenT), 'an ERROR read exposes no value to render as zero');
+  checks.push('a thrown read becomes ERROR and exposes no value');
 
   return { passed: true, checks };
 }

@@ -85,8 +85,13 @@ export function parseTimestamp(raw: string): number {
   if (!raw) return NaN;
   const n = Number(raw);
   if (Number.isFinite(n)) {
-    // Heuristic: 10-digit values are seconds, 13-digit are milliseconds.
-    return raw.trim().length <= 11 ? n * 1000 : n;
+    // Classify by MAGNITUDE, not string length. The old length<=11 heuristic
+    // misread any fractional or zero-padded seconds value: "1752854400.123"
+    // is 14 characters, was treated as milliseconds, and resolved to
+    // 1970-01-21 — silently moving the call out of every reporting window.
+    // Unix seconds are ~1.7e9 and milliseconds ~1.7e12, so 1e11 separates them
+    // cleanly for any date this platform will ever see.
+    return Math.abs(n) < 1e11 ? n * 1000 : n;
   }
   const d = Date.parse(raw);
   return Number.isFinite(d) ? d : NaN;

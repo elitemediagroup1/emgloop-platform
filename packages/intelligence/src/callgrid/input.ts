@@ -27,8 +27,11 @@ export interface CallGridDimensionWindow {
   /** Display label. */
   label: string;
   calls: number;
-  /** Calls flagged qualified (billable|converted|paid) by the sensor. */
-  qualified: number;
+  /** Calls flagged monetized (billable|converted|paid) by the sensor. */
+  /** Calls with a positive commercial outcome (billable OR converted OR paid).
+   *  Loop-derived — CallGrid exposes no such metric. Renamed from `monetized`
+   *  in Sprint 36 so it can never read as a CallGrid quality measure. */
+  monetized: number;
   /** Calls flagged converted by the sensor. */
   converted: number;
   /** Downstream bookings attributed to this participant, when known. */
@@ -41,9 +44,11 @@ export interface CallGridDimensionWindow {
 /** Everything the analyzer needs about one window of CallGrid activity. */
 export interface CallGridWindow {
   calls: number;
-  qualified: number;
+  monetized: number;
   converted: number;
-  bookings: number;
+  // `bookings` was removed in Sprint 34: it is a CRM concept, it was hardcoded
+  // to 0 in the only producer, and no analyzer ever read it. A permanently-zero
+  // field in a CallGrid contract is a mixed metric, not a measurement.
   revenueCents: number;
   payoutCents: number;
   costCents: number;

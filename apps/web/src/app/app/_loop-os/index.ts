@@ -1,5 +1,16 @@
 export type { Tone, Ranked } from "./types";
-export { money, num, greeting, todayLabel, relTime, clockDuration, sparkPath } from "./format";
+export {
+  money,
+  num,
+  moneyOrUnknown,
+  numOrUnknown,
+  UNKNOWN_DISPLAY,
+  greeting,
+  todayLabel,
+  relTime,
+  clockDuration,
+  sparkPath,
+} from "./format";
 export { StatusDot, Sparkline } from "./primitives";
 export { Module, Bar, RankedList } from "./modules";
 export { AttentionRow, BriefingItem, IntegrationPill, PartialDataNotice } from "./panels";

@@ -27,6 +27,7 @@
 // left unknown, never fabricated.
 
 import type { InboundEvent } from '../interfaces/ingestion.provider';
+import { resolveCallOccurrence } from './callgrid-occurrence';
 
 export const CALLGRID_API_DEFAULT_BASE_URL = 'https://api.callgrid.com';
 export const CALLGRID_CALLS_PATH = '/api/call';
@@ -86,6 +87,11 @@ export function pickField(
           const v = record[k];
           if (typeof v === 'string' && v.trim()) return v.trim();
           if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+          // See pick() in callgrid.provider.ts: CallGrid sends billable /
+          // converted / paid / duplicate as real JSON booleans, and dropping
+          // them here made the derived `qualified` flag undefined for every
+          // such call.
+          if (typeof v === 'boolean') return String(v);
     }
     return undefined;
 }
@@ -93,7 +99,21 @@ export function pickField(
 /** Coerce a numeric-ish field to a finite number, or undefined. */
 export function toNumber(value: string | undefined): number | undefined {
     if (value === undefined) return undefined;
-    const n = Number(String(value).replace(/[^0-9.\-]/g, ''));
+    const raw = String(value).trim();
+    if (raw === '') return undefined;
+    // Strip formatting ($, commas, currency suffixes) but NOT to the point of
+    // inventing a number. The previous version stripped every non-numeric
+    // character and then trusted Number(''), which is 0 — so a CallGrid field
+    // reading "N/A", "none" or "pending" was stored as a measured $0.00 rather
+    // than left unknown. That is a fabricated measurement, and it also poisoned
+    // reconciliation: a wrong 0 counts as a real value and permanently blocks
+    // the correct figure from ever being filled in.
+    const stripped = raw.replace(/[^0-9.\-]/g, '');
+    if (stripped === '' || stripped === '-' || stripped === '.') return undefined;
+    // Reject inputs that were mostly non-numeric text ("n/a" -> ""), keeping
+    // legitimately formatted money ("$1,234.50", "24.00 USD").
+    if (!/[0-9]/.test(raw)) return undefined;
+    const n = Number(stripped);
     return Number.isFinite(n) ? n : undefined;
 }
 
@@ -148,11 +168,17 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
   // Real field is 'createdAt'. Previously absent from the candidate list, so
   // occurredAt always fell back to "now" (sync execution time), corrupting
   // Today / Last 7 Days date-window bucketing.
-  const occurredRaw = pickField(record, [
-        'createdAt', 'CallDateTime', 'CallDate', 'StartTime', 'started_at', 'occurred_at', 'Timestamp', 'timestamp',
-      ]);
-    const occurred = occurredRaw ? new Date(occurredRaw) : new Date();
-    const occurredAt = Number.isNaN(occurred.getTime()) ? new Date() : occurred;
+  // Canonical precedence — see callgrid-occurrence.ts. `createdAt` was FIRST in
+  // the old alias list, which is record-creation time and ran ~16s after the
+  // event on a real record.
+  const occurrence = resolveCallOccurrence(record);
+  if (!occurrence.at) {
+        throw new CallGridApiError(
+                'CallGrid record carries no usable occurrence timestamp ' +
+                '(UTCUnixTimeMs / UTCISODate / UTCUnixTime all absent or invalid)',
+              );
+  }
+  const occurredAt = occurrence.at;
 
   // Caller phone: real field is 'from'. Destination number: real field is 'to'.
   const customerPhone = pickField(record, [
@@ -178,8 +204,10 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
     const callerState = pickField(record, ['InboundState', 'State', 'inboundState', 'callerState']);
     const callerZip = pickField(record, ['InboundZip', 'Zip', 'ZipCode', 'inboundZip', 'callerZip']);
 
+  // 'BillableDuration' removed — see the note in callgrid.provider.ts. Billable
+  // duration is a distinct business quantity and must not populate total duration.
   const durationSeconds = parseDurationSeconds(
-        pickField(record, ['callDuration', 'Duration', 'CallDuration', 'duration', 'BillableDuration']),
+        pickField(record, ['callDuration', 'Duration', 'CallDuration', 'duration']),
       );
     const revenue = toNumber(pickField(record, ['revenue', 'Revenue', 'RevenueAmount']));
     const payout = toNumber(pickField(record, ['payout', 'Payout', 'PayoutAmount']));
@@ -245,15 +273,51 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
 }
 
 /** Extract the records array from a CallGrid response of unknown envelope shape. */
-function extractRecords(body: unknown): Array<Record<string, unknown>> {
-    if (Array.isArray(body)) return body as Array<Record<string, unknown>>;
+/** Envelope shapes CallGrid may legitimately return, in precedence order. */
+const RECORD_ENVELOPE_KEYS = ['data', 'calls', 'results', 'items', 'records'] as const;
+
+/**
+ * Locate the records array inside a CallGrid response.
+ *
+ * Returns null when the envelope is UNRECOGNISED, which is deliberately
+ * different from an empty page. The previous version returned `[]` for both, so
+ * a response shape we do not understand was indistinguishable from a day with
+ * no calls — it would have reported "0 calls, reconciled clean" against a
+ * marketplace that had traffic. A shape we cannot parse is an error, not a zero.
+ */
+export function extractRecordsOrNull(
+  body: unknown,
+): { records: Array<Record<string, unknown>>; envelope: string } | null {
+    if (Array.isArray(body)) {
+          return { records: body as Array<Record<string, unknown>>, envelope: 'array' };
+    }
     if (body && typeof body === 'object') {
           const o = body as Record<string, unknown>;
-          for (const key of ['data', 'calls', 'results', 'items', 'records']) {
-                  if (Array.isArray(o[key])) return o[key] as Array<Record<string, unknown>>;
+          for (const key of RECORD_ENVELOPE_KEYS) {
+                  if (Array.isArray(o[key])) {
+                            return { records: o[key] as Array<Record<string, unknown>>, envelope: key };
+                  }
           }
     }
-    return [];
+    return null;
+}
+
+/**
+ * Describe a response shape for an error message: top-level KEYS ONLY.
+ *
+ * Never includes values, so a diagnostic cannot leak a phone number, a
+ * recording URL, or a credential echoed back by the provider.
+ */
+export function describeShape(body: unknown): string {
+    if (Array.isArray(body)) return 'array';
+    if (body === null) return 'null';
+    if (typeof body !== 'object') return typeof body;
+    const keys = Object.keys(body as Record<string, unknown>).slice(0, 20);
+    return `object{${keys.join(',')}}`;
+}
+
+function extractRecords(body: unknown): Array<Record<string, unknown>> {
+    return extractRecordsOrNull(body)?.records ?? [];
 }
 
 /** Extract the next-page cursor from a CallGrid response, if present. */
@@ -312,7 +376,16 @@ export async function fetchCallGridCallsPage(
     } catch {
           throw new CallGridApiError('CallGrid API returned non-JSON body', res.status);
     }
-    const records = extractRecords(body);
+    const parsed = extractRecordsOrNull(body);
+    if (!parsed) {
+          // Keys only — never values. An unparseable envelope must fail loudly
+          // rather than masquerade as a day with no calls.
+          throw new CallGridApiError(
+                  'CallGrid API returned an unrecognised response shape: ' + describeShape(body),
+                  res.status,
+                );
+    }
+    const records = parsed.records;
     const envelope = (body && typeof body === 'object' ? body : {}) as { hasMore?: unknown; nextCursor?: unknown };
     const apiHasMore = envelope.hasMore === true;
     const nextCursor: unknown = envelope.nextCursor != null ? envelope.nextCursor : extractCursor(body);

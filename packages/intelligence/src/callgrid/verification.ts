@@ -35,9 +35,8 @@ const WINDOW = {
 function emptyWindow(): CallGridWindow {
   return {
     calls: 0,
-    qualified: 0,
+    monetized: 0,
     converted: 0,
-    bookings: 0,
     revenueCents: 0,
     payoutCents: 0,
     costCents: 0,
@@ -82,9 +81,8 @@ export function verifyCallGridIntelligence(): VerificationResult {
   // --- Fixture 2: margin compression → a real risk with a Brain envelope. ---
   const prior: CallGridWindow = {
     calls: 120,
-    qualified: 72,
+    monetized: 72,
     converted: 40,
-    bookings: 20,
     revenueCents: 600_000,
     payoutCents: 300_000,
     costCents: 30_000,
@@ -92,19 +90,18 @@ export function verifyCallGridIntelligence(): VerificationResult {
     callsWithPayout: 120,
     callsWithCost: 120,
     buyers: [
-      { key: 'acme', label: 'Acme Insurance', calls: 60, qualified: 42, converted: 24, revenueCents: 360_000, payoutCents: 160_000, costCents: 15_000 },
+      { key: 'acme', label: 'Acme Insurance', calls: 60, monetized: 42, converted: 24, revenueCents: 360_000, payoutCents: 160_000, costCents: 15_000 },
     ],
     vendors: [],
     sources: [
-      { key: 'src-a', label: 'Search A', calls: 60, qualified: 40, converted: 22, revenueCents: 300_000, payoutCents: 140_000, costCents: 12_000 },
+      { key: 'src-a', label: 'Search A', calls: 60, monetized: 40, converted: 22, revenueCents: 300_000, payoutCents: 140_000, costCents: 12_000 },
     ],
     campaigns: [],
   };
   const current: CallGridWindow = {
     calls: 125,
-    qualified: 60,
+    monetized: 60,
     converted: 30,
-    bookings: 14,
     revenueCents: 610_000,
     payoutCents: 430_000,
     costCents: 60_000,
@@ -112,12 +109,12 @@ export function verifyCallGridIntelligence(): VerificationResult {
     callsWithPayout: 125,
     callsWithCost: 125,
     buyers: [
-      { key: 'acme', label: 'Acme Insurance', calls: 62, qualified: 30, converted: 15, revenueCents: 360_000, payoutCents: 240_000, costCents: 30_000 },
+      { key: 'acme', label: 'Acme Insurance', calls: 62, monetized: 30, converted: 15, revenueCents: 360_000, payoutCents: 240_000, costCents: 30_000 },
     ],
     vendors: [],
     sources: [
-      { key: 'src-a', label: 'Search A', calls: 60, qualified: 34, converted: 18, revenueCents: 300_000, payoutCents: 150_000, costCents: 20_000 },
-      { key: 'src-b', label: 'Display B', calls: 30, qualified: 2, converted: 0, revenueCents: 0, payoutCents: 0, costCents: 40_000 },
+      { key: 'src-a', label: 'Search A', calls: 60, monetized: 34, converted: 18, revenueCents: 300_000, payoutCents: 150_000, costCents: 20_000 },
+      { key: 'src-b', label: 'Display B', calls: 30, monetized: 2, converted: 0, revenueCents: 0, payoutCents: 0, costCents: 40_000 },
     ],
     campaigns: [],
   };

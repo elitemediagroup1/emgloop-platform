@@ -1,6 +1,7 @@
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
+import { UNKNOWN_DISPLAY } from '@emgloop/shared';
 
 // Analytics — Sprint 10 (Loop Intelligence Foundation, Phase 4)
 //          + Sprint 14 (Website Intelligence — website widgets).
@@ -47,17 +48,20 @@ export default async function AnalyticsPage() {
   const { summary, velocity, website } = result.data;
   const totalSignals = summary.signals.total;
 
-  const kpis = [
+  const kpis: Array<{ label: string; value: string | number; unit: string }> = [
     { label: 'Lead Volume', value: summary.signals.intentCount, unit: 'leads' },
     { label: 'Interactions', value: summary.interactions.total, unit: 'touchpoints' },
     { label: 'Bookings', value: summary.bookings.completed, unit: 'completed' },
     { label: 'Booking Rate', value: summary.bookings.bookingRate, unit: '%' },
     {
+      // A team that has never responded and a team that responds instantly are
+      // NOT the same measurement. Null here means no response has been observed
+      // to time, so it renders as unmeasured rather than as a flattering 0.
       label: 'Avg Response',
       value: velocity.avgResponseTimeSeconds !== null
         ? Math.round(velocity.avgResponseTimeSeconds / 60)
-        : 0,
-      unit: 'min',
+        : UNKNOWN_DISPLAY,
+      unit: velocity.avgResponseTimeSeconds !== null ? 'min' : 'no responses timed yet',
     },
     { label: 'Churn Risk', value: summary.signals.churnRiskCount, unit: 'signals' },
     { label: 'Workflow Runs', value: summary.workflows.runs, unit: 'executions' },

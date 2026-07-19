@@ -13,6 +13,10 @@ export * from './module';
 export * from './build';
 export * from './briefing';
 
+// Marketplace Coverage — what the Brain knows, what it does not, and why.
+// Status is always derived from counted observations, never authored.
+export * from './coverage';
+
 // CallGrid module (its input boundary is the only CallGrid-vocabulary surface).
 export * from './callgrid/input';
 export * from './callgrid/analyze';

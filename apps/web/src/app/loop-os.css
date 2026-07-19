@@ -1306,3 +1306,58 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
   .loop-change__val { display: none; }
 }
 /* ===================== END INTELLIGENCE MODULE 1 ===================== */
+
+/* --- Marketplace Coverage — the truth center ------------------------------
+   Status colour is semantic, not decorative: it encodes how much weight the
+   operator may put on a number. Uses the existing loop-* tokens only. */
+.mkt-cov__window { font-size: 12px; color: var(--loop-text-3); }
+.mkt-cov__lead { font-size: 13.5px; color: var(--loop-text-2); margin: 10px 0 0; max-width: 74ch; }
+.mkt-cov__totals { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.mkt-cov__total { font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--loop-line); }
+.mkt-cov__total--available { color: var(--loop-good); background: rgba(52, 199, 129, 0.10); }
+.mkt-cov__total--partial { color: var(--loop-warn); background: rgba(240, 179, 60, 0.10); }
+.mkt-cov__total--unavailable { color: var(--loop-crit); background: rgba(240, 90, 90, 0.10); }
+.mkt-cov__total--undetermined { color: var(--loop-text-2); background: var(--loop-elev); }
+
+.mkt-cov__list, .mkt-pri__list { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; background: var(--loop-line); border: 1px solid var(--loop-line); border-radius: var(--cc-radius); overflow: hidden; }
+.mkt-cov__row { background: var(--loop-panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 5px; }
+.mkt-cov__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.mkt-cov__label { font-size: 14.5px; font-weight: 600; color: var(--loop-text); }
+.mkt-cov__status { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+.mkt-cov__status--available { color: var(--loop-good); background: rgba(52, 199, 129, 0.14); }
+.mkt-cov__status--partial { color: var(--loop-warn); background: rgba(240, 179, 60, 0.16); }
+.mkt-cov__status--unavailable { color: var(--loop-crit); background: rgba(240, 90, 90, 0.14); }
+.mkt-cov__status--undetermined { color: var(--loop-text-2); background: var(--loop-elev); }
+.mkt-cov__ratio { font-size: 12px; color: var(--loop-text-3); font-variant-numeric: tabular-nums; margin-left: auto; }
+.mkt-cov__evidence { font-size: 13px; color: var(--loop-text-2); margin: 0; }
+.mkt-cov__reason { font-size: 12.5px; color: var(--loop-text-2); margin: 0; }
+.mkt-cov__key { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--loop-text-3); margin-right: 7px; }
+.mkt-cov__meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 3px; }
+.mkt-cov__chip { font-size: 11px; color: var(--loop-text-2); background: var(--loop-elev); border: 1px solid var(--loop-line); padding: 2px 8px; border-radius: 6px; }
+.mkt-cov__cite { font-size: 11px; color: var(--loop-text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.mkt-pri__item { background: var(--loop-panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 5px; }
+.mkt-pri__title { font-size: 14.5px; font-weight: 600; color: var(--loop-text); }
+.mkt-pri__line { font-size: 12.5px; color: var(--loop-text-2); margin: 0; }
+.mkt-pri__unlocks { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+@media (max-width: 720px) {
+  .mkt-cov__ratio { margin-left: 0; }
+}
+
+/* An unmeasured metric must not read like a confident zero. */
+.loop-mod--unknown .loop-mod__metric { color: var(--loop-text-3); }
+.loop-mod--unknown .loop-mod__detail { color: var(--loop-warn); }
+
+/* Truth-state metric tones. Each of the six states must look different. */
+.loop-mod--good .loop-mod__metric { color: var(--loop-text); }
+.loop-mod--neutral .loop-mod__metric { color: var(--loop-text-2); }
+.loop-mod--caution .loop-mod__metric { color: var(--loop-warn); }
+.loop-mod--critical .loop-mod__metric { color: var(--loop-crit); }
+.loop-mod__qual { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); margin-right: 8px; }
+.loop-mod--caution .loop-mod__qual { color: var(--loop-warn); }
+.loop-mod--critical .loop-mod__qual { color: var(--loop-crit); }
+
+/* A KPI's reporting window. Never optional — tiles in one row may cover
+   different periods, and an unlabelled row invites the wrong comparison. */
+.loop-mod__window { font-size: 10.5px; font-weight: 600; letter-spacing: .04em; color: var(--loop-text-3); text-transform: none; }

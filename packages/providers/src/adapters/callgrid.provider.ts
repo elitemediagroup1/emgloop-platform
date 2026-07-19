@@ -29,6 +29,7 @@
 // false / 'completed') so downstream readers see an honest 'unknown'.
 
 import type { ProviderContext } from '../types';
+import { resolveCallOccurrence } from './callgrid-occurrence';
 import type {
     IngestionProvider,
     IngestionCapabilities,
@@ -91,6 +92,12 @@ function pick(payload: Record<string, unknown>, keys: string[]): string | undefi
           const v = payload[k];
           if (typeof v === 'string' && v.trim()) return v.trim();
           if (typeof v === 'number') return String(v);
+          // JSON booleans MUST be readable here. CallGrid sends billable /
+          // converted / paid / noRoute as real booleans, and returning undefined
+          // for them made the derived `qualified` flag undefined for every such
+          // call — so qualified counts and qualification rate silently
+          // under-reported against calls that were unambiguously billable.
+          if (typeof v === 'boolean') return String(v);
     }
     return undefined;
 }
@@ -103,7 +110,7 @@ function numeric(value: string | undefined): number | undefined {
 }
 
 /** Coerce a CallGrid yes/no/true/1 style flag into a real boolean, or undefined. */
-function boolFrom(value: string | undefined): boolean | undefined {
+export function boolFrom(value: string | undefined): boolean | undefined {
     if (value === undefined) return undefined;
     const v = String(value).trim().toLowerCase();
     if (v === 'yes' || v === 'true' || v === '1' || v === 'y') return true;
@@ -218,18 +225,20 @@ export class CallGridProvider implements IngestionProvider {
       // webhook-security's replay/timestamp checks) applies the same 10-digit vs
       // 13-digit heuristic. Older senders that post an ISO-ish timestamp under a
       // legacy key are still supported as a fallback.
-      const occurredAtUnixRaw = pick(data, ['occurredAtUnix', 'UTCUnixTime']);
-        const legacyOccurredRaw = pick(data, ['occurred_at', 'started_at', 'timestamp', 'created_at']);
-        let occurredAt: Date;
-        if (occurredAtUnixRaw !== undefined) {
-                const ms = parseTimestamp(occurredAtUnixRaw);
-                occurredAt = Number.isFinite(ms) ? new Date(ms) : new Date();
-        } else if (legacyOccurredRaw) {
-                const d = new Date(legacyOccurredRaw);
-                occurredAt = Number.isNaN(d.getTime()) ? new Date() : d;
-        } else {
-                occurredAt = new Date();
-        }
+      // Canonical precedence: UTCUnixTimeMs > UTCISODate > UTCUnixTime > legacy.
+      // createdAt/updatedAt are NEVER consulted — they describe the record, not
+      // the call, and using one produced a 16s discrepancy on a real record.
+      // A record whose time cannot be established is REJECTED rather than
+      // stamped with the ingestion time, which would drop it into whatever
+      // reporting window happened to be open.
+      const occurrence = resolveCallOccurrence(data);
+      if (!occurrence.at) {
+              throw new Error(
+                      'CallGrid event carries no usable occurrence timestamp ' +
+                      '(UTCUnixTimeMs / UTCISODate / UTCUnixTime all absent or invalid)',
+                    );
+      }
+      const occurredAt = occurrence.at;
 
       // Caller phone: canonical key is 'callerId'; legacy aliases kept.
       const customerPhone = pick(data, [
@@ -268,14 +277,26 @@ export class CallGridProvider implements IngestionProvider {
       // boolFrom() coerces yes/no/true/false/1/0 to a real boolean. A field CallGrid
       // omitted stays undefined and is dropped by defined() below - never coerced
       // to 0/false.
+      // NOTE: 'billable_duration' was the last alias here. If the primary keys
+      // were ever absent, BILLABLE duration would be stored in a field named
+      // TOTAL duration — two different business quantities silently collapsing
+      // into one column. Removed: an absent duration must stay unknown.
       const durationSeconds = numeric(
-              pick(data, ['durationSeconds', 'duration', 'duration_seconds', 'billable_duration']),
+              pick(data, ['durationSeconds', 'duration', 'duration_seconds']),
             );
         const revenue = numeric(pick(data, ['revenue', 'revenue_amount', 'revenueAmount']));
         const payout = numeric(pick(data, ['payout', 'payout_amount', 'payoutAmount']));
         // cost is CallGrid's telco-cost field (there is no separate 'Telco' tag);
       // mirrored onto both 'cost' and 'telco' metadata keys so either reader works.
       const cost = numeric(pick(data, ['cost', 'telco', 'telco_cost', 'telcoCost']));
+        // CallGrid states profit directly (tag CallProfit). Loop previously
+        // discarded it and derived margin as revenue - payout - cost instead.
+        // Carrying the source value gives an authoritative figure AND an
+        // independent invariant: profit should equal revenue - payout - cost.
+        // That is the cheapest available check that our money handling and
+        // CallGrid's agree — it will not settle dollars-vs-cents on its own,
+        // but it catches a unit mismatch BETWEEN the economic fields.
+        const profit = numeric(pick(data, ['profit', 'net_profit', 'netProfit', 'gross_profit']));
         const billable = boolFrom(pick(data, ['billable', 'is_billable', 'isBillable']));
         const paid = boolFrom(pick(data, ['paid', 'is_paid', 'isPaid']));
         const converted = boolFrom(pick(data, ['converted', 'is_converted', 'isConverted', 'conversion']));
@@ -318,6 +339,7 @@ export class CallGridProvider implements IngestionProvider {
                         destination: destinationName,
                         durationSeconds,
                         revenue,
+                        profit,
                         payout,
                         cost,
                         telco: cost,

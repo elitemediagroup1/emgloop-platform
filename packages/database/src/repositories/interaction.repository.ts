@@ -59,4 +59,17 @@ export class InteractionRepository {
       where: { organizationId, kind },
     });
   }
+
+  /**
+   * PHONE interactions in a window — the middle link of the CallGrid pipeline.
+   *
+   * Reconciliation uses it to locate where records stop: source > 0 with
+   * interactions 0 means ingestion never landed; interactions > 0 with
+   * projection 0 means the projection is the gap.
+   */
+  async countPhoneInWindow(organizationId: string, since: Date, until: Date): Promise<number> {
+    return this.prisma.interaction.count({
+      where: { organizationId, channel: 'PHONE', occurredAt: { gte: since, lt: until } },
+    });
+  }
 }
