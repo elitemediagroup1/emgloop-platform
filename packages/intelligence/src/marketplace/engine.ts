@@ -1,80 +1,80 @@
-// Marketplace Intelligence Engine — reasoning, not reporting.
+// LAYER 2 — The Marketplace Intelligence Engine.
 //
-// CallGrid remains the reporting system. Loop explains WHY.
+// Reasoning, not reporting. CallGrid remains the reporting system.
 //
-// Every rule here derives from VERIFIED evidence: the coverage report, which is
-// computed from counted observations against the canonical MarketplaceCall
-// record. No rule reads a number it cannot trace to a count.
+// TWO-LAYER CONTRACT
+//
+//   Layer 1 (confidence.ts)  measures how trustworthy each metric is
+//   Layer 2 (this file)      reasons ONLY over metrics that cleared Layer 1
+//
+// Every rule declares what it requires — which metrics, minimum confidence,
+// minimum sample size, coverage requirement — and the engine checks those
+// BEFORE calling `evaluate`. A rule whose metric was withheld is never
+// evaluated, because the metric is not in the context it receives.
+//
+// That is the structural point of the split. Previously a rule assessed its own
+// trustworthiness inline, so two rules could disagree about the same metric and
+// nothing stopped one from reading a number it should not have. Now the value
+// is simply absent, and suppression is automatic rather than remembered.
 //
 // DELIBERATELY NOT IMPLEMENTED
 //
-// The brief lists Rate Limiting, Capacity and Bid Pricing rules, each gated on
-// "WHEN verified". Bid report data has never been fetched — the endpoints are
-// contract-verified but no response has ever been read — so those three rules
-// have no evidence and are not built. Writing them against the OpenAPI shape
-// would produce findings an executive would act on, derived from data that does
-// not exist in Loop. `unbuiltRules()` names them and states what each needs, so
-// the gap is visible rather than silently absent.
+// Rate Limiting, Capacity and Bid Pricing are gated on "WHEN verified". The bid
+// endpoints are contract-verified but no response has ever been read, so those
+// rules have no evidence. `unbuiltRules()` names them and what each needs.
 
-import {
-  publishFinding,
-  rankFindings,
-  type MarketplaceFinding,
-  type RuleOutcome,
-  type RuleEvidence,
-} from './rule';
-import type { CapabilityCoverage, MarketplaceCoverageReport } from '../coverage';
+import { publishFinding, rankFindings, type MarketplaceFinding, type RuleOutcome } from './rule';
+import { assessConfidence, availableMetric, type ConfidenceReport, type MetricConfidence } from './confidence';
+import type { MarketplaceCoverageReport, CapabilityCoverage } from '../coverage';
 
-/** What a rule needs to run. Deliberately small — a rule cannot reach for more. */
-export interface RuleContext {
-  coverage: MarketplaceCoverageReport;
-  /** ISO timestamp, injected. The engine has no clock. */
-  measuredAt: string;
+/**
+ * What a rule declares it needs. Checked by the engine, not by the rule.
+ * Every field is REQUIRED — a rule cannot decline to state its requirements.
+ */
+export interface RuleRequirements {
+  /** Metric ids this rule reads. All must be available, or the rule is suppressed. */
+  metrics: readonly string[];
+  /** Minimum confidence each required metric must carry. */
+  minimumConfidence: number;
+  /** Minimum records examined before the rule may speak. */
+  minimumSampleSize: number;
+  /**
+   * Minimum observed/total ratio, or null when the rule reasons about ABSENCE
+   * and therefore has no coverage floor to meet.
+   */
+  coverageRequirement: number | null;
+}
+
+/** The context a rule receives. It contains ONLY metrics that cleared Layer 1. */
+export interface GatedContext {
+  confidence: ConfidenceReport;
+  /** Guaranteed available: the engine verified it before calling evaluate. */
+  metric(metricId: string): MetricConfidence;
+  /** The underlying capability, for reason/citation text. */
+  capability(metricId: string): CapabilityCoverage | undefined;
 }
 
 export interface MarketplaceRule {
   id: string;
-  /** One line, so an operator can see what the engine considered. */
   purpose: string;
-  /** Minimum calls before this rule may speak at all. */
-  minimumSampleSize: number;
-  evaluate(ctx: RuleContext): RuleOutcome | null;
+  /** Who a finding from this rule is addressed to. */
+  owner: MarketplaceFinding['owner'];
+  requires: RuleRequirements;
+  evaluate(ctx: GatedContext): RuleOutcome | null;
 }
 
-const cap = (ctx: RuleContext, id: string): CapabilityCoverage | undefined =>
-  ctx.coverage.capabilities.find((c) => c.id === id);
-
-/**
- * Confidence from coverage, never asserted.
- *
- * Capped at 0.9 for a single window — the same discipline as the CallGrid
- * module's 0.7 cap. One window is a reading, not a certainty, and a rule about
- * MISSING data can be more certain than a rule about a trend, but never total.
- */
-function confidenceFrom(observed: number, total: number, sampleSize: number, minimum: number) {
-  const coverage = total === 0 ? null : observed / total;
-  const base = sampleSize >= minimum * 10 ? 0.9 : sampleSize >= minimum ? 0.75 : 0.5;
-  return {
-    value: base,
-    sampleSize,
-    minimumSampleSize: minimum,
-    coverage,
-    basis:
-      `${sampleSize} call(s) examined; ` +
-      (coverage === null ? 'no denominator' : `${observed} of ${total} carried the field`),
-  };
+/** Why a rule did not run or did not speak. */
+export interface RuleSuppression {
+  ruleId: string;
+  reason: string;
+  needs: string;
+  /** Which layer stopped it — makes the two-layer flow auditable. */
+  suppressedBy: 'confidence-engine' | 'intelligence-engine';
 }
 
-/**
- * A coverage-gap rule.
- *
- * Shared by revenue and payout because the reasoning is identical and only the
- * business consequence differs. Duplicating it per metric would let the two
- * drift, which is how one ends up honest and the other does not.
- */
 function coverageGapRule(opts: {
   id: string;
-  capabilityId: string;
+  metricId: string;
   metricLabel: string;
   consequence: string;
   recommendation: string;
@@ -82,30 +82,21 @@ function coverageGapRule(opts: {
   return {
     id: opts.id,
     purpose: `Detect when ${opts.metricLabel.toLowerCase()} is reported on only some calls.`,
-    minimumSampleSize: 10,
+    owner: 'platform',
+    requires: {
+      metrics: [opts.metricId],
+      minimumConfidence: 0.5,
+      minimumSampleSize: 10,
+      // No floor: the rule exists precisely to report LOW coverage.
+      coverageRequirement: null,
+    },
     evaluate(ctx) {
-      const c = cap(ctx, opts.capabilityId);
-      if (!c || !c.ratio) return null;
+      const m = ctx.metric(opts.metricId);
+      if (!m.coverage) return null;
+      const { observed, total } = m.coverage;
       // Full coverage is not a finding. Silence is the correct output.
-      if (c.status === 'available') return null;
-
-      const { observed, total } = c.ratio;
+      if (observed >= total) return null;
       const missing = total - observed;
-
-      const evidence: RuleEvidence[] = [
-        {
-          statement: `Calls carrying ${opts.metricLabel.toLowerCase()}`,
-          observed,
-          denominator: total,
-          source: 'MarketplaceCall coverage observations',
-        },
-        {
-          statement: `Calls missing ${opts.metricLabel.toLowerCase()}`,
-          observed: missing,
-          denominator: total,
-          source: 'MarketplaceCall coverage observations',
-        },
-      ];
 
       return publishFinding({
         id: opts.id,
@@ -114,15 +105,19 @@ function coverageGapRule(opts: {
         owner: 'platform',
         entity: null,
         category: 'provider',
-        // The volume of affected calls is known; what those calls would have
-        // been worth is NOT, because their amounts are precisely what is missing.
         impact: {
           kind: 'volume-only',
           lostOpportunities: missing,
           whyNotPriced: `${opts.consequence} The missing amounts cannot be estimated from the present ones without assuming they resemble each other.`,
         },
-        evidence,
-        confidence: confidenceFrom(observed, total, ctx.coverage.callsIngested, 10),
+        evidence: m.evidence,
+        confidence: {
+          value: 0.9,
+          sampleSize: m.sampleSize,
+          minimumSampleSize: 10,
+          coverage: total === 0 ? null : observed / total,
+          basis: `${m.sampleSize} call(s) examined; ${observed} of ${total} carried the field`,
+        },
         recommendedAction: opts.recommendation,
         missingEvidence: [`${opts.metricLabel} for ${missing} call(s)`],
       });
@@ -130,26 +125,33 @@ function coverageGapRule(opts: {
   };
 }
 
-/**
- * A capability-absent rule: Loop has no field for this at all.
- *
- * Distinct from a coverage gap. A gap means the sensor was quiet on some calls;
- * an absence means the capability cannot be reported however much data arrives,
- * so the recommendation is addressed to whoever can change that.
- */
 function capabilityAbsentRule(opts: {
   id: string;
-  capabilityId: string;
+  metricId: string;
   capabilityLabel: string;
   consequence: string;
 }): MarketplaceRule {
   return {
     id: opts.id,
     purpose: `Detect that ${opts.capabilityLabel.toLowerCase()} cannot be reported at all.`,
-    minimumSampleSize: 1,
+    owner: 'platform',
+    requires: {
+      metrics: [opts.metricId],
+      // ZERO, deliberately. Layer 1 measures how trustworthy a metric's VALUE
+      // is, and an absence rule does not read the value — it reads the
+      // capability's STATUS. A metric populated on no calls scores 0 confidence,
+      // which is exactly the condition this rule exists to report; treating that
+      // as a disqualifier would suppress the rule precisely when it has
+      // something to say.
+      minimumConfidence: 0,
+      minimumSampleSize: 1,
+      // Reasons about ABSENCE — a coverage floor would be incoherent.
+      coverageRequirement: null,
+    },
     evaluate(ctx) {
-      const c = cap(ctx, opts.capabilityId);
+      const c = ctx.capability(opts.metricId);
       if (!c || c.status !== 'unavailable' || c.tier === 'not-populated') return null;
+      const m = ctx.metric(opts.metricId);
 
       return publishFinding({
         id: opts.id,
@@ -162,36 +164,27 @@ function capabilityAbsentRule(opts: {
           kind: 'unquantified',
           reason: `${opts.consequence} The volume affected cannot be counted, because the field that would count it is the one missing.`,
         },
-        evidence: [
-          {
-            statement: `Calls examined without ${opts.capabilityLabel.toLowerCase()}`,
-            observed: ctx.coverage.callsIngested,
-            denominator: ctx.coverage.callsIngested,
-            source: c.citation ?? 'capability catalogue',
-          },
-        ],
+        evidence: m.evidence,
         confidence: {
           value: 0.9,
-          sampleSize: ctx.coverage.callsIngested,
+          sampleSize: m.sampleSize,
           minimumSampleSize: 1,
           coverage: 1,
           basis: 'A structural absence is observable directly; no sampling is involved.',
         },
-        // Unquantified impact MUST NOT instruct — publishFinding enforces this,
-        // and `unblockedBy` is carried as missingEvidence instead so the path
-        // forward is still visible without dressing it as a costed action.
+        // Unquantified impact must never instruct — publishFinding enforces it.
         recommendedAction: null,
-        missingEvidence: [c.unblockedBy ?? `${opts.capabilityLabel} source`],
+        missingEvidence: m.missingProviderData.length > 0 ? m.missingProviderData : [`${opts.capabilityLabel} source`],
       });
     },
   };
 }
 
-/** The rules that have verified evidence today. */
+/** The rules that have verified evidence today. Business logic UNCHANGED. */
 export const MARKETPLACE_RULES: readonly MarketplaceRule[] = [
   coverageGapRule({
     id: 'revenue-coverage-risk',
-    capabilityId: 'revenue',
+    metricId: 'revenue',
     metricLabel: 'Revenue',
     consequence: 'Reported revenue is a LOWER BOUND, and margin confidence is reduced with it.',
     recommendation:
@@ -199,7 +192,7 @@ export const MARKETPLACE_RULES: readonly MarketplaceRule[] = [
   }),
   coverageGapRule({
     id: 'payout-coverage-risk',
-    capabilityId: 'payout',
+    metricId: 'payout',
     metricLabel: 'Payout',
     consequence: 'Margin is revenue minus payout, so an incomplete payout inflates apparent margin.',
     recommendation:
@@ -207,26 +200,25 @@ export const MARKETPLACE_RULES: readonly MarketplaceRule[] = [
   }),
   capabilityAbsentRule({
     id: 'duplicate-detection-missing',
-    capabilityId: 'duplicates',
+    metricId: 'duplicates',
     capabilityLabel: 'Duplicate detection',
     consequence:
       'Duplicate calls cannot be identified, so volume and revenue may both be overstated by repeats.',
   }),
   capabilityAbsentRule({
     id: 'transcript-capability-missing',
-    capabilityId: 'transcripts',
+    metricId: 'transcripts',
     capabilityLabel: 'Transcript intelligence',
     consequence: 'Call content cannot be reasoned about at all.',
   }),
   capabilityAbsentRule({
     id: 'recording-capability-missing',
-    capabilityId: 'recordings',
+    metricId: 'recordings',
     capabilityLabel: 'Call recordings',
     consequence: 'A finding cannot be traced to the call that produced it.',
   }),
 ] as const;
 
-/** Rules the brief asks for that have no evidence yet. Named, not hidden. */
 export interface UnbuiltRule {
   id: string;
   purpose: string;
@@ -253,33 +245,149 @@ export const unbuiltRules = (): readonly UnbuiltRule[] => [
 ];
 
 export interface EngineResult {
+  /** Layer 1's output, so the whole chain is auditable. */
+  confidence: ConfidenceReport;
   findings: MarketplaceFinding[];
-  /** Rules that ran and declined, with the reason. Never silently dropped. */
-  withheld: Array<{ ruleId: string; reason: string; needs: string }>;
-  /** Rules not built at all, and what would let them exist. */
+  /** Rules stopped before or during evaluation, each naming the layer. */
+  withheld: RuleSuppression[];
   unbuilt: readonly UnbuiltRule[];
   rulesEvaluated: number;
 }
 
 /**
- * Run the engine.
+ * Check a rule's declared requirements against Layer 1.
  *
- * Pure and deterministic: same context in, same result out. Withheld rules are
- * returned rather than discarded, because "the engine considered this and could
- * not speak" is itself information an executive needs.
+ * Returns null when the rule may run. This is where automatic suppression
+ * happens: a withheld metric never reaches the rule.
  */
-export function runMarketplaceIntelligence(ctx: RuleContext): EngineResult {
+function checkRequirements(
+  rule: MarketplaceRule,
+  confidence: ConfidenceReport,
+): RuleSuppression | null {
+  // Order matters, and it is semantic rather than arbitrary:
+  //
+  //   1. Did Layer 1 withhold the metric entirely? Most fundamental — the value
+  //      does not exist to reason over, so nothing else is worth checking.
+  //   2. Is the sample large enough for THIS rule? A rule's own declared floor.
+  //   3. Is confidence high enough? Only meaningful once the sample supports it,
+  //      because with too few records low confidence is a CONSEQUENCE of the
+  //      small sample rather than an independent problem.
+  //   4. Coverage requirement.
+  //
+  // Reporting them out of order would name a symptom instead of a cause.
+
+  // 1. Withheld by Layer 1.
+  for (const metricId of rule.requires.metrics) {
+    if (availableMetric(confidence, metricId)) continue;
+    const w = confidence.withheld.find((m) => m.metricId === metricId);
+    return {
+      ruleId: rule.id,
+      reason: w
+        ? `Required metric "${metricId}" was withheld by the confidence engine: ${w.withheldReason}`
+        : `Required metric "${metricId}" is not assessed.`,
+      needs: `Metric "${metricId}" available with confidence >= ${rule.requires.minimumConfidence}.`,
+      suppressedBy: 'confidence-engine',
+    };
+  }
+
+  // 2. The rule's own sample floor.
+  if (confidence.callsIngested < rule.requires.minimumSampleSize) {
+    return {
+      ruleId: rule.id,
+      reason: `Sample of ${confidence.callsIngested} is below this rule's declared minimum of ${rule.requires.minimumSampleSize}.`,
+      needs: `At least ${rule.requires.minimumSampleSize} calls in the window.`,
+      suppressedBy: 'intelligence-engine',
+    };
+  }
+
+  // 3 and 4. Trust in the metric itself.
+  for (const metricId of rule.requires.metrics) {
+    const metric = availableMetric(confidence, metricId)!;
+
+    if (metric.confidence < rule.requires.minimumConfidence) {
+      return {
+        ruleId: rule.id,
+        reason: `Metric "${metricId}" carries confidence ${metric.confidence.toFixed(2)}, below this rule's declared minimum of ${rule.requires.minimumConfidence}.`,
+        needs: `Higher coverage or a larger sample for "${metricId}".`,
+        suppressedBy: 'confidence-engine',
+      };
+    }
+
+    if (
+      rule.requires.coverageRequirement !== null &&
+      (!metric.coverage ||
+        metric.coverage.total === 0 ||
+        metric.coverage.observed / metric.coverage.total < rule.requires.coverageRequirement)
+    ) {
+      return {
+        ruleId: rule.id,
+        reason: `Metric "${metricId}" does not meet the rule's coverage requirement of ${rule.requires.coverageRequirement}.`,
+        needs: `Coverage of at least ${rule.requires.coverageRequirement} for "${metricId}".`,
+        suppressedBy: 'confidence-engine',
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Run both layers.
+ *
+ * Flow:  coverage -> Layer 1 assesses every metric -> for each rule, check its
+ * declared requirements -> suppressed rules never evaluate -> surviving rules
+ * receive a context containing ONLY available metrics -> publishFinding applies
+ * the seven-question contract.
+ */
+export function runMarketplaceIntelligence(input: {
+  coverage: MarketplaceCoverageReport;
+  measuredAt: string;
+}): EngineResult {
+  // --- Layer 1 -------------------------------------------------------------
+  const confidence = assessConfidence(input.coverage, input.measuredAt);
+
+  // --- Layer 2 -------------------------------------------------------------
   const findings: MarketplaceFinding[] = [];
-  const withheld: EngineResult['withheld'] = [];
+  const withheld: RuleSuppression[] = [];
+
+  const ctx: GatedContext = {
+    confidence,
+    metric(metricId) {
+      const m = availableMetric(confidence, metricId);
+      if (!m) {
+        // Unreachable: checkRequirements ran first. Loud rather than silent, so
+        // a future refactor that bypasses the gate fails visibly.
+        throw new Error(
+          `Rule read metric "${metricId}" without clearing the confidence engine. ` +
+            'This indicates the requirement gate was bypassed.',
+        );
+      }
+      return m;
+    },
+    capability: (metricId) => input.coverage.capabilities.find((c) => c.id === metricId),
+  };
 
   for (const rule of MARKETPLACE_RULES) {
+    const suppression = checkRequirements(rule, confidence);
+    if (suppression) {
+      withheld.push(suppression);
+      continue; // evaluate() is never called
+    }
+
     const outcome = rule.evaluate(ctx);
     if (outcome === null) continue; // healthy — correctly silent
     if (outcome.fired) findings.push(outcome.finding);
-    else withheld.push(outcome.withheld);
+    else
+      withheld.push({
+        ruleId: outcome.withheld.ruleId,
+        reason: outcome.withheld.reason,
+        needs: outcome.withheld.needs,
+        suppressedBy: 'intelligence-engine',
+      });
   }
 
   return {
+    confidence,
     findings: rankFindings(findings),
     withheld,
     unbuilt: unbuiltRules(),

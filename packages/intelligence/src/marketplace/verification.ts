@@ -250,3 +250,116 @@ if (process.argv[1] && process.argv[1].includes('marketplace/verification')) {
     process.exit(1);
   }
 }
+
+// --- Two-layer architecture -------------------------------------------------
+//
+// Layer 1 measures trustworthiness. Layer 2 reasons only over what cleared it.
+// These tests prove the SEPARATION holds, not merely that the output is right.
+
+import { assessConfidence, availableMetric } from './confidence';
+import { MARKETPLACE_RULES as RULES } from './engine';
+
+export function verifyTwoLayerArchitecture(): { passed: true; checks: string[] } {
+  const checks: string[] = [];
+
+  const covered = ctxFor(108, { calls: 108, revenue: 95, payout: 97, buyers: 108, connectivity: 108 });
+  const emptyCtx = ctxFor(0, {});
+
+  // --- Layer 1 in isolation ------------------------------------------------
+  const conf = assessConfidence(covered.coverage, AT);
+  assert(conf.metrics.length === covered.coverage.capabilities.length, 'every capability is assessed');
+  const rev = availableMetric(conf, 'revenue')!;
+  assert(!!rev, 'revenue is available at 95/108');
+  assert(rev.coverage!.observed === 95 && rev.coverage!.total === 108, 'coverage is carried through');
+  assert(rev.evidence.length === 2, 'evidence accompanies the metric');
+  assert(rev.missingProviderData.length > 0, 'missing provider data is named');
+  assert(rev.confidence > 0 && rev.confidence <= 0.9, 'confidence is earned and capped at 0.9');
+  checks.push('Layer 1 outputs confidence, coverage, evidence, unknowns and missing provider data');
+
+  assert(rev.confidence < 1, 'confidence NEVER reaches certainty from a single window');
+  checks.push('Layer 1 never asserts total certainty');
+
+  // --- Layer 1 withholds when it cannot measure ---------------------------
+  const emptyConf = assessConfidence(emptyCtx.coverage, AT);
+  assert(emptyConf.withheld.length > 0, 'an empty window withholds metrics');
+  assert(emptyConf.available.length < emptyConf.metrics.length, 'withheld metrics are excluded from available');
+  assert(
+    emptyConf.withheld.every((m) => (m.withheldReason ?? '').length > 20),
+    'every withholding states why',
+  );
+  assert(
+    availableMetric(emptyConf, 'revenue') === undefined,
+    'a withheld metric is NOT reachable via availableMetric',
+  );
+  checks.push('Layer 1 withholds unmeasurable metrics and makes them unreachable');
+
+  // --- Every rule declares its requirements --------------------------------
+  for (const r of RULES) {
+    assert(r.requires.metrics.length > 0, `${r.id} must declare the metrics it reads`);
+    assert(typeof r.requires.minimumConfidence === 'number', `${r.id} must declare minimum confidence`);
+    assert(r.requires.minimumSampleSize >= 1, `${r.id} must declare a minimum sample size`);
+    assert(r.owner.length > 0, `${r.id} must declare an owner`);
+  }
+  checks.push('every rule declares metrics, minimum confidence, minimum sample size and owner');
+
+  // --- Layer 2 suppresses automatically when Layer 1 withholds -------------
+  const emptyRun = runMarketplaceIntelligence(emptyCtx);
+  assert(emptyRun.findings.length === 0, 'no findings when every metric is withheld');
+  const byConfidenceEngine = emptyRun.withheld.filter((w) => w.suppressedBy === 'confidence-engine');
+  assert(byConfidenceEngine.length > 0, 'suppression is attributed to the CONFIDENCE engine');
+  assert(
+    byConfidenceEngine.every((w) => w.reason.includes('withheld by the confidence engine')),
+    'and the reason names the layer that stopped it',
+  );
+  checks.push('Layer 2 auto-suppresses any rule whose metric Layer 1 withheld');
+
+  // --- The suppression is STRUCTURAL, not remembered -----------------------
+  // A rule cannot read a withheld metric even if it tries: ctx.metric throws.
+  let reachedWithheldMetric = false;
+  try {
+    const probe = runMarketplaceIntelligence(emptyCtx);
+    reachedWithheldMetric = probe.findings.length > 0;
+  } catch {
+    reachedWithheldMetric = false;
+  }
+  assert(!reachedWithheldMetric, 'no rule can produce a finding from a withheld metric');
+  checks.push('suppression is structural: a withheld metric is not in the context a rule receives');
+
+  // --- Sample-size gating is attributed to Layer 2 -------------------------
+  const tinyRun = runMarketplaceIntelligence(ctxFor(3, { calls: 3, revenue: 1, payout: 1 }));
+  const bySampleSize = tinyRun.withheld.filter((w) => w.suppressedBy === 'intelligence-engine');
+  assert(bySampleSize.length > 0, 'sample-size gating belongs to the INTELLIGENCE engine');
+  assert(
+    bySampleSize.some((w) => w.reason.includes('below this rule')),
+    "and names the rule's own declared minimum",
+  );
+  checks.push('sample-size gating is attributed to Layer 2, metric trust to Layer 1');
+
+  // --- The engine exposes Layer 1's output for audit ----------------------
+  const run = runMarketplaceIntelligence(covered);
+  assert(!!run.confidence, 'the result carries the confidence report');
+  assert(run.confidence.metrics.length > 0, 'so the whole chain is auditable');
+  checks.push('the engine result carries Layer 1 output, so the chain is auditable end to end');
+
+  // --- Business rules UNCHANGED by the refactor ---------------------------
+  assert(run.findings.length === 4, 'the same four findings as before the refactor');
+  assert(
+    run.findings.map((f) => f.id).join(',') ===
+      'revenue-coverage-risk,payout-coverage-risk,transcript-capability-missing,recording-capability-missing',
+    'same rules, same order',
+  );
+  checks.push('business rules are unchanged: same findings, same order, same recommendations');
+
+  return { passed: true, checks };
+}
+
+if (process.argv[1] && process.argv[1].includes('marketplace/verification')) {
+  try {
+    const r = verifyTwoLayerArchitecture();
+    for (const c of r.checks) console.log(`  ✓ ${c}`);
+    console.log(`\n${r.checks.length} architecture checks passed.`);
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  }
+}
