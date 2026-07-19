@@ -17,6 +17,15 @@
 
 import type { PrismaClient, Prisma } from '@prisma/client';
 import {
+  measure,
+  measuredCount,
+  truthFromSum,
+  success,
+  hasValue,
+  type Truth,
+  type TruthMeta,
+} from '@emgloop/shared';
+import {
   projectInteractionToMarketplaceCall,
   type MarketplaceCallProjection,
 } from './marketplace-call-projection';
@@ -40,7 +49,6 @@ export interface CallWindowAggregate {
   calls: number;
   qualified: number;
   converted: number;
-  bookings: number;
   revenueCents: number;
   payoutCents: number;
   costCents: number;
@@ -142,6 +150,78 @@ export class MarketplaceCallRepository {
       },
     })) as CallRow[];
     return aggregateRows(rows);
+  }
+
+  /**
+   * The canonical CallGrid window metrics, each as Truth.
+   *
+   * This is the authoritative operational read for the Marketplace. It reads
+   * MarketplaceCall — the sensor-neutral projection — and NOTHING else. No CRM
+   * Order, no CRM Booking, no Interaction.metadata string-probing.
+   *
+   * Coverage drives the state honestly: an economic total over a window where
+   * only some calls carried that value is a LOWER BOUND, so it is PARTIAL with
+   * the real ratio attached. A window with calls but no economics at all is
+   * UNKNOWN, not zero.
+   */
+  async windowMetrics(
+    organizationId: string,
+    since: Date,
+    until: Date,
+    now: Date = new Date(),
+  ): Promise<{
+    calls: Truth<number>;
+    revenueCents: Truth<number>;
+    payoutCents: Truth<number>;
+    costCents: Truth<number>;
+    qualified: Truth<number>;
+    converted: Truth<number>;
+  }> {
+    const meta: TruthMeta = { measuredAt: now.toISOString(), subject: 'marketplace.window' };
+
+    return measure(
+      () => this.aggregateWindow(organizationId, since, until),
+      (agg, m) => success(agg, m),
+      meta,
+    ).then((t) => {
+      // A failed read propagates to every figure — none may render as zero.
+      if (!hasValue(t)) {
+        const f = t as Truth<never>;
+        return {
+          calls: f as unknown as Truth<number>,
+          revenueCents: f as unknown as Truth<number>,
+          payoutCents: f as unknown as Truth<number>,
+          costCents: f as unknown as Truth<number>,
+          qualified: f as unknown as Truth<number>,
+          converted: f as unknown as Truth<number>,
+        };
+      }
+      const agg = t.value;
+
+      /** An economic total is only as complete as the calls that carried it. */
+      const economic = (total: number, withValue: number, label: string, subject: string): Truth<number> =>
+        truthFromSum(
+          { total, counted: withValue, missing: Math.max(0, agg.calls - withValue) },
+          {
+            code: 'callgrid-economics-partial',
+            summary: `${label} is reported by the sensor on some calls only.`,
+            provider: 'CallGrid',
+            unblockedBy: `Confirm with CallGrid why ${label.toLowerCase()} is absent on the remaining calls.`,
+          },
+          { ...meta, subject },
+        );
+
+      return {
+        calls: measuredCount(agg.calls, { ...meta, subject: 'marketplace.calls' }),
+        revenueCents: economic(agg.revenueCents, agg.callsWithRevenue, 'Revenue', 'marketplace.revenue'),
+        payoutCents: economic(agg.payoutCents, agg.callsWithPayout, 'Payout', 'marketplace.payout'),
+        costCents: economic(agg.costCents, agg.callsWithCost, 'Cost', 'marketplace.cost'),
+        // Outcome flags are counted from calls whose flag the sensor set; a null
+        // flag is not a false, so the denominator is total calls.
+        qualified: measuredCount(agg.qualified, { ...meta, subject: 'marketplace.qualified' }),
+        converted: measuredCount(agg.converted, { ...meta, subject: 'marketplace.converted' }),
+      };
+    });
   }
 
   /**
@@ -270,7 +350,7 @@ export function aggregateRows(rows: CallRow[]): CallWindowAggregate {
   }
 
   return {
-    calls, qualified, converted, bookings: 0,
+    calls, qualified, converted,
     revenueCents, payoutCents, costCents,
     callsWithRevenue, callsWithPayout, callsWithCost,
     buyers: toDims(buyers), vendors: toDims(vendors),

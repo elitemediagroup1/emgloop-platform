@@ -55,3 +55,24 @@ correct — it is no longer an inference.
 `duplicate`, `blocked`, `connected`, `connectFailed`, `noConnect`, recording URL, transcript. Loop's
 duplicate-detection and connectivity coverage rows therefore have no source on this path — consistent
 with the audit's finding that both are inferred.
+
+
+---
+
+## Correction (Sprint 34) — production does NOT differ from the repository
+
+Sprint 33 reported that production served a GET handler existing in no branch. **That finding was
+wrong, and the error was mine.** The handler is at `apps/web/src/app/api/webhooks/callgrid/route.ts:142`,
+declared `export function GET` — without `async`. My grep searched for `export async function GET`
+and missed it.
+
+Verified since:
+
+- Production's GET response matches the repo handler's output **field for field**.
+- Production build artifact `1528-e25dde69a584c6ad.js` is **byte-identical** to a local build
+  (SHA-256 `4e7f41cf8f019b174d5bcc48e650abbc`, 124,341 bytes).
+- Shared chunks `1dd3208c`, `6340`, `polyfills` and CSS `e4388e3fb5c8dd76` all match.
+- `main-app` and `webpack` entry hashes differ, which is expected: this working tree carries five
+  sprints of changes not yet on the deployed branch.
+
+**Deployment conclusion: production is running code consistent with this repository.**

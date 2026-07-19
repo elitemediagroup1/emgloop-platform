@@ -31,17 +31,15 @@ import { loadMarketplaceCoverage } from "./marketplace-coverage-data";
 import type { MarketplaceCoverageReport } from "@emgloop/intelligence";
 import { SidebarIcon } from "../../../crm/_brand/SidebarIcon";
 import { crmRepos, requireCrmContext } from "../../../../crm/crm-data";
-import { money, num, todayLabel, PartialDataNotice } from "../../_loop-os";
+import { money, num, todayLabel } from "../../_loop-os";
 import {
   renderTruth,
   failed,
   hasValue,
   foldTruth,
-  mapTruth,
   type Truth,
   type TruthMeta,
 } from "@emgloop/shared";
-import type { RevenueByDimension, TrafficIntelligence } from "@emgloop/database";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +81,7 @@ export default async function MarketplaceCommandCenter() {
   const { organizationId: org } = await requireCrmContext();
   const now = new Date();
   const meta: TruthMeta = { measuredAt: now.toISOString() };
+  const WINDOW_LABEL = "Last 7 days";
 
   const noOrgError = {
     code: "repository-exception" as const,
@@ -90,15 +89,24 @@ export default async function MarketplaceCommandCenter() {
     retryable: false,
   };
 
-  // The repository produces Truth directly, so loadOrFallback is no longer used
-  // here: measure() already converts a thrown read into ERROR, and wrapping it
-  // again would only re-flatten the state this migration exists to preserve.
-  const revenueT = org
-    ? await crmRepos.revenueIntelligence.revenueByDimension(org, now)
-    : failed<RevenueByDimension>(noOrgError, meta);
-  const trafficT = org
-    ? await crmRepos.revenueIntelligence.trafficIntelligence(org, now)
-    : failed<TrafficIntelligence>(noOrgError, meta);
+  // PHASE 7 — the authoritative operational read model is MarketplaceCall.
+  // This page reads it and nothing else. It previously showed CRM Order revenue
+  // and CRM Booking counts beside CallGrid call volume, which meant an executive
+  // could divide one source by another and get a number describing nothing.
+  // No CRM Order, no CRM Booking, no Interaction.metadata string-probing.
+  const WINDOW_DAYS = 7;
+  const since = new Date(now.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+  const metrics = org
+    ? await crmRepos.marketplaceCalls.windowMetrics(org, since, now, now)
+    : {
+        calls: failed<number>(noOrgError, meta),
+        revenueCents: failed<number>(noOrgError, meta),
+        payoutCents: failed<number>(noOrgError, meta),
+        costCents: failed<number>(noOrgError, meta),
+        qualified: failed<number>(noOrgError, meta),
+        converted: failed<number>(noOrgError, meta),
+      };
 
   const coverage = org
     ? await loadMarketplaceCoverage(org, now)
@@ -107,17 +115,6 @@ export default async function MarketplaceCommandCenter() {
         priority: [],
         callsIngested: failed<number>(noOrgError, meta),
       };
-
-  const rev = hasValue(revenueT) ? revenueT.value : null;
-  const traffic = hasValue(trafficT) ? trafficT.value : null;
-
-  // Each figure inherits the posture of the read it came from: mapTruth carries
-  // SUCCESS/PARTIAL through to the value and leaves ERROR/UNKNOWN untouched, so
-  // a failed read cannot become a zero on the way to the tile.
-  const revenue: Truth<number> = mapTruth(revenueT, (d) => d.realizedRevenueCents);
-  const calls: Truth<number> = mapTruth(trafficT, (d) => d.totalCalls);
-  const qualified: Truth<number> = mapTruth(trafficT, (d) => d.qualifiedCalls);
-  const bookings: Truth<number> = mapTruth(trafficT, (d) => d.bookings);
 
   return (
     <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
@@ -151,14 +148,13 @@ export default async function MarketplaceCommandCenter() {
 
         <MarketplaceNav active="overview" />
 
-        <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
-
-        {/* Every figure switches on its Truth state. No null checks, no zeros. */}
+        {/* Every figure below is CallGrid, from MarketplaceCall, over one window. */}
         <section className="loop-modgrid" aria-label="Marketplace metrics">
-          <Metric label="Realized revenue" window="All time" truth={revenue} format={money} />
-          <Metric label="Calls" window="Last 7 days" truth={calls} format={num} />
-          <Metric label="Qualified" window="Last 7 days" truth={qualified} format={num} />
-          <Metric label="Bookings" window="Last 7 days" truth={bookings} format={num} />
+          <Metric label="Calls" window={WINDOW_LABEL} truth={metrics.calls} format={num} />
+          <Metric label="Revenue" window={WINDOW_LABEL} truth={metrics.revenueCents} format={money} />
+          <Metric label="Payout" window={WINDOW_LABEL} truth={metrics.payoutCents} format={money} />
+          <Metric label="Qualified" window={WINDOW_LABEL} truth={metrics.qualified} format={num} />
+          <Metric label="Converted" window={WINDOW_LABEL} truth={metrics.converted} format={num} />
         </section>
 
         {/* The truth center. */}

@@ -43,7 +43,9 @@ export interface CallGridWindow {
   calls: number;
   qualified: number;
   converted: number;
-  bookings: number;
+  // `bookings` was removed in Sprint 34: it is a CRM concept, it was hardcoded
+  // to 0 in the only producer, and no analyzer ever read it. A permanently-zero
+  // field in a CallGrid contract is a mixed metric, not a measurement.
   revenueCents: number;
   payoutCents: number;
   costCents: number;
