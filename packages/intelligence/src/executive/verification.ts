@@ -30,8 +30,9 @@ import { assessMarketplaceCoverage } from '../coverage';
 import { runMarketplaceIntelligence } from './../marketplace/engine';
 import { marketplaceExecutiveSensor } from '../marketplace/executive-sensor';
 import { runExecutiveBrain, type ExecutiveBrainReport } from './brain';
+import { buildDomainSensor } from './domain-sensor';
 import type { ExecutiveObservation } from './observation';
-import type { InstrumentedSensor, SensorFinding } from './sensor';
+import { uninstrumentedSensor, type InstrumentedSensor, type SensorFinding } from './sensor';
 
 function assert(cond: boolean, message: string): void {
   if (!cond) throw new Error(`VERIFICATION FAILED: ${message}`);
@@ -237,6 +238,98 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
     }
     assert(mpOut.evidenceCoverage.overallConfidence === null || (mpOut.evidenceCoverage.overallConfidence >= 0 && mpOut.evidenceCoverage.overallConfidence <= 1), 'marketplace overall confidence is null or in [0,1]');
     checks.push('the same Brain reasons over CRM, Support Desk and the real Marketplace adapter — the reasoning layer is provider-neutral');
+  }
+
+  // --- SPRINT 26: buildDomainSensor → What Changed + coverage gap -----------
+  {
+    const crm = buildDomainSensor({
+      id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 'last 7 days',
+      populationSize: 100, staleAfterMs: null,
+      emptyScopeReason: 'No CRM records in the window. Unknown is not zero.',
+      measuredAt: NOW.toISOString(), affectedArea: 'Sales pipeline',
+      metrics: [
+        { metricId: 'crm.new_customers', label: 'New customers', observed: 40, total: null, prior: 60, trackChange: true, provenance: src('crm-db') },
+        { metricId: 'crm.assigned', label: 'Assigned conversations', observed: 30, total: 50, raiseCoverageGap: true, provenance: src('crm-db'), owner: 'operations' },
+      ],
+    });
+    const out = runExecutiveBrain([crm], NOW);
+    const changed = out.whatChanged.find((o) => o.change?.metricId === 'crm.new_customers');
+    assert(!!changed, 'a two-window movement becomes a What-Changed observation');
+    assert(changed!.change!.direction === 'down' && changed!.change!.prior === 60 && changed!.change!.current === 40, 'the change carries the real prior/current values');
+    assert(changed!.confidence > 0 && changed!.evidence.length > 0, 'a change is evidence-backed with real confidence, not a bare delta');
+    assert(changed!.affectedArea === 'Sales pipeline', 'the affected business area is carried for the Details panel');
+    assert(out.risks.some((o) => o.evidence.some((e) => e.metricId === 'crm.assigned')), 'a partial-coverage metric raises a coverage-gap risk');
+    checks.push('buildDomainSensor turns windowed counts into evidence-backed What-Changed and coverage-gap observations');
+  }
+
+  // --- SPRINT 26: a change is suppressed when its metric is withheld --------
+  {
+    const crmEmpty = buildDomainSensor({
+      id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 'last 7 days',
+      populationSize: 0, staleAfterMs: null,
+      emptyScopeReason: 'No CRM records in the window. Unknown is not zero.',
+      measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'crm.new_customers', label: 'New customers', observed: 0, total: null, prior: 60, trackChange: true, provenance: src('crm-db') }],
+    });
+    const out = runExecutiveBrain([crmEmpty], NOW);
+    assert(out.whatChanged.length === 0, 'no change is claimed when the metric was withheld (empty window) — a delta is not evidence on its own');
+    checks.push('a What-Changed claim is suppressed when its metric did not clear the Evidence Engine');
+  }
+
+  // --- SPRINT 26: cross-sensor correlation is evidence-gated ----------------
+  {
+    const website = buildDomainSensor({
+      id: 'website', label: 'Website', domain: 'website', scopeLabel: 'last 7 days',
+      populationSize: 500, staleAfterMs: null, emptyScopeReason: 'No website events.', measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'website.sessions', label: 'Sessions', observed: 500, total: null, prior: 300, trackChange: true, provenance: src('web-db') }],
+    });
+    const crm = buildDomainSensor({
+      id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 'last 7 days',
+      populationSize: 100, staleAfterMs: null, emptyScopeReason: 'No CRM records.', measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'crm.new_customers', label: 'New customers', observed: 40, total: null, prior: 60, trackChange: true, provenance: src('crm-db') }],
+    });
+
+    const out = runExecutiveBrain([website, crm], NOW);
+    const corr = out.correlations.find((o) => o.id === 'correlation:sales-bottleneck');
+    assert(!!corr, 'the correlation fires when BOTH underlying observations exist (traffic up + customers down)');
+    assert(corr!.evidence.length >= 2, 'and it cites the observations it correlated as its evidence');
+    assert(corr!.confidence > 0 && corr!.confidence <= 0.9, 'its confidence is derived (weakest-link) from the joined observations, in [0,1]');
+    assert(corr!.source.domain === 'cross-sensor', 'a correlation is attributed to the cross-sensor reasoner, not a single sensor');
+
+    const onlyWebsite = runExecutiveBrain([website], NOW);
+    assert(
+      !onlyWebsite.correlations.some((o) => o.id === 'correlation:sales-bottleneck'),
+      'and it does NOT fire when only one side is present — a correlation cannot invent the signal it lacks',
+    );
+    checks.push('cross-sensor correlation fires only when both evidenced observations exist, and cites both');
+  }
+
+  // --- SPRINT 26: Evidence Coverage status is derived, never authored -------
+  {
+    const healthy = buildDomainSensor({
+      id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 's', populationSize: 100, staleAfterMs: null,
+      emptyScopeReason: 'x', measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'crm.new_customers', label: 'New customers', observed: 40, total: null, provenance: src('crm-db') }],
+    });
+    const connectedEmpty = buildDomainSensor({
+      id: 'website', label: 'Website', domain: 'website', scopeLabel: 's', populationSize: 0, staleAfterMs: null,
+      emptyScopeReason: 'x', measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'website.sessions', label: 'Sessions', observed: 0, total: null, provenance: src('web-db') }],
+    });
+    const missing = uninstrumentedSensor('gmail', 'Gmail', 'No inbound email ingestion exists.', 'A Gmail contributor.');
+
+    const out = runExecutiveBrain([healthy, connectedEmpty, missing], NOW);
+    const status = new Map(out.evidenceCoverage.sensors.map((s) => [s.sensorId, s.status]));
+    assert(status.get('crm') === 'healthy', 'a sensor with fresh available metrics is healthy');
+    assert(status.get('website') === 'connected', 'an instrumented sensor that examined nothing is connected — wired, not yet informative — never missing or healthy');
+    assert(status.get('gmail') === 'missing', 'an uninstrumented sensor is missing');
+    assert(
+      out.evidenceCoverage.statusCounts.healthy === 1 &&
+        out.evidenceCoverage.statusCounts.connected === 1 &&
+        out.evidenceCoverage.statusCounts.missing === 1,
+      'the coverage board tallies each posture',
+    );
+    checks.push('Evidence Coverage derives a connected/healthy/stale/missing status per sensor and tallies the board');
   }
 
   return { passed: true, checks };
