@@ -1,10 +1,16 @@
 // LAYER 2 — The Marketplace Intelligence Engine.
 //
+// Layer 1 is now the PLATFORM Evidence Engine (../evidence), not a
+// marketplace-specific confidence layer. Marketplace is its first contributor;
+// CRM, Talent, Care and Web join by writing a contributor of the same shape,
+// with no change to either layer.
+//
 // Reasoning, not reporting. CallGrid remains the reporting system.
 //
 // TWO-LAYER CONTRACT
 //
-//   Layer 1 (confidence.ts)  measures how trustworthy each metric is
+//   Layer 1 (evidence/)      owns coverage, sample size, confidence, freshness,
+//                            provenance, unknowns, contradictions, missing data
 //   Layer 2 (this file)      reasons ONLY over metrics that cleared Layer 1
 //
 // Every rule declares what it requires — which metrics, minimum confidence,
@@ -24,7 +30,9 @@
 // rules have no evidence. `unbuiltRules()` names them and what each needs.
 
 import { publishFinding, rankFindings, type MarketplaceFinding, type RuleOutcome } from './rule';
-import { assessConfidence, availableMetric, type ConfidenceReport, type MetricConfidence } from './confidence';
+import { assessEvidence, availableMetric } from '../evidence/engine';
+import type { EvidenceReport, MetricEvidence } from '../evidence/types';
+import { marketplaceEvidenceContributor } from './evidence';
 import type { MarketplaceCoverageReport, CapabilityCoverage } from '../coverage';
 
 /**
@@ -47,9 +55,9 @@ export interface RuleRequirements {
 
 /** The context a rule receives. It contains ONLY metrics that cleared Layer 1. */
 export interface GatedContext {
-  confidence: ConfidenceReport;
+  evidence: EvidenceReport;
   /** Guaranteed available: the engine verified it before calling evaluate. */
-  metric(metricId: string): MetricConfidence;
+  metric(metricId: string): MetricEvidence;
   /** The underlying capability, for reason/citation text. */
   capability(metricId: string): CapabilityCoverage | undefined;
 }
@@ -72,6 +80,44 @@ export interface RuleSuppression {
   suppressedBy: 'confidence-engine' | 'intelligence-engine';
 }
 
+/**
+ * Project platform evidence onto the rule-facing evidence shape.
+ *
+ * The Evidence Engine records provenance and coverage; a finding needs
+ * countable statements. This keeps the two concerns separate rather than making
+ * the platform layer emit finding-shaped prose.
+ */
+function coverageEvidence(m: MetricEvidence) {
+  const source = m.provenance[0]?.citation ?? m.provenance[0]?.sourceLabel ?? 'evidence engine';
+  if (!m.coverage) {
+    return [
+      {
+        statement: `Records examined without ${m.label.toLowerCase()}`,
+        observed: m.sampleSize,
+        denominator: m.sampleSize,
+        source,
+      },
+    ];
+  }
+  const total = m.coverage.total;
+  return [
+    {
+      statement: `Calls carrying ${m.label.toLowerCase()}`,
+      observed: m.coverage.observed,
+      denominator: total,
+      source: 'MarketplaceCall coverage observations',
+    },
+    {
+      statement: `Calls missing ${m.label.toLowerCase()}`,
+      // An unknown denominator means the missing count is unknowable too —
+      // reporting 0 would claim nothing is missing.
+      observed: total === null ? 0 : total - m.coverage.observed,
+      denominator: total,
+      source: 'MarketplaceCall coverage observations',
+    },
+  ];
+}
+
 function coverageGapRule(opts: {
   id: string;
   metricId: string;
@@ -92,8 +138,11 @@ function coverageGapRule(opts: {
     },
     evaluate(ctx) {
       const m = ctx.metric(opts.metricId);
-      if (!m.coverage) return null;
-      const { observed, total } = m.coverage;
+      // A null denominator means coverage cannot be judged, so this rule — which
+      // exists to report PARTIAL coverage — has nothing it can honestly say.
+      if (!m.coverage || m.coverage.total === null) return null;
+      const { observed } = m.coverage;
+      const total: number = m.coverage.total;
       // Full coverage is not a finding. Silence is the correct output.
       if (observed >= total) return null;
       const missing = total - observed;
@@ -110,7 +159,7 @@ function coverageGapRule(opts: {
           lostOpportunities: missing,
           whyNotPriced: `${opts.consequence} The missing amounts cannot be estimated from the present ones without assuming they resemble each other.`,
         },
-        evidence: m.evidence,
+        evidence: coverageEvidence(m),
         confidence: {
           value: 0.9,
           sampleSize: m.sampleSize,
@@ -164,7 +213,7 @@ function capabilityAbsentRule(opts: {
           kind: 'unquantified',
           reason: `${opts.consequence} The volume affected cannot be counted, because the field that would count it is the one missing.`,
         },
-        evidence: m.evidence,
+        evidence: coverageEvidence(m),
         confidence: {
           value: 0.9,
           sampleSize: m.sampleSize,
@@ -246,7 +295,7 @@ export const unbuiltRules = (): readonly UnbuiltRule[] => [
 
 export interface EngineResult {
   /** Layer 1's output, so the whole chain is auditable. */
-  confidence: ConfidenceReport;
+  evidence: EvidenceReport;
   findings: MarketplaceFinding[];
   /** Rules stopped before or during evaluation, each naming the layer. */
   withheld: RuleSuppression[];
@@ -262,7 +311,7 @@ export interface EngineResult {
  */
 function checkRequirements(
   rule: MarketplaceRule,
-  confidence: ConfidenceReport,
+  evidence: EvidenceReport,
 ): RuleSuppression | null {
   // Order matters, and it is semantic rather than arbitrary:
   //
@@ -278,8 +327,8 @@ function checkRequirements(
 
   // 1. Withheld by Layer 1.
   for (const metricId of rule.requires.metrics) {
-    if (availableMetric(confidence, metricId)) continue;
-    const w = confidence.withheld.find((m) => m.metricId === metricId);
+    if (availableMetric(evidence, metricId)) continue;
+    const w = evidence.withheld.find((m) => m.metricId === metricId);
     return {
       ruleId: rule.id,
       reason: w
@@ -291,10 +340,10 @@ function checkRequirements(
   }
 
   // 2. The rule's own sample floor.
-  if (confidence.callsIngested < rule.requires.minimumSampleSize) {
+  if (evidence.populationSize < rule.requires.minimumSampleSize) {
     return {
       ruleId: rule.id,
-      reason: `Sample of ${confidence.callsIngested} is below this rule's declared minimum of ${rule.requires.minimumSampleSize}.`,
+      reason: `Sample of ${evidence.populationSize} is below this rule's declared minimum of ${rule.requires.minimumSampleSize}.`,
       needs: `At least ${rule.requires.minimumSampleSize} calls in the window.`,
       suppressedBy: 'intelligence-engine',
     };
@@ -302,7 +351,7 @@ function checkRequirements(
 
   // 3 and 4. Trust in the metric itself.
   for (const metricId of rule.requires.metrics) {
-    const metric = availableMetric(confidence, metricId)!;
+    const metric = availableMetric(evidence, metricId)!;
 
     if (metric.confidence < rule.requires.minimumConfidence) {
       return {
@@ -316,6 +365,7 @@ function checkRequirements(
     if (
       rule.requires.coverageRequirement !== null &&
       (!metric.coverage ||
+        metric.coverage.total === null ||
         metric.coverage.total === 0 ||
         metric.coverage.observed / metric.coverage.total < rule.requires.coverageRequirement)
     ) {
@@ -343,17 +393,21 @@ export function runMarketplaceIntelligence(input: {
   coverage: MarketplaceCoverageReport;
   measuredAt: string;
 }): EngineResult {
-  // --- Layer 1 -------------------------------------------------------------
-  const confidence = assessConfidence(input.coverage, input.measuredAt);
+  // --- Layer 1: the platform Evidence Engine -------------------------------
+  const evidence = assessEvidence(
+    marketplaceEvidenceContributor,
+    { coverage: input.coverage },
+    input.measuredAt,
+  );
 
   // --- Layer 2 -------------------------------------------------------------
   const findings: MarketplaceFinding[] = [];
   const withheld: RuleSuppression[] = [];
 
   const ctx: GatedContext = {
-    confidence,
+    evidence,
     metric(metricId) {
-      const m = availableMetric(confidence, metricId);
+      const m = availableMetric(evidence, metricId);
       if (!m) {
         // Unreachable: checkRequirements ran first. Loud rather than silent, so
         // a future refactor that bypasses the gate fails visibly.
@@ -368,7 +422,7 @@ export function runMarketplaceIntelligence(input: {
   };
 
   for (const rule of MARKETPLACE_RULES) {
-    const suppression = checkRequirements(rule, confidence);
+    const suppression = checkRequirements(rule, evidence);
     if (suppression) {
       withheld.push(suppression);
       continue; // evaluate() is never called
@@ -387,7 +441,7 @@ export function runMarketplaceIntelligence(input: {
   }
 
   return {
-    confidence,
+    evidence,
     findings: rankFindings(findings),
     withheld,
     unbuilt: unbuiltRules(),

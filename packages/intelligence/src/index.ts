@@ -27,8 +27,12 @@ export * from './callgrid/verification';
 // --- Marketplace Intelligence (Module 2) -----------------------------------
 // Explains why marketplace opportunity is lost BEFORE a call exists.
 // Domain model and rule contract only — no ingestion until discovery completes.
+// Platform Evidence Engine — consumed by every intelligence module.
+export * from './evidence/types';
+export * from './evidence/engine';
+export * from './evidence/verification';
+export * from './marketplace/evidence';
 export * from './marketplace/taxonomy';
 export * from './marketplace/rule';
-export * from './marketplace/confidence';
 export * from './marketplace/engine';
 export * from './marketplace/score';
