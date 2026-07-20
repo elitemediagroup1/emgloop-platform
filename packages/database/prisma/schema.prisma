@@ -1607,3 +1607,119 @@ model MarketplaceCall {
   @@index([organizationId, converted])
   @@map("marketplace_calls")
 }
+
+// ===========================================================================
+// Sprint 27D — Business Process Engine · PR B (Runtime & Persistence)
+// ---------------------------------------------------------------------------
+// The durable substrate for the Business Process Engine — the platform layer
+// between Operational Readiness and Work Intelligence. Contracts + guard policy
+// are PR A (packages/database/src/process-engine); this block persists them.
+//
+// TWO FROZEN CONSTITUTIONAL DECISIONS shape this schema:
+//  1. The append-only ProcessTransition log is the SOLE source of truth. Current
+//     process/phase state is ALWAYS a projection over the log (see projectState).
+//     There is deliberately NO current-state, current-phase, or readiness column
+//     on ProcessInstance — storing derived state is forbidden. `archivedAt` is the
+//     one exception and is NOT business state: it is an administrative retention
+//     flag with no transition kind, layered over the projected terminal state.
+//  2. Readiness is re-derived fresh before every committed transition; the
+//     snapshots stored here are for AUDIT only and never authorize a commit.
+//
+// Conventions (consistent with the runtime + Multi-Tenant Rules):
+//  - organizationId + every *UserId are validated SCALAR ids (no FK to
+//    Organization/User), matching the PR #75 / marketplace tradeoff.
+//  - References BETWEEN these new tables use real FKs.
+//  - A ProcessDefinition is an immutable, versioned DOCUMENT: its phases live in a
+//    typed JSON column (PhaseDefinition[]), frozen as a unit on publish.
+// ===========================================================================
+
+// An immutable, versioned, organization-scoped process template. `draft` rows may
+// be replaced; once `published` a row never changes — a new version is a new row.
+// A running instance pins the exact version it started on.
+model ProcessDefinition {
+  id             String    @id @default(cuid())
+  organizationId String
+  key            String // stable machine key, e.g. BUYER_ONBOARDING
+  version        Int // monotonically increasing per (organizationId, key)
+  name           String
+  status         String    @default("draft") // draft | published
+  objectiveKey   String // referenced Business Objective (reference only; no storage)
+  objectiveLabel String?
+  subjectType    String // the kind of subject this process is about (soft)
+  allowBackward  Boolean   @default(false)
+  allowRestart   Boolean   @default(false)
+  // The ordered PhaseDefinition[] as a frozen document. Validated in the repository
+  // against the PR A contract; never mutated after publish.
+  phases         Json      @default("[]")
+  metadata       Json      @default("{}")
+  publishedAt    DateTime?
+  createdByUserId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  instances ProcessInstance[]
+
+  @@unique([organizationId, key, version])
+  @@index([organizationId, key, status])
+  @@map("process_definitions")
+}
+
+// A single subject's run of a pinned definition version. Holds identity and
+// references ONLY — no current state, no current phase, no derived readiness. All
+// of those are projected from the transition log.
+model ProcessInstance {
+  id                String    @id @default(cuid())
+  organizationId    String
+  definitionId      String // FK to the exact published ProcessDefinition version
+  definitionKey     String // denormalized for read paths
+  definitionVersion Int // the PINNED version — never changes for this instance
+  subjectType       String
+  subjectLabel      String
+  subjectExternalId String?
+  objectiveKey      String
+  objectiveLabel    String?
+  metadata          Json      @default("{}")
+  // Administrative retention flag only — NOT projected business state. Set when a
+  // terminal process is archived (there is no `archive` transition kind).
+  archivedAt        DateTime?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  definition  ProcessDefinition   @relation(fields: [definitionId], references: [id])
+  transitions ProcessTransition[]
+
+  @@index([organizationId, definitionKey])
+  @@index([organizationId, createdAt])
+  @@map("process_instances")
+}
+
+// The append-only transition log — the SOLE source of truth for process state.
+// Insert-only: never updated, never deleted. `sequence` is monotonic per instance
+// and, with the unique constraint, guarantees deterministic replay ordering and
+// prevents duplicate/racing appends.
+model ProcessTransition {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  processInstanceId   String
+  sequence            Int // 1-based, contiguous per instance
+  kind                String // forward | backward | reopen | suspend | resume | terminate | restart | complete
+  fromPhaseKey        String?
+  toPhaseKey          String?
+  proposer            String // brain | human | rule
+  proposedByUserId    String?
+  confirmedByUserId   String? // the confirmer (null for kinds not requiring confirmation)
+  // AUDIT snapshots captured at commit time. They never authorize a future commit
+  // (readiness is always re-derived fresh); they record what was true at the moment.
+  readinessSnapshot   Json     @default("{}")
+  verificationSnapshot Json    @default("{}")
+  rationale           String?
+  occurredAt          DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  instance ProcessInstance @relation(fields: [processInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([processInstanceId, sequence])
+  @@index([organizationId, processInstanceId, sequence])
+  @@map("process_transitions")
+}
