@@ -33,6 +33,7 @@ import { RevenueIntelligenceRepository } from './revenue-intelligence.repository
 import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
+import { BusinessProcessRepository } from '../process-engine/business-process.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -197,6 +198,8 @@ export interface Repositories {
   work: WorkRepository;
   verifiedKnowledge: VerifiedKnowledgeRepository;
   marketplaceCalls: MarketplaceCallRepository;
+  // Sprint 27D — Business Process Engine runtime (PR B). Persistence + projection.
+  businessProcess: BusinessProcessRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -226,5 +229,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     work: new WorkRepository(prisma),
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
     marketplaceCalls: new MarketplaceCallRepository(prisma),
+    businessProcess: new BusinessProcessRepository(prisma),
   };
 }
