@@ -45,4 +45,26 @@ export class DomainEventRepository {
       orderBy: { occurredAt: 'desc' },
     });
   }
+
+  /**
+   * Count org-scoped domain events in a half-open window `[since, until)`.
+   * A COUNT only — never hydrates rows — so it feeds the Executive Brain's Loop
+   * Activity sensor cheaply. `mostRecentAt` lets the sensor judge freshness.
+   */
+  async windowActivity(
+    organizationId: string,
+    since: Date,
+    until: Date,
+  ): Promise<{ events: number; mostRecentAt: Date | null }> {
+    const window = { organizationId, occurredAt: { gte: since, lt: until } };
+    const [events, latest] = await Promise.all([
+      this.prisma.domainEvent.count({ where: window }),
+      this.prisma.domainEvent.findFirst({
+        where: window,
+        orderBy: { occurredAt: 'desc' },
+        select: { occurredAt: true },
+      }),
+    ]);
+    return { events, mostRecentAt: latest?.occurredAt ?? null };
+  }
 }

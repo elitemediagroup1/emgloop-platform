@@ -213,6 +213,20 @@ export class IamRepository {
     }));
   }
 
+  /**
+   * Org-scoped user roster counts for the Executive Brain's Users sensor. A
+   * roster is a snapshot, not a window — `total` excludes disabled users (they
+   * are removed, not active), and `active` is those actually ACTIVE (an INVITED
+   * user has not yet accepted). COUNTs only.
+   */
+  async userCounts(organizationId: string): Promise<{ total: number; active: number }> {
+    const [total, active] = await Promise.all([
+      this.prisma.user.count({ where: { organizationId, status: { not: 'DISABLED' } } }),
+      this.prisma.user.count({ where: { organizationId, status: 'ACTIVE' } }),
+    ]);
+    return { total, active };
+  }
+
   async getUser(organizationId: string, id: string): Promise<User | null> {
     return this.prisma.user.findFirst({ where: { id, organizationId } });
   }

@@ -28,8 +28,28 @@
 import type { EvidenceCoverage, MetricEvidence, Provenance } from '../evidence/types';
 
 /** What class of thing an observation is. `observation` is a neutral state-of-
- * the-world fact (summary material); the other two carry a direction. */
-export type ObservationKind = 'observation' | 'risk' | 'opportunity';
+ * the-world fact (summary material); `change` states a movement between two
+ * windows (What Changed); `correlation` is a cross-sensor conclusion built from
+ * other observations; the last two carry a direction. */
+export type ObservationKind =
+  | 'observation'
+  | 'change'
+  | 'correlation'
+  | 'risk'
+  | 'opportunity';
+
+/**
+ * A movement between the prior and current window. Present ONLY on `change`
+ * observations. `changePercent` is null — never 0-filled — when the prior value
+ * was 0, because a percentage change from nothing is undefined, not infinite.
+ */
+export interface ObservationChange {
+  metricId: string;
+  current: number;
+  prior: number | null;
+  direction: 'up' | 'down' | 'flat';
+  changePercent: number | null;
+}
 
 /**
  * How much an observation matters. Derived by the sensor from business impact,
@@ -115,6 +135,11 @@ export interface ExecutiveObservation {
   timestamp: string;
   /** 9. Source. */
   source: ObservationSource;
+  /** The business area this affects, for the executive Details panel. Falls back
+   * to the source domain when a sensor names nothing more specific. */
+  affectedArea: string;
+  /** Present only on `change` observations: the movement between windows. */
+  change: ObservationChange | null;
 }
 
 /**
@@ -167,6 +192,9 @@ export interface ObservationSpec {
   severity: ObservationSeverity;
   timestamp: string;
   source: ObservationSource;
+  /** Optional; defaults to the source domain when omitted. */
+  affectedArea?: string;
+  change?: ObservationChange | null;
 }
 
 /**
@@ -189,5 +217,26 @@ export function buildObservation(spec: ObservationSpec): ExecutiveObservation {
     severity: spec.severity,
     timestamp: spec.timestamp,
     source: spec.source,
+    affectedArea: spec.affectedArea ?? spec.source.domain,
+    change: spec.change ?? null,
   });
+}
+
+/** Signed percentage change from prior→current, or null when prior is 0 (a
+ * change from nothing has no defined percentage, and we refuse to invent one). */
+export function changePercentOf(current: number, prior: number | null): number | null {
+  if (prior === null || prior === 0) return null;
+  return ((current - prior) / Math.abs(prior)) * 100;
+}
+
+/** Direction of a movement, with a dead-band so trivial noise reads 'flat'. */
+export function directionOf(
+  current: number,
+  prior: number | null,
+  deadBand = 0,
+): 'up' | 'down' | 'flat' {
+  if (prior === null) return 'flat';
+  const d = current - prior;
+  if (Math.abs(d) <= deadBand) return 'flat';
+  return d > 0 ? 'up' : 'down';
 }

@@ -44,5 +44,7 @@ export * from './marketplace/executive-sensor';
 // Evidence Engine, and the layer carries no domain assumptions.
 export * from './executive/observation';
 export * from './executive/sensor';
+export * from './executive/domain-sensor';
+export * from './executive/correlation';
 export * from './executive/brain';
 export * from './executive/verification';
