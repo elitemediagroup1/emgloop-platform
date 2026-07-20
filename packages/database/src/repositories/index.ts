@@ -31,6 +31,8 @@ import { IntelligenceRepository } from './intelligence.repository';
 import { LiveOperationsRepository } from './live-operations.repository';
 import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 import { WorkRepository } from './work.repository';
+import { ResponsibilityRepository } from './responsibility.repository';
+import { WorkIntelligenceRepository } from './work-intelligence.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
@@ -156,6 +158,23 @@ export type {
   WorkInstanceWithStages,
 } from './work.repository';
 
+// Sprint 27 — Work Intelligence Foundation (PR #121A). Extends the Work OS
+// runtime: first-class responsibilities, requirements/derived readiness,
+// blockers, auditable handoffs, version-specific approvals, evidence links,
+// and an append-only event trail.
+export { ResponsibilityRepository } from './responsibility.repository';
+export type {
+  CreateResponsibilityInput,
+  AssignResponsibilityInput,
+} from './responsibility.repository';
+export { WorkIntelligenceRepository } from './work-intelligence.repository';
+export type {
+  CreateManualWorkInput,
+  AddRequirementInput,
+  ProposeHandoffInput,
+} from './work-intelligence.repository';
+export * from './work-intelligence.policy';
+
 // Verified Knowledge Service (kg.v1) — durable verified knowledge graph,
 // distinct from the embedding / RAG document store. Additive only.
 export { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
@@ -221,12 +240,15 @@ export interface Repositories {
   liveOperations: LiveOperationsRepository;
   revenueIntelligence: RevenueIntelligenceRepository;
   work: WorkRepository;
+  responsibilities: ResponsibilityRepository;
+  workIntelligence: WorkIntelligenceRepository;
   verifiedKnowledge: VerifiedKnowledgeRepository;
   marketplaceCalls: MarketplaceCallRepository;
   marketplaceAuction: MarketplaceAuctionRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
+  const responsibilities = new ResponsibilityRepository(prisma);
   return {
     customers: new CustomerRepository(prisma),
     interactions: new InteractionRepository(prisma),
@@ -251,6 +273,8 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     liveOperations: new LiveOperationsRepository(prisma),
     revenueIntelligence: new RevenueIntelligenceRepository(prisma),
     work: new WorkRepository(prisma),
+    responsibilities,
+    workIntelligence: new WorkIntelligenceRepository(prisma, responsibilities),
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
     marketplaceCalls: new MarketplaceCallRepository(prisma),
     marketplaceAuction: new MarketplaceAuctionRepository(prisma),
