@@ -107,9 +107,8 @@ export async function listMyCompletedToday(
 // organization (the page renders notFound in that case).
 export async function loadEmployeeInstance(id: string, organizationId: string) {
   const work = workRepo();
-  const instance = await work.getWorkInstance(id);
-  if (!instance || instance.organizationId !== organizationId) return null;
-  return instance;
+  // getWorkInstance is org-scoped (Sprint 27): a cross-org id resolves to null.
+  return work.getWorkInstance(organizationId, id);
 }
 
 // Directory of people who can own a stage, for the next-owner selector.

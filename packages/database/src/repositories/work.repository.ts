@@ -218,7 +218,14 @@ export class WorkRepository {
         });
         createdStages.push(stage);
         if (isFirst && owner) {
-          await this.recordAssignment(tx, instance.id, stage.id, owner, input.createdByUserId);
+          await this.recordAssignment(
+            tx,
+            input.organizationId,
+            instance.id,
+            stage.id,
+            owner,
+            input.createdByUserId,
+          );
         }
       }
 
@@ -331,6 +338,7 @@ export class WorkRepository {
       if (nextOwner) {
         await this.recordAssignment(
           tx,
+          instance.organizationId,
           instance.id,
           next.id,
           nextOwner,
@@ -383,6 +391,7 @@ export class WorkRepository {
       if (instance) {
         await this.recordAssignment(
           this.prisma,
+          input.organizationId,
           stage.workInstanceId,
           stage.id,
           input.userId,
@@ -410,15 +419,20 @@ export class WorkRepository {
   // ------------------------------------------------------------------
   // Reads for the queue UI
   // ------------------------------------------------------------------
-  async getWorkInstance(id: string): Promise<
+  // Org-scoped by design (Sprint 27): a cross-organization id resolves to null
+  // and leaks nothing. Isolation is enforced HERE, not by the caller.
+  async getWorkInstance(
+    organizationId: string,
+    id: string,
+  ): Promise<
     | (WorkInstance & {
         stages: WorkStage[];
         comments: WorkComment[];
       })
     | null
   > {
-    return this.prisma.workInstance.findUnique({
-      where: { id },
+    return this.prisma.workInstance.findFirst({
+      where: { id, organizationId },
       include: {
         stages: { orderBy: { position: 'asc' } },
         comments: { orderBy: { createdAt: 'asc' } },
@@ -529,6 +543,7 @@ export class WorkRepository {
     }
     return this.prisma.workComment.create({
       data: {
+        organizationId: input.organizationId,
         workInstanceId: input.workInstanceId,
         workStageId: input.workStageId ?? null,
         userId: input.userId,
@@ -544,6 +559,7 @@ export class WorkRepository {
   // tx is either the PrismaClient or a transaction client; both share this API.
   private async recordAssignment(
     tx: Prisma.TransactionClient | PrismaClient,
+    organizationId: string,
     workInstanceId: string,
     workStageId: string,
     userId: string,
@@ -551,6 +567,7 @@ export class WorkRepository {
   ): Promise<void> {
     await tx.workAssignment.create({
       data: {
+        organizationId,
         workInstanceId,
         workStageId,
         userId,

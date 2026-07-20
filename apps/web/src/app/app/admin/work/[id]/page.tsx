@@ -28,11 +28,12 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
   const actor = await requireWorkActor();
   const work = workRepo();
   const [instance, users] = await Promise.all([
-    work.getWorkInstance(params.id),
+    // Org-scoped (Sprint 27): isolation is enforced in the repository.
+    work.getWorkInstance(actor.organizationId, params.id),
     listAssignableUsers(actor.organizationId),
   ]);
 
-  if (!instance || instance.organizationId !== actor.organizationId) {
+  if (!instance) {
     notFound();
   }
 
