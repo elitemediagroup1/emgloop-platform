@@ -1150,7 +1150,13 @@ model WorkInstance {
   blueprintId     String?
   title           String
   description     String?
-  status          String    @default("active") // active | completed | cancelled
+  // status vocabulary (Sprint 27 superset):
+  //   draft | open | in_progress | blocked | waiting | completed | verified
+  //   | reopened | cancelled | archived
+  // 'active' is a LEGACY value written by the PR #75 blueprint runtime and is
+  // still valid; the Sprint 27 instance-lifecycle methods only drive instances
+  // that use the new vocabulary (see work-intelligence.policy.ts).
+  status          String    @default("active")
   currentStageId  String?
   createdByUserId String
   createdAt       DateTime  @default(now())
@@ -1158,11 +1164,42 @@ model WorkInstance {
   completedAt     DateTime?
   metadata        Json      @default("{}")
 
+  // --- Sprint 27 — Work Intelligence Foundation (PR #121A), additive & nullable ---
+  workType                String? // buyer_setup | vendor_setup | callgrid_optimization | general
+  priority                String? // low | normal | high | urgent
+  source                  String    @default("manual") // manual | brain | rule (provenance)
+  reason                  String? // why this work exists
+  dedupeKey               String? // deterministic key for system-proposed work (see policy)
+  dueAt                   DateTime?
+  businessContextTag      String? // TEMPORARY soft business-unit tag (e.g. elite-media-group)
+  attributionType         String? // buyer | destination | vendor | source | campaign | customer | general
+  attributionLabel        String? // TEMPORARY soft attribution — canonical entities do not exist yet
+  attributionExternalId   String?
+  ownerUserId             String? // instance-level owner for non-blueprint work (blueprint work owns per-stage)
+  currentResponsibilityId String? // scalar ref to Responsibility (validated in repo)
+  waitingOnType           String? // internal_user | internal_responsibility | buyer | vendor | client | creator | external_party | system | unknown
+  waitingOnLabel          String?
+  completedByUserId       String?
+  verifiedAt              DateTime?
+  verifiedByUserId        String?
+  reopenedAt              DateTime?
+  archivedAt              DateTime?
+
   stages        WorkStage[]
   notifications WorkNotification[]
   comments      WorkComment[]
+  requirements  WorkRequirement[]
+  links         WorkLink[]
+  blockers      WorkBlocker[]
+  handoffs      WorkHandoff[]
+  assets        WorkAsset[]
+  events        WorkEvent[]
 
+  @@unique([organizationId, dedupeKey])
   @@index([organizationId, status])
+  @@index([organizationId, workType, status])
+  @@index([organizationId, currentResponsibilityId])
+  @@index([organizationId, ownerUserId, status])
   @@map("work_instances")
 }
 
@@ -1191,6 +1228,7 @@ model WorkStage {
 
 model WorkAssignment {
   id               String    @id @default(cuid())
+  organizationId   String // Sprint 27: added + backfilled from parent WorkInstance
   workInstanceId   String
   workStageId      String
   userId           String
@@ -1199,6 +1237,7 @@ model WorkAssignment {
   unassignedAt     DateTime?
   metadata         Json      @default("{}")
 
+  @@index([organizationId])
   @@index([userId])
   @@index([workStageId])
   @@map("work_assignments")
@@ -1225,6 +1264,7 @@ model WorkNotification {
 
 model WorkComment {
   id             String   @id @default(cuid())
+  organizationId String // Sprint 27: added + backfilled from parent WorkInstance
   workInstanceId String
   workStageId    String?
   userId         String
@@ -1233,8 +1273,276 @@ model WorkComment {
 
   workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@index([workInstanceId])
   @@map("work_comments")
+}
+
+// ===========================================================================
+// Sprint 27 — Work Intelligence Foundation (PR #121A)
+// ---------------------------------------------------------------------------
+// Extends the PR #75 Work OS runtime so Loop can coordinate real internal
+// operations: first-class responsibilities, requirements with applicability,
+// blockers/waiting, auditable handoffs, version-specific approvals, evidence
+// links, an append-only event trail, and completion-distinct-from-verification.
+//
+// Conventions (consistent with the runtime and the Multi-Tenant Rules):
+//  - organizationId and every *UserId are validated SCALAR ids (no FK), matching
+//    the PR #75 tradeoff of not editing the shared Organization/User models.
+//  - References BETWEEN the new tables use real FKs (onDelete: Cascade), the
+//    same way WorkStage/WorkComment already FK to WorkInstance.
+//  - Cross-subsystem responsibilityId references are validated scalars.
+//  - Readiness is DERIVED (see work-intelligence.policy.ts). There is no
+//    manually settable "ready" column anywhere in this schema.
+// ===========================================================================
+
+// A first-class organizational capability (CALLGRID_SETUP, CONTRACT_REVIEW, …).
+// Users may change; the responsibility remains. Assignment is configurable.
+model Responsibility {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String // stable machine key, e.g. CALLGRID_SETUP
+  name           String // human label, e.g. "CallGrid Setup"
+  description    String?
+  category       String? // grouping, e.g. setup | contracts | creative | finance | ops
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  assignments ResponsibilityAssignment[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, active])
+  @@map("responsibilities")
+}
+
+// Maps a responsibility to a current responsible actor (a human today; an AI
+// worker in future — actor is a scalar userId for now, documented as extensible).
+model ResponsibilityAssignment {
+  id               String    @id @default(cuid())
+  organizationId   String
+  responsibilityId String
+  userId           String // future: nullable + aiEmployeeId when the schema supports it cleanly
+  assignmentType   String    @default("primary") // primary | secondary
+  active           Boolean   @default(true)
+  assignedByUserId String?
+  assignedAt       DateTime  @default(now())
+  unassignedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  responsibility Responsibility @relation(fields: [responsibilityId], references: [id], onDelete: Cascade)
+
+  // At most one ACTIVE assignment per (responsibility, user, type) — enforced by
+  // a partial unique index in the migration (Prisma cannot express `WHERE active`).
+  @@index([organizationId, responsibilityId, active])
+  @@index([organizationId, userId, active])
+  @@map("responsibility_assignments")
+}
+
+// An applicability-aware requirement on a work item. Readiness is derived from
+// these rows via pure policy — never stored as an editable boolean.
+model WorkRequirement {
+  id                String    @id @default(cuid())
+  organizationId    String
+  workInstanceId    String
+  key               String // e.g. msa | io | destination_specs | creative_internal_approval
+  label             String
+  category          String? // contract | specification | asset_approval | info | other
+  required          Boolean   @default(true) // false = explicitly not required (≠ missing)
+  status            String    @default("unknown") // see WORK_REQUIREMENT_STATUSES in policy
+  satisfiedAt       DateTime?
+  satisfiedByUserId String?
+  evidenceLinkId    String? // scalar ref to WorkLink (validated in repo)
+  attestedAt        DateTime?
+  attestedByUserId  String?
+  expiresAt         DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([workInstanceId, key])
+  @@index([organizationId, workInstanceId])
+  @@map("work_requirements")
+}
+
+// Honest evidence / entity reference. Not a polymorphic FK — the target is named
+// by type + id and validated in the repository (cross-org links are rejected when
+// the target organization is known).
+model WorkLink {
+  id              String   @id @default(cuid())
+  organizationId  String
+  workInstanceId  String
+  linkType        String // observation | recommendation | evidence | customer | conversation | marketplace_call | marketplace_report_run | buyer | destination | vendor | source | campaign | contract | file | url | manual_note
+  refId           String? // internal id when the target is a Loop row
+  externalRef     String? // url / external identifier when there is no internal row
+  label           String?
+  provenance      String   @default("manual") // manual | brain | rule
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, workInstanceId])
+  @@index([organizationId, linkType, refId])
+  @@map("work_links")
+}
+
+// A normalized blocker. Current blocked/waiting display derives from ACTIVE rows.
+model WorkBlocker {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  workInstanceId      String
+  blockerType         String // dependency | missing_input | approval | external | manual_hold
+  reason              String
+  waitingOnType       String? // internal_user | internal_responsibility | buyer | vendor | client | creator | external_party | system | unknown
+  waitingOnLabel      String?
+  linkedRequirementId String?
+  active              Boolean   @default(true)
+  openedByUserId      String?
+  openedAt            DateTime  @default(now())
+  resolvedByUserId    String?
+  resolvedAt          DateTime?
+  resolution          String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, workInstanceId, active])
+  @@map("work_blockers")
+}
+
+// An auditable handoff. Only one ACTIVE proposed handoff per work item at a time
+// (partial unique index in the migration). Acceptance changes owner + responsibility;
+// rejection preserves existing ownership. Every transition writes a WorkEvent.
+model WorkHandoff {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  workInstanceId       String
+  fromUserId           String?
+  fromResponsibilityId String?
+  toUserId             String?
+  toResponsibilityId   String?
+  status               String    @default("proposed") // proposed | accepted | rejected | cancelled | superseded
+  reason               String?
+  nextAction           String?
+  unresolvedWarnings   Json      @default("[]")
+  readinessSnapshot    Json      @default("{}") // requirement/readiness state at propose time
+  proposedAt           DateTime  @default(now())
+  proposedByUserId     String?
+  acceptedAt           DateTime?
+  acceptedByUserId     String?
+  rejectedAt           DateTime?
+  rejectedByUserId     String?
+  rejectionReason      String?
+  cancelledAt          DateTime?
+  cancelledByUserId    String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, workInstanceId, status])
+  @@index([organizationId, toUserId, status])
+  @@map("work_handoffs")
+}
+
+// A reviewable asset (creative, landing page, destination URL, document, spec).
+// Approval attaches to a specific VERSION and never carries to a new version.
+model WorkAsset {
+  id              String   @id @default(cuid())
+  organizationId  String
+  workInstanceId  String
+  kind            String // creative | landing_page | destination_url | document | specification | other
+  label           String
+  currentVersion  Int      @default(1)
+  status          String   @default("draft") // draft | in_review | approved | superseded
+  externalUrl     String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workInstance WorkInstance        @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+  versions     WorkAssetVersion[]
+  approvals    WorkAssetApproval[]
+
+  @@index([organizationId, workInstanceId])
+  @@map("work_assets")
+}
+
+model WorkAssetVersion {
+  id                String    @id @default(cuid())
+  organizationId    String
+  workAssetId       String
+  version           Int
+  fileRef           String?
+  url               String?
+  checksum          String?
+  notes             String?
+  submittedByUserId String?
+  submittedAt       DateTime  @default(now())
+  supersededAt      DateTime?
+  createdAt         DateTime  @default(now())
+
+  asset     WorkAsset           @relation(fields: [workAssetId], references: [id], onDelete: Cascade)
+  approvals WorkAssetApproval[]
+
+  @@unique([workAssetId, version])
+  @@index([organizationId, workAssetId])
+  @@map("work_asset_versions")
+}
+
+// A decision on ONE specific asset version at ONE scope. internal ≠ buyer.
+// Revoked approvals no longer count toward readiness.
+model WorkAssetApproval {
+  id                       String    @id @default(cuid())
+  organizationId           String
+  workAssetId              String
+  workAssetVersionId       String
+  scope                    String // internal | buyer
+  decision                 String // approved | rejected | revision_requested
+  approverUserId           String?
+  approverResponsibilityId String?
+  comments                 String?
+  evidenceLinkId           String?
+  decidedAt                DateTime  @default(now())
+  revokedAt                DateTime?
+  revokedByUserId          String?
+  revokeReason             String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  asset   WorkAsset        @relation(fields: [workAssetId], references: [id], onDelete: Cascade)
+  version WorkAssetVersion @relation(fields: [workAssetVersionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, workAssetId, scope])
+  @@index([workAssetVersionId, scope])
+  @@map("work_asset_approvals")
+}
+
+// Append-only audit history. NOT the source of current state — canonical tables
+// hold state; this is the traceable trail of meaningful transitions.
+model WorkEvent {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  workInstanceId        String
+  eventType             String // see WORK_EVENT_TYPES in policy
+  actorType             String   @default("user") // user | system
+  actorUserId           String?
+  actorResponsibilityId String?
+  source                String   @default("manual") // manual | brain | rule | system
+  summary               String
+  data                  Json     @default("{}")
+  occurredAt            DateTime @default(now())
+  createdAt             DateTime @default(now())
+
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, workInstanceId, occurredAt])
+  @@map("work_events")
 }
 
 // ---------------------------------------------------------------------------
