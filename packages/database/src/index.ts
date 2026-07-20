@@ -94,6 +94,56 @@ export type {
   ApiSyncInfo,
 } from './services/integration-os.service';
 
+// Sprint 27B — Operational Readiness Engine (PR #121B). A provider-neutral
+// engine that DERIVES whether a real-world process has satisfied its
+// prerequisites and is eligible to advance. Sits between Decision and Work; work
+// is created FROM readiness, never the reverse. Pure kernel + Buyer/Vendor
+// adapters + a thin service that resolves the next responsibility to a person and
+// SUGGESTS a handoff (creating no work, persisting no readiness).
+export {
+  evaluateReadiness,
+  aggregate,
+  classifyFacet,
+  currentVersionApprovedAtScopes,
+  registerReadinessAdapter,
+  getReadinessAdapter,
+  registeredReadinessProcessTypes,
+  READINESS_STATES,
+  READINESS_DISPOSITIONS,
+  REQUIREMENT_FACETS,
+  READINESS_CONFIDENCE_LEVELS,
+} from './services/operational-readiness';
+export type {
+  ReadinessState,
+  ReadinessDisposition,
+  RequirementFacet,
+  ReadinessConfidenceLevel,
+  EvidenceRef,
+  ReadinessBlocker,
+  ReadinessSubject,
+  EvaluatedRequirement,
+  FacetInput,
+  ReadinessAdapter,
+  ReadinessResult,
+  ReadinessRequest,
+} from './services/operational-readiness';
+export {
+  buyerReadinessAdapter,
+  vendorReadinessAdapter,
+  BUYER_PROCESS_TYPE,
+  VENDOR_PROCESS_TYPE,
+} from './services/operational-readiness.adapters';
+export type {
+  RequirementEvidenceInput,
+  BuyerReadinessEvidence,
+  BuyerRequirementKey,
+  VendorReadinessEvidence,
+  VendorRequirementKey,
+  VendorAssetEvidence,
+} from './services/operational-readiness.adapters';
+export { OperationalReadinessService } from './services/operational-readiness.service';
+export type { SuggestedHandoff, ReadinessAssessment } from './services/operational-readiness.service';
+
 export const repositories: Repositories = createRepositories(prisma);
 
 export * from '@prisma/client';
