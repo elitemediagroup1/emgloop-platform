@@ -1633,26 +1633,42 @@ model MarketplaceCall {
 //    typed JSON column (PhaseDefinition[]), frozen as a unit on publish.
 // ===========================================================================
 
-// An immutable, versioned, organization-scoped process template. `draft` rows may
-// be replaced; once `published` a row never changes — a new version is a new row.
-// A running instance pins the exact version it started on.
+// An immutable, versioned, organization-scoped process template, owned by the Process
+// Registry (Sprint 27F). `draft` rows may be replaced; once `published` a row never
+// changes — a new version is a new row. A running instance pins the exact version it
+// started on and NEVER auto-migrates to a newer one.
+//
+// Lifecycle (owned entirely by the Registry; the Runtime never mutates status):
+//   draft → published → active → superseded → retired
+//   • draft      — mutable; not instantiable.
+//   • published  — frozen/immutable; not yet the version new instances use.
+//   • active     — the one instantiable version for (org, key); AT MOST ONE at a time.
+//   • superseded — a newer version was activated; NO new instances, but existing
+//                  pinned instances continue to run normally.
+//   • retired    — withdrawn from normal use; history (and any pinned instances) intact.
+// Only `active` may start a NEW instance. Every other state still runs the instances
+// already pinned to it — the Runtime reads a pinned definition by id, ignoring status.
 model ProcessDefinition {
   id             String    @id @default(cuid())
   organizationId String
   key            String // stable machine key, e.g. BUYER_ONBOARDING
   version        Int // monotonically increasing per (organizationId, key)
   name           String
-  status         String    @default("draft") // draft | published
+  status         String    @default("draft") // draft | published | active | superseded | retired
   objectiveKey   String // referenced Business Objective (reference only; no storage)
   objectiveLabel String?
   subjectType    String // the kind of subject this process is about (soft)
   allowBackward  Boolean   @default(false)
   allowRestart   Boolean   @default(false)
-  // The ordered PhaseDefinition[] as a frozen document. Validated in the repository
+  // The ordered PhaseDefinition[] as a frozen document. Validated by the Registry
   // against the PR A contract; never mutated after publish.
   phases         Json      @default("[]")
   metadata       Json      @default("{}")
+  // Lifecycle timestamps — each set once when the definition enters that state.
   publishedAt    DateTime?
+  activatedAt    DateTime?
+  supersededAt   DateTime?
+  retiredAt      DateTime?
   createdByUserId String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

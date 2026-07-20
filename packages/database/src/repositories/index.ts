@@ -33,6 +33,7 @@ import { RevenueIntelligenceRepository } from './revenue-intelligence.repository
 import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
+import { ProcessRegistry } from '../process-engine/business-process.registry';
 import { BusinessProcessRepository } from '../process-engine/business-process.repository';
 import { BusinessProcessOrchestrator } from '../process-engine/business-process.orchestrator';
 
@@ -199,6 +200,9 @@ export interface Repositories {
   work: WorkRepository;
   verifiedKnowledge: VerifiedKnowledgeRepository;
   marketplaceCalls: MarketplaceCallRepository;
+  // Sprint 27F — Process Registry. Owns the definition lifecycle (draft → published →
+  // active → superseded → retired); the runtime consumes definitions from it.
+  processRegistry: ProcessRegistry;
   // Sprint 27D — Business Process Engine runtime (PR B). Persistence + projection.
   businessProcess: BusinessProcessRepository;
   // Sprint 27E — Process Orchestrator (PR C). Coordinates the runtime with injected
@@ -209,7 +213,8 @@ export interface Repositories {
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
-  const businessProcess = new BusinessProcessRepository(prisma);
+  const processRegistry = new ProcessRegistry(prisma);
+  const businessProcess = new BusinessProcessRepository(prisma, processRegistry);
   return {
     customers: new CustomerRepository(prisma),
     interactions: new InteractionRepository(prisma),
@@ -236,6 +241,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     work: new WorkRepository(prisma),
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
     marketplaceCalls: new MarketplaceCallRepository(prisma),
+    processRegistry,
     businessProcess,
     // Fail-closed by default: no real readiness/verification engine is injected here,
     // so every advance refuses until those ports are supplied. Emitted intents are

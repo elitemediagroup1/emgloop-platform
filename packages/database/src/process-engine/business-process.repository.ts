@@ -19,6 +19,13 @@
 //  - Multi-tenant rules: organizationId is the first argument to every method;
 //    single rows resolve with findFirst({ where: { id, organizationId } }) and fail
 //    closed; a cross-org id is not-found, never forbidden.
+//
+// Sprint 27F: the Runtime no longer OWNS process definitions — the Process Registry
+// (business-process.registry.ts) does. This repository CONSUMES definitions from the
+// Registry: it asks the Registry whether a definition is instantiable (active) before
+// creating an instance, and reads the PINNED definition (by id, any status) for every
+// projection/transition so superseded/retired definitions keep running their existing
+// instances. It never publishes, activates, or retires — those are Registry authority.
 // ---------------------------------------------------------------------------
 
 import type { Prisma, PrismaClient, ProcessDefinition, ProcessInstance } from '@prisma/client';
@@ -48,6 +55,7 @@ import {
   type TransitionKind,
   type TransitionProposer,
 } from './business-process.contracts';
+import { ProcessRegistry, toDefinitionContract } from './business-process.registry';
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -59,19 +67,6 @@ function notFound(what: string, id: string): never {
 // ---------------------------------------------------------------------------
 // Public input / output shapes
 // ---------------------------------------------------------------------------
-export interface CreateDefinitionInput {
-  organizationId: string;
-  key: string;
-  name: string;
-  objective: BusinessObjectiveReference;
-  subjectType: string;
-  phases: PhaseDefinition[];
-  allowBackward?: boolean;
-  allowRestart?: boolean;
-  metadata?: Record<string, unknown>;
-  createdByUserId?: string | null;
-}
-
 export interface CreateInstanceInput {
   organizationId: string;
   definitionId: string; // must reference a PUBLISHED definition version
@@ -138,101 +133,30 @@ export interface InstanceContext {
 // ---------------------------------------------------------------------------
 // Mappers
 // ---------------------------------------------------------------------------
-function toDefinitionContract(row: ProcessDefinition): BusinessProcessDefinition {
-  return {
-    key: row.key,
-    name: row.name,
-    version: row.version,
-    objective: { key: row.objectiveKey, label: row.objectiveLabel },
-    subjectType: row.subjectType,
-    phases: (row.phases as unknown as PhaseDefinition[]) ?? [],
-    allowBackward: row.allowBackward,
-    allowRestart: row.allowRestart,
-  };
-}
-
 function phaseDefByKey(def: BusinessProcessDefinition, key: string | null | undefined): PhaseDefinition | null {
   if (key == null) return null;
   return def.phases.find((p) => p.key === key) ?? null;
 }
 
 export class BusinessProcessRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly registry: ProcessRegistry;
 
-  // ================================================================
-  // Definitions — immutable, versioned, publishable
-  // ================================================================
-  async createDefinition(input: CreateDefinitionInput): Promise<ProcessDefinition> {
-    validatePhases(input.phases);
-    // Next version for (org, key): max existing + 1.
-    const latest = await this.prisma.processDefinition.findFirst({
-      where: { organizationId: input.organizationId, key: input.key },
-      orderBy: { version: 'desc' },
-      select: { version: true },
-    });
-    const version = (latest?.version ?? 0) + 1;
-    return this.prisma.processDefinition.create({
-      data: {
-        organizationId: input.organizationId,
-        key: input.key,
-        version,
-        name: input.name,
-        status: 'draft',
-        objectiveKey: input.objective.key,
-        objectiveLabel: input.objective.label ?? null,
-        subjectType: input.subjectType,
-        allowBackward: input.allowBackward ?? false,
-        allowRestart: input.allowRestart ?? false,
-        phases: input.phases as unknown as Prisma.InputJsonValue,
-        ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
-        createdByUserId: input.createdByUserId ?? null,
-      },
-    });
-  }
-
-  // Freeze a draft. Once published a definition is immutable — there is no update
-  // method; a change is a new version (createDefinition again).
-  async publishDefinition(organizationId: string, definitionId: string): Promise<ProcessDefinition> {
-    const existing = await this.prisma.processDefinition.findFirst({
-      where: { id: definitionId, organizationId },
-    });
-    if (!existing) notFound('Process definition', definitionId);
-    if (existing.status === 'published') {
-      throw new Error('Process definition is already published and immutable');
-    }
-    return this.prisma.processDefinition.update({
-      where: { id: existing.id },
-      data: { status: 'published', publishedAt: new Date() },
-    });
-  }
-
-  async getDefinitionById(
-    organizationId: string,
-    definitionId: string,
-  ): Promise<ProcessDefinition | null> {
-    return this.prisma.processDefinition.findFirst({ where: { id: definitionId, organizationId } });
-  }
-
-  async getDefinition(
-    organizationId: string,
-    key: string,
-    version: number,
-  ): Promise<ProcessDefinition | null> {
-    return this.prisma.processDefinition.findFirst({
-      where: { organizationId, key, version },
-    });
+  // The Runtime CONSUMES definitions from the Registry. The registry is injected for
+  // testability; by default it wraps the same Prisma client so callers that construct
+  // only `new BusinessProcessRepository(prisma)` keep working.
+  constructor(private readonly prisma: PrismaClient, registry?: ProcessRegistry) {
+    this.registry = registry ?? new ProcessRegistry(prisma);
   }
 
   // ================================================================
   // Instances — pin the version; store references only, never state
   // ================================================================
   async createInstance(input: CreateInstanceInput): Promise<ProcessInstance> {
-    const def = await this.prisma.processDefinition.findFirst({
-      where: { id: input.definitionId, organizationId: input.organizationId },
-    });
-    if (!def) notFound('Process definition', input.definitionId);
-    if (def.status !== 'published') {
-      throw new Error('Cannot instantiate a process from an unpublished definition');
+    // Instantiability is the Registry's authority: only an ACTIVE definition may start
+    // a NEW instance. A non-active or cross-org id resolves to null → refuse.
+    const def = await this.registry.resolveForInstantiation(input.organizationId, input.definitionId);
+    if (!def) {
+      throw new Error('Cannot instantiate a process from a non-active definition');
     }
     return this.prisma.processInstance.create({
       data: {
@@ -269,9 +193,9 @@ export class BusinessProcessRepository {
       where: { id: instanceId, organizationId },
     });
     if (!instance) return null;
-    const defRow = await this.prisma.processDefinition.findFirst({
-      where: { id: instance.definitionId, organizationId },
-    });
+    // Read the PINNED definition (by id, ANY status) from the Registry — a superseded or
+    // retired definition still projects its existing instances.
+    const defRow = await this.registry.getDefinitionById(organizationId, instance.definitionId);
     if (!defRow) return null; // fail closed — a dangling definition resolves to not-found
     const definition = toDefinitionContract(defRow);
     const history = await this.getHistory(organizationId, instanceId);
@@ -313,9 +237,7 @@ export class BusinessProcessRepository {
       where: { id: instanceId, organizationId },
     });
     if (!instance) notFound('Process instance', instanceId);
-    const def = await this.prisma.processDefinition.findFirst({
-      where: { id: instance.definitionId, organizationId },
-    });
+    const def = await this.registry.getDefinitionById(organizationId, instance.definitionId);
     if (!def) notFound('Process definition', instance.definitionId);
     const history = await this.getHistory(organizationId, instanceId);
     return projectState(toDefinitionContract(def), history, { archivedAt: instance.archivedAt });
@@ -386,9 +308,7 @@ export class BusinessProcessRepository {
       where: { id: instanceId, organizationId },
     });
     if (!instance) notFound('Process instance', instanceId);
-    const defRow = await this.prisma.processDefinition.findFirst({
-      where: { id: instance.definitionId, organizationId },
-    });
+    const defRow = await this.registry.getDefinitionById(organizationId, instance.definitionId);
     if (!defRow) notFound('Process definition', instance.definitionId);
     const definition = toDefinitionContract(defRow);
     const history = await this.getHistory(organizationId, instanceId);
@@ -571,20 +491,3 @@ function buildExecutionIntent(
   };
 }
 
-// Light structural validation of a definition's phases (positions & keys unique,
-// at least one phase). Deeper validation is the authoring concern of PR D.
-function validatePhases(phases: PhaseDefinition[]): void {
-  if (!Array.isArray(phases) || phases.length === 0) {
-    throw new Error('A process definition requires at least one phase');
-  }
-  const keys = new Set<string>();
-  const positions = new Set<number>();
-  for (const p of phases) {
-    if (!p.key) throw new Error('Every phase requires a key');
-    if (keys.has(p.key)) throw new Error(`Duplicate phase key: ${p.key}`);
-    if (positions.has(p.position)) throw new Error(`Duplicate phase position: ${p.position}`);
-    if (!p.ownerResponsibilityKey) throw new Error(`Phase ${p.key} requires an owner responsibility key`);
-    keys.add(p.key);
-    positions.add(p.position);
-  }
-}
