@@ -94,6 +94,11 @@ export type {
   ApiSyncInfo,
 } from './services/integration-os.service';
 
+// Sprint 27C — Business Process Engine · PR A (canonical contracts + guard policy).
+// Provider-neutral domain contracts and pure, deterministic transition guards.
+// No persistence, repositories, definitions, or wiring in this PR (those are B/C/D).
+export * from './process-engine';
+
 export const repositories: Repositories = createRepositories(prisma);
 
 export * from '@prisma/client';
