@@ -34,6 +34,7 @@ import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
 import { BusinessProcessRepository } from '../process-engine/business-process.repository';
+import { BusinessProcessOrchestrator } from '../process-engine/business-process.orchestrator';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -200,9 +201,15 @@ export interface Repositories {
   marketplaceCalls: MarketplaceCallRepository;
   // Sprint 27D — Business Process Engine runtime (PR B). Persistence + projection.
   businessProcess: BusinessProcessRepository;
+  // Sprint 27E — Process Orchestrator (PR C). Coordinates the runtime with injected
+  // boundary ports. Built here with FAIL-CLOSED defaults (readiness 'unknown',
+  // verification not-verified, collector sink) — nothing advances until the real
+  // Operational Readiness / Verification engines are injected in a later sprint.
+  businessProcessOrchestrator: BusinessProcessOrchestrator;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
+  const businessProcess = new BusinessProcessRepository(prisma);
   return {
     customers: new CustomerRepository(prisma),
     interactions: new InteractionRepository(prisma),
@@ -229,6 +236,10 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     work: new WorkRepository(prisma),
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
     marketplaceCalls: new MarketplaceCallRepository(prisma),
-    businessProcess: new BusinessProcessRepository(prisma),
+    businessProcess,
+    // Fail-closed by default: no real readiness/verification engine is injected here,
+    // so every advance refuses until those ports are supplied. Emitted intents are
+    // collected in memory (no work is created).
+    businessProcessOrchestrator: new BusinessProcessOrchestrator({ repository: businessProcess }),
   };
 }

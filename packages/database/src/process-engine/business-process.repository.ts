@@ -127,6 +127,14 @@ export interface ApplyTransitionResult {
   executionIntent?: ExecutionIntent | null;
 }
 
+// The resolved, org-scoped context a coordinator needs before invoking a transition:
+// the instance row, its pinned definition (as a contract), and the current projection.
+export interface InstanceContext {
+  instance: ProcessInstance;
+  definition: BusinessProcessDefinition;
+  projection: RuntimeState;
+}
+
 // ---------------------------------------------------------------------------
 // Mappers
 // ---------------------------------------------------------------------------
@@ -245,6 +253,30 @@ export class BusinessProcessRepository {
 
   async loadInstance(organizationId: string, instanceId: string): Promise<ProcessInstance | null> {
     return this.prisma.processInstance.findFirst({ where: { id: instanceId, organizationId } });
+  }
+
+  // Resolve everything a coordinator (the Process Orchestrator, PR C) needs about an
+  // instance in ONE org-scoped call: the instance row, its PINNED definition as a
+  // contract (not a Prisma row), and the current projection from the log. Returns
+  // null — never throws — when the instance is absent OR belongs to another tenant,
+  // so a cross-org id is indistinguishable from not-found (no existence leak). This
+  // exists so the orchestrator never re-implements toDefinitionContract or projection.
+  async loadInstanceContext(
+    organizationId: string,
+    instanceId: string,
+  ): Promise<InstanceContext | null> {
+    const instance = await this.prisma.processInstance.findFirst({
+      where: { id: instanceId, organizationId },
+    });
+    if (!instance) return null;
+    const defRow = await this.prisma.processDefinition.findFirst({
+      where: { id: instance.definitionId, organizationId },
+    });
+    if (!defRow) return null; // fail closed — a dangling definition resolves to not-found
+    const definition = toDefinitionContract(defRow);
+    const history = await this.getHistory(organizationId, instanceId);
+    const projection = projectState(definition, history, { archivedAt: instance.archivedAt });
+    return { instance, definition, projection };
   }
 
   // Administrative retention only. Legal solely from a terminal projected state;
