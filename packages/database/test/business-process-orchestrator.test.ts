@@ -16,6 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { BusinessProcessRepository } from '../src/process-engine/business-process.repository';
+import { ProcessRegistry } from '../src/process-engine/business-process.registry';
 import {
   BusinessProcessOrchestrator,
   CollectingExecutionIntentSink,
@@ -79,10 +80,11 @@ function delegate(name: string, defaults: () => Row) {
 }
 
 function makeDb() {
-  return {
+  const db: any = {
     processDefinition: delegate('processDefinition', () => ({
       status: 'draft', allowBackward: false, allowRestart: false, phases: [], metadata: {},
-      publishedAt: null, objectiveLabel: null, createdByUserId: null,
+      publishedAt: null, activatedAt: null, supersededAt: null, retiredAt: null,
+      objectiveLabel: null, createdByUserId: null,
     })),
     processInstance: delegate('processInstance', () => ({
       metadata: {}, archivedAt: null, subjectExternalId: null, objectiveLabel: null, createdByUserId: null,
@@ -91,7 +93,9 @@ function makeDb() {
       fromPhaseKey: null, toPhaseKey: null, proposedByUserId: null, confirmedByUserId: null,
       readinessSnapshot: {}, verificationSnapshot: {}, rationale: null, occurredAt: NOW,
     })),
-  } as any;
+  };
+  db.$transaction = async (fn: any) => fn(db);
+  return db as any;
 }
 
 const PHASES: PhaseDefinition[] = [
@@ -104,17 +108,19 @@ interface Ports { readiness?: OperationalReadinessPort; verification?: PhaseVeri
 
 async function setup(ports: Ports = {}, opts: { allowBackward?: boolean; allowRestart?: boolean } = {}) {
   const db = makeDb();
-  const repo = new BusinessProcessRepository(db);
-  const def = await repo.createDefinition({
+  const registry = new ProcessRegistry(db);
+  const repo = new BusinessProcessRepository(db, registry);
+  const def = await registry.createDefinition({
     organizationId: ORG, key: 'BUYER_ONBOARDING', name: 'Buyer Onboarding',
     objective: { key: 'ACQUIRE_BUYER' }, subjectType: 'destination',
     allowBackward: opts.allowBackward ?? true, allowRestart: opts.allowRestart ?? true,
     phases: PHASES,
   });
-  await repo.publishDefinition(ORG, def.id);
+  await registry.publishDefinition(ORG, def.id);
+  await registry.activateDefinition(ORG, def.id);
   const inst = await repo.createInstance({ organizationId: ORG, definitionId: def.id, subject: { type: 'destination', label: 'Acme Roofing' } });
   const orchestrator = new BusinessProcessOrchestrator({ repository: repo, ...ports });
-  return { db, repo, def, inst, orchestrator };
+  return { db, repo, registry, def, inst, orchestrator };
 }
 
 // A confirmed forward request through the orchestrator (facts come from the ports).
@@ -240,9 +246,11 @@ test('fail-closed by default — an orchestrator with only a repository refuses 
 
 test('the factory wires fail-closed defaults just like the constructor', async () => {
   const db = makeDb();
-  const repo = new BusinessProcessRepository(db);
-  const d = await repo.createDefinition({ organizationId: ORG, key: 'K', name: 'K', objective: { key: 'O' }, subjectType: 'x', phases: PHASES });
-  await repo.publishDefinition(ORG, d.id);
+  const registry = new ProcessRegistry(db);
+  const repo = new BusinessProcessRepository(db, registry);
+  const d = await registry.createDefinition({ organizationId: ORG, key: 'K', name: 'K', objective: { key: 'O' }, subjectType: 'x', phases: PHASES });
+  await registry.publishDefinition(ORG, d.id);
+  await registry.activateDefinition(ORG, d.id);
   const inst = await repo.createInstance({ organizationId: ORG, definitionId: d.id, subject: { type: 'x', label: 'y' } });
   const orchestrator = createBusinessProcessOrchestrator(repo);
   const r = await orchestrator.requestTransition(fwdReq(ORG, inst.id));

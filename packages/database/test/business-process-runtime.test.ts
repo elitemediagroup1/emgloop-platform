@@ -12,6 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { BusinessProcessRepository, type ReadinessPort } from '../src/process-engine/business-process.repository';
+import { ProcessRegistry } from '../src/process-engine/business-process.registry';
 import { projectState, type TransitionLogEntry } from '../src/process-engine/business-process.projection';
 import type { BusinessProcessDefinition, PhaseDefinition } from '../src/process-engine/business-process.contracts';
 
@@ -67,10 +68,11 @@ function delegate(name: string, defaults: () => Row) {
 }
 
 function makeDb() {
-  return {
+  const db: any = {
     processDefinition: delegate('processDefinition', () => ({
       status: 'draft', allowBackward: false, allowRestart: false, phases: [], metadata: {},
-      publishedAt: null, objectiveLabel: null, createdByUserId: null,
+      publishedAt: null, activatedAt: null, supersededAt: null, retiredAt: null,
+      objectiveLabel: null, createdByUserId: null,
     })),
     processInstance: delegate('processInstance', () => ({
       metadata: {}, archivedAt: null, subjectExternalId: null, objectiveLabel: null, createdByUserId: null,
@@ -79,7 +81,10 @@ function makeDb() {
       fromPhaseKey: null, toPhaseKey: null, proposedByUserId: null, confirmedByUserId: null,
       readinessSnapshot: {}, verificationSnapshot: {}, rationale: null, occurredAt: NOW,
     })),
-  } as any;
+  };
+  // Interactive-transaction shim for the Registry's activate/retire flow.
+  db.$transaction = async (fn: any) => fn(db);
+  return db as any;
 }
 
 const PHASES: PhaseDefinition[] = [
@@ -90,16 +95,18 @@ const PHASES: PhaseDefinition[] = [
 
 async function setup(opts: { allowBackward?: boolean; allowRestart?: boolean } = {}) {
   const db = makeDb();
-  const repo = new BusinessProcessRepository(db);
-  const def = await repo.createDefinition({
+  const registry = new ProcessRegistry(db);
+  const repo = new BusinessProcessRepository(db, registry);
+  const def = await registry.createDefinition({
     organizationId: ORG, key: 'BUYER_ONBOARDING', name: 'Buyer Onboarding',
     objective: { key: 'ACQUIRE_BUYER' }, subjectType: 'destination',
     allowBackward: opts.allowBackward ?? true, allowRestart: opts.allowRestart ?? true,
     phases: PHASES,
   });
-  await repo.publishDefinition(ORG, def.id);
+  await registry.publishDefinition(ORG, def.id);
+  await registry.activateDefinition(ORG, def.id); // only an ACTIVE definition is instantiable
   const inst = await repo.createInstance({ organizationId: ORG, definitionId: def.id, subject: { type: 'destination', label: 'Acme Roofing' } });
-  return { db, repo, def, inst };
+  return { db, repo, registry, def, inst };
 }
 
 const fwd = (verified = true) => ({ kind: 'forward' as const, proposer: 'human' as const, confirmed: true, verification: { verified } });
@@ -154,37 +161,47 @@ test('the runtime projection equals an independent replay of its own log', async
 // =====================================================================
 
 test('instances pin their definition version; a new version never mutates them', async () => {
-  const { repo, def: d1, inst } = await setup();
+  const { repo, registry, def: d1, inst } = await setup();
   assert.equal(inst.definitionVersion, 1);
-  // Author + publish a second version with a different phase shape.
-  const d2 = await repo.createDefinition({
+  // Author + publish + activate a second version with a different phase shape.
+  const d2 = await registry.createDefinition({
     organizationId: ORG, key: 'BUYER_ONBOARDING', name: 'Buyer Onboarding v2',
     objective: { key: 'ACQUIRE_BUYER' }, subjectType: 'destination',
     phases: [{ key: 'x', name: 'X', position: 0, ownerResponsibilityKey: 'SALES', applicability: 'always', reopenable: false }],
   });
   assert.equal(d2.version, 2);
-  await repo.publishDefinition(ORG, d2.id);
-  // The running instance still projects against v1 (its p1 exists).
+  await registry.publishDefinition(ORG, d2.id);
+  await registry.activateDefinition(ORG, d2.id); // v1 is now superseded; v2 is active
+  // The running instance still projects against its PINNED v1 (its p1 exists), even
+  // though v1 is now superseded — pinned instances never auto-migrate.
   await repo.applyTransition(ORG, inst.id, fwd(), READY);
   const state = await repo.projectCurrentState(ORG, inst.id);
   assert.equal(state.currentPhaseKey, 'p1'); // v1's phase, not v2's 'x'
   assert.notEqual(d1.id, d2.id);
 });
 
-test('a published definition is immutable — publishing again is rejected', async () => {
-  const { repo, def: d } = await setup();
-  await assert.rejects(() => repo.publishDefinition(ORG, d.id), /already published/);
+test('a published definition is immutable — re-publishing is rejected', async () => {
+  // setup() leaves the definition ACTIVE; only a draft can be (re)published.
+  const { registry, def: d } = await setup();
+  await assert.rejects(() => registry.publishDefinition(ORG, d.id), /Only a draft can be published/);
 });
 
-test('an instance cannot be created from an unpublished definition', async () => {
+test('an instance cannot be created from a non-active definition', async () => {
   const db = makeDb();
-  const repo = new BusinessProcessRepository(db);
-  const d = await repo.createDefinition({
+  const registry = new ProcessRegistry(db);
+  const repo = new BusinessProcessRepository(db, registry);
+  const d = await registry.createDefinition({
     organizationId: ORG, key: 'K', name: 'K', objective: { key: 'O' }, subjectType: 'x', phases: PHASES,
   });
+  // Draft (and published-but-not-activated) definitions are not instantiable.
   await assert.rejects(
     () => repo.createInstance({ organizationId: ORG, definitionId: d.id, subject: { type: 'x', label: 'y' } }),
-    /unpublished/,
+    /non-active/,
+  );
+  await registry.publishDefinition(ORG, d.id);
+  await assert.rejects(
+    () => repo.createInstance({ organizationId: ORG, definitionId: d.id, subject: { type: 'x', label: 'y' } }),
+    /non-active/,
   );
 });
 
@@ -358,9 +375,9 @@ test('a non-terminal process cannot be archived', async () => {
 // =====================================================================
 
 test('cross-organization reads and mutations fail closed (not-found)', async () => {
-  const { repo, inst, def: d } = await setup();
+  const { repo, registry, inst, def: d } = await setup();
   assert.equal(await repo.loadInstance(OTHER, inst.id), null);
-  assert.equal(await repo.getDefinitionById(OTHER, d.id), null);
+  assert.equal(await registry.getDefinitionById(OTHER, d.id), null);
   await assert.rejects(() => repo.projectCurrentState(OTHER, inst.id));
   await assert.rejects(() => repo.applyTransition(OTHER, inst.id, fwd(), READY));
 });
