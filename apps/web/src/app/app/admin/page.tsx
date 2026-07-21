@@ -65,7 +65,7 @@ function Action({ href, label }: { href: string; label: string }) {
 interface Priority { tone: Tone; text: string; source: string; href: string }
 
 export default async function Dashboard() {
-  const { home, crm, callgrid } = await loadDashboard();
+  const { home, callgrid } = await loadDashboard();
   const { workspace: w, brain } = home;
   const { header } = w;
 
@@ -202,29 +202,11 @@ export default async function Dashboard() {
             )}
           </Tile>
 
-          {/* CRM — never presents caller IDs as customers */}
-          <Tile title="CRM" source="CRM">
-            {crm.namedContacts > 0 ? (
-              <>
-                <StatusNum value={crm.namedContacts} label={crm.namedContacts === 1 ? 'Contact' : 'Contacts'} />
-                <p className="tile__line">
-                  {crm.callLeads > 0
-                    ? `Plus ${crm.callLeads.toLocaleString('en-US')} leads captured from calls.`
-                    : 'Contacts added to your CRM.'}
-                </p>
-              </>
-            ) : crm.callLeads > 0 ? (
-              <>
-                <StatusNum value={crm.callLeads} label="call leads" />
-                <p className="tile__line">Inbound callers captured from CallGrid. No CRM contacts have been added yet.</p>
-              </>
-            ) : (
-              <>
-                <StatusWord tone="idle" label="Not set up" />
-                <p className="tile__line">No CRM contacts have been added yet.</p>
-              </>
-            )}
-            <Action href="/crm" label="Open CRM →" />
+          {/* CRM — NOT built. Displays nothing off the Customer table, because
+              that table is shared by CallGrid call ingestion. No cross-classification. */}
+          <Tile title="CRM">
+            <StatusWord tone="idle" label="Not Configured" />
+            <p className="tile__line">The CRM has not been built or connected yet.</p>
           </Tile>
 
           {/* Creator Hub — leave as Not Configured until the feature exists */}
