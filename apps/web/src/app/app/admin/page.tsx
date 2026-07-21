@@ -1,38 +1,28 @@
 import Link from 'next/link';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
-import {
-  loadWorkspaceHome,
-  parseWorkFilter,
-  type WorkFilter,
-} from './workspace-home-data';
+import { loadHome } from './home-data';
+import { parseWorkFilter, type WorkFilter } from './workspace-home-data';
 import { markHomeNotificationReadAction } from './workspace-home-actions';
 
-// Sprint 30 — Executive Workspace (/app/admin).
+// The operational Home — /app/admin.
 //
-// Same canonical route, shell, navigation and visual language as Sprint 25.
-// This file changes STRUCTURE: the page is now grouped by the three questions
-// an owner opens Loop to answer, instead of by feature area.
+// Every owner/admin lands here first. It is the single place the business
+// explains itself, top to bottom, in the order the reader asks:
 //
-//   1. Needs attention today  — concrete decisions, oldest neglected first.
-//   2. What happens next      — the next action, then my work.
-//   3. What happened recently — activity + what got finished today.
+//   1. Is everything okay?      -> Business Health  (the Brain's own health band)
+//   2. What needs me?           -> Today's Attention (the Brain's RISKS and the
+//                                  operational decisions, fused into ONE list)
+//   3. What should I do next?   -> Recommended Actions (business) + My Work (mine)
+//   4. What's the fuller story? -> Business Summary  (-> CallGrid Intelligence)
+//   5. What happened recently?  -> Recent Activity
 //
-// Sprint 25 rendered ten sections. Four are gone, and each removal has a reason:
-//   - Quick Actions: six tiles that only duplicated the sidebar and the CTA on
-//     the very item they referred to. Navigation is not a decision.
-//   - CRM Overview: "Total Customers: 3 / View all" is a vanity count, not
-//     something an owner acts on. Its two ACTIONABLE parts (a quiet
-//     conversation, an unqualified request) are now attention rows with a
-//     reason attached.
-//   - Business Intake: its three concerns (invitations, unassigned work, open
-//     conversations) were counts grouped by feature; they are now individual
-//     decisions ranked against each other by age.
-//   - Next Action as its own card: it is the top of My Work, so it lives there.
+// Everything here is a doorway: each section introduces an answer that the
+// CallGrid Intelligence and Work OS pages let you drill deeper into. This is not
+// a dashboard of metrics — it is the operational home of the company.
 //
-// Presentation only: no Prisma, no demo store, no fabricated metrics. Every
-// number and label on this page traces to a row — see workspace-home-data.ts
-// for what the schema cannot support (due dates, approvals) and why we do not
-// pretend otherwise.
+// Presentation only. No Prisma, no demo store, no fabricated metrics. The Brain
+// half is PROJECTED from the Executive Brain (home-data.ts); a failed read
+// degrades Home to its work half rather than inventing a healthy-looking brief.
 
 export const dynamic = 'force-dynamic';
 
@@ -76,7 +66,6 @@ const SUMMARY_FILTERS: { key: WorkFilter; label: string }[] = [
   { key: 'completed', label: 'Completed Today' },
 ];
 
-// Every empty state answers "what should I do next?" — never a bare "No data."
 const EMPTY_FOR_FILTER: Record<WorkFilter, { line: string; next: string }> = {
   assigned: {
     line: 'No work is assigned to you.',
@@ -100,9 +89,9 @@ interface PageProps {
   searchParams?: { filter?: string };
 }
 
-export default async function WorkspaceHome({ searchParams }: PageProps) {
+export default async function OperationalHome({ searchParams }: PageProps) {
   const activeFilter = parseWorkFilter(searchParams?.filter);
-  const data = await loadWorkspaceHome(activeFilter);
+  const { workspace: data, brain } = await loadHome(activeFilter);
   const {
     header, executiveSummary, attention, attentionTotal, nextAction, workSummary,
     myWork, notifications, recentActivity, completedTodayCount, gettingStarted,
@@ -116,13 +105,16 @@ export default async function WorkspaceHome({ searchParams }: PageProps) {
   };
 
   const empty = EMPTY_FOR_FILTER[activeFilter];
+
+  // The unified attention count: the Brain's risks AND the operational decisions.
+  const totalAttention = brain.signals.length + attentionTotal;
   const moreAttention = attentionTotal - attention.length;
 
   return (
     <div className="loop-os wh wh--dense">
       <div className="wh__main">
 
-        {/* HEADER — who, where, and the state of the business in one line */}
+        {/* HEADER — who, where, and what is waiting, in one line */}
         <header className="wh-header">
           <p className="wh-header__greeting">{header.greeting}, {header.displayName}.</p>
           <div className="wh-header__meta">
@@ -141,25 +133,55 @@ export default async function WorkspaceHome({ searchParams }: PageProps) {
           ) : null}
         </header>
 
-        {/* 1. NEEDS ATTENTION TODAY — the decisions, oldest neglected first */}
-        <section className="wh-card wh-att" aria-label="Needs attention today">
+        {/* 1. BUSINESS HEALTH — is everything okay, answered in one line */}
+        <section className={'wh-card wh-health wh-health--' + brain.health.tone} aria-label="Business health">
+          <div className="wh-health__main">
+            <span className="wh-health__eyebrow">Business Health</span>
+            <p className="wh-health__line">{brain.health.line}</p>
+          </div>
+          <div className="wh-health__side">
+            <span className={'mkt-intel__health mkt-intel__health--' + brain.health.tone}>{brain.health.label}</span>
+            <Link href="/app/admin/marketplace" className="wh-card__link">Open CallGrid Intelligence →</Link>
+          </div>
+        </section>
+
+        {/* 2. TODAY'S ATTENTION — the Brain's risks + operational decisions, fused */}
+        <section className="wh-card wh-att" aria-label="Today's attention">
           <div className="wh-card__head">
             <h2 className="wh-card__title">
-              Needs Attention Today
-              {attentionTotal > 0 ? <span className="wh-count">{attentionTotal}</span> : null}
+              Today&rsquo;s Attention
+              {totalAttention > 0 ? <span className="wh-count">{totalAttention}</span> : null}
             </h2>
-            <span className="wh-card__scope">Longest waiting first</span>
+            <span className="wh-card__scope">Most important first</span>
           </div>
-          {attention.length === 0 ? (
+
+          {totalAttention === 0 ? (
             <div className="wh-emptyblock">
               <p className="wh-empty">Nothing needs a decision from you right now.</p>
               <p className="wh-empty__next">
-                Work without an owner, conversations that go quiet, unqualified service
-                requests and unaccepted invitations all surface here as they happen.
+                Business risks the Brain surfaces, work without an owner, conversations that go quiet
+                and unqualified requests all appear here — most important first — as they happen.
               </p>
             </div>
           ) : (
             <ul className="wh-list">
+              {/* From the Brain — business risks, severity-first */}
+              {brain.signals.map((s) => (
+                <li key={s.id} className="wh-work">
+                  <span className={'wh-att__icon wh-att__icon--' + s.tone} aria-hidden="true">
+                    <SidebarIcon name="brain" size={14} />
+                  </span>
+                  <div className="wh-work__main">
+                    <span className="wh-work__title">{s.title}</span>
+                    <div className="wh-work__meta">
+                      <span className="wh-att__kind">Risk · {s.sevLabel}</span>
+                    </div>
+                    <p className="wh-why">{s.why}</p>
+                  </div>
+                  <Link href={s.href} className="wh-btn wh-btn--ghost wh-btn--sm">Look closer</Link>
+                </li>
+              ))}
+              {/* Operational — decisions only the owner can clear */}
               {attention.map((a) => (
                 <li key={a.key} className="wh-work">
                   <span className={'wh-att__icon wh-att__icon--' + a.kind} aria-hidden="true">
@@ -180,15 +202,58 @@ export default async function WorkspaceHome({ searchParams }: PageProps) {
           )}
           {moreAttention > 0 ? (
             <p className="wh-note-line">
-              {moreAttention} more {moreAttention === 1 ? 'item is' : 'items are'} waiting behind these.
+              {moreAttention} more operational {moreAttention === 1 ? 'item is' : 'items are'} waiting behind these.
             </p>
           ) : null}
         </section>
 
-        {/* 2. WHAT HAPPENS NEXT — next action, then my work */}
+        {/* 3a. RECOMMENDED ACTIONS — what to do next, at the business level */}
+        <section className="wh-card" aria-label="Recommended actions">
+          <div className="wh-card__head">
+            <h2 className="wh-card__title">
+              Recommended Actions
+              {brain.actions.length > 0 ? <span className="wh-count">{brain.actions.length}</span> : null}
+            </h2>
+            <span className="wh-card__scope">Evidence-backed</span>
+          </div>
+          {brain.actions.length === 0 ? (
+            <div className="wh-emptyblock">
+              <p className="wh-empty">
+                {brain.present
+                  ? 'The Brain only recommends an action when evidence supports one.'
+                  : 'The Brain is waiting for an instrumented sensor before it recommends anything.'}
+              </p>
+              <p className="wh-empty__next">
+                When a source, buyer or campaign shows an evidence-backed move worth making, it appears
+                here with the expected impact and the numbers behind it.
+              </p>
+            </div>
+          ) : (
+            <ul className="wh-list">
+              {brain.actions.map((a) => (
+                <li key={a.id} className="wh-work">
+                  <span className="wh-att__icon wh-att__icon--info" aria-hidden="true">
+                    <SidebarIcon name="star" size={14} />
+                  </span>
+                  <div className="wh-work__main">
+                    <span className="wh-work__title">{a.title}</span>
+                    <p className="wh-why">{a.why}</p>
+                    <div className="wh-work__meta">
+                      {a.impact ? <span className="wh-rec__impact">Expected: {a.impact}</span> : null}
+                      <span className="wh-conf">{a.confidencePct}% confidence</span>
+                    </div>
+                  </div>
+                  <Link href={a.href} className="wh-btn wh-btn--ghost wh-btn--sm">Review</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 3b. YOUR NEXT ACTION — the one step you can complete right now */}
         <section className="wh-card wh-next wh-next--compact" aria-label="Next action">
           <div className="wh-next__lead">
-            <span className="wh-next__eyebrow">Next Action</span>
+            <span className="wh-next__eyebrow">Your Next Action</span>
             {nextAction ? (
               <>
                 <span className="wh-next__title">{nextAction.title}</span>
@@ -198,7 +263,7 @@ export default async function WorkspaceHome({ searchParams }: PageProps) {
               </>
             ) : (
               <span className="wh-next__title wh-next__title--calm">
-                You{'’'}re caught up. No action is waiting on you.
+                You{'’'}re caught up. No work step is waiting on you.
               </span>
             )}
           </div>
@@ -308,7 +373,39 @@ export default async function WorkspaceHome({ searchParams }: PageProps) {
           </section>
         </div>
 
-        {/* 3. WHAT HAPPENED RECENTLY */}
+        {/* 4. BUSINESS SUMMARY — the fuller story, a doorway into CallGrid Intelligence */}
+        <section className="wh-card" aria-label="Business summary">
+          <div className="wh-card__head">
+            <h2 className="wh-card__title">
+              Business Summary
+              {brain.sensors ? (
+                <span className="wh-card__scope">{brain.sensors.instrumented} of {brain.sensors.total} sensors</span>
+              ) : null}
+            </h2>
+            <Link href="/app/admin/marketplace" className="wh-card__link">Full intelligence</Link>
+          </div>
+          {brain.summary.length > 0 ? (
+            <p className="wh-summline">
+              {brain.summary.map((line, i) => (
+                <span key={i} className="wh-summline__part">{line}</span>
+              ))}
+            </p>
+          ) : (
+            <div className="wh-emptyblock">
+              <p className="wh-empty">
+                {brain.present
+                  ? 'No sensor has observed enough to summarize yet.'
+                  : 'The Brain cannot summarize the business until a sensor is instrumented.'}
+              </p>
+              <p className="wh-empty__next">
+                As CallGrid routes calls with vendor, source and campaign context, the Brain summarizes
+                what happened, why it matters and what to do — every statement backed by evidence.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* 5. WHAT HAPPENED RECENTLY */}
         <section className="wh-card wh-activity" aria-label="Recent activity">
           <div className="wh-card__head">
             <h2 className="wh-card__title">

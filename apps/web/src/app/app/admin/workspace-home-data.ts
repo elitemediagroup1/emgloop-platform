@@ -138,6 +138,8 @@ export interface ChecklistItem {
 
 export interface WorkspaceHomeData {
   isAdmin: boolean;
+  /** Session organization. Exposed so the composed Home can load the Brain for the same org. */
+  organizationId: string;
   header: WorkspaceHomeHeader;
   executiveSummary: string[];
   attention: AttentionItem[];
@@ -654,6 +656,7 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
 
   return {
     isAdmin: true,
+    organizationId,
     header,
     executiveSummary: summary,
     attention,

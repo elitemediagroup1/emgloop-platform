@@ -1384,3 +1384,35 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
 .mkt-intel__ev-list { margin: 4px 0 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 3px; }
 .mkt-intel__action { margin: 0; font-size: 13px; color: var(--loop-text); }
 .mkt-intel__gaps { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--loop-line); font-size: 12.5px; color: var(--loop-text-2); }
+
+
+/* ===================== OPERATIONAL HOME =====================
+   Additive to the .wh- namespace. Same --loop-* tokens, same visual language —
+   this block only styles the intelligence woven into Home: the Business Health
+   hero, the Brain-risk / recommended-action rows (which reuse .wh-work), and the
+   "why it matters" secondary line. No new palette, typography, or layout. */
+
+/* Business Health — the one-line "is everything okay" hero. */
+.wh-health { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.wh-health__main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wh-health__eyebrow { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 700; }
+.wh-health__line { margin: 0; font-size: 15px; font-weight: 550; color: var(--loop-text); line-height: 1.5; max-width: 80ch; }
+.wh-health__side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; text-align: right; }
+.wh-health--degraded { border-color: rgba(240,179,60,.35); }
+.wh-health--impaired { border-color: rgba(240,90,90,.4); }
+
+/* Brain-risk and recommended-action icon tones (rows reuse .wh-work + .wh-att__icon). */
+.wh-att__icon--crit { color: var(--loop-crit); background: rgba(240,90,90,.14); }
+.wh-att__icon--warn { color: var(--loop-warn); background: rgba(242,180,91,.14); }
+.wh-att__icon--info { color: var(--loop-accent-2); background: var(--loop-accent-soft); }
+
+/* "Why it matters" — the plain-English second line under a signal or action. */
+.wh-why { margin: 2px 0 0; color: var(--loop-text-2); font-size: 12.5px; line-height: 1.5; max-width: 80ch; }
+.wh-rec__impact { color: var(--loop-good); font-weight: 550; }
+.wh-conf { color: var(--loop-text-3); font-weight: 600; white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .wh-health { flex-direction: column; align-items: flex-start; }
+  .wh-health__side { align-items: flex-start; text-align: left; }
+}
+/* ===================== END OPERATIONAL HOME ===================== */
