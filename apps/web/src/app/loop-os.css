@@ -1416,3 +1416,163 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
   .wh-health__side { align-items: flex-start; text-align: left; }
 }
 /* ===================== END OPERATIONAL HOME ===================== */
+
+
+/* ===================== ENTITY PAGE — the canonical drill-down =====================
+   The permanent storytelling structure for every detail page in Loop. Reuses the
+   --loop-* tokens only. The seven sections (identity, health, changed, why,
+   next, evidence, previously) always render in the same order and the same
+   language, so every drill-down feels like one product. No new palette. */
+
+.ent { display: flex; flex-direction: column; gap: 18px; }
+
+/* 1. Identity header */
+.ent-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 2px 2px 0; }
+.ent-head__main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ent-back { font-size: 12.5px; color: var(--loop-text-2); text-decoration: none; width: fit-content; }
+.ent-back:hover { color: var(--loop-text); }
+.ent-eyebrow { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 700; margin: 2px 0 0; }
+.ent-title { font-size: clamp(22px, 3vw, 30px); font-weight: 680; color: var(--loop-text); margin: 0; letter-spacing: -0.01em; }
+.ent-sub { margin: 0; font-size: 14px; color: var(--loop-text-2); line-height: 1.5; max-width: 80ch; }
+.ent-head__side { flex: none; }
+
+/* Health chip — reuses the health semantics used across Loop. */
+.ent-health { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; font-weight: 700; padding: 4px 12px; border-radius: 999px; white-space: nowrap; }
+.ent-health--good { color: var(--loop-good); background: rgba(52,199,129,.14); }
+.ent-health--info { color: var(--loop-accent-2); background: var(--loop-accent-soft); }
+.ent-health--warn { color: var(--loop-warn); background: rgba(240,179,60,.16); }
+.ent-health--crit { color: var(--loop-crit); background: rgba(240,90,90,.14); }
+.ent-health--idle { color: var(--loop-text-2); background: var(--loop-elev); }
+
+/* 2. Health band — the one-sentence answer. */
+.ent-band { display: flex; flex-direction: column; gap: 6px; background: var(--loop-panel); border: 1px solid var(--loop-line); border-left-width: 3px; border-radius: var(--loop-radius); padding: 14px 18px; }
+.ent-band--good { border-left-color: var(--loop-good); }
+.ent-band--info { border-left-color: var(--loop-accent); }
+.ent-band--warn { border-left-color: var(--loop-warn); }
+.ent-band--crit { border-left-color: var(--loop-crit); }
+.ent-band--idle { border-left-color: var(--loop-line-strong); }
+.ent-band__eyebrow { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 700; }
+.ent-band__line { margin: 0; font-size: 15px; font-weight: 550; color: var(--loop-text); line-height: 1.5; max-width: 82ch; }
+
+/* Identity facts row. */
+.ent-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.ent-stat { display: flex; flex-direction: column; gap: 3px; background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 14px 16px; }
+.ent-stat__value { font-size: 22px; font-weight: 700; color: var(--loop-text); line-height: 1.1; }
+.ent-stat__label { font-size: 12px; color: var(--loop-text-2); }
+.ent-stat__hint { font-size: 11.5px; color: var(--loop-text-3); }
+.ent-stat--good .ent-stat__value { color: var(--loop-good); }
+.ent-stat--warn .ent-stat__value { color: var(--loop-warn); }
+.ent-stat--crit .ent-stat__value { color: var(--loop-crit); }
+
+/* Two-column body: story in main, history in the rail. */
+.ent-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.ent-grid__main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.ent-grid__rail { display: flex; flex-direction: column; gap: 18px; position: sticky; top: 18px; }
+
+.ent-card { background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 18px; box-shadow: var(--loop-shadow); }
+.ent-card__head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ent-card__title { font-size: 14px; font-weight: 650; color: var(--loop-text); margin: 0; }
+.ent-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--loop-accent-soft); color: var(--loop-accent-2); font-size: 11px; font-weight: 700; }
+.ent-empty { margin: 0; color: var(--loop-text-3); font-size: 13px; line-height: 1.55; max-width: 70ch; }
+
+/* 3. What changed */
+.ent-changes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ent-change { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--loop-line); font-size: 13px; }
+.ent-change:last-child { border-bottom: 0; }
+.ent-change__arrow { font-size: 11px; flex: none; }
+.ent-change--good .ent-change__arrow { color: var(--loop-good); }
+.ent-change--crit .ent-change__arrow { color: var(--loop-crit); }
+.ent-change--idle .ent-change__arrow { color: var(--loop-text-3); }
+.ent-change__label { color: var(--loop-text); font-weight: 600; }
+.ent-change__detail { color: var(--loop-text-2); }
+
+/* 4. Why it matters */
+.ent-why { background: var(--loop-accent-soft); border-color: transparent; display: flex; flex-direction: column; gap: 6px; }
+.ent-why__eyebrow { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-accent-2); font-weight: 700; }
+.ent-why__line { margin: 0; font-size: 14.5px; color: var(--loop-text); line-height: 1.55; max-width: 82ch; }
+
+/* 5. What should happen next */
+.ent-primary { margin-bottom: 12px; }
+.ent-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ent-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--loop-line); }
+.ent-action:last-child { border-bottom: 0; }
+.ent-action__main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ent-action__title { color: var(--loop-text); font-size: 13.5px; font-weight: 600; }
+.ent-action__why { margin: 0; color: var(--loop-text-2); font-size: 12.5px; line-height: 1.5; max-width: 80ch; }
+.ent-action__meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+.ent-action__impact { color: var(--loop-good); font-weight: 550; }
+.ent-action__conf { color: var(--loop-text-3); font-weight: 600; }
+
+/* Buttons within the pattern. */
+.ent-btn { display: inline-flex; align-items: center; justify-content: center; padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; text-decoration: none; border: 1px solid var(--loop-line-strong); cursor: pointer; white-space: nowrap; color: var(--loop-text); background: var(--loop-elev); }
+.ent-btn--ghost { background: transparent; color: var(--loop-text-2); }
+.ent-btn--ghost:hover { color: var(--loop-text); border-color: var(--loop-accent); }
+.ent-btn--primary { background: var(--loop-accent); border-color: var(--loop-accent); color: #fff; }
+.ent-btn--primary:hover { background: var(--loop-accent-2); }
+
+/* 6. Evidence — native <details>, no JS. */
+.ent-ev { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ent-ev__disc { border: 1px solid var(--loop-line); border-radius: 10px; background: var(--loop-bg-2); }
+.ent-ev__summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; cursor: pointer; list-style: none; }
+.ent-ev__summary::-webkit-details-marker { display: none; }
+.ent-ev__label { color: var(--loop-text); font-size: 13px; font-weight: 600; }
+.ent-ev__hint { color: var(--loop-text-3); font-size: 11.5px; }
+.ent-ev__item--good .ent-ev__label { color: var(--loop-good); }
+.ent-ev__item--warn .ent-ev__label { color: var(--loop-warn); }
+.ent-ev__item--crit .ent-ev__label { color: var(--loop-crit); }
+.ent-ev__facts { list-style: none; margin: 0; padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+.ent-ev__fact { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; flex-wrap: wrap; }
+.ent-ev__stmt { color: var(--loop-text-2); }
+.ent-ev__val { color: var(--loop-text); font-weight: 650; }
+.ent-ev__src { color: var(--loop-text-3); font-size: 11px; }
+.ent-ev__note { margin: 0 14px 12px; color: var(--loop-text-3); font-size: 12px; }
+
+/* 7. History timeline. */
+.ent-hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ent-hist__item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--loop-line); }
+.ent-hist__item:last-child { border-bottom: 0; }
+.ent-hist__dot { width: 8px; height: 8px; border-radius: 999px; background: var(--loop-line-strong); margin-top: 5px; flex: none; }
+.ent-hist__item--good .ent-hist__dot { background: var(--loop-good); }
+.ent-hist__item--warn .ent-hist__dot { background: var(--loop-warn); }
+.ent-hist__item--crit .ent-hist__dot { background: var(--loop-crit); }
+.ent-hist__item--info .ent-hist__dot { background: var(--loop-accent); }
+.ent-hist__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ent-hist__label { color: var(--loop-text); font-size: 13px; font-weight: 600; }
+.ent-hist__detail { color: var(--loop-text-2); font-size: 12px; }
+.ent-hist__at { color: var(--loop-text-3); font-size: 11px; }
+.ent-hist__empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ent-hist__icon { color: var(--loop-text-3); }
+
+/* Manage slot — page-specific interactive controls, styled to match. */
+.ent-manage { display: flex; flex-direction: column; gap: 14px; }
+.ent-manage__block { display: flex; flex-direction: column; gap: 10px; }
+.ent-manage__label { margin: 0; font-size: 12px; font-weight: 650; color: var(--loop-text-2); letter-spacing: .02em; display: flex; align-items: center; gap: 8px; }
+.ent-manage__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ent-manage__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--loop-line); flex-wrap: wrap; }
+.ent-manage__row:last-child { border-bottom: 0; }
+.ent-manage__name { color: var(--loop-text); font-size: 13px; font-weight: 550; min-width: 0; }
+.ent-manage__form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ent-manage__form--wide { width: 100%; }
+.ent-manage__comments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ent-manage__comment { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--loop-line); }
+.ent-manage__comment:last-child { border-bottom: 0; }
+.ent-manage__who { color: var(--loop-text); font-size: 12.5px; font-weight: 650; }
+.ent-manage__text { color: var(--loop-text-2); font-size: 13px; line-height: 1.5; }
+.ent-manage__when { color: var(--loop-text-3); font-size: 11px; }
+
+/* Form controls inside the pattern — quiet, token-based, not browser-default. */
+.ent-field { display: flex; flex-direction: column; gap: 5px; }
+.ent-field__label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.ent-select, .ent-textarea {
+  background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text);
+  border-radius: 9px; padding: 8px 11px; font-size: 13px; font-family: inherit; max-width: 100%;
+}
+.ent-select:focus, .ent-textarea:focus { outline: none; border-color: var(--loop-accent); }
+.ent-textarea { width: 100%; resize: vertical; }
+
+@media (max-width: 900px) {
+  .ent-grid { grid-template-columns: 1fr; }
+  .ent-grid__rail { position: static; }
+  .ent-head { flex-direction: column; }
+}
+/* ===================== END ENTITY PAGE ===================== */

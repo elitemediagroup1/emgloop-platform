@@ -18,3 +18,15 @@ export { ActionTile } from "./launchers";
 export { IntegrationStatusPanel } from "./integrations";
 export type { ContextLink } from "./context";
 export { ContextCard, ContextGroup } from "./context";
+export { EntityPage } from "./entity-page";
+export type {
+  EntityTone,
+  EntityHealth,
+  EntityStat,
+  EntityChange,
+  EntityAction,
+  EntityEvidence,
+  EntityEvidenceFact,
+  EntityHistoryItem,
+  EntityPageModel,
+} from "./entity-page";
