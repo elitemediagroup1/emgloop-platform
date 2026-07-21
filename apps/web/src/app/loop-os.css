@@ -1665,16 +1665,19 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 /* Recent-activity item time (right-aligned; replaces the removed source label). */
 .tile__li-time { flex: none; font-size: 11px; color: var(--loop-text-3); }
 
-/* CallGrid Executive Scorecard — a compact Yesterday/Today table. No charts. */
+/* CallGrid Executive Scorecard — compact Yesterday(Completed)/Today(Live) table. No charts. */
 .score { display: flex; flex-direction: column; }
-.score__row { display: grid; grid-template-columns: 1fr 84px 104px; gap: 10px; align-items: baseline; padding: 4px 0; }
-.score__head { border-bottom: 1px solid var(--loop-line); padding-bottom: 6px; margin-bottom: 2px; }
-.score__head .score__val { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
-.score__label { color: var(--loop-text-2); font-size: 13px; }
-.score__val { text-align: right; color: var(--loop-text); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.score__delta { margin-left: 6px; font-size: 11px; font-weight: 700; }
+.score__row { display: grid; grid-template-columns: 1fr 92px 108px; gap: 10px; align-items: start; padding: 4px 0; }
+.score__head { border-bottom: 1px solid var(--loop-line); padding-bottom: 6px; margin-bottom: 2px; align-items: end; }
+.score__label { color: var(--loop-text-2); font-size: 13px; padding-top: 1px; }
+.score__col { display: flex; flex-direction: column; text-align: right; font-size: 11px; font-weight: 700; letter-spacing: .03em; color: var(--loop-text-2); }
+.score__sub { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.score__val { text-align: right; color: var(--loop-text); font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.score__today { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.score__delta { font-size: 10.5px; font-weight: 700; white-space: nowrap; }
 .score__delta--up { color: var(--loop-good); }
 .score__delta--down { color: var(--loop-crit); }
+.score__delta--neutral { color: var(--loop-text-3); }
 
 @media (max-width: 1160px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 680px) { .tiles { grid-template-columns: 1fr; } }

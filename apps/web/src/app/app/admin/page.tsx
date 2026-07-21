@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { loadDashboard, type ScoreMetrics } from './dashboard-data';
-import { money, num } from '../_loop-os';
+import { loadDashboard, type DayScore } from './dashboard-data';
+import { trend, trendLabel, metricValue, type TrendResult } from '@emgloop/shared';
 
 // The Operational Home of Elite Media Group.
 //
@@ -12,7 +12,8 @@ import { money, num } from '../_loop-os';
 //
 // CONSTITUTIONAL: Loop never fabricates business reality. Every value is real
 // org-scoped data or an honest Unknown / Unavailable. Money is never estimated.
-// The CRM shows nothing off the shared Customer table. No developer vocabulary.
+// Day boundaries are Eastern (America/New_York) via @emgloop/shared. The CRM
+// shows nothing off the shared Customer table. No developer vocabulary.
 
 export const dynamic = 'force-dynamic';
 
@@ -34,17 +35,22 @@ function joinAnd(items: string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
-/** Money that may be unknown — never invents $0 for missing economics. */
-function money2(cents: number | null): string {
-  return cents === null ? 'Unknown' : money(cents);
+// Scorecard value display: real value, or an honest Unknown / Unavailable.
+function showMoney(available: boolean, cents: number | null): string {
+  if (!available) return 'Unavailable';
+  if (cents === null) return 'Unknown';
+  return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function showNum(available: boolean, n: number | null): string {
+  if (!available) return 'Unavailable';
+  if (n === null) return 'Unknown';
+  return n.toLocaleString('en-US');
 }
 
 function Tile({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="tile" aria-label={title}>
-      <div className="tile__head">
-        <span className="tile__title">{title}</span>
-      </div>
+      <div className="tile__head"><span className="tile__title">{title}</span></div>
       {children}
     </section>
   );
@@ -68,12 +74,28 @@ function StatusNum({ value, label }: { value: number; label?: string }) {
   );
 }
 
-function ScoreRow({ label, y, t, delta }: { label: string; y: string; t: string; delta?: ReactNode }) {
+// Trend beside the Today value. Semantic color for revenue/profit/billable;
+// Total Calls is contextual → neutral regardless of direction.
+function TrendBadge({ r, neutral }: { r: TrendResult; neutral?: boolean }) {
+  let tone: 'up' | 'down' | 'neutral' = 'neutral';
+  if (!neutral) {
+    if (r.kind === 'up') tone = 'up';
+    else if (r.kind === 'down') tone = 'down';
+  }
+  return <span className={'score__delta score__delta--' + tone}>{trendLabel(r)}</span>;
+}
+
+function ScoreRow({ label, yText, tText, r, neutral }: {
+  label: string; yText: string; tText: string; r: TrendResult; neutral?: boolean;
+}) {
   return (
     <div className="score__row">
       <span className="score__label">{label}</span>
-      <span className="score__val">{y}</span>
-      <span className="score__val">{t}{delta}</span>
+      <span className="score__val">{yText}</span>
+      <span className="score__today">
+        <span className="score__val">{tText}</span>
+        <TrendBadge r={r} neutral={neutral} />
+      </span>
     </div>
   );
 }
@@ -88,7 +110,13 @@ export default async function Dashboard() {
 
   const callgridConnected = callgrid.total > 0;
 
-  // ── Business Status — connectivity/visibility, never invented health.
+  // Per-metric trend (today vs yesterday), on exact cents / real counts.
+  const revTrend = trend(metricValue(yd.revenueCents, yd.available), metricValue(td.revenueCents, td.available));
+  const profitTrend = trend(metricValue(yd.profitCents, yd.available), metricValue(td.profitCents, td.available));
+  const billableTrend = trend(metricValue(yd.billableCalls, yd.available), metricValue(td.billableCalls, td.available));
+  const totalTrend = trend(metricValue(yd.totalCalls, yd.available), metricValue(td.totalCalls, td.available));
+
+  // Business Status — connectivity/visibility, never invented health.
   const systems = [
     { name: 'CallGrid', connected: callgridConnected },
     { name: 'CRM', connected: false },
@@ -103,7 +131,7 @@ export default async function Dashboard() {
       ? 'No systems are connected yet. Overall business health cannot yet be determined.'
       : `${joinAnd(connected)} ${connected.length === 1 ? 'is' : 'are'} connected. ${joinAnd(notConnected)} ${notConnected.length === 1 ? 'is' : 'are'} not yet connected. Overall business health cannot yet be determined.`;
 
-  // ── Today's Priorities — evidence-backed only (CallGrid risks + unowned work).
+  // Today's Priorities — evidence-backed only (CallGrid risks + unowned work).
   const priorities: Priority[] = [
     ...brain.signals.map((s) => ({ tone: s.tone as Tone, text: s.title, href: s.href })),
     ...w.attention.filter((a) => a.kind === 'work').map((a) => ({ tone: 'warn' as Tone, text: a.title, href: a.href })),
@@ -111,18 +139,6 @@ export default async function Dashboard() {
 
   const assigned = w.workSummary.assignedToMe;
   const acts = w.recentActivity;
-
-  // ── CallGrid revenue comparison (today vs yesterday), only when both known.
-  let revDelta: ReactNode = null;
-  if (td.revenueCents !== null && yd.revenueCents !== null && yd.revenueCents > 0) {
-    const pct = Math.round(((td.revenueCents - yd.revenueCents) / yd.revenueCents) * 100);
-    const up = pct >= 0;
-    revDelta = (
-      <span className={'score__delta score__delta--' + (up ? 'up' : 'down')}>
-        {up ? '↑' : '↓'} {Math.abs(pct)}%
-      </span>
-    );
-  }
 
   return (
     <div className="loop-os">
@@ -134,13 +150,7 @@ export default async function Dashboard() {
             <p className="cmd-head__meta">{header.dateLabel} · {header.organizationName}</p>
           </div>
           <form className="cmd-search" method="get" action="/crm/search" role="search">
-            <input
-              type="search"
-              name="q"
-              className="cmd-search__input"
-              placeholder="Search companies, contacts, work…"
-              aria-label="Search"
-            />
+            <input type="search" name="q" className="cmd-search__input" placeholder="Search companies, contacts, work…" aria-label="Search" />
           </form>
         </header>
 
@@ -167,9 +177,7 @@ export default async function Dashboard() {
                     <Link href={p.href} className="tile__li-text">{p.text}</Link>
                   </li>
                 ))}
-                {priorities.length > 4 ? (
-                  <li className="tile__li-more">and {priorities.length - 4} more.</li>
-                ) : null}
+                {priorities.length > 4 ? <li className="tile__li-more">and {priorities.length - 4} more.</li> : null}
               </ul>
             )}
           </Tile>
@@ -209,13 +217,13 @@ export default async function Dashboard() {
                 <div className="score">
                   <div className="score__row score__head">
                     <span className="score__label" />
-                    <span className="score__val">Yesterday</span>
-                    <span className="score__val">Today</span>
+                    <span className="score__col">Yesterday<span className="score__sub">Completed</span></span>
+                    <span className="score__col">Today<span className="score__sub">Live</span></span>
                   </div>
-                  <ScoreRow label="Revenue" y={money2(yd.revenueCents)} t={money2(td.revenueCents)} delta={revDelta} />
-                  <ScoreRow label="Profit" y={money2(yd.profitCents)} t={money2(td.profitCents)} />
-                  <ScoreRow label="Billable" y={num(yd.billableCalls)} t={num(td.billableCalls)} />
-                  <ScoreRow label="Total calls" y={num(yd.totalCalls)} t={num(td.totalCalls)} />
+                  <ScoreRow label="Revenue" yText={showMoney(yd.available, yd.revenueCents)} tText={showMoney(td.available, td.revenueCents)} r={revTrend} />
+                  <ScoreRow label="Profit" yText={showMoney(yd.available, yd.profitCents)} tText={showMoney(td.available, td.profitCents)} r={profitTrend} />
+                  <ScoreRow label="Billable calls" yText={showNum(yd.available, yd.billableCalls)} tText={showNum(td.available, td.billableCalls)} r={billableTrend} />
+                  <ScoreRow label="Total calls" yText={showNum(yd.available, yd.totalCalls)} tText={showNum(td.available, td.totalCalls)} r={totalTrend} neutral />
                 </div>
                 <Link href="/app/admin/marketplace" className="tile__action">Open CallGrid Intelligence →</Link>
               </>
@@ -248,7 +256,7 @@ export default async function Dashboard() {
             {acts.length === 0 ? (
               <>
                 <StatusWord tone="idle" label="None yet" />
-                <p className="tile__line">No business activity has been recorded yet.</p>
+                <p className="tile__line">No recent business activity.</p>
               </>
             ) : (
               <ul className="tile__list">
@@ -266,9 +274,7 @@ export default async function Dashboard() {
           {/* Quick Actions — only actions that exist */}
           <Tile title="Quick Actions">
             <div className="tile__qa">
-              {w.canCreateWork ? (
-                <Link href="/app/admin/work/new" className="tile__qa-btn">Create work →</Link>
-              ) : null}
+              {w.canCreateWork ? <Link href="/app/admin/work/new" className="tile__qa-btn">Create work →</Link> : null}
               <Link href="/crm/users" className="tile__qa-btn">Invite team member →</Link>
             </div>
           </Tile>

@@ -28,6 +28,7 @@ import type {
   WorkNotification,
   WorkComment,
 } from '@prisma/client';
+import { startOfEasternDay } from '@emgloop/shared';
 
 // --- Vocabulary (kept as string unions to match the spec's lowercase values) ---
 export const BLUEPRINT_STATUSES = ['active', 'archived'] as const;
@@ -483,8 +484,8 @@ export class WorkRepository {
   }
 
   async listCompletedToday(organizationId: string): Promise<WorkInstance[]> {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
+    // "Today" is the Eastern business day (America/New_York), not server-local.
+    const start = startOfEasternDay(new Date());
     return this.prisma.workInstance.findMany({
       where: { organizationId, status: 'completed', completedAt: { gte: start } },
       orderBy: { completedAt: 'desc' },

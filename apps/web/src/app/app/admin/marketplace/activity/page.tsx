@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { startOfEasternDay } from "@emgloop/shared";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
 import { SidebarIcon } from "../../../../crm/_brand/SidebarIcon";
@@ -103,8 +104,7 @@ export default async function MarketplaceActivityPage() {
 
   const hasFeed = feed.length > 0;
   const lastEvent = feed.length > 0 ? feed[0]! : null;
-  const todayCutoff = new Date();
-  todayCutoff.setHours(0, 0, 0, 0);
+  const todayCutoff = startOfEasternDay(new Date());
   const activityToday = feed.filter((e) => {
     const t = new Date(e.at);
     return !isNaN(t.getTime()) && t.getTime() >= todayCutoff.getTime();

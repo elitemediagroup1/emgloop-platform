@@ -39,6 +39,8 @@ import type {
   AuditView,
 } from '@emgloop/database';
 
+import { startOfEasternDay, easternHour, BUSINESS_TIME_ZONE } from '@emgloop/shared';
+
 import { requireWorkspace } from '../../../workspaces/guard';
 import { hasPermission } from '../../../auth/guard';
 
@@ -152,14 +154,16 @@ export interface WorkspaceHomeData {
 // Small pure helpers (no I/O).
 // ---------------------------------------------------------------------------
 function timeGreeting(d: Date): string {
-  const h = d.getHours();
+  const h = easternHour(d); // time of day in the business timezone, not the server's
   if (h < 12) return 'Good morning';
   if (h < 18) return 'Good afternoon';
   return 'Good evening';
 }
 
 function longDate(d: Date): string {
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', timeZone: BUSINESS_TIME_ZONE,
+  });
 }
 
 function relTime(from: Date, now: Date): string {
@@ -261,8 +265,8 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
 
   const work = repos.work;
   const now = new Date();
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+  // "Today" is the Eastern business day, not the server's local day.
+  const startOfDay = startOfEasternDay(now);
   const stallCutoff = new Date(now.getTime() - STALL_HOURS * 3600 * 1000);
 
   // One round of parallel, organization-scoped reads.
