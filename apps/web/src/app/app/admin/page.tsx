@@ -1,18 +1,18 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { loadDashboard } from './dashboard-data';
+import { loadDashboard, type ScoreMetrics } from './dashboard-data';
+import { money, num } from '../_loop-os';
 
-// The Dashboard — the operational command center of Elite Media Group.
+// The Operational Home of Elite Media Group.
 //
-// One screen, no scroll: a header (greeting + global search) and a 3×3 grid of
-// tiles. Each tile answers ONE business question and is a doorway.
+// One screen, no scroll: a header (greeting + global search) and nine tiles.
+// Within 15 seconds an employee sees how the business did yesterday and today,
+// whether anything needs them, whether they have work, and whether it can all be
+// trusted.
 //
 // CONSTITUTIONAL: Loop never fabricates business reality. Every value is real
-// org-scoped data or an honest "unavailable" state that says why. Audited so
-// that: caller IDs are never shown as CRM customers; CallGrid "connected" is
-// judged by real call data, not a constant flag; only evidence-backed priorities
-// appear (no demo conversations); and every action links to a route that exists.
-// No developer vocabulary reaches the screen.
+// org-scoped data or an honest Unknown / Unavailable. Money is never estimated.
+// The CRM shows nothing off the shared Customer table. No developer vocabulary.
 
 export const dynamic = 'force-dynamic';
 
@@ -28,12 +28,22 @@ function relTime(iso: string): string {
   return d === 1 ? 'yesterday' : d + 'd ago';
 }
 
-function Tile({ title, source, children }: { title: string; source?: string; children: ReactNode }) {
+function joinAnd(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/** Money that may be unknown — never invents $0 for missing economics. */
+function money2(cents: number | null): string {
+  return cents === null ? 'Unknown' : money(cents);
+}
+
+function Tile({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="tile" aria-label={title}>
       <div className="tile__head">
         <span className="tile__title">{title}</span>
-        {source ? <span className="tile__src">{source}</span> : null}
       </div>
       {children}
     </section>
@@ -58,38 +68,66 @@ function StatusNum({ value, label }: { value: number; label?: string }) {
   );
 }
 
-function Action({ href, label }: { href: string; label: string }) {
-  return <Link href={href} className="tile__action">{label}</Link>;
+function ScoreRow({ label, y, t, delta }: { label: string; y: string; t: string; delta?: ReactNode }) {
+  return (
+    <div className="score__row">
+      <span className="score__label">{label}</span>
+      <span className="score__val">{y}</span>
+      <span className="score__val">{t}{delta}</span>
+    </div>
+  );
 }
 
-interface Priority { tone: Tone; text: string; source: string; href: string }
+interface Priority { tone: Tone; text: string; href: string }
 
 export default async function Dashboard() {
   const { home, callgrid } = await loadDashboard();
   const { workspace: w, brain } = home;
   const { header } = w;
+  const { yesterday: yd, today: td } = callgrid;
 
-  // Evidence-backed priorities only. CallGrid risks + work that needs an owner.
-  // Deliberately excluded: demo-seeded conversations and ServiceRequests (which
-  // no code path ever creates) — showing them would be fabricated business.
-  const priorities: Priority[] = [
-    ...brain.signals.map((s) => ({ tone: s.tone as Tone, text: s.title, source: 'CallGrid', href: s.href })),
-    ...w.attention
-      .filter((a) => a.kind === 'work')
-      .map((a) => ({ tone: 'warn' as Tone, text: a.title, source: 'Work OS', href: a.href })),
+  const callgridConnected = callgrid.total > 0;
+
+  // ── Business Status — connectivity/visibility, never invented health.
+  const systems = [
+    { name: 'CallGrid', connected: callgridConnected },
+    { name: 'CRM', connected: false },
+    { name: 'Accounting', connected: false },
+    { name: 'Creator Hub', connected: false },
   ];
-  const issues = priorities.length;
+  const connected = systems.filter((s) => s.connected).map((s) => s.name);
+  const notConnected = systems.filter((s) => !s.connected).map((s) => s.name);
+  const visibilityLabel = connected.length === 0 ? 'No Visibility' : 'Partial Visibility';
+  const visibilityText =
+    connected.length === 0
+      ? 'No systems are connected yet. Overall business health cannot yet be determined.'
+      : `${joinAnd(connected)} ${connected.length === 1 ? 'is' : 'are'} connected. ${joinAnd(notConnected)} ${notConnected.length === 1 ? 'is' : 'are'} not yet connected. Overall business health cannot yet be determined.`;
+
+  // ── Today's Priorities — evidence-backed only (CallGrid risks + unowned work).
+  const priorities: Priority[] = [
+    ...brain.signals.map((s) => ({ tone: s.tone as Tone, text: s.title, href: s.href })),
+    ...w.attention.filter((a) => a.kind === 'work').map((a) => ({ tone: 'warn' as Tone, text: a.title, href: a.href })),
+  ];
 
   const assigned = w.workSummary.assignedToMe;
   const acts = w.recentActivity;
-  const callgridConnected = callgrid.total > 0;
-  const callgridRecent = callgrid.recent > 0;
+
+  // ── CallGrid revenue comparison (today vs yesterday), only when both known.
+  let revDelta: ReactNode = null;
+  if (td.revenueCents !== null && yd.revenueCents !== null && yd.revenueCents > 0) {
+    const pct = Math.round(((td.revenueCents - yd.revenueCents) / yd.revenueCents) * 100);
+    const up = pct >= 0;
+    revDelta = (
+      <span className={'score__delta score__delta--' + (up ? 'up' : 'down')}>
+        {up ? '↑' : '↓'} {Math.abs(pct)}%
+      </span>
+    );
+  }
 
   return (
     <div className="loop-os">
       <div className="cmd">
 
-        {/* HEADER — greeting + global search */}
         <header className="cmd-head">
           <div className="cmd-head__main">
             <h1 className="cmd-head__greeting">{header.greeting}, {header.displayName}</h1>
@@ -110,29 +148,12 @@ export default async function Dashboard() {
 
           {/* ── Row 1 ───────────────────────────────────────────── */}
 
-          {/* Business Status — never a mystery; names the issue or points to it */}
-          <Tile title="Business Status" source="CallGrid · Work OS">
-            {issues === 0 ? (
-              <>
-                <StatusWord tone="good" label="Operating Normally" />
-                <p className="tile__line">No operational issues require attention.</p>
-              </>
-            ) : issues === 1 ? (
-              <>
-                <StatusWord tone="warn" label="One issue to review" />
-                <p className="tile__line">{priorities[0]!.text}</p>
-              </>
-            ) : (
-              <>
-                <StatusWord tone="warn" label={`${issues} issues to review`} />
-                <p className="tile__line">The details are listed in Today’s Priorities.</p>
-              </>
-            )}
-            <Action href="/app/admin/marketplace" label="View details →" />
+          <Tile title="Business Status">
+            <StatusWord tone="idle" label={visibilityLabel} />
+            <p className="tile__line">{visibilityText}</p>
           </Tile>
 
-          {/* Today's Priorities — the actual evidence-backed items, with source */}
-          <Tile title="Today's Priorities" source="CallGrid · Work OS">
+          <Tile title="Today's Priorities">
             {priorities.length === 0 ? (
               <>
                 <StatusWord tone="idle" label="None" />
@@ -140,91 +161,90 @@ export default async function Dashboard() {
               </>
             ) : (
               <ul className="tile__list">
-                {priorities.slice(0, 3).map((p, i) => (
+                {priorities.slice(0, 4).map((p, i) => (
                   <li key={i} className="tile__li">
                     <span className={'tile__dot tile__dot--' + p.tone} aria-hidden="true" />
                     <Link href={p.href} className="tile__li-text">{p.text}</Link>
-                    <span className="tile__li-src">{p.source}</span>
                   </li>
                 ))}
-                {priorities.length > 3 ? (
-                  <li className="tile__li-more">and {priorities.length - 3} more.</li>
+                {priorities.length > 4 ? (
+                  <li className="tile__li-more">and {priorities.length - 4} more.</li>
                 ) : null}
               </ul>
             )}
           </Tile>
 
-          {/* My Work */}
-          <Tile title="My Work" source="Work OS">
-            <StatusNum value={assigned} label="Assigned" />
-            <p className="tile__line">
-              {assigned === 0
-                ? 'You have no work assigned. When work is assigned it will appear here.'
-                : w.nextAction
-                  ? `Next: ${w.nextAction.title}.`
-                  : `${assigned === 1 ? 'One item is' : `${assigned} items are`} waiting for you.`}
-            </p>
-            {assigned > 0 ? (
-              <Action href="/app/admin/work" label="View my work →" />
-            ) : w.canCreateWork ? (
-              <Action href="/app/admin/work/new" label="Create work →" />
+          <Tile title="My Work">
+            {assigned === 0 ? (
+              <>
+                <StatusWord tone="idle" label="No work assigned" />
+                <p className="tile__line">You have no work assigned. When work is assigned it will appear here.</p>
+              </>
             ) : (
-              <Action href="/app/admin/work" label="View my work →" />
+              <>
+                <StatusNum value={assigned} label="Assigned" />
+                <p className="tile__line">
+                  {w.nextAction ? `Next: ${w.nextAction.title}.` : `${assigned === 1 ? 'One item is' : `${assigned} items are`} waiting for you.`}
+                </p>
+              </>
             )}
+            <div className="tile__row">
+              <Link href="/app/admin/work" className="tile__action">View my work →</Link>
+              {w.canCreateWork ? <Link href="/app/admin/work/new" className="tile__action">Create work →</Link> : null}
+            </div>
           </Tile>
 
           {/* ── Row 2 ───────────────────────────────────────────── */}
 
-          {/* CallGrid Intelligence — judged by real call data */}
-          <Tile title="CallGrid Intelligence" source="CallGrid">
+          {/* CallGrid Intelligence — the Executive Scorecard */}
+          <Tile title="CallGrid Intelligence">
             {!callgridConnected ? (
               <>
-                <StatusWord tone="idle" label="Not connected" />
-                <p className="tile__line">CallGrid has not sent any call data yet.</p>
-                <Action href="/crm/integrations" label="Connect CallGrid →" />
-              </>
-            ) : !callgridRecent ? (
-              <>
-                <StatusWord tone="idle" label="Connected" />
-                <p className="tile__line">Connected, but no calls in the last 30 days.</p>
-                <Action href="/app/admin/marketplace" label="Open CallGrid →" />
+                <StatusWord tone="idle" label="No call data yet" />
+                <p className="tile__line">CallGrid has not sent any calls yet.</p>
+                <Link href="/app/admin/marketplace" className="tile__action">Open CallGrid Intelligence →</Link>
               </>
             ) : (
               <>
-                <StatusNum value={callgrid.recent} label="calls · 30 days" />
-                <p className="tile__line">
-                  {brain.signals.length === 0
-                    ? 'No operational issues flagged.'
-                    : `${brain.signals.length === 1 ? 'One issue needs' : `${brain.signals.length} issues need`} review.`}
-                </p>
-                <Action href="/app/admin/marketplace" label="Open CallGrid →" />
+                <div className="score">
+                  <div className="score__row score__head">
+                    <span className="score__label" />
+                    <span className="score__val">Yesterday</span>
+                    <span className="score__val">Today</span>
+                  </div>
+                  <ScoreRow label="Revenue" y={money2(yd.revenueCents)} t={money2(td.revenueCents)} delta={revDelta} />
+                  <ScoreRow label="Profit" y={money2(yd.profitCents)} t={money2(td.profitCents)} />
+                  <ScoreRow label="Billable" y={num(yd.billableCalls)} t={num(td.billableCalls)} />
+                  <ScoreRow label="Total calls" y={num(yd.totalCalls)} t={num(td.totalCalls)} />
+                </div>
+                <Link href="/app/admin/marketplace" className="tile__action">Open CallGrid Intelligence →</Link>
               </>
             )}
           </Tile>
 
-          {/* CRM — NOT built. Displays nothing off the Customer table, because
-              that table is shared by CallGrid call ingestion. No cross-classification. */}
+          {/* CRM — not built; reads nothing */}
           <Tile title="CRM">
             <StatusWord tone="idle" label="Not Configured" />
-            <p className="tile__line">The CRM has not been built or connected yet.</p>
+            <p className="tile__line">The CRM has not yet been built.</p>
+            <span className="tile__action tile__action--disabled" aria-disabled="true">Open CRM →</span>
           </Tile>
 
-          {/* Creator Hub — leave as Not Configured until the feature exists */}
+          {/* Creator Hub */}
           <Tile title="Creator Hub">
             <StatusWord tone="idle" label="Not Configured" />
-            <p className="tile__line">The Creator Hub isn’t available yet.</p>
+            <p className="tile__line">Creator Hub has not yet been built.</p>
           </Tile>
 
           {/* ── Row 3 ───────────────────────────────────────────── */}
 
           {/* Accounting */}
           <Tile title="Accounting">
-            <StatusWord tone="idle" label="Not connected" />
-            <p className="tile__line">No accounting system is connected yet.</p>
+            <StatusWord tone="idle" label="Not Connected" />
+            <p className="tile__line">Accounting integration has not yet been configured.</p>
           </Tile>
 
-          {/* Recent Business Activity — business events only (sign-ins excluded) */}
-          <Tile title="Recent Business Activity" source="Work OS · CRM">
+          {/* Recent Business Activity */}
+          <Tile title="Recent Business Activity">
             {acts.length === 0 ? (
               <>
                 <StatusWord tone="idle" label="None yet" />
@@ -232,27 +252,24 @@ export default async function Dashboard() {
               </>
             ) : (
               <ul className="tile__list">
-                {acts.slice(0, 3).map((a) => (
+                {acts.slice(0, 4).map((a) => (
                   <li key={a.id} className="tile__li">
                     <span className="tile__dot tile__dot--info" aria-hidden="true" />
                     <span className="tile__li-text">{a.label}</span>
-                    <span className="tile__li-src">{relTime(a.createdAtIso)}</span>
+                    <span className="tile__li-time">{relTime(a.createdAtIso)}</span>
                   </li>
                 ))}
               </ul>
             )}
           </Tile>
 
-          {/* Quick Actions — replaces System Status. Only actions that exist. */}
+          {/* Quick Actions — only actions that exist */}
           <Tile title="Quick Actions">
             <div className="tile__qa">
               {w.canCreateWork ? (
                 <Link href="/app/admin/work/new" className="tile__qa-btn">Create work →</Link>
               ) : null}
               <Link href="/crm/users" className="tile__qa-btn">Invite team member →</Link>
-              {!callgridConnected ? (
-                <Link href="/crm/integrations" className="tile__qa-btn">Connect CallGrid →</Link>
-              ) : null}
             </div>
           </Tile>
 

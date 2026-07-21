@@ -615,8 +615,9 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
   }
 
   // ----- Recent BUSINESS activity -----
-  // Sign-ins and other auth noise are excluded: the dashboard shows what
-  // happened in the BUSINESS, not who logged in when.
+  // Business events only. Sign-ins ('auth') and technical/config events
+  // ('system' — org settings, integration config) are excluded: the dashboard
+  // shows what happened in the BUSINESS, not platform housekeeping.
   const recentActivity: ActivityItem[] = auditRows
     .map((r: AuditView) => ({
       id: r.id,
@@ -625,7 +626,7 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
       category: activityCategory(r.action),
       createdAtIso: r.createdAt,
     }))
-    .filter((a) => a.category !== 'auth')
+    .filter((a) => a.category !== 'auth' && a.category !== 'system')
     .slice(0, 6);
 
   return {

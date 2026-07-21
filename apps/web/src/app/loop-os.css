@@ -1656,6 +1656,26 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .tile__qa-btn { display: block; padding: 10px 13px; border: 1px solid var(--loop-line-strong); border-radius: 10px; color: var(--loop-text); background: var(--loop-elev); font-size: 13px; font-weight: 550; text-decoration: none; }
 .tile__qa-btn:hover { border-color: var(--loop-accent); color: var(--loop-accent-2); }
 
+/* My Work action row + a disabled action (e.g. Open CRM while unbuilt). */
+.tile__row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: auto; }
+.tile__row .tile__action { margin-top: 0; }
+.tile__action--disabled { color: var(--loop-text-3); cursor: default; }
+.tile__action--disabled:hover { text-decoration: none; }
+
+/* Recent-activity item time (right-aligned; replaces the removed source label). */
+.tile__li-time { flex: none; font-size: 11px; color: var(--loop-text-3); }
+
+/* CallGrid Executive Scorecard — a compact Yesterday/Today table. No charts. */
+.score { display: flex; flex-direction: column; }
+.score__row { display: grid; grid-template-columns: 1fr 84px 104px; gap: 10px; align-items: baseline; padding: 4px 0; }
+.score__head { border-bottom: 1px solid var(--loop-line); padding-bottom: 6px; margin-bottom: 2px; }
+.score__head .score__val { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.score__label { color: var(--loop-text-2); font-size: 13px; }
+.score__val { text-align: right; color: var(--loop-text); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.score__delta { margin-left: 6px; font-size: 11px; font-weight: 700; }
+.score__delta--up { color: var(--loop-good); }
+.score__delta--down { color: var(--loop-crit); }
+
 @media (max-width: 1160px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 680px) { .tiles { grid-template-columns: 1fr; } }
 /* ===================== END DASHBOARD ===================== */
