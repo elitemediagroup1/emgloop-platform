@@ -1,4 +1,4 @@
-// Source / Publisher Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
+// Sources workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { hasValue } from "@emgloop/shared";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
@@ -159,7 +159,8 @@ export default async function SourceOperatingSystemPage() {
       <main className="loop-os__main">
         <header className="loop-os__brief">
           <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">Source / Publisher</p>
+            <p className="loop-os__brief-lead">CallGrid Intelligence</p>
+            <h1 className="loop-os__brief-title">Sources</h1>
             <p className="loop-os__brief-body">{summary}</p>
           </div>
           <div className="loop-os__brief-cta">
@@ -185,7 +186,7 @@ export default async function SourceOperatingSystemPage() {
             <div className="loop-card loop-market">
               <div className="loop-card__head">
                 <span className="loop-card__title">Source Directory</span>
-                <Link className="loop-card__link" href="/app/admin/marketplace/sources">Marketplace overview</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace/sources">Overview</Link>
               </div>
               <div className="loop-market__body">
                 {hasSourceData ? (
@@ -341,10 +342,10 @@ export default async function SourceOperatingSystemPage() {
             <span className="loop-card__title">Shortcuts</span>
           </div>
           <div className="loop-brief">
-            <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
-            <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaign Intelligence</Link>
-            <Link className="loop-card__link" href="/app/admin/marketplace/buyers">Buyer Operating System</Link>
-            <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendor Operating System</Link>
+            <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
+            <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaigns</Link>
+            <Link className="loop-card__link" href="/app/admin/marketplace/buyers">Buyers</Link>
+            <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendors</Link>
           </div>
         </div>
       

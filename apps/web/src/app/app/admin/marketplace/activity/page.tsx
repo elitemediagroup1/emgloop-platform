@@ -153,8 +153,8 @@ export default async function MarketplaceActivityPage() {
       <div className="loop-os__main">
         <header className="loop-os__brief">
           <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">Marketplace</p>
-            <h1 className="loop-os__brief-title">Marketplace Activity</h1>
+            <p className="loop-os__brief-lead">CallGrid Intelligence</p>
+            <h1 className="loop-os__brief-title">Activity</h1>
             <p className="loop-os__brief-body">
               A real-time chronological view of marketplace operations.
             </p>
@@ -310,7 +310,7 @@ export default async function MarketplaceActivityPage() {
               </div>
               <div className="loop-brief">
                 <Link className="loop-card__link" href="/app/admin/work">My Work {"\u2192"}</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaigns</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/buyers">Buyers</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/sources">Sources / Publishers</Link>
