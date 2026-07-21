@@ -130,12 +130,6 @@ export interface ActivityItem {
   createdAtIso: string;
 }
 
-export interface ChecklistItem {
-  key: string;
-  label: string;
-  done: boolean;
-}
-
 export interface WorkspaceHomeData {
   isAdmin: boolean;
   /** Session organization. Exposed so the composed Home can load the Brain for the same org. */
@@ -152,8 +146,6 @@ export interface WorkspaceHomeData {
   recentActivity: ActivityItem[];
   completedTodayCount: number;
   canCreateWork: boolean;
-  canViewAudit: boolean;
-  gettingStarted: { show: boolean; items: ChecklistItem[] };
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +284,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     completedTodayCount,
     auditRows,
     canCreateWork,
-    canViewAudit,
   ] = await Promise.all([
     prisma.user.findFirst({
       where: { id: userId, organizationId },
@@ -382,9 +373,8 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     prisma.workInstance.count({
       where: { organizationId, status: 'completed', completedAt: { gte: startOfDay } },
     }),
-    repos.audit.list(organizationId, { take: 6 }),
+    repos.audit.list(organizationId, { take: 20 }),
     hasPermission('workflows', 'create'),
-    hasPermission('audit', 'view'),
   ]);
 
   // ----- Header -----
@@ -624,35 +614,19 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     );
   }
 
-  // ----- Recent Activity (org-scoped audit log, max 6, color-categorized) -----
-  const recentActivity: ActivityItem[] = auditRows.slice(0, 6).map((r: AuditView) => ({
-    id: r.id,
-    label: activityLabel(r.action),
-    actorName: r.actorName,
-    category: activityCategory(r.action),
-    createdAtIso: r.createdAt,
-  }));
-
-  // ----- Getting Started (real DB state; hidden once every item is complete) -----
-  const orgSettings = jsonObj(organization?.settings);
-  const onboarding = jsonObj(orgSettings.onboarding);
-  const setupComplete = Boolean(str(onboarding.completedAt));
-
-  const [firstInvite, firstCustomer, firstBlueprint, firstWork] = await Promise.all([
-    prisma.invitation.count({ where: { organizationId } }).then((n) => n > 0),
-    prisma.customer.count({ where: { organizationId } }).then((n) => n > 0),
-    prisma.blueprint.count({ where: { organizationId } }).then((n) => n > 0),
-    prisma.workInstance.count({ where: { organizationId } }).then((n) => n > 0),
-  ]);
-
-  const checklist: ChecklistItem[] = [
-    { key: 'setup', label: 'Owner setup complete', done: setupComplete },
-    { key: 'invite', label: 'First employee invitation created', done: firstInvite },
-    { key: 'customer', label: 'First customer created', done: firstCustomer },
-    { key: 'blueprint', label: 'First blueprint created', done: firstBlueprint },
-    { key: 'work', label: 'First work item created', done: firstWork },
-  ];
-  const allDone = checklist.every((c) => c.done);
+  // ----- Recent BUSINESS activity -----
+  // Sign-ins and other auth noise are excluded: the dashboard shows what
+  // happened in the BUSINESS, not who logged in when.
+  const recentActivity: ActivityItem[] = auditRows
+    .map((r: AuditView) => ({
+      id: r.id,
+      label: activityLabel(r.action),
+      actorName: r.actorName,
+      category: activityCategory(r.action),
+      createdAtIso: r.createdAt,
+    }))
+    .filter((a) => a.category !== 'auth')
+    .slice(0, 6);
 
   return {
     isAdmin: true,
@@ -669,7 +643,5 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     recentActivity,
     completedTodayCount,
     canCreateWork,
-    canViewAudit,
-    gettingStarted: { show: !allDone, items: checklist },
   };
 }

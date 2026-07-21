@@ -35,28 +35,30 @@ const CALLGRID_OVERVIEW = '/app/admin/marketplace';
 
 // System Health band -> a single honest headline. The band is computed upstream;
 // this only chooses the words and the tone class (reused from .mkt-intel__health--*).
+// Tones map to the dashboard's word classes (good / warn / crit / idle). The
+// copy is plain business English — no product or implementation vocabulary.
 const HEALTH_BAND: Record<string, { label: string; tone: string; line: string }> = {
   healthy: {
     label: 'Healthy',
-    tone: 'healthy',
-    line: 'Your business is operating within normal bounds. Nothing needs a decision from the Brain right now.',
+    tone: 'good',
+    line: 'Your business is operating within normal bounds. Nothing needs a decision right now.',
   },
   watch: {
     label: 'Watch',
-    tone: 'degraded',
-    line: 'A few signals are worth a look, but nothing is urgent.',
+    tone: 'warn',
+    line: 'A few things are worth a look, but nothing is urgent.',
   },
   at_risk: {
-    label: 'At risk',
-    tone: 'impaired',
-    line: 'The Brain has surfaced something that needs a decision today.',
+    label: 'Needs attention',
+    tone: 'crit',
+    line: 'Something needs a decision today — it’s in Today’s Priorities.',
   },
 };
 
 const UNMEASURED = {
-  label: 'Unmeasured',
-  tone: 'unmeasured',
-  line: 'No sensor is instrumented yet, so the Brain has nothing it can trust to explain. Connect CallGrid to begin.',
+  label: 'Not measured yet',
+  tone: 'idle',
+  line: 'There isn’t enough information yet to measure how the business is doing.',
 };
 
 // Severity -> the row tone used by the attention icons (crit / warn / info).
@@ -124,7 +126,7 @@ function toSignal(o: ExecutiveObservation): BrainSignal {
     sevLabel: severityLabel(o.severity),
     tone: severityTone(o.severity),
     title: o.observation,
-    why: o.businessImpact ?? 'The Brain flagged this from evidence that cleared the Evidence Engine.',
+    why: o.businessImpact ?? 'Flagged from the latest business data — open it to see the numbers behind it.',
     href: CALLGRID_OVERVIEW,
   };
 }
