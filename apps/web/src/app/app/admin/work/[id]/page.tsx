@@ -28,6 +28,7 @@ import {
   type EntityChange,
   type EntityEvidence,
   type EntityHistoryItem,
+  type EntityRelatedItem,
 } from '../../../_loop-os';
 
 export const dynamic = 'force-dynamic';
@@ -180,6 +181,12 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     { label: 'Work created', at: relTime(new Date(instance.createdAt)) || 'Today', tone: 'info' as EntityTone },
   ];
 
+  // 7. Related — where to go from here.
+  const related: EntityRelatedItem[] = [
+    { icon: 'flow', title: 'All work', detail: 'Every work item across your organization', href: '/app/admin/work' },
+    { icon: 'grid', title: 'Home', detail: 'What needs your attention today', href: '/app/admin' },
+  ];
+
   // 5. The completable step (interactive primary action).
   const primaryAction =
     !isComplete && current ? (
@@ -271,6 +278,7 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     whyItMatters,
     primaryAction,
     evidence,
+    related,
     history,
     manage,
     manageTitle: 'Manage this work',

@@ -1543,6 +1543,18 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
 .ent-hist__empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .ent-hist__icon { color: var(--loop-text-3); }
 
+/* 7. Related — doorways to connected work/entities. */
+.ent-related { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ent-related__item { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--loop-line); text-decoration: none; }
+.ent-related__item:last-child { border-bottom: 0; }
+.ent-related__icon { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--loop-elev); color: var(--loop-accent-2); flex: none; }
+.ent-related__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ent-related__title { color: var(--loop-text); font-size: 13.5px; font-weight: 600; }
+.ent-related__detail { color: var(--loop-text-2); font-size: 12px; }
+.ent-related__arrow { color: var(--loop-text-3); flex: none; }
+.ent-related__item:hover .ent-related__title { color: var(--loop-accent-2); }
+.ent-related__item:hover .ent-related__arrow { color: var(--loop-accent-2); }
+
 /* Manage slot — page-specific interactive controls, styled to match. */
 .ent-manage { display: flex; flex-direction: column; gap: 14px; }
 .ent-manage__block { display: flex; flex-direction: column; gap: 10px; }
@@ -1576,3 +1588,52 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
   .ent-head { flex-direction: column; }
 }
 /* ===================== END ENTITY PAGE ===================== */
+
+
+/* ===================== CALLGRID LISTING — lightweight discovery =====================
+   A listing answers "what exists?": search, a status filter, key metrics, and a
+   quick health dot per row. It never tells an entity's story. Tokens only. */
+
+.cg-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.cg-search { display: flex; gap: 8px; flex: 1; min-width: 220px; max-width: 440px; }
+.cg-search__input { flex: 1; background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 9px; padding: 8px 12px; font-size: 13px; font-family: inherit; }
+.cg-search__input:focus { outline: none; border-color: var(--loop-accent); }
+.cg-search__btn { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cg-search__btn:hover { border-color: var(--loop-accent); }
+
+.cg-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.cg-filter { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--loop-line); color: var(--loop-text-2); font-size: 12.5px; text-decoration: none; }
+.cg-filter:hover { border-color: var(--loop-line-strong); color: var(--loop-text); }
+.cg-filter.is-active { border-color: var(--loop-accent); background: var(--loop-accent-soft); color: var(--loop-accent-2); }
+
+.cg-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--loop-line-strong); display: inline-block; flex: none; }
+.cg-dot--good { background: var(--loop-good); }
+.cg-dot--warn { background: var(--loop-warn); }
+.cg-dot--crit { background: var(--loop-crit); }
+.cg-dot--idle { background: var(--loop-text-3); }
+.cg-dot--info { background: var(--loop-accent); }
+
+.cg-list { list-style: none; margin: 0; padding: 0; }
+.cg-list__labels, .cg-row__link { display: grid; grid-template-columns: 14px minmax(0, 1fr) 80px 110px 110px 18px; align-items: center; gap: 12px; }
+.cg-list__labels { padding: 2px 4px 10px; border-bottom: 1px solid var(--loop-line); }
+.cg-list__lname, .cg-list__lmetric { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.cg-list__lname { grid-column: 2; }
+.cg-list__labels .cg-list__lmetric:nth-child(2) { grid-column: 3; text-align: right; }
+.cg-list__labels .cg-list__lmetric:nth-child(3) { grid-column: 4; text-align: right; }
+.cg-list__labels .cg-list__lmetric:nth-child(4) { grid-column: 5; text-align: right; }
+
+.cg-row__link { padding: 11px 4px; border-bottom: 1px solid var(--loop-line); text-decoration: none; }
+.cg-row:last-child .cg-row__link { border-bottom: 0; }
+.cg-row__name { color: var(--loop-text); font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cg-row__metric { text-align: right; color: var(--loop-text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.cg-row__metric--crit { color: var(--loop-crit); }
+.cg-row__arrow { text-align: right; color: var(--loop-text-3); }
+.cg-row__link:hover { background: var(--loop-bg-2); border-radius: 8px; }
+.cg-row__link:hover .cg-row__name { color: var(--loop-accent-2); }
+
+@media (max-width: 720px) {
+  .cg-list__labels, .cg-row__link { grid-template-columns: 14px minmax(0, 1fr) 90px 18px; }
+  .cg-list__labels .cg-list__lmetric:nth-child(3), .cg-list__labels .cg-list__lmetric:nth-child(4),
+  .cg-row__metric:nth-of-type(2) { display: none; }
+}
+/* ===================== END CALLGRID LISTING ===================== */

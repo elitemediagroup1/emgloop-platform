@@ -28,5 +28,6 @@ export type {
   EntityEvidence,
   EntityEvidenceFact,
   EntityHistoryItem,
+  EntityRelatedItem,
   EntityPageModel,
 } from "./entity-page";

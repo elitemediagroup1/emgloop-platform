@@ -16,7 +16,11 @@ import { SidebarIcon } from "../../crm/_brand/SidebarIcon";
 //   4. Why does it matter?         -> whyItMatters (one sentence)
 //   5. What should happen next?    -> actions (+ an optional interactive primaryAction)
 //   6. What evidence supports that?-> evidence (numbers behind the story, disclosed on demand)
-//   7. What happened previously?   -> history
+//   7. Related work / entities     -> related (where to go from here)
+//   8. What happened previously?   -> history
+//
+// (A listing answers "what exists?"; an entity page answers "what is the story
+// of this one thing?". The two never duplicate each other.)
 //
 // Honesty is structural: every value the model carries is ALREADY a formatted
 // string (use money/num/*OrUnknown at the call site), so this component never
@@ -85,6 +89,13 @@ export interface EntityHistoryItem {
   tone?: EntityTone;
 }
 
+export interface EntityRelatedItem {
+  icon: string;
+  title: string;
+  detail?: string;
+  href: string;
+}
+
 export interface EntityPageModel {
   // 1. Who or what is this?
   eyebrow: string;
@@ -104,7 +115,9 @@ export interface EntityPageModel {
   primaryAction?: ReactNode;
   // 6. What evidence supports that?
   evidence?: EntityEvidence[];
-  // 7. What happened previously?
+  // 7. Related work / entities — where to go from here.
+  related?: EntityRelatedItem[];
+  // 8. What happened previously?
   history?: EntityHistoryItem[];
   // Page-specific interactive controls, grouped consistently at the end.
   manage?: ReactNode;
@@ -152,7 +165,7 @@ export function EntityPage({ model }: { model: EntityPageModel }) {
   const {
     eyebrow, title, subtitle, backHref, backLabel, stats, health,
     changes = [], whyItMatters, actions = [], primaryAction,
-    evidence = [], history = [], manage, manageTitle, empty = {},
+    evidence = [], related = [], history = [], manage, manageTitle, empty = {},
   } = model;
 
   return (
@@ -282,6 +295,26 @@ export function EntityPage({ model }: { model: EntityPageModel }) {
                 <Empty line={empty.evidence ?? "The evidence behind this is not available yet."} />
               )}
             </Section>
+
+            {/* 7. RELATED WORK / ENTITIES — where to go from here. */}
+            {related.length > 0 ? (
+              <Section title="Related">
+                <ul className="ent-related">
+                  {related.map((r, i) => (
+                    <li key={i}>
+                      <Link href={r.href} className="ent-related__item">
+                        <span className="ent-related__icon"><SidebarIcon name={r.icon} /></span>
+                        <div className="ent-related__text">
+                          <span className="ent-related__title">{r.title}</span>
+                          {r.detail ? <span className="ent-related__detail">{r.detail}</span> : null}
+                        </div>
+                        <span className="ent-related__arrow" aria-hidden="true">→</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            ) : null}
 
             {/* Page-specific interactive controls, grouped consistently. */}
             {manage ? (
