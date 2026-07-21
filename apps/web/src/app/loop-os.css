@@ -1386,38 +1386,6 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
 .mkt-intel__gaps { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--loop-line); font-size: 12.5px; color: var(--loop-text-2); }
 
 
-/* ===================== OPERATIONAL HOME =====================
-   Additive to the .wh- namespace. Same --loop-* tokens, same visual language —
-   this block only styles the intelligence woven into Home: the Business Health
-   hero, the Brain-risk / recommended-action rows (which reuse .wh-work), and the
-   "why it matters" secondary line. No new palette, typography, or layout. */
-
-/* Business Health — the one-line "is everything okay" hero. */
-.wh-health { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.wh-health__main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.wh-health__eyebrow { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 700; }
-.wh-health__line { margin: 0; font-size: 15px; font-weight: 550; color: var(--loop-text); line-height: 1.5; max-width: 80ch; }
-.wh-health__side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; text-align: right; }
-.wh-health--degraded { border-color: rgba(240,179,60,.35); }
-.wh-health--impaired { border-color: rgba(240,90,90,.4); }
-
-/* Brain-risk and recommended-action icon tones (rows reuse .wh-work + .wh-att__icon). */
-.wh-att__icon--crit { color: var(--loop-crit); background: rgba(240,90,90,.14); }
-.wh-att__icon--warn { color: var(--loop-warn); background: rgba(242,180,91,.14); }
-.wh-att__icon--info { color: var(--loop-accent-2); background: var(--loop-accent-soft); }
-
-/* "Why it matters" — the plain-English second line under a signal or action. */
-.wh-why { margin: 2px 0 0; color: var(--loop-text-2); font-size: 12.5px; line-height: 1.5; max-width: 80ch; }
-.wh-rec__impact { color: var(--loop-good); font-weight: 550; }
-.wh-conf { color: var(--loop-text-3); font-weight: 600; white-space: nowrap; }
-
-@media (max-width: 900px) {
-  .wh-health { flex-direction: column; align-items: flex-start; }
-  .wh-health__side { align-items: flex-start; text-align: left; }
-}
-/* ===================== END OPERATIONAL HOME ===================== */
-
-
 /* ===================== ENTITY PAGE — the canonical drill-down =====================
    The permanent storytelling structure for every detail page in Loop. Reuses the
    --loop-* tokens only. The seven sections (identity, health, changed, why,
@@ -1639,81 +1607,36 @@ a.wh-summary__card.is-active .wh-summary__value { color: var(--loop-accent-2); }
 /* ===================== END CALLGRID LISTING ===================== */
 
 
-/* ===================== THE DASHBOARD — operational home =====================
-   Calm, typography-forward, reads top to bottom like opening the business. Not
-   a wall of cards: sections are separated by whitespace and hairline dividers,
-   never boxed. Tokens only. */
+/* ===================== THE DASHBOARD — command center =====================
+   One screen, no scroll: a header and a responsive 3×3 grid of tiles. Each tile
+   answers ONE question — title, a short status, one sentence, an optional
+   action. Not paragraphs, not a report. Tokens only, no new file. */
 
-.home { max-width: 720px; margin: 0 auto; padding: clamp(22px, 5vw, 52px) 22px; display: flex; flex-direction: column; gap: clamp(30px, 4.5vw, 46px); }
+.cmd { max-width: 1640px; margin: 0 auto; padding: clamp(18px, 3vw, 32px); display: flex; flex-direction: column; gap: clamp(18px, 2.4vw, 26px); }
+.cmd-head__greeting { margin: 0; font-size: clamp(22px, 3vw, 30px); font-weight: 600; letter-spacing: -0.02em; color: var(--loop-text); }
+.cmd-head__meta { margin: 6px 0 0; color: var(--loop-text-2); font-size: 14px; }
 
-/* Good morning */
-.home-hero__greeting { margin: 0; font-size: clamp(29px, 5vw, 40px); font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; color: var(--loop-text); }
-.home-hero__meta { margin: 10px 0 0; color: var(--loop-text-2); font-size: 14.5px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 
-/* A section = a quiet label + content, no box. */
-.home-sec { display: flex; flex-direction: column; gap: 14px; }
-.home-sec__label { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 650; }
-.home-sec__count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--loop-elev); color: var(--loop-text-2); font-size: 11px; font-weight: 700; letter-spacing: 0; }
+.tile { display: flex; flex-direction: column; gap: 10px; min-height: 152px; background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: 16px; padding: 20px; box-shadow: var(--loop-shadow); }
+.tile__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tile__title { font-size: 13px; font-weight: 650; color: var(--loop-text-2); letter-spacing: .02em; }
+.tile__src { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; white-space: nowrap; }
 
-/* Calm prose. */
-.home-lede { margin: 0; font-size: 17px; line-height: 1.6; color: var(--loop-text); font-weight: 400; max-width: 62ch; }
-.home-lede--muted { color: var(--loop-text-2); }
-.home-more { margin: 2px 0 0; color: var(--loop-text-3); font-size: 13px; }
+.tile__status { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 600; color: var(--loop-text); line-height: 1.15; }
+.tile__num { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; color: var(--loop-text); line-height: 1; }
+.tile__num-label { font-size: 13px; font-weight: 550; color: var(--loop-text-2); }
+.tile__dot { width: 10px; height: 10px; border-radius: 999px; flex: none; background: var(--loop-line-strong); }
+.tile__dot--good { background: var(--loop-good); }
+.tile__dot--warn { background: var(--loop-warn); }
+.tile__dot--crit { background: var(--loop-crit); }
+.tile__dot--info { background: var(--loop-accent); }
+.tile__dot--idle { background: var(--loop-text-3); }
 
-.home-link { width: fit-content; color: var(--loop-accent-2); font-size: 13.5px; font-weight: 550; text-decoration: none; }
-.home-link:hover { text-decoration: underline; }
+.tile__line { margin: 0; flex: 1; font-size: 13.5px; color: var(--loop-text-2); line-height: 1.5; }
+.tile__action { margin-top: auto; width: fit-content; color: var(--loop-accent-2); font-size: 13px; font-weight: 600; text-decoration: none; }
+.tile__action:hover { text-decoration: underline; }
 
-/* Today's Priorities — hairline-divided rows, a tone dot, why-it-matters inline. */
-.home-pri { list-style: none; margin: 0; padding: 0; }
-.home-pri__item { display: flex; align-items: flex-start; gap: 14px; padding: 16px 0; border-top: 1px solid var(--loop-line); }
-.home-pri__item:first-child { border-top: 0; padding-top: 4px; }
-.home-pri__dot { width: 9px; height: 9px; border-radius: 999px; margin-top: 6px; flex: none; background: var(--loop-line-strong); }
-.home-pri__dot--good { background: var(--loop-good); }
-.home-pri__dot--warn { background: var(--loop-warn); }
-.home-pri__dot--crit { background: var(--loop-crit); }
-.home-pri__dot--info { background: var(--loop-accent); }
-.home-pri__dot--idle { background: var(--loop-text-3); }
-.home-pri__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.home-pri__tag { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
-.home-pri__title { font-size: 15.5px; font-weight: 600; color: var(--loop-text); line-height: 1.35; }
-.home-pri__why { font-size: 14px; color: var(--loop-text-2); line-height: 1.5; }
-.home-pri__cta { flex: none; align-self: center; color: var(--loop-accent-2); font-size: 13px; font-weight: 550; text-decoration: none; white-space: nowrap; }
-.home-pri__cta:hover { text-decoration: underline; }
-
-/* Business Health — a stated word + sentence, then the trust line. */
-.home-health__line { margin: 0; font-size: 19px; line-height: 1.55; color: var(--loop-text-2); font-weight: 400; max-width: 62ch; }
-.home-health__word { font-weight: 650; color: var(--loop-text); }
-.home-health__word--good { color: var(--loop-good); }
-.home-health__word--warn { color: var(--loop-warn); }
-.home-health__word--crit { color: var(--loop-crit); }
-.home-health__word--info { color: var(--loop-accent-2); }
-.home-health__word--idle { color: var(--loop-text-2); }
-.home-health__trust { margin: 0; color: var(--loop-text-3); font-size: 13.5px; line-height: 1.5; max-width: 66ch; }
-
-/* My Work — one clear next step, then a quiet list. */
-.home-next { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border: 1px solid var(--loop-line); border-radius: 14px; background: var(--loop-panel); text-decoration: none; }
-.home-next:hover { border-color: var(--loop-accent); }
-.home-next__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.home-next__eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 700; }
-.home-next__title { font-size: 16px; font-weight: 600; color: var(--loop-text); }
-.home-next__stage { font-size: 13px; color: var(--loop-text-2); }
-.home-next__verb { flex: none; color: var(--loop-accent-2); font-weight: 600; font-size: 14px; white-space: nowrap; }
-.home-work { list-style: none; margin: 0; padding: 0; }
-.home-work__row { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid var(--loop-line); text-decoration: none; }
-.home-work__title { color: var(--loop-text); font-size: 14.5px; font-weight: 550; min-width: 0; }
-.home-work__row:hover .home-work__title { color: var(--loop-accent-2); }
-.home-work__meta { color: var(--loop-text-3); font-size: 12.5px; flex: none; }
-.home-actions { display: flex; gap: 20px; flex-wrap: wrap; }
-
-/* Recent Business Activity — a plain, calm ledger. */
-.home-act { list-style: none; margin: 0; padding: 0; }
-.home-act__item { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 11px 0; border-top: 1px solid var(--loop-line); }
-.home-act__item:first-child { border-top: 0; padding-top: 2px; }
-.home-act__label { color: var(--loop-text); font-size: 14px; }
-.home-act__meta { color: var(--loop-text-3); font-size: 12.5px; flex: none; }
-
-@media (max-width: 600px) {
-  .home-pri__cta { align-self: flex-start; }
-  .home-next { flex-direction: column; align-items: flex-start; gap: 10px; }
-}
+@media (max-width: 1160px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 680px) { .tiles { grid-template-columns: 1fr; } }
 /* ===================== END DASHBOARD ===================== */

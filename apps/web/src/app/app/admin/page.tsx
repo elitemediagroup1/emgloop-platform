@@ -1,26 +1,21 @@
 import Link from 'next/link';
-import { loadHome } from './home-data';
-import type { EntityTone } from '../_loop-os';
+import type { ReactNode } from 'react';
+import { loadDashboard } from './dashboard-data';
 
-// The Dashboard — the operational home of Elite Media Group.
+// The Dashboard — the operational command center of Elite Media Group.
 //
-// This is the first screen every employee opens every morning. It reads top to
-// bottom like opening the business: a greeting, what today's business looks
-// like, what to prioritise, how healthy the business is (and whether that can be
-// trusted), the reader's own work, and what has actually happened.
+// One screen, no scrolling: a header and a 3×3 grid of tiles. Each tile answers
+// ONE question and is a doorway — Title, a short Status, one sentence, an
+// optional action. The Dashboard summarizes; the products explain.
 //
-// Non-negotiables:
-//   - Everything is REAL. Every line traces to a row, a derived fact, or an
-//     honest "unknown / unavailable" — never a placeholder, never a fabricated
-//     number, conversation, recommendation, or activity.
-//   - It flows. Sections lead into each other; it is not a wall of cards.
-//   - It answers, without a click: what happened, why, what matters, what needs
-//     me, what to do next, and whether I can trust what I'm seeing.
-//
-// Presentation only — no Prisma, no engine. The business half is projected from
-// the Executive Brain (home-data.ts); a failed read degrades to honest states.
+// CONSTITUTIONAL: nothing here is fabricated. Every tile shows real,
+// organization-scoped data or an honest "unavailable" state that says why.
+// Creator Hub and Accounting have no data in this platform yet and say so —
+// they are never filled with placeholder content. No developer vocabulary.
 
 export const dynamic = 'force-dynamic';
+
+type Tone = 'good' | 'warn' | 'crit' | 'info' | 'idle';
 
 function relTime(iso: string): string {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -29,197 +24,205 @@ function relTime(iso: string): string {
   const h = Math.round(m / 60);
   if (h < 24) return h + 'h ago';
   const d = Math.round(h / 24);
-  if (d === 1) return 'yesterday';
-  return d + 'd ago';
+  return d === 1 ? 'yesterday' : d + 'd ago';
 }
 
-// Operational item kind -> a calm tone for the priority marker.
-const KIND_TONE: Record<string, EntityTone> = {
-  work: 'info',
-  conversation: 'warn',
-  request: 'warn',
-  invitation: 'idle',
-};
+function Tile({ title, source, children }: { title: string; source?: string; children: ReactNode }) {
+  return (
+    <section className="tile" aria-label={title}>
+      <div className="tile__head">
+        <span className="tile__title">{title}</span>
+        {source ? <span className="tile__src">{source}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
 
-interface Priority {
-  id: string;
-  tone: EntityTone;
-  tag: string;
-  title: string;
-  why: string;
-  href: string;
-  cta: string;
+function StatusWord({ tone, label }: { tone: Tone; label: string }) {
+  return (
+    <div className="tile__status">
+      <span className={'tile__dot tile__dot--' + tone} aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function StatusNum({ value, label }: { value: number; label?: string }) {
+  return (
+    <div className="tile__status">
+      <span className="tile__num">{value}</span>
+      {label ? <span className="tile__num-label">{label}</span> : null}
+    </div>
+  );
+}
+
+function Action({ href, label }: { href: string; label: string }) {
+  return <Link href={href} className="tile__action">{label}</Link>;
 }
 
 export default async function Dashboard() {
-  const { workspace: data, brain } = await loadHome('assigned');
-  const {
-    header, attention, attentionTotal, nextAction, myWork, recentActivity,
-    completedTodayCount, canCreateWork,
-  } = data;
+  const { home, crm } = await loadDashboard();
+  const { workspace: w, brain } = home;
+  const { header } = w;
 
-  // ----- Today's Business — the calm opening line, then what the Brain knows.
-  const priorityCount = brain.signals.length + attentionTotal + brain.actions.length;
-  const mood =
-    priorityCount === 0
-      ? brain.health.measured && brain.health.tone === 'good'
-        ? 'Everything is running smoothly. Nothing needs a decision from you right now.'
-        : 'It’s quiet so far this morning. Nothing needs a decision from you right now.'
-      : `There ${priorityCount === 1 ? 'is' : 'are'} ${priorityCount} thing${priorityCount === 1 ? '' : 's'} to look at this morning — they’re in Today’s Priorities, just below.`;
-  const completedLine =
-    completedTodayCount > 0
-      ? `${completedTodayCount} work item${completedTodayCount === 1 ? '' : 's'} ${completedTodayCount === 1 ? 'was' : 'were'} completed today.`
-      : null;
-
-  // ----- Today's Priorities — Brain risks, operational decisions, and the
-  // Brain's recommended actions, fused into one honest list. Nothing invented.
-  const priorities: Priority[] = [
-    ...brain.signals.map((s) => ({
-      id: s.id, tone: s.tone, tag: 'Business risk', title: s.title, why: s.why, href: s.href, cta: 'Look closer',
-    })),
-    ...attention.map((a) => ({
-      id: a.key, tone: KIND_TONE[a.kind] ?? 'info', tag: a.kindLabel, title: a.title, why: a.reason, href: a.href, cta: a.cta,
-    })),
-    ...brain.actions.map((a) => ({
-      id: a.id, tone: 'info' as EntityTone, tag: 'Opportunity', title: a.title, why: a.why, href: a.href, cta: 'Review',
-    })),
-  ];
-  const shownPriorities = priorities.slice(0, 6);
-  const morePriorities = priorityCount - shownPriorities.length;
-
-  // ----- Business Health — the trust line answers "can I trust this?".
-  const trustLine = brain.health.measured
-    ? `Measured from ${brain.sensors?.instrumented ?? 0} connected data source${(brain.sensors?.instrumented ?? 0) === 1 ? '' : 's'}. Every figure here is real or marked unknown — never a guess.`
-    : brain.present
-      ? 'This isn’t measurable yet — no data source is connected, so it’s shown as unknown rather than guessed.'
-      : 'We can’t measure business health right now, so it’s shown as unavailable rather than assumed healthy.';
+  // Real counts. "Issues / priorities" = business risks + operational decisions.
+  const issues = brain.signals.length + w.attentionTotal;
+  const assigned = w.workSummary.assignedToMe;
+  const acts = w.recentActivity;
+  const callgridConnected = brain.present && (brain.sensors?.instrumented ?? 0) > 0;
 
   return (
     <div className="loop-os">
-      <div className="home">
+      <div className="cmd">
 
-        {/* GOOD MORNING */}
-        <header className="home-hero">
-          <h1 className="home-hero__greeting">{header.greeting}, {header.displayName}.</h1>
-          <p className="home-hero__meta">{header.dateLabel} · {header.organizationName}</p>
+        {/* HEADER */}
+        <header className="cmd-head">
+          <h1 className="cmd-head__greeting">{header.greeting}, {header.displayName}</h1>
+          <p className="cmd-head__meta">{header.dateLabel} · {header.organizationName}</p>
         </header>
 
-        {/* TODAY'S BUSINESS */}
-        <section className="home-sec">
-          <p className="home-sec__label">Today’s Business</p>
-          <p className="home-lede">{mood}</p>
-          {brain.present && brain.summary.length > 0
-            ? brain.summary.map((line, i) => (
-                <p key={i} className="home-lede home-lede--muted">{line}</p>
-              ))
-            : null}
-          {completedLine ? <p className="home-lede home-lede--muted">{completedLine}</p> : null}
-        </section>
+        <div className="tiles">
 
-        {/* TODAY'S PRIORITIES */}
-        <section className="home-sec">
-          <p className="home-sec__label">
-            Today’s Priorities
-            {priorityCount > 0 ? <span className="home-sec__count">{priorityCount}</span> : null}
-          </p>
-          {shownPriorities.length === 0 ? (
-            <p className="home-lede home-lede--muted">
-              You’re clear. Nothing needs your attention right now — business risks, work without an
-              owner, and quiet conversations will appear here the moment they happen.
+          {/* ── Row 1 ───────────────────────────────────────────── */}
+
+          {/* Business Status */}
+          <Tile title="Business Status" source="CallGrid · Work OS">
+            {issues === 0 ? (
+              <>
+                <StatusWord tone="good" label="Operating Normally" />
+                <p className="tile__line">No evidence-backed issues require your attention.</p>
+              </>
+            ) : (
+              <>
+                <StatusWord tone="warn" label={`${issues} ${issues === 1 ? 'issue' : 'issues'} to look at`} />
+                <p className="tile__line">
+                  {issues === 1 ? 'One issue needs' : `${issues} issues need`} your attention today.
+                </p>
+              </>
+            )}
+            <Action href="/app/admin/marketplace" label="View details →" />
+          </Tile>
+
+          {/* Today's Priorities */}
+          <Tile title="Today's Priorities" source="CallGrid · Work OS">
+            <StatusNum value={issues} />
+            <p className="tile__line">
+              {issues === 0
+                ? 'No priorities today.'
+                : `${issues === 1 ? 'One thing needs' : `${issues} things need`} your attention.`}
             </p>
-          ) : (
-            <ul className="home-pri">
-              {shownPriorities.map((p) => (
-                <li key={p.id} className="home-pri__item">
-                  <span className={'home-pri__dot home-pri__dot--' + p.tone} aria-hidden="true" />
-                  <div className="home-pri__body">
-                    <span className="home-pri__tag">{p.tag}</span>
-                    <span className="home-pri__title">{p.title}</span>
-                    <span className="home-pri__why">{p.why}</span>
-                  </div>
-                  <Link href={p.href} className="home-pri__cta">{p.cta}</Link>
-                </li>
-              ))}
-            </ul>
-          )}
-          {morePriorities > 0 ? (
-            <p className="home-more">and {morePriorities} more waiting behind these.</p>
-          ) : null}
-        </section>
+          </Tile>
 
-        {/* BUSINESS HEALTH */}
-        <section className="home-sec">
-          <p className="home-sec__label">Business Health</p>
-          <p className="home-health__line">
-            <span className={'home-health__word home-health__word--' + brain.health.tone}>{brain.health.label}.</span>{' '}
-            {brain.health.line}
-          </p>
-          <p className="home-health__trust">{trustLine}</p>
-          {brain.present ? (
-            <Link href="/app/admin/marketplace" className="home-link">See the full picture →</Link>
-          ) : null}
-        </section>
-
-        {/* MY WORK */}
-        <section className="home-sec">
-          <p className="home-sec__label">My Work</p>
-          {nextAction ? (
-            <Link href={nextAction.href} className="home-next">
-              <div className="home-next__body">
-                <span className="home-next__eyebrow">Next up</span>
-                <span className="home-next__title">{nextAction.title}</span>
-                <span className="home-next__stage">{nextAction.stageName}</span>
-              </div>
-              <span className="home-next__verb">{nextAction.verb} →</span>
-            </Link>
-          ) : (
-            <p className="home-lede home-lede--muted">
-              You have nothing assigned to work on right now.
-              {canCreateWork ? ' Start something when you’re ready.' : ''}
+          {/* My Work */}
+          <Tile title="My Work" source="Work OS">
+            <StatusNum value={assigned} label="Assigned" />
+            <p className="tile__line">
+              {assigned === 0
+                ? 'Nothing waiting for you.'
+                : w.nextAction
+                  ? `Next: ${w.nextAction.title}.`
+                  : `${assigned === 1 ? 'One item is' : `${assigned} items are`} waiting for you.`}
             </p>
-          )}
+            {assigned > 0 ? (
+              <Action href="/app/admin/work" label="View my work →" />
+            ) : w.canCreateWork ? (
+              <Action href="/app/admin/work/new" label="Create work →" />
+            ) : (
+              <Action href="/app/admin/work" label="View my work →" />
+            )}
+          </Tile>
 
-          {myWork.length > 0 ? (
-            <ul className="home-work">
-              {myWork.map((w) => (
-                <li key={w.workInstanceId}>
-                  <Link href={w.href} className="home-work__row">
-                    <span className="home-work__title">{w.title}</span>
-                    <span className="home-work__meta">{w.stageName} · {w.assignedLabel}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {/* ── Row 2 ───────────────────────────────────────────── */}
 
-          <div className="home-actions">
-            <Link href="/app/admin/work" className="home-link">See all my work →</Link>
-            {!nextAction && myWork.length === 0 && canCreateWork ? (
-              <Link href="/app/admin/work/new" className="home-link">Start new work →</Link>
-            ) : null}
-          </div>
-        </section>
+          {/* CallGrid Intelligence */}
+          <Tile title="CallGrid Intelligence" source="CallGrid">
+            {!brain.present ? (
+              <>
+                <StatusWord tone="idle" label="Unavailable" />
+                <p className="tile__line">We can’t reach CallGrid right now.</p>
+                <Action href="/app/admin/marketplace" label="Open CallGrid →" />
+              </>
+            ) : !callgridConnected ? (
+              <>
+                <StatusWord tone="idle" label="Not connected" />
+                <p className="tile__line">CallGrid has not yet been connected.</p>
+                <Action href="/crm/integrations" label="Connect CallGrid →" />
+              </>
+            ) : (
+              <>
+                <StatusWord tone={brain.health.tone as Tone} label={brain.health.label} />
+                <p className="tile__line">{brain.health.line}</p>
+                <Action href="/app/admin/marketplace" label="Open CallGrid →" />
+              </>
+            )}
+          </Tile>
 
-        {/* RECENT BUSINESS ACTIVITY */}
-        <section className="home-sec">
-          <p className="home-sec__label">Recent Business Activity</p>
-          {recentActivity.length === 0 ? (
-            <p className="home-lede home-lede--muted">
-              Nothing has happened in the business yet. Work finished, customers added and people
-              invited will appear here as your team operates.
-            </p>
-          ) : (
-            <ul className="home-act">
-              {recentActivity.map((a) => (
-                <li key={a.id} className="home-act__item">
-                  <span className="home-act__label">{a.label}</span>
-                  <span className="home-act__meta">{a.actorName} · {relTime(a.createdAtIso)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+          {/* CRM */}
+          <Tile title="CRM" source="CRM">
+            {crm.customers === 0 && crm.openConversations === 0 ? (
+              <>
+                <StatusWord tone="idle" label="No activity yet" />
+                <p className="tile__line">No customers or conversations yet.</p>
+              </>
+            ) : (
+              <>
+                <StatusNum value={crm.customers} label={crm.customers === 1 ? 'Customer' : 'Customers'} />
+                <p className="tile__line">
+                  {crm.openConversations === 0
+                    ? 'No open conversations.'
+                    : `${crm.openConversations} open ${crm.openConversations === 1 ? 'conversation' : 'conversations'}.`}
+                </p>
+              </>
+            )}
+            <Action href="/crm" label="Open CRM →" />
+          </Tile>
 
+          {/* Creator Hub — no such data in this platform yet. Stated plainly. */}
+          <Tile title="Creator Hub">
+            <StatusWord tone="idle" label="Not available" />
+            <p className="tile__line">The Creator Hub isn’t set up yet.</p>
+          </Tile>
+
+          {/* ── Row 3 ───────────────────────────────────────────── */}
+
+          {/* Accounting — no accounting data in this platform yet. */}
+          <Tile title="Accounting">
+            <StatusWord tone="idle" label="Not connected" />
+            <p className="tile__line">No accounting system is connected yet.</p>
+          </Tile>
+
+          {/* Recent Business Activity */}
+          <Tile title="Recent Business Activity" source="Work OS · CRM">
+            {acts.length === 0 ? (
+              <>
+                <StatusWord tone="idle" label="None yet" />
+                <p className="tile__line">No business activity has been recorded yet.</p>
+              </>
+            ) : (
+              <>
+                <StatusWord tone="info" label={`${acts.length} recent`} />
+                <p className="tile__line">Latest: {acts[0]!.label} · {relTime(acts[0]!.createdAtIso)}.</p>
+              </>
+            )}
+          </Tile>
+
+          {/* System Status */}
+          <Tile title="System Status" source="System">
+            {brain.present ? (
+              <>
+                <StatusWord tone="good" label="Operational" />
+                <p className="tile__line">All systems are responding normally.</p>
+              </>
+            ) : (
+              <>
+                <StatusWord tone="warn" label="Degraded" />
+                <p className="tile__line">Some information can’t be reached right now.</p>
+              </>
+            )}
+          </Tile>
+
+        </div>
       </div>
     </div>
   );
