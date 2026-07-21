@@ -1,7 +1,6 @@
 // Vendor Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { hasValue } from "@emgloop/shared";
-import { MarketplaceNav } from "../_MarketplaceNav";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, requireCrmContext } from "../../../../../crm/crm-data";
@@ -173,7 +172,6 @@ export default async function VendorOperatingSystemPage() {
           </div>
         </header>
 
-        <MarketplaceNav active="vendors" />
 
         <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
@@ -299,7 +297,7 @@ export default async function VendorOperatingSystemPage() {
                 <BriefingItem icon="brain" title="Vendor briefing waiting for persisted Brain insights" />
               </div>
               <p className="loop-quiet">The Brain computes intelligence on its own schedule. Briefings appear here once persisted.</p>
-              <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link>
+              <Link className="loop-card__link" href="/app/admin/marketplace">Open Brain</Link>
             </div>
           </div>
         </div>
@@ -389,7 +387,7 @@ export default async function VendorOperatingSystemPage() {
                 icon: "brain",
                 title: "Brain",
                 detail: "See recommendations that reference vendors.",
-                href: "/app/admin/brain",
+                href: "/app/admin/marketplace",
               },
               {
                 icon: "activity",

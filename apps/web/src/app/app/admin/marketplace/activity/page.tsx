@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { MarketplaceNav } from "../_MarketplaceNav";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
 import { SidebarIcon } from "../../../../crm/_brand/SidebarIcon";
@@ -170,7 +169,6 @@ export default async function MarketplaceActivityPage() {
           </div>
         </header>
 
-        <MarketplaceNav active="activity" />
 
         <section className="loop-actv__summary" aria-label="Activity summary">
           <div className="loop-actv__sum">
@@ -338,7 +336,7 @@ export default async function MarketplaceActivityPage() {
               <div className="loop-empty loop-empty--good">
                 <p className="loop-empty__title">Brain insights on their own schedule</p>
                 <p className="loop-empty__body">
-                  The Brain summarizes marketplace activity once it has persisted a briefing. <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link>
+                  The Brain summarizes marketplace activity once it has persisted a briefing. <Link className="loop-card__link" href="/app/admin/marketplace">Open Brain</Link>
                 </p>
               </div>
             </div>
@@ -381,7 +379,7 @@ export default async function MarketplaceActivityPage() {
                 icon: "brain",
                 title: "Brain",
                 detail: "See how these events inform recommendations.",
-                href: "/app/admin/brain",
+                href: "/app/admin/marketplace",
               },
               {
                 icon: "flow",

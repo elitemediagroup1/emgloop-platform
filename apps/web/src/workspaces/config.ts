@@ -89,22 +89,31 @@ export interface WorkspaceConfig extends ShellConfig {
 // deny-by-default matrix the CRM already uses (resource 'intelligence').
 // ---------------------------------------------------------------------------
 
-// Sprint 27 — Owner Shell Cleanup and Truthfulness.
+// Owner (ADMIN) sidebar — one product, three sections.
 //
-// The Owner (ADMIN) sidebar now links ONLY to real, session-organization-
-// scoped surfaces that exist today: Dashboard, Brain (honest empty states),
-// Marketplace (the real command center at /app/admin/marketplace), and My Work.
+// The sidebar links ONLY to real, session-organization-scoped surfaces that
+// exist today, grouped so the information architecture teaches itself:
 //
-// Deliberately NOT in the sidebar (see docs/sprint-28-crm-org-scoping.md):
-//   - Employees, Integrations, Settings and CRM: their mature implementations
-//     live under /crm/*, but /crm is currently resolved through a hardcoded
-//     "servicesinmycity-demo" organization (apps/web/src/crm/crm-data.ts) rather
-//     than the authenticated session. Linking Matt there would show DEMO data,
-//     so they are withheld until Sprint 28 makes /crm session-org-aware.
-//   - Operations, Businesses, Creators, Experiments, Knowledge, System Health:
-//     no production implementation exists yet, so they are removed from nav
-//     instead of shown as placeholder / "Soon" items. The catch-all route
-//     still resolves typed URLs; nothing in navigation points to a placeholder.
+//   OPERATING SYSTEM     — the operational home (Good morning / attention / work).
+//   CALLGRID INTELLIGENCE — the executive command center (Overview) and its
+//                           first-class drill-downs. These were previously
+//                           reachable only through an in-page sub-nav under
+//                           /app/admin/marketplace; promoting them to the
+//                           sidebar makes the whole product discoverable in one
+//                           place and gives future Loop OS modules a pattern.
+//   WORK OS              — human work execution.
+//
+// Consolidation note: there was a duplicate "Brain" entry (/app/admin/brain)
+// that rendered the SAME Executive Brain as the Overview (/app/admin/marketplace)
+// from the same reasoning path — two sidebar items for one surface. /app/admin/brain
+// is now a redirect to the Overview, and the duplicate entry is gone. There is
+// one executive command center, with Marketplace/CallGrid as one capability in it.
+//
+// Deliberately NOT in the sidebar: surfaces whose only implementations live under
+// /crm/* or that have no production implementation yet. The catch-all route still
+// resolves typed URLs; nothing in navigation points to a placeholder.
+const CALLGRID_INTEL = { resource: 'intelligence', action: 'view' } as const;
+
 const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
   label: 'Admin',
@@ -115,8 +124,23 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
       label: 'OPERATING SYSTEM',
       items: [
         { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
-        { href: '/app/admin/brain', label: 'Brain', icon: 'brain' },
-        { href: '/app/admin/marketplace', label: 'Marketplace', icon: 'chart', requires: { resource: 'intelligence', action: 'view' } },
+      ],
+    },
+    {
+      label: 'CALLGRID INTELLIGENCE',
+      items: [
+        { href: '/app/admin/marketplace', label: 'Overview', icon: 'brain', requires: CALLGRID_INTEL },
+        { href: '/app/admin/marketplace/buyers', label: 'Buyers', icon: 'users', requires: CALLGRID_INTEL },
+        { href: '/app/admin/marketplace/vendors', label: 'Vendors', icon: 'building', requires: CALLGRID_INTEL },
+        { href: '/app/admin/marketplace/sources', label: 'Sources', icon: 'flow', requires: CALLGRID_INTEL },
+        { href: '/app/admin/marketplace/campaigns', label: 'Campaigns', icon: 'star', requires: CALLGRID_INTEL },
+        { href: '/app/admin/marketplace/activity', label: 'Activity', icon: 'activity', requires: CALLGRID_INTEL },
+        { href: '/app/admin/marketplace/auction', label: 'Auctions', icon: 'columns', requires: CALLGRID_INTEL },
+      ],
+    },
+    {
+      label: 'WORK OS',
+      items: [
         { href: '/app/admin/work', label: 'My Work', icon: 'flow' },
       ],
     },

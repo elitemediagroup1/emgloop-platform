@@ -15,7 +15,6 @@
 
 import Link from 'next/link';
 import { requireCrmContext } from '../../../../../crm/crm-data';
-import { MarketplaceNav } from '../_MarketplaceNav';
 import { loadAuctionPageData } from './auction-data';
 
 export const dynamic = 'force-dynamic';
@@ -36,7 +35,6 @@ export default async function AuctionIntelligencePage() {
   if (!data.window) {
     return (
       <main className="loop-page">
-        <MarketplaceNav active="overview" />
         <h1>Auction Intelligence</h1>
         <section>
           <h2>No auction data yet</h2>
@@ -66,7 +64,6 @@ export default async function AuctionIntelligencePage() {
 
   return (
     <main className="loop-page">
-      <MarketplaceNav active="overview" />
       <h1>Auction Intelligence</h1>
 
       {/* 1 + 2. Status and last sync, per endpoint. */}

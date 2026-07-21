@@ -1,7 +1,6 @@
 // Campaign Intelligence workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { hasValue } from "@emgloop/shared";
-import { MarketplaceNav } from "../_MarketplaceNav";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
@@ -149,7 +148,6 @@ export default async function CampaignIntelligencePage() {
           </div>
         </header>
 
-        <MarketplaceNav active="campaigns" />
 
         <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
@@ -257,7 +255,7 @@ export default async function CampaignIntelligencePage() {
               </div>
               <div className="loop-empty loop-empty--good">
                 <p className="loop-empty__title">Campaign briefing waiting for persisted Brain insights</p>
-                <p className="loop-empty__body">The Brain computes campaign intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link></p>
+                <p className="loop-empty__body">The Brain computes campaign intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/marketplace">Open Brain</Link></p>
               </div>
             </div>
             <MarketplaceDecisionQueue
@@ -352,7 +350,7 @@ export default async function CampaignIntelligencePage() {
                 icon: "brain",
                 title: "Brain",
                 detail: "See recommendations that reference campaigns.",
-                href: "/app/admin/brain",
+                href: "/app/admin/marketplace",
               },
             ]}
           />

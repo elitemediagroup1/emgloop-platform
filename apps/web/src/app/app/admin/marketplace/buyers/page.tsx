@@ -1,7 +1,6 @@
 // Buyer Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
 import { hasValue } from "@emgloop/shared";
-import { MarketplaceNav } from "../_MarketplaceNav";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, requireCrmContext } from "../../../../../crm/crm-data";
@@ -147,7 +146,6 @@ export default async function BuyerOperatingSystemPage() {
           </div>
         </header>
 
-        <MarketplaceNav active="buyers" />
 
         <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
@@ -261,7 +259,7 @@ export default async function BuyerOperatingSystemPage() {
                 <BriefingItem icon="brain" title="Buyer briefing waiting for persisted Brain insights" />
               </div>
               <div className="loop-empty loop-empty--good">
-                <p className="loop-empty__body">The Brain computes buyer intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link></p>
+                <p className="loop-empty__body">The Brain computes buyer intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/marketplace">Open Brain</Link></p>
               </div>
             </div>
           </div>
@@ -345,7 +343,7 @@ export default async function BuyerOperatingSystemPage() {
                 icon: "brain",
                 title: "Brain",
                 detail: "See recommendations that reference buyers.",
-                href: "/app/admin/brain",
+                href: "/app/admin/marketplace",
               },
               {
                 icon: "activity",
