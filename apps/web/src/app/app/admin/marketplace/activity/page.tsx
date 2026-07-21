@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CallGridNav } from "../_CallGridNav";
 import { startOfEasternDay } from "@emgloop/shared";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
@@ -168,6 +169,8 @@ export default async function MarketplaceActivityPage() {
             <span className="loop-os__brief-chipdate">{todayLabel()}</span>
           </div>
         </header>
+
+        <CallGridNav active="activity" />
 
 
         <section className="loop-actv__summary" aria-label="Activity summary">

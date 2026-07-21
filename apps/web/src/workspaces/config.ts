@@ -54,6 +54,8 @@ export interface NavItem {
 export interface NavGroup {
   label: string;
   items: NavItem[];
+  /** Renders separated at the bottom of the sidebar (e.g. Administration). */
+  footer?: boolean;
 }
 
 /**
@@ -89,30 +91,26 @@ export interface WorkspaceConfig extends ShellConfig {
 // deny-by-default matrix the CRM already uses (resource 'intelligence').
 // ---------------------------------------------------------------------------
 
-// Owner (ADMIN) sidebar — one product, three sections.
+// Owner (ADMIN) sidebar — the global product navigation.
 //
-// The sidebar links ONLY to real, session-organization-scoped surfaces that
-// exist today, grouped so the information architecture teaches itself:
+// The global sidebar represents MAJOR BUSINESS OPERATING AREAS only — one flat,
+// icon+label list, no category headers, no product subpages. Each product owns
+// its OWN internal navigation inside its page area (e.g. CallGrid's Overview /
+// Buyers / Vendors / … subnav lives on the CallGrid pages, not here).
 //
-//   OPERATING SYSTEM     — the operational home (Good morning / attention / work).
-//   CALLGRID INTELLIGENCE — the executive command center (Overview) and its
-//                           first-class drill-downs. These were previously
-//                           reachable only through an in-page sub-nav under
-//                           /app/admin/marketplace; promoting them to the
-//                           sidebar makes the whole product discoverable in one
-//                           place and gives future Loop OS modules a pattern.
-//   WORK OS              — human work execution.
+//   Dashboard · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting
+//   (Administration is separated at the bottom, permission-aware.)
 //
-// Consolidation note: there was a duplicate "Brain" entry (/app/admin/brain)
-// that rendered the SAME Executive Brain as the Overview (/app/admin/marketplace)
-// from the same reasoning path — two sidebar items for one surface. /app/admin/brain
-// is now a redirect to the Overview, and the duplicate entry is gone. There is
-// one executive command center, with Marketplace/CallGrid as one capability in it.
+// CRM, Creator Hub, Accounting and Administration are approved operating areas,
+// so they stay in the sidebar even though they are not built/connected: their
+// routes open an honest "unavailable" state (the /app/admin catch-all → ShellPage)
+// rather than being hidden. Nothing here shows fabricated data.
 //
-// Deliberately NOT in the sidebar: surfaces whose only implementations live under
-// /crm/* or that have no production implementation yet. The catch-all route still
-// resolves typed URLs; nothing in navigation points to a placeholder.
+// Active state is derived by the shell from the current path (longest-prefix), so
+// every child route (e.g. /app/admin/marketplace/buyers) keeps its top-level
+// product (CallGrid Intelligence) highlighted.
 const CALLGRID_INTEL = { resource: 'intelligence', action: 'view' } as const;
+const ADMIN_ONLY = { resource: 'users', action: 'view' } as const;
 
 const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
@@ -121,27 +119,21 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
   home: '/app/admin',
   nav: [
     {
-      label: 'OPERATING SYSTEM',
+      label: '',
       items: [
         { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
+        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'brain', requires: CALLGRID_INTEL },
+        { href: '/app/admin/crm', label: 'CRM', icon: 'users' },
+        { href: '/app/admin/creator-hub', label: 'Creator Hub', icon: 'star' },
+        { href: '/app/admin/work', label: 'Work OS', icon: 'flow' },
+        { href: '/app/admin/accounting', label: 'Accounting', icon: 'revenue' },
       ],
     },
     {
-      label: 'CALLGRID INTELLIGENCE',
+      label: '',
+      footer: true,
       items: [
-        { href: '/app/admin/marketplace', label: 'Overview', icon: 'brain', requires: CALLGRID_INTEL },
-        { href: '/app/admin/marketplace/buyers', label: 'Buyers', icon: 'users', requires: CALLGRID_INTEL },
-        { href: '/app/admin/marketplace/vendors', label: 'Vendors', icon: 'building', requires: CALLGRID_INTEL },
-        { href: '/app/admin/marketplace/sources', label: 'Sources', icon: 'flow', requires: CALLGRID_INTEL },
-        { href: '/app/admin/marketplace/campaigns', label: 'Campaigns', icon: 'star', requires: CALLGRID_INTEL },
-        { href: '/app/admin/marketplace/activity', label: 'Activity', icon: 'activity', requires: CALLGRID_INTEL },
-        { href: '/app/admin/marketplace/auction', label: 'Auctions', icon: 'columns', requires: CALLGRID_INTEL },
-      ],
-    },
-    {
-      label: 'WORK OS',
-      items: [
-        { href: '/app/admin/work', label: 'My Work', icon: 'flow' },
+        { href: '/app/admin/administration', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
       ],
     },
   ],

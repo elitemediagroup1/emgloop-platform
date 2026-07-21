@@ -16,6 +16,7 @@
 import Link from 'next/link';
 import { requireCrmContext } from '../../../../../crm/crm-data';
 import { loadAuctionPageData } from './auction-data';
+import { CallGridNav } from '../_CallGridNav';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,8 @@ export default async function AuctionIntelligencePage() {
   if (!organizationId) {
     return (
       <main className="loop-page">
-        <h1>Auction Intelligence</h1>
+        <h1>Bids</h1>
+        <CallGridNav active="bids" />
         <p>No organization is resolved for this session.</p>
       </main>
     );
@@ -35,9 +37,10 @@ export default async function AuctionIntelligencePage() {
   if (!data.window) {
     return (
       <main className="loop-page">
-        <h1>Auction Intelligence</h1>
+        <h1>Bids</h1>
+        <CallGridNav active="bids" />
         <section>
-          <h2>No auction data yet</h2>
+          <h2>No bid data yet</h2>
           <p>
             No auction report sync has run for this organization. This is an honest
             absence, not a zero: Loop has not measured CallGrid&rsquo;s bid or ping
@@ -64,11 +67,12 @@ export default async function AuctionIntelligencePage() {
 
   return (
     <main className="loop-page">
-      <h1>Auction Intelligence</h1>
+      <h1>Bids</h1>
+      <CallGridNav active="bids" />
 
       {/* 1 + 2. Status and last sync, per endpoint. */}
       <section>
-        <h2>Auction data status</h2>
+        <h2>Bid data status</h2>
         <p>
           Window <strong>{data.window.label}</strong>. The three GET report endpoints
           accept no timezone parameter, so this is the window Loop <em>requested</em> in

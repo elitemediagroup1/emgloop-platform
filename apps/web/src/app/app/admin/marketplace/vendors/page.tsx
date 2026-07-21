@@ -1,5 +1,6 @@
 // Vendors workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { CallGridNav } from "../_CallGridNav";
 import { hasValue } from "@emgloop/shared";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
@@ -172,6 +173,8 @@ export default async function VendorOperatingSystemPage() {
             <span className="loop-os__brief-chip loop-os__brief-chipdate">{todayLabel()}</span>
           </div>
         </header>
+
+        <CallGridNav active="vendors" />
 
 
         <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />

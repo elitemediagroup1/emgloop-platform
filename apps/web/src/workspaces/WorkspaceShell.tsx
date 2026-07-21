@@ -26,6 +26,51 @@ function initials(name: string): string {
   return parts.map((p) => p[0]?.toUpperCase() ?? '').join('') || 'EM';
 }
 
+// The active top-level item = the longest nav href that prefixes the current
+// path. Longest-match keeps a product highlighted across all its child routes
+// (e.g. /app/admin/marketplace/buyers → /app/admin/marketplace) without the
+// broader Dashboard (/app/admin) ever stealing the highlight.
+function activeNavHref(shell: ShellConfig, pathname: string | null): string | null {
+  if (!pathname) return null;
+  let best: string | null = null;
+  for (const group of shell.nav) {
+    for (const item of group.items) {
+      if (item.href.startsWith('#')) continue;
+      if (pathname === item.href || pathname.startsWith(item.href + '/')) {
+        if (!best || item.href.length > best.length) best = item.href;
+      }
+    }
+  }
+  return best;
+}
+
+// One nav link, shared by the main list and the footer (Administration) — the
+// sidebar has ONE link implementation, never per-route variants.
+function renderNavLink(item: NavItem, permitted: Map<string, boolean>, active: string | null) {
+  const allowed = permitted.get(item.href) ?? true;
+  const disabled = !allowed || item.soon;
+  const isActive = item.href === active;
+  const className = 'loop-sb__link' + (isActive ? ' is-active' : '') + (disabled ? ' is-disabled' : '');
+  const content = (
+    <>
+      <span className="loop-sb__ico">
+        <SidebarIcon name={item.icon} />
+      </span>
+      <span>{item.label}</span>
+      {item.soon ? <span className="loop-sb__soon">Soon</span> : null}
+    </>
+  );
+  return disabled ? (
+    <span className={className} key={item.href} aria-disabled>
+      {content}
+    </span>
+  ) : (
+    <Link className={className} href={item.href} key={item.href}>
+      {content}
+    </Link>
+  );
+}
+
 export default async function WorkspaceShell({
   shell,
   session,
@@ -40,6 +85,7 @@ export default async function WorkspaceShell({
   // crumb.
   const pathname = headers().get('x-pathname');
   const crumb = resolveNavLabel(shell, pathname) ?? 'Overview';
+  const active = activeNavHref(shell, pathname);
 
   const permitted = new Map<string, boolean>();
   await Promise.all(
@@ -66,35 +112,21 @@ export default async function WorkspaceShell({
             <span className="loop-sb__os">OS</span>
           </div>
           <div className="loop-sb__scroll">
-            {shell.nav.map((group) => (
-              <div className="loop-sb__group" key={group.label}>
-                <div className="loop-sb__grouplabel">{group.label}</div>
-                {group.items.map((item) => {
-                  const allowed = permitted.get(item.href) ?? true;
-                  const disabled = !allowed || item.soon;
-                  const className = 'loop-sb__link' + (disabled ? ' is-disabled' : '');
-                  const content = (
-                    <>
-                      <span className="loop-sb__ico">
-                        <SidebarIcon name={item.icon} />
-                      </span>
-                      <span>{item.label}</span>
-                      {item.soon ? <span className="loop-sb__soon">Soon</span> : null}
-                    </>
-                  );
-                  return disabled ? (
-                    <span className={className} key={item.href} aria-disabled>
-                      {content}
-                    </span>
-                  ) : (
-                    <Link className={className} href={item.href} key={item.href}>
-                      {content}
-                    </Link>
-                  );
-                })}
+            {shell.nav.filter((g) => !g.footer).map((group, gi) => (
+              <div className="loop-sb__group" key={group.label || `g${gi}`}>
+                {group.label ? <div className="loop-sb__grouplabel">{group.label}</div> : null}
+                {group.items.map((item) => renderNavLink(item, permitted, active))}
               </div>
             ))}
           </div>
+          {shell.nav.some((g) => g.footer) ? (
+            <div className="loop-sb__adminarea">
+              {shell.nav
+                .filter((g) => g.footer)
+                .flatMap((g) => g.items)
+                .map((item) => renderNavLink(item, permitted, active))}
+            </div>
+          ) : null}
           <div className="loop-sb__foot">
             <div className="loop-sb__user">
               <span className="loop-sb__avatar">{initials(session.name)}</span>

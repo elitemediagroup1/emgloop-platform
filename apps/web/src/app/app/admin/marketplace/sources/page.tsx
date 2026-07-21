@@ -10,6 +10,7 @@
 // params, so this stays a pure Server Component.
 
 import Link from 'next/link';
+import { CallGridNav } from '../_CallGridNav';
 import { requireCrmContext } from '../../../../../crm/crm-data';
 import { money, num, type EntityTone } from '../../../_loop-os';
 import { loadDimensionWindows, rowTone, type DimRow } from '../callgrid-dimensions';
@@ -67,6 +68,8 @@ export default async function SourcesListingPage({ searchParams }: PageProps) {
             <p className="loop-os__brief-body">{summary}</p>
           </div>
         </header>
+
+        <CallGridNav active="sources" />
 
         <div className="cg-toolbar">
           <form className="cg-search" method="get">

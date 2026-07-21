@@ -1,5 +1,6 @@
 // Campaigns workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { CallGridNav } from "../_CallGridNav";
 import { hasValue } from "@emgloop/shared";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
@@ -148,6 +149,8 @@ export default async function CampaignIntelligencePage() {
             </div>
           </div>
         </header>
+
+        <CallGridNav active="campaigns" />
 
 
         <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />

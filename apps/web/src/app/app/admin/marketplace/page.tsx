@@ -6,6 +6,7 @@ import { loadProviderCards, computeSystemHealth } from "../../../../crm/integrat
 import { num, todayLabel, clockDuration, greeting, IntegrationStatusPanel } from "../../_loop-os";
 import { ExecutiveBrainView } from "../_executive/ExecutiveBrainView";
 import { loadExecutiveBrain } from "../_executive/executive-brain-data";
+import { CallGridNav } from "./_CallGridNav";
 import type { ExecutiveBrainReport } from "@emgloop/intelligence";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +57,7 @@ const DRILLDOWNS: { href: string; icon: string; label: string; hint: string }[] 
   { href: "/app/admin/marketplace/sources", icon: "flow", label: "Sources", hint: "Publishers & traffic" },
   { href: "/app/admin/marketplace/campaigns", icon: "star", label: "Campaigns", hint: "What's driving calls" },
   { href: "/app/admin/marketplace/activity", icon: "activity", label: "Activity", hint: "The live event stream" },
-  { href: "/app/admin/marketplace/auction", icon: "columns", label: "Auctions", hint: "Bid & win evidence" },
+  { href: "/app/admin/marketplace/auction", icon: "columns", label: "Bids", hint: "Bid & win evidence" },
 ];
 
 export default async function CallGridOverviewPage() {
@@ -100,6 +101,8 @@ export default async function CallGridOverviewPage() {
             <span className="loop-os__brief-chip loop-os__brief-chipdate">{todayLabel()}</span>
           </div>
         </header>
+
+        <CallGridNav active="overview" />
 
         <div className="loop-grid">
           <div className="loop-grid__content">

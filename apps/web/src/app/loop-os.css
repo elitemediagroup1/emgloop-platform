@@ -44,6 +44,7 @@
 .loop-sb__ico { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 18px; color: var(--loop-text-3); }
 .loop-sb__link:hover .loop-sb__ico, .loop-sb__link.is-active .loop-sb__ico { color: var(--loop-accent-2); }
 .loop-sb__soon { margin-left: auto; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); border: 1px solid var(--loop-line); border-radius: 5px; padding: 1px 5px; }
+.loop-sb__adminarea { border-top: 1px solid var(--loop-line); padding: 10px 12px; }
 .loop-sb__foot { border-top: 1px solid var(--loop-line); padding: 14px; }
 .loop-sb__stat { display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; color: var(--loop-text-3); margin-bottom: 6px; }
 .loop-sb__stat b { color: var(--loop-good); font-weight: 600; }
