@@ -47,7 +47,7 @@ type Aggregate = {
   callsWithRevenue: number;
 };
 
-function toScore(agg: Aggregate | null): DayScore {
+export function toScore(agg: Aggregate | null): DayScore {
   if (agg === null) {
     return { available: false, totalCalls: null, billableCalls: null, revenueCents: null, profitCents: null };
   }
