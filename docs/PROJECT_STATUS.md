@@ -78,14 +78,20 @@ view / create / edit / duplicate / activate-deactivate reusable step sequences (
 Work Type associations, ordered steps). Guards `settings:update`, org-from-session, audited, footer
 nav item. Shared step editor **extracted** (`work/_components/StepListEditor` + `work-steps`) and
 Start Work refactored onto it — one source of truth, no duplication. Typecheck+build clean, DB 151/151.
+**Custom-field config UI (#141, draft — stacked on #140):** Work Types page gained a per-type
+"Fields (n)" editor — admins add/reorder/remove type-specific fields (label, 11 types, helper,
+required, active, dropdown options). Engine `setWorkTypeFields` (the missing writer; merges the bag,
+fail-closed cross-org). Stable keys derived server-side + shown read-only. Guards settings:update,
+audited. **This completes the spec's UI** — Work Types, their fields, and templates are all
+admin-configurable with no code change. Typecheck+build clean, DB 153/153.
 - ⚠️ **`ResponsibilityAssignment` model does NOT exist** (spec assumed it) — responsibility
   resolves via a configurable org owner-map; absent ⇒ Needs an Owner (never fabricated).
 - ⚠️ **Duplicate "Matt Dunn" is DATA, not a query bug**: the demo-seed OWNER `admin@emgloop.com`
   got renamed to "Matt Dunn" during setup and coexists with Matt's real account. Dedup collapses
   same-id/same-email; the two distinct-email rows need the seed `admin@`/`manager@`/`viewer@`
   rows **removed once via the Team page** (persists since #134).
-- **NOT built yet:** the custom-field **config** UI (increment 4 — defs render in Start Work +
-  Work Detail when present; no Type defines any until the config UI ships).
+- **UI COMPLETE** across #138–#141: builder, handoff/complete, template admin, field config. What
+  remains is not workflow UI but platform debt (below) — plus deploy validation of the whole stack.
 
 ## Onboarding / invitations / team lifecycle — DONE (merged: #129, #133, #134)
 Absolute invite/reset URLs; team management at `/app/admin/administration/team`. **Lifecycle
@@ -113,9 +119,11 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
 ---
 
 ## Open threads / next steps
-1. **Configurable workflows — engine merged (#137); UI stack in review:** Start Work (#138) →
-   Work Detail / Complete-My-Step (#139) → Workflow Templates admin (#140), each stacked on the
-   prior. Last piece: (4) custom-field **config** UI on the Work Types page, after the stack lands.
+1. **Configurable workflows — engine merged (#137); full UI stack in review** (each stacked on the
+   prior, merge in order): Start Work (#138) → Work Detail / Complete-My-Step (#139) → Workflow
+   Templates admin (#140) → custom-field config (#141). **Spec is UI-complete.** After the stack
+   lands: deploy-validate the whole loop (create → assign → hand off → complete → save → reuse →
+   manage), then the follow-ups below.
 2. **Data repair (Team page, one-time):** remove the demo-seed rows `admin@emgloop.com`
    (renamed "Matt Dunn"), `manager@emgloop.com` (Morgan), `viewer@emgloop.com` (Riley) so
    assignee/member lists show real people only. Recreation is already gated (#134).
