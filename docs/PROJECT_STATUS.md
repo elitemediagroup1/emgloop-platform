@@ -73,14 +73,19 @@ final step completes item + notifies all. **Owner-only completion enforced at th
 completion path also routed through `completeWorkStep` (was legacy single-owner; would not resolve
 mode-based handoff) + manual next-owner dropdown removed. Typecheck+build clean, DB suite 151/151.
 _Known gap:_ employee **list** quick-complete lacks a note field → required-note step throws there.
+**Workflow Templates admin (#140, draft — stacked on #139):** Administration › Workflow Templates —
+view / create / edit / duplicate / activate-deactivate reusable step sequences (name, description,
+Work Type associations, ordered steps). Guards `settings:update`, org-from-session, audited, footer
+nav item. Shared step editor **extracted** (`work/_components/StepListEditor` + `work-steps`) and
+Start Work refactored onto it — one source of truth, no duplication. Typecheck+build clean, DB 151/151.
 - ⚠️ **`ResponsibilityAssignment` model does NOT exist** (spec assumed it) — responsibility
   resolves via a configurable org owner-map; absent ⇒ Needs an Owner (never fabricated).
 - ⚠️ **Duplicate "Matt Dunn" is DATA, not a query bug**: the demo-seed OWNER `admin@emgloop.com`
   got renamed to "Matt Dunn" during setup and coexists with Matt's real account. Dedup collapses
   same-id/same-email; the two distinct-email rows need the seed `admin@`/`manager@`/`viewer@`
   rows **removed once via the Team page** (persists since #134).
-- **NOT built yet:** the Workflow Template admin page (increment 3) and the custom-field **config**
-  UI (defs render when present; no Type defines any until the config UI ships).
+- **NOT built yet:** the custom-field **config** UI (increment 4 — defs render in Start Work +
+  Work Detail when present; no Type defines any until the config UI ships).
 
 ## Onboarding / invitations / team lifecycle — DONE (merged: #129, #133, #134)
 Absolute invite/reset URLs; team management at `/app/admin/administration/team`. **Lifecycle
@@ -108,9 +113,9 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
 ---
 
 ## Open threads / next steps
-1. **Configurable workflows — engine merged (#137); Start Work builder (#138) + Work Detail /
-   Complete-My-Step (#139, stacked on #138) in review.** Next: (3) Workflow Template admin page +
-   custom-field config UI, on a fresh branch after #138/#139 land.
+1. **Configurable workflows — engine merged (#137); UI stack in review:** Start Work (#138) →
+   Work Detail / Complete-My-Step (#139) → Workflow Templates admin (#140), each stacked on the
+   prior. Last piece: (4) custom-field **config** UI on the Work Types page, after the stack lands.
 2. **Data repair (Team page, one-time):** remove the demo-seed rows `admin@emgloop.com`
    (renamed "Matt Dunn"), `manager@emgloop.com` (Morgan), `viewer@emgloop.com` (Riley) so
    assignee/member lists show real people only. Recreation is already gated (#134).

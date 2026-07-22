@@ -5,10 +5,9 @@
 // configured custom fields), active de-duplicated members, and the org's active
 // Workflow Templates, and passes them in as plain data. This component owns only
 // interaction: section state, the Add-New-Type modal, custom-field inputs, the
-// three workflow modes (use a saved template / build / single-person), the step
-// builder (all five assignment modes, reorder, remove), the vertical review, and
-// submit-once. No business logic and no data access live here — validation and
-// owner resolution happen server-side (buildWorkItemSubmission + the engine).
+// three workflow modes (use a saved template / build / single-person), the
+// review, and submit-once. The step editing itself is the shared StepListEditor,
+// and validation + owner resolution happen server-side.
 
 import { useMemo, useState } from 'react';
 import { useFormState, useFormStatus } from 'react-dom';
@@ -19,6 +18,8 @@ import {
   type StartWorkState,
   type AddWorkTypeState,
 } from '../actions';
+import StepListEditor from '../_components/StepListEditor';
+import { emptyStep, fromTemplateStep, serialiseStep, type Step, type TemplateStepShape } from '../_components/work-steps';
 
 // ---- Prop shapes (plain data from the server) -------------------------------
 
@@ -40,17 +41,6 @@ export interface WorkTypeOption {
 }
 export interface MemberOption { id: string; name: string }
 interface Labelled { value: string; label: string }
-interface TemplateStep {
-  name: string;
-  instruction: string;
-  mode: string;
-  specificUserId: string | null;
-  responsibilityKey: string | null;
-  completionConfirmation: string | null;
-  completionNote: string;
-  notifyActive: boolean;
-  notifyComplete: boolean;
-}
 export interface TemplateOption {
   id: string;
   name: string;
@@ -58,7 +48,7 @@ export interface TemplateOption {
   workTypeIds: string[];
   stepCount: number;
   updatedAt: string;
-  steps: TemplateStep[];
+  steps: TemplateStepShape[];
 }
 
 interface Props {
@@ -70,78 +60,7 @@ interface Props {
   timezoneLabel: string;
 }
 
-// ---- Client step model ------------------------------------------------------
-
-type AssignMode = 'specific' | 'responsibility' | 'creator' | 'previous' | 'unassigned';
-type NoteMode = 'none' | 'optional' | 'required';
 type WorkflowMode = 'saved' | 'build' | 'single';
-
-interface Step {
-  name: string;
-  instruction: string;
-  mode: AssignMode;
-  specificUserId: string;
-  responsibilityKey: string;
-  completionConfirmation: string;
-  completionNote: NoteMode;
-  notifyActive: boolean;
-  notifyComplete: boolean;
-}
-
-const ASSIGN_LABELS: Record<AssignMode, string> = {
-  specific: 'A specific team member',
-  responsibility: 'A responsibility',
-  creator: 'Whoever starts this work',
-  previous: 'Whoever completed the previous step',
-  unassigned: 'Leave unassigned',
-};
-
-function emptyStep(name = ''): Step {
-  return {
-    name,
-    instruction: '',
-    mode: 'unassigned',
-    specificUserId: '',
-    responsibilityKey: '',
-    completionConfirmation: '',
-    completionNote: 'none',
-    notifyActive: true,
-    notifyComplete: false,
-  };
-}
-
-function fromTemplateStep(t: TemplateStep): Step {
-  const mode = (['specific', 'responsibility', 'creator', 'previous', 'unassigned'] as string[]).includes(t.mode)
-    ? (t.mode as AssignMode)
-    : 'unassigned';
-  const note = t.completionNote === 'optional' || t.completionNote === 'required' ? (t.completionNote as NoteMode) : 'none';
-  return {
-    name: t.name,
-    instruction: t.instruction,
-    mode,
-    specificUserId: t.specificUserId ?? '',
-    responsibilityKey: t.responsibilityKey ?? '',
-    completionConfirmation: t.completionConfirmation ?? '',
-    completionNote: note,
-    notifyActive: t.notifyActive,
-    notifyComplete: t.notifyComplete,
-  };
-}
-
-// Serialise a client step into the shape the server action's coerceStep reads.
-function serialiseStep(s: Step) {
-  return {
-    name: s.name,
-    instruction: s.instruction,
-    mode: s.mode,
-    specificUserId: s.mode === 'specific' ? s.specificUserId : null,
-    responsibilityKey: s.mode === 'responsibility' ? s.responsibilityKey : null,
-    completionConfirmation: s.completionConfirmation.trim() || null,
-    completionNote: s.completionNote,
-    notifyActive: s.notifyActive,
-    notifyComplete: s.notifyComplete,
-  };
-}
 
 // ---- Submit bar -------------------------------------------------------------
 
@@ -199,63 +118,6 @@ function AddTypeModal({
   );
 }
 
-// ---- Per-step assignment picker (shared by build + saved modes) -------------
-
-function AssignmentPicker({
-  step,
-  members,
-  responsibilities,
-  allowPrevious,
-  onChange,
-}: {
-  step: Step;
-  members: MemberOption[];
-  responsibilities: Labelled[];
-  allowPrevious: boolean;
-  onChange: (patch: Partial<Step>) => void;
-}) {
-  const modes: AssignMode[] = ['specific', 'responsibility', 'creator', 'previous', 'unassigned'];
-  return (
-    <div className="sw2-assign">
-      <label className="sw2-field">
-        <span className="sw2-label">Assign by</span>
-        <select
-          className="sw2-input"
-          value={step.mode}
-          onChange={(e) => onChange({ mode: e.target.value as AssignMode })}
-        >
-          {modes.map((m) => (
-            <option key={m} value={m} disabled={m === 'previous' && !allowPrevious}>
-              {ASSIGN_LABELS[m]}
-              {m === 'previous' && !allowPrevious ? ' (not for the first step)' : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      {step.mode === 'specific' ? (
-        <label className="sw2-field">
-          <span className="sw2-label">Team member</span>
-          <select className="sw2-input" value={step.specificUserId} onChange={(e) => onChange({ specificUserId: e.target.value })}>
-            <option value="">Choose a team member…</option>
-            {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-          {members.length === 0 ? <p className="sw2-help">No active team members yet — invite someone on the Team page.</p> : null}
-        </label>
-      ) : null}
-      {step.mode === 'responsibility' ? (
-        <label className="sw2-field">
-          <span className="sw2-label">Responsibility</span>
-          <select className="sw2-input" value={step.responsibilityKey} onChange={(e) => onChange({ responsibilityKey: e.target.value })}>
-            <option value="">Choose a responsibility…</option>
-            {responsibilities.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
-          <p className="sw2-help">Until a responsibility is routed to a person, this step waits in “Needs an owner”.</p>
-        </label>
-      ) : null}
-    </div>
-  );
-}
-
 // ---- Main form --------------------------------------------------------------
 
 export default function StartWorkForm(props: Props) {
@@ -308,9 +170,8 @@ export default function StartWorkForm(props: Props) {
 
   function onPickWorkType(id: string) {
     setWorkTypeId(id);
-    setFieldValues({}); // different type → different fields
+    setFieldValues({});
     setTemplateId('');
-    // A freshly picked type with no saved templates defaults to Build.
     setWorkflowMode('build');
   }
 
@@ -320,20 +181,6 @@ export default function StartWorkForm(props: Props) {
     setShowAddType(false);
     onPickWorkType(t.id);
   }
-
-  // --- Step editing ---
-  const patchStep = (i: number, patch: Partial<Step>) =>
-    setSteps((s) => s.map((st, idx) => (idx === i ? { ...st, ...patch } : st)));
-  const addStep = () => setSteps((s) => [...s, emptyStep()]);
-  const removeStep = (i: number) => setSteps((s) => (s.length <= 1 ? s : s.filter((_, idx) => idx !== i)));
-  const moveStep = (i: number, dir: -1 | 1) =>
-    setSteps((s) => {
-      const j = i + dir;
-      if (j < 0 || j >= s.length) return s;
-      const next = [...s];
-      [next[i], next[j]] = [next[j]!, next[i]!];
-      return next;
-    });
 
   function onPickWorkflowMode(mode: WorkflowMode) {
     setWorkflowMode(mode);
@@ -347,7 +194,7 @@ export default function StartWorkForm(props: Props) {
     if (t) setSteps(t.steps.map(fromTemplateStep));
   }
 
-  // --- Assignment display (client-side, for the review — never authoritative) ---
+  // Assignment display for the review (client-side, never authoritative).
   function assignmentText(s: Step, index: number): string {
     switch (s.mode) {
       case 'specific':
@@ -375,13 +222,12 @@ export default function StartWorkForm(props: Props) {
   }, [steps]);
 
   const priorityLabel = props.priorities.find((p) => p.value === priority)?.label ?? priority;
-  const stepErrorAt = (i: number) => err.steps?.find((e) => e.index === i)?.errors;
-  const showBuilder = workflowMode !== 'saved' || steps.length > 0;
+  const editable = workflowMode !== 'saved';
+  const showAdd = workflowMode === 'build';
 
   return (
     <>
       <form action={formAction} className="sw2-form">
-        {/* Hidden serialised state the server action reads */}
         <input type="hidden" name="workTypeId" value={workTypeId} />
         <input type="hidden" name="steps" value={JSON.stringify(steps.map(serialiseStep))} />
         <input type="hidden" name="fieldValues" value={JSON.stringify(fieldValues)} />
@@ -435,22 +281,17 @@ export default function StartWorkForm(props: Props) {
                 <textarea name="details" rows={2} className="sw2-input sw2-textarea" value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Anything else worth knowing" />
               </label>
 
-              {/* Type-specific configured fields */}
               {activeFields.length > 0 ? (
                 <div className="sw2-fields">
                   {activeFields.map((f) => (
                     <CustomField
-                      key={f.key}
-                      def={f}
-                      value={fieldValues[f.key]}
-                      error={err.fields?.[f.key]}
+                      key={f.key} def={f} value={fieldValues[f.key]} error={err.fields?.[f.key]}
                       onChange={(v) => setFieldValues((fv) => ({ ...fv, [f.key]: v }))}
                     />
                   ))}
                 </div>
               ) : null}
 
-              {/* Related record — honest: no first-class record source exists yet */}
               <div className="sw2-note">
                 Linking to a {selected.name} record isn’t available yet — this work will be created without a linked record.
               </div>
@@ -484,84 +325,14 @@ export default function StartWorkForm(props: Props) {
                 </div>
               ) : null}
 
-              {/* Step builder — shown for build/single, and for saved once a template is chosen */}
-              {(workflowMode !== 'saved' || templateId) && showBuilder ? (
-                <div className="sw2-steps">
-                  {steps.map((s, i) => {
-                    const se = stepErrorAt(i);
-                    const editable = workflowMode === 'build';
-                    return (
-                      <div className="sw2-step" key={i}>
-                        <div className="sw2-step-head">
-                          <span className="sw2-step-num">{i + 1}</span>
-                          {editable ? (
-                            <input className={'sw2-input sw2-step-name' + (se?.name ? ' sw2-input--err' : '')}
-                              value={s.name} onChange={(e) => patchStep(i, { name: e.target.value })} placeholder="Step name" />
-                          ) : (
-                            <span className="sw2-step-name-static">{s.name || `Step ${i + 1}`}</span>
-                          )}
-                          {editable ? (
-                            <div className="sw2-step-tools">
-                              <button type="button" className="adm-btn" onClick={() => moveStep(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
-                              <button type="button" className="adm-btn" onClick={() => moveStep(i, 1)} disabled={i === steps.length - 1} aria-label="Move down">↓</button>
-                              <button type="button" className="adm-btn adm-btn--danger" onClick={() => removeStep(i)} disabled={steps.length <= 1} aria-label="Remove step">Remove</button>
-                            </div>
-                          ) : null}
-                        </div>
-                        {se?.name ? <p className="sw2-err">{se.name}</p> : null}
-
-                        {editable ? (
-                          <>
-                            <label className="sw2-field">
-                              <span className="sw2-label">What needs to happen?</span>
-                              <textarea className={'sw2-input sw2-textarea' + (se?.instruction ? ' sw2-input--err' : '')}
-                                rows={2} value={s.instruction} onChange={(e) => patchStep(i, { instruction: e.target.value })}
-                                placeholder="Describe what this step involves" />
-                              {se?.instruction ? <p className="sw2-err">{se.instruction}</p> : null}
-                            </label>
-                          </>
-                        ) : (
-                          <p className="sw2-step-instruction">{s.instruction}</p>
-                        )}
-
-                        <AssignmentPicker
-                          step={s} members={props.members} responsibilities={props.responsibilities}
-                          allowPrevious={i > 0}
-                          onChange={(patch) => patchStep(i, patch)}
-                        />
-                        {se?.assignee ? <p className="sw2-err">{se.assignee}</p> : null}
-
-                        {editable ? (
-                          <div className="sw2-step-opts">
-                            <label className="sw2-field">
-                              <span className="sw2-label">Completion note <span className="sw2-opt">from the owner</span></span>
-                              <select className="sw2-input" value={s.completionNote} onChange={(e) => patchStep(i, { completionNote: e.target.value as NoteMode })}>
-                                <option value="none">Not required</option>
-                                <option value="optional">Optional</option>
-                                <option value="required">Required</option>
-                              </select>
-                            </label>
-                            <label className="sw2-field">
-                              <span className="sw2-label">Confirmation shown before completing <span className="sw2-opt">Optional</span></span>
-                              <input className="sw2-input" value={s.completionConfirmation} onChange={(e) => patchStep(i, { completionConfirmation: e.target.value })} placeholder="e.g. Agreement signed and filed?" />
-                            </label>
-                            <div className="sw2-step-toggles">
-                              <label className="sw2-check"><input type="checkbox" checked={s.notifyActive} onChange={(e) => patchStep(i, { notifyActive: e.target.checked })} /> Notify when active</label>
-                              <label className="sw2-check"><input type="checkbox" checked={s.notifyComplete} onChange={(e) => patchStep(i, { notifyComplete: e.target.checked })} /> Notify when completed</label>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-
-                  {workflowMode === 'build' ? (
-                    <button type="button" className="adm-btn sw2-addstep" onClick={addStep}>Add step</button>
-                  ) : null}
-                </div>
+              {workflowMode !== 'saved' || templateId ? (
+                <StepListEditor
+                  steps={steps} onChange={setSteps} members={props.members}
+                  responsibilities={props.responsibilities} editable={editable} showAdd={showAdd}
+                  errors={err.steps}
+                />
               ) : null}
 
-              {/* Save as template (build mode only) */}
               {workflowMode === 'build' ? (
                 <div className="sw2-savetpl">
                   <label className="sw2-check">
