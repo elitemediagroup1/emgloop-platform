@@ -102,6 +102,8 @@ export * from './process-engine';
 // Work OS — Work Type catalog/vocabularies + the pure Start Work submission builder.
 export * from './work-os/work-type-catalog';
 export * from './work-os/start-work';
+// Configurable sequential workflow — assignment resolution, dedup, fields, steps.
+export * from './work-os/workflow';
 
 export const repositories: Repositories = createRepositories(prisma);
 
