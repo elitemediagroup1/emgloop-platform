@@ -207,6 +207,28 @@ test('deactivating a Work Type removes it from the active list but keeps it', as
   assert.equal((await repo.listWorkTypes(ORG, { includeInactive: true })).length, 1, 'still exists for admin');
 });
 
+test('setWorkTypeFields persists custom fields and preserves the rest of the metadata bag', async () => {
+  const { repo } = makeRepo();
+  const bp = await repo.createWorkType({ organizationId: ORG, createdByUserId: 'u1', name: 'Buyer', category: 'CallGrid Operations', responsibility: 'CALLGRID_SETUP' });
+  await repo.setWorkTypeFields(ORG, bp.id, [
+    { key: 'payout', label: 'Payout', type: 'currency', required: true, sortOrder: 0, active: true },
+    { key: 'contact', label: 'Primary contact', type: 'short_text', required: false, sortOrder: 1, active: true },
+  ]);
+  const [t] = await repo.listWorkTypes(ORG, { includeInactive: true });
+  assert.equal(t!.fields.length, 2);
+  assert.equal(t!.fields[0]!.key, 'payout');
+  assert.equal(t!.category, 'CallGrid Operations', 'category survived the fields write');
+  assert.equal(t!.responsibility, 'CALLGRID_SETUP', 'responsibility survived');
+});
+
+test('setWorkTypeFields is a no-op for a cross-org id (fail closed)', async () => {
+  const { repo } = makeRepo();
+  const bp = await repo.createWorkType({ organizationId: ORG, createdByUserId: 'u1', name: 'Buyer' });
+  await repo.setWorkTypeFields('org_other', bp.id, [{ key: 'x', label: 'X', type: 'short_text', required: false, sortOrder: 0, active: true }]);
+  const [t] = await repo.listWorkTypes(ORG, { includeInactive: true });
+  assert.equal(t!.fields.length, 0, 'cross-org write did nothing');
+});
+
 test('listActiveMembers excludes INVITED, DISABLED and other-org users', async () => {
   const { repo, user } = makeRepo();
   await user.create({ data: { organizationId: ORG, name: 'Active One', email: 'a@x.io', status: 'ACTIVE' } });

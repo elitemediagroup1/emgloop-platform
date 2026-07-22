@@ -461,6 +461,22 @@ export class WorkRepository {
     });
   }
 
+  // Persist the type-specific field definitions on a Work Type. Resolves within
+  // the org first (fail closed on a cross-org id) and MERGES the metadata bag so
+  // category / responsibility / defaults are never clobbered.
+  async setWorkTypeFields(organizationId: string, id: string, fields: WorkFieldDef[]): Promise<void> {
+    const existing = await this.prisma.blueprint.findFirst({
+      where: { id, organizationId },
+      select: { id: true, metadata: true },
+    });
+    if (!existing) return;
+    const m = metaObject(existing.metadata);
+    await this.prisma.blueprint.update({
+      where: { id: existing.id },
+      data: { metadata: { ...m, customFields: fields } as unknown as Prisma.InputJsonValue },
+    });
+  }
+
   /** Install the starter catalog once. Idempotent: a catalog entry whose key is
    *  already present (in metadata.catalogKey) is skipped, so re-running never
    *  duplicates and never resurrects one an admin deactivated by key match. */
