@@ -64,18 +64,17 @@ native date inputs replaced by the two-month visual calendar.
   `call-dimension-page.tsx`); **Buyers/Vendors/Campaigns unified** (thin config wrappers — one product,
   different data); **Sources** verified hybrid (range-honoring Total/Active Sources from calls +
   snapshot-only bid metrics under `SnapshotNotice`; `bid-report.ts` = one canonical bid-snapshot reader).
-- **Built but UNCOMMITTED in working tree:** **Activity** (derived operational stream + filters);
-  **Bids workspace** (`/bids` — snapshot summary, source vs destination tables kept strictly separate,
-  two-group rejection reasons, operational watch list, honest recent-activity); **`/auction` → `/bids`
+  Also committed: **Activity** (derived operational stream + filters); **Bids workspace**
+  (`/bids` — snapshot summary, source vs destination tables kept strictly separate, two-group
+  rejection reasons, operational watch list, honest recent-activity); **`/auction` → `/bids`
   redirect** + nav/Quick-Access repointed; **diagnostics moved** → `/app/admin/administration/diagnostics/callgrid`
   (admin-guarded, out of the CallGrid tab bar; `auction-data.ts` → `diagnostics-data.ts`); retired the
-  vendors/campaigns zero-coercion ledger entries; CSS.
+  vendors/campaigns zero-coercion ledger entries; CSS. **All eight pages (steps 1–8) committed.**
 - **Verified now:** `@emgloop/shared` **106/106**, `apps/web` **typecheck clean**, `turbo build` **passes**.
 
-**Remaining before this is done:** (a) **commit** the Activity/Bids/diagnostics/route chunk + **open the
-PR** for `feat/callgrid-dimension-pages` (no PR yet); (b) the spec's full **71-test** suite (13 date tests
-exist; remainder pending — no web test harness, per CLAUDE.md); (c) **responsive** polish pass;
-(d) **deploy validation** against real production CallGrid data.
+**Remaining before this is done:** (a) the spec's full **71-test** suite (13 date tests exist;
+remainder pending — no web test harness, per CLAUDE.md); (b) **responsive** polish pass;
+(c) **deploy validation** against real production CallGrid data (no DB/runtime in the sandbox).
 - ℹ️ Honest limits held: Overview **Watch List still sources Brain risks** (CallGrid-operational-only
   filtering deferred); **Campaigns** uses Avg Rev/Billable, not Profit (not reliably attributable at
   dimension grain); **Sources** shows aggregate rejection reasons (per-source `?source=` detail not built);
