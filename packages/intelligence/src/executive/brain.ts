@@ -34,6 +34,7 @@ import {
   type ObservationSeverity,
 } from './observation';
 import type { ExecutiveSensor, InstrumentedSensor, SensorFinding } from './sensor';
+import { runCorrelations } from './correlation';
 
 // ---------------------------------------------------------------------------
 // Report shape.
@@ -51,6 +52,21 @@ export interface SuppressedFinding {
   needs: string;
 }
 
+/**
+ * A sensor's connection posture, so an executive knows at a glance which systems
+ * are feeding the Brain and how well. DERIVED from data presence and freshness,
+ * never authored:
+ *
+ *   missing    — no Evidence Engine contributor (not connected at all).
+ *   connected  — instrumented, but it examined nothing this window, OR nothing
+ *                it saw cleared the engine yet. Wired, not yet informative.
+ *   stale      — instrumented and carrying data, but at least one metric is
+ *                older than the domain's freshness policy.
+ *   healthy    — instrumented, examined data, and carrying trustworthy, fresh
+ *                metrics.
+ */
+export type SensorStatus = 'healthy' | 'stale' | 'connected' | 'missing';
+
 /** The evidential position of one sensor, for the Evidence Coverage panel. */
 export interface SensorCoverage {
   sensorId: string;
@@ -58,6 +74,8 @@ export interface SensorCoverage {
   /** Null for an uninstrumented sensor — it has no domain evidence to speak of. */
   domain: string | null;
   instrumented: boolean;
+  /** Connected/healthy/stale/missing — the first-class coverage status. */
+  status: SensorStatus;
   scopeLabel: string | null;
   populationSize: number | null;
   metricsAvailable: number;
@@ -74,6 +92,8 @@ export interface EvidenceCoverageSummary {
   sensors: readonly SensorCoverage[];
   instrumentedSensors: number;
   totalSensors: number;
+  /** How many sensors sit in each posture — the executive coverage headline. */
+  statusCounts: Record<SensorStatus, number>;
   /** Mean Evidence Engine confidence across every available metric, or null when
    * nothing is measured. Null — never 0 — because unmeasured is not "certainly
    * bad". */
@@ -100,6 +120,10 @@ export interface SystemHealth {
 export interface ExecutiveBrainReport {
   generatedAt: string;
   summary: readonly ExecutiveObservation[];
+  /** Movements between the prior and current window — the What Changed panel. */
+  whatChanged: readonly ExecutiveObservation[];
+  /** Cross-sensor conclusions, each built from (and citing) other observations. */
+  correlations: readonly ExecutiveObservation[];
   risks: readonly ExecutiveObservation[];
   opportunities: readonly ExecutiveObservation[];
   recommendations: readonly ExecutiveObservation[];
@@ -226,6 +250,8 @@ function observeFinding(
       severity: finding.severity,
       timestamp,
       source: { sensorId: sensor.id, sensorLabel: sensor.label, domain: sensor.report.domain },
+      affectedArea: finding.affectedArea ?? sensor.label,
+      change: finding.change ?? null,
     }),
   };
 }
@@ -241,6 +267,7 @@ function coverageForSensor(sensor: ExecutiveSensor): SensorCoverage {
       label: sensor.label,
       domain: null,
       instrumented: false,
+      status: 'missing',
       scopeLabel: null,
       populationSize: null,
       metricsAvailable: 0,
@@ -252,11 +279,24 @@ function coverageForSensor(sensor: ExecutiveSensor): SensorCoverage {
     };
   }
   const { report } = sensor;
+  // DERIVED, never authored: nothing examined → connected (wired, no data yet);
+  // any available metric stale → stale; trustworthy metrics present → healthy;
+  // data present but nothing cleared → connected.
+  const anyStale = report.available.some((m) => m.freshness.stale);
+  const status: SensorStatus =
+    report.populationSize === 0
+      ? 'connected'
+      : anyStale
+        ? 'stale'
+        : report.available.length > 0
+          ? 'healthy'
+          : 'connected';
   return {
     sensorId: sensor.id,
     label: sensor.label,
     domain: report.domain,
     instrumented: true,
+    status,
     scopeLabel: report.scopeLabel,
     populationSize: report.populationSize,
     metricsAvailable: report.available.length,
@@ -338,18 +378,25 @@ export function runExecutiveBrain(
     }
   }
 
-  const risks = observations.filter((o) => o.kind === 'risk').sort(rankObservations);
-  const opportunities = observations.filter((o) => o.kind === 'opportunity').sort(rankObservations);
-  const recommendations = observations
+  // Cross-sensor correlations are built FROM the base observations, so they can
+  // only connect signals the sensors already evidenced — never invent one. They
+  // join the observation pool so they rank and surface like any other insight.
+  const correlations = runCorrelations(observations, generatedAt).sort(rankObservations);
+  const withCorrelations = [...observations, ...correlations];
+
+  const risks = withCorrelations.filter((o) => o.kind === 'risk').sort(rankObservations);
+  const opportunities = withCorrelations.filter((o) => o.kind === 'opportunity').sort(rankObservations);
+  const whatChanged = withCorrelations.filter((o) => o.kind === 'change').sort(rankObservations);
+  const recommendations = withCorrelations
     .filter((o) => o.recommendation !== null)
     .sort(rankObservations);
 
-  // Summary is narrative-first: the neutral state-of-the-world facts, then the
-  // most pressing risks and opportunities. It is a selection of real
-  // observations, never a generated paragraph — an empty summary is the honest
-  // output of an empty window.
-  const baseline = observations.filter((o) => o.kind === 'observation').sort(rankObservations);
-  const summary = [...baseline, ...risks, ...opportunities];
+  // Summary is narrative-first: cross-sensor conclusions first (they explain the
+  // most), then the neutral state-of-the-world facts, then the most pressing
+  // risks and opportunities. A selection of real observations, never a generated
+  // paragraph — an empty summary is the honest output of an empty window.
+  const baseline = withCorrelations.filter((o) => o.kind === 'observation').sort(rankObservations);
+  const summary = [...correlations, ...baseline, ...risks, ...opportunities];
 
   const sensorCoverages = sensors.map(coverageForSensor);
   const instrumentedSensors = sensorCoverages.filter((s) => s.instrumented).length;
@@ -359,20 +406,27 @@ export function runExecutiveBrain(
       ? null
       : allAvailable.reduce((sum, m) => sum + m.confidence, 0) / allAvailable.length;
 
+  const statusCounts: Record<SensorStatus, number> = { healthy: 0, stale: 0, connected: 0, missing: 0 };
+  for (const s of sensorCoverages) statusCounts[s.status] += 1;
+
   const evidenceCoverage: EvidenceCoverageSummary = {
     sensors: sensorCoverages,
     instrumentedSensors,
     totalSensors: sensors.length,
+    statusCounts,
     overallConfidence,
   };
 
   return {
     generatedAt,
     summary,
+    whatChanged,
+    correlations,
     risks,
     opportunities,
     recommendations,
-    systemHealth: deriveSystemHealth(evidenceCoverage, risks),
+    // Correlations are cross-sensor risks; include them in the health read.
+    systemHealth: deriveSystemHealth(evidenceCoverage, [...risks, ...correlations]),
     evidenceCoverage,
     suppressed,
     sensors: sensors.map((s) => ({ id: s.id, label: s.label, instrumented: s.instrumented })),

@@ -314,6 +314,29 @@ export class CrmRepository {
     return counts;
   }
 
+  /**
+   * Windowed CRM counts for the Executive Brain's CRM sensor. COUNTs only —
+   * never hydrates rows — over the half-open window `[since, until)`, org-scoped.
+   * Pipeline status is deliberately NOT counted here: it lives in the JSON
+   * `attributes` bag and cannot be a cheap COUNT, so this method reports only
+   * facts that trace to real columns (new customers, conversations opened, and
+   * how many of those carried an assignee — a real coverage signal).
+   */
+  async windowCounts(
+    organizationId: string,
+    since: Date,
+    until: Date,
+  ): Promise<{ newCustomers: number; conversations: number; conversationsAssigned: number }> {
+    const customerWindow = { organizationId, createdAt: { gte: since, lt: until } };
+    const convWindow = { organizationId, createdAt: { gte: since, lt: until } };
+    const [newCustomers, conversations, conversationsAssigned] = await Promise.all([
+      this.prisma.customer.count({ where: customerWindow }),
+      this.prisma.conversation.count({ where: convWindow }),
+      this.prisma.conversation.count({ where: { ...convWindow, assigneeId: { not: null } } }),
+    ]);
+    return { newCustomers, conversations, conversationsAssigned };
+  }
+
   /** Full customer workspace payload, read from Neon via Prisma. */
   async getWorkspace(id: string) {
     const customer = await this.prisma.customer.findUnique({ where: { id } });

@@ -21,7 +21,12 @@
 // by the Brain, not trusted. See runExecutiveBrain.
 
 import type { EvidenceReport } from '../evidence/types';
-import type { ObservationFact, ObservationRecommendation, ObservationSeverity } from './observation';
+import type {
+  ObservationChange,
+  ObservationFact,
+  ObservationRecommendation,
+  ObservationSeverity,
+} from './observation';
 
 /**
  * One thing a sensor concluded, in provider-neutral terms. The sensor has
@@ -36,8 +41,9 @@ import type { ObservationFact, ObservationRecommendation, ObservationSeverity } 
  */
 export interface SensorFinding {
   id: string;
-  /** 'observation' is a neutral state-of-the-world fact; the others carry a direction. */
-  kind: 'observation' | 'risk' | 'opportunity';
+  /** 'observation' is a neutral state-of-the-world fact; 'change' states a
+   * movement between two windows; the last two carry a direction. */
+  kind: 'observation' | 'change' | 'risk' | 'opportunity';
   /** Plain-language statement — what happened / what is true. Never a raw table. */
   observation: string;
   /** Evidence Engine metric ids this finding reasons over. Must be non-empty and
@@ -47,6 +53,10 @@ export interface SensorFinding {
   recommendation: ObservationRecommendation | null;
   owner: string | null;
   severity: ObservationSeverity;
+  /** The business area this affects; defaults to the sensor's domain. */
+  affectedArea?: string;
+  /** Present only on 'change' findings: the movement between windows. */
+  change?: ObservationChange | null;
   /** Extra counted facts to show on drill-down, beyond the metrics' own coverage. */
   facts?: readonly ObservationFact[];
 }
