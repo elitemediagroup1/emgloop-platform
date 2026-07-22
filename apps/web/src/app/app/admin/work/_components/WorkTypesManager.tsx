@@ -1,16 +1,17 @@
-// Administration › Work Types — manage the reusable work types the whole team
-// starts work from. These ARE Blueprints; the page speaks only business language.
-// Authorized admins only (settings:view to see, settings:update to change).
+// WorkTypesManager — the Work Types administration surface, rendered at the
+// bottom of the Work OS page (it no longer has its own route or sidebar tab).
+// Work Types ARE Blueprints; this speaks only business language. Read-only for
+// settings:view; the edit controls render only when canManage (settings:update).
 
-import { requirePermission, hasPermission } from '../../../../../auth/guard';
+import Link from 'next/link';
 import {
-  repositories,
   RESPONSIBILITY_LABELS,
   PRIORITY_LABELS,
   WORK_PRIORITIES,
   WORK_TYPE_CATEGORIES,
   responsibilityLabel,
   type WorkPriority,
+  type WorkTypeView,
 } from '@emgloop/database';
 import {
   createWorkTypeAction,
@@ -18,62 +19,29 @@ import {
   setWorkTypeActiveAction,
   reorderWorkTypeAction,
   installStarterWorkTypesAction,
-} from './actions';
-import Link from 'next/link';
-import FieldsEditor from './FieldsEditor';
+} from './work-types-actions';
 
-export const dynamic = 'force-dynamic';
-
-export default async function WorkTypesPage({
-  searchParams,
+export default function WorkTypesManager({
+  types,
+  canManage,
 }: {
-  searchParams?: { notice?: string; error?: string; fields?: string };
+  types: WorkTypeView[];
+  canManage: boolean;
 }) {
-  const session = await requirePermission('settings', 'view');
-  const canManage = await hasPermission('settings', 'update');
-  const types = await repositories.work.listWorkTypes(session.organizationId, { includeInactive: true });
-
-  const notice = typeof searchParams?.notice === 'string' ? searchParams.notice : null;
-  const error = typeof searchParams?.error === 'string' ? searchParams.error : null;
   const activeCount = types.filter((t) => t.active).length;
 
-  // Field-config pane for a single Work Type (managers only).
-  const fieldsType = canManage && searchParams?.fields
-    ? types.find((t) => t.id === searchParams.fields) ?? null
-    : null;
-  if (fieldsType) {
-    return (
-      <div className="adm">
-        {error ? <div className="adm-banner adm-banner--error" role="alert">{error}</div> : null}
-        {notice ? <div className="adm-banner adm-banner--ok" role="status">{notice}</div> : null}
-        <FieldsEditor
-          workTypeId={fieldsType.id}
-          workTypeName={fieldsType.name}
-          initialFields={fieldsType.fields.map((f) => ({
-            key: f.key, label: f.label, helper: f.helper, type: f.type,
-            required: f.required, options: f.options, active: f.active,
-          }))}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="adm">
-      <div className="loop-pagehead">
-        <div className="loop-eyebrow">Administration</div>
-        <h1 className="loop-title">Work Types</h1>
-        <p className="loop-subtitle">
-          {types.length} work type{types.length === 1 ? '' : 's'} · {activeCount} active. These are the templates the team starts work from.
+    <section className="adm wt-manager" aria-label="Work Types">
+      <div className="wt-manager__head">
+        <h2 className="wt-manager__title">Work Types</h2>
+        <p className="wt-manager__sub">
+          {types.length} type{types.length === 1 ? '' : 's'} · {activeCount} active. These are what the team starts work from.
         </p>
       </div>
 
-      {error ? <div className="adm-banner adm-banner--error" role="alert">{error}</div> : null}
-      {notice ? <div className="adm-banner adm-banner--ok" role="status">{notice}</div> : null}
-
       {canManage && types.length === 0 ? (
         <section className="adm-card">
-          <h2 className="adm-card__title">Get started</h2>
+          <h3 className="adm-card__title">Get started</h3>
           <p className="adm-empty">Install the approved starter set of work types, then rename, recategorise, or deactivate any of them.</p>
           <form action={installStarterWorkTypesAction}>
             <button className="adm-btn adm-btn--primary" type="submit">Install starter work types</button>
@@ -83,7 +51,7 @@ export default async function WorkTypesPage({
 
       {canManage ? (
         <section className="adm-card">
-          <h2 className="adm-card__title">Add a work type</h2>
+          <h3 className="adm-card__title">Add a work type</h3>
           <form action={createWorkTypeAction} className="adm-inviteform">
             <label className="adm-field">
               <span className="adm-field__label">Name</span>
@@ -113,7 +81,7 @@ export default async function WorkTypesPage({
       ) : null}
 
       <section className="adm-card">
-        <h2 className="adm-card__title">All work types</h2>
+        <h3 className="adm-card__title">All work types</h3>
         {types.length === 0 ? (
           <p className="adm-empty">No work types yet.</p>
         ) : (
@@ -185,6 +153,6 @@ export default async function WorkTypesPage({
           </div>
         )}
       </section>
-    </div>
+    </section>
   );
 }

@@ -155,6 +155,7 @@ export type {
   AssignStageInput,
   AddWorkCommentInput,
   WorkInstanceWithStages,
+  WorkTypeView,
 } from './work.repository';
 
 // Verified Knowledge Service (kg.v1) — durable verified knowledge graph,

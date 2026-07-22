@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { saveWorkTypeFieldsAction } from './actions';
+import { saveWorkTypeFieldsAction } from './work-types-actions';
 
 const FIELD_TYPES: { value: string; label: string }[] = [
   { value: 'short_text', label: 'Short text' },
@@ -165,7 +165,7 @@ export default function FieldsEditor({
 
           <section className="sw2-section">
             <div className="sw2-actions">
-              <Link href="/app/admin/administration/work-types" className="adm-btn sw2-cancel">Back to work types</Link>
+              <Link href="/app/admin/work" className="adm-btn sw2-cancel">Back to Work OS</Link>
               <button type="submit" className="adm-btn adm-btn--primary sw2-start">Save fields</button>
             </div>
           </section>

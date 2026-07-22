@@ -137,7 +137,6 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
       footer: true,
       items: [
         { href: '/app/admin/administration/team', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
-        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: WORK_TYPES_ADMIN },
         { href: '/app/admin/administration/workflow-templates', label: 'Workflow Templates', icon: 'columns', requires: WORK_TYPES_ADMIN },
       ],
     },

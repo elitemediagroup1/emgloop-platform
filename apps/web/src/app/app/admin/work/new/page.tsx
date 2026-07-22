@@ -35,7 +35,7 @@ export default async function StartWorkPage() {
         {workTypes.length === 0 ? (
           <div className="sw2-empty">
             <p>No work types exist yet. An administrator sets these up once, then anyone can start work from them.</p>
-            <Link href="/app/admin/administration/work-types" className="adm-btn adm-btn--primary">Set up work types</Link>
+            <Link href="/app/admin/work" className="adm-btn adm-btn--primary">Set up work types</Link>
           </div>
         ) : (
           <StartWorkForm
