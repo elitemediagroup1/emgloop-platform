@@ -6,7 +6,7 @@ import { EmgLoopWordmark } from '../app/crm/_brand/Logos';
 import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
 import type { ShellConfig, NavItem } from './config';
-import { resolveNavLabel } from './config';
+import { resolveActiveNav } from './config';
 
 // Loop OS — WorkspaceShell.
 //
@@ -24,24 +24,6 @@ import { resolveNavLabel } from './config';
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
   return parts.map((p) => p[0]?.toUpperCase() ?? '').join('') || 'EM';
-}
-
-// The active top-level item = the longest nav href that prefixes the current
-// path. Longest-match keeps a product highlighted across all its child routes
-// (e.g. /app/admin/marketplace/buyers → /app/admin/marketplace) without the
-// broader Dashboard (/app/admin) ever stealing the highlight.
-function activeNavHref(shell: ShellConfig, pathname: string | null): string | null {
-  if (!pathname) return null;
-  let best: string | null = null;
-  for (const group of shell.nav) {
-    for (const item of group.items) {
-      if (item.href.startsWith('#')) continue;
-      if (pathname === item.href || pathname.startsWith(item.href + '/')) {
-        if (!best || item.href.length > best.length) best = item.href;
-      }
-    }
-  }
-  return best;
 }
 
 // One nav link, shared by the main list and the footer (Administration) — the
@@ -88,8 +70,10 @@ export default async function WorkspaceShell({
   // to the shell root's own label so an unmatched path never renders an empty
   // crumb.
   const pathname = headers().get('x-pathname');
-  const crumb = resolveNavLabel(shell, pathname) ?? 'Overview';
-  const active = activeNavHref(shell, pathname);
+  // ONE resolver for both the breadcrumb product AND the active sidebar item.
+  const activeItem = resolveActiveNav(shell, pathname);
+  const crumb = activeItem?.label ?? 'Overview';
+  const active = activeItem?.href ?? null;
 
   const permitted = new Map<string, boolean>();
   await Promise.all(
