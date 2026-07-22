@@ -52,13 +52,20 @@ vendors[], sources[], campaigns[]}` is THE CallGrid economics source (Overview u
   read the call projection. Buyers now reads the **same canonical source**; rebuilt to the spec
   (6 summary tiles, sortable performance table w/ share+trend, `?buyer=` detail, honest states);
   **all cross-product content stripped** (Integration Status, Live Calls rail, Brain briefing,
-  provider pills, decision queue).
-- **Remaining (own PRs, Phase-18 order):** (2) shared date-window contract in `@emgloop/shared`
-  + canonical `callgrid-report` service + date-range picker (persists across tabs); (3) wire
-  Overview + Watch-List → CallGrid-operational-only (drop active-users finding); (4) Vendors +
-  Campaigns on an extracted shared dimension template; (5) Sources (bid grain) + **Bids** rebuild
-  (source vs destination separation) + `auction → bids` route; (6) Activity stream; (7) move
-  engineering diagnostics → `Administration → Diagnostics → CallGrid`; tests + responsive.
+  provider pills, decision queue). Also retired the paid-off Buyers zero-coercion ledger entry.
+- **Increment 2 (#144, draft — stacked on #143):** the reporting **foundation**. Shared
+  **date-window contract** in `@emgloop/shared` (`resolveCallGridWindow` — all presets +
+  comparison periods, Eastern, 13 tests); canonical **`callgrid-report`** service (window →
+  metrics + dimension rows over `aggregateWindow`, Truth-honest); **date-range picker**
+  (`CallGridDateRange`, URL-driven, persists across tabs via range-aware nav). **Overview + Buyers
+  wired** onto it (same window → consistent). shared 106/106, build clean.
+- **Remaining (own PRs, Phase-18 order):** (3) Watch List → CallGrid-operational-only (drop
+  active-users finding); (4) Vendors + Campaigns on an extracted shared dimension template adopting
+  the control; (5) Sources (bid grain) + **Bids** rebuild (source vs destination separation) +
+  `auction → bids` route; (6) Activity stream; (7) move engineering diagnostics →
+  `Administration → Diagnostics → CallGrid`; final tests + responsive.
+- ℹ️ Picker custom range uses native date inputs (functional, Eastern-correct); two-month visual
+  calendar is later polish.
 - ⚠️ Current Bids route is `/marketplace/auction`; spec canonical is `/marketplace/bids` (rename in 5).
 
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
