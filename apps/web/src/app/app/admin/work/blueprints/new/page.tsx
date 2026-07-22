@@ -18,11 +18,11 @@ export default async function NewBlueprintPage() {
       <div className="loop-grid__content">
         <div className="loop-pagehead">
           <div className="loop-eyebrow">
-            <Link href="/app/admin/work/blueprints">Blueprints</Link> / new
+            <Link href="/app/admin/work/blueprints">Work Types</Link> / new
           </div>
-          <h1 className="loop-title">New blueprint</h1>
+          <h1 className="loop-title">New work type</h1>
           <p className="loop-subtitle">
-            Name the process and list its stages, one per line, in order.
+            Name it and list its steps, one per line, in order.
           </p>
         </div>
 
@@ -39,7 +39,7 @@ export default async function NewBlueprintPage() {
             </label>
 
             <label>
-              <div className="loop-card__hint">Stages (one per line, in order)</div>
+              <div className="loop-card__hint">Steps (one per line, in order)</div>
               <textarea
                 name="stages"
                 rows={6}
@@ -53,7 +53,7 @@ Go Live`}
 
             <div className="loop-launchers">
               <button className="loop-badge" type="submit">
-                Create blueprint
+                Create work type
               </button>
               <Link className="loop-card__hint" href="/app/admin/work/blueprints">
                 Cancel

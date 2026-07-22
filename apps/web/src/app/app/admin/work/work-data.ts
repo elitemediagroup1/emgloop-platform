@@ -75,18 +75,34 @@ export interface QueueRow {
   href: string;
 }
 
+export interface WorkActivityItem {
+  id: string;
+  label: string; // plain business event, e.g. "Work started" / "Work completed"
+  who: string;
+  atIso: string;
+}
+
 export interface WorkDashboard {
   actor: WorkActor;
   nextAction: { workInstanceId: string; title: string; stageName: string; href: string } | null;
   needsOwner: QueueRow[];
   blocked: QueueRow[];
   assigned: QueueRow[];
+  readyToStart: QueueRow[];
   completedToday: QueueRow[];
-  notifications: {
-    id: string; title: string; body: string; readAt: Date | null; createdAt: Date;
-  }[];
-  unreadCount: number;
+  recentActivity: WorkActivityItem[];
   hasBlueprints: boolean;
+}
+
+// Audit actions that are real WORK events → plain business labels. Anything not
+// listed (logins, customer/org/user events) is excluded from Work activity.
+const WORK_ACTIVITY_LABEL: Record<string, string> = {
+  'work.created': 'Work started',
+  'work.assigned': 'Owner assigned',
+  'work.completed': 'Work completed',
+};
+function workActivityLabel(action: string): string | null {
+  return WORK_ACTIVITY_LABEL[action] ?? null;
 }
 
 // Everything the /app/admin/work dashboard needs, in one round-trip-ish call.
@@ -97,12 +113,12 @@ export async function loadWorkDashboard(): Promise<WorkDashboard> {
   // "Today" is the Eastern business day, not the server's local day.
   const startOfDay = startOfEasternDay(now);
 
-  const [nextAction, myQueue, unassigned, notifications, blueprints, blockedStages, completedStages] =
+  const [nextAction, myQueue, unassigned, auditRows, blueprints, blockedStages, completedStages] =
     await Promise.all([
       work.getMyNextAction(actor.userId, actor.organizationId),
       work.listMyWork(actor.userId, actor.organizationId),
       work.listUnassignedWork(actor.organizationId),
-      work.listNotifications(actor.userId, actor.organizationId),
+      repos.audit.list(actor.organizationId, { take: 40 }),
       work.listBlueprints(actor.organizationId),
       // Mine, but gated behind an earlier step.
       prisma.workStage.findMany({
@@ -152,7 +168,7 @@ export async function loadWorkDashboard(): Promise<WorkDashboard> {
     workStageId: s.id,
     title: s.workInstance.title,
     stageName: s.name,
-    meta: 'Waiting on an earlier step',
+    meta: 'Waiting to start',
     href: '/app/admin/work/' + s.workInstanceId,
   }));
 
@@ -184,6 +200,15 @@ export async function loadWorkDashboard(): Promise<WorkDashboard> {
     return a.since - b.since;
   });
   const assigned = assignedRaw.map((a) => a.row);
+  const readyToStart = assignedRaw.filter((a) => a.ready).map((a) => a.row);
+
+  const recentActivity: WorkActivityItem[] = auditRows
+    .map((r) => {
+      const label = workActivityLabel(r.action);
+      return label ? { id: r.id, label, who: r.actorName, atIso: r.createdAt } : null;
+    })
+    .filter((x): x is WorkActivityItem => x !== null)
+    .slice(0, 5);
 
   const completedToday: QueueRow[] = completedStages.map((s) => ({
     workInstanceId: s.workInstanceId,
@@ -207,13 +232,58 @@ export async function loadWorkDashboard(): Promise<WorkDashboard> {
     needsOwner,
     blocked,
     assigned,
+    readyToStart,
     completedToday,
-    notifications: notifications.map((n) => ({
-      id: n.id, title: n.title, body: n.body, readAt: n.readAt, createdAt: n.createdAt,
-    })),
-    unreadCount: notifications.filter((n) => !n.readAt).length,
+    recentActivity,
     hasBlueprints: blueprints.length > 0,
   };
+}
+
+export interface TeamWorkRow {
+  id: string;
+  title: string;
+  owner: string;
+  status: string; // plain: Ready / In progress / Waiting
+  href: string;
+}
+
+// All active work across the organization — the Team Work view. Plain business
+// language; no stage/instance vocabulary reaches the screen.
+export async function loadTeamWork(): Promise<{ actor: WorkActor; rows: TeamWorkRow[] }> {
+  const actor = await requireWorkActor();
+  const [instances, users] = await Promise.all([
+    prisma.workInstance.findMany({
+      where: { organizationId: actor.organizationId, status: 'active' },
+      select: {
+        id: true, title: true, currentStageId: true,
+        stages: { select: { id: true, status: true, ownerUserId: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    }),
+    listAssignableUsers(actor.organizationId),
+  ]);
+  const nameOf = (uid: string | null): string => {
+    if (!uid) return 'No one yet';
+    const u = users.find((x) => x.id === uid);
+    return u ? u.name || u.email : 'Someone';
+  };
+  const statusWord = (s: string): string =>
+    s === 'ready' ? 'Ready' : s === 'in_progress' ? 'In progress' : s === 'pending' ? 'Waiting' : 'Active';
+  const rows: TeamWorkRow[] = instances.map((inst) => {
+    const cur =
+      inst.stages.find((s) => s.id === inst.currentStageId) ??
+      inst.stages.find((s) => s.status === 'ready' || s.status === 'in_progress') ??
+      null;
+    return {
+      id: inst.id,
+      title: inst.title,
+      owner: cur ? nameOf(cur.ownerUserId) : 'No one yet',
+      status: cur ? statusWord(cur.status) : 'Active',
+      href: '/app/admin/work/' + inst.id,
+    };
+  });
+  return { actor, rows };
 }
 
 // Directory of people who can own a stage, for owner selectors.

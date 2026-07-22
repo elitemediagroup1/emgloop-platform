@@ -1,14 +1,15 @@
-// PR #75 — Work OS Blueprint Runtime v1
-// Create a real WorkInstance from a Blueprint.
-
 import Link from 'next/link';
-
 import { requireWorkActor, workRepo, listAssignableUsers } from '../work-data';
 import { createWorkFromBlueprintAction } from '../actions';
 
+// Start Work — a focused, conversational form. Backend unchanged: the fields map
+// to the existing action (blueprintId / title / description / firstOwnerUserId);
+// only the experience and terminology changed. No Work Instance / Blueprint /
+// Stage / owner-caveat wording reaches the screen.
+
 export const dynamic = 'force-dynamic';
 
-export default async function NewWorkPage() {
+export default async function StartWorkPage() {
   const actor = await requireWorkActor();
   const [blueprints, users] = await Promise.all([
     workRepo().listBlueprints(actor.organizationId),
@@ -16,78 +17,55 @@ export default async function NewWorkPage() {
   ]);
 
   return (
-    <div className="loop-grid">
-      <div className="loop-grid__content">
-        <div className="loop-pagehead">
-          <div className="loop-eyebrow">Work OS</div>
-          <h1 className="loop-title">New work instance</h1>
-          <p className="loop-subtitle">
-            Pick a Blueprint to run. The first stage is created ready and its owner
-            is notified that their next action is ready.
-          </p>
+    <div className="loop-os">
+      <div className="sw">
+        <div className="sw__head">
+          <h1 className="sw__title">Start Work</h1>
+          <p className="sw__purpose">Start a piece of work and Loop will guide it through completion.</p>
         </div>
 
         {blueprints.length === 0 ? (
-          <div className="loop-card">
-            <div className="loop-empty">
-              <div className="loop-empty__title">No blueprints yet</div>
-              <div className="loop-empty__body">
-                Create a Blueprint first, then run work from it.
-              </div>
-              <Link className="loop-badge" href="/app/admin/work/blueprints/new">
-                + New blueprint
-              </Link>
-            </div>
+          <div className="sw__card">
+            <p className="sw__empty">You don’t have any work types yet. Create one first, then start work from it.</p>
+            <Link href="/app/admin/work/blueprints/new" className="adm-btn adm-btn--primary">Create a work type</Link>
           </div>
         ) : (
-          <div className="loop-card">
-            <form action={createWorkFromBlueprintAction} className="loop-brief__list">
-              <label>
-                <div className="loop-card__hint">Title</div>
-                <input name="title" required placeholder="New Buyer — ABC Roofing" />
-              </label>
+          <form action={createWorkFromBlueprintAction} className="sw__form">
+            <label className="sw__field">
+              <span className="sw__label">What are you trying to accomplish?</span>
+              <select name="blueprintId" required className="sw__input" defaultValue="">
+                <option value="" disabled>Choose…</option>
+                {blueprints.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </label>
 
-              <label>
-                <div className="loop-card__hint">Description</div>
-                <textarea name="description" rows={3} />
-              </label>
+            <label className="sw__field">
+              <span className="sw__label">Work name</span>
+              <input name="title" required placeholder="e.g. Onboard ABC Roofing" className="sw__input" />
+            </label>
 
-              <label>
-                <div className="loop-card__hint">Blueprint</div>
-                <select name="blueprintId" required>
-                  <option value="">Choose a blueprint…</option>
-                  {blueprints.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.stages.length} stages)
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <label className="sw__field">
+              <span className="sw__label">Notes <span className="sw__opt">Optional</span></span>
+              <textarea name="description" rows={3} placeholder="Anything the team should know" className="sw__input sw__textarea" />
+            </label>
 
-              <label>
-                <div className="loop-card__hint">
-                  First owner (used only if the first stage has no default owner)
-                </div>
-                <select name="firstOwnerUserId">
-                  <option value="">Leave to blueprint default / unassigned</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name || u.email}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <label className="sw__field">
+              <span className="sw__label">First person responsible</span>
+              <select name="firstOwnerUserId" className="sw__input" defaultValue="">
+                <option value="">Decide later</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                ))}
+              </select>
+            </label>
 
-              <div className="loop-launchers">
-                <button className="loop-badge" type="submit">
-                  Create work
-                </button>
-                <Link className="loop-card__hint" href="/app/admin/work">
-                  Cancel
-                </Link>
-              </div>
-            </form>
-          </div>
+            <div className="sw__actions">
+              <button type="submit" className="adm-btn adm-btn--primary sw__submit">Start Work</button>
+              <Link href="/app/admin/work" className="sw__cancel">Cancel</Link>
+            </div>
+          </form>
         )}
       </div>
     </div>

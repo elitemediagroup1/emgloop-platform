@@ -18,6 +18,7 @@
 // (packages/database) — this config never becomes the security boundary.
 
 import type { Resource, Action } from '@emgloop/database';
+import { pickActiveHref } from '@emgloop/shared';
 
 // ---------------------------------------------------------------------------
 // Workspace roles — a PRODUCT concept layered on top of the existing, unchanged
@@ -365,19 +366,24 @@ export function isStandalonePath(pathname: string | null): boolean {
 }
 
 /**
- * Resolve the breadcrumb leaf for a path: the longest nav href that prefixes
- * it. Longest-match matters because a shell's home ('/crm') prefixes every one
- * of its pages. Returns null when nothing matches, so the shell can fall back.
+ * THE centralized route-to-product resolver.
+ *
+ * Returns the top-level nav item that owns `pathname` — the item whose href is
+ * the LONGEST prefix of the path. Longest-match is what keeps a product selected
+ * across all its child routes: /app/admin/work/new, /app/admin/work/[id], … all
+ * resolve to the Work OS item (/app/admin/work), never to Dashboard (/app/admin),
+ * because Work OS's href is the longer prefix.
+ *
+ * Both the sidebar active state AND the breadcrumb derive from this ONE function
+ * — no page implements its own active-state logic.
  */
+export function resolveActiveNav(shell: ShellConfig, pathname: string | null): NavItem | null {
+  const items = shell.nav.flatMap((g) => g.items);
+  const activeHref = pickActiveHref(items.map((i) => i.href), pathname);
+  return activeHref ? items.find((i) => i.href === activeHref) ?? null : null;
+}
+
+/** The active product's label (breadcrumb leaf), via the one resolver. */
 export function resolveNavLabel(shell: ShellConfig, pathname: string | null): string | null {
-  if (!pathname) return null;
-  let best: NavItem | null = null;
-  for (const group of shell.nav) {
-    for (const item of group.items) {
-      if (item.href.startsWith('#')) continue;
-      const isMatch = pathname === item.href || pathname.startsWith(item.href + '/');
-      if (isMatch && (!best || item.href.length > best.href.length)) best = item;
-    }
-  }
-  return best ? best.label : null;
+  return resolveActiveNav(shell, pathname)?.label ?? null;
 }

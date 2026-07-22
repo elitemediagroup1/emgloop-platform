@@ -185,3 +185,6 @@ export * from './metric-trend';
 
 // --- The one canonical server-side application origin (absolute email links) ---
 export * from './app-origin';
+
+// --- Route → active nav (longest-prefix), for sidebar + breadcrumb ---
+export * from './nav-match';

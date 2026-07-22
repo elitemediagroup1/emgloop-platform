@@ -107,7 +107,7 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     health = {
       label: 'Blocked',
       tone: 'warn',
-      line: `“${current.name}” is waiting on an earlier step before it can start.`,
+      line: `“${current.name}” can’t start yet — earlier work needs to finish first.`,
     };
   } else {
     health = {
