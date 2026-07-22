@@ -1795,3 +1795,35 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
   .sw2-req { grid-template-columns: 1fr; }
 }
 /* ===================== END WORK OS ===================== */
+
+/* ===================== CALLGRID INTELLIGENCE — 5 sections =====================
+   Tiles only, above the fold. Reuses .tile / .tile__* from the Dashboard; adds
+   only the section scaffolding + the 4-across metric grid + watch/quick-access. */
+.cg-page { display: flex; flex-direction: column; gap: 18px; }
+.cg-sec { display: flex; flex-direction: column; gap: 10px; }
+.cg-seclabel { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
+.cg-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.cg-name { font-size: 20px; line-height: 1.15; overflow-wrap: anywhere; }
+.cg-muted { color: var(--loop-text-3); }
+.cg-watch { display: block; }
+.cg-watch__list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cg-watch__item { display: flex; align-items: baseline; gap: 12px; }
+.cg-watch__text { color: var(--loop-text); font-size: 14px; line-height: 1.45; }
+.cg-sev { flex: none; min-width: 62px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; border: 1px solid var(--loop-line-strong); color: var(--loop-text-2); }
+.cg-sev--critical { color: var(--loop-crit); border-color: rgba(242,104,138,.45); }
+.cg-sev--high { color: var(--loop-warn); border-color: rgba(242,180,91,.45); }
+.cg-sev--notable { color: var(--loop-accent-2); border-color: rgba(122,162,255,.45); }
+.cg-sev--informational { color: var(--loop-text-3); }
+.cg-qa { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+.cg-qatile { text-decoration: none; align-items: center; justify-content: center; text-align: center; min-height: 64px; display: flex; transition: border-color .12s ease; }
+.cg-qatile:hover { border-color: var(--loop-accent); }
+.cg-qatile .tile__title { font-size: 14px; }
+@media (max-width: 1160px) {
+  .cg-tiles { grid-template-columns: repeat(2, 1fr); }
+  .cg-qa { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 680px) {
+  .cg-tiles { grid-template-columns: 1fr; }
+  .cg-qa { grid-template-columns: repeat(2, 1fr); }
+}
+/* ===================== END CALLGRID INTELLIGENCE ===================== */
