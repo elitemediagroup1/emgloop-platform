@@ -1,0 +1,27 @@
+feature,route,backend_dependency,provider_dependency,classification,major_issue
+CRM overview,/crm,crmRepos,-,Production-ready,-
+Customers,/crm/customers,crmRepos org-scoped,CallGrid ingest,Production-ready,page guard requireCrmContext only (AUTHZ-002)
+Conversations/Inbox,/crm/conversations;/crm/inbox,crmRepos,-,Production-ready,Inbox labelled Calendar in nav
+Pipeline,/crm/pipeline,crm.kanbanBoard,-,Production-ready,-
+Revenue Intelligence,/crm/revenue,revenueIntelligence,-,Production-ready,exemplary empty-state
+Analytics/Traffic,/crm/analytics;/crm/traffic,crmRepos,-,Production-ready,-
+Workflows automation,/crm/workflows,workflows.repository,-,Functional-incomplete,SCHEDULE trigger inert (no cron)
+AI Employees,/crm/ai-employees,ai-employee.repository,-,Functional-incomplete,config-only honestly labelled
+Integrations,/crm/integrations,integration-os.ts,CallGrid/Website,Production-ready,single-tenant LIVE_ORG_SLUG
+Live feeds,/crm/live/*,crmRepos+LiveFeed,CallGrid/Website,Production-ready,polling not push
+Setup wizard,/crm/setup,crmRepos,-,Production-ready,client leaf
+Audit/Search/Merge/Settings,/crm/{audit;search;merge;settings},crmRepos,-,Production-ready,-
+Admin command center,/app/admin,dashboard-data.ts,CallGrid,Production-ready,honest Unknown/Unavailable tiles
+Executive Brain,/app/admin/brain,loadExecutiveBrain+crmRepos,-,Functional-incomplete,deterministic; mixes crm+loop-os tokens
+CallGrid Intelligence,/app/admin/marketplace(+subpages),marketplaceCalls+dimension loaders,CallGrid,Production-ready,PR#146 pending; no requirePermission (AUTHZ-001)
+Marketplace-intelligence legacy,/app/admin/marketplace-intelligence,-,-,Redirect,to /app/admin/marketplace
+Work OS,/app/admin/work(+subpages),WorkRepository,-,Production-ready,isolated from CRM record graph (WF-002)
+Administration,/app/admin/administration/{team;work-types},repos,-,Production-ready,-
+Employee Work Queue,/app/employee/work,loadEmployeeWork,-,Production-ready,PR#76 surface
+Employee dashboard,/app/employee,none,-,Placeholder,summaries plug in here
+Business/Creator/Client,/app/{business;creator;client}/*,none,-,Placeholder,phantom/unreachable workspaces
+Unbuilt nav (CRM/Creator/Accounting),/app/admin/[...slug],config only,-,Placeholder shell,honest Nothing here yet
+Legacy login,/login,hardcoded,-,Placeholder,dead; real login is /crm/login
+Status,/status,hardcoded SERVICES,-,Placeholder,static honest not-configured
+Dashboard,/dashboard,-,-,Redirect,to /app/admin
+Demo,/demo(+intake;timeline),demo repos,mock providers,Prototype,self-contained labelled
