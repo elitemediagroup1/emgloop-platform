@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { loadWorkDashboard, type QueueRow } from './work-data';
+import { loadWorkDashboard, requireWorkActor, workRepo, type QueueRow } from './work-data';
+import { hasPermission } from '../../../../auth/guard';
+import WorkTypesManager from './_components/WorkTypesManager';
+import FieldsEditor from './_components/FieldsEditor';
 
 // Work OS — the operating surface for getting work done.
 //
@@ -67,12 +70,52 @@ function CountTile({ title, rows, emptyLine, tone = 'info' }: {
   );
 }
 
-export default async function WorkOSPage() {
+export default async function WorkOSPage({
+  searchParams,
+}: {
+  searchParams?: { fields?: string; notice?: string; error?: string };
+}) {
+  const [dashboard, actor, canViewTypes, canManageTypes] = await Promise.all([
+    loadWorkDashboard(),
+    requireWorkActor(),
+    hasPermission('settings', 'view'),
+    hasPermission('settings', 'update'),
+  ]);
   const {
     assigned, readyToStart, blocked, needsOwner, completedToday, recentActivity, nextAction, hasBlueprints,
-  } = await loadWorkDashboard();
+  } = dashboard;
 
   const startHref = hasBlueprints ? '/app/admin/work/new' : '/app/admin/work/blueprints/new';
+
+  // Work Types administration lives at the bottom of this page (no separate route).
+  const workTypes = canViewTypes
+    ? await workRepo().listWorkTypes(actor.organizationId, { includeInactive: true })
+    : [];
+  const notice = typeof searchParams?.notice === 'string' ? searchParams.notice : null;
+  const error = typeof searchParams?.error === 'string' ? searchParams.error : null;
+
+  // Drilling into a work type's field configuration is a focused, full-page task.
+  const fieldsType = canManageTypes && searchParams?.fields
+    ? workTypes.find((t) => t.id === searchParams.fields) ?? null
+    : null;
+  if (fieldsType) {
+    return (
+      <div className="loop-os">
+        <div className="cmd">
+          {error ? <div className="adm-banner adm-banner--error" role="alert">{error}</div> : null}
+          {notice ? <div className="adm-banner adm-banner--ok" role="status">{notice}</div> : null}
+        </div>
+        <FieldsEditor
+          workTypeId={fieldsType.id}
+          workTypeName={fieldsType.name}
+          initialFields={fieldsType.fields.map((f) => ({
+            key: f.key, label: f.label, helper: f.helper, type: f.type,
+            required: f.required, options: f.options, active: f.active,
+          }))}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="loop-os">
@@ -162,6 +205,15 @@ export default async function WorkOSPage() {
           </Tile>
 
         </div>
+
+        {/* Work Types administration — moved here from its own sidebar tab. */}
+        {canViewTypes ? (
+          <>
+            {error ? <div className="adm-banner adm-banner--error" role="alert">{error}</div> : null}
+            {notice ? <div className="adm-banner adm-banner--ok" role="status">{notice}</div> : null}
+            <WorkTypesManager types={workTypes} canManage={canManageTypes} />
+          </>
+        ) : null}
       </div>
     </div>
   );

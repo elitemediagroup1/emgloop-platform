@@ -10,7 +10,8 @@ import { redirect } from 'next/navigation';
 import { repositories, WORK_TYPE_CATALOG, WORK_PRIORITIES, WORK_FIELD_TYPES, type WorkFieldDef, type WorkFieldType } from '@emgloop/database';
 import { requirePermission } from '../../../../../auth/guard';
 
-const PATH = '/app/admin/administration/work-types';
+// Work Types now live at the bottom of the Work OS page (no separate route).
+const PATH = '/app/admin/work';
 
 function backTo(message: string, kind: 'notice' | 'error'): string {
   return PATH + '?' + kind + '=' + encodeURIComponent(message);
