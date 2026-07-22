@@ -259,6 +259,11 @@ export interface CompleteWorkStepInput {
   stageId: string;
   completedByUserId: string;
   note?: string | null;
+  // When set, the step is completed ONLY if it is currently owned by this user.
+  // The security invariant lives here, at the data layer, so no caller can
+  // complete a step that isn't theirs — a UI-only check is not access control
+  // (PR #76). Omit for privileged/system completion.
+  expectedOwnerUserId?: string | null;
   responsibilityOwners?: Record<string, string> | null;
   activeMemberIds?: ReadonlySet<string> | null;
 }
@@ -767,6 +772,10 @@ export class WorkRepository {
       const current = instance.stages.find((s) => s.id === input.stageId);
       if (!current) throw new Error('Step not found');
       if (current.status === 'completed') throw new Error('That step is already complete');
+      // Only the assigned owner may complete the step, enforced at the data layer.
+      if (input.expectedOwnerUserId != null && current.ownerUserId !== input.expectedOwnerUserId) {
+        throw new Error('Only the assigned owner can complete this step');
+      }
 
       const now = new Date();
       await tx.workStage.update({

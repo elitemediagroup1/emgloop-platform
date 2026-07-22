@@ -1,25 +1,26 @@
 // Work detail — the canonical EMG Loop drill-down (EntityPage).
 //
-// A WorkInstance is a single entity, so it renders through the permanent
+// A Work Item is a single entity, so it renders through the permanent
 // storytelling pattern: who/what it is, whether it is healthy, what changed,
-// why it matters, what should happen next (the completable step), the evidence
-// (every stage's real state), and what happened previously (the timeline). The
-// interactive controls — complete the current step, reassign owners, comment —
-// are passed into the pattern's primaryAction / manage slots, so the story
-// stays identical to every other drill-down in Loop.
+// why it matters, the completable step (Complete My Step — owner-only), the
+// evidence (every step's real state), and the timeline. It reads the Work Item
+// created by the configurable workflow engine (createWorkItem): Work Type, the
+// captured details + custom fields, priority, Eastern target, the ordered steps
+// with their per-step assignment, and every participant.
+//
+// The active owner completes ONLY their own step; the engine resolves the next
+// owner from the defined sequence. There is no manual "reassign the whole item"
+// — the only assignment control is putting an owner on the current step when it
+// still needs one.
 //
 // No implementation vocabulary on screen: "stage/status/currentStageId" become
 // "step", "Ready/Waiting/Completed", and plain English.
 
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { requireWorkActor, workRepo, listAssignableUsers } from '../work-data';
-import {
-  completeCurrentStageAction,
-  assignStageAction,
-  addWorkCommentAction,
-} from '../actions';
+import { assignStageAction, addWorkCommentAction } from '../actions';
+import CompleteStepForm from './CompleteStepForm';
 import {
   EntityPage,
   type EntityPageModel,
@@ -68,6 +69,10 @@ function stepTone(status: string): EntityTone {
   return 'idle';
 }
 
+function meta(obj: unknown): Record<string, unknown> {
+  return obj && typeof obj === 'object' && !Array.isArray(obj) ? (obj as Record<string, unknown>) : {};
+}
+
 export default async function WorkDetailPage({ params }: { params: { id: string } }) {
   const actor = await requireWorkActor();
   const work = workRepo();
@@ -80,6 +85,11 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     notFound();
   }
 
+  const wmeta = meta(instance.metadata);
+  const workTypeId = typeof wmeta.workTypeId === 'string' ? wmeta.workTypeId : null;
+  // Load the Work Type only to map custom-field keys → their configured labels.
+  const workType = workTypeId ? await work.getWorkType(actor.organizationId, workTypeId) : null;
+
   const stages = [...instance.stages].sort((a, b) => a.position - b.position);
   const total = stages.length;
   const completedStages = stages.filter((s) => s.status === 'completed');
@@ -90,6 +100,12 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     stages.some((s) => s.position > current.position && s.status !== 'skipped');
   const isComplete = instance.status === 'completed';
   const currentOwner = current ? ownerName(current.ownerUserId, users) : 'Unassigned';
+  const iOwnCurrent = current != null && current.ownerUserId === actor.userId;
+  const currentCfg = current ? meta(current.metadata) : {};
+  const noteMode = currentCfg.completionNote === 'required' || currentCfg.completionNote === 'optional'
+    ? (currentCfg.completionNote as 'required' | 'optional')
+    : 'none';
+  const confirmation = typeof currentCfg.completionConfirmation === 'string' ? currentCfg.completionConfirmation : null;
 
   // 2. Is it healthy?
   let health: EntityPageModel['health'];
@@ -101,7 +117,7 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     health = {
       label: 'Needs an owner',
       tone: 'warn',
-      line: `The step “${current.name}” is ready, but nobody is assigned to it. Only you can put someone on it.`,
+      line: `The step “${current.name}” is ready, but nobody is assigned to it. Put someone on it below.`,
     };
   } else if (current.status === 'pending') {
     health = {
@@ -113,38 +129,35 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     health = {
       label: 'On track',
       tone: 'good',
-      line: `${currentOwner} is on “${current.name}”. Nothing is stuck.`,
+      line: iOwnCurrent
+        ? `“${current.name}” is yours to complete. Nothing is stuck.`
+        : `${currentOwner} is on “${current.name}”. Nothing is stuck.`,
     };
   }
 
-  // Identity facts.
-  const stats: EntityStat[] = [
-    { label: 'Progress', value: `${done} / ${total} steps`, tone: isComplete ? 'good' : undefined },
-    { label: 'Current step', value: current ? current.name : isComplete ? 'None left' : '—' },
-    { label: 'Owner', value: current ? currentOwner : '—', tone: current && !current.ownerUserId ? 'warn' : undefined },
-    { label: 'Started', value: relTime(new Date(instance.createdAt)) || 'Today' },
-  ];
+  // Participants — the unique union of the creator and every resolved step owner.
+  const participantIds = new Set<string>();
+  participantIds.add(instance.createdByUserId);
+  for (const s of stages) if (s.ownerUserId) participantIds.add(s.ownerUserId);
+  const participantNames = [...participantIds].map((id) => ownerName(id, users));
 
-  // Start Work captured priority / due / responsibility / relation / requirements
-  // on the work's metadata. Surface each ONLY when it exists (honest, no filler).
-  const wmeta = (instance.metadata && typeof instance.metadata === 'object' && !Array.isArray(instance.metadata)
-    ? (instance.metadata as Record<string, unknown>)
-    : {});
-  const wPriority = typeof wmeta.priority === 'string' ? wmeta.priority : null;
-  const wDue = typeof wmeta.dueEastern === 'string' ? wmeta.dueEastern : null;
-  const wResp = typeof wmeta.responsibilityLabel === 'string' ? wmeta.responsibilityLabel : null;
-  const wReqs = Array.isArray(wmeta.requirements) ? (wmeta.requirements as Record<string, unknown>[]) : [];
-  const wRelation = (wmeta.relation && typeof wmeta.relation === 'object' && !Array.isArray(wmeta.relation)
-    ? (wmeta.relation as { type?: unknown; label?: unknown })
-    : null);
-  if (wPriority) stats.push({ label: 'Priority', value: wPriority.charAt(0).toUpperCase() + wPriority.slice(1) });
-  if (wDue) stats.push({ label: 'Due', value: `${wDue} ET` });
-  if (wResp) stats.push({ label: 'Responsibility', value: wResp });
-  if (wReqs.length) stats.push({ label: 'Requirements', value: String(wReqs.length) });
-  if (wRelation && typeof wRelation.label === 'string' && wRelation.label) {
-    const rt = typeof wRelation.type === 'string' ? wRelation.type : '';
-    stats.push({ label: 'Related', value: rt ? `${rt}: ${wRelation.label}` : wRelation.label });
-  }
+  // Identity facts (surface each only when it exists — honest, no filler).
+  const priority = typeof wmeta.priority === 'string' ? wmeta.priority : null;
+  const target = typeof wmeta.targetEastern === 'string' ? wmeta.targetEastern
+    : typeof wmeta.dueEastern === 'string' ? wmeta.dueEastern : null;
+  const workTypeName = typeof wmeta.workTypeName === 'string' ? wmeta.workTypeName : workType?.name ?? null;
+  const details = typeof wmeta.details === 'string' ? wmeta.details : null;
+  const customValues = meta(wmeta.customFieldValues);
+
+  const stats: EntityStat[] = [];
+  if (workTypeName) stats.push({ label: 'Work Type', value: workTypeName });
+  stats.push({ label: 'Progress', value: `${done} / ${total} steps`, tone: isComplete ? 'good' : undefined });
+  stats.push({ label: 'Current step', value: current ? current.name : isComplete ? 'None left' : '—' });
+  stats.push({ label: 'Owner', value: current ? currentOwner : '—', tone: current && !current.ownerUserId ? 'warn' : undefined });
+  if (priority) stats.push({ label: 'Priority', value: priority.charAt(0).toUpperCase() + priority.slice(1) });
+  if (target) stats.push({ label: 'Target', value: `${target} ET` });
+  stats.push({ label: 'Participants', value: String(participantIds.size) });
+  stats.push({ label: 'Started', value: relTime(new Date(instance.createdAt)) || 'Today' });
 
   // 3. What changed — recent step transitions.
   const changes: EntityChange[] = completedStages
@@ -173,7 +186,7 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
         : `“${current.name}” is the final step — completing it finishes this work.`
       : undefined;
 
-  // 6. Evidence — every step's real state.
+  // 6. Evidence — every step's real state (the ordered workflow timeline).
   const evidence: EntityEvidence[] = stages.map((s) => ({
     label: `${s.position}. ${s.name} — ${stepWord(s.status)}`,
     tone: stepTone(s.status),
@@ -188,17 +201,27 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     note: s.description ?? undefined,
   }));
 
-  // The requirements checklist captured at Start Work (if any).
-  if (wReqs.length) {
-    evidence.push({
-      label: `Requirements — ${wReqs.length}`,
-      tone: 'info' as EntityTone,
-      facts: wReqs.slice(0, 20).map((r) => ({
-        statement: r && (r as Record<string, unknown>).required ? 'Required' : 'Optional',
-        value: String((r as Record<string, unknown>)?.name ?? ''),
-      })),
-    });
+  // The captured details + custom fields (only when present).
+  const detailFacts: { statement: string; value: string }[] = [];
+  if (details) detailFacts.push({ statement: 'Details', value: details });
+  if (workType) {
+    for (const f of workType.fields) {
+      const v = customValues[f.key];
+      if (v !== undefined && v !== null && String(v).length > 0) {
+        detailFacts.push({ statement: f.label, value: f.type === 'checkbox' ? (v === true ? 'Yes' : 'No') : String(v) });
+      }
+    }
   }
+  if (detailFacts.length) {
+    evidence.push({ label: 'Details', tone: 'info' as EntityTone, facts: detailFacts });
+  }
+
+  // Participants block — who is involved in this work.
+  evidence.push({
+    label: `Participants — ${participantIds.size}`,
+    tone: 'info' as EntityTone,
+    facts: participantNames.map((n) => ({ statement: 'Person', value: n })),
+  });
 
   // 7. What happened previously.
   const history: EntityHistoryItem[] = [
@@ -220,58 +243,47 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     { icon: 'grid', title: 'Home', detail: 'What needs your attention today', href: '/app/admin' },
   ];
 
-  // 5. The completable step (interactive primary action).
+  // 5. The completable step — ONLY the current owner sees Complete My Step. The
+  // next owner is resolved from the defined sequence, never chosen here.
   const primaryAction =
-    !isComplete && current ? (
-      <form action={completeCurrentStageAction} className="ent-manage">
-        <input type="hidden" name="workInstanceId" value={instance.id} />
-        <div className="ent-action__main">
-          <span className="ent-action__title">Complete “{current.name}”</span>
-          <p className="ent-action__why">
-            {hasNext
-              ? 'Marking this step done hands the work to the next step.'
-              : 'This is the final step — completing it finishes the work.'}
-          </p>
-        </div>
-        {hasNext ? (
-          <label className="ent-field">
-            <span className="ent-field__label">Hand off to</span>
-            <select name="nextOwnerUserId" className="ent-select">
-              <option value="">Keep the next step&rsquo;s default owner</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.name || u.email}</option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <button className="ent-btn ent-btn--primary" type="submit">Complete this step</button>
-      </form>
+    !isComplete && current && iOwnCurrent ? (
+      <CompleteStepForm
+        workInstanceId={instance.id}
+        stageId={current.id}
+        stepName={current.name}
+        hasNext={hasNext}
+        noteMode={noteMode}
+        confirmation={confirmation}
+      />
     ) : null;
 
-  // Manage — reassign owners + comments, grouped consistently.
+  // Manage — the ONLY assignment control is putting an owner on the current step
+  // when it still needs one (or correcting the current owner). No whole-item
+  // reassignment: later steps resolve their own owner at handoff.
   const manage = (
     <div className="ent-manage">
-      {!isComplete ? (
+      {!isComplete && current ? (
         <div className="ent-manage__block">
-          <p className="ent-manage__label">Step owners</p>
-          <ul className="ent-manage__list">
-            {stages.map((s) => (
-              <li key={s.id} className="ent-manage__row">
-                <span className="ent-manage__name">{s.position}. {s.name}</span>
-                <form action={assignStageAction} className="ent-manage__form">
-                  <input type="hidden" name="workStageId" value={s.id} />
-                  <input type="hidden" name="workInstanceId" value={instance.id} />
-                  <select name="userId" defaultValue={s.ownerUserId ?? ''} className="ent-select">
-                    <option value="">Unassigned</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name || u.email}</option>
-                    ))}
-                  </select>
-                  <button className="ent-btn ent-btn--ghost" type="submit">Save</button>
-                </form>
-              </li>
-            ))}
-          </ul>
+          <p className="ent-manage__label">
+            {current.ownerUserId ? 'Current step owner' : 'This step needs an owner'}
+          </p>
+          <div className="ent-manage__row">
+            <span className="ent-manage__name">{current.position}. {current.name}</span>
+            <form action={assignStageAction} className="ent-manage__form">
+              <input type="hidden" name="workStageId" value={current.id} />
+              <input type="hidden" name="workInstanceId" value={instance.id} />
+              <select name="userId" defaultValue={current.ownerUserId ?? ''} className="ent-select">
+                <option value="">Unassigned</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                ))}
+              </select>
+              <button className="ent-btn ent-btn--ghost" type="submit">Save</button>
+            </form>
+          </div>
+          {!iOwnCurrent && current.ownerUserId ? (
+            <p className="ent-empty">Only {currentOwner} can complete this step. Reassign it here if that’s wrong.</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -299,6 +311,14 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     </div>
   );
 
+  const actionsEmpty = isComplete
+    ? 'This work is complete — nothing else needs to happen.'
+    : current && !iOwnCurrent && current.ownerUserId
+      ? `Waiting on ${currentOwner} to complete “${current.name}”.`
+      : current && !current.ownerUserId
+        ? 'This step needs an owner before it can be completed — assign one under “Manage this work”.'
+        : 'Nothing needs a decision on this work right now.';
+
   const model: EntityPageModel = {
     eyebrow: 'Work OS',
     title: instance.title,
@@ -317,7 +337,7 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     manageTitle: 'Manage this work',
     empty: {
       changes: 'No steps have moved yet. Changes appear here as the work advances.',
-      actions: isComplete ? 'This work is complete — nothing else needs to happen.' : 'Nothing needs a decision on this work right now.',
+      actions: actionsEmpty,
       evidence: 'This work has no steps yet.',
     },
   };

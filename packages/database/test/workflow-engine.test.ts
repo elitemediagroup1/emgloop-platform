@@ -104,6 +104,18 @@ test('completing a step activates exactly the next and resolves its owner by mod
   assert.equal(t.workNotification.filter((n) => n.userId === 'u_charlie').length, 1);
 });
 
+test('expectedOwnerUserId enforces owner-only completion at the data layer', async () => {
+  const { repo } = makeDb();
+  const wi = await newBuyerWork(repo); // step 1 is creator mode → owned by u_creator
+  await assert.rejects(
+    () => repo.completeWorkStep({ organizationId: ORG, workInstanceId: wi.id, stageId: wi.stages[0]!.id, completedByUserId: 'u_intruder', expectedOwnerUserId: 'u_intruder', activeMemberIds: ACTIVE }),
+    /assigned owner/,
+  );
+  // The rightful owner still completes it.
+  const done = await repo.completeWorkStep({ organizationId: ORG, workInstanceId: wi.id, stageId: wi.stages[0]!.id, completedByUserId: 'u_creator', expectedOwnerUserId: 'u_creator', activeMemberIds: ACTIVE, responsibilityOwners: { CALLGRID_SETUP: 'u_setup' } });
+  assert.equal(done.stages[0]!.status, 'completed');
+});
+
 test('responsibility + previous-step-completer resolve dynamically at handoff', async () => {
   const { repo } = makeDb();
   let wi = await newBuyerWork(repo);
