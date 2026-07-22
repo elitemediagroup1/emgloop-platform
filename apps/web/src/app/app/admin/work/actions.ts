@@ -8,14 +8,103 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
-import { buildWorkSubmission, responsibilityLabel, type WorkSubmissionErrors, type AssignMode } from '@emgloop/database';
+import {
+  buildWorkItemSubmission,
+  STEP_ASSIGN_MODES,
+  COMPLETION_NOTE_MODES,
+  type WorkItemErrors,
+  type WorkflowStepDef,
+  type StepAssignMode,
+  type CompletionNoteMode,
+} from '@emgloop/database';
 import { requireWorkActor, workRepo } from './work-data';
 
 const WORK_ROOT = '/app/admin/work';
 
 export interface StartWorkState {
-  errors?: WorkSubmissionErrors;
+  errors?: WorkItemErrors;
   formError?: string;
+}
+
+// Coerce one raw JSON step (from the client builder) into a validated shape the
+// engine understands. Trusts nothing: unknown modes fall back to 'unassigned',
+// unknown note modes to 'none'. Server-side validation (buildWorkItemSubmission)
+// still runs afterwards.
+function coerceStep(raw: unknown): WorkflowStepDef {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const mode = (STEP_ASSIGN_MODES as readonly string[]).includes(String(r.mode))
+    ? (r.mode as StepAssignMode)
+    : 'unassigned';
+  const note = (COMPLETION_NOTE_MODES as readonly string[]).includes(String(r.completionNote))
+    ? (r.completionNote as CompletionNoteMode)
+    : 'none';
+  return {
+    name: typeof r.name === 'string' ? r.name : '',
+    instruction: typeof r.instruction === 'string' ? r.instruction : '',
+    assignment: {
+      mode,
+      specificUserId: typeof r.specificUserId === 'string' ? r.specificUserId : null,
+      responsibilityKey: typeof r.responsibilityKey === 'string' ? r.responsibilityKey : null,
+    },
+    completionConfirmation: typeof r.completionConfirmation === 'string' ? r.completionConfirmation : null,
+    completionNote: note,
+    notifyActive: r.notifyActive !== false,
+    notifyComplete: r.notifyComplete === true,
+  };
+}
+
+function parseJsonArray(raw: unknown): unknown[] {
+  try {
+    const parsed = JSON.parse(String(raw ?? '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(raw: unknown): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(String(raw ?? '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// Inline "Add New Type" — create an organization-scoped Work Type without any
+// code change. Returns the new type so the client can select it immediately.
+export interface AddWorkTypeState {
+  ok?: boolean;
+  id?: string;
+  name?: string;
+  error?: string;
+}
+
+export async function addWorkTypeAction(
+  _prev: AddWorkTypeState,
+  formData: FormData,
+): Promise<AddWorkTypeState> {
+  const actor = await requireWorkActor();
+  const name = String(formData.get('name') ?? '').trim();
+  const description = String(formData.get('description') ?? '').trim() || null;
+  if (!name) return { error: 'Give the new type a name.' };
+
+  try {
+    const bp = await workRepo().createWorkType({
+      organizationId: actor.organizationId,
+      createdByUserId: actor.userId,
+      name,
+      description,
+    });
+    revalidatePath(`${WORK_ROOT}/new`);
+    return { ok: true, id: bp.id, name };
+  } catch (err) {
+    console.error('[work.addType] failed', {
+      organizationId: actor.organizationId,
+      code: (err as { code?: string } | null)?.code ?? 'unknown',
+    });
+    return { error: 'Could not create that type. Please try again.' };
+  }
 }
 
 // Create a Blueprint (optionally with an initial set of stages described as
@@ -85,11 +174,13 @@ export async function createWorkFromBlueprintAction(formData: FormData): Promise
   redirect(`${WORK_ROOT}/${instance.id}`);
 }
 
-// Start Work — the rebuilt, multi-section form. Validates with the pure builder,
-// resolves the owner, and persists priority / due date / requirements / relation
-// on the WorkInstance metadata (no new table). Returns field errors for the form;
-// on success it redirects to the new Work Detail page.
-export async function createWorkAction(
+// Start Work — the configurable sequential workflow builder. The Work Item is a
+// Work Type + an ordered list of Work Steps, each step owning its own assignment
+// (specific / responsibility / creator / previous-completer / unassigned). Only
+// step 1 activates at creation; the engine drives the handoff. Optionally saves
+// the step sequence as a reusable Workflow Template. Returns field errors for the
+// form; on success it redirects to the new Work Detail page.
+export async function startWorkItemAction(
   _prev: StartWorkState,
   formData: FormData,
 ): Promise<StartWorkState> {
@@ -98,60 +189,74 @@ export async function createWorkAction(
   const str = (k: string) => String(formData.get(k) ?? '').trim();
 
   const workTypeId = str('workTypeId');
-  // Resolve the work type within the org (also gives us its default assignee for
-  // 'auto' assignment). A missing/cross-org id is a field error, never a crash.
+  // Resolve the work type within the org (gives us its configured custom fields).
+  // A missing/cross-org id is a field error, never a crash.
   const workType = workTypeId ? await work.getWorkType(actor.organizationId, workTypeId) : null;
+  if (!workType) return { formError: 'Choose a valid work type to start.' };
 
-  let requirements: { name: string; description?: string; required?: boolean }[] = [];
-  try {
-    const raw = String(formData.get('requirements') ?? '[]');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) requirements = parsed;
-  } catch {
-    requirements = [];
-  }
+  const steps: WorkflowStepDef[] = parseJsonArray(formData.get('steps')).map(coerceStep);
+  const fieldValues = parseJsonObject(formData.get('fieldValues'));
 
-  const built = buildWorkSubmission({
-    workTypeId,
+  const built = buildWorkItemSubmission({
     title: str('title'),
     outcome: str('outcome'),
-    notes: str('notes'),
-    responsibility: str('responsibility') || null,
-    assignMode: (str('assignMode') || 'unassigned') as AssignMode,
-    assigneeUserId: str('assigneeUserId') || null,
-    workTypeDefaultAssigneeUserId: workType?.defaultAssigneeUserId ?? null,
+    details: str('details'),
     priority: str('priority') || 'normal',
-    dueDate: str('dueDate'),
-    dueTime: str('dueTime'),
-    relationType: (str('relationType') || 'none') as never,
-    relationLabel: str('relationLabel'),
-    requirements,
+    targetDate: str('targetDate'),
+    targetTime: str('targetTime'),
+    useTime: str('useTime') === 'on' || str('useTime') === 'true',
+    fields: workType.fields,
+    fieldValues,
+    steps,
   });
-
   if (!built.ok) return { errors: built.errors };
-  if (!workType) return { errors: { workTypeId: 'Choose a valid work type.' } };
+
+  // The assignee universe: active, de-duplicated org members. A resolved owner
+  // who is not in this set is dropped to "Needs an Owner" (engine, fail closed).
+  const members = await work.listActiveMembers(actor.organizationId);
+  const activeMemberIds = new Set(members.map((m) => m.id));
 
   let instanceId: string | null = null;
   try {
-    const instance = await work.createWorkFromBlueprint({
+    const instance = await work.createWorkItem({
       organizationId: actor.organizationId,
-      blueprintId: workTypeId,
+      creatorUserId: actor.userId,
+      workTypeId,
+      workTypeName: workType.name,
       title: built.value.title,
-      description: built.value.description,
-      createdByUserId: actor.userId,
-      firstOwnerUserId: built.value.firstOwnerUserId,
-      metadata: {
-        // A business-facing snapshot on the work itself — real, persisted context.
-        workTypeName: workType.name,
-        workTypeCategory: workType.category,
-        responsibilityLabel: responsibilityLabel(built.value.metadata.responsibility),
-        ...built.value.metadata,
-      },
+      outcome: built.value.outcome,
+      details: built.value.details,
+      relatedRecord: null, // no first-class record source exists to link yet
+      customFieldValues: built.value.customFieldValues,
+      priority: built.value.priority,
+      targetAtUtc: built.value.targetAtUtc,
+      targetEastern: built.value.targetEastern,
+      steps: built.value.steps,
+      // No persisted responsibility→owner map yet: a responsibility step resolves
+      // to "Needs an Owner" rather than being fabricated.
+      responsibilityOwners: null,
+      activeMemberIds,
     });
     instanceId = instance.id;
+
+    // Optionally save the step sequence as a reusable template (never the
+    // one-time related record or Work Item notes).
+    if (str('saveTemplate') === 'on' || str('saveTemplate') === 'true') {
+      const templateName = str('templateName');
+      if (templateName) {
+        await work.createWorkflowTemplate({
+          organizationId: actor.organizationId,
+          createdByUserId: actor.userId,
+          name: templateName,
+          description: str('templateDescription') || null,
+          workTypeIds: [workTypeId],
+          steps: built.value.steps,
+        });
+      }
+    }
   } catch (err) {
     console.error('[work.start] failed', {
-      op: 'createWorkFromBlueprint',
+      op: 'createWorkItem',
       organizationId: actor.organizationId,
       code: (err as { code?: string } | null)?.code ?? 'unknown',
     });
