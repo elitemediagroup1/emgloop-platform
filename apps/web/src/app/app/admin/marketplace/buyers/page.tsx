@@ -1,365 +1,213 @@
-// Buyers workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
+// CallGrid Intelligence — Buyers.
+//
+// Demand-side performance for the selected period. This page reads the SAME
+// canonical CallGrid source as the Overview's Top Buyer tile — the MarketplaceCall
+// projection via loadDimensionWindows('buyers') — so the two never disagree. It
+// does NOT read CRM revenue models (the previous defect: it read
+// revenueIntelligence.revenueByDimension, which returned UNKNOWN → a false "0
+// buyers" while the Overview showed a real Top Buyer from the call projection).
+//
+// Only CallGrid business information lives here: no Integration Status, no Live
+// Calls rail, no Brain briefing, no provider pills — those belong to other
+// products (removed per the finalization spec).
+
 import Link from "next/link";
+import { requireCrmContext } from "../../../../../crm/crm-data";
+import { money, num, todayLabel } from "../../../_loop-os";
 import { CallGridNav } from "../_CallGridNav";
-import { hasValue } from "@emgloop/shared";
-import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
-import { loadOrFallback } from "../../../../../demo/db-health";
-import { crmRepos, requireCrmContext } from "../../../../../crm/crm-data";
-import { loadProviderCards, computeSystemHealth, connectionLabel } from "../../../../../crm/integration-os";
-import type { Tone, Ranked } from "../../../_loop-os";
-import {
-  money,
-  num,
-  relTime,
-  clockDuration,
-  todayLabel,
-  Module,
-  RankedList,
-  PartialDataNotice,
-  Bar,
-  BriefingItem,
-  IntegrationPill,
-  ContextGroup,
-} from "../../../_loop-os";
+import { loadDimensionWindows, type DimRow, type DimWindow } from "../callgrid-dimensions";
 
 export const dynamic = "force-dynamic";
 
-type Pill = { name: string; state: "connected" | "needs" | "error" };
+// Revenue per billable call, only when both are real and billable > 0.
+function revPerBillable(revenueCents: number, billable: number): number | null {
+  return billable > 0 ? Math.round(revenueCents / billable) : null;
+}
 
-export default async function BuyerOperatingSystemPage() {
+// A row's trend vs its prior-window self. Never a percentage when the prior
+// denominator is zero/absent — that reads as "No comparable prior data".
+function trend(current: number, prior: number | undefined): { text: string; dir: "up" | "down" | "flat" | "na" } {
+  if (prior === undefined || prior <= 0) return { text: "No comparable prior data", dir: "na" };
+  const change = Math.round(((current - prior) / prior) * 100);
+  if (change === 0) return { text: "0%", dir: "flat" };
+  return { text: (change > 0 ? "+" : "") + change + "%", dir: change > 0 ? "up" : "down" };
+}
+
+interface Summary {
+  totalBuyers: number;
+  activeBuyers: number;
+  revenueCents: number;
+  billableCalls: number;
+  totalCalls: number;
+  avgRevPerBillable: number | null;
+}
+
+function summarize(w: DimWindow): Summary {
+  const rows = w.rows;
+  const revenueCents = rows.reduce((s, r) => s + r.revenueCents, 0);
+  const billableCalls = rows.reduce((s, r) => s + r.monetized, 0);
+  const totalCalls = rows.reduce((s, r) => s + r.calls, 0);
+  return {
+    totalBuyers: rows.length,
+    activeBuyers: rows.filter((r) => r.calls > 0 || r.monetized > 0 || r.revenueCents > 0).length,
+    revenueCents,
+    billableCalls,
+    totalCalls,
+    avgRevPerBillable: revPerBillable(revenueCents, billableCalls),
+  };
+}
+
+function Tile({ title, value, sub }: { title: string; value: string; sub?: string }) {
+  return (
+    <section className="tile" aria-label={title}>
+      <div className="tile__head"><span className="tile__title">{title}</span></div>
+      <div className="tile__num">{value}</div>
+      {sub ? <p className="tile__line">{sub}</p> : null}
+    </section>
+  );
+}
+
+export default async function BuyersPage({ searchParams }: { searchParams?: { buyer?: string } }) {
   const { organizationId: org } = await requireCrmContext();
 
-  const revenueR = org
-    ? await loadOrFallback(async () => crmRepos.revenueIntelligence.revenueByDimension(org))
-    : { ok: false as const };
-  const trafficR = org
-    ? await loadOrFallback(async () => crmRepos.revenueIntelligence.trafficIntelligence(org))
-    : { ok: false as const };
-  const liveCallsR = org
-    ? await loadOrFallback(async () => crmRepos.liveOperations.listLiveCalls(org))
-    : { ok: false as const };
-  const liveActivityR = org
-    ? await loadOrFallback(async () => crmRepos.liveOperations.listLiveActivity(org))
-    : { ok: false as const };
-  const integrationsR = org
-    ? await loadOrFallback(async () => loadProviderCards(org))
-    : { ok: false as const };
+  const windows = await loadDimensionWindows(org, "buyers");
+  const cur = windows.current;
+  const prior = windows.prior;
+  const ok = cur.ok;
+  const rows = [...cur.rows].sort((a, b) => b.revenueCents - a.revenueCents);
+  const priorByKey = new Map(prior.rows.map((r) => [r.key, r] as const));
+  const totalRevenue = rows.reduce((s, r) => s + r.revenueCents, 0);
 
-  // The repository now produces Truth. Unwrap once here: a non-value state
-  // (ERROR / UNKNOWN) becomes null, which this page already renders as absent.
-  const rev = revenueR.ok && hasValue(revenueR.data) ? revenueR.data.value : null;
-  const traffic = trafficR.ok && hasValue(trafficR.data) ? trafficR.data.value : null;
-  const liveCalls = liveCallsR.ok ? liveCallsR.data : [];
-  const liveActivity = liveActivityR.ok ? liveActivityR.data : [];
-  const cards = integrationsR.ok ? integrationsR.data : [];
-  const health = computeSystemHealth(cards);
-
+  const s = summarize(cur);
   const dateLabel = todayLabel();
 
-  const buyerRows: Ranked[] = rev ? rev.byBuyer : [];
-  const campaignRows: Ranked[] = rev ? rev.byCampaign : [];
-  const sourceRows: Ranked[] = rev ? rev.bySource : [];
-  const vendorRows: Ranked[] = rev ? rev.byVendor : [];
-
-  const totalBuyers = buyerRows.length;
-  const activeBuyers = buyerRows.filter((b) => (b.revenueCents || 0) > 0 || (b.orders || 0) > 0).length;
-  const totalRevenue = rev ? rev.totalRevenueCents : 0;
-  const totalOrders = rev ? rev.totalOrders : 0;
-
-  const hasBuyerData = totalBuyers > 0;
-
-  const rankedBuyers = buyerRows
-    .slice()
-    .sort((a, b) => (b.revenueCents || 0) - (a.revenueCents || 0));
-  const topBuyer = rankedBuyers.length > 0 ? rankedBuyers[0] : null;
-
-  // Decision queue is derived ONLY from facts already present in the data.
-  type Decision = { icon: string; tone: Tone; title: string; detail: string };
-  const decisions: Decision[] = [];
-  if (hasBuyerData) {
-    const noVolume = buyerRows.filter((b) => (b.orders || 0) === 0 && (b.revenueCents || 0) === 0);
-    if (noVolume.length > 0) {
-      decisions.push({
-        icon: "users",
-        tone: "warn",
-        title: num(noVolume.length) + " buyers have no recorded volume",
-        detail: "No orders or revenue recorded for these buyers yet.",
-      });
-    }
-    const withVolume = rankedBuyers.filter((b) => (b.revenueCents || 0) > 0 || (b.orders || 0) > 0);
-    const lowest = withVolume.length > 1 ? withVolume[withVolume.length - 1] : null;
-    if (lowest) {
-      decisions.push({
-        icon: "activity",
-        tone: "idle",
-        title: "Lowest-volume active buyer: " + (lowest.label || lowest.key || "Unknown"),
-        detail: money(lowest.revenueCents || 0) + " revenue across " + num(lowest.orders || 0) + " orders.",
-      });
-    }
-  }
-
-  const pills: Pill[] = cards.map((card: any) => {
-    const name = card.spec.displayName || "Provider";
-    const conn = card.status ? card.status.connection : undefined;
-    const label = String(connectionLabel(conn) || "").toLowerCase();
-    let state: Pill["state"] = "needs";
-    if (label.indexOf("fail") >= 0) state = "error";
-    else if (label.indexOf("connect") >= 0 && label.indexOf("not") < 0) state = "connected";
-    return { name, state };
-  });
-  const connectedPills = pills.filter((p) => p.state === "connected");
-  const needsPills = pills.filter((p) => p.state === "needs");
-  const errorPills = pills.filter((p) => p.state === "error");
-  const orderedPills = connectedPills.concat(errorPills, needsPills).slice(0, 6);
-
-  const attentionCount = decisions.length;
-  const summaryTone: Tone = !hasBuyerData ? "idle" : attentionCount > 0 ? "warn" : "good";
-  const summaryLine = !hasBuyerData
-    ? "No buyer data yet. The buyer workspace will populate as demand is recorded."
-    : attentionCount === 0
-    ? "Buyer demand remains stable."
-    : attentionCount === 1
-    ? "One buyer signal needs your review."
-    : num(attentionCount) + " buyer signals need your review.";
-
-  function buyerTone(b: Ranked): Tone {
-    if ((b.revenueCents || 0) > 0) return "good";
-    if ((b.orders || 0) > 0) return "warn";
-    return "idle";
-  }
-  function buyerStatus(b: Ranked): string {
-    if ((b.revenueCents || 0) > 0) return "Active";
-    if ((b.orders || 0) > 0) return "Pending";
-    return "Idle";
-  }
+  const selectedKey = typeof searchParams?.buyer === "string" ? searchParams.buyer : null;
+  const selected: DimRow | null = selectedKey ? rows.find((r) => r.key === selectedKey) ?? null : null;
+  const selectedPrior = selected ? priorByKey.get(selected.key) : undefined;
 
   return (
-    <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
-      <main className="loop-os__main">
-        <header className="loop-os__brief">
-          <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">CallGrid Intelligence</p>
-            <h1 className="loop-os__brief-title">Buyers</h1>
-            <p className="loop-os__brief-body">{summaryLine}</p>
-            <div className="loop-os__brief-cta">
-              <span className="loop-os__brief-chip loop-os__brief-chiptoday">Today</span>
-              <span className="loop-os__brief-chip loop-os__brief-chipdate">{dateLabel}</span>
-            </div>
+    <div className="loop-os">
+      <div className="cmd cg-page dim-page">
+        {/* Header */}
+        <div className="cmd-head">
+          <div className="cmd-head__main">
+            <p className="cmd-head__greeting">CallGrid Intelligence</p>
+            <p className="cmd-head__meta">{dateLabel} · Eastern Time</p>
           </div>
-        </header>
+        </div>
+        <h1 className="dim-title">Buyers</h1>
+        <p className="dim-sub">Demand-side performance for the selected period.</p>
 
         <CallGridNav active="buyers" />
 
-
-        <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
-
-        <section className="loop-modgrid">
-          <Module icon="users" title="Total Buyers" metric={num(totalBuyers)} detail="In your marketplace" tone={hasBuyerData ? "good" : "idle"} href="/app/admin/marketplace/buyers" seed={11} />
-          <Module icon="team" title="Active Buyers" metric={num(activeBuyers)} detail="With recorded volume" tone={activeBuyers > 0 ? "good" : "idle"} href="/app/admin/marketplace/buyers" seed={22} />
-          <Module icon="revenue" title="Revenue" metric={money(totalRevenue)} detail={num(totalOrders) + " orders"} tone="idle" href="/app/admin/marketplace/buyers" seed={33} />
-          <Module icon="chart" title="Profit" metric="Not available" detail="Margin not exposed by data" tone="idle" href="/app/admin/marketplace/buyers" seed={44} />
-          <Module icon="columns" title="Capacity" metric="Not available" detail="Buyer caps not exposed by data" tone="idle" href="/app/admin/marketplace/buyers" seed={55} />
-          <Module icon="star" title="Quality" metric="Not available" detail="Buyer quality not exposed by data" tone="idle" href="/app/admin/marketplace/buyers" seed={66} />
-        </section>
-
-        <section className="loop-grid">
-          <div className="loop-grid__content">
-            <div className="loop-card loop-market">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Buyer directory</p>
-                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
-              </div>
-              <div className="loop-market__body">
-                {hasBuyerData ? (
-                  <RankedList icon="users" title="Buyers by revenue" rows={rankedBuyers} metric="revenue" />
-                ) : (
-                  <div className="loop-empty">
-                    <p className="loop-empty__title">No buyers yet</p>
-                    <p className="loop-empty__body">Buyers will appear here once demand is recorded.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="loop-card">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Buyer detail preview</p>
-              </div>
-              {topBuyer ? (
-                <div className="loop-market__bars">
-                  <Bar label={"Buyer " + (topBuyer.label || topBuyer.key || "Unknown")} value={money(topBuyer.revenueCents || 0)} pct={100} tone="good" />
-                  <Bar label="Orders" value={num(topBuyer.orders || 0)} pct={Math.min(100, topBuyer.orders || 0)} tone="idle" />
-                  <div className="loop-empty">
-                    <p className="loop-empty__title">Accepted / rejected, campaigns, sources and vendors</p>
-                    <p className="loop-empty__body">Per-buyer acceptance, capacity and attribution breakdowns are not exposed by the current data.</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="loop-empty">
-                  <p className="loop-empty__title">No lead buyer yet</p>
-                  <p className="loop-empty__body">The most active buyer will surface here once revenue is recorded.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="loop-card loop-market">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Related dimensions</p>
-              </div>
-              <div className="loop-market__body">
-                {campaignRows.length > 0 ? (
-                  <RankedList icon="chart" title="Top campaigns" rows={campaignRows} metric="revenue" />
-                ) : null}
-                {sourceRows.length > 0 ? (
-                  <RankedList icon="activity" title="Top sources" rows={sourceRows} metric="revenue" />
-                ) : null}
-                {vendorRows.length > 0 ? (
-                  <RankedList icon="building" title="Top vendors" rows={vendorRows} metric="revenue" />
-                ) : null}
-                {campaignRows.length === 0 && sourceRows.length === 0 && vendorRows.length === 0 ? (
-                  <div className="loop-empty">
-                    <p className="loop-empty__title">No related dimensions yet</p>
-                    <p className="loop-empty__body">Campaigns, sources and vendors appear once attribution is recorded.</p>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="loop-card loop-feed">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Buyer timeline</p>
-                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
-              </div>
-              {liveActivity.length > 0 ? (
-                <ul className="loop-feed__list">
-                  {liveActivity.slice(0, 6).map((a: any) => (
-                    <li className="loop-feed__item" key={a.id}>
-                      <span className="loop-feed__dot" />
-                      <span className="loop-feed__label">{a.label || a.kind || "Event"}</span>
-                      <span className="loop-feed__time">{relTime(a.at)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="loop-empty">
-                  <p className="loop-empty__title">No buyer activity available yet</p>
-                  <p className="loop-empty__body">Recent buyer events will appear here as they are recorded.</p>
-                </div>
-              )}
-            </div>
-
-            <MarketplaceDecisionQueue
-                items={decisions}
-                reviewHref="/app/admin/marketplace/buyers"
-                emptyBody="No buyer decisions are supported by the current data."
-              />
-
-            <div className="loop-card">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Buyer briefing</p>
-                <span className="loop-badge loop-badge--idle">Standby</span>
-              </div>
-              <div className="loop-brief">
-                <BriefingItem icon="brain" title="Buyer briefing waiting for persisted Brain insights" />
-              </div>
-              <div className="loop-empty loop-empty--good">
-                <p className="loop-empty__body">The Brain computes buyer intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/marketplace">Open Brain</Link></p>
-              </div>
-            </div>
+        {!ok ? (
+          <div className="cg-sec">
+            <section className="tile tile--wide" aria-label="Buyers">
+              <p className="tile__line cg-muted">CallGrid data could not be loaded. Reload to try again.</p>
+            </section>
           </div>
-
-          <aside className="loop-rail">
-            <div className="loop-card loop-feed">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Live Calls <span className="loop-count">{liveCalls.length}</span></p>
-                <Link className="loop-card__link" href="/app/admin/marketplace">View all</Link>
-              </div>
-              {liveCalls.length > 0 ? (
-                <ul className="loop-feed__list">
-                  {liveCalls.slice(0, 6).map((c: any) => (
-                    <li className="loop-feed__item" key={c.id}>
-                      <span className="loop-feed__phone">{c.caller}</span>
-                      <span className="loop-feed__time">{clockDuration(c.durationSeconds)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="loop-quiet">No live calls right now.</p>
-              )}
-            </div>
-
-            <div className="loop-card loop-intg">
-              <div className="loop-card__head">
-                <p className="loop-card__title">Integration Status</p>
-                <Link className="loop-card__link" href="/app/admin/integrations">View all</Link>
-              </div>
-              <div className="loop-intg__summary">
-                <span className="loop-intg__stat loop-intg__stat--connected">{connectedPills.length} Connected</span>
-                <span className="loop-intg__stat loop-intg__stat--needs">{needsPills.length} Needs Setup</span>
-                <span className="loop-intg__stat loop-intg__stat--error">{errorPills.length} Errors</span>
-              </div>
-              {orderedPills.length > 0 ? (
-                <div className="loop-intg__grid">
-                  {orderedPills.map((p) => (
-                    <IntegrationPill key={p.name} name={p.name} state={p.state} />
-                  ))}
-                </div>
-              ) : (
-                <p className="loop-quiet">No integrations connected yet.</p>
-              )}
-            </div>
-
-            <div className="loop-card">
-              <div className="loop-card__head">
-                <span className="loop-card__title">Shortcuts</span>
-              </div>
-              <div className="loop-brief">
-                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaigns</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace/sources">Sources</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendors</Link>
+        ) : rows.length === 0 ? (
+          <div className="cg-sec">
+            <section className="tile tile--wide" aria-label="Buyers">
+              <p className="tile__line">No buyer activity for this period.</p>
+            </section>
+          </div>
+        ) : (
+          <>
+            {/* Summary metrics — six tiles */}
+            <div className="cg-sec">
+              <p className="cg-seclabel">Summary</p>
+              <div className="dim-tiles">
+                <Tile title="Total Buyers" value={num(s.totalBuyers)} />
+                <Tile title="Active Buyers" value={num(s.activeBuyers)} sub="With activity this period" />
+                <Tile title="Revenue" value={money(s.revenueCents)} />
+                <Tile title="Billable Calls" value={num(s.billableCalls)} />
+                <Tile title="Total Calls" value={num(s.totalCalls)} />
+                <Tile title="Avg Revenue / Billable Call" value={s.avgRevPerBillable === null ? "Not available" : money(s.avgRevPerBillable)} />
               </div>
             </div>
-          
-          <ContextGroup
-            title="Related"
-            caption="How buyers connect across your marketplace."
-            links={[
-              {
-                icon: "chart",
-                title: "Campaigns",
-                detail: "See the campaigns feeding these buyers.",
-                href: "/app/admin/marketplace/campaigns",
-              },
-              {
-                icon: "flow",
-                title: "Sources",
-                detail: "Trace the sources routed to these buyers.",
-                href: "/app/admin/marketplace/sources",
-              },
-              {
-                icon: "building",
-                title: "Vendors",
-                detail: "Review vendors supplying these buyers.",
-                href: "/app/admin/marketplace/vendors",
-              },
-              {
-                icon: "brain",
-                title: "Brain",
-                detail: "See recommendations that reference buyers.",
-                href: "/app/admin/marketplace",
-              },
-              {
-                icon: "activity",
-                title: "Activity",
-                detail: "Follow the live event stream for buyers.",
-                href: "/app/admin/marketplace/activity",
-              },
-            ]}
-          />
-        </aside>
-        </section>
-      </main>
+
+            {/* Buyer Performance directory */}
+            <div className="cg-sec">
+              <p className="cg-seclabel">Buyer Performance</p>
+              <div className="adm-tablewrap">
+                <table className="adm-table dim-table">
+                  <thead>
+                    <tr>
+                      <th>Buyer</th>
+                      <th className="dim-num">Revenue</th>
+                      <th className="dim-num">Billable</th>
+                      <th className="dim-num">Total Calls</th>
+                      <th className="dim-num">Rev / Billable</th>
+                      <th className="dim-num">Share of Revenue</th>
+                      <th className="dim-num">Trend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => {
+                      const rpb = revPerBillable(r.revenueCents, r.monetized);
+                      const share = totalRevenue > 0 ? Math.round((r.revenueCents / totalRevenue) * 100) : 0;
+                      const t = trend(r.revenueCents, priorByKey.get(r.key)?.revenueCents);
+                      const isSel = selectedKey === r.key;
+                      return (
+                        <tr key={r.key} className={isSel ? "dim-row dim-row--sel" : "dim-row"}>
+                          <td>
+                            <Link href={`?buyer=${encodeURIComponent(r.key)}`} className="dim-rowlink">
+                              {r.label}
+                            </Link>
+                          </td>
+                          <td className="dim-num">{money(r.revenueCents)}</td>
+                          <td className="dim-num">{num(r.monetized)}</td>
+                          <td className="dim-num">{num(r.calls)}</td>
+                          <td className="dim-num">{rpb === null ? "—" : money(rpb)}</td>
+                          <td className="dim-num">{share}%</td>
+                          <td className={"dim-num dim-trend dim-trend--" + t.dir}>{t.text}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Selected buyer detail */}
+            <div className="cg-sec">
+              <p className="cg-seclabel">Buyer Detail</p>
+              <section className="tile tile--wide dim-detail" aria-label="Buyer detail">
+                {!selected ? (
+                  <p className="tile__line cg-muted">Select a buyer to view performance details.</p>
+                ) : (
+                  <>
+                    <div className="dim-detail__head">
+                      <span className="dim-detail__name">{selected.label}</span>
+                      <span className="dim-detail__period">{dateLabel} · Eastern Time</span>
+                    </div>
+                    <dl className="dim-detail__grid">
+                      <div><dt>Revenue</dt><dd>{money(selected.revenueCents)}</dd></div>
+                      <div><dt>Billable Calls</dt><dd>{num(selected.monetized)}</dd></div>
+                      <div><dt>Total Calls</dt><dd>{num(selected.calls)}</dd></div>
+                      <div><dt>Rev / Billable</dt><dd>{revPerBillable(selected.revenueCents, selected.monetized) === null ? "—" : money(revPerBillable(selected.revenueCents, selected.monetized)!)}</dd></div>
+                      <div><dt>Revenue trend</dt><dd>{trend(selected.revenueCents, selectedPrior?.revenueCents).text}</dd></div>
+                      <div><dt>Call trend</dt><dd>{trend(selected.calls, selectedPrior?.calls).text}</dd></div>
+                    </dl>
+                    <p className="dim-detail__note cg-muted">
+                      Per-buyer campaign, source and vendor attribution is not exposed at the buyer grain by the current CallGrid data.
+                    </p>
+                  </>
+                )}
+              </section>
+            </div>
+
+            {/* Recent activity — honest: no buyer-level CallGrid event stream yet */}
+            <div className="cg-sec">
+              <p className="cg-seclabel">Recent Activity</p>
+              <section className="tile tile--wide" aria-label="Recent buyer activity">
+                <p className="tile__line cg-muted">No durable buyer-level CallGrid events for this period.</p>
+              </section>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
