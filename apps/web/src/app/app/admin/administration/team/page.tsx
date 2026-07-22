@@ -25,11 +25,21 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export default async function AdminTeamPage() {
+export default async function AdminTeamPage({
+  searchParams,
+}: {
+  searchParams?: { notice?: string; error?: string };
+}) {
   const session = await requirePermission('users', 'view');
   const canManage = await hasPermission('users', 'create');
   const users = await repositories.iam.listUsers(session.organizationId);
   const invites = await repositories.iam.listInvitations(session.organizationId);
+
+  // Feedback from the last action (invite/revoke/resend/remove/…). Server actions
+  // redirect back here with a single message so the list always reflects the real
+  // persisted state — never optimistic.
+  const notice = typeof searchParams?.notice === 'string' ? searchParams.notice : null;
+  const error = typeof searchParams?.error === 'string' ? searchParams.error : null;
 
   return (
     <div className="adm">
@@ -40,6 +50,9 @@ export default async function AdminTeamPage() {
           {users.length} team member{users.length === 1 ? '' : 's'} · {invites.length} pending invitation{invites.length === 1 ? '' : 's'}
         </p>
       </div>
+
+      {error ? <div className="adm-banner adm-banner--error" role="alert">{error}</div> : null}
+      {notice ? <div className="adm-banner adm-banner--ok" role="status">{notice}</div> : null}
 
       {canManage ? (
         <section className="adm-card">

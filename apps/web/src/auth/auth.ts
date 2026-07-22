@@ -104,7 +104,20 @@ export async function login(args: {
 
   const user = await repositories.auth.findAnyUserByEmail(email);
   if (!user) return { ok: false, error: 'Invalid email or password.' };
-  if (user.status === 'DISABLED') return { ok: false, error: 'This account has been disabled.' };
+  // Only fully-onboarded members may sign in. Fail closed on any non-ACTIVE
+  // status: DISABLED = access revoked (removed or disabled); INVITED = the
+  // invitation has not been accepted yet. A re-invited teammate keeps their old
+  // row (now INVITED) so this is what stops a stale password from logging them
+  // back in before they accept the fresh link. Keep the disabled-specific message
+  // but stay generic for INVITED so we don't reveal a pending invitation exists.
+  if (user.status !== 'ACTIVE') {
+    return {
+      ok: false,
+      error: user.status === 'DISABLED'
+        ? 'This account has been disabled.'
+        : 'Invalid email or password.',
+    };
+  }
 
   const stored = await repositories.auth.getPasswordHash(user.id);
   if (!stored || !verifyPassword(args.password, stored)) {
