@@ -63,16 +63,24 @@ single-person; save-as-template) · vertical step-assignment review · Priority 
 target · Review & Start. Drives `createWorkItem`. Removed the redundant globals (Related-To
 selector, free-text Reference, Responsibility dropdown, Assign-To radio + Team Member, flat
 Requirements). Engine gained `WorkTypeView.fields` + a workflow-aware `buildWorkItemSubmission`
-(replaces the single-owner `buildWorkSubmission`). Typecheck+build clean, DB suite 150/150.
+(replaces the single-owner `buildWorkSubmission`).
+**Work Detail + Complete-My-Step (#139, draft — stacked on #138):** admin Work Detail rebuilt over
+the new metadata shape (Work Type, details + custom fields, priority, Eastern target, ordered steps,
+every participant). **Complete-My-Step** = owner-only; completing resolves+activates exactly the
+next step by its defined mode (no manual hand-off), honors per-step confirmation + note requirement;
+final step completes item + notifies all. **Owner-only completion enforced at the data layer**
+(`completeWorkStep` `expectedOwnerUserId` — closes the PR #76 class of bug for all surfaces). Employee
+completion path also routed through `completeWorkStep` (was legacy single-owner; would not resolve
+mode-based handoff) + manual next-owner dropdown removed. Typecheck+build clean, DB suite 151/151.
+_Known gap:_ employee **list** quick-complete lacks a note field → required-note step throws there.
 - ⚠️ **`ResponsibilityAssignment` model does NOT exist** (spec assumed it) — responsibility
   resolves via a configurable org owner-map; absent ⇒ Needs an Owner (never fabricated).
 - ⚠️ **Duplicate "Matt Dunn" is DATA, not a query bug**: the demo-seed OWNER `admin@emgloop.com`
   got renamed to "Matt Dunn" during setup and coexists with Matt's real account. Dedup collapses
   same-id/same-email; the two distinct-email rows need the seed `admin@`/`manager@`/`viewer@`
   rows **removed once via the Team page** (persists since #134).
-- **NOT built yet:** the Work Detail timeline + Complete-My-Step (increment 2), the Workflow
-  Template admin page (increment 3), and the custom-field **config** UI (defs render when present;
-  no Type defines any until the config UI ships).
+- **NOT built yet:** the Workflow Template admin page (increment 3) and the custom-field **config**
+  UI (defs render when present; no Type defines any until the config UI ships).
 
 ## Onboarding / invitations / team lifecycle — DONE (merged: #129, #133, #134)
 Absolute invite/reset URLs; team management at `/app/admin/administration/team`. **Lifecycle
@@ -100,9 +108,9 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
 ---
 
 ## Open threads / next steps
-1. **Configurable workflows — engine merged (#137); Start Work builder in review (#138).** Next
-   UI increments on a fresh branch off main: (2) Work Detail timeline + Complete-My-Step
-   (handoff/complete), then (3) Workflow Template admin page + custom-field config UI.
+1. **Configurable workflows — engine merged (#137); Start Work builder (#138) + Work Detail /
+   Complete-My-Step (#139, stacked on #138) in review.** Next: (3) Workflow Template admin page +
+   custom-field config UI, on a fresh branch after #138/#139 land.
 2. **Data repair (Team page, one-time):** remove the demo-seed rows `admin@emgloop.com`
    (renamed "Matt Dunn"), `manager@emgloop.com` (Morgan), `viewer@emgloop.com` (Riley) so
    assignee/member lists show real people only. Recreation is already gated (#134).
