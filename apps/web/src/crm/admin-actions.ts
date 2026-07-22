@@ -14,6 +14,7 @@
 import { revalidatePath } from 'next/cache';
 import { repositories } from '@emgloop/database';
 import { SystemRole } from '@emgloop/database';
+import { invitationAcceptUrl } from '@emgloop/shared';
 import { newToken, hashToken } from '../auth/auth';
 import { requirePermission } from '../auth/guard';
 import { sendInviteEmail } from '../lib/email/email-service';
@@ -48,9 +49,11 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
     tokenHash: hashToken(token),
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   });
-  // PR-1: send the invitation email using the plaintext token (only the hash is stored).
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-  const inviteUrl = `${appUrl}/crm/accept-invite?token=${encodeURIComponent(token)}`;
+  // Send the invitation email using the plaintext token (only the hash is stored).
+  // The URL MUST be absolute (an email client mangles a relative path into
+  // http:///…). invitationAcceptUrl builds it from the one canonical app origin;
+  // the same value feeds the HTML button, the HTML fallback, and the text link.
+  const inviteUrl = invitationAcceptUrl(token);
   await sendInviteEmail({ to: email, name: name || undefined, inviteUrl });
   await repositories.audit.record({
     organizationId: session.organizationId,
@@ -61,7 +64,7 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
     entityId: user.id,
     metadata: { email, role },
   });
-  revalidatePath('/crm/users');
+  revalidatePath('/app/admin/administration/team');
 }
 
 export async function setUserRoleAction(formData: FormData): Promise<void> {
@@ -79,7 +82,7 @@ export async function setUserRoleAction(formData: FormData): Promise<void> {
     entityId: userId,
     metadata: { role },
   });
-  revalidatePath('/crm/users');
+  revalidatePath('/app/admin/administration/team');
 }
 
 export async function setUserStatusAction(formData: FormData): Promise<void> {
@@ -101,7 +104,7 @@ export async function setUserStatusAction(formData: FormData): Promise<void> {
     entityType: 'user',
     entityId: userId,
   });
-  revalidatePath('/crm/users');
+  revalidatePath('/app/admin/administration/team');
 }
 
 export async function removeUserAction(formData: FormData): Promise<void> {
@@ -119,7 +122,55 @@ export async function removeUserAction(formData: FormData): Promise<void> {
     entityId: userId,
     metadata: { soft: true },
   });
-  revalidatePath('/crm/users');
+  revalidatePath('/app/admin/administration/team');
+}
+
+export async function revokeInvitationAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('users', 'create');
+  const invitationId = String(formData.get('invitationId') ?? '');
+  if (!invitationId) return;
+  await repositories.iam.revokeInvitation(session.organizationId, invitationId);
+  await repositories.audit.record({
+    organizationId: session.organizationId,
+    userId: session.userId,
+    actorName: session.name,
+    action: 'invitation.revoked',
+    entityType: 'invitation',
+    entityId: invitationId,
+  });
+  revalidatePath('/app/admin/administration/team');
+}
+
+export async function resendInvitationAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('users', 'create');
+  const invitationId = String(formData.get('invitationId') ?? '');
+  if (!invitationId) return;
+  // The stored token is hashed and cannot be re-sent, so "resend" supersedes:
+  // revoke the pending invite and issue a fresh one (new token, same email/role).
+  const invites = await repositories.iam.listInvitations(session.organizationId);
+  const target = invites.find((i) => i.id === invitationId);
+  if (!target) return;
+  await repositories.iam.revokeInvitation(session.organizationId, invitationId);
+  const token = newToken();
+  await repositories.iam.createInvitation({
+    organizationId: session.organizationId,
+    email: target.email,
+    systemRole: parseRole(target.systemRole),
+    inviterId: session.userId,
+    tokenHash: hashToken(token),
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+  await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token) });
+  await repositories.audit.record({
+    organizationId: session.organizationId,
+    userId: session.userId,
+    actorName: session.name,
+    action: 'invitation.resent',
+    entityType: 'invitation',
+    entityId: invitationId,
+    metadata: { email: target.email },
+  });
+  revalidatePath('/app/admin/administration/team');
 }
 
 // --- Organizations -----------------------------------------------------

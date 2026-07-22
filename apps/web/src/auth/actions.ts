@@ -9,7 +9,8 @@
 // to display in-app rather than emailing it.
 
 import { redirect } from 'next/navigation';
-import { repositories } from '@emgloop/database';
+import { repositories, invitationSystemRole } from '@emgloop/database';
+import { passwordResetUrl } from '@emgloop/shared';
 import {
   login,
   logout,
@@ -89,8 +90,8 @@ export async function requestResetAction(formData: FormData): Promise<void> {
     // PR-1: send the reset email INSIDE the user-found branch only, preserving
     // anti-enumeration (nothing is sent or revealed when the account does not
     // exist). Uses the plaintext token; only the hash is persisted.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const resetUrl = `${appUrl}/crm/reset-password?token=${encodeURIComponent(token)}`;
+    // Absolute URL from the one canonical app origin — never a relative path.
+    const resetUrl = passwordResetUrl(token);
     await sendPasswordResetEmail({ to: user.email, name: user.name ?? undefined, resetUrl });
     redirect('/crm/forgot-password?sent=1&token=' + token);
   }
@@ -185,7 +186,7 @@ export async function acceptInviteAction(formData: FormData) {
       organizationId: invitation.organizationId,
       email: invitation.email,
       name: name || undefined,
-      systemRole: invitation.systemRole,
+      systemRole: invitationSystemRole(invitation),
       passwordHash,
     });
     await iam.activateUser(invitation.organizationId, created.id);
@@ -203,5 +204,8 @@ export async function acceptInviteAction(formData: FormData) {
     redirect('/crm/login?message=' + encodeURIComponent('Your account is ready. Please sign in.'));
   }
 
-  redirect('/crm');
+  // Land inside the approved application shell, NOT the legacy CRM. /app is the
+  // one post-login router — it sends the user to their role's home (admin roles
+  // land on /app/admin), so the invitee opens their own personalized Dashboard.
+  redirect('/app');
 }

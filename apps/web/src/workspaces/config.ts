@@ -133,7 +133,7 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
       label: '',
       footer: true,
       items: [
-        { href: '/app/admin/administration', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
+        { href: '/app/admin/administration/team', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
       ],
     },
   ],
@@ -332,7 +332,7 @@ export const CRM_SHELL: ShellConfig = {
     {
       label: 'Workspace',
       items: [
-        { href: '/crm/users', label: 'Team', icon: 'team' },
+        { href: '/app/admin/administration/team', label: 'Team', icon: 'team' },
         { href: '/crm/settings', label: 'Settings', icon: 'cog' },
       ],
     },

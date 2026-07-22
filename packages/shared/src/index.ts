@@ -182,3 +182,6 @@ export * from './business-time';
 
 // --- Period-over-period trend (today vs yesterday), honesty-first ---
 export * from './metric-trend';
+
+// --- The one canonical server-side application origin (absolute email links) ---
+export * from './app-origin';

@@ -121,6 +121,23 @@ export function userSystemRole(u: { metadata: unknown }): string {
   return typeof m['systemRole'] === 'string' ? m['systemRole'] : 'EMPLOYEE';
 }
 
+/**
+ * The role an invitation actually grants — the ONE authoritative source.
+ *
+ * createInvitation stores the selected role in `metadata.systemRole`; the
+ * `Invitation.systemRole` COLUMN is a never-written `@default(EMPLOYEE)`, so
+ * reading it silently downgrades every invitee. Metadata wins; the value is
+ * validated against the real role set; we fall back to the column only if it is
+ * itself a real role, and to EMPLOYEE last. Used at invite listing, acceptance,
+ * and on the accept-invite page so all three agree.
+ */
+export function invitationSystemRole(inv: { systemRole?: string | null; metadata: unknown }): string {
+  const fromMeta = meta(inv)['systemRole'];
+  if (typeof fromMeta === 'string' && SYSTEM_ROLE_LABELS[fromMeta]) return fromMeta;
+  if (typeof inv.systemRole === 'string' && SYSTEM_ROLE_LABELS[inv.systemRole]) return inv.systemRole;
+  return 'EMPLOYEE';
+}
+
 
 export interface CanArgs {
   organizationId: string;
@@ -197,9 +214,16 @@ export class IamRepository {
   // -- User management ------------------------------------------------------
 
   async listUsers(organizationId: string): Promise<UserListItem[]> {
+    // Explicit select: only the columns this view needs. A bare findMany would
+    // SELECT every schema column, so a single drifted column in a deployed DB
+    // (production has no migration ledger) would 500 the whole Team page.
     const users = await this.prisma.user.findMany({
       where: { organizationId, status: { not: 'DISABLED' } },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, email: true, name: true, status: true,
+        metadata: true, lastLoginAt: true, createdAt: true,
+      },
     });
     return users.map((u) => ({
       id: u.id,
@@ -318,14 +342,21 @@ export class IamRepository {
   }
 
   async listInvitations(organizationId: string): Promise<InvitationView[]> {
+    // Explicit select (same drift-safety reason as listUsers): never SELECT the
+    // whole row, so a column present in schema.prisma but absent in a deployed
+    // invitations table cannot crash the Team page.
     const invites = await this.prisma.invitation.findMany({
       where: { organizationId, status: 'PENDING' },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, email: true, status: true,
+        expiresAt: true, createdAt: true, metadata: true,
+      },
     });
     return invites.map((i) => ({
       id: i.id,
       email: i.email,
-      systemRole: ((i.metadata as Record<string, unknown>)?.['systemRole'] as string) ?? 'EMPLOYEE',
+      systemRole: invitationSystemRole({ metadata: i.metadata }),
       status: i.status,
       expiresAt: i.expiresAt?.toISOString() ?? null,
       createdAt: i.createdAt.toISOString(),
