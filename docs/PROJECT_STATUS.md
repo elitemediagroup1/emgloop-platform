@@ -41,32 +41,45 @@ sidebar item (icon `brain`); CallGrid uses `chart`.
 **Follow-up:** the Bids page (`/marketplace/auction`) is still a raw-table surface — needs a
 real drill-down pass. _(needs deploy validation: real values + reconciliation.)_
 
-## CallGrid Intelligence finalization — IN PROGRESS · branch `feat/callgrid-intelligence-finalization`
-An 18-phase controlled reorg/correction of `/app/admin/marketplace` (not a redesign). **Audit done;
-canonical source proven:** `crmRepos.marketplaceCalls.aggregateWindow(org, since, until)` →
+## CallGrid Intelligence finalization — ALL PAGES BUILT (verified) · branch stack `feat/callgrid-intelligence-finalization` (#143) → `feat/callgrid-date-window` (#144) → `feat/callgrid-dimension-pages` (tip, contains all)
+An 18-phase controlled reorg/correction of `/app/admin/marketplace` (not a redesign). **Canonical
+source proven:** `crmRepos.marketplaceCalls.aggregateWindow(org, since, until)` →
 `{calls, monetized(=billable), revenueCents, payoutCents, costCents, callsWithRevenue, buyers[],
-vendors[], sources[], campaigns[]}` is THE CallGrid economics source (Overview uses it via
-`loadDimensionWindows` + `toScore`). It already takes arbitrary date windows.
-- **Increment 1 (#143, draft):** fixed the **Buyers contradiction** — Buyers read
-  `revenueIntelligence.revenueByDimension` (CRM/revenue; returned UNKNOWN → false 0) while Overview
-  read the call projection. Buyers now reads the **same canonical source**; rebuilt to the spec
-  (6 summary tiles, sortable performance table w/ share+trend, `?buyer=` detail, honest states);
-  **all cross-product content stripped** (Integration Status, Live Calls rail, Brain briefing,
-  provider pills, decision queue). Also retired the paid-off Buyers zero-coercion ledger entry.
-- **Increment 2 (#144, draft — stacked on #143):** the reporting **foundation**. Shared
-  **date-window contract** in `@emgloop/shared` (`resolveCallGridWindow` — all presets +
-  comparison periods, Eastern, 13 tests); canonical **`callgrid-report`** service (window →
-  metrics + dimension rows over `aggregateWindow`, Truth-honest); **date-range picker**
-  (`CallGridDateRange`, URL-driven, persists across tabs via range-aware nav). **Overview + Buyers
-  wired** onto it (same window → consistent). shared 106/106, build clean.
-- **Remaining (own PRs, Phase-18 order):** (3) Watch List → CallGrid-operational-only (drop
-  active-users finding); (4) Vendors + Campaigns on an extracted shared dimension template adopting
-  the control; (5) Sources (bid grain) + **Bids** rebuild (source vs destination separation) +
-  `auction → bids` route; (6) Activity stream; (7) move engineering diagnostics →
-  `Administration → Diagnostics → CallGrid`; final tests + responsive.
-- ℹ️ Picker custom range uses native date inputs (functional, Eastern-correct); two-month visual
-  calendar is later polish.
-- ⚠️ Current Bids route is `/marketplace/auction`; spec canonical is `/marketplace/bids` (rename in 5).
+vendors[], sources[], campaigns[]}` is THE CallGrid economics source; it takes arbitrary Eastern
+windows. Bid/ping data is a **separate snapshot grain** (latest synced window only, UTC-requested).
+**Locked decisions:** canonical Bids route = `/marketplace/bids` (`/auction` = redirect only);
+native date inputs replaced by the two-month visual calendar.
+
+**Foundation (in review):**
+- **#143 (draft):** fixed the **Buyers contradiction** — Buyers read `revenueIntelligence`
+  (CRM/revenue; UNKNOWN → false 0) while Overview read the call projection. Buyers now reads the
+  **same canonical source**; cross-product content stripped. Retired its paid-off zero-coercion ledger entry.
+- **#144 (draft, stacked):** shared **date-window contract** (`resolveCallGridWindow` — all presets +
+  comparisons, Eastern, 13 tests); canonical **`callgrid-report`** service (Truth-honest); **date-range
+  picker** (URL-driven, persists across tabs). Overview + Buyers wired.
+
+**On `feat/callgrid-dimension-pages` (tip — the single clean base):**
+- **Committed:** two-month **calendar** picker (`CallGridDateRange`); **shared dimension design
+  language** (`dimension-ui.tsx` shell/tiles/table/detail/activity/SnapshotNotice, `dimension-metrics.ts`,
+  `call-dimension-page.tsx`); **Buyers/Vendors/Campaigns unified** (thin config wrappers — one product,
+  different data); **Sources** verified hybrid (range-honoring Total/Active Sources from calls +
+  snapshot-only bid metrics under `SnapshotNotice`; `bid-report.ts` = one canonical bid-snapshot reader).
+- **Built but UNCOMMITTED in working tree:** **Activity** (derived operational stream + filters);
+  **Bids workspace** (`/bids` — snapshot summary, source vs destination tables kept strictly separate,
+  two-group rejection reasons, operational watch list, honest recent-activity); **`/auction` → `/bids`
+  redirect** + nav/Quick-Access repointed; **diagnostics moved** → `/app/admin/administration/diagnostics/callgrid`
+  (admin-guarded, out of the CallGrid tab bar; `auction-data.ts` → `diagnostics-data.ts`); retired the
+  vendors/campaigns zero-coercion ledger entries; CSS.
+- **Verified now:** `@emgloop/shared` **106/106**, `apps/web` **typecheck clean**, `turbo build` **passes**.
+
+**Remaining before this is done:** (a) **commit** the Activity/Bids/diagnostics/route chunk + **open the
+PR** for `feat/callgrid-dimension-pages` (no PR yet); (b) the spec's full **71-test** suite (13 date tests
+exist; remainder pending — no web test harness, per CLAUDE.md); (c) **responsive** polish pass;
+(d) **deploy validation** against real production CallGrid data.
+- ℹ️ Honest limits held: Overview **Watch List still sources Brain risks** (CallGrid-operational-only
+  filtering deferred); **Campaigns** uses Avg Rev/Billable, not Profit (not reliably attributable at
+  dimension grain); **Sources** shows aggregate rejection reasons (per-source `?source=` detail not built);
+  bid data is snapshot-only — **historical bid snapshots are a separate future ingestion project**, not this sprint.
 
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
 Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized
