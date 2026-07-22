@@ -29,6 +29,13 @@ import type {
   WorkComment,
 } from '@prisma/client';
 import { startOfEasternDay } from '@emgloop/shared';
+import {
+  dedupeActiveMembers,
+  resolveStepOwner,
+  participantsOf,
+  type StepAssignment,
+  type WorkflowStepDef,
+} from '../work-os/workflow';
 
 // --- Vocabulary (kept as string unions to match the spec's lowercase values) ---
 export const BLUEPRINT_STATUSES = ['active', 'archived'] as const;
@@ -183,6 +190,108 @@ function toWorkTypeView(b: {
     sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : 0,
     active: b.status === 'active',
     catalogKey: typeof m.catalogKey === 'string' ? m.catalogKey : null,
+  };
+}
+
+// --- Workflow Templates (Blueprint kind='workflow_template') -----------------
+// A Workflow Template is a Blueprint whose stages are the ordered step
+// definitions; per-step assignment/completion config lives in each stage's
+// metadata. metadata.workTypeIds associates it with one or more Work Types.
+
+export interface WorkflowTemplateStepView {
+  name: string;
+  instruction: string;
+  assignment: StepAssignment;
+  completionConfirmation: string | null;
+  completionNote: 'none' | 'optional' | 'required';
+  notifyActive: boolean;
+  notifyComplete: boolean;
+}
+
+export interface WorkflowTemplateView {
+  id: string;
+  name: string;
+  description: string | null;
+  workTypeIds: string[];
+  active: boolean;
+  stepCount: number;
+  updatedAt: string;
+  steps: WorkflowTemplateStepView[];
+}
+
+export interface CreateWorkflowTemplateInput {
+  organizationId: string;
+  createdByUserId: string;
+  name: string;
+  description?: string | null;
+  workTypeIds: string[];
+  steps: WorkflowStepDef[];
+}
+
+export interface CreateWorkItemInput {
+  organizationId: string;
+  creatorUserId: string;
+  workTypeId: string;
+  workTypeName: string;
+  title: string;
+  outcome: string;
+  details?: string | null;
+  relatedRecord?: { type: string; id: string; label: string } | null;
+  customFieldValues?: Record<string, unknown>;
+  priority: string;
+  targetAtUtc?: string | null;
+  targetEastern?: string | null;
+  templateId?: string | null;
+  templateName?: string | null;
+  steps: WorkflowStepDef[];
+  responsibilityOwners?: Record<string, string> | null;
+  activeMemberIds?: ReadonlySet<string> | null;
+}
+
+export interface CompleteWorkStepInput {
+  organizationId: string;
+  workInstanceId: string;
+  stageId: string;
+  completedByUserId: string;
+  note?: string | null;
+  responsibilityOwners?: Record<string, string> | null;
+  activeMemberIds?: ReadonlySet<string> | null;
+}
+
+// Serialize a builder step's assignment/completion config into a stage's metadata
+// so the runtime can resolve owners (incl. 'previous'/'responsibility') at handoff.
+function stepToStageMeta(s: WorkflowStepDef): Record<string, unknown> {
+  return {
+    kind: 'workflow_step',
+    assignMode: s.assignment.mode,
+    specificUserId: s.assignment.specificUserId ?? null,
+    responsibilityKey: s.assignment.responsibilityKey ?? null,
+    completionConfirmation: s.completionConfirmation ?? null,
+    completionNote: s.completionNote,
+    notifyActive: s.notifyActive,
+    notifyComplete: s.notifyComplete,
+  };
+}
+
+function stageMetaToStep(m: Record<string, unknown>): {
+  assignment: StepAssignment;
+  completionConfirmation: string | null;
+  completionNote: 'none' | 'optional' | 'required';
+  notifyActive: boolean;
+  notifyComplete: boolean;
+} {
+  const mode = typeof m.assignMode === 'string' ? m.assignMode : 'unassigned';
+  const note = m.completionNote === 'optional' || m.completionNote === 'required' ? m.completionNote : 'none';
+  return {
+    assignment: {
+      mode: mode as StepAssignment['mode'],
+      specificUserId: typeof m.specificUserId === 'string' ? m.specificUserId : null,
+      responsibilityKey: typeof m.responsibilityKey === 'string' ? m.responsibilityKey : null,
+    },
+    completionConfirmation: typeof m.completionConfirmation === 'string' ? m.completionConfirmation : null,
+    completionNote: note,
+    notifyActive: m.notifyActive !== false,
+    notifyComplete: m.notifyComplete === true,
   };
 }
 
@@ -381,10 +490,351 @@ export class WorkRepository {
   /** Active organization members eligible to own work. ACTIVE only — a member who
    *  has not accepted (INVITED), or was disabled/removed (DISABLED), never appears. */
   async listActiveMembers(organizationId: string): Promise<{ id: string; name: string | null; email: string }[]> {
-    return this.prisma.user.findMany({
+    const rows = await this.prisma.user.findMany({
       where: { organizationId, status: 'ACTIVE' },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, status: true },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
+    });
+    // Canonical de-duplication (never a name-based filter): collapse by user id
+    // and normalized email, and drop anything non-ACTIVE, so a person appears at
+    // most once and removed/disabled members never surface. See dedupeActiveMembers.
+    return dedupeActiveMembers(rows).map(({ id, name, email }) => ({ id, name, email }));
+  }
+
+  // ------------------------------------------------------------------
+  // Workflow Templates — reusable ordered step sequences per Work Type
+  // ------------------------------------------------------------------
+  private toTemplateView(b: Blueprint & { stages: BlueprintStage[] }): WorkflowTemplateView {
+    const m = metaObject(b.metadata);
+    const workTypeIds = Array.isArray(m.workTypeIds) ? (m.workTypeIds as unknown[]).map(String) : [];
+    const steps = [...b.stages]
+      .sort((a, s) => a.position - s.position)
+      .map((st) => {
+        const cfg = stageMetaToStep(metaObject(st.metadata));
+        return {
+          name: st.name,
+          instruction: st.description ?? '',
+          assignment: cfg.assignment,
+          completionConfirmation: cfg.completionConfirmation,
+          completionNote: cfg.completionNote,
+          notifyActive: cfg.notifyActive,
+          notifyComplete: cfg.notifyComplete,
+        };
+      });
+    return {
+      id: b.id,
+      name: b.name,
+      description: b.description,
+      workTypeIds,
+      active: b.status === 'active',
+      stepCount: steps.length,
+      updatedAt: b.updatedAt.toISOString(),
+      steps,
+    };
+  }
+
+  async listWorkflowTemplates(
+    organizationId: string,
+    opts?: { workTypeId?: string; includeInactive?: boolean },
+  ): Promise<WorkflowTemplateView[]> {
+    const rows = await this.prisma.blueprint.findMany({
+      where: {
+        organizationId,
+        ...(opts?.includeInactive ? {} : { status: 'active' }),
+      },
+      include: { stages: true },
+    });
+    return rows
+      .filter((b) => metaObject(b.metadata).kind === 'workflow_template')
+      .map((b) => this.toTemplateView(b))
+      .filter((t) => !opts?.workTypeId || t.workTypeIds.includes(opts.workTypeId))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getWorkflowTemplate(organizationId: string, id: string): Promise<WorkflowTemplateView | null> {
+    const b = await this.prisma.blueprint.findFirst({
+      where: { id, organizationId },
+      include: { stages: true },
+    });
+    if (!b || metaObject(b.metadata).kind !== 'workflow_template') return null;
+    return this.toTemplateView(b);
+  }
+
+  async createWorkflowTemplate(input: CreateWorkflowTemplateInput): Promise<Blueprint> {
+    // A template stores ONLY reusable step definitions + assignment modes — never
+    // a one-time related record or Work Item notes.
+    const blueprint = await this.prisma.blueprint.create({
+      data: {
+        organizationId: input.organizationId,
+        name: input.name,
+        description: input.description ?? null,
+        status: 'active',
+        createdByUserId: input.createdByUserId,
+        metadata: { kind: 'workflow_template', workTypeIds: input.workTypeIds } as Prisma.InputJsonValue,
+      },
+    });
+    let position = 1;
+    for (const s of input.steps) {
+      await this.prisma.blueprintStage.create({
+        data: {
+          blueprintId: blueprint.id,
+          name: s.name,
+          description: s.instruction,
+          position,
+          defaultOwnerUserId: s.assignment.mode === 'specific' ? s.assignment.specificUserId ?? null : null,
+          metadata: stepToStageMeta(s) as Prisma.InputJsonValue,
+        },
+      });
+      position += 1;
+    }
+    return blueprint;
+  }
+
+  async updateWorkflowTemplate(
+    organizationId: string,
+    id: string,
+    patch: { name?: string; description?: string | null; workTypeIds?: string[]; active?: boolean; steps?: WorkflowStepDef[] },
+  ): Promise<void> {
+    const existing = await this.prisma.blueprint.findFirst({
+      where: { id, organizationId },
+      select: { id: true, metadata: true },
+    });
+    if (!existing || metaObject(existing.metadata).kind !== 'workflow_template') return;
+    const m = metaObject(existing.metadata);
+    await this.prisma.blueprint.update({
+      where: { id: existing.id },
+      data: {
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.active !== undefined ? { status: patch.active ? 'active' : 'archived' } : {}),
+        metadata: { ...m, ...(patch.workTypeIds ? { workTypeIds: patch.workTypeIds } : {}) } as Prisma.InputJsonValue,
+      },
+    });
+    if (patch.steps) {
+      // Replace the step set wholesale (reorder / edit instructions / assignment).
+      await this.prisma.blueprintStage.deleteMany({ where: { blueprintId: existing.id } });
+      let position = 1;
+      for (const s of patch.steps) {
+        await this.prisma.blueprintStage.create({
+          data: {
+            blueprintId: existing.id,
+            name: s.name,
+            description: s.instruction,
+            position,
+            defaultOwnerUserId: s.assignment.mode === 'specific' ? s.assignment.specificUserId ?? null : null,
+            metadata: stepToStageMeta(s) as Prisma.InputJsonValue,
+          },
+        });
+        position += 1;
+      }
+    }
+  }
+
+  async setWorkflowTemplateActive(organizationId: string, id: string, active: boolean): Promise<void> {
+    await this.prisma.blueprint.updateMany({
+      where: { id, organizationId },
+      data: { status: active ? 'active' : 'archived' },
+    });
+  }
+
+  async duplicateWorkflowTemplate(
+    organizationId: string,
+    createdByUserId: string,
+    id: string,
+  ): Promise<Blueprint | null> {
+    const src = await this.getWorkflowTemplate(organizationId, id);
+    if (!src) return null;
+    return this.createWorkflowTemplate({
+      organizationId,
+      createdByUserId,
+      name: `${src.name} (copy)`,
+      description: src.description,
+      workTypeIds: src.workTypeIds,
+      steps: src.steps.map((s) => ({
+        name: s.name,
+        instruction: s.instruction,
+        assignment: s.assignment,
+        completionConfirmation: s.completionConfirmation,
+        completionNote: s.completionNote,
+        notifyActive: s.notifyActive,
+        notifyComplete: s.notifyComplete,
+      })),
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Runtime: create a Work Item from a step list (template / custom / single)
+  // and drive the sequential handoff. Owners resolve by mode; only step 1 is
+  // active at creation; each completion activates and resolves exactly the next.
+  // ------------------------------------------------------------------
+  async createWorkItem(input: CreateWorkItemInput): Promise<WorkInstanceWithStages> {
+    if (input.steps.length === 0) throw new Error('A Work Item needs at least one step');
+    const activeIds = input.activeMemberIds ?? null;
+    const owners = input.responsibilityOwners ?? null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const instance = await tx.workInstance.create({
+        data: {
+          organizationId: input.organizationId,
+          blueprintId: input.workTypeId,
+          title: input.title,
+          description: input.outcome,
+          status: 'active',
+          createdByUserId: input.creatorUserId,
+          metadata: {
+            kind: 'work_item',
+            workTypeId: input.workTypeId,
+            workTypeName: input.workTypeName,
+            details: input.details ?? null,
+            relatedRecord: input.relatedRecord ?? null,
+            customFieldValues: input.customFieldValues ?? {},
+            priority: input.priority,
+            targetAtUtc: input.targetAtUtc ?? null,
+            targetEastern: input.targetEastern ?? null,
+            templateId: input.templateId ?? null,
+            templateName: input.templateName ?? null,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      const created: WorkStage[] = [];
+      for (const [i, s] of input.steps.entries()) {
+        const isFirst = i === 0;
+        // Only the first step resolves an owner at creation; later steps resolve
+        // when they become active (esp. 'previous'/'responsibility').
+        const owner = isFirst
+          ? resolveStepOwner(s.assignment, { creatorUserId: input.creatorUserId, responsibilityOwners: owners, activeMemberIds: activeIds })
+          : null;
+        const stage = await tx.workStage.create({
+          data: {
+            workInstanceId: instance.id,
+            name: s.name,
+            description: s.instruction,
+            position: i + 1,
+            status: isFirst ? 'ready' : 'pending',
+            ownerUserId: owner,
+            startedAt: isFirst ? new Date() : null,
+            metadata: stepToStageMeta(s) as Prisma.InputJsonValue,
+          },
+        });
+        created.push(stage);
+      }
+
+      const first = created[0]!;
+      const updated = await tx.workInstance.update({
+        where: { id: instance.id },
+        data: { currentStageId: first.id },
+        include: { stages: { orderBy: { position: 'asc' } } },
+      });
+
+      if (first.ownerUserId) {
+        await this.recordAssignment(tx, instance.id, first.id, first.ownerUserId, input.creatorUserId);
+        if (input.steps[0]!.notifyActive) {
+          await tx.workNotification.create({
+            data: {
+              organizationId: input.organizationId,
+              userId: first.ownerUserId,
+              workInstanceId: instance.id,
+              workStageId: first.id,
+              type: 'next_action_ready',
+              title: 'Your step is ready',
+              body: `${updated.title}: ${first.name}`,
+            },
+          });
+        }
+      }
+      return updated;
+    });
+  }
+
+  async completeWorkStep(input: CompleteWorkStepInput): Promise<WorkInstanceWithStages> {
+    const activeIds = input.activeMemberIds ?? null;
+    const owners = input.responsibilityOwners ?? null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const instance = await tx.workInstance.findUnique({
+        where: { id: input.workInstanceId },
+        include: { stages: { orderBy: { position: 'asc' } } },
+      });
+      if (!instance || instance.organizationId !== input.organizationId) {
+        throw new Error('Work item not found');
+      }
+      const current = instance.stages.find((s) => s.id === input.stageId);
+      if (!current) throw new Error('Step not found');
+      if (current.status === 'completed') throw new Error('That step is already complete');
+
+      const now = new Date();
+      await tx.workStage.update({
+        where: { id: current.id },
+        data: {
+          status: 'completed',
+          completedAt: now,
+          completedByUserId: input.completedByUserId,
+          metadata: { ...metaObject(current.metadata), completionNoteText: input.note ?? null } as Prisma.InputJsonValue,
+        },
+      });
+
+      const next = instance.stages
+        .filter((s) => s.position > current.position && s.status !== 'skipped' && s.status !== 'completed')
+        .sort((a, b) => a.position - b.position)[0];
+
+      if (!next) {
+        const done = await tx.workInstance.update({
+          where: { id: instance.id },
+          data: { status: 'completed', completedAt: now, currentStageId: null },
+          include: { stages: { orderBy: { position: 'asc' } } },
+        });
+        // Notify every unique participant that the work is complete.
+        const owners2 = done.stages.map((s) => s.ownerUserId);
+        for (const uid of participantsOf(instance.createdByUserId, owners2)) {
+          await tx.workNotification.create({
+            data: {
+              organizationId: input.organizationId,
+              userId: uid,
+              workInstanceId: instance.id,
+              type: 'completed',
+              title: 'Work completed',
+              body: `${done.title} is complete.`,
+            },
+          });
+        }
+        return done;
+      }
+
+      // Resolve the NEXT owner by its stored mode (dynamic for previous/responsibility).
+      const cfg = stageMetaToStep(metaObject(next.metadata));
+      const nextOwner = resolveStepOwner(cfg.assignment, {
+        creatorUserId: instance.createdByUserId,
+        previousCompleterUserId: input.completedByUserId,
+        responsibilityOwners: owners,
+        activeMemberIds: activeIds,
+      });
+      await tx.workStage.update({
+        where: { id: next.id },
+        data: { status: 'ready', startedAt: now, ownerUserId: nextOwner },
+      });
+      const updated = await tx.workInstance.update({
+        where: { id: instance.id },
+        data: { currentStageId: next.id },
+        include: { stages: { orderBy: { position: 'asc' } } },
+      });
+      if (nextOwner) {
+        await this.recordAssignment(tx, instance.id, next.id, nextOwner, input.completedByUserId);
+        if (cfg.notifyActive) {
+          await tx.workNotification.create({
+            data: {
+              organizationId: input.organizationId,
+              userId: nextOwner,
+              workInstanceId: instance.id,
+              workStageId: next.id,
+              type: 'next_action_ready',
+              title: 'Your step is ready',
+              body: `${updated.title}: ${next.name}`,
+            },
+          });
+        }
+      }
+      return updated;
     });
   }
 
