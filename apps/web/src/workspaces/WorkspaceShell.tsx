@@ -48,7 +48,11 @@ function activeNavHref(shell: ShellConfig, pathname: string | null): string | nu
 // sidebar has ONE link implementation, never per-route variants.
 function renderNavLink(item: NavItem, permitted: Map<string, boolean>, active: string | null) {
   const allowed = permitted.get(item.href) ?? true;
-  const disabled = !allowed || item.soon;
+  // A permission-gated item the user is denied is HIDDEN, not greyed — we never
+  // render a control the user cannot use (e.g. Administration to a non-admin).
+  // Server guards still enforce access on arrival; this only removes the link.
+  if (item.requires && !allowed) return null;
+  const disabled = Boolean(item.soon);
   const isActive = item.href === active;
   const className = 'loop-sb__link' + (isActive ? ' is-active' : '') + (disabled ? ' is-disabled' : '');
   const content = (
@@ -143,9 +147,12 @@ export default async function WorkspaceShell({
         </aside>
         <div className="loop-content">
           <header className="loop-appbar">
+            {/* The breadcrumb leads with the SIGNED-IN user's display name, then
+               the active product — "Charlie / Dashboard", "Matt / Administration".
+               Never the shell label ("Admin"), so the header is always personal. */}
             <div className="loop-crumbs">
               <Link href={shell.home}>
-                <b>{shell.label}</b>
+                <b>{session.name}</b>
               </Link>
               <span className="sep">/</span>
               <span>{crumb}</span>

@@ -148,6 +148,8 @@ export interface WorkspaceHomeData {
   recentActivity: ActivityItem[];
   completedTodayCount: number;
   canCreateWork: boolean;
+  /** users:create — gates the "Invite team member" quick action. */
+  canInvite: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +290,7 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     completedTodayCount,
     auditRows,
     canCreateWork,
+    canInvite,
   ] = await Promise.all([
     prisma.user.findFirst({
       where: { id: userId, organizationId },
@@ -379,6 +382,7 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     }),
     repos.audit.list(organizationId, { take: 20 }),
     hasPermission('workflows', 'create'),
+    hasPermission('users', 'create'),
   ]);
 
   // ----- Header -----
@@ -648,5 +652,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     recentActivity,
     completedTodayCount,
     canCreateWork,
+    canInvite,
   };
 }

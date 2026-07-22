@@ -9,7 +9,7 @@
 // to display in-app rather than emailing it.
 
 import { redirect } from 'next/navigation';
-import { repositories, SystemRole } from '@emgloop/database';
+import { repositories, invitationSystemRole } from '@emgloop/database';
 import { passwordResetUrl } from '@emgloop/shared';
 import {
   login,
@@ -21,16 +21,6 @@ import {
 } from './auth';
 import { ensureCrmIdentity } from './bootstrap';
 import { sendPasswordResetEmail } from '../lib/email/email-service';
-
-// The role an invitation actually carries. createInvitation stores it in
-// metadata.systemRole; the Invitation.systemRole column is a legacy default that
-// is never written, so reading it would silently downgrade every invitee to
-// EMPLOYEE. Prefer metadata, validate, and fall back to the column.
-function invitedSystemRole(invitation: { systemRole: SystemRole; metadata: unknown }): SystemRole {
-  const meta = (invitation.metadata as { systemRole?: unknown } | null)?.systemRole;
-  const s = String(meta ?? '');
-  return (Object.values(SystemRole) as string[]).includes(s) ? (s as SystemRole) : invitation.systemRole;
-}
 
 export async function loginAction(formData: FormData): Promise<void> {
   await ensureCrmIdentity();
@@ -196,7 +186,7 @@ export async function acceptInviteAction(formData: FormData) {
       organizationId: invitation.organizationId,
       email: invitation.email,
       name: name || undefined,
-      systemRole: invitedSystemRole(invitation),
+      systemRole: invitationSystemRole(invitation),
       passwordHash,
     });
     await iam.activateUser(invitation.organizationId, created.id);
@@ -214,5 +204,8 @@ export async function acceptInviteAction(formData: FormData) {
     redirect('/crm/login?message=' + encodeURIComponent('Your account is ready. Please sign in.'));
   }
 
-  redirect('/crm');
+  // Land inside the approved application shell, NOT the legacy CRM. /app is the
+  // one post-login router — it sends the user to their role's home (admin roles
+  // land on /app/admin), so the invitee opens their own personalized Dashboard.
+  redirect('/app');
 }

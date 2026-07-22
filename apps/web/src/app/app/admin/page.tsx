@@ -275,7 +275,8 @@ export default async function Dashboard() {
           <Tile title="Quick Actions">
             <div className="tile__qa">
               {w.canCreateWork ? <Link href="/app/admin/work/new" className="tile__qa-btn">Create work →</Link> : null}
-              <Link href="/app/admin/administration/team" className="tile__qa-btn">Invite team member →</Link>
+              {w.canInvite ? <Link href="/app/admin/administration/team" className="tile__qa-btn">Invite team member →</Link> : null}
+              {!w.canCreateWork && !w.canInvite ? <p className="tile__line">No quick actions available for your role.</p> : null}
             </div>
           </Tile>
 

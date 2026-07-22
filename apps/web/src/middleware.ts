@@ -38,6 +38,17 @@ function withPathname(req: NextRequest) {
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Team/user management moved to Administration. Redirect the legacy CRM route
+  // at the EDGE — before the CRM layout or any server code runs — so its
+  // production server exception can never occur on the onboarding journey.
+  if (pathname === '/crm/users' || pathname.startsWith('/crm/users/')) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/app/admin/administration/team';
+    url.search = '';
+    return NextResponse.redirect(url);
+  }
+
   if (!pathname.startsWith('/crm')) return withPathname(req);
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
     return withPathname(req);

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { repositories } from '@emgloop/database';
+import { repositories, invitationSystemRole } from '@emgloop/database';
 import { hashToken } from '../../../auth/auth';
 import { acceptInviteAction } from '../../../auth/actions';
 
@@ -53,11 +53,9 @@ async function resolveInvite(rawToken: string | undefined): Promise<InviteState>
     organizationName = null;
   }
 
-  // The role lives in metadata.systemRole (the Invitation.systemRole column is a
-  // never-written legacy default), so read it there to show the invitee the role
-  // they were actually granted.
-  const invitedRole =
-    (invitation.metadata as { systemRole?: string } | null)?.systemRole ?? invitation.systemRole;
+  // The role the invitee is actually granted (metadata-sourced; see
+  // invitationSystemRole) — shown so the accept page never claims the wrong role.
+  const invitedRole = invitationSystemRole(invitation);
 
   return {
     kind: 'valid',
