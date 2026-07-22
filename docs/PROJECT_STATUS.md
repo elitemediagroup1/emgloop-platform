@@ -106,10 +106,11 @@ need one-time removal via the Team page. _(needs deploy validation: fresh-invita
 calendar-day boundary (today/yesterday/completed-today) is Eastern. Rolling N-day windows
 stay duration-based (timezone-independent).
 
-## Global sidebar — DONE (merged)
+## Global sidebar — DONE (merged); footer updated in #142
 Flat: Dashboard · **Brain** · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting ·
-Administration (footer: Team · Work Types, permission-aware). One shared shell; longest-prefix
-active-state.
+Administration (footer: Team · Workflow Templates, permission-aware). One shared shell; longest-prefix
+active-state. **Work Types no longer has its own tab (#142)** — it now renders at the bottom of the
+Work OS page (`/app/admin/work`); the field-config drill-in (`?fields=<id>`) moved there too.
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
@@ -121,9 +122,9 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
 ## Open threads / next steps
 1. **Configurable workflows — engine merged (#137); full UI stack in review** (each stacked on the
    prior, merge in order): Start Work (#138) → Work Detail / Complete-My-Step (#139) → Workflow
-   Templates admin (#140) → custom-field config (#141). **Spec is UI-complete.** After the stack
-   lands: deploy-validate the whole loop (create → assign → hand off → complete → save → reuse →
-   manage), then the follow-ups below.
+   Templates admin (#140) → custom-field config (#141) → Work Types folded into Work OS + tab
+   removed (#142). **Spec is UI-complete.** After the stack lands: deploy-validate the whole loop
+   (create → assign → hand off → complete → save → reuse → manage), then the follow-ups below.
 2. **Data repair (Team page, one-time):** remove the demo-seed rows `admin@emgloop.com`
    (renamed "Matt Dunn"), `manager@emgloop.com` (Morgan), `viewer@emgloop.com` (Riley) so
    assignee/member lists show real people only. Recreation is already gated (#134).
