@@ -13,9 +13,11 @@
 
 import Link from "next/link";
 import { requireCrmContext } from "../../../../../crm/crm-data";
-import { money, num, todayLabel } from "../../../_loop-os";
+import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery } from "@emgloop/shared";
+import { money, num } from "../../../_loop-os";
 import { CallGridNav } from "../_CallGridNav";
-import { loadDimensionWindows, type DimRow, type DimWindow } from "../callgrid-dimensions";
+import CallGridDateRange from "../CallGridDateRange";
+import { loadCallGridReport, type CallGridDimRow } from "../callgrid-report";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +44,7 @@ interface Summary {
   avgRevPerBillable: number | null;
 }
 
-function summarize(w: DimWindow): Summary {
-  const rows = w.rows;
+function summarize(rows: CallGridDimRow[]): Summary {
   const revenueCents = rows.reduce((s, r) => s + r.revenueCents, 0);
   const billableCalls = rows.reduce((s, r) => s + r.monetized, 0);
   const totalCalls = rows.reduce((s, r) => s + r.calls, 0);
@@ -67,23 +68,30 @@ function Tile({ title, value, sub }: { title: string; value: string; sub?: strin
   );
 }
 
-export default async function BuyersPage({ searchParams }: { searchParams?: { buyer?: string } }) {
+export default async function BuyersPage({
+  searchParams,
+}: {
+  searchParams?: { buyer?: string; range?: string; s?: string; e?: string };
+}) {
   const { organizationId: org } = await requireCrmContext();
 
-  const windows = await loadDimensionWindows(org, "buyers");
-  const cur = windows.current;
-  const prior = windows.prior;
-  const ok = cur.ok;
-  const rows = [...cur.rows].sort((a, b) => b.revenueCents - a.revenueCents);
-  const priorByKey = new Map(prior.rows.map((r) => [r.key, r] as const));
+  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
+  const window = resolveCallGridWindow(range, new Date());
+  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
+
+  const report = await loadCallGridReport(org, window);
+  const ok = report.ok;
+  const rows = report.dimensions.buyers; // already revenue-desc
+  const priorByKey = report.comparisonByKey.buyers;
   const totalRevenue = rows.reduce((s, r) => s + r.revenueCents, 0);
 
-  const s = summarize(cur);
-  const dateLabel = todayLabel();
+  const s = summarize(rows);
+  const dateLabel = window.label;
 
   const selectedKey = typeof searchParams?.buyer === "string" ? searchParams.buyer : null;
-  const selected: DimRow | null = selectedKey ? rows.find((r) => r.key === selectedKey) ?? null : null;
+  const selected: CallGridDimRow | null = selectedKey ? rows.find((r) => r.key === selectedKey) ?? null : null;
   const selectedPrior = selected ? priorByKey.get(selected.key) : undefined;
+  const buyerHref = (key: string) => `?buyer=${encodeURIComponent(key)}${rangeQuery ? `&${rangeQuery}` : ""}`;
 
   return (
     <div className="loop-os">
@@ -98,7 +106,8 @@ export default async function BuyersPage({ searchParams }: { searchParams?: { bu
         <h1 className="dim-title">Buyers</h1>
         <p className="dim-sub">Demand-side performance for the selected period.</p>
 
-        <CallGridNav active="buyers" />
+        <CallGridNav active="buyers" rangeQuery={rangeQuery} />
+        <CallGridDateRange preset={window.preset} customStart={range.start} customEnd={range.end} label={window.label} />
 
         {!ok ? (
           <div className="cg-sec">
@@ -152,7 +161,7 @@ export default async function BuyersPage({ searchParams }: { searchParams?: { bu
                       return (
                         <tr key={r.key} className={isSel ? "dim-row dim-row--sel" : "dim-row"}>
                           <td>
-                            <Link href={`?buyer=${encodeURIComponent(r.key)}`} className="dim-rowlink">
+                            <Link href={buyerHref(r.key)} className="dim-rowlink">
                               {r.label}
                             </Link>
                           </td>
