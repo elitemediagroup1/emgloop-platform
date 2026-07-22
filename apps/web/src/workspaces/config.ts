@@ -54,6 +54,8 @@ export interface NavItem {
 export interface NavGroup {
   label: string;
   items: NavItem[];
+  /** Renders separated at the bottom of the sidebar (e.g. Administration). */
+  footer?: boolean;
 }
 
 /**
@@ -89,22 +91,27 @@ export interface WorkspaceConfig extends ShellConfig {
 // deny-by-default matrix the CRM already uses (resource 'intelligence').
 // ---------------------------------------------------------------------------
 
-// Sprint 27 — Owner Shell Cleanup and Truthfulness.
+// Owner (ADMIN) sidebar — the global product navigation.
 //
-// The Owner (ADMIN) sidebar now links ONLY to real, session-organization-
-// scoped surfaces that exist today: Dashboard, Brain (honest empty states),
-// Marketplace (the real command center at /app/admin/marketplace), and My Work.
+// The global sidebar represents MAJOR BUSINESS OPERATING AREAS only — one flat,
+// icon+label list, no category headers, no product subpages. Each product owns
+// its OWN internal navigation inside its page area (e.g. CallGrid's Overview /
+// Buyers / Vendors / … subnav lives on the CallGrid pages, not here).
 //
-// Deliberately NOT in the sidebar (see docs/sprint-28-crm-org-scoping.md):
-//   - Employees, Integrations, Settings and CRM: their mature implementations
-//     live under /crm/*, but /crm is currently resolved through a hardcoded
-//     "servicesinmycity-demo" organization (apps/web/src/crm/crm-data.ts) rather
-//     than the authenticated session. Linking Matt there would show DEMO data,
-//     so they are withheld until Sprint 28 makes /crm session-org-aware.
-//   - Operations, Businesses, Creators, Experiments, Knowledge, System Health:
-//     no production implementation exists yet, so they are removed from nav
-//     instead of shown as placeholder / "Soon" items. The catch-all route
-//     still resolves typed URLs; nothing in navigation points to a placeholder.
+//   Dashboard · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting
+//   (Administration is separated at the bottom, permission-aware.)
+//
+// CRM, Creator Hub, Accounting and Administration are approved operating areas,
+// so they stay in the sidebar even though they are not built/connected: their
+// routes open an honest "unavailable" state (the /app/admin catch-all → ShellPage)
+// rather than being hidden. Nothing here shows fabricated data.
+//
+// Active state is derived by the shell from the current path (longest-prefix), so
+// every child route (e.g. /app/admin/marketplace/buyers) keeps its top-level
+// product (CallGrid Intelligence) highlighted.
+const CALLGRID_INTEL = { resource: 'intelligence', action: 'view' } as const;
+const ADMIN_ONLY = { resource: 'users', action: 'view' } as const;
+
 const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
   label: 'Admin',
@@ -112,12 +119,21 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
   home: '/app/admin',
   nav: [
     {
-      label: 'OPERATING SYSTEM',
+      label: '',
       items: [
         { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
-        { href: '/app/admin/brain', label: 'Brain', icon: 'brain' },
-        { href: '/app/admin/marketplace', label: 'Marketplace', icon: 'chart', requires: { resource: 'intelligence', action: 'view' } },
-        { href: '/app/admin/work', label: 'My Work', icon: 'flow' },
+        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'brain', requires: CALLGRID_INTEL },
+        { href: '/app/admin/crm', label: 'CRM', icon: 'users' },
+        { href: '/app/admin/creator-hub', label: 'Creator Hub', icon: 'star' },
+        { href: '/app/admin/work', label: 'Work OS', icon: 'flow' },
+        { href: '/app/admin/accounting', label: 'Accounting', icon: 'revenue' },
+      ],
+    },
+    {
+      label: '',
+      footer: true,
+      items: [
+        { href: '/app/admin/administration', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
       ],
     },
   ],

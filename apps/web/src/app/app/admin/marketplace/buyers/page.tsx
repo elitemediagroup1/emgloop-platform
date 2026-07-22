@@ -1,7 +1,7 @@
-// Buyer Operating System workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
+// Buyers workspace (read-only). Composes existing repositories via the Loop OS design system; no backend/API/DB/schema/Brain/CallGrid changes.
 import Link from "next/link";
+import { CallGridNav } from "../_CallGridNav";
 import { hasValue } from "@emgloop/shared";
-import { MarketplaceNav } from "../_MarketplaceNav";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import { loadOrFallback } from "../../../../../demo/db-health";
 import { crmRepos, requireCrmContext } from "../../../../../crm/crm-data";
@@ -138,7 +138,8 @@ export default async function BuyerOperatingSystemPage() {
       <main className="loop-os__main">
         <header className="loop-os__brief">
           <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">Buyer Operating System</p>
+            <p className="loop-os__brief-lead">CallGrid Intelligence</p>
+            <h1 className="loop-os__brief-title">Buyers</h1>
             <p className="loop-os__brief-body">{summaryLine}</p>
             <div className="loop-os__brief-cta">
               <span className="loop-os__brief-chip loop-os__brief-chiptoday">Today</span>
@@ -147,7 +148,8 @@ export default async function BuyerOperatingSystemPage() {
           </div>
         </header>
 
-        <MarketplaceNav active="buyers" />
+        <CallGridNav active="buyers" />
+
 
         <PartialDataNotice coverage={[rev?.coverage, traffic?.coverage]} />
 
@@ -165,7 +167,7 @@ export default async function BuyerOperatingSystemPage() {
             <div className="loop-card loop-market">
               <div className="loop-card__head">
                 <p className="loop-card__title">Buyer directory</p>
-                <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
               </div>
               <div className="loop-market__body">
                 {hasBuyerData ? (
@@ -226,7 +228,7 @@ export default async function BuyerOperatingSystemPage() {
             <div className="loop-card loop-feed">
               <div className="loop-card__head">
                 <p className="loop-card__title">Buyer timeline</p>
-                <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
               </div>
               {liveActivity.length > 0 ? (
                 <ul className="loop-feed__list">
@@ -261,7 +263,7 @@ export default async function BuyerOperatingSystemPage() {
                 <BriefingItem icon="brain" title="Buyer briefing waiting for persisted Brain insights" />
               </div>
               <div className="loop-empty loop-empty--good">
-                <p className="loop-empty__body">The Brain computes buyer intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link></p>
+                <p className="loop-empty__body">The Brain computes buyer intelligence on its own schedule. <Link className="loop-card__link" href="/app/admin/marketplace">Open Brain</Link></p>
               </div>
             </div>
           </div>
@@ -312,10 +314,10 @@ export default async function BuyerOperatingSystemPage() {
                 <span className="loop-card__title">Shortcuts</span>
               </div>
               <div className="loop-brief">
-                <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaign Intelligence</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace/sources">Source / Publisher Operating System</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendor Operating System</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaigns</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace/sources">Sources</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace/vendors">Vendors</Link>
               </div>
             </div>
           
@@ -345,7 +347,7 @@ export default async function BuyerOperatingSystemPage() {
                 icon: "brain",
                 title: "Brain",
                 detail: "See recommendations that reference buyers.",
-                href: "/app/admin/brain",
+                href: "/app/admin/marketplace",
               },
               {
                 icon: "activity",

@@ -39,6 +39,8 @@ import type {
   AuditView,
 } from '@emgloop/database';
 
+import { startOfEasternDay, easternHour, BUSINESS_TIME_ZONE } from '@emgloop/shared';
+
 import { requireWorkspace } from '../../../workspaces/guard';
 import { hasPermission } from '../../../auth/guard';
 
@@ -130,14 +132,10 @@ export interface ActivityItem {
   createdAtIso: string;
 }
 
-export interface ChecklistItem {
-  key: string;
-  label: string;
-  done: boolean;
-}
-
 export interface WorkspaceHomeData {
   isAdmin: boolean;
+  /** Session organization. Exposed so the composed Home can load the Brain for the same org. */
+  organizationId: string;
   header: WorkspaceHomeHeader;
   executiveSummary: string[];
   attention: AttentionItem[];
@@ -150,22 +148,22 @@ export interface WorkspaceHomeData {
   recentActivity: ActivityItem[];
   completedTodayCount: number;
   canCreateWork: boolean;
-  canViewAudit: boolean;
-  gettingStarted: { show: boolean; items: ChecklistItem[] };
 }
 
 // ---------------------------------------------------------------------------
 // Small pure helpers (no I/O).
 // ---------------------------------------------------------------------------
 function timeGreeting(d: Date): string {
-  const h = d.getHours();
+  const h = easternHour(d); // time of day in the business timezone, not the server's
   if (h < 12) return 'Good morning';
   if (h < 18) return 'Good afternoon';
   return 'Good evening';
 }
 
 function longDate(d: Date): string {
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', timeZone: BUSINESS_TIME_ZONE,
+  });
 }
 
 function relTime(from: Date, now: Date): string {
@@ -267,8 +265,8 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
 
   const work = repos.work;
   const now = new Date();
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+  // "Today" is the Eastern business day, not the server's local day.
+  const startOfDay = startOfEasternDay(now);
   const stallCutoff = new Date(now.getTime() - STALL_HOURS * 3600 * 1000);
 
   // One round of parallel, organization-scoped reads.
@@ -290,7 +288,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     completedTodayCount,
     auditRows,
     canCreateWork,
-    canViewAudit,
   ] = await Promise.all([
     prisma.user.findFirst({
       where: { id: userId, organizationId },
@@ -380,9 +377,8 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     prisma.workInstance.count({
       where: { organizationId, status: 'completed', completedAt: { gte: startOfDay } },
     }),
-    repos.audit.list(organizationId, { take: 6 }),
+    repos.audit.list(organizationId, { take: 20 }),
     hasPermission('workflows', 'create'),
-    hasPermission('audit', 'view'),
   ]);
 
   // ----- Header -----
@@ -622,38 +618,24 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     );
   }
 
-  // ----- Recent Activity (org-scoped audit log, max 6, color-categorized) -----
-  const recentActivity: ActivityItem[] = auditRows.slice(0, 6).map((r: AuditView) => ({
-    id: r.id,
-    label: activityLabel(r.action),
-    actorName: r.actorName,
-    category: activityCategory(r.action),
-    createdAtIso: r.createdAt,
-  }));
-
-  // ----- Getting Started (real DB state; hidden once every item is complete) -----
-  const orgSettings = jsonObj(organization?.settings);
-  const onboarding = jsonObj(orgSettings.onboarding);
-  const setupComplete = Boolean(str(onboarding.completedAt));
-
-  const [firstInvite, firstCustomer, firstBlueprint, firstWork] = await Promise.all([
-    prisma.invitation.count({ where: { organizationId } }).then((n) => n > 0),
-    prisma.customer.count({ where: { organizationId } }).then((n) => n > 0),
-    prisma.blueprint.count({ where: { organizationId } }).then((n) => n > 0),
-    prisma.workInstance.count({ where: { organizationId } }).then((n) => n > 0),
-  ]);
-
-  const checklist: ChecklistItem[] = [
-    { key: 'setup', label: 'Owner setup complete', done: setupComplete },
-    { key: 'invite', label: 'First employee invitation created', done: firstInvite },
-    { key: 'customer', label: 'First customer created', done: firstCustomer },
-    { key: 'blueprint', label: 'First blueprint created', done: firstBlueprint },
-    { key: 'work', label: 'First work item created', done: firstWork },
-  ];
-  const allDone = checklist.every((c) => c.done);
+  // ----- Recent BUSINESS activity -----
+  // Business events only. Sign-ins ('auth') and technical/config events
+  // ('system' — org settings, integration config) are excluded: the dashboard
+  // shows what happened in the BUSINESS, not platform housekeeping.
+  const recentActivity: ActivityItem[] = auditRows
+    .map((r: AuditView) => ({
+      id: r.id,
+      label: activityLabel(r.action),
+      actorName: r.actorName,
+      category: activityCategory(r.action),
+      createdAtIso: r.createdAt,
+    }))
+    .filter((a) => a.category !== 'auth' && a.category !== 'system')
+    .slice(0, 6);
 
   return {
     isAdmin: true,
+    organizationId,
     header,
     executiveSummary: summary,
     attention,
@@ -666,7 +648,5 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     recentActivity,
     completedTodayCount,
     canCreateWork,
-    canViewAudit,
-    gettingStarted: { show: !allDone, items: checklist },
   };
 }

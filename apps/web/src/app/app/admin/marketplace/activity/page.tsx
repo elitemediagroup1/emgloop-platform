@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { MarketplaceNav } from "../_MarketplaceNav";
+import { CallGridNav } from "../_CallGridNav";
+import { startOfEasternDay } from "@emgloop/shared";
 import { MarketplaceDecisionQueue } from "../_MarketplaceDecisionQueue";
 import type { MarketplaceDecisionItem } from "../_MarketplaceDecisionQueue";
 import { SidebarIcon } from "../../../../crm/_brand/SidebarIcon";
@@ -104,8 +105,7 @@ export default async function MarketplaceActivityPage() {
 
   const hasFeed = feed.length > 0;
   const lastEvent = feed.length > 0 ? feed[0]! : null;
-  const todayCutoff = new Date();
-  todayCutoff.setHours(0, 0, 0, 0);
+  const todayCutoff = startOfEasternDay(new Date());
   const activityToday = feed.filter((e) => {
     const t = new Date(e.at);
     return !isNaN(t.getTime()) && t.getTime() >= todayCutoff.getTime();
@@ -154,8 +154,8 @@ export default async function MarketplaceActivityPage() {
       <div className="loop-os__main">
         <header className="loop-os__brief">
           <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">Marketplace</p>
-            <h1 className="loop-os__brief-title">Marketplace Activity</h1>
+            <p className="loop-os__brief-lead">CallGrid Intelligence</p>
+            <h1 className="loop-os__brief-title">Activity</h1>
             <p className="loop-os__brief-body">
               A real-time chronological view of marketplace operations.
             </p>
@@ -170,7 +170,8 @@ export default async function MarketplaceActivityPage() {
           </div>
         </header>
 
-        <MarketplaceNav active="activity" />
+        <CallGridNav active="activity" />
+
 
         <section className="loop-actv__summary" aria-label="Activity summary">
           <div className="loop-actv__sum">
@@ -312,7 +313,7 @@ export default async function MarketplaceActivityPage() {
               </div>
               <div className="loop-brief">
                 <Link className="loop-card__link" href="/app/admin/work">My Work {"\u2192"}</Link>
-                <Link className="loop-card__link" href="/app/admin/marketplace">Marketplace overview</Link>
+                <Link className="loop-card__link" href="/app/admin/marketplace">Overview</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/campaigns">Campaigns</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/buyers">Buyers</Link>
                 <Link className="loop-card__link" href="/app/admin/marketplace/sources">Sources / Publishers</Link>
@@ -338,7 +339,7 @@ export default async function MarketplaceActivityPage() {
               <div className="loop-empty loop-empty--good">
                 <p className="loop-empty__title">Brain insights on their own schedule</p>
                 <p className="loop-empty__body">
-                  The Brain summarizes marketplace activity once it has persisted a briefing. <Link className="loop-card__link" href="/app/admin/brain">Open Brain</Link>
+                  The Brain summarizes marketplace activity once it has persisted a briefing. <Link className="loop-card__link" href="/app/admin/marketplace">Open Brain</Link>
                 </p>
               </div>
             </div>
@@ -381,7 +382,7 @@ export default async function MarketplaceActivityPage() {
                 icon: "brain",
                 title: "Brain",
                 detail: "See how these events inform recommendations.",
-                href: "/app/admin/brain",
+                href: "/app/admin/marketplace",
               },
               {
                 icon: "flow",

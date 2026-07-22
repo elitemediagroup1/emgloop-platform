@@ -174,3 +174,11 @@ export interface NormalizedEvent {
 // cases. Only SUCCESS and EMPTY may render a numeric zero, and the type system
 // enforces it rather than asking engineers to remember. See docs/TRUTH_STATES.md.
 export * from './truth';
+
+// --- The authoritative business timezone (America/New_York) ---
+// The single source of truth for every business-reporting day boundary. No page,
+// service, provider, or query may choose its own timezone for reporting.
+export * from './business-time';
+
+// --- Period-over-period trend (today vs yesterday), honesty-first ---
+export * from './metric-trend';

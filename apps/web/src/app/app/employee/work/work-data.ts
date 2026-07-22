@@ -13,6 +13,7 @@ import 'server-only';
 
 import { prisma, createRepositories } from '@emgloop/database';
 import type { WorkInstance, WorkStage } from '@emgloop/database';
+import { startOfEasternDay } from '@emgloop/shared';
 
 import { requireWorkspace } from '../../../../workspaces/guard';
 
@@ -80,8 +81,7 @@ export async function listMyCompletedToday(
   userId: string,
   organizationId: string,
 ): Promise<(WorkInstance & { stages: WorkStage[] })[]> {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const start = startOfEasternDay(new Date());
   const stages = await prisma.workStage.findMany({
     where: {
       completedByUserId: userId,
