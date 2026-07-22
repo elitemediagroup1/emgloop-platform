@@ -6,17 +6,28 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import type { CallGridWindow } from '@emgloop/shared';
+import { describeCallGridWindow, callGridDayNav, type CallGridWindow } from '@emgloop/shared';
 import { CallGridNav, type CallGridNavKey } from './_CallGridNav';
 import CallGridDateRange from './CallGridDateRange';
 import type { Trend } from './dimension-metrics';
 
-// The page shell — identical chrome on every CallGrid tab.
+/** Eastern time-of-day clock for the "last updated" indicator, e.g. "2:31 PM ET". */
+export function easternClock(d: Date): string {
+  return (
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(d) +
+    ' ET'
+  );
+}
+
+// The page shell — identical chrome on every CallGrid tab. It owns the header
+// status line, the section nav, and the shared date control (with live/refresh
+// and single-day navigation), all derived from the resolved window + `now`.
 export function DimensionShell({
   active,
   title,
   subtitle,
   window,
+  now,
   customStart,
   customEnd,
   rangeQuery,
@@ -26,24 +37,35 @@ export function DimensionShell({
   title: string;
   subtitle: string;
   window: CallGridWindow;
+  now: Date;
   customStart?: string;
   customEnd?: string;
   rangeQuery: string;
   children: ReactNode;
 }) {
+  const desc = describeCallGridWindow(window, now);
+  const dayNav = callGridDayNav(window, now);
   return (
     <div className="loop-os">
       <div className="cmd cg-page dim-page">
         <div className="cmd-head">
           <div className="cmd-head__main">
             <p className="cmd-head__greeting">CallGrid Intelligence</p>
-            <p className="cmd-head__meta">{window.label} · Eastern Time</p>
+            <p className="cmd-head__meta">{desc.headerLine}</p>
           </div>
         </div>
         <h1 className="dim-title">{title}</h1>
         <p className="dim-sub">{subtitle}</p>
         <CallGridNav active={active} rangeQuery={rangeQuery} />
-        <CallGridDateRange preset={window.preset} customStart={customStart} customEnd={customEnd} label={window.label} />
+        <CallGridDateRange
+          preset={window.preset}
+          customStart={customStart}
+          customEnd={customEnd}
+          label={window.label}
+          dayNav={dayNav}
+          live={desc.live}
+          updatedLabel={easternClock(now)}
+        />
         {children}
       </div>
     </div>
@@ -56,10 +78,10 @@ export interface SummaryTile {
   sub?: string;
 }
 
-export function SummaryTiles({ tiles }: { tiles: SummaryTile[] }) {
+export function SummaryTiles({ tiles, label = 'Summary' }: { tiles: SummaryTile[]; label?: string }) {
   return (
     <div className="cg-sec">
-      <p className="cg-seclabel">Summary</p>
+      <p className="cg-seclabel">{label}</p>
       <div className="dim-tiles">
         {tiles.map((t) => (
           <section className="tile" aria-label={t.title} key={t.title}>
@@ -213,17 +235,26 @@ function utcDate(d: Date): string {
 }
 
 export function SnapshotNotice({
-  windowStart, windowEnd, fetchedAt, reportTimezone,
+  windowStart, windowEnd, fetchedAt, reportTimezone, selectedPeriodLabel, matchesSelectedPeriod,
 }: {
   windowStart: Date; windowEnd: Date; fetchedAt: Date; reportTimezone: string | null;
+  /** The selected CallGrid period label, shown so the operator can compare grains. */
+  selectedPeriodLabel?: string;
+  /** True only when the snapshot genuinely coincides with the selected period. */
+  matchesSelectedPeriod?: boolean;
 }) {
   return (
     <div className="cg-snapnotice">
-      <p className="cg-snapnotice__lead">Bid reporting reflects the latest synchronized provider snapshot.</p>
+      <p className="cg-snapnotice__lead">
+        {matchesSelectedPeriod
+          ? 'Bid reporting matches the selected period.'
+          : 'The CallGrid calendar selection applies to date-queryable call reporting. Current bid metrics reflect the latest synchronized provider snapshot, not the selected CallGrid period.'}
+      </p>
       <dl className="cg-snapnotice__grid">
         <div><dt>Latest snapshot date</dt><dd>{utcDate(windowStart)}</dd></div>
         <div><dt>Last synchronization</dt><dd>{easternDateTime(fetchedAt)} ET</dd></div>
         <div><dt>Provider reporting window</dt><dd>{utcDate(windowStart)} – {utcDate(windowEnd)}{reportTimezone ? ` (${reportTimezone}, as requested)` : ''}</dd></div>
+        {selectedPeriodLabel ? <div><dt>Selected CallGrid period</dt><dd>{selectedPeriodLabel}</dd></div> : null}
       </dl>
     </div>
   );

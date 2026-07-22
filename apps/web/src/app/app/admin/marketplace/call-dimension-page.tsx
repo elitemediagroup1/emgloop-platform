@@ -4,7 +4,7 @@
 // does not use this (it composes the same shell + primitives with its own data).
 
 import { requireCrmContext } from '../../../../crm/crm-data';
-import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery } from '@emgloop/shared';
+import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow } from '@emgloop/shared';
 import { money, num } from '../../_loop-os';
 import type { CallGridNavKey } from './_CallGridNav';
 import { loadCallGridReport, type CallGridDimRow, type Dimension } from './callgrid-report';
@@ -33,9 +33,11 @@ type SP = Record<string, string | undefined>;
 export async function CallDimensionPage({ config, searchParams }: { config: CallDimensionConfig; searchParams?: SP }) {
   const { organizationId: org } = await requireCrmContext();
 
+  const now = new Date();
   const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, new Date());
+  const window = resolveCallGridWindow(range, now);
   const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
+  const desc = describeCallGridWindow(window, now);
   const sort = parseDimSort(searchParams?.sort, searchParams?.dir);
 
   const report = await loadCallGridReport(org, window);
@@ -50,9 +52,10 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
   const selected: CallGridDimRow | null = selectedKey ? allRows.find((r) => r.key === selectedKey) ?? null : null;
   const selectedPrior = selected ? priorByKey.get(selected.key) : undefined;
 
-  // URL builders — every link preserves range + selection + sort.
+  // URL builders — every link preserves range + selection + sort. The preset is
+  // always explicit (Today included) so navigation never drops the selection.
   const rangeBits = {
-    range: window.preset === 'today' ? undefined : window.preset,
+    range: window.preset,
     s: window.preset === 'custom' ? range.start : undefined,
     e: window.preset === 'custom' ? range.end : undefined,
   };
@@ -97,6 +100,7 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
       title={config.title}
       subtitle={config.subtitle}
       window={window}
+      now={now}
       customStart={range.start}
       customEnd={range.end}
       rangeQuery={rangeQuery}
@@ -107,7 +111,7 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
         </div>
       ) : (
         <>
-          <SummaryTiles tiles={tiles} />
+          <SummaryTiles tiles={tiles} label={`${config.title} · ${desc.periodTitle}`} />
           <PerformanceTable
             sectionLabel={`${config.entityLabel} Performance`}
             columns={columns}

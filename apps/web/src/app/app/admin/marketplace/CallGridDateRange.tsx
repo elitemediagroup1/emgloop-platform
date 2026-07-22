@@ -8,12 +8,13 @@
 // between CallGrid tabs and is shareable. All boundaries resolve Eastern
 // server-side; this control only chooses the range. No data access here.
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   CALLGRID_PRESET_GROUPS,
   callGridRangeQuery,
   type CallGridPreset,
+  type CallGridDayNav,
 } from '@emgloop/shared';
 
 interface Props {
@@ -21,6 +22,12 @@ interface Props {
   customStart?: string;
   customEnd?: string;
   label: string;
+  /** Previous/next single-day navigation, or null for multi-day ranges. */
+  dayNav?: CallGridDayNav | null;
+  /** True when the selected period includes the current (live) Eastern day. */
+  live?: boolean;
+  /** Server-rendered "last updated" clock, e.g. "2:31 PM ET". */
+  updatedLabel?: string;
 }
 
 const MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -75,10 +82,19 @@ function Month({
   );
 }
 
-export default function CallGridDateRange({ preset, customStart, customEnd, label }: Props) {
+export default function CallGridDateRange({ preset, customStart, customEnd, label, dayNav, live, updatedLabel }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [refreshing, startRefresh] = useTransition();
+
+  function goQuery(q: string | null | undefined) {
+    if (q == null) return;
+    router.push(q ? `${pathname}?${q}` : pathname);
+  }
+  function refresh() {
+    startRefresh(() => router.refresh());
+  }
 
   const init = customStart ? customStart.split('-') : null;
   const now = new Date();
@@ -133,7 +149,28 @@ export default function CallGridDateRange({ preset, customStart, customEnd, labe
         >
           More ▾
         </button>
-        <span className="cgdr__label">{label} · Eastern Time</span>
+
+        {dayNav ? (
+          <span className="cgdr__daynav" role="group" aria-label="Change day">
+            <button type="button" className="cgdr__daybtn" aria-label="Previous day" onClick={() => goQuery(dayNav.prevQuery)}>‹</button>
+            <span className="cgdr__daylabel">{label}</span>
+            <button type="button" className="cgdr__daybtn" aria-label="Next day" disabled={dayNav.nextQuery == null} onClick={() => goQuery(dayNav.nextQuery)}>›</button>
+          </span>
+        ) : (
+          <span className="cgdr__label">{label} · Eastern Time</span>
+        )}
+
+        <span className="cgdr__spacer" />
+
+        {live ? (
+          <span className="cgdr__live" aria-label="Live data">
+            <span className="cgdr__livedot" />
+            Live{updatedLabel ? ` · Updated ${updatedLabel}` : ''}
+          </span>
+        ) : null}
+        <button type="button" className="cgdr__btn cgdr__refresh" onClick={refresh} disabled={refreshing} aria-busy={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
       {open ? (

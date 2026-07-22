@@ -1988,4 +1988,38 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
   .dim-tiles { grid-template-columns: 1fr; }
   .dim-detail__grid { grid-template-columns: 1fr; }
 }
+/* ---- Date-control day navigation, live status & refresh ---- */
+.cgdr__spacer { flex: 1 1 auto; }
+.cgdr__daynav { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+.cgdr__daybtn { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 8px; width: 28px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; padding: 0; }
+.cgdr__daybtn:hover:not(:disabled) { border-color: var(--loop-accent); color: var(--loop-accent); }
+.cgdr__daybtn:disabled { opacity: .4; cursor: default; }
+.cgdr__daylabel { font-size: 12.5px; font-weight: 600; color: var(--loop-text); font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; }
+.cgdr__live { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--loop-good); white-space: nowrap; }
+.cgdr__livedot { width: 8px; height: 8px; border-radius: 999px; background: var(--loop-good); box-shadow: 0 0 0 0 rgba(76,201,146,.5); animation: cgpulse 2s infinite; flex: none; }
+@keyframes cgpulse { 0% { box-shadow: 0 0 0 0 rgba(76,201,146,.45); } 70% { box-shadow: 0 0 0 6px rgba(76,201,146,0); } 100% { box-shadow: 0 0 0 0 rgba(76,201,146,0); } }
+.cgdr__refresh { padding: 6px 12px; font-weight: 600; }
+
+/* ---- Compact executive metric tiles (CallGrid grids only) ---- */
+.cg-tiles .tile, .dim-tiles .tile, .cg-bidtiles .tile { min-height: 0; padding: 14px 16px; gap: 6px; }
+.tile__num--sm { font-size: 22px; }
+.cg-delta { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.cg-delta--up { color: var(--loop-good); }
+.cg-delta--down { color: var(--loop-crit); }
+.cg-delta--flat, .cg-delta--na { color: var(--loop-text-3); font-weight: 500; }
+
+/* ---- Section header with an inline action link ---- */
+.cg-sechead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cg-seclink { font-size: 12.5px; font-weight: 600; color: var(--loop-accent-2); text-decoration: none; }
+.cg-seclink:hover { text-decoration: underline; }
+
+/* ---- Bids Overview (six metrics, three-by-two) ---- */
+.cg-bidtiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+@media (max-width: 900px) { .cg-bidtiles { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .cg-bidtiles { grid-template-columns: 1fr; } }
+
+/* ---- Watch list finding rows ---- */
+.cg-watch__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cg-tag { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); border: 1px solid var(--loop-line-strong); border-radius: 999px; padding: 1px 7px; }
+
 /* ===================== END CALLGRID INTELLIGENCE ===================== */

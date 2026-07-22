@@ -9,7 +9,7 @@
 
 import Link from 'next/link';
 import { requireCrmContext } from '../../../../../crm/crm-data';
-import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery } from '@emgloop/shared';
+import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow } from '@emgloop/shared';
 import { money, num } from '../../../_loop-os';
 import { loadCallGridReport, type CallGridDimRow, type Dimension } from '../callgrid-report';
 import { buildDimQuery } from '../dimension-metrics';
@@ -81,10 +81,12 @@ function deriveDimension(
 export default async function ActivityPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
   const { organizationId: org } = await requireCrmContext();
 
+  const now = new Date();
   const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, new Date());
+  const window = resolveCallGridWindow(range, now);
   const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
   const filter = (FILTERS.find((f) => f.key === searchParams?.filter)?.key ?? 'all') as FilterKey;
+  const desc = describeCallGridWindow(window, now);
 
   const report = await loadCallGridReport(org, window);
 
@@ -104,7 +106,7 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
 
   const filterHref = (key: FilterKey) =>
     '?' + buildDimQuery({
-      range: window.preset === 'today' ? undefined : window.preset,
+      range: window.preset,
       s: window.preset === 'custom' ? range.start : undefined,
       e: window.preset === 'custom' ? range.end : undefined,
       filter: key === 'all' ? undefined : key,
@@ -116,6 +118,7 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
       title="Activity"
       subtitle="Operational changes across CallGrid for the selected period."
       window={window}
+      now={now}
       customStart={range.start}
       customEnd={range.end}
       rangeQuery={rangeQuery}
@@ -131,7 +134,7 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
       </div>
 
       <div className="cg-sec">
-        <p className="cg-seclabel">Activity Stream · Derived from CallGrid reporting</p>
+        <p className="cg-seclabel">Activity · {desc.periodTitle} · Derived from CallGrid reporting</p>
         {!report.ok ? (
           <section className="tile tile--wide"><p className="tile__line cg-muted">CallGrid data could not be loaded.</p></section>
         ) : events.length === 0 ? (

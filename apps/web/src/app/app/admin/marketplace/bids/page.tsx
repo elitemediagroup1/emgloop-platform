@@ -9,9 +9,9 @@
 // strictly separate; their counts are never added together.
 
 import { requireCrmContext } from '../../../../../crm/crm-data';
-import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery } from '@emgloop/shared';
+import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow } from '@emgloop/shared';
 import { num } from '../../../_loop-os';
-import { loadBidReport, sumBid, type BidSourceRow, type PingDestinationRow } from '../bid-report';
+import { loadBidReport, sumBid, bidSnapshotMatches, type BidSourceRow, type PingDestinationRow } from '../bid-report';
 import {
   DimensionShell, SummaryTiles, PerformanceTable, SnapshotNotice, ActivitySection,
   type PerfColumn, type SummaryTile,
@@ -48,9 +48,11 @@ function otherDestFailures(d: PingDestinationRow): number | null {
 export default async function BidsPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
   const { organizationId: org } = await requireCrmContext();
 
+  const now = new Date();
   const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, new Date());
+  const window = resolveCallGridWindow(range, now);
   const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
+  const desc = describeCallGridWindow(window, now);
 
   const bid = await loadBidReport(org);
   const sources = [...bid.sources].sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
@@ -117,6 +119,7 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
       title="Bids"
       subtitle="Bid opportunities, wins, and rejection patterns for the selected period."
       window={window}
+      now={now}
       customStart={range.start}
       customEnd={range.end}
       rangeQuery={rangeQuery}
@@ -127,8 +130,18 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
         <div className="cg-sec"><section className="tile tile--wide"><p className="tile__line">No bid report data has been synchronized yet.</p></section></div>
       ) : (
         <>
-          <SnapshotNotice windowStart={bid.meta.windowStart} windowEnd={bid.meta.windowEnd} fetchedAt={bid.meta.fetchedAt} reportTimezone={bid.meta.reportTimezone} />
-          <SummaryTiles tiles={summary} />
+          <div className="cg-sec">
+            <p className="cg-seclabel">Bid Reporting Window</p>
+            <SnapshotNotice
+              windowStart={bid.meta.windowStart}
+              windowEnd={bid.meta.windowEnd}
+              fetchedAt={bid.meta.fetchedAt}
+              reportTimezone={bid.meta.reportTimezone}
+              selectedPeriodLabel={desc.periodTitle}
+              matchesSelectedPeriod={bidSnapshotMatches(bid.meta, window)}
+            />
+          </div>
+          <SummaryTiles tiles={summary} label="Bid Summary" />
 
           <PerformanceTable sectionLabel="Source Bid Performance" columns={sourceCols} rows={sources} getKey={(r) => r.key} emptyLine="No source bid data for this snapshot." />
           <PerformanceTable sectionLabel="Destination Outcomes" columns={destCols} rows={destinations} getKey={(r) => r.key} emptyLine="No destination ping data for this snapshot." />

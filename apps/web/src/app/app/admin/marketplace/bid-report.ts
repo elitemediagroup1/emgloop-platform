@@ -10,8 +10,10 @@ import 'server-only';
 // Reads STORED SNAPSHOTS ONLY; it never calls CallGrid at render time.
 
 import { MarketplaceAuctionRepository, prisma } from '@emgloop/database';
+import { easternYmd, type CallGridWindow } from '@emgloop/shared';
 
 const PROVIDER = 'callgrid';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface BidSnapshotMeta {
   windowStart: Date;
@@ -137,6 +139,31 @@ export async function loadBidReport(organizationId: string): Promise<BidReport> 
   } catch {
     return { ...EMPTY, ok: false };
   }
+}
+
+/**
+ * Whether the latest bid snapshot genuinely coincides with the selected CallGrid
+ * period. Deliberately conservative: bid snapshots are the provider's own
+ * (UTC-requested) window and call reporting is Eastern, so the two grains rarely
+ * line up. We only claim a match when BOTH are a single calendar day and that day
+ * is the same — never fabricating agreement the data does not support.
+ */
+export function bidSnapshotMatches(meta: BidSnapshotMeta | null, window: CallGridWindow): boolean {
+  if (!meta) return false;
+  const snapSpansOneDay = meta.windowEnd.getTime() - meta.windowStart.getTime() <= DAY_MS + 1000;
+  if (!snapSpansOneDay) return false;
+
+  const selStart = easternYmd(window.start);
+  const selLast = easternYmd(new Date(window.end.getTime() - 1));
+  const selSingleDay = selStart.year === selLast.year && selStart.month === selLast.month && selStart.day === selLast.day;
+  if (!selSingleDay) return false;
+
+  const snap = meta.windowStart; // provider window start (UTC calendar date)
+  return (
+    snap.getUTCFullYear() === selStart.year &&
+    snap.getUTCMonth() + 1 === selStart.month &&
+    snap.getUTCDate() === selStart.day
+  );
 }
 
 /** Sum a numeric field across rows, null when NO row reported it (never a coerced 0). */

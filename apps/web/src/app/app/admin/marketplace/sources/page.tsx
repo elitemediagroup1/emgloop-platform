@@ -9,10 +9,10 @@
 //     never filtered by the calendar range and never fabricated for history.
 
 import { requireCrmContext } from '../../../../../crm/crm-data';
-import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery } from '@emgloop/shared';
+import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow } from '@emgloop/shared';
 import { num } from '../../../_loop-os';
 import { loadCallGridReport } from '../callgrid-report';
-import { loadBidReport, sumBid, type BidSourceRow } from '../bid-report';
+import { loadBidReport, sumBid, bidSnapshotMatches, type BidSourceRow } from '../bid-report';
 import {
   DimensionShell, SummaryTiles, PerformanceTable, SnapshotNotice, ActivitySection,
   type PerfColumn, type SummaryTile,
@@ -38,9 +38,11 @@ const REJECTIONS: { key: keyof BidSourceRow['rejections']; label: string; note: 
 export default async function SourcesPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
   const { organizationId: org } = await requireCrmContext();
 
+  const now = new Date();
   const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, new Date());
+  const window = resolveCallGridWindow(range, now);
   const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
+  const desc = describeCallGridWindow(window, now);
 
   const [callReport, bidReport] = await Promise.all([loadCallGridReport(org, window), loadBidReport(org)]);
 
@@ -86,11 +88,12 @@ export default async function SourcesPage({ searchParams }: { searchParams?: Rec
       title="Sources"
       subtitle="Traffic-source performance for the selected period."
       window={window}
+      now={now}
       customStart={range.start}
       customEnd={range.end}
       rangeQuery={rangeQuery}
     >
-      <SummaryTiles tiles={periodTiles} />
+      <SummaryTiles tiles={periodTiles} label={`Source Call Performance · ${desc.periodTitle}`} />
 
       {!bidReport.ok ? (
         <div className="cg-sec">
@@ -107,9 +110,11 @@ export default async function SourcesPage({ searchParams }: { searchParams?: Rec
             windowEnd={bidReport.meta.windowEnd}
             fetchedAt={bidReport.meta.fetchedAt}
             reportTimezone={bidReport.meta.reportTimezone}
+            selectedPeriodLabel={desc.periodTitle}
+            matchesSelectedPeriod={bidSnapshotMatches(bidReport.meta, window)}
           />
           <div className="cg-sec">
-            <p className="cg-seclabel">Bid Performance · latest snapshot</p>
+            <p className="cg-seclabel">Source Bid Performance · latest snapshot</p>
             <div className="dim-tiles">
               {bidTiles.map((t) => (
                 <section className="tile" aria-label={t.title} key={t.title}>
