@@ -199,6 +199,36 @@ export function DetailPanel({
   );
 }
 
+// The honesty banner for snapshot-only bid data: it does NOT honor the calendar
+// range, so it says so and shows the provenance (snapshot date, last sync,
+// provider window). Never fabricates historical bid reporting.
+function easternDateTime(d: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  }).format(d);
+}
+function utcDate(d: Date): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(d);
+}
+
+export function SnapshotNotice({
+  windowStart, windowEnd, fetchedAt, reportTimezone,
+}: {
+  windowStart: Date; windowEnd: Date; fetchedAt: Date; reportTimezone: string | null;
+}) {
+  return (
+    <div className="cg-snapnotice">
+      <p className="cg-snapnotice__lead">Bid reporting reflects the latest synchronized provider snapshot.</p>
+      <dl className="cg-snapnotice__grid">
+        <div><dt>Latest snapshot date</dt><dd>{utcDate(windowStart)}</dd></div>
+        <div><dt>Last synchronization</dt><dd>{easternDateTime(fetchedAt)} ET</dd></div>
+        <div><dt>Provider reporting window</dt><dd>{utcDate(windowStart)} – {utcDate(windowEnd)}{reportTimezone ? ` (${reportTimezone}, as requested)` : ''}</dd></div>
+      </dl>
+    </div>
+  );
+}
+
 export interface ActivityItem {
   id: string;
   title: string;
