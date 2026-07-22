@@ -1881,4 +1881,35 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
   .cg-tiles { grid-template-columns: 1fr; }
   .cg-qa { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---- Shared CallGrid dimension page (Buyers/Vendors/Sources/Campaigns) ---- */
+.dim-page { max-width: 1120px; }
+.dim-title { margin: 2px 0 0; font-size: clamp(22px, 3vw, 30px); font-weight: 640; letter-spacing: -0.02em; color: var(--loop-text); }
+.dim-sub { margin: 4px 0 6px; color: var(--loop-text-2); font-size: 14px; }
+.dim-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.dim-table { width: 100%; }
+.dim-table .dim-num { text-align: right; white-space: nowrap; }
+.dim-rowlink { color: var(--loop-text); text-decoration: none; font-weight: 550; }
+.dim-rowlink:hover { color: var(--loop-accent); text-decoration: underline; }
+.dim-row--sel { background: var(--loop-elev); }
+.dim-trend--up { color: var(--loop-good); }
+.dim-trend--down { color: var(--loop-crit); }
+.dim-trend--na, .dim-trend--flat { color: var(--loop-text-3); }
+.dim-detail { display: block; }
+.dim-detail__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dim-detail__name { font-size: 18px; font-weight: 620; color: var(--loop-text); }
+.dim-detail__period { color: var(--loop-text-3); font-size: 12.5px; }
+.dim-detail__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 24px; margin: 12px 0 0; }
+.dim-detail__grid > div { display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--loop-line); padding-bottom: 8px; }
+.dim-detail__grid dt { color: var(--loop-text-3); font-size: 12px; }
+.dim-detail__grid dd { margin: 0; color: var(--loop-text); font-size: 15px; font-weight: 560; }
+.dim-detail__note { margin: 12px 0 0; font-size: 12.5px; }
+@media (max-width: 1000px) {
+  .dim-tiles { grid-template-columns: repeat(2, 1fr); }
+  .dim-detail__grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .dim-tiles { grid-template-columns: 1fr; }
+  .dim-detail__grid { grid-template-columns: 1fr; }
+}
 /* ===================== END CALLGRID INTELLIGENCE ===================== */
