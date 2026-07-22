@@ -1,151 +1,153 @@
-// Sources — the lightweight discovery listing.
+// CallGrid Intelligence — Sources.
 //
-// A listing answers ONE question: "what exists?" It is deliberately thin —
-// search, a status filter, the key metrics, and a quick health indicator per
-// row — and it never tells a source's story. That story lives on the entity
-// page (sources/[id]); the two never duplicate each other.
-//
-// Same data path as the entity page (loadDimensionWindows), so a row's key is
-// exactly the key its detail page looks up. Search + filter are zero-JS GET
-// params, so this stays a pure Server Component.
+// HYBRID by provenance (verified per metric, never blended silently):
+//   • Source counts (Total / Active Sources) come from the canonical call
+//     projection and HONOR the selected calendar range.
+//   • Bid performance (opportunities / submitted / won / win rate / rejections)
+//     is snapshot-only — the provider's report endpoints accept no arbitrary
+//     range — so it reflects the LATEST synchronized snapshot and says so. It is
+//     never filtered by the calendar range and never fabricated for history.
 
-import Link from 'next/link';
-import { CallGridNav } from '../_CallGridNav';
 import { requireCrmContext } from '../../../../../crm/crm-data';
-import { money, num, type EntityTone } from '../../../_loop-os';
-import { loadDimensionWindows, rowTone, type DimRow } from '../callgrid-dimensions';
+import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery } from '@emgloop/shared';
+import { num } from '../../../_loop-os';
+import { loadCallGridReport } from '../callgrid-report';
+import { loadBidReport, sumBid, type BidSourceRow } from '../bid-report';
+import {
+  DimensionShell, SummaryTiles, PerformanceTable, SnapshotNotice, ActivitySection,
+  type PerfColumn, type SummaryTile,
+} from '../dimension-ui';
 
 export const dynamic = 'force-dynamic';
 
-const STATUS: { key: string; label: string; tone: EntityTone | 'all' }[] = [
-  { key: 'all', label: 'All', tone: 'all' },
-  { key: 'healthy', label: 'Healthy', tone: 'good' },
-  { key: 'watch', label: 'Watch', tone: 'warn' },
-  { key: 'at_risk', label: 'At risk', tone: 'crit' },
+const bidNum = (n: number | null) => (n === null ? '—' : num(n));
+const pct = (n: number | null) => (n === null ? '—' : n + '%');
+
+// Source-side rejection categories (verified provider fields), with plain-language
+// operational explanations. Closed/paused may be intentional configuration.
+const REJECTIONS: { key: keyof BidSourceRow['rejections']; label: string; note: string }[] = [
+  { key: 'failedAcceptance', label: 'Failed Acceptance', note: 'The bid did not meet a target’s acceptance criteria.' },
+  { key: 'duplicateBids', label: 'Duplicate Bids', note: 'A duplicate bid was detected for the same opportunity.' },
+  { key: 'closed', label: 'Closed Target', note: 'The target was closed — often intentional configuration.' },
+  { key: 'paused', label: 'Paused Target', note: 'The target was paused — often intentional configuration.' },
+  { key: 'failedTagRules', label: 'Failed Tag Rules', note: 'The bid did not satisfy a configured tag rule.' },
+  { key: 'duplicateCaller', label: 'Duplicate Caller', note: 'The caller was seen already within the provider’s window.' },
+  { key: 'callerIdRejected', label: 'Caller ID Rejected', note: 'The caller ID was rejected by a target rule.' },
 ];
 
-interface PageProps {
-  searchParams?: { q?: string; status?: string };
-}
-
-export default async function SourcesListingPage({ searchParams }: PageProps) {
+export default async function SourcesPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
   const { organizationId: org } = await requireCrmContext();
-  const windows = org ? await loadDimensionWindows(org, 'sources') : null;
-  const current = windows?.current ?? null;
-  const readFailed = !current || !current.ok;
 
-  const q = (searchParams?.q ?? '').trim();
-  const qLower = q.toLowerCase();
-  const status = searchParams?.status ?? 'all';
-  const statusTone = STATUS.find((s) => s.key === status)?.tone;
+  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
+  const window = resolveCallGridWindow(range, new Date());
+  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
 
-  const all = current?.rows ?? [];
-  let rows: DimRow[] = all;
-  if (qLower) rows = rows.filter((r) => (r.label || '').toLowerCase().includes(qLower));
-  if (statusTone && statusTone !== 'all') rows = rows.filter((r) => rowTone(r) === statusTone);
+  const [callReport, bidReport] = await Promise.all([loadCallGridReport(org, window), loadBidReport(org)]);
 
-  const summary = readFailed
-    ? 'Loop could not reach source data right now.'
-    : all.length === 0
-      ? 'No sources have attributed calls in the last 7 days yet.'
-      : `${num(all.length)} source${all.length === 1 ? '' : 's'} · ${num(current!.totalCalls)} calls · ${money(current!.totalRevenueCents)} over the last 7 days.`;
+  // Range-honoring source counts (call projection).
+  const callSources = callReport.dimensions.sources;
+  const totalSources = callSources.length;
+  const activeSources = callSources.filter((r) => r.calls > 0 || r.monetized > 0 || r.revenueCents > 0).length;
+  const periodTiles: SummaryTile[] = [
+    { title: 'Total Sources', value: callReport.ok ? num(totalSources) : 'Unavailable' },
+    { title: 'Active Sources', value: callReport.ok ? num(activeSources) : 'Unavailable', sub: 'With call activity this period' },
+  ];
 
-  function statusHref(key: string): string {
-    const p = new URLSearchParams();
-    if (q) p.set('q', q);
-    if (key !== 'all') p.set('status', key);
-    const s = p.toString();
-    return '/app/admin/marketplace/sources' + (s ? '?' + s : '');
-  }
+  // Snapshot-only bid metrics (latest synchronized window).
+  const bidSources = [...bidReport.sources].sort((a, b) => (b.won ?? -1) - (a.won ?? -1));
+  const totalOpportunities = sumBid(bidSources, (r) => r.total);
+  const bidsSubmitted = sumBid(bidSources, (r) => r.bids);
+  const bidsWon = sumBid(bidSources, (r) => r.won);
+  const winRate = bidsSubmitted && bidsSubmitted > 0 && bidsWon !== null ? Math.round((bidsWon / bidsSubmitted) * 100) : null;
+  const bidTiles: SummaryTile[] = [
+    { title: 'Total Bid Opportunities', value: bidNum(totalOpportunities) },
+    { title: 'Bids Submitted', value: bidNum(bidsSubmitted) },
+    { title: 'Bids Won', value: bidNum(bidsWon) },
+    { title: 'Source Win Rate', value: pct(winRate) },
+  ];
+
+  const columns: PerfColumn<BidSourceRow>[] = [
+    { label: 'Source', render: (r) => r.name },
+    { label: 'Bid Opportunities', align: 'right', render: (r) => bidNum(r.total) },
+    { label: 'Bids Submitted', align: 'right', render: (r) => bidNum(r.bids) },
+    { label: 'Bids Won', align: 'right', render: (r) => bidNum(r.won) },
+    { label: 'Win Rate', align: 'right', render: (r) => pct(r.winRatePct) },
+    { label: 'Rejected', align: 'right', render: (r) => bidNum(r.rejected) },
+    { label: 'Reject Rate', align: 'right', render: (r) => (r.rejectRatePct === null ? '—' : Math.round(r.rejectRatePct) + '%') },
+  ];
+
+  const rejectionTotals = REJECTIONS
+    .map((rj) => ({ ...rj, count: sumBid(bidSources, (r) => r.rejections[rj.key]) }))
+    .filter((rj) => rj.count !== null);
 
   return (
-    <div className="loop-os loop-os--v3 loop-os--v4 loop-os--v5">
-      <main className="loop-os__main">
-        <header className="loop-os__brief">
-          <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">CallGrid Intelligence</p>
-            <h1 className="loop-os__brief-title">Sources</h1>
-            <p className="loop-os__brief-body">{summary}</p>
-          </div>
-        </header>
+    <DimensionShell
+      active="sources"
+      title="Sources"
+      subtitle="Traffic-source performance for the selected period."
+      window={window}
+      customStart={range.start}
+      customEnd={range.end}
+      rangeQuery={rangeQuery}
+    >
+      <SummaryTiles tiles={periodTiles} />
 
-        <CallGridNav active="sources" />
-
-        <div className="cg-toolbar">
-          <form className="cg-search" method="get">
-            <input
-              type="search"
-              name="q"
-              defaultValue={q}
-              placeholder="Search sources…"
-              className="cg-search__input"
-              aria-label="Search sources"
-            />
-            {status !== 'all' ? <input type="hidden" name="status" value={status} /> : null}
-            <button type="submit" className="cg-search__btn">Search</button>
-          </form>
-          <div className="cg-filters" role="group" aria-label="Filter by status">
-            {STATUS.map((s) => (
-              <Link
-                key={s.key}
-                href={statusHref(s.key)}
-                className={'cg-filter' + (status === s.key ? ' is-active' : '')}
-                aria-current={status === s.key ? 'true' : undefined}
-              >
-                {s.tone !== 'all' ? <span className={'cg-dot cg-dot--' + s.tone} aria-hidden="true" /> : null}
-                {s.label}
-              </Link>
-            ))}
-          </div>
+      {!bidReport.ok ? (
+        <div className="cg-sec">
+          <section className="tile tile--wide"><p className="tile__line cg-muted">Bid reporting could not be loaded.</p></section>
         </div>
-
-        <div className="loop-card">
-          <div className="loop-card__head">
-            <span className="loop-card__title">
-              Sources <span className="loop-count">{num(rows.length)}</span>
-            </span>
-          </div>
-
-          {rows.length === 0 ? (
-            <div className="loop-empty">
-              <p className="loop-empty__title">
-                {readFailed ? 'Source data is unavailable' : q || status !== 'all' ? 'No sources match' : 'No sources yet'}
-              </p>
-              <p className="loop-empty__body">
-                {readFailed
-                  ? 'Loop is showing you nothing rather than a list built on data it could not confirm.'
-                  : q || status !== 'all'
-                    ? 'Try clearing the search or the status filter.'
-                    : 'Sources appear here as CallGrid routes inbound calls with source context.'}
-              </p>
+      ) : !bidReport.hasData || !bidReport.meta ? (
+        <div className="cg-sec">
+          <section className="tile tile--wide"><p className="tile__line">No source bid data has been synchronized yet.</p></section>
+        </div>
+      ) : (
+        <>
+          <SnapshotNotice
+            windowStart={bidReport.meta.windowStart}
+            windowEnd={bidReport.meta.windowEnd}
+            fetchedAt={bidReport.meta.fetchedAt}
+            reportTimezone={bidReport.meta.reportTimezone}
+          />
+          <div className="cg-sec">
+            <p className="cg-seclabel">Bid Performance · latest snapshot</p>
+            <div className="dim-tiles">
+              {bidTiles.map((t) => (
+                <section className="tile" aria-label={t.title} key={t.title}>
+                  <div className="tile__head"><span className="tile__title">{t.title}</span></div>
+                  <div className="tile__num">{t.value}</div>
+                </section>
+              ))}
             </div>
-          ) : (
-            <ul className="cg-list">
-              <li className="cg-list__labels" aria-hidden="true">
-                <span className="cg-list__lname">Source</span>
-                <span className="cg-list__lmetric">Calls</span>
-                <span className="cg-list__lmetric">Revenue</span>
-                <span className="cg-list__lmetric">Margin</span>
-              </li>
-              {rows.map((r) => {
-                const tone = rowTone(r);
-                return (
-                  <li key={r.key} className="cg-row">
-                    <Link href={'/app/admin/marketplace/sources/' + encodeURIComponent(r.key)} className="cg-row__link">
-                      <span className={'cg-dot cg-dot--' + tone} aria-hidden="true" title={tone} />
-                      <span className="cg-row__name">{r.label || 'Unlabelled source'}</span>
-                      <span className="cg-row__metric">{num(r.calls)}</span>
-                      <span className="cg-row__metric">{money(r.revenueCents)}</span>
-                      <span className={'cg-row__metric' + (r.marginCents < 0 ? ' cg-row__metric--crit' : '')}>{money(r.marginCents)}</span>
-                      <span className="cg-row__arrow" aria-hidden="true">→</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </main>
-    </div>
+          </div>
+
+          <PerformanceTable
+            sectionLabel="Source Bid Performance"
+            columns={columns}
+            rows={bidSources}
+            getKey={(r) => r.key}
+            emptyLine="No source bid data for this snapshot."
+          />
+
+          {rejectionTotals.length > 0 ? (
+            <div className="cg-sec">
+              <p className="cg-seclabel">Rejection Reasons</p>
+              <div className="cg-reasons">
+                {rejectionTotals.map((rj) => (
+                  <div className="cg-reason" key={rj.key}>
+                    <div className="cg-reason__head">
+                      <span className="cg-reason__label">{rj.label}</span>
+                      <span className="cg-reason__count">{num(rj.count!)}</span>
+                    </div>
+                    <p className="cg-reason__note">{rj.note}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      <ActivitySection items={[]} emptyLine="No durable source-level CallGrid events for this period." />
+    </DimensionShell>
   );
 }
