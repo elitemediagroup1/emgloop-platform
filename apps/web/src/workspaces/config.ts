@@ -112,6 +112,7 @@ export interface WorkspaceConfig extends ShellConfig {
 // product (CallGrid Intelligence) highlighted.
 const CALLGRID_INTEL = { resource: 'intelligence', action: 'view' } as const;
 const ADMIN_ONLY = { resource: 'users', action: 'view' } as const;
+const WORK_TYPES_ADMIN = { resource: 'settings', action: 'view' } as const;
 
 const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
@@ -135,6 +136,7 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
       footer: true,
       items: [
         { href: '/app/admin/administration/team', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
+        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: WORK_TYPES_ADMIN },
       ],
     },
   ],

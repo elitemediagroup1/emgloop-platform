@@ -11,7 +11,17 @@ const NAV = [
   '/app/admin/work',
   '/app/admin/accounting',
   '/app/admin/administration/team',
+  '/app/admin/administration/work-types',
 ];
+
+test('Start Work highlights Work OS (not Dashboard) and Work Types stays under Administration', () => {
+  // 2L — the shared resolver must keep Work OS active across every work route,
+  // including the rebuilt Start Work page, and must not confuse the two
+  // sibling Administration routes.
+  assert.equal(pickActiveHref(NAV, '/app/admin/work/new'), '/app/admin/work');
+  assert.equal(pickActiveHref(NAV, '/app/admin/administration/work-types'), '/app/admin/administration/work-types');
+  assert.equal(pickActiveHref(NAV, '/app/admin/administration/team'), '/app/admin/administration/team');
+});
 
 test('Work OS home highlights Work OS, not Dashboard', () => {
   assert.equal(pickActiveHref(NAV, '/app/admin/work'), '/app/admin/work');

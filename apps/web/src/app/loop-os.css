@@ -1750,4 +1750,48 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .sw__cancel:hover { color: var(--loop-text); }
 .sw__card { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px; background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: 16px; padding: 32px; }
 .sw__empty { margin: 0; color: var(--loop-text-2); font-size: 15px; }
+
+/* ---- Start Work (rebuilt): centered, sectioned surface ---------------------- */
+.sw2 { max-width: 960px; margin: 0 auto; padding: 8px 0 64px; }
+.sw2-head { margin-bottom: 22px; }
+.sw2-title { margin: 0; font-size: clamp(24px, 3.4vw, 32px); font-weight: 620; letter-spacing: -0.02em; color: var(--loop-text); }
+.sw2-sub { margin: 8px 0 0; color: var(--loop-text-2); font-size: 15px; line-height: 1.5; }
+.sw2-empty { background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: var(--loop-radius-lg); padding: 32px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px; color: var(--loop-text-2); }
+.sw2-form { display: flex; flex-direction: column; gap: 16px; }
+.sw2-section { background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 20px 22px; box-shadow: var(--loop-shadow); }
+.sw2-sectionhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sw2-h { margin: 0 0 4px; font-size: 15px; font-weight: 620; color: var(--loop-text); }
+.sw2-help { margin: 4px 0 12px; color: var(--loop-text-3); font-size: 13px; line-height: 1.5; }
+.sw2-opt { color: var(--loop-text-3); font-weight: 400; font-size: 12px; }
+.sw2-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; flex: 1; min-width: 200px; }
+.sw2-field:first-child { margin-top: 0; }
+.sw2-label { font-size: 13px; font-weight: 550; color: var(--loop-text); }
+.sw2-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.sw2-input { width: 100%; background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 10px; padding: 11px 13px; font-size: 14.5px; font-family: inherit; }
+.sw2-input:focus-visible { outline: 2px solid var(--loop-accent); outline-offset: 1px; border-color: var(--loop-accent); }
+.sw2-input::placeholder { color: var(--loop-text-3); }
+.sw2-input--err { border-color: var(--loop-crit); }
+.sw2-textarea { resize: vertical; min-height: 96px; line-height: 1.5; }
+.sw2-err { margin: 6px 0 0; color: var(--loop-crit); font-size: 12.5px; }
+.sw2-fieldset { border: 0; padding: 0; margin: 14px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.sw2-radios { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.sw2-radio { display: flex; align-items: center; gap: 9px; color: var(--loop-text); font-size: 14px; cursor: pointer; }
+.sw2-radio input { accent-color: var(--loop-accent); width: 16px; height: 16px; }
+.sw2-reqs { display: flex; flex-direction: column; gap: 10px; }
+.sw2-req { display: grid; grid-template-columns: 1.4fr 1.4fr auto auto; gap: 10px; align-items: center; }
+.sw2-reqreq { display: flex; align-items: center; gap: 7px; color: var(--loop-text-2); font-size: 13px; white-space: nowrap; }
+.sw2-reqreq input { accent-color: var(--loop-accent); }
+.sw2-review { background: linear-gradient(180deg, var(--loop-panel), var(--loop-elev)); }
+.sw2-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 28px; margin: 4px 0 20px; }
+.sw2-summary > div { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--loop-line); padding-bottom: 8px; }
+.sw2-summary dt { color: var(--loop-text-3); font-size: 12.5px; }
+.sw2-summary dd { margin: 0; color: var(--loop-text); font-size: 13.5px; font-weight: 550; text-align: right; }
+.sw2-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.sw2-start { padding: 11px 22px; font-size: 15px; }
+.sw2-start:disabled { opacity: .55; cursor: default; }
+.sw2-cancel { text-decoration: none; }
+@media (max-width: 720px) {
+  .sw2-summary { grid-template-columns: 1fr; }
+  .sw2-req { grid-template-columns: 1fr; }
+}
 /* ===================== END WORK OS ===================== */

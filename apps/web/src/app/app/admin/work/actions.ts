@@ -8,9 +8,15 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+import { buildWorkSubmission, responsibilityLabel, type WorkSubmissionErrors, type AssignMode } from '@emgloop/database';
 import { requireWorkActor, workRepo } from './work-data';
 
 const WORK_ROOT = '/app/admin/work';
+
+export interface StartWorkState {
+  errors?: WorkSubmissionErrors;
+  formError?: string;
+}
 
 // Create a Blueprint (optionally with an initial set of stages described as
 // newline-separated names in the "stages" textarea).
@@ -77,6 +83,83 @@ export async function createWorkFromBlueprintAction(formData: FormData): Promise
 
   revalidatePath(WORK_ROOT);
   redirect(`${WORK_ROOT}/${instance.id}`);
+}
+
+// Start Work — the rebuilt, multi-section form. Validates with the pure builder,
+// resolves the owner, and persists priority / due date / requirements / relation
+// on the WorkInstance metadata (no new table). Returns field errors for the form;
+// on success it redirects to the new Work Detail page.
+export async function createWorkAction(
+  _prev: StartWorkState,
+  formData: FormData,
+): Promise<StartWorkState> {
+  const actor = await requireWorkActor();
+  const work = workRepo();
+  const str = (k: string) => String(formData.get(k) ?? '').trim();
+
+  const workTypeId = str('workTypeId');
+  // Resolve the work type within the org (also gives us its default assignee for
+  // 'auto' assignment). A missing/cross-org id is a field error, never a crash.
+  const workType = workTypeId ? await work.getWorkType(actor.organizationId, workTypeId) : null;
+
+  let requirements: { name: string; description?: string; required?: boolean }[] = [];
+  try {
+    const raw = String(formData.get('requirements') ?? '[]');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) requirements = parsed;
+  } catch {
+    requirements = [];
+  }
+
+  const built = buildWorkSubmission({
+    workTypeId,
+    title: str('title'),
+    outcome: str('outcome'),
+    notes: str('notes'),
+    responsibility: str('responsibility') || null,
+    assignMode: (str('assignMode') || 'unassigned') as AssignMode,
+    assigneeUserId: str('assigneeUserId') || null,
+    workTypeDefaultAssigneeUserId: workType?.defaultAssigneeUserId ?? null,
+    priority: str('priority') || 'normal',
+    dueDate: str('dueDate'),
+    dueTime: str('dueTime'),
+    relationType: (str('relationType') || 'none') as never,
+    relationLabel: str('relationLabel'),
+    requirements,
+  });
+
+  if (!built.ok) return { errors: built.errors };
+  if (!workType) return { errors: { workTypeId: 'Choose a valid work type.' } };
+
+  let instanceId: string | null = null;
+  try {
+    const instance = await work.createWorkFromBlueprint({
+      organizationId: actor.organizationId,
+      blueprintId: workTypeId,
+      title: built.value.title,
+      description: built.value.description,
+      createdByUserId: actor.userId,
+      firstOwnerUserId: built.value.firstOwnerUserId,
+      metadata: {
+        // A business-facing snapshot on the work itself — real, persisted context.
+        workTypeName: workType.name,
+        workTypeCategory: workType.category,
+        responsibilityLabel: responsibilityLabel(built.value.metadata.responsibility),
+        ...built.value.metadata,
+      },
+    });
+    instanceId = instance.id;
+  } catch (err) {
+    console.error('[work.start] failed', {
+      op: 'createWorkFromBlueprint',
+      organizationId: actor.organizationId,
+      code: (err as { code?: string } | null)?.code ?? 'unknown',
+    });
+    return { formError: 'Something went wrong starting this work. Please try again.' };
+  }
+
+  revalidatePath(WORK_ROOT);
+  redirect(`${WORK_ROOT}/${instanceId}`); // outside try — NEXT_REDIRECT must not be caught
 }
 
 // Complete the current stage and advance the instance (assigning + notifying
