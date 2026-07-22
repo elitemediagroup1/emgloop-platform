@@ -281,7 +281,10 @@ export class IamRepository {
     return this.prisma.user.create({
       data: {
         organizationId: data.organizationId,
-        email: data.email,
+        // Normalize on write: reads always lowercase the email, so storing a
+        // mixed-case email here would let a case-variant slip past the unique
+        // lookup and create a second row for the same person. Store it lowercased.
+        email: data.email.toLowerCase().trim(),
         name: data.name,
         status: 'INVITED',
         metadata: { systemRole: data.systemRole ?? 'EMPLOYEE', passwordHash: data.passwordHash },
@@ -313,7 +316,10 @@ export class IamRepository {
     name?: string;
     systemRole: string;
   }): Promise<InviteOutcome> {
-    const { organizationId, email, name, systemRole } = params;
+    const { organizationId, name, systemRole } = params;
+    // Normalize on write so a case-variant of an existing email can never create a
+    // second row for the same person (reads always lowercase).
+    const email = params.email.toLowerCase().trim();
 
     const existing = await this.prisma.user.findFirst({ where: { organizationId, email } });
     if (existing && existing.status === 'ACTIVE') {
