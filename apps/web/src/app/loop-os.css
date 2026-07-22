@@ -1683,3 +1683,35 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 @media (max-width: 1160px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 680px) { .tiles { grid-template-columns: 1fr; } }
 /* ===================== END DASHBOARD ===================== */
+
+
+/* ===================== ADMINISTRATION — Team =====================
+   User/invitation management inside the ADMIN shell. Tokens only, no new file. */
+.adm { display: flex; flex-direction: column; gap: 20px; max-width: 1100px; }
+.adm-card { background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 18px 20px; box-shadow: var(--loop-shadow); }
+.adm-card__title { margin: 0 0 14px; font-size: 14px; font-weight: 650; color: var(--loop-text); }
+.adm-inviteform { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.adm-field { display: flex; flex-direction: column; gap: 5px; min-width: 180px; flex: 1; }
+.adm-field__label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.adm-input { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 9px; padding: 9px 11px; font-size: 13.5px; font-family: inherit; }
+.adm-input--sm { padding: 6px 9px; font-size: 12.5px; }
+.adm-input:focus { outline: none; border-color: var(--loop-accent); }
+.adm-btn { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 9px; padding: 8px 13px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.adm-btn:hover:not(:disabled) { border-color: var(--loop-accent); color: var(--loop-accent-2); }
+.adm-btn:disabled { opacity: .4; cursor: default; }
+.adm-btn--primary { background: var(--loop-accent); border-color: var(--loop-accent); color: #fff; }
+.adm-btn--primary:hover:not(:disabled) { background: var(--loop-accent-2); color: #fff; }
+.adm-btn--danger:hover:not(:disabled) { border-color: var(--loop-crit); color: var(--loop-crit); }
+.adm-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adm-tablewrap { overflow-x: auto; }
+.adm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.adm-table th { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--loop-line); color: var(--loop-text-3); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; font-weight: 600; white-space: nowrap; }
+.adm-table td { padding: 10px; border-bottom: 1px solid var(--loop-line); color: var(--loop-text); vertical-align: middle; }
+.adm-table tr:last-child td { border-bottom: 0; }
+.adm-faint { color: var(--loop-text-2); }
+.adm-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--loop-line-strong); color: var(--loop-text-2); white-space: nowrap; }
+.adm-badge--ok { color: var(--loop-good); border-color: rgba(55,211,155,.4); }
+.adm-badge--warn { color: var(--loop-warn); border-color: rgba(242,180,91,.4); }
+.adm-badge--off { color: var(--loop-text-3); }
+.adm-empty { margin: 0; color: var(--loop-text-3); font-size: 13px; }
+/* ===================== END ADMINISTRATION ===================== */

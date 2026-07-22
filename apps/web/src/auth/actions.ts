@@ -9,7 +9,8 @@
 // to display in-app rather than emailing it.
 
 import { redirect } from 'next/navigation';
-import { repositories } from '@emgloop/database';
+import { repositories, SystemRole } from '@emgloop/database';
+import { passwordResetUrl } from '@emgloop/shared';
 import {
   login,
   logout,
@@ -20,6 +21,16 @@ import {
 } from './auth';
 import { ensureCrmIdentity } from './bootstrap';
 import { sendPasswordResetEmail } from '../lib/email/email-service';
+
+// The role an invitation actually carries. createInvitation stores it in
+// metadata.systemRole; the Invitation.systemRole column is a legacy default that
+// is never written, so reading it would silently downgrade every invitee to
+// EMPLOYEE. Prefer metadata, validate, and fall back to the column.
+function invitedSystemRole(invitation: { systemRole: SystemRole; metadata: unknown }): SystemRole {
+  const meta = (invitation.metadata as { systemRole?: unknown } | null)?.systemRole;
+  const s = String(meta ?? '');
+  return (Object.values(SystemRole) as string[]).includes(s) ? (s as SystemRole) : invitation.systemRole;
+}
 
 export async function loginAction(formData: FormData): Promise<void> {
   await ensureCrmIdentity();
@@ -89,8 +100,8 @@ export async function requestResetAction(formData: FormData): Promise<void> {
     // PR-1: send the reset email INSIDE the user-found branch only, preserving
     // anti-enumeration (nothing is sent or revealed when the account does not
     // exist). Uses the plaintext token; only the hash is persisted.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const resetUrl = `${appUrl}/crm/reset-password?token=${encodeURIComponent(token)}`;
+    // Absolute URL from the one canonical app origin — never a relative path.
+    const resetUrl = passwordResetUrl(token);
     await sendPasswordResetEmail({ to: user.email, name: user.name ?? undefined, resetUrl });
     redirect('/crm/forgot-password?sent=1&token=' + token);
   }
@@ -185,7 +196,7 @@ export async function acceptInviteAction(formData: FormData) {
       organizationId: invitation.organizationId,
       email: invitation.email,
       name: name || undefined,
-      systemRole: invitation.systemRole,
+      systemRole: invitedSystemRole(invitation),
       passwordHash,
     });
     await iam.activateUser(invitation.organizationId, created.id);

@@ -275,7 +275,7 @@ export default async function Dashboard() {
           <Tile title="Quick Actions">
             <div className="tile__qa">
               {w.canCreateWork ? <Link href="/app/admin/work/new" className="tile__qa-btn">Create work →</Link> : null}
-              <Link href="/crm/users" className="tile__qa-btn">Invite team member →</Link>
+              <Link href="/app/admin/administration/team" className="tile__qa-btn">Invite team member →</Link>
             </div>
           </Tile>
 

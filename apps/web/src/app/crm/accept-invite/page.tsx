@@ -53,12 +53,18 @@ async function resolveInvite(rawToken: string | undefined): Promise<InviteState>
     organizationName = null;
   }
 
+  // The role lives in metadata.systemRole (the Invitation.systemRole column is a
+  // never-written legacy default), so read it there to show the invitee the role
+  // they were actually granted.
+  const invitedRole =
+    (invitation.metadata as { systemRole?: string } | null)?.systemRole ?? invitation.systemRole;
+
   return {
     kind: 'valid',
     token,
     email: invitation.email,
     organizationName,
-    roleLabel: ROLE_LABELS[invitation.systemRole] ?? invitation.systemRole ?? null,
+    roleLabel: ROLE_LABELS[invitedRole] ?? invitedRole ?? null,
   };
 }
 
