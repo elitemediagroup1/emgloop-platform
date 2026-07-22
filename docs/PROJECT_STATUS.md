@@ -34,11 +34,13 @@ drill-down pattern; Sources vertical = lightweight listing + per-source detail.
 **Follow-up:** the Bids page (route `/marketplace/auction`) is still a raw-table surface —
 needs a real drill-down pass; per-drill-down business-language polish remains.
 
-## Work OS — IN REVIEW (**PR #130 open**, `feat/internal-alpha-ux`)
+## Work OS — DONE (merged #130); **CSS fix in review (PR #132)**
 Redesigned to match the Dashboard: one-screen 3·3·2 tile grid, business terminology
 (no Work Instance / Blueprint / Stage), conversational **Start Work** form, new **Team Work**
 page, and a centralized route→product resolver driving both breadcrumb and active-state.
-_(needs deploy validation: 1920×1080 no-scroll fit + real work data.)_
+⚠️ The CSS #130 depends on was left out of the merge (staging miss + merge-timing race), so
+Work OS renders **unstyled on `main` until PR #132 merges**. _(needs deploy validation:
+1920×1080 no-scroll fit + real work data.)_
 
 ## Onboarding / invitations — DONE (merged: #129)
 Absolute invite/reset URLs (`@emgloop/shared/app-origin`); team management at
@@ -64,7 +66,8 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
 ---
 
 ## Open threads / next steps
-1. **Merge PR #130** (Work OS) — then start the next batch on a FRESH branch off `main`.
+1. **Merge PR #132** (Work OS CSS — un-breaks styling) and **PR #131** (this doc). Then start
+   the next batch on a FRESH branch off `main`.
 2. **Deploy validation** (only possible on the deploy): Dashboard + Work OS one-screen fit;
    the fresh-invitation onboarding journey; CallGrid scorecard value reconciliation.
 3. **Platform floor** (from CLAUDE.md Long-Term Goals): commit the lockfile; a CI gate on
