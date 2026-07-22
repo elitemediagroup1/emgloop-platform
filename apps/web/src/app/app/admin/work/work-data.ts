@@ -286,10 +286,12 @@ export async function loadTeamWork(): Promise<{ actor: WorkActor; rows: TeamWork
   return { actor, rows };
 }
 
-// Directory of people who can own a stage, for owner selectors.
+// Directory of people who can own a stage, for owner selectors. ACTIVE members
+// only — someone who has not accepted their invite (INVITED) or was disabled/
+// removed (DISABLED) can neither sign in nor do the work, so they never appear.
 export async function listAssignableUsers(organizationId: string) {
   return prisma.user.findMany({
-    where: { organizationId, status: { in: ['ACTIVE', 'INVITED'] } },
+    where: { organizationId, status: 'ACTIVE' },
     select: { id: true, name: true, email: true },
     orderBy: [{ name: 'asc' }, { email: 'asc' }],
   });

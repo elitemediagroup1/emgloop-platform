@@ -125,6 +125,27 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     { label: 'Started', value: relTime(new Date(instance.createdAt)) || 'Today' },
   ];
 
+  // Start Work captured priority / due / responsibility / relation / requirements
+  // on the work's metadata. Surface each ONLY when it exists (honest, no filler).
+  const wmeta = (instance.metadata && typeof instance.metadata === 'object' && !Array.isArray(instance.metadata)
+    ? (instance.metadata as Record<string, unknown>)
+    : {});
+  const wPriority = typeof wmeta.priority === 'string' ? wmeta.priority : null;
+  const wDue = typeof wmeta.dueEastern === 'string' ? wmeta.dueEastern : null;
+  const wResp = typeof wmeta.responsibilityLabel === 'string' ? wmeta.responsibilityLabel : null;
+  const wReqs = Array.isArray(wmeta.requirements) ? (wmeta.requirements as Record<string, unknown>[]) : [];
+  const wRelation = (wmeta.relation && typeof wmeta.relation === 'object' && !Array.isArray(wmeta.relation)
+    ? (wmeta.relation as { type?: unknown; label?: unknown })
+    : null);
+  if (wPriority) stats.push({ label: 'Priority', value: wPriority.charAt(0).toUpperCase() + wPriority.slice(1) });
+  if (wDue) stats.push({ label: 'Due', value: `${wDue} ET` });
+  if (wResp) stats.push({ label: 'Responsibility', value: wResp });
+  if (wReqs.length) stats.push({ label: 'Requirements', value: String(wReqs.length) });
+  if (wRelation && typeof wRelation.label === 'string' && wRelation.label) {
+    const rt = typeof wRelation.type === 'string' ? wRelation.type : '';
+    stats.push({ label: 'Related', value: rt ? `${rt}: ${wRelation.label}` : wRelation.label });
+  }
+
   // 3. What changed — recent step transitions.
   const changes: EntityChange[] = completedStages
     .filter((s) => s.completedAt)
@@ -166,6 +187,18 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     ],
     note: s.description ?? undefined,
   }));
+
+  // The requirements checklist captured at Start Work (if any).
+  if (wReqs.length) {
+    evidence.push({
+      label: `Requirements — ${wReqs.length}`,
+      tone: 'info' as EntityTone,
+      facts: wReqs.slice(0, 20).map((r) => ({
+        statement: r && (r as Record<string, unknown>).required ? 'Required' : 'Optional',
+        value: String((r as Record<string, unknown>)?.name ?? ''),
+      })),
+    });
+  }
 
   // 7. What happened previously.
   const history: EntityHistoryItem[] = [

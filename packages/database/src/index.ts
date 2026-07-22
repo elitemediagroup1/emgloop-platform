@@ -99,6 +99,10 @@ export type {
 // No persistence, repositories, definitions, or wiring in this PR (those are B/C/D).
 export * from './process-engine';
 
+// Work OS — Work Type catalog/vocabularies + the pure Start Work submission builder.
+export * from './work-os/work-type-catalog';
+export * from './work-os/start-work';
+
 export const repositories: Repositories = createRepositories(prisma);
 
 export * from '@prisma/client';

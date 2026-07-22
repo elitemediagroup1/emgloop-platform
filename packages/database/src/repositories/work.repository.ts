@@ -113,6 +113,79 @@ export interface AddWorkCommentInput {
 // A work instance with its stages ordered by position.
 export type WorkInstanceWithStages = WorkInstance & { stages: WorkStage[] };
 
+// --- Work Types (a business-facing projection of Blueprint) ------------------
+
+export interface WorkTypeView {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  responsibility: string | null;
+  defaultPriority: string;
+  defaultAssigneeUserId: string | null;
+  defaultRequirements: { name: string; required: boolean }[];
+  sortOrder: number;
+  active: boolean;
+  catalogKey: string | null;
+}
+
+export interface CreateWorkTypeInput {
+  organizationId: string;
+  createdByUserId: string;
+  name: string;
+  description?: string | null;
+  category?: string;
+  responsibility?: string | null;
+  defaultPriority?: string;
+  defaultAssigneeUserId?: string | null;
+  defaultRequirements?: { name: string; required: boolean }[];
+  sortOrder?: number;
+  catalogKey?: string;
+}
+
+export interface UpdateWorkTypePatch {
+  name?: string;
+  description?: string | null;
+  category?: string;
+  responsibility?: string | null;
+  defaultPriority?: string;
+  defaultAssigneeUserId?: string | null;
+  sortOrder?: number;
+  active?: boolean;
+}
+
+function metaObject(m: unknown): Record<string, unknown> {
+  return m && typeof m === 'object' && !Array.isArray(m) ? (m as Record<string, unknown>) : {};
+}
+
+function toWorkTypeView(b: {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  metadata: unknown;
+}): WorkTypeView {
+  const m = metaObject(b.metadata);
+  const reqs = Array.isArray(m.defaultRequirements)
+    ? (m.defaultRequirements as { name?: unknown; required?: unknown }[])
+        .map((r) => ({ name: String(r?.name ?? ''), required: Boolean(r?.required) }))
+        .filter((r) => r.name.length > 0)
+    : [];
+  return {
+    id: b.id,
+    name: b.name,
+    description: b.description,
+    category: typeof m.category === 'string' ? m.category : 'General',
+    responsibility: typeof m.responsibility === 'string' ? m.responsibility : null,
+    defaultPriority: typeof m.defaultPriority === 'string' ? m.defaultPriority : 'normal',
+    defaultAssigneeUserId: typeof m.defaultAssigneeUserId === 'string' ? m.defaultAssigneeUserId : null,
+    defaultRequirements: reqs,
+    sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : 0,
+    active: b.status === 'active',
+    catalogKey: typeof m.catalogKey === 'string' ? m.catalogKey : null,
+  };
+}
+
 export class WorkRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -159,6 +232,159 @@ export class WorkRepository {
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
       include: { stages: { orderBy: { position: 'asc' } } },
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Work Types (a business-facing view over Blueprint — no new model)
+  //
+  // Every Blueprint IS a Work Type. The display fields are Blueprint columns
+  // (name/description/status); the extra configuration an admin manages
+  // (category, default responsibility/priority/assignee/requirements, sort order,
+  // catalog key) rides in Blueprint.metadata. This keeps ONE source of truth and
+  // needs no schema change — safe given the deploy applies only `prisma generate`.
+  // ------------------------------------------------------------------
+  async listWorkTypes(
+    organizationId: string,
+    opts?: { includeInactive?: boolean },
+  ): Promise<WorkTypeView[]> {
+    const rows = await this.prisma.blueprint.findMany({
+      where: opts?.includeInactive
+        ? { organizationId }
+        : { organizationId, status: 'active' },
+      select: {
+        id: true, name: true, description: true, status: true, metadata: true, createdAt: true,
+      },
+    });
+    return rows
+      .map((b) => toWorkTypeView(b))
+      .sort((a, b) =>
+        a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : a.name.localeCompare(b.name),
+      );
+  }
+
+  async getWorkType(organizationId: string, id: string): Promise<WorkTypeView | null> {
+    const b = await this.prisma.blueprint.findFirst({
+      where: { id, organizationId },
+      select: { id: true, name: true, description: true, status: true, metadata: true, createdAt: true },
+    });
+    return b ? toWorkTypeView(b) : null;
+  }
+
+  async createWorkType(input: CreateWorkTypeInput): Promise<Blueprint> {
+    const meta: Record<string, unknown> = {
+      kind: 'work_type',
+      category: input.category ?? 'General',
+      responsibility: input.responsibility ?? null,
+      defaultPriority: input.defaultPriority ?? 'normal',
+      defaultAssigneeUserId: input.defaultAssigneeUserId ?? null,
+      defaultRequirements: input.defaultRequirements ?? [],
+      sortOrder: input.sortOrder ?? 0,
+      ...(input.catalogKey ? { catalogKey: input.catalogKey } : {}),
+    };
+    const blueprint = await this.prisma.blueprint.create({
+      data: {
+        organizationId: input.organizationId,
+        name: input.name,
+        description: input.description ?? null,
+        status: 'active',
+        createdByUserId: input.createdByUserId,
+        metadata: meta as Prisma.InputJsonValue,
+      },
+    });
+    // Every Work Type needs at least one stage so work can actually be started
+    // from it (createWorkFromBlueprint copies stages). A single "Complete" stage
+    // models a one-step task; its default owner is the work type's default assignee.
+    await this.prisma.blueprintStage.create({
+      data: {
+        blueprintId: blueprint.id,
+        name: 'Complete',
+        position: 1,
+        defaultOwnerUserId: input.defaultAssigneeUserId ?? null,
+      },
+    });
+    return blueprint;
+  }
+
+  async updateWorkType(
+    organizationId: string,
+    id: string,
+    patch: UpdateWorkTypePatch,
+  ): Promise<void> {
+    // Resolve within the org first (fail closed to a no-op on cross-org id).
+    const existing = await this.prisma.blueprint.findFirst({
+      where: { id, organizationId },
+      select: { id: true, metadata: true },
+    });
+    if (!existing) return;
+    const meta = metaObject(existing.metadata);
+    const nextMeta: Record<string, unknown> = { ...meta };
+    if (patch.category !== undefined) nextMeta.category = patch.category;
+    if (patch.responsibility !== undefined) nextMeta.responsibility = patch.responsibility;
+    if (patch.defaultPriority !== undefined) nextMeta.defaultPriority = patch.defaultPriority;
+    if (patch.defaultAssigneeUserId !== undefined) nextMeta.defaultAssigneeUserId = patch.defaultAssigneeUserId;
+    if (patch.sortOrder !== undefined) nextMeta.sortOrder = patch.sortOrder;
+    await this.prisma.blueprint.update({
+      where: { id: existing.id },
+      data: {
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.active !== undefined ? { status: patch.active ? 'active' : 'archived' } : {}),
+        metadata: nextMeta as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  async setWorkTypeActive(organizationId: string, id: string, active: boolean): Promise<void> {
+    await this.prisma.blueprint.updateMany({
+      where: { id, organizationId },
+      data: { status: active ? 'active' : 'archived' },
+    });
+  }
+
+  /** Install the starter catalog once. Idempotent: a catalog entry whose key is
+   *  already present (in metadata.catalogKey) is skipped, so re-running never
+   *  duplicates and never resurrects one an admin deactivated by key match. */
+  async installStarterWorkTypes(
+    organizationId: string,
+    createdByUserId: string,
+    catalog: { key: string; name: string; category: string; responsibility: string; defaultPriority: string }[],
+  ): Promise<{ created: number; skipped: number }> {
+    const existing = await this.prisma.blueprint.findMany({
+      where: { organizationId },
+      select: { metadata: true },
+    });
+    const have = new Set(
+      existing.map((b) => metaObject(b.metadata).catalogKey).filter((k): k is string => typeof k === 'string'),
+    );
+    let created = 0;
+    let skipped = 0;
+    let order = 0;
+    for (const entry of catalog) {
+      order += 1;
+      if (have.has(entry.key)) { skipped += 1; continue; }
+      await this.createWorkType({
+        organizationId,
+        createdByUserId,
+        name: entry.name,
+        category: entry.category,
+        responsibility: entry.responsibility,
+        defaultPriority: entry.defaultPriority,
+        catalogKey: entry.key,
+        sortOrder: order,
+      });
+      created += 1;
+    }
+    return { created, skipped };
+  }
+
+  /** Active organization members eligible to own work. ACTIVE only — a member who
+   *  has not accepted (INVITED), or was disabled/removed (DISABLED), never appears. */
+  async listActiveMembers(organizationId: string): Promise<{ id: string; name: string | null; email: string }[]> {
+    return this.prisma.user.findMany({
+      where: { organizationId, status: 'ACTIVE' },
+      select: { id: true, name: true, email: true },
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
     });
   }
 
