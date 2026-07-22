@@ -148,11 +148,10 @@ test('repository and service methods do not return bare numeric measurements', (
 // zero and can never regress. As each page migrates, lower its number; when it
 // reaches 0, delete the entry.
 const ZERO_COERCION_DEBT: Readonly<Record<string, number>> = {
-  'apps/web/src/app/app/admin/marketplace/vendors/page.tsx': 19,
-  // buyers/page.tsx paid off its debt (rebuilt on the canonical call projection,
-  // Truth-honest — no measurement coerced to zero) — entry removed.
-  // sources/page.tsx paid off its debt (rewritten as the lightweight listing) — entry removed.
-  'apps/web/src/app/app/admin/marketplace/campaigns/page.tsx': 5,
+  // buyers / vendors / campaigns / sources pages all paid off their debt in the
+  // CallGrid finalization — rebuilt on the canonical report service + shared
+  // dimension components, Truth-honest, no measurement coerced to zero. Entries
+  // removed (a clean file must not linger in the ledger).
 };
 
 function findZeroCoercions(): Map<string, Violation[]> {

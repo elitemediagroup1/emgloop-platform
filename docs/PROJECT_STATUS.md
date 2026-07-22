@@ -41,25 +41,65 @@ sidebar item (icon `brain`); CallGrid uses `chart`.
 **Follow-up:** the Bids page (`/marketplace/auction`) is still a raw-table surface — needs a
 real drill-down pass. _(needs deploy validation: real values + reconciliation.)_
 
-## CallGrid Intelligence finalization — IN PROGRESS · branch `feat/callgrid-intelligence-finalization`
-An 18-phase controlled reorg/correction of `/app/admin/marketplace` (not a redesign). **Audit done;
-canonical source proven:** `crmRepos.marketplaceCalls.aggregateWindow(org, since, until)` →
+## CallGrid Intelligence finalization — ALL PAGES BUILT (verified) · branch stack `feat/callgrid-intelligence-finalization` (#143) → `feat/callgrid-date-window` (#144) → `feat/callgrid-dimension-pages` (tip, contains all)
+An 18-phase controlled reorg/correction of `/app/admin/marketplace` (not a redesign). **Canonical
+source proven:** `crmRepos.marketplaceCalls.aggregateWindow(org, since, until)` →
 `{calls, monetized(=billable), revenueCents, payoutCents, costCents, callsWithRevenue, buyers[],
-vendors[], sources[], campaigns[]}` is THE CallGrid economics source (Overview uses it via
-`loadDimensionWindows` + `toScore`). It already takes arbitrary date windows.
-- **Increment 1 (#143, draft):** fixed the **Buyers contradiction** — Buyers read
-  `revenueIntelligence.revenueByDimension` (CRM/revenue; returned UNKNOWN → false 0) while Overview
-  read the call projection. Buyers now reads the **same canonical source**; rebuilt to the spec
-  (6 summary tiles, sortable performance table w/ share+trend, `?buyer=` detail, honest states);
-  **all cross-product content stripped** (Integration Status, Live Calls rail, Brain briefing,
-  provider pills, decision queue).
-- **Remaining (own PRs, Phase-18 order):** (2) shared date-window contract in `@emgloop/shared`
-  + canonical `callgrid-report` service + date-range picker (persists across tabs); (3) wire
-  Overview + Watch-List → CallGrid-operational-only (drop active-users finding); (4) Vendors +
-  Campaigns on an extracted shared dimension template; (5) Sources (bid grain) + **Bids** rebuild
-  (source vs destination separation) + `auction → bids` route; (6) Activity stream; (7) move
-  engineering diagnostics → `Administration → Diagnostics → CallGrid`; tests + responsive.
-- ⚠️ Current Bids route is `/marketplace/auction`; spec canonical is `/marketplace/bids` (rename in 5).
+vendors[], sources[], campaigns[]}` is THE CallGrid economics source; it takes arbitrary Eastern
+windows. Bid/ping data is a **separate snapshot grain** (latest synced window only, UTC-requested).
+**Locked decisions:** canonical Bids route = `/marketplace/bids` (`/auction` = redirect only);
+native date inputs replaced by the two-month visual calendar.
+
+**Foundation (in review):**
+- **#143 (draft):** fixed the **Buyers contradiction** — Buyers read `revenueIntelligence`
+  (CRM/revenue; UNKNOWN → false 0) while Overview read the call projection. Buyers now reads the
+  **same canonical source**; cross-product content stripped. Retired its paid-off zero-coercion ledger entry.
+- **#144 (draft, stacked):** shared **date-window contract** (`resolveCallGridWindow` — all presets +
+  comparisons, Eastern, 13 tests); canonical **`callgrid-report`** service (Truth-honest); **date-range
+  picker** (URL-driven, persists across tabs). Overview + Buyers wired.
+
+**On `feat/callgrid-dimension-pages` (tip — the single clean base):**
+- **Committed:** two-month **calendar** picker (`CallGridDateRange`); **shared dimension design
+  language** (`dimension-ui.tsx` shell/tiles/table/detail/activity/SnapshotNotice, `dimension-metrics.ts`,
+  `call-dimension-page.tsx`); **Buyers/Vendors/Campaigns unified** (thin config wrappers — one product,
+  different data); **Sources** verified hybrid (range-honoring Total/Active Sources from calls +
+  snapshot-only bid metrics under `SnapshotNotice`; `bid-report.ts` = one canonical bid-snapshot reader).
+  Also committed: **Activity** (derived operational stream + filters); **Bids workspace**
+  (`/bids` — snapshot summary, source vs destination tables kept strictly separate, two-group
+  rejection reasons, operational watch list, honest recent-activity); **`/auction` → `/bids`
+  redirect** + nav/Quick-Access repointed; **diagnostics moved** → `/app/admin/administration/diagnostics/callgrid`
+  (admin-guarded, out of the CallGrid tab bar; `auction-data.ts` → `diagnostics-data.ts`); retired the
+  vendors/campaigns zero-coercion ledger entries; CSS. **All eight pages (steps 1–8) committed.**
+- **Verified now:** `@emgloop/shared` **106/106**, `apps/web` **typecheck clean**, `turbo build` **passes**.
+
+## CallGrid date control + data-consistency correction — IN REVIEW (draft PR #146) · branch `fix/callgrid-date-control` (off merged #145 content)
+Correction pass making the shared date control visibly govern every route. Foundation was already
+single-sourced (`resolveCallGridWindow` + `loadCallGridReport` + `loadBidReport`); this wires the
+missing behavior. **Committed & validated (typecheck clean · `turbo build` passes · `@emgloop/shared` 116/116):**
+- **Shared contract:** `describeCallGridWindow` (one source of Live/Completed/Includes-Live language +
+  header line + period/comparison titles); `callGridDayNav` (prev/next Eastern day, Next disabled on
+  Today, forward-off-history returns to Today); `callGridRangeQuery` normalizes **Today explicitly**
+  (`range=today`). +13 tests.
+- **Every route:** live/completed header line + period-titled summary heading; prev/next-day arrows
+  (single-day only) + Live indicator/`Updated <time> ET`/**Refresh** (`router.refresh()`, no polling)
+  when live; selected range persists on all tab/Quick-Access/sort/selection links (Today included).
+- **Overview:** per-metric **comparison indicator** ("No valid comparison" when prior 0/unknown/unavail);
+  new **Bids Overview** (6 snapshot metrics → `/bids`, snapshot-match honesty); **Watch List now
+  CallGrid-derived only** (`callgrid-watch.ts`) — Brain dependency removed from this surface. Section
+  order: Header·Date·Selected·Comparison·Top Performers·**Bids Overview**·Watch·Quick Access.
+- **Bids/Sources:** `bidSnapshotMatches` (conservative same-day-only); "Bid Reporting Window" reconciled
+  against the selected period. Compact metric-tile density (typography unchanged).
+- **Reconciliation is structural** (unchanged & re-verified): Overview Top {dimension} = `dimensions[dim][0]`
+  and each subpage table is the same collection/sort — one aggregation path.
+
+**Remaining before this is done:** (a) **deploy validation** against real production CallGrid data —
+numeric top-5 reconciliation per dimension, on-screen Live/Completed verification, and **screenshots**
+(no DB/runtime/browser in the sandbox — deploy-only, Matt merges/deploys); (b) remainder of the spec's
+full test suite (no web render/route test harness per CLAUDE.md); (c) responsive polish pass.
+- ℹ️ Honest limits held: **Campaigns** uses Avg Rev/Billable, not Profit (not reliably attributable at
+  dimension grain); **Sources** shows aggregate rejection reasons (per-source `?source=` detail not built);
+  bid data is snapshot-only — **historical bid snapshots are a separate future ingestion project**.
+- ✅ Resolved this pass: Overview Watch List no longer sources Brain risks (now CallGrid-operational only).
 
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
 Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized

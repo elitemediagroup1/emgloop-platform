@@ -21,10 +21,13 @@ const ITEMS: { key: CallGridNavKey; label: string; href: string }[] = [
   { key: "sources", label: "Sources", href: "/app/admin/marketplace/sources" },
   { key: "campaigns", label: "Campaigns", href: "/app/admin/marketplace/campaigns" },
   { key: "activity", label: "Activity", href: "/app/admin/marketplace/activity" },
-  { key: "bids", label: "Bids", href: "/app/admin/marketplace/auction" },
+  { key: "bids", label: "Bids", href: "/app/admin/marketplace/bids" },
 ];
 
-export function CallGridNav({ active }: { active: CallGridNavKey }) {
+// `rangeQuery` (e.g. "range=last_7_days") is carried on every tab link so the
+// selected reporting range persists as the operator moves between CallGrid tabs.
+export function CallGridNav({ active, rangeQuery }: { active: CallGridNavKey; rangeQuery?: string }) {
+  const suffix = rangeQuery ? `?${rangeQuery}` : "";
   return (
     <nav className="loop-mnav" aria-label="CallGrid Intelligence sections">
       {ITEMS.map((item) => {
@@ -32,7 +35,7 @@ export function CallGridNav({ active }: { active: CallGridNavKey }) {
         return (
           <Link
             key={item.key}
-            href={item.href}
+            href={item.href + suffix}
             className={isActive ? "loop-mnav__item loop-mnav__item--active" : "loop-mnav__item"}
             aria-current={isActive ? "page" : undefined}
           >

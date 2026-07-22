@@ -1882,6 +1882,43 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
   .cg-qa { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ---- CallGrid date-range control ---- */
+.cgdr { position: relative; }
+.cgdr__bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cgdr__btn { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.cgdr__btn:hover { border-color: var(--loop-accent); }
+.cgdr__btn--active { border-color: var(--loop-accent); color: var(--loop-accent); box-shadow: inset 0 0 0 1px var(--loop-accent); }
+.cgdr__label { margin-left: 6px; color: var(--loop-text-3); font-size: 12.5px; }
+.cgdr__panel { position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; width: min(560px, 92vw); background: var(--loop-panel); border: 1px solid var(--loop-line-strong); border-radius: var(--loop-radius); box-shadow: var(--loop-shadow); padding: 16px; }
+.cgdr__groups { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.cgdr__grouptitle { margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.cgdr__grouprow { display: flex; flex-wrap: wrap; gap: 6px; }
+.cgdr__preset { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; cursor: pointer; }
+.cgdr__preset:hover { border-color: var(--loop-accent); }
+.cgdr__preset--active { border-color: var(--loop-accent); color: var(--loop-accent); }
+.cgdr__custom { margin-top: 14px; border-top: 1px solid var(--loop-line); padding-top: 12px; }
+.cgdr__apply { background: var(--loop-accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cgdr__apply:disabled { opacity: .5; cursor: default; }
+.cgdr__hint { color: var(--loop-text-3); font-size: 12px; }
+/* two-month calendar */
+.cgcal__head { display: flex; align-items: center; justify-content: space-between; }
+.cgcal__nav { display: flex; gap: 6px; }
+.cgcal__navbtn { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 8px; width: 30px; height: 28px; cursor: pointer; font-size: 15px; line-height: 1; }
+.cgcal__navbtn:hover { border-color: var(--loop-accent); }
+.cgcal { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px; }
+.cgcal__monthname { text-align: center; font-size: 13px; font-weight: 600; color: var(--loop-text); margin-bottom: 8px; }
+.cgcal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cgcal__dow { text-align: center; font-size: 10.5px; color: var(--loop-text-3); padding-bottom: 4px; }
+.cgcal__pad { }
+.cgcal__day { background: transparent; border: 1px solid transparent; color: var(--loop-text); border-radius: 7px; aspect-ratio: 1; font-size: 12.5px; cursor: pointer; padding: 0; }
+.cgcal__day:hover { border-color: var(--loop-accent); }
+.cgcal__day--today { font-weight: 700; text-decoration: underline; }
+.cgcal__day--range { background: var(--loop-elev); }
+.cgcal__day--start, .cgcal__day--end { background: var(--loop-accent); color: #fff; border-color: var(--loop-accent); font-weight: 600; }
+.cgcal__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.cgcal__actions { display: flex; gap: 8px; }
+@media (max-width: 560px) { .cgdr__groups { grid-template-columns: 1fr; } .cgcal { grid-template-columns: 1fr; } }
+
 /* ---- Shared CallGrid dimension page (Buyers/Vendors/Sources/Campaigns) ---- */
 .dim-page { max-width: 1120px; }
 .dim-title { margin: 2px 0 0; font-size: clamp(22px, 3vw, 30px); font-weight: 640; letter-spacing: -0.02em; color: var(--loop-text); }
@@ -1904,6 +1941,45 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .dim-detail__grid dt { color: var(--loop-text-3); font-size: 12px; }
 .dim-detail__grid dd { margin: 0; color: var(--loop-text); font-size: 15px; font-weight: 560; }
 .dim-detail__note { margin: 12px 0 0; font-size: 12.5px; }
+.dim-sort { color: inherit; text-decoration: none; white-space: nowrap; }
+.dim-sort:hover { color: var(--loop-accent); }
+.dim-sort--active { color: var(--loop-accent); }
+.dim-activity { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dim-activity__item { display: flex; align-items: baseline; gap: 10px; }
+.dim-activity__title { color: var(--loop-text); font-size: 13.5px; }
+.dim-activity__detail { color: var(--loop-text-2); font-size: 12.5px; }
+.dim-activity__when { margin-left: auto; color: var(--loop-text-3); font-size: 12px; white-space: nowrap; }
+/* snapshot notice (bid data) */
+.cg-snapnotice { background: var(--loop-elev); border: 1px dashed var(--loop-line-strong); border-radius: var(--loop-radius); padding: 14px 16px; }
+.cg-snapnotice__lead { margin: 0 0 10px; color: var(--loop-text); font-size: 13.5px; font-weight: 550; }
+.cg-snapnotice__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 20px; margin: 0; }
+.cg-snapnotice__grid dt { color: var(--loop-text-3); font-size: 11.5px; }
+.cg-snapnotice__grid dd { margin: 2px 0 0; color: var(--loop-text); font-size: 13px; font-weight: 500; }
+/* rejection reason cards */
+.cg-reasons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cg-reason { background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: 12px; padding: 12px 14px; }
+.cg-reason__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.cg-reason__label { font-size: 13px; font-weight: 600; color: var(--loop-text); }
+.cg-reason__count { font-size: 18px; font-weight: 640; color: var(--loop-text); }
+.cg-reason__note { margin: 6px 0 0; color: var(--loop-text-3); font-size: 12px; line-height: 1.5; }
+@media (max-width: 900px) { .cg-snapnotice__grid, .cg-reasons { grid-template-columns: 1fr; } }
+/* activity filters */
+.cg-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.cg-filter { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 999px; padding: 6px 14px; font-size: 13px; text-decoration: none; }
+.cg-filter:hover { border-color: var(--loop-accent); }
+.cg-filter--active { border-color: var(--loop-accent); color: var(--loop-accent); box-shadow: inset 0 0 0 1px var(--loop-accent); }
+/* bids: two rejection groups */
+.cg-reasongroups { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.cg-reasongroup__title { margin: 0 0 8px; font-size: 12.5px; font-weight: 620; color: var(--loop-text); }
+.cg-reasongroups .cg-reasons { grid-template-columns: 1fr; }
+/* bids watch list (stacked items) */
+.cg-watch__item--stack { flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--loop-line); }
+.cg-watch__title { color: var(--loop-text); font-size: 13.5px; font-weight: 600; }
+.cg-watch__val { color: var(--loop-accent); font-size: 12.5px; }
+/* diagnostics list */
+.adm-list { margin: 8px 0 0; padding-left: 18px; color: var(--loop-text-2); font-size: 13px; line-height: 1.6; }
+.adm-subhead { margin: 16px 0 4px; font-size: 13px; font-weight: 620; color: var(--loop-text); }
+@media (max-width: 760px) { .cg-reasongroups { grid-template-columns: 1fr; } }
 @media (max-width: 1000px) {
   .dim-tiles { grid-template-columns: repeat(2, 1fr); }
   .dim-detail__grid { grid-template-columns: repeat(2, 1fr); }
@@ -1912,4 +1988,38 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
   .dim-tiles { grid-template-columns: 1fr; }
   .dim-detail__grid { grid-template-columns: 1fr; }
 }
+/* ---- Date-control day navigation, live status & refresh ---- */
+.cgdr__spacer { flex: 1 1 auto; }
+.cgdr__daynav { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+.cgdr__daybtn { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 8px; width: 28px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; padding: 0; }
+.cgdr__daybtn:hover:not(:disabled) { border-color: var(--loop-accent); color: var(--loop-accent); }
+.cgdr__daybtn:disabled { opacity: .4; cursor: default; }
+.cgdr__daylabel { font-size: 12.5px; font-weight: 600; color: var(--loop-text); font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; }
+.cgdr__live { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--loop-good); white-space: nowrap; }
+.cgdr__livedot { width: 8px; height: 8px; border-radius: 999px; background: var(--loop-good); box-shadow: 0 0 0 0 rgba(76,201,146,.5); animation: cgpulse 2s infinite; flex: none; }
+@keyframes cgpulse { 0% { box-shadow: 0 0 0 0 rgba(76,201,146,.45); } 70% { box-shadow: 0 0 0 6px rgba(76,201,146,0); } 100% { box-shadow: 0 0 0 0 rgba(76,201,146,0); } }
+.cgdr__refresh { padding: 6px 12px; font-weight: 600; }
+
+/* ---- Compact executive metric tiles (CallGrid grids only) ---- */
+.cg-tiles .tile, .dim-tiles .tile, .cg-bidtiles .tile { min-height: 0; padding: 14px 16px; gap: 6px; }
+.tile__num--sm { font-size: 22px; }
+.cg-delta { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.cg-delta--up { color: var(--loop-good); }
+.cg-delta--down { color: var(--loop-crit); }
+.cg-delta--flat, .cg-delta--na { color: var(--loop-text-3); font-weight: 500; }
+
+/* ---- Section header with an inline action link ---- */
+.cg-sechead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cg-seclink { font-size: 12.5px; font-weight: 600; color: var(--loop-accent-2); text-decoration: none; }
+.cg-seclink:hover { text-decoration: underline; }
+
+/* ---- Bids Overview (six metrics, three-by-two) ---- */
+.cg-bidtiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+@media (max-width: 900px) { .cg-bidtiles { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .cg-bidtiles { grid-template-columns: 1fr; } }
+
+/* ---- Watch list finding rows ---- */
+.cg-watch__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cg-tag { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); border: 1px solid var(--loop-line-strong); border-radius: 999px; padding: 1px 7px; }
+
 /* ===================== END CALLGRID INTELLIGENCE ===================== */

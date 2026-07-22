@@ -1,27 +1,29 @@
 import Link from "next/link";
-import { requireCrmContext, crmRepos } from "../../../../crm/crm-data";
-import { easternYesterdayWindow, easternTodayWindow } from "@emgloop/shared";
-import { num, todayLabel } from "../../_loop-os";
-import { toScore, type DayScore } from "../dashboard-data";
-import { loadDimensionWindows, type DimRow } from "./callgrid-dimensions";
-import { loadExecutiveBrain } from "../_executive/executive-brain-data";
+import { requireCrmContext } from "../../../../crm/crm-data";
+import {
+  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery,
+  describeCallGridWindow, callGridDayNav,
+} from "@emgloop/shared";
+import { num } from "../../_loop-os";
+import type { DayScore } from "../dashboard-data";
+import { loadCallGridReport, type CallGridDimRow, type CallGridMetrics } from "./callgrid-report";
+import { loadBidReport, sumBid, bidSnapshotMatches } from "./bid-report";
+import { deriveCallGridWatch } from "./callgrid-watch";
+import CallGridDateRange from "./CallGridDateRange";
+import { SnapshotNotice, easternClock } from "./dimension-ui";
 
 export const dynamic = "force-dynamic";
 
-// CallGrid Intelligence — the operational command center.
+// CallGrid Intelligence — the operational command center (Overview).
 //
-// Ownership split: everything the Brain reasons over (Executive Summary, System
-// Health, Cross-Sensor Insights, Top Risks/Opportunities, Recommended Actions,
-// Evidence Coverage/Sources, Confidence, What Changed, Narrative, Missing
-// Sensors/Integrations, Sensor Coverage) now lives on the Brain page. This page
-// keeps ONLY the operator's five sections — Today, Yesterday, Top Performers, a
-// Watch List, and Quick Access. Tiles only, everything above the fold; scrolling
-// belongs to the drill-downs. Every number is real MarketplaceCall data run
-// through the same honest truth-states the Dashboard uses; nothing is fabricated.
+// Sections, in order: Selected-period metrics, Comparison, Top Performers, Bids
+// Overview, Watch List, Quick Access. Every number is real MarketplaceCall data
+// for the selected reporting window, run through the canonical report service
+// (loadCallGridReport) and honest truth-states — nothing fabricated, nothing
+// coerced to zero. The date range is chosen with the shared control and persists
+// across tabs via the URL. The Watch List is derived from CallGrid's own data
+// only (see callgrid-watch) — never from Brain/platform/sensor health.
 
-// Money/number cells that respect truth-states: a failed read is Unavailable, a
-// window with calls but no economics is Unknown, and a genuine no-activity window
-// is a real $0. Identical rules to the Dashboard scorecard (shared toScore).
 function money(cents: number | null, available: boolean): string {
   if (!available) return "Unavailable";
   if (cents === null) return "Unknown";
@@ -32,67 +34,69 @@ function count(n: number | null, available: boolean): string {
   if (n === null) return "Unknown";
   return num(n);
 }
-
-async function scoreFor(org: string, win: { start: Date; end: Date }): Promise<DayScore> {
-  try {
-    return toScore(await crmRepos.marketplaceCalls.aggregateWindow(org, win.start, win.end));
-  } catch {
-    return toScore(null); // → Unavailable
-  }
+function utcDate(d: Date): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" }).format(d);
 }
 
-async function topRow(org: string, dim: "buyers" | "vendors" | "sources" | "campaigns"): Promise<DimRow | null> {
-  try {
-    const w = await loadDimensionWindows(org, dim);
-    return w.current.rows[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-const SEV_LABEL: Record<string, string> = {
-  critical: "Critical",
-  high: "High",
-  notable: "Notable",
-  informational: "Info",
-};
-
-// Section 5 — Quick Access. These tiles ONLY navigate (the six drill-downs).
 const QUICK: { label: string; href: string }[] = [
   { label: "Buyers", href: "/app/admin/marketplace/buyers" },
   { label: "Vendors", href: "/app/admin/marketplace/vendors" },
   { label: "Sources", href: "/app/admin/marketplace/sources" },
   { label: "Campaigns", href: "/app/admin/marketplace/campaigns" },
-  { label: "Bids", href: "/app/admin/marketplace/auction" },
+  { label: "Bids", href: "/app/admin/marketplace/bids" },
   { label: "Activity", href: "/app/admin/marketplace/activity" },
 ];
 
-function MetricTiles({ score }: { score: DayScore }) {
+const SEV_LABEL: Record<string, string> = { critical: "Critical", high: "High", notable: "Notable" };
+
+// A per-tile comparison indicator vs the prior period. Null (→ "No valid
+// comparison") whenever the prior value is unavailable, unknown or zero.
+function deltaOf(cur: number | null, prior: number | null, curAvail: boolean, priorAvail: boolean) {
+  if (!curAvail || !priorAvail || cur === null || prior === null || prior === 0) return null;
+  const change = Math.round(((cur - prior) / prior) * 100);
+  const dir = change > 0 ? "up" : change < 0 ? "down" : "flat";
+  const arrow = change > 0 ? "↑" : change < 0 ? "↓" : "→";
+  return { text: `${arrow} ${Math.abs(change)}%`, dir };
+}
+
+function MetricTiles({
+  score, compare, compareLabel,
+}: {
+  score: CallGridMetrics | DayScore;
+  compare?: CallGridMetrics | null;
+  compareLabel?: string;
+}) {
+  const fields = [
+    { key: "Revenue", val: money(score.revenueCents, score.available), cur: score.revenueCents, prior: compare?.revenueCents ?? null },
+    { key: "Profit", val: money(score.profitCents, score.available), cur: score.profitCents, prior: compare?.profitCents ?? null },
+    { key: "Billable Calls", val: count(score.billableCalls, score.available), cur: score.billableCalls, prior: compare?.billableCalls ?? null },
+    { key: "Total Calls", val: count(score.totalCalls, score.available), cur: score.totalCalls, prior: compare?.totalCalls ?? null },
+  ];
   return (
     <div className="cg-tiles">
-      <section className="tile" aria-label="Revenue">
-        <div className="tile__head"><span className="tile__title">Revenue</span></div>
-        <div className="tile__num">{money(score.revenueCents, score.available)}</div>
-      </section>
-      <section className="tile" aria-label="Profit">
-        <div className="tile__head"><span className="tile__title">Profit</span></div>
-        <div className="tile__num">{money(score.profitCents, score.available)}</div>
-      </section>
-      <section className="tile" aria-label="Billable Calls">
-        <div className="tile__head"><span className="tile__title">Billable Calls</span></div>
-        <div className="tile__num">{count(score.billableCalls, score.available)}</div>
-      </section>
-      <section className="tile" aria-label="Total Calls">
-        <div className="tile__head"><span className="tile__title">Total Calls</span></div>
-        <div className="tile__num">{count(score.totalCalls, score.available)}</div>
-      </section>
+      {fields.map((f) => {
+        const d = compare ? deltaOf(f.cur, f.prior, score.available, compare.available) : undefined;
+        return (
+          <section className="tile tile--metric" aria-label={f.key} key={f.key}>
+            <div className="tile__head"><span className="tile__title">{f.key}</span></div>
+            <div className="tile__num">{f.val}</div>
+            {compare ? (
+              d ? (
+                <p className={"cg-delta cg-delta--" + d.dir}>{d.text}{compareLabel ? ` vs ${compareLabel}` : ""}</p>
+              ) : (
+                <p className="cg-delta cg-delta--na">No valid comparison</p>
+              )
+            ) : null}
+          </section>
+        );
+      })}
     </div>
   );
 }
 
-function PerformerTile({ label, row }: { label: string; row: DimRow | null }) {
+function PerformerTile({ label, row }: { label: string; row: CallGridDimRow | null }) {
   return (
-    <section className="tile" aria-label={label}>
+    <section className="tile tile--metric" aria-label={label}>
       <div className="tile__head"><span className="tile__title">{label}</span></div>
       {row ? (
         <>
@@ -102,39 +106,48 @@ function PerformerTile({ label, row }: { label: string; row: DimRow | null }) {
       ) : (
         <>
           <div className="tile__num cg-name cg-muted">—</div>
-          <p className="tile__line">No data yet</p>
+          <p className="tile__line">No data for this period</p>
         </>
       )}
     </section>
   );
 }
 
-export default async function CallGridIntelligencePage() {
+function BidTile({ label, value }: { label: string; value: string }) {
+  return (
+    <section className="tile tile--metric" aria-label={label}>
+      <div className="tile__head"><span className="tile__title">{label}</span></div>
+      <div className="tile__num tile__num--sm">{value}</div>
+    </section>
+  );
+}
+
+export default async function CallGridIntelligencePage({
+  searchParams,
+}: {
+  searchParams?: { range?: string; s?: string; e?: string };
+}) {
   const { organizationId: org } = await requireCrmContext();
 
   const now = new Date();
-  const yWin = easternYesterdayWindow(now);
-  const tWin = easternTodayWindow(now);
+  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
+  const window = resolveCallGridWindow(range, now);
+  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
+  const desc = describeCallGridWindow(window, now);
+  const dayNav = callGridDayNav(window, now);
 
-  // org is resolved by requireCrmContext; if it is unresolved every loader below
-  // returns an honest empty/unavailable rather than crashing.
-  const [today, yesterday, topBuyer, topVendor, topSource, topCampaign, brainR] = await Promise.all([
-    scoreFor(org, tWin),
-    scoreFor(org, yWin),
-    topRow(org, "buyers"),
-    topRow(org, "vendors"),
-    topRow(org, "sources"),
-    topRow(org, "campaigns"),
-    loadExecutiveBrain(org).catch(() => null),
-  ]);
+  const [report, bid] = await Promise.all([loadCallGridReport(org, window), loadBidReport(org)]);
 
-  // Watch List — the ONLY evidence-backed risk data is the Brain's own risks,
-  // already gated by the Evidence Engine. We present a thin operational list of
-  // them here (not the Brain's Risk component). If the Brain evaluated and found
-  // none → "No operational issues detected"; if it could not evaluate, say so
-  // rather than imply all-clear.
-  const report = brainR && brainR.report.state === "success" ? brainR.report.value : null;
-  const watch = report ? report.risks.slice(0, 5) : [];
+  const watch = deriveCallGridWatch(report, bid);
+  const compareShort = desc.comparisonTitle.split(" · ")[0];
+
+  // Bids Overview (latest synchronized snapshot — never fabricated for history).
+  const bidSources = bid.sources;
+  const bidsSubmitted = sumBid(bidSources, (r) => r.bids);
+  const bidsWon = sumBid(bidSources, (r) => r.won);
+  const bidWinRate = bidsSubmitted && bidsSubmitted > 0 && bidsWon !== null ? Math.round((bidsWon / bidsSubmitted) * 100) : null;
+  const bidNum = (v: number | null) => (v === null ? "—" : num(v));
+  const bidMatches = bidSnapshotMatches(bid.meta, window);
 
   return (
     <div className="loop-os">
@@ -142,47 +155,95 @@ export default async function CallGridIntelligencePage() {
         <div className="cmd-head">
           <div className="cmd-head__main">
             <p className="cmd-head__greeting">CallGrid Intelligence</p>
-            <p className="cmd-head__meta">{todayLabel()} · Eastern Time</p>
+            <p className="cmd-head__meta">{desc.headerLine}</p>
           </div>
         </div>
 
-        {/* Section 1 — Today */}
+        <CallGridDateRange
+          preset={window.preset}
+          customStart={range.start}
+          customEnd={range.end}
+          label={window.label}
+          dayNav={dayNav}
+          live={desc.live}
+          updatedLabel={easternClock(now)}
+        />
+
+        {/* 1 — Selected period */}
         <div className="cg-sec">
-          <p className="cg-seclabel">Today</p>
-          <MetricTiles score={today} />
+          <p className="cg-seclabel">{desc.periodTitle}</p>
+          <MetricTiles score={report.metrics} compare={report.comparison} compareLabel={compareShort} />
         </div>
 
-        {/* Section 2 — Yesterday */}
-        <div className="cg-sec">
-          <p className="cg-seclabel">Yesterday</p>
-          <MetricTiles score={yesterday} />
-        </div>
+        {/* 2 — Comparison period */}
+        {report.comparison ? (
+          <div className="cg-sec">
+            <p className="cg-seclabel">{desc.comparisonTitle}</p>
+            <MetricTiles score={report.comparison} />
+          </div>
+        ) : null}
 
-        {/* Section 3 — Top Performers */}
+        {/* 3 — Top Performers */}
         <div className="cg-sec">
           <p className="cg-seclabel">Top Performers</p>
           <div className="cg-tiles">
-            <PerformerTile label="Top Buyer" row={topBuyer} />
-            <PerformerTile label="Top Vendor" row={topVendor} />
-            <PerformerTile label="Top Source" row={topSource} />
-            <PerformerTile label="Top Campaign" row={topCampaign} />
+            <PerformerTile label="Top Buyer" row={report.dimensions.buyers[0] ?? null} />
+            <PerformerTile label="Top Vendor" row={report.dimensions.vendors[0] ?? null} />
+            <PerformerTile label="Top Source" row={report.dimensions.sources[0] ?? null} />
+            <PerformerTile label="Top Campaign" row={report.dimensions.campaigns[0] ?? null} />
           </div>
         </div>
 
-        {/* Section 4 — Watch List */}
+        {/* 4 — Bids Overview (snapshot grain; links to the Bids workspace) */}
+        <div className="cg-sec">
+          <div className="cg-sechead">
+            <p className="cg-seclabel">Bids Overview</p>
+            <Link className="cg-seclink" href={`/app/admin/marketplace/bids?${rangeQuery}`}>Open Bids →</Link>
+          </div>
+          {!bid.ok ? (
+            <section className="tile tile--wide"><p className="tile__line cg-muted">Bid reporting could not be loaded.</p></section>
+          ) : !bid.hasData || !bid.meta ? (
+            <section className="tile tile--wide"><p className="tile__line">No bid report data has been synchronized yet.</p></section>
+          ) : (
+            <>
+              <SnapshotNotice
+                windowStart={bid.meta.windowStart}
+                windowEnd={bid.meta.windowEnd}
+                fetchedAt={bid.meta.fetchedAt}
+                reportTimezone={bid.meta.reportTimezone}
+                selectedPeriodLabel={desc.periodTitle}
+                matchesSelectedPeriod={bidMatches}
+              />
+              <div className="cg-bidtiles">
+                <BidTile label="Bid Opportunities" value={bidNum(sumBid(bidSources, (r) => r.total))} />
+                <BidTile label="Bids Submitted" value={bidNum(bidsSubmitted)} />
+                <BidTile label="Bids Won" value={bidNum(bidsWon)} />
+                <BidTile label="Source Win Rate" value={bidWinRate === null ? "—" : bidWinRate + "%"} />
+                <BidTile label="Rejected Opportunities" value={bidNum(sumBid(bidSources, (r) => r.rejected))} />
+                <BidTile label="Latest Bid Snapshot" value={utcDate(bid.meta.windowStart)} />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 5 — Watch List (CallGrid operational findings only) */}
         <div className="cg-sec">
           <p className="cg-seclabel">Watch List</p>
           <section className="tile tile--wide cg-watch" aria-label="Watch List">
-            {!report ? (
-              <p className="tile__line cg-muted">Watch list unavailable — the Brain could not evaluate risks right now.</p>
+            {!report.ok ? (
+              <p className="tile__line cg-muted">Watch list unavailable — CallGrid data could not be loaded.</p>
             ) : watch.length === 0 ? (
-              <p className="tile__line">No operational issues detected.</p>
+              <p className="tile__line">No CallGrid operational issues detected for this period.</p>
             ) : (
               <ul className="cg-watch__list">
                 {watch.map((w) => (
-                  <li className="cg-watch__item" key={w.id}>
-                    <span className={"cg-sev cg-sev--" + w.severity}>{SEV_LABEL[w.severity] ?? w.severity}</span>
-                    <span className="cg-watch__text">{w.observation}</span>
+                  <li className="cg-watch__item cg-watch__item--stack" key={w.id}>
+                    <span className="cg-watch__row">
+                      <span className={"cg-sev cg-sev--" + w.severity}>{SEV_LABEL[w.severity] ?? w.severity}</span>
+                      <span className="cg-watch__title">{w.category}</span>
+                      {w.snapshot ? <span className="cg-tag">latest snapshot</span> : null}
+                    </span>
+                    <span className="cg-watch__text">{w.text}</span>
                   </li>
                 ))}
               </ul>
@@ -190,12 +251,12 @@ export default async function CallGridIntelligencePage() {
           </section>
         </div>
 
-        {/* Section 5 — Quick Access (navigate only) */}
+        {/* 6 — Quick Access (navigate only; carries the selected range) */}
         <div className="cg-sec">
           <p className="cg-seclabel">Quick Access</p>
           <div className="cg-qa">
             {QUICK.map((q) => (
-              <Link className="tile cg-qatile" href={q.href} key={q.href}>
+              <Link className="tile cg-qatile" href={rangeQuery ? `${q.href}?${rangeQuery}` : q.href} key={q.href}>
                 <span className="tile__title">{q.label}</span>
               </Link>
             ))}
