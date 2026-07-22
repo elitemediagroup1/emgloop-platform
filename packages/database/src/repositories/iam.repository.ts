@@ -169,6 +169,16 @@ export interface InvitationView {
   createdAt: string;
 }
 
+/**
+ * The outcome of preparing a (re)invitation. Either the one (org,email) row is
+ * ready for a fresh token (`ok`, `reused` telling the caller whether a prior row
+ * was reinstated), or the invite is blocked with a machine-readable reason the
+ * caller turns into a user-facing message. Never throws for these expected cases.
+ */
+export type InviteOutcome =
+  | { ok: true; userId: string; reused: boolean }
+  | { ok: false; reason: 'active_member' | 'pending_exists' };
+
 
 // ---- Repository -----------------------------------------------------------
 
@@ -214,18 +224,24 @@ export class IamRepository {
   // -- User management ------------------------------------------------------
 
   async listUsers(organizationId: string): Promise<UserListItem[]> {
-    // Explicit select: only the columns this view needs. A bare findMany would
-    // SELECT every schema column, so a single drifted column in a deployed DB
-    // (production has no migration ledger) would 500 the whole Team page.
+    // The roster is the org's real members: ACTIVE (accepted) and DISABLED
+    // (deliberately disabled — kept visible so they can be reactivated). INVITED
+    // rows exist from invite-time but are NOT members yet — they are represented
+    // solely by their pending invitation, so they must not double-appear here.
+    // Soft-REMOVED users (metadata.removedAt) are gone from the org and filtered
+    // out; a fresh invitation reinstates the SAME row (see prepareInvitation).
+    // Explicit select (drift-safe): a bare findMany SELECTs every column, so one
+    // drifted column in the deployed DB — production has no migration ledger —
+    // would 500 the whole Team page.
     const users = await this.prisma.user.findMany({
-      where: { organizationId, status: { not: 'DISABLED' } },
+      where: { organizationId, status: { in: ['ACTIVE', 'DISABLED'] } },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true, email: true, name: true, status: true,
         metadata: true, lastLoginAt: true, createdAt: true,
       },
     });
-    return users.map((u) => ({
+    return users.filter((u) => !meta(u)['removedAt']).map((u) => ({
       id: u.id,
       email: u.email,
       name: u.name,
@@ -271,6 +287,75 @@ export class IamRepository {
         metadata: { systemRole: data.systemRole ?? 'EMPLOYEE', passwordHash: data.passwordHash },
       },
     });
+  }
+
+  /**
+   * Prepare a (re)invitation for one email WITHOUT ever creating a second row.
+   *
+   * There is no membership table: User carries @@unique([organizationId, email]),
+   * so the user row IS the membership and `user.create` on an email that already
+   * has ANY row (active, invited, disabled, or soft-removed) throws P2002. That
+   * unhandled throw is exactly what crashed the Team page and blocked re-inviting
+   * a removed teammate. Resolve the one existing row within the org and decide the
+   * lifecycle explicitly instead:
+   *   - ACTIVE                       → blocked: already a member.
+   *   - a still-valid PENDING invite → blocked: caller should Resend, not duplicate.
+   *   - INVITED / DISABLED / removed → reinstate the SAME row to INVITED: refresh
+   *     the role, clear the removed marker, and drop any stale password hash so the
+   *     invitee must accept the fresh link before they can sign in. Stale/expired
+   *     PENDING tokens are revoked so exactly one live token can exist.
+   *   - no row at all                → create a fresh INVITED row.
+   * Fail-closed and org-scoped throughout; the caller then issues the token/email.
+   */
+  async prepareInvitation(params: {
+    organizationId: string;
+    email: string;
+    name?: string;
+    systemRole: string;
+  }): Promise<InviteOutcome> {
+    const { organizationId, email, name, systemRole } = params;
+
+    const existing = await this.prisma.user.findFirst({ where: { organizationId, email } });
+    if (existing && existing.status === 'ACTIVE') {
+      return { ok: false, reason: 'active_member' };
+    }
+
+    const livePending = await this.prisma.invitation.findFirst({
+      where: { organizationId, email, status: 'PENDING', expiresAt: { gt: new Date() } },
+    });
+    if (livePending) {
+      return { ok: false, reason: 'pending_exists' };
+    }
+
+    // Supersede any expired-but-still-PENDING tokens so exactly one live token exists.
+    await this.prisma.invitation.updateMany({
+      where: { organizationId, email, status: 'PENDING' },
+      data: { status: 'REVOKED' },
+    });
+
+    if (!existing) {
+      const created = await this.prisma.user.create({
+        data: { organizationId, email, name, status: 'INVITED', metadata: { systemRole } },
+      });
+      return { ok: true, userId: created.id, reused: false };
+    }
+
+    // Reinstate the existing INVITED/DISABLED/removed row in place — the unique
+    // constraint makes a duplicate impossible anyway. Merge metadata so we don't
+    // wipe unrelated keys, but deliberately drop the removed marker and any stale
+    // password (a re-invited user must accept afresh), and refresh the role.
+    const nextMeta: Record<string, unknown> = { ...meta(existing), systemRole };
+    delete nextMeta['removedAt'];
+    delete nextMeta['passwordHash'];
+    await this.prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        status: 'INVITED',
+        name: name ?? existing.name,
+        metadata: nextMeta as Prisma.InputJsonValue,
+      },
+    });
+    return { ok: true, userId: existing.id, reused: true };
   }
 
   async updateUserRole(
