@@ -41,6 +41,26 @@ sidebar item (icon `brain`); CallGrid uses `chart`.
 **Follow-up:** the Bids page (`/marketplace/auction`) is still a raw-table surface — needs a
 real drill-down pass. _(needs deploy validation: real values + reconciliation.)_
 
+## CallGrid Intelligence finalization — IN PROGRESS · branch `feat/callgrid-intelligence-finalization`
+An 18-phase controlled reorg/correction of `/app/admin/marketplace` (not a redesign). **Audit done;
+canonical source proven:** `crmRepos.marketplaceCalls.aggregateWindow(org, since, until)` →
+`{calls, monetized(=billable), revenueCents, payoutCents, costCents, callsWithRevenue, buyers[],
+vendors[], sources[], campaigns[]}` is THE CallGrid economics source (Overview uses it via
+`loadDimensionWindows` + `toScore`). It already takes arbitrary date windows.
+- **Increment 1 (#143, draft):** fixed the **Buyers contradiction** — Buyers read
+  `revenueIntelligence.revenueByDimension` (CRM/revenue; returned UNKNOWN → false 0) while Overview
+  read the call projection. Buyers now reads the **same canonical source**; rebuilt to the spec
+  (6 summary tiles, sortable performance table w/ share+trend, `?buyer=` detail, honest states);
+  **all cross-product content stripped** (Integration Status, Live Calls rail, Brain briefing,
+  provider pills, decision queue).
+- **Remaining (own PRs, Phase-18 order):** (2) shared date-window contract in `@emgloop/shared`
+  + canonical `callgrid-report` service + date-range picker (persists across tabs); (3) wire
+  Overview + Watch-List → CallGrid-operational-only (drop active-users finding); (4) Vendors +
+  Campaigns on an extracted shared dimension template; (5) Sources (bid grain) + **Bids** rebuild
+  (source vs destination separation) + `auction → bids` route; (6) Activity stream; (7) move
+  engineering diagnostics → `Administration → Diagnostics → CallGrid`; tests + responsive.
+- ⚠️ Current Bids route is `/marketplace/auction`; spec canonical is `/marketplace/bids` (rename in 5).
+
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
 Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized
 route→product resolver. **Start Work rebuilt (#135)** as a centered sectioned form; **Work
