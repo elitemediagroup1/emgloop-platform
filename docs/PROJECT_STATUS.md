@@ -48,23 +48,31 @@ Types = Blueprint** (adapted, no new table — deploy runs only `prisma generate
 `Blueprint.metadata`; starter catalog + admin at `/app/admin/administration/work-types`.
 _(needs deploy validation: real work data.)_
 
-## Configurable sequential workflows — ENGINE DONE (tested), UI PENDING · branch `feat/configurable-workflows` (NOT yet committed/PR'd)
+## Configurable sequential workflows — ENGINE DONE (merged #137); Start Work UI IN REVIEW (#138)
 Backend engine built on existing tables (Work Type = Blueprint `kind='work_type'`, Workflow
 Template = Blueprint `kind='workflow_template'` + stages, Work Item = WorkInstance, Work Step
-= WorkStage — all per-step config in `metadata`). Implemented + **tested (23 new, DB suite
-149/149)**: 5 assignment modes (specific / responsibility / creator / previous-completer /
-unassigned) with fail-closed resolution; sequential handoff (only step 1 active → complete →
-resolve+activate exactly the next → final completes item + notifies all participants);
-workflow-template save / list-by-work-type / reuse / duplicate / activate; custom-field defs;
-member **de-dup + email normalization** source fix.
+= WorkStage — all per-step config in `metadata`). **Engine merged (#137):** 5 assignment modes
+(specific / responsibility / creator / previous-completer / unassigned) with fail-closed
+resolution; sequential handoff (only step 1 active → complete → resolve+activate exactly the
+next → final completes item + notifies all participants); workflow-template save /
+list-by-work-type / reuse / duplicate / activate; custom-field defs; member **de-dup + email
+normalization** source fix.
+**Start Work UI (#138, draft):** the six-section builder — Select Work Type (+ inline Add-New-Type
+modal) · Work Info + type-specific custom fields · Select/Build workflow (saved template / build /
+single-person; save-as-template) · vertical step-assignment review · Priority + optional Eastern
+target · Review & Start. Drives `createWorkItem`. Removed the redundant globals (Related-To
+selector, free-text Reference, Responsibility dropdown, Assign-To radio + Team Member, flat
+Requirements). Engine gained `WorkTypeView.fields` + a workflow-aware `buildWorkItemSubmission`
+(replaces the single-owner `buildWorkSubmission`). Typecheck+build clean, DB suite 150/150.
 - ⚠️ **`ResponsibilityAssignment` model does NOT exist** (spec assumed it) — responsibility
   resolves via a configurable org owner-map; absent ⇒ Needs an Owner (never fabricated).
 - ⚠️ **Duplicate "Matt Dunn" is DATA, not a query bug**: the demo-seed OWNER `admin@emgloop.com`
   got renamed to "Matt Dunn" during setup and coexists with Matt's real account. Dedup collapses
   same-id/same-email; the two distinct-email rows need the seed `admin@`/`manager@`/`viewer@`
   rows **removed once via the Team page** (persists since #134).
-- **NOT built yet:** the interactive Start Work workflow builder UI, the Workflow Template admin
-  page, and the Work Detail timeline + Complete-My-Step. Engine is ready to wire.
+- **NOT built yet:** the Work Detail timeline + Complete-My-Step (increment 2), the Workflow
+  Template admin page (increment 3), and the custom-field **config** UI (defs render when present;
+  no Type defines any until the config UI ships).
 
 ## Onboarding / invitations / team lifecycle — DONE (merged: #129, #133, #134)
 Absolute invite/reset URLs; team management at `/app/admin/administration/team`. **Lifecycle
@@ -92,9 +100,9 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
 ---
 
 ## Open threads / next steps
-1. **Configurable workflows — commit the engine + open a draft PR** (branch
-   `feat/configurable-workflows`, currently uncommitted). Then build the UI increment: Start Work
-   workflow builder, Workflow Template admin page, Work Detail timeline + Complete-My-Step.
+1. **Configurable workflows — engine merged (#137); Start Work builder in review (#138).** Next
+   UI increments on a fresh branch off main: (2) Work Detail timeline + Complete-My-Step
+   (handoff/complete), then (3) Workflow Template admin page + custom-field config UI.
 2. **Data repair (Team page, one-time):** remove the demo-seed rows `admin@emgloop.com`
    (renamed "Matt Dunn"), `manager@emgloop.com` (Morgan), `viewer@emgloop.com` (Riley) so
    assignee/member lists show real people only. Recreation is already gated (#134).

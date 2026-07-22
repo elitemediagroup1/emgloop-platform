@@ -1,92 +1,110 @@
 // Start Work + Work Type registry — deterministic harness.
 //
-// Two layers, no infrastructure: (1) buildWorkSubmission is pure, so validation /
-// owner resolution / Eastern due-date / requirements are direct calls; (2) the
-// Work Type layer over Blueprint is exercised through the REAL WorkRepository
-// against a tiny in-memory Prisma double for blueprints / blueprint_stages / users.
+// Two layers, no infrastructure: (1) buildWorkItemSubmission is pure, so
+// universal-field / custom-field / Eastern-target / step validation are direct
+// calls; (2) the Work Type layer over Blueprint is exercised through the REAL
+// WorkRepository against a tiny in-memory Prisma double for blueprints /
+// blueprint_stages / users.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PrismaClient } from '@prisma/client';
 import { WorkRepository } from '../src/repositories/work.repository';
-import { buildWorkSubmission } from '../src/work-os/start-work';
+import { buildWorkItemSubmission } from '../src/work-os/start-work';
+import type { WorkflowStepDef, WorkFieldDef } from '../src/work-os/workflow';
 import { WORK_TYPE_CATALOG, WORK_TYPE_CATEGORIES, RESPONSIBILITY_LABELS } from '../src/work-os/work-type-catalog';
 
-// --- pure buildWorkSubmission ------------------------------------------------
+// --- pure buildWorkItemSubmission --------------------------------------------
+
+const step = (over: Partial<WorkflowStepDef> = {}): WorkflowStepDef => ({
+  name: 'Review details',
+  instruction: 'Confirm everything is correct.',
+  assignment: { mode: 'creator' },
+  completionConfirmation: null,
+  completionNote: 'none',
+  notifyActive: true,
+  notifyComplete: false,
+  ...over,
+});
 
 const base = {
-  workTypeId: 'wt1',
   title: 'Set up ABC Roofing as a new buyer',
   outcome: 'Create the buyer, load caps, confirm routing.',
-  assignMode: 'unassigned' as const,
   priority: 'normal',
+  steps: [step()],
 };
 
-test('required fields are validated with field-level errors', () => {
-  const r = buildWorkSubmission({ ...base, workTypeId: '', title: '', outcome: '' });
+test('required universal fields are validated with field-level errors', () => {
+  const r = buildWorkItemSubmission({ ...base, title: '', outcome: '' });
   assert.equal(r.ok, false);
-  if (!r.ok) {
-    assert.ok(r.errors.workTypeId && r.errors.title && r.errors.outcome);
-  }
+  if (!r.ok) assert.ok(r.errors.title && r.errors.outcome);
 });
 
-test('unassigned is valid and yields no owner', () => {
-  const r = buildWorkSubmission({ ...base, assignMode: 'unassigned' });
+test('a single valid step is accepted and carried through', () => {
+  const r = buildWorkItemSubmission(base);
   assert.ok(r.ok);
-  if (r.ok) assert.equal(r.value.firstOwnerUserId, null);
+  if (r.ok) assert.equal(r.value.steps.length, 1);
 });
 
-test('specific assignment requires a chosen member', () => {
-  const bad = buildWorkSubmission({ ...base, assignMode: 'specific', assigneeUserId: '' });
-  assert.equal(bad.ok, false);
-  const good = buildWorkSubmission({ ...base, assignMode: 'specific', assigneeUserId: 'user_7' });
-  assert.ok(good.ok);
-  if (good.ok) assert.equal(good.value.firstOwnerUserId, 'user_7');
+test('an empty step list is rejected (a Work Item needs at least one step)', () => {
+  const r = buildWorkItemSubmission({ ...base, steps: [] });
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.errors.steps && r.errors.steps.length > 0);
 });
 
-test('auto assignment resolves to the work type default assignee', () => {
-  const r = buildWorkSubmission({ ...base, assignMode: 'auto', workTypeDefaultAssigneeUserId: 'default_owner' });
-  assert.ok(r.ok);
-  if (r.ok) assert.equal(r.value.firstOwnerUserId, 'default_owner');
+test('a specific step with no member is a per-step assignee error', () => {
+  const r = buildWorkItemSubmission({ ...base, steps: [step({ assignment: { mode: 'specific', specificUserId: '' } })] });
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.errors.steps?.[0]?.errors.assignee !== undefined, true);
 });
 
-test('due date/time is interpreted in America/New_York (DST-aware)', () => {
+test('target date/time is interpreted in America/New_York (DST-aware)', () => {
   // July 1, 2025 09:00 ET = 13:00 UTC (EDT, -4).
-  const summer = buildWorkSubmission({ ...base, dueDate: '2025-07-01', dueTime: '09:00' });
+  const summer = buildWorkItemSubmission({ ...base, targetDate: '2025-07-01', targetTime: '09:00', useTime: true });
   assert.ok(summer.ok);
   if (summer.ok) {
-    assert.equal(summer.value.metadata.dueAt, '2025-07-01T13:00:00.000Z');
-    assert.equal(summer.value.metadata.dueTimezone, 'America/New_York');
+    assert.equal(summer.value.targetAtUtc, '2025-07-01T13:00:00.000Z');
+    assert.equal(summer.value.dueTimezone, 'America/New_York');
+    assert.equal(summer.value.targetEastern, '2025-07-01 09:00');
   }
   // Jan 1, 2025 09:00 ET = 14:00 UTC (EST, -5).
-  const winter = buildWorkSubmission({ ...base, dueDate: '2025-01-01', dueTime: '09:00' });
-  if (winter.ok) assert.equal(winter.value.metadata.dueAt, '2025-01-01T14:00:00.000Z');
+  const winter = buildWorkItemSubmission({ ...base, targetDate: '2025-01-01', targetTime: '09:00', useTime: true });
+  if (winter.ok) assert.equal(winter.value.targetAtUtc, '2025-01-01T14:00:00.000Z');
 });
 
-test('a due time without a due date is rejected', () => {
-  const r = buildWorkSubmission({ ...base, dueTime: '09:00' });
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.ok(r.errors.dueTime);
-});
-
-test('requirements are trimmed and empty ones dropped; responsibility + relation recorded', () => {
-  const r = buildWorkSubmission({
-    ...base,
-    responsibility: 'CALLGRID_SETUP',
-    relationType: 'buyer',
-    relationLabel: 'ABC Roofing',
-    requirements: [
-      { name: 'Signed IO received', required: true },
-      { name: '   ', required: false },
-      { name: 'Destination specs received', description: 'from buyer', required: false },
-    ],
-  });
+test('a date with no time defaults to 17:00 ET end-of-business', () => {
+  const r = buildWorkItemSubmission({ ...base, targetDate: '2025-07-01' });
   assert.ok(r.ok);
+  // 17:00 ET (EDT) = 21:00 UTC.
   if (r.ok) {
-    assert.equal(r.value.metadata.requirements.length, 2);
-    assert.equal(r.value.metadata.requirements[0]!.required, true);
-    assert.equal(r.value.metadata.responsibility, 'CALLGRID_SETUP');
-    assert.deepEqual(r.value.metadata.relation, { type: 'buyer', label: 'ABC Roofing' });
+    assert.equal(r.value.targetAtUtc, '2025-07-01T21:00:00.000Z');
+    assert.equal(r.value.targetEastern, '2025-07-01 17:00');
+  }
+});
+
+test('a target time toggled on without a date is rejected', () => {
+  const r = buildWorkItemSubmission({ ...base, targetTime: '09:00', useTime: true });
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.errors.targetTime);
+});
+
+test('custom fields: required-missing errors, present values are cleaned and kept', () => {
+  const fields: WorkFieldDef[] = [
+    { key: 'payout', label: 'Payout', type: 'currency', required: true, sortOrder: 0, active: true },
+    { key: 'contact', label: 'Primary contact', type: 'short_text', required: false, sortOrder: 1, active: true },
+    { key: 'gone', label: 'Retired', type: 'short_text', required: true, sortOrder: 2, active: false },
+  ];
+  const bad = buildWorkItemSubmission({ ...base, fields, fieldValues: { contact: '  Jane  ' } });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) {
+    assert.ok(bad.errors.fields?.payout, 'required payout flagged');
+    assert.equal(bad.errors.fields?.gone, undefined, 'inactive field never required');
+  }
+  const good = buildWorkItemSubmission({ ...base, fields, fieldValues: { payout: '250', contact: '  Jane  ' } });
+  assert.ok(good.ok);
+  if (good.ok) {
+    assert.equal(good.value.customFieldValues.payout, '250');
+    assert.equal(good.value.customFieldValues.contact, 'Jane', 'trimmed');
   }
 });
 

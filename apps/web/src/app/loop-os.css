@@ -1794,6 +1794,61 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
   .sw2-summary { grid-template-columns: 1fr; }
   .sw2-req { grid-template-columns: 1fr; }
 }
+
+/* ---- Configurable workflow builder (Start Work) ---- */
+.sw2-note { margin-top: 14px; padding: 10px 12px; background: var(--loop-elev); border: 1px dashed var(--loop-line-strong); border-radius: 10px; color: var(--loop-text-3); font-size: 13px; line-height: 1.5; }
+.sw2-fields { display: flex; flex-direction: column; gap: 0; margin-top: 6px; }
+.sw2-check { display: inline-flex; align-items: center; gap: 8px; color: var(--loop-text); font-size: 14px; cursor: pointer; margin-top: 12px; }
+.sw2-check input { accent-color: var(--loop-accent); width: 16px; height: 16px; }
+
+/* mode selector */
+.sw2-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 4px 0 6px; }
+.sw2-mode { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 14px 15px; background: var(--loop-elev); border: 1px solid var(--loop-line-strong); border-radius: 12px; cursor: pointer; color: var(--loop-text); }
+.sw2-mode:hover:not(:disabled) { border-color: var(--loop-accent); }
+.sw2-mode:disabled { opacity: .5; cursor: default; }
+.sw2-mode--active { border-color: var(--loop-accent); box-shadow: inset 0 0 0 1px var(--loop-accent); }
+.sw2-mode-label { font-size: 14px; font-weight: 600; }
+.sw2-mode-hint { font-size: 12px; color: var(--loop-text-3); }
+.sw2-saved { margin-top: 12px; }
+
+/* steps */
+.sw2-steps { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.sw2-step { border: 1px solid var(--loop-line); border-radius: 12px; padding: 14px 16px; background: var(--loop-elev); }
+.sw2-step-head { display: flex; align-items: center; gap: 10px; }
+.sw2-step-num { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 999px; background: var(--loop-accent); color: #fff; font-size: 12.5px; font-weight: 640; display: grid; place-items: center; }
+.sw2-step-name { flex: 1; }
+.sw2-step-name-static { flex: 1; font-weight: 600; color: var(--loop-text); font-size: 14px; }
+.sw2-step-tools { display: flex; gap: 6px; }
+.sw2-step-instruction { margin: 8px 0 0; color: var(--loop-text-2); font-size: 13.5px; line-height: 1.5; }
+.sw2-assign { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+.sw2-step-opts { margin-top: 12px; border-top: 1px solid var(--loop-line); padding-top: 8px; }
+.sw2-step-toggles { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 6px; }
+.sw2-step-toggles .sw2-check { margin-top: 4px; }
+.sw2-addstep { align-self: flex-start; }
+.sw2-savetpl { margin-top: 16px; border-top: 1px solid var(--loop-line); padding-top: 8px; }
+
+/* vertical review timeline */
+.sw2-timeline { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
+.sw2-tl-step { display: flex; gap: 14px; position: relative; padding-bottom: 18px; }
+.sw2-tl-step:not(:last-child)::before { content: ''; position: absolute; left: 13px; top: 30px; bottom: 0; width: 2px; background: var(--loop-line-strong); }
+.sw2-tl-num { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 2px solid var(--loop-accent); color: var(--loop-accent); font-size: 13px; font-weight: 640; display: grid; place-items: center; background: var(--loop-panel); z-index: 1; }
+.sw2-tl-body { padding-top: 2px; }
+.sw2-tl-name { font-weight: 600; color: var(--loop-text); font-size: 14px; }
+.sw2-tl-assign { color: var(--loop-text-2); font-size: 13px; margin-top: 2px; }
+.sw2-tl-instruction { color: var(--loop-text-3); font-size: 12.5px; margin-top: 3px; line-height: 1.5; }
+.sw2-tl-note { color: var(--loop-text-3); font-size: 12px; margin-top: 3px; }
+
+/* Add New Type modal */
+.sw2-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; z-index: 50; padding: 20px; }
+.sw2-modal { width: 100%; max-width: 440px; background: var(--loop-panel); border: 1px solid var(--loop-line-strong); border-radius: var(--loop-radius); padding: 22px; box-shadow: var(--loop-shadow); }
+.sw2-modal-title { margin: 0 0 4px; font-size: 16px; font-weight: 620; color: var(--loop-text); }
+.sw2-modal-form { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.sw2-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
+@media (max-width: 720px) {
+  .sw2-modes { grid-template-columns: 1fr; }
+  .sw2-assign { flex-direction: column; }
+}
 /* ===================== END WORK OS ===================== */
 
 /* ===================== CALLGRID INTELLIGENCE — 5 sections =====================
