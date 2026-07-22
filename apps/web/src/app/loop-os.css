@@ -1963,6 +1963,23 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .cg-reason__count { font-size: 18px; font-weight: 640; color: var(--loop-text); }
 .cg-reason__note { margin: 6px 0 0; color: var(--loop-text-3); font-size: 12px; line-height: 1.5; }
 @media (max-width: 900px) { .cg-snapnotice__grid, .cg-reasons { grid-template-columns: 1fr; } }
+/* activity filters */
+.cg-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.cg-filter { background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 999px; padding: 6px 14px; font-size: 13px; text-decoration: none; }
+.cg-filter:hover { border-color: var(--loop-accent); }
+.cg-filter--active { border-color: var(--loop-accent); color: var(--loop-accent); box-shadow: inset 0 0 0 1px var(--loop-accent); }
+/* bids: two rejection groups */
+.cg-reasongroups { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.cg-reasongroup__title { margin: 0 0 8px; font-size: 12.5px; font-weight: 620; color: var(--loop-text); }
+.cg-reasongroups .cg-reasons { grid-template-columns: 1fr; }
+/* bids watch list (stacked items) */
+.cg-watch__item--stack { flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--loop-line); }
+.cg-watch__title { color: var(--loop-text); font-size: 13.5px; font-weight: 600; }
+.cg-watch__val { color: var(--loop-accent); font-size: 12.5px; }
+/* diagnostics list */
+.adm-list { margin: 8px 0 0; padding-left: 18px; color: var(--loop-text-2); font-size: 13px; line-height: 1.6; }
+.adm-subhead { margin: 16px 0 4px; font-size: 13px; font-weight: 620; color: var(--loop-text); }
+@media (max-width: 760px) { .cg-reasongroups { grid-template-columns: 1fr; } }
 @media (max-width: 1000px) {
   .dim-tiles { grid-template-columns: repeat(2, 1fr); }
   .dim-detail__grid { grid-template-columns: repeat(2, 1fr); }
