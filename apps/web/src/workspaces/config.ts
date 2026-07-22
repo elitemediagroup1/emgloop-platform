@@ -124,7 +124,8 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
       label: '',
       items: [
         { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
-        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'brain', requires: CALLGRID_INTEL },
+        { href: '/app/admin/brain', label: 'Brain', icon: 'brain', requires: CALLGRID_INTEL },
+        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: CALLGRID_INTEL },
         { href: '/app/admin/crm', label: 'CRM', icon: 'users' },
         { href: '/app/admin/creator-hub', label: 'Creator Hub', icon: 'star' },
         { href: '/app/admin/work', label: 'Work OS', icon: 'flow' },
