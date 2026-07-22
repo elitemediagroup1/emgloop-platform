@@ -2,18 +2,24 @@ import 'server-only';
 
 // Identity bootstrap — Sprint 7 (Identity, Authentication & Organizations).
 //
-// Idempotently provisions the identity layer for the seeded demo organization
-// so the CRM is immediately usable: the demo org, a Super Admin (OWNER) login,
-// a Manager and a Read-Only user, and a couple of AI Employees for the picker.
-// There is no email delivery, so a default password is set on the seed users
-// for first sign-in; this runs only against the demo org and is safe to call
-// repeatedly. All writes go through the @emgloop/database repository layer.
+// Resolves the organization the app runs against, and — ONLY in an explicitly
+// enabled non-production environment — seeds demo identities (an OWNER login, a
+// Manager and a Read-Only reviewer, a default AI Employee) so a review deploy is
+// immediately usable without email delivery.
 //
-// The default credentials are surfaced on the login screen of the demo org so
-// reviewers can sign in. They can be rotated via the password-reset flow.
+// PRODUCTION SAFETY (the reason this file was rewritten): the demo seed used to
+// run on every cold start. Because it "ensured + activated" each user, it
+// fabricated team members (Morgan Manager, Riley Viewer) and, worse, resurrected
+// any member an admin had removed — the Team-page "deleted users keep returning"
+// bug. Seeding is now fail-closed behind isDemoSeedEnabled(): production seeds
+// nothing, and even in a review environment a deliberately removed/disabled user
+// is never reactivated. The org upsert is kept unconditional — it only resolves
+// the tenant the platform already runs on; it creates no people.
 
+import { headers } from 'next/headers';
 import { prisma, repositories } from '@emgloop/database';
 import { SystemRole } from '@emgloop/database';
+import { isDemoSeedEnabled, seedMayActivate } from '@emgloop/shared';
 import { hashPassword } from './auth';
 
 export const DEMO_ORG_SLUG = 'servicesinmycity-demo';
@@ -21,6 +27,24 @@ export const DEMO_OWNER_EMAIL = 'admin@emgloop.com';
 export const DEMO_DEFAULT_PASSWORD = 'EmgLoop!2026';
 
 let bootstrapped = false;
+
+/**
+ * Whether this runtime may seed demo identities. Fail-closed: requires the
+ * explicit EMG_SEED_DEMO opt-in AND a non-production runtime (host / CONTEXT /
+ * NODE_ENV). The host is read from request headers when available so a preview
+ * deploy is correctly identified; if headers are unavailable we still fail closed
+ * on CONTEXT/NODE_ENV.
+ */
+function demoSeedAllowed(): boolean {
+  let host: string | null = null;
+  try {
+    const h = headers();
+    host = h.get('x-forwarded-host') || h.get('host');
+  } catch {
+    host = null;
+  }
+  return isDemoSeedEnabled(process.env, host);
+}
 
 async function ensureUser(args: {
   organizationId: string;
@@ -35,6 +59,7 @@ async function ensureUser(args: {
   // P2002 unique-constraint error on every cold start once the seed users
   // already exist in the shared database.
   let user = await repositories.auth.findUserByEmail(args.organizationId, args.email);
+  const created = !user;
   if (!user) {
     user = await repositories.iam.createUser({
       organizationId: args.organizationId,
@@ -43,7 +68,10 @@ async function ensureUser(args: {
       systemRole: args.role,
     });
   }
-  if (args.activate) {
+  // Never resurrect a member an admin removed or disabled: only a freshly-created
+  // or still-pending (INVITED) row may be activated. A DISABLED row is left as-is,
+  // so re-running the seed cannot re-grant access an admin revoked.
+  if (args.activate && seedMayActivate(user.status, created)) {
     await repositories.iam.activateUser(args.organizationId, user.id);
   }
   if (args.password) {
@@ -75,6 +103,12 @@ export async function ensureCrmIdentity(): Promise<{ organizationId: string }> {
   });
 
   if (bootstrapped) return { organizationId: org.id };
+  bootstrapped = true;
+
+  // Fail closed: outside an explicitly-enabled non-production environment, seed
+  // NOTHING. Production never fabricates users/team members and never resurrects
+  // a removed member. The tenant (org) is already resolved above.
+  if (!demoSeedAllowed()) return { organizationId: org.id };
 
   await ensureUser({
     organizationId: org.id,
@@ -108,6 +142,5 @@ export async function ensureCrmIdentity(): Promise<{ organizationId: string }> {
     title: 'Front Desk AI Employee',
   });
 
-  bootstrapped = true;
   return { organizationId: org.id };
 }

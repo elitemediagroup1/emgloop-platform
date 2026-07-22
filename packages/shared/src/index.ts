@@ -188,3 +188,6 @@ export * from './app-origin';
 
 // --- Route → active nav (longest-prefix), for sidebar + breadcrumb ---
 export * from './nav-match';
+
+// --- The one gate for demo/fixture seeding (fail-closed; never in production) ---
+export * from './demo-seed';
