@@ -1715,3 +1715,34 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .adm-badge--off { color: var(--loop-text-3); }
 .adm-empty { margin: 0; color: var(--loop-text-3); font-size: 13px; }
 /* ===================== END ADMINISTRATION ===================== */
+
+
+/* ===================== WORK OS =====================
+   Reuses the Dashboard tile system; adds a header CTA, a double-width tile, and
+   the centered Start Work form. Tokens only. */
+.cmd-head__cta { flex: none; align-self: center; padding: 10px 18px; font-size: 14px; }
+.tile--wide { grid-column: span 2; }
+@media (max-width: 1160px) { .tile--wide { grid-column: span 1; } }
+.adm-link { color: var(--loop-accent-2); text-decoration: none; font-weight: 550; }
+.adm-link:hover { text-decoration: underline; }
+
+/* Start Work — a focused, centered, conversational form. */
+.sw { max-width: 560px; margin: 0 auto; padding: clamp(28px, 6vh, 72px) 24px; }
+.sw__head { text-align: center; margin-bottom: 32px; }
+.sw__title { margin: 0; font-size: clamp(26px, 4vw, 34px); font-weight: 600; letter-spacing: -0.02em; color: var(--loop-text); }
+.sw__purpose { margin: 10px 0 0; color: var(--loop-text-2); font-size: 15px; line-height: 1.5; }
+.sw__form { display: flex; flex-direction: column; gap: 22px; }
+.sw__field { display: flex; flex-direction: column; gap: 8px; }
+.sw__label { font-size: 14px; font-weight: 550; color: var(--loop-text); }
+.sw__opt { color: var(--loop-text-3); font-weight: 400; font-size: 12.5px; }
+.sw__input { width: 100%; background: var(--loop-elev); border: 1px solid var(--loop-line-strong); color: var(--loop-text); border-radius: 12px; padding: 13px 15px; font-size: 15px; font-family: inherit; }
+.sw__input:focus { outline: none; border-color: var(--loop-accent); }
+.sw__input::placeholder { color: var(--loop-text-3); }
+.sw__textarea { resize: vertical; min-height: 84px; }
+.sw__actions { display: flex; align-items: center; gap: 18px; margin-top: 6px; }
+.sw__submit { padding: 12px 22px; font-size: 15px; }
+.sw__cancel { color: var(--loop-text-2); font-size: 14px; text-decoration: none; }
+.sw__cancel:hover { color: var(--loop-text); }
+.sw__card { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px; background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: 16px; padding: 32px; }
+.sw__empty { margin: 0; color: var(--loop-text-2); font-size: 15px; }
+/* ===================== END WORK OS ===================== */
