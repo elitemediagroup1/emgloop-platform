@@ -19,13 +19,15 @@ import {
   reorderWorkTypeAction,
   installStarterWorkTypesAction,
 } from './actions';
+import Link from 'next/link';
+import FieldsEditor from './FieldsEditor';
 
 export const dynamic = 'force-dynamic';
 
 export default async function WorkTypesPage({
   searchParams,
 }: {
-  searchParams?: { notice?: string; error?: string };
+  searchParams?: { notice?: string; error?: string; fields?: string };
 }) {
   const session = await requirePermission('settings', 'view');
   const canManage = await hasPermission('settings', 'update');
@@ -34,6 +36,27 @@ export default async function WorkTypesPage({
   const notice = typeof searchParams?.notice === 'string' ? searchParams.notice : null;
   const error = typeof searchParams?.error === 'string' ? searchParams.error : null;
   const activeCount = types.filter((t) => t.active).length;
+
+  // Field-config pane for a single Work Type (managers only).
+  const fieldsType = canManage && searchParams?.fields
+    ? types.find((t) => t.id === searchParams.fields) ?? null
+    : null;
+  if (fieldsType) {
+    return (
+      <div className="adm">
+        {error ? <div className="adm-banner adm-banner--error" role="alert">{error}</div> : null}
+        {notice ? <div className="adm-banner adm-banner--ok" role="status">{notice}</div> : null}
+        <FieldsEditor
+          workTypeId={fieldsType.id}
+          workTypeName={fieldsType.name}
+          initialFields={fieldsType.fields.map((f) => ({
+            key: f.key, label: f.label, helper: f.helper, type: f.type,
+            required: f.required, options: f.options, active: f.active,
+          }))}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="adm">
@@ -132,6 +155,9 @@ export default async function WorkTypesPage({
                     {canManage ? (
                       <td>
                         <div className="adm-inline">
+                          <Link href={`?fields=${t.id}`} className="adm-btn">
+                            Fields{t.fields.length ? ` (${t.fields.length})` : ''}
+                          </Link>
                           <form action={reorderWorkTypeAction}>
                             <input type="hidden" name="id" value={t.id} />
                             <input type="hidden" name="direction" value="up" />
