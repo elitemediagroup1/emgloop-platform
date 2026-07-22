@@ -34,7 +34,7 @@ const QUICK: { label: string; href: string }[] = [
   { label: "Vendors", href: "/app/admin/marketplace/vendors" },
   { label: "Sources", href: "/app/admin/marketplace/sources" },
   { label: "Campaigns", href: "/app/admin/marketplace/campaigns" },
-  { label: "Bids", href: "/app/admin/marketplace/auction" },
+  { label: "Bids", href: "/app/admin/marketplace/bids" },
   { label: "Activity", href: "/app/admin/marketplace/activity" },
 ];
 
