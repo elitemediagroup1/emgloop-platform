@@ -52,6 +52,13 @@ export default async function EmployeeWorkDetailPage({
     instance.stages.some(
       (s) => s.position > current.position && s.status !== 'skipped',
     );
+  const currentCfg = current && current.metadata && typeof current.metadata === 'object' && !Array.isArray(current.metadata)
+    ? (current.metadata as Record<string, unknown>)
+    : {};
+  const noteMode = currentCfg.completionNote === 'required' || currentCfg.completionNote === 'optional'
+    ? (currentCfg.completionNote as 'required' | 'optional')
+    : 'none';
+  const confirmationText = typeof currentCfg.completionConfirmation === 'string' ? currentCfg.completionConfirmation : null;
 
   return (
     <div className="loop-grid">
@@ -75,21 +82,20 @@ export default async function EmployeeWorkDetailPage({
             </div>
             <form action={completeCurrentStageAction} className="loop-brief__list">
               <input type="hidden" name="workInstanceId" value={instance.id} />
-              {hasNext ? (
+              <p className="loop-card__hint">
+                {hasNext
+                  ? 'Completing this hands the work to the next step’s owner automatically.'
+                  : 'This is the final step — completing it finishes the work.'}
+              </p>
+              {confirmationText ? <p className="loop-card__hint">{confirmationText}</p> : null}
+              {noteMode !== 'none' ? (
                 <label>
-                  <div className="loop-card__hint">Next owner</div>
-                  <select name="nextOwnerUserId">
-                    <option value="">Keep copied default / leave unassigned</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name || u.email}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="loop-card__hint">Completion note {noteMode === 'required' ? '(required)' : '(optional)'}</div>
+                  <textarea name="note" rows={2} required={noteMode === 'required'} placeholder="What did you do / hand off?" />
                 </label>
               ) : null}
               <button className="loop-badge" type="submit">
-                Complete stage
+                Complete step
               </button>
             </form>
           </section>

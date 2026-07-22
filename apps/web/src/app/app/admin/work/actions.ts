@@ -267,26 +267,70 @@ export async function startWorkItemAction(
   redirect(`${WORK_ROOT}/${instanceId}`); // outside try — NEXT_REDIRECT must not be caught
 }
 
-// Complete the current stage and advance the instance (assigning + notifying
-// the next owner when one is chosen).
-export async function completeCurrentStageAction(formData: FormData): Promise<void> {
+// Complete My Step — the active owner completes their own step; the engine
+// resolves and activates exactly the next step by its defined assignment mode
+// (no manual "hand off to" — the next owner comes from the sequence). Honors the
+// step's configured confirmation + completion-note requirement. Returns a state
+// for inline validation; the page stays put and re-renders the advanced work.
+export interface CompleteStepState {
+  ok?: boolean;
+  error?: string;
+}
+
+function stageConfig(meta: unknown): { noteMode: CompletionNoteMode; confirmation: string | null } {
+  const m = (meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {}) as Record<string, unknown>;
+  const noteMode = (COMPLETION_NOTE_MODES as readonly string[]).includes(String(m.completionNote))
+    ? (m.completionNote as CompletionNoteMode)
+    : 'none';
+  return { noteMode, confirmation: typeof m.completionConfirmation === 'string' ? m.completionConfirmation : null };
+}
+
+export async function completeWorkStepAction(
+  _prev: CompleteStepState,
+  formData: FormData,
+): Promise<CompleteStepState> {
   const actor = await requireWorkActor();
   const work = workRepo();
-
   const workInstanceId = String(formData.get('workInstanceId') ?? '').trim();
-  const nextOwnerUserId = String(formData.get('nextOwnerUserId') ?? '').trim() || null;
+  const stageId = String(formData.get('stageId') ?? '').trim();
+  const note = String(formData.get('note') ?? '').trim();
+  const confirmed = String(formData.get('confirm') ?? '').trim() === 'on';
+  if (!workInstanceId || !stageId) return { error: 'Missing step.' };
 
-  if (!workInstanceId) throw new Error('Missing work instance');
+  const instance = await work.getWorkInstance(workInstanceId);
+  if (!instance || instance.organizationId !== actor.organizationId) return { error: 'This work could not be found.' };
+  const stage = instance.stages.find((s) => s.id === stageId);
+  if (!stage) return { error: 'That step could not be found.' };
+  if (stage.status === 'completed') return { error: 'That step is already complete.' };
+  if (stage.ownerUserId !== actor.userId) return { error: 'Only the assigned owner can complete this step.' };
 
-  await work.completeCurrentStage({
-    organizationId: actor.organizationId,
-    workInstanceId,
-    completedByUserId: actor.userId,
-    nextOwnerUserId,
-  });
+  const cfg = stageConfig(stage.metadata);
+  if (cfg.confirmation && !confirmed) return { error: 'Please confirm before completing this step.' };
+  if (cfg.noteMode === 'required' && !note) return { error: 'A completion note is required for this step.' };
+
+  const members = await work.listActiveMembers(actor.organizationId);
+  try {
+    await work.completeWorkStep({
+      organizationId: actor.organizationId,
+      workInstanceId,
+      stageId,
+      completedByUserId: actor.userId,
+      note: note || null,
+      expectedOwnerUserId: actor.userId, // data-layer owner enforcement
+      responsibilityOwners: null, // no persisted responsibility→owner map yet
+      activeMemberIds: new Set(members.map((m) => m.id)),
+    });
+  } catch (err) {
+    console.error('[work.completeStep] failed', {
+      organizationId: actor.organizationId,
+      code: (err as { code?: string } | null)?.code ?? 'unknown',
+    });
+    return { error: 'Something went wrong completing this step. Please try again.' };
+  }
 
   revalidatePath(WORK_ROOT);
   revalidatePath(`${WORK_ROOT}/${workInstanceId}`);
+  return { ok: true };
 }
 
 // Reassign / assign a stage owner.

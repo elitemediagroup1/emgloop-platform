@@ -14,33 +14,47 @@ import { requireEmployeeActor, loadEmployeeInstance, workRepo } from './work-dat
 
 const WORK_ROOT = '/app/employee/work';
 
-// Complete the current stage of a work instance and advance to the next owner.
+// Complete the current step. Routes through the configurable workflow engine
+// (completeWorkStep) so the NEXT owner is resolved from the step's defined
+// assignment mode (creator / specific / responsibility / previous-completer /
+// unassigned) — the active owner never manually picks the next owner. Ownership
+// is enforced at the data layer (expectedOwnerUserId); a required completion
+// note is enforced here.
 export async function completeCurrentStageAction(formData: FormData): Promise<void> {
   const actor = await requireEmployeeActor();
   const work = workRepo();
 
   const workInstanceId = String(formData.get('workInstanceId') ?? '').trim();
-  const nextOwnerUserId = String(formData.get('nextOwnerUserId') ?? '').trim() || null;
+  const note = String(formData.get('note') ?? '').trim();
 
   if (!workInstanceId) throw new Error('Missing work instance');
 
-  // Server-side ownership check: the UI only shows the Complete control to the
-  // current stage's owner, but never trust the client. Re-load the instance
-  // (organization-scoped) and confirm the acting employee actually owns the
-  // current stage before completing it. Employees can only complete their own
-  // stages; anything else is rejected.
+  // Re-load the instance (organization-scoped) and confirm the acting employee
+  // actually owns the current step before completing it.
   const instance = await loadEmployeeInstance(workInstanceId, actor.organizationId);
   if (!instance) throw new Error('Work instance not found');
   const current = instance.stages.find((s) => s.id === instance.currentStageId) ?? null;
   if (!current || current.ownerUserId !== actor.userId) {
-    throw new Error('You can only complete a stage assigned to you');
+    throw new Error('You can only complete a step assigned to you');
   }
 
-  await work.completeCurrentStage({
+  const cfg = current.metadata && typeof current.metadata === 'object' && !Array.isArray(current.metadata)
+    ? (current.metadata as Record<string, unknown>)
+    : {};
+  if (cfg.completionNote === 'required' && !note) {
+    throw new Error('A completion note is required for this step');
+  }
+
+  const members = await work.listActiveMembers(actor.organizationId);
+  await work.completeWorkStep({
     organizationId: actor.organizationId,
     workInstanceId,
+    stageId: current.id,
     completedByUserId: actor.userId,
-    nextOwnerUserId,
+    note: note || null,
+    expectedOwnerUserId: actor.userId,
+    responsibilityOwners: null,
+    activeMemberIds: new Set(members.map((m) => m.id)),
   });
 
   revalidatePath(WORK_ROOT);
