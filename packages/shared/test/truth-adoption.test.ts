@@ -150,7 +150,7 @@ test('repository and service methods do not return bare numeric measurements', (
 const ZERO_COERCION_DEBT: Readonly<Record<string, number>> = {
   'apps/web/src/app/app/admin/marketplace/vendors/page.tsx': 19,
   'apps/web/src/app/app/admin/marketplace/buyers/page.tsx': 11,
-  'apps/web/src/app/app/admin/marketplace/sources/page.tsx': 8,
+  // sources/page.tsx paid off its debt (rewritten as the lightweight listing) — entry removed.
   'apps/web/src/app/app/admin/marketplace/campaigns/page.tsx': 5,
 };
 
