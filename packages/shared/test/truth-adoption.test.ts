@@ -149,7 +149,8 @@ test('repository and service methods do not return bare numeric measurements', (
 // reaches 0, delete the entry.
 const ZERO_COERCION_DEBT: Readonly<Record<string, number>> = {
   'apps/web/src/app/app/admin/marketplace/vendors/page.tsx': 19,
-  'apps/web/src/app/app/admin/marketplace/buyers/page.tsx': 11,
+  // buyers/page.tsx paid off its debt (rebuilt on the canonical call projection,
+  // Truth-honest — no measurement coerced to zero) — entry removed.
   // sources/page.tsx paid off its debt (rewritten as the lightweight listing) — entry removed.
   'apps/web/src/app/app/admin/marketplace/campaigns/page.tsx': 5,
 };
