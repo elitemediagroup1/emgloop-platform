@@ -12,6 +12,7 @@
 // historical attribution survive.
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { repositories } from '@emgloop/database';
 import { SystemRole } from '@emgloop/database';
 import { invitationAcceptUrl } from '@emgloop/shared';
@@ -26,6 +27,18 @@ function parseRole(v: unknown): SystemRole {
     : SystemRole.EMPLOYEE;
 }
 
+const TEAM_PATH = '/app/admin/administration/team';
+
+/**
+ * Build the redirect target back to the Team page carrying a single feedback
+ * message. Team actions redirect here (rather than silently revalidating) so the
+ * page always re-renders the real persisted state AND can show the operator why
+ * an action succeeded or was refused — never optimistic, never a silent no-op.
+ */
+function teamUrl(message: string, kind: 'notice' | 'error'): string {
+  return TEAM_PATH + '?' + kind + '=' + encodeURIComponent(message);
+}
+
 // --- Users -------------------------------------------------------------
 
 export async function inviteUserAction(formData: FormData): Promise<void> {
@@ -33,38 +46,77 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
   const email = String(formData.get('email') ?? '').toLowerCase().trim();
   const name = String(formData.get('name') ?? '').trim();
   const role = parseRole(formData.get('role'));
-  if (!email) return;
-  const user = await repositories.iam.createUser({
-    organizationId: session.organizationId,
-    email,
-    name: name || undefined,
-    systemRole: role,
-  });
-  const token = newToken();
-  await repositories.iam.createInvitation({
-    organizationId: session.organizationId,
-    email,
-    systemRole: role,
-    inviterId: session.userId,
-    tokenHash: hashToken(token),
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-  });
-  // Send the invitation email using the plaintext token (only the hash is stored).
-  // The URL MUST be absolute (an email client mangles a relative path into
-  // http:///…). invitationAcceptUrl builds it from the one canonical app origin;
-  // the same value feeds the HTML button, the HTML fallback, and the text link.
-  const inviteUrl = invitationAcceptUrl(token);
-  await sendInviteEmail({ to: email, name: name || undefined, inviteUrl });
-  await repositories.audit.record({
-    organizationId: session.organizationId,
-    userId: session.userId,
-    actorName: session.name,
-    action: 'user.created',
-    entityType: 'user',
-    entityId: user.id,
-    metadata: { email, role },
-  });
-  revalidatePath('/app/admin/administration/team');
+
+  // The redirect is the LAST statement, computed here — never inside the try, so
+  // its NEXT_REDIRECT control-flow throw is not swallowed by the catch.
+  let result: { message: string; kind: 'notice' | 'error' };
+
+  if (!email) {
+    result = { message: 'Enter an email address to send an invitation.', kind: 'error' };
+  } else {
+    try {
+      // Lifecycle-aware: resolves the one (org,email) row and reinstates it rather
+      // than blindly inserting. This is the fix for the P2002 that crashed the page
+      // and blocked re-inviting a removed teammate.
+      const outcome = await repositories.iam.prepareInvitation({
+        organizationId: session.organizationId,
+        email,
+        name: name || undefined,
+        systemRole: role,
+      });
+      if (!outcome.ok) {
+        result = {
+          kind: 'error',
+          message: outcome.reason === 'active_member'
+            ? `${email} is already an active member of your team.`
+            : `${email} already has a pending invitation — use Resend to send a new link.`,
+        };
+      } else {
+        // A reinstated row may have had live sessions; revoke them so a removed
+        // member cannot ride an old session back in during re-invitation.
+        if (outcome.reused) await repositories.auth.revokeAllForUser(outcome.userId);
+        const token = newToken();
+        await repositories.iam.createInvitation({
+          organizationId: session.organizationId,
+          email,
+          systemRole: role,
+          inviterId: session.userId,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        });
+        // Send the invitation email using the plaintext token (only the hash is
+        // stored). The URL MUST be absolute (an email client mangles a relative
+        // path into http:///…). invitationAcceptUrl builds it from the one
+        // canonical app origin; the same value feeds the button and text links.
+        await sendInviteEmail({ to: email, name: name || undefined, inviteUrl: invitationAcceptUrl(token) });
+        await repositories.audit.record({
+          organizationId: session.organizationId,
+          userId: session.userId,
+          actorName: session.name,
+          action: 'user.invited',
+          entityType: 'user',
+          entityId: outcome.userId,
+          metadata: { email, role },
+        });
+        result = { message: `Invitation sent to ${email}.`, kind: 'notice' };
+      }
+    } catch (err) {
+      // Fail visibly, not with a crash digest. Structured + secret-safe: no token,
+      // no password, no payload — just enough to locate the failing op on deploy.
+      console.error('[team.invite] failed', {
+        op: 'prepareInvitation',
+        model: 'user/invitation',
+        organizationId: session.organizationId,
+        code: (err as { code?: string } | null)?.code ?? 'unknown',
+      });
+      result = {
+        message: 'Something went wrong sending the invitation. Please try again.',
+        kind: 'error',
+      };
+    }
+  }
+
+  redirect(teamUrl(result.message, result.kind));
 }
 
 export async function setUserRoleAction(formData: FormData): Promise<void> {
@@ -82,7 +134,7 @@ export async function setUserRoleAction(formData: FormData): Promise<void> {
     entityId: userId,
     metadata: { role },
   });
-  revalidatePath('/app/admin/administration/team');
+  redirect(teamUrl('Role updated.', 'notice'));
 }
 
 export async function setUserStatusAction(formData: FormData): Promise<void> {
@@ -104,7 +156,7 @@ export async function setUserStatusAction(formData: FormData): Promise<void> {
     entityType: 'user',
     entityId: userId,
   });
-  revalidatePath('/app/admin/administration/team');
+  redirect(teamUrl(status === 'DISABLED' ? 'Team member disabled.' : 'Team member reactivated.', 'notice'));
 }
 
 export async function removeUserAction(formData: FormData): Promise<void> {
@@ -122,7 +174,7 @@ export async function removeUserAction(formData: FormData): Promise<void> {
     entityId: userId,
     metadata: { soft: true },
   });
-  revalidatePath('/app/admin/administration/team');
+  redirect(teamUrl('Team member removed. You can re-invite this email at any time.', 'notice'));
 }
 
 export async function revokeInvitationAction(formData: FormData): Promise<void> {
@@ -138,39 +190,61 @@ export async function revokeInvitationAction(formData: FormData): Promise<void> 
     entityType: 'invitation',
     entityId: invitationId,
   });
-  revalidatePath('/app/admin/administration/team');
+  redirect(teamUrl('Invitation revoked. The old link no longer works.', 'notice'));
 }
 
 export async function resendInvitationAction(formData: FormData): Promise<void> {
   const session = await requirePermission('users', 'create');
   const invitationId = String(formData.get('invitationId') ?? '');
-  if (!invitationId) return;
-  // The stored token is hashed and cannot be re-sent, so "resend" supersedes:
-  // revoke the pending invite and issue a fresh one (new token, same email/role).
-  const invites = await repositories.iam.listInvitations(session.organizationId);
-  const target = invites.find((i) => i.id === invitationId);
-  if (!target) return;
-  await repositories.iam.revokeInvitation(session.organizationId, invitationId);
-  const token = newToken();
-  await repositories.iam.createInvitation({
-    organizationId: session.organizationId,
-    email: target.email,
-    systemRole: parseRole(target.systemRole),
-    inviterId: session.userId,
-    tokenHash: hashToken(token),
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-  });
-  await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token) });
-  await repositories.audit.record({
-    organizationId: session.organizationId,
-    userId: session.userId,
-    actorName: session.name,
-    action: 'invitation.resent',
-    entityType: 'invitation',
-    entityId: invitationId,
-    metadata: { email: target.email },
-  });
-  revalidatePath('/app/admin/administration/team');
+
+  let result: { message: string; kind: 'notice' | 'error' };
+
+  if (!invitationId) {
+    result = { message: 'No invitation selected.', kind: 'error' };
+  } else {
+    try {
+      // The stored token is hashed and cannot be re-sent, so "resend" supersedes:
+      // revoke the pending invite and issue a fresh one (new token, same
+      // email/role). listInvitations is org-scoped, so a cross-org id finds nothing.
+      const invites = await repositories.iam.listInvitations(session.organizationId);
+      const target = invites.find((i) => i.id === invitationId);
+      if (!target) {
+        result = { message: 'That invitation is no longer pending.', kind: 'error' };
+      } else {
+        await repositories.iam.revokeInvitation(session.organizationId, invitationId);
+        const token = newToken();
+        await repositories.iam.createInvitation({
+          organizationId: session.organizationId,
+          email: target.email,
+          systemRole: parseRole(target.systemRole),
+          inviterId: session.userId,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        });
+        await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token) });
+        await repositories.audit.record({
+          organizationId: session.organizationId,
+          userId: session.userId,
+          actorName: session.name,
+          action: 'invitation.resent',
+          entityType: 'invitation',
+          entityId: invitationId,
+          metadata: { email: target.email },
+        });
+        result = { message: `A fresh invitation was sent to ${target.email}. The old link no longer works.`, kind: 'notice' };
+      }
+    } catch (err) {
+      console.error('[team.resend] failed', {
+        op: 'resendInvitation',
+        model: 'invitation',
+        organizationId: session.organizationId,
+        code: (err as { code?: string } | null)?.code ?? 'unknown',
+      });
+      result = { message: 'Something went wrong resending the invitation. Please try again.', kind: 'error' };
+    }
+  }
+
+  redirect(teamUrl(result.message, result.kind));
 }
 
 // --- Organizations -----------------------------------------------------

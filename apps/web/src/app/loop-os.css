@@ -1714,4 +1714,9 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .adm-badge--warn { color: var(--loop-warn); border-color: rgba(242,180,91,.4); }
 .adm-badge--off { color: var(--loop-text-3); }
 .adm-empty { margin: 0; color: var(--loop-text-3); font-size: 13px; }
+/* Action feedback — the Team page redirects here after every action so the
+   operator sees the real, persisted result (never optimistic). */
+.adm-banner { border-radius: var(--loop-radius); padding: 11px 15px; font-size: 13px; font-weight: 550; border: 1px solid var(--loop-line-strong); }
+.adm-banner--ok { color: var(--loop-good); border-color: rgba(55,211,155,.4); background: rgba(55,211,155,.07); }
+.adm-banner--error { color: var(--loop-crit); border-color: rgba(240,110,110,.4); background: rgba(240,110,110,.07); }
 /* ===================== END ADMINISTRATION ===================== */
