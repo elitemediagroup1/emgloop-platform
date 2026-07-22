@@ -295,6 +295,12 @@ ingestion, be more careful than you think you need to be.
 | `README.md` | The product pitch, stack, or setup steps change. Audience: a new human. | Sprint detail. (It currently claims "Sprint 1 — no customer-facing features." It's wrong. Fix it when you touch it.) |
 | `docs/ARCHITECTURE.md` | A structural decision changes: a new package, a boundary move, a deploy change. Audience: an engineer designing against it. | Aspirations. If it isn't built, it doesn't go here. There are already four competing architecture docs — add to none of them; collapse them. |
 | `CLAUDE.md` (this file) | A **rule** changes, a scar is earned, or the baseline shifts. Audience: the next Claude session. | Narrative or sprint logs. This is a constitution, not a changelog. |
+| `docs/PROJECT_STATUS.md` | The end of a work batch: record where each project/workstream stands, the open PR, and the next step. Audience: the next session (and Matt), to resume without losing the thread. | History or a changelog. ONE current-state block per workstream — overwrite it, don't append. Git holds the history. |
+
+**Where we left off lives in `docs/PROJECT_STATUS.md`, never here.** Read it at the
+start of a session to pick up the thread; update it at the end of a work batch. This
+keeps the constitution free of drifting status (a stale "current status" in the file
+everyone reads each session actively misleads — the exact failure mode below).
 
 **Never write an aspirational doc.** `EVENT_BUS.md` describes a system that does not exist, and three
 other docs now depend on it. A doc for unbuilt work is worse than no doc — it gets cited.
