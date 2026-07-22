@@ -27,27 +27,52 @@ vs Today (Live) × Revenue / Profit / Billable / Total, with per-metric % trend.
 Status = system connectivity, never invented health. Eastern-time day boundaries.
 _(needs deploy validation: one-screen fit + real values.)_
 
-## CallGrid Intelligence — DONE (merged)
-Single command center at `/app/admin/marketplace` (Overview) + drill-downs
-(Buyers / Vendors / Sources / Campaigns / Activity / **Bids**). Canonical **EntityPage**
-drill-down pattern; Sources vertical = lightweight listing + per-source detail.
-**Follow-up:** the Bids page (route `/marketplace/auction`) is still a raw-table surface —
-needs a real drill-down pass; per-drill-down business-language polish remains.
+## CallGrid Intelligence & Brain — DONE (merged: #136)
+**Ownership split — every component has exactly one owner.** `/app/admin/brain` is now the
+real **Brain** page and owns the entire Executive Brain (Executive Summary, System Health,
+Cross-Sensor Insights, What Changed, Top Risks/Opportunities, Recommended Actions, Evidence
+Coverage/Sources, Confidence) + the Evidence/Platform-Health rail + Live Calls — moved
+verbatim. **CallGrid Intelligence** (`/app/admin/marketplace`) was rebuilt to EXACTLY five
+tile sections: Today, Yesterday (Revenue/Profit/Billable/Total via `marketplaceCalls.aggregateWindow`
++ shared `toScore` truth-states), Top Performers (`loadDimensionWindows`), Watch List
+(`report.risks` only — never a false all-clear), Quick Access (6 navigate-only tiles). Six
+drill-downs unchanged (Buyers/Vendors/Sources/Campaigns/Activity/**Bids**). Brain is now a
+sidebar item (icon `brain`); CallGrid uses `chart`.
+**Follow-up:** the Bids page (`/marketplace/auction`) is still a raw-table surface — needs a
+real drill-down pass. _(needs deploy validation: real values + reconciliation.)_
 
-## Work OS — DONE (merged #130); **CSS fix in review (PR #132)**
-Redesigned to match the Dashboard: one-screen 3·3·2 tile grid, business terminology
-(no Work Instance / Blueprint / Stage), conversational **Start Work** form, new **Team Work**
-page, and a centralized route→product resolver driving both breadcrumb and active-state.
-⚠️ The CSS #130 depends on was left out of the merge (staging miss + merge-timing race), so
-Work OS renders **unstyled on `main` until PR #132 merges**. _(needs deploy validation:
-1920×1080 no-scroll fit + real work data.)_
+## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
+Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized
+route→product resolver. **Start Work rebuilt (#135)** as a centered sectioned form; **Work
+Types = Blueprint** (adapted, no new table — deploy runs only `prisma generate`), config in
+`Blueprint.metadata`; starter catalog + admin at `/app/admin/administration/work-types`.
+_(needs deploy validation: real work data.)_
 
-## Onboarding / invitations — DONE (merged: #129)
-Absolute invite/reset URLs (`@emgloop/shared/app-origin`); team management at
-`/app/admin/administration/team` (invite / role / disable / remove / resend / revoke);
-`/crm/users` redirects at the edge; role fix (metadata is the source of truth, no auto
-downgrade); first login → `/app`; personalized breadcrumb; permission-aware nav.
-_(needs deploy validation: the end-to-end fresh-invitation journey — see below.)_
+## Configurable sequential workflows — ENGINE DONE (tested), UI PENDING · branch `feat/configurable-workflows` (NOT yet committed/PR'd)
+Backend engine built on existing tables (Work Type = Blueprint `kind='work_type'`, Workflow
+Template = Blueprint `kind='workflow_template'` + stages, Work Item = WorkInstance, Work Step
+= WorkStage — all per-step config in `metadata`). Implemented + **tested (23 new, DB suite
+149/149)**: 5 assignment modes (specific / responsibility / creator / previous-completer /
+unassigned) with fail-closed resolution; sequential handoff (only step 1 active → complete →
+resolve+activate exactly the next → final completes item + notifies all participants);
+workflow-template save / list-by-work-type / reuse / duplicate / activate; custom-field defs;
+member **de-dup + email normalization** source fix.
+- ⚠️ **`ResponsibilityAssignment` model does NOT exist** (spec assumed it) — responsibility
+  resolves via a configurable org owner-map; absent ⇒ Needs an Owner (never fabricated).
+- ⚠️ **Duplicate "Matt Dunn" is DATA, not a query bug**: the demo-seed OWNER `admin@emgloop.com`
+  got renamed to "Matt Dunn" during setup and coexists with Matt's real account. Dedup collapses
+  same-id/same-email; the two distinct-email rows need the seed `admin@`/`manager@`/`viewer@`
+  rows **removed once via the Team page** (persists since #134).
+- **NOT built yet:** the interactive Start Work workflow builder UI, the Workflow Template admin
+  page, and the Work Detail timeline + Complete-My-Step. Engine is ready to wire.
+
+## Onboarding / invitations / team lifecycle — DONE (merged: #129, #133, #134)
+Absolute invite/reset URLs; team management at `/app/admin/administration/team`. **Lifecycle
+hardened (#133):** invite/re-invite go through `prepareInvitation` (no more P2002 Team-page
+crash; reinstates the one `(org,email)` row); login gates on ACTIVE. **Fake-member seed fixed
+(#134):** demo identities (Morgan/Riley/etc.) only seed when `isDemoSeedEnabled` (explicit flag
++ non-production); a seed can never reactivate a removed member. Pre-existing seed rows still
+need one-time removal via the Team page. _(needs deploy validation: fresh-invitation journey.)_
 
 ## Business timezone — DONE (merged)
 `BUSINESS_TIME_ZONE = 'America/New_York'` in `@emgloop/shared` (DST-aware via Intl). Every
@@ -55,8 +80,9 @@ calendar-day boundary (today/yesterday/completed-today) is Eastern. Rolling N-da
 stay duration-based (timezone-independent).
 
 ## Global sidebar — DONE (merged)
-Flat: Dashboard · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting ·
-Administration (footer, permission-aware). One shared shell; longest-prefix active-state.
+Flat: Dashboard · **Brain** · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting ·
+Administration (footer: Team · Work Types, permission-aware). One shared shell; longest-prefix
+active-state.
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
@@ -66,13 +92,17 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
 ---
 
 ## Open threads / next steps
-1. **Merge PR #132** (Work OS CSS — un-breaks styling) and **PR #131** (this doc). Then start
-   the next batch on a FRESH branch off `main`.
-2. **Deploy validation** (only possible on the deploy): Dashboard + Work OS one-screen fit;
-   the fresh-invitation onboarding journey; CallGrid scorecard value reconciliation.
-3. **Platform floor** (from CLAUDE.md Long-Term Goals): commit the lockfile; a CI gate on
-   `main`; a **web test harness** (route/render/permission tests can't run without one today).
-4. **CallGrid polish:** Bids raw-table page → real drill-down; per-drill-down copy.
+1. **Configurable workflows — commit the engine + open a draft PR** (branch
+   `feat/configurable-workflows`, currently uncommitted). Then build the UI increment: Start Work
+   workflow builder, Workflow Template admin page, Work Detail timeline + Complete-My-Step.
+2. **Data repair (Team page, one-time):** remove the demo-seed rows `admin@emgloop.com`
+   (renamed "Matt Dunn"), `manager@emgloop.com` (Morgan), `viewer@emgloop.com` (Riley) so
+   assignee/member lists show real people only. Recreation is already gated (#134).
+3. **Deploy validation** (only on the deploy): Dashboard/Work OS fit; fresh-invitation journey;
+   CallGrid scorecard reconciliation; Brain page renders the moved Executive Brain.
+4. **Platform floor** (CLAUDE.md Long-Term Goals): commit the lockfile; a CI gate on `main`; a
+   **web test harness** (route/render/permission tests can't run without one today).
+5. **CallGrid polish:** Bids raw-table page → real drill-down; per-drill-down copy.
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
