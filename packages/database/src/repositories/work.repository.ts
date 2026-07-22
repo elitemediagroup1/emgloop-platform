@@ -33,8 +33,10 @@ import {
   dedupeActiveMembers,
   resolveStepOwner,
   participantsOf,
+  readFieldDefs,
   type StepAssignment,
   type WorkflowStepDef,
+  type WorkFieldDef,
 } from '../work-os/workflow';
 
 // --- Vocabulary (kept as string unions to match the spec's lowercase values) ---
@@ -131,6 +133,8 @@ export interface WorkTypeView {
   defaultPriority: string;
   defaultAssigneeUserId: string | null;
   defaultRequirements: { name: string; required: boolean }[];
+  /** Type-specific information fields an admin configured for this Work Type. */
+  fields: WorkFieldDef[];
   sortOrder: number;
   active: boolean;
   catalogKey: string | null;
@@ -187,6 +191,7 @@ function toWorkTypeView(b: {
     defaultPriority: typeof m.defaultPriority === 'string' ? m.defaultPriority : 'normal',
     defaultAssigneeUserId: typeof m.defaultAssigneeUserId === 'string' ? m.defaultAssigneeUserId : null,
     defaultRequirements: reqs,
+    fields: readFieldDefs(m.customFields),
     sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : 0,
     active: b.status === 'active',
     catalogKey: typeof m.catalogKey === 'string' ? m.catalogKey : null,
