@@ -14,6 +14,8 @@ import {
   setUserRoleAction,
   setUserStatusAction,
   removeUserAction,
+  resendInvitationAction,
+  revokeInvitationAction,
 } from '../../../../../crm/admin-actions';
 
 export const dynamic = 'force-dynamic';
@@ -138,13 +140,27 @@ export default async function AdminTeamPage() {
         ) : (
           <div className="adm-tablewrap">
             <table className="adm-table">
-              <thead><tr><th>Email</th><th>Role</th><th>Invited</th></tr></thead>
+              <thead><tr><th>Email</th><th>Role</th><th>Invited</th>{canManage ? <th>Actions</th> : null}</tr></thead>
               <tbody>
                 {invites.map((i) => (
                   <tr key={i.id}>
                     <td>{i.email}</td>
                     <td><span className="adm-badge">{SYSTEM_ROLE_LABELS[i.systemRole]}</span></td>
                     <td className="adm-faint">{fmtDate(i.createdAt)}</td>
+                    {canManage ? (
+                      <td>
+                        <div className="adm-inline">
+                          <form action={resendInvitationAction}>
+                            <input type="hidden" name="invitationId" value={i.id} />
+                            <button className="adm-btn" type="submit">Resend</button>
+                          </form>
+                          <form action={revokeInvitationAction}>
+                            <input type="hidden" name="invitationId" value={i.id} />
+                            <button className="adm-btn adm-btn--danger" type="submit">Revoke</button>
+                          </form>
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

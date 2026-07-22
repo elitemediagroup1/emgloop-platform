@@ -125,6 +125,54 @@ export async function removeUserAction(formData: FormData): Promise<void> {
   revalidatePath('/app/admin/administration/team');
 }
 
+export async function revokeInvitationAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('users', 'create');
+  const invitationId = String(formData.get('invitationId') ?? '');
+  if (!invitationId) return;
+  await repositories.iam.revokeInvitation(session.organizationId, invitationId);
+  await repositories.audit.record({
+    organizationId: session.organizationId,
+    userId: session.userId,
+    actorName: session.name,
+    action: 'invitation.revoked',
+    entityType: 'invitation',
+    entityId: invitationId,
+  });
+  revalidatePath('/app/admin/administration/team');
+}
+
+export async function resendInvitationAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('users', 'create');
+  const invitationId = String(formData.get('invitationId') ?? '');
+  if (!invitationId) return;
+  // The stored token is hashed and cannot be re-sent, so "resend" supersedes:
+  // revoke the pending invite and issue a fresh one (new token, same email/role).
+  const invites = await repositories.iam.listInvitations(session.organizationId);
+  const target = invites.find((i) => i.id === invitationId);
+  if (!target) return;
+  await repositories.iam.revokeInvitation(session.organizationId, invitationId);
+  const token = newToken();
+  await repositories.iam.createInvitation({
+    organizationId: session.organizationId,
+    email: target.email,
+    systemRole: parseRole(target.systemRole),
+    inviterId: session.userId,
+    tokenHash: hashToken(token),
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+  await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token) });
+  await repositories.audit.record({
+    organizationId: session.organizationId,
+    userId: session.userId,
+    actorName: session.name,
+    action: 'invitation.resent',
+    entityType: 'invitation',
+    entityId: invitationId,
+    metadata: { email: target.email },
+  });
+  revalidatePath('/app/admin/administration/team');
+}
+
 // --- Organizations -----------------------------------------------------
 
 export async function createOrganizationAction(formData: FormData): Promise<void> {
