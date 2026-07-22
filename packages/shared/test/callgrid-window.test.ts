@@ -4,7 +4,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveCallGridWindow, parseCallGridRange, easternYmd } from '../src/index';
+import {
+  resolveCallGridWindow, parseCallGridRange, easternYmd,
+  describeCallGridWindow, callGridDayNav, callGridRangeQuery,
+} from '../src/index';
 
 // A fixed reference instant: Wed Jul 22, 2026, 14:30 ET (EDT, -4) = 18:30Z.
 const NOW = new Date('2026-07-22T18:30:00.000Z');
@@ -111,4 +114,85 @@ test('parseCallGridRange defaults to today and rejects unknown presets', () => {
 test('an invalid custom range falls back to today rather than throwing', () => {
   const w = resolveCallGridWindow({ preset: 'custom', start: 'bad', end: '2026-07-05' }, NOW);
   assert.equal(w.preset, 'today');
+});
+
+// --- Live / completed presentation (describeCallGridWindow) ------------------
+
+test('Today resolves in Eastern and is described as Live', () => {
+  const d = describeCallGridWindow(resolveCallGridWindow({ preset: 'today' }, NOW), NOW);
+  assert.equal(d.live, true);
+  assert.equal(d.statusWord, 'Live');
+  assert.equal(d.headerLine, 'Today · Live · Jul 22, 2026 · Eastern Time');
+  assert.equal(d.periodTitle, 'Today · Live');
+  assert.equal(d.comparisonTitle, 'Yesterday · Completed');
+});
+
+test('Yesterday is described as Completed', () => {
+  const d = describeCallGridWindow(resolveCallGridWindow({ preset: 'yesterday' }, NOW), NOW);
+  assert.equal(d.live, false);
+  assert.equal(d.statusWord, 'Completed');
+  assert.equal(d.headerLine, 'Yesterday · Completed · Jul 21, 2026 · Eastern Time');
+  assert.equal(d.comparisonTitle, 'Previous Day');
+});
+
+test('a historical custom single day is Completed with a Previous Day comparison', () => {
+  const w = resolveCallGridWindow({ preset: 'custom', start: '2026-07-15', end: '2026-07-15' }, NOW);
+  const d = describeCallGridWindow(w, NOW);
+  assert.equal(d.isSingleDay, true);
+  assert.equal(d.live, false);
+  assert.equal(d.headerLine, 'Completed · Jul 15, 2026 · Eastern Time');
+  assert.equal(d.periodTitle, 'Jul 15, 2026 · Completed');
+  assert.equal(d.comparisonTitle, 'Previous Day');
+});
+
+test('a completed multi-day range is labeled Completed', () => {
+  const w = resolveCallGridWindow({ preset: 'custom', start: '2026-07-15', end: '2026-07-19' }, NOW);
+  const d = describeCallGridWindow(w, NOW);
+  assert.equal(d.isSingleDay, false);
+  assert.equal(d.live, false);
+  assert.equal(d.statusWord, 'Completed');
+  assert.match(d.headerLine, /· Completed · Eastern Time$/);
+});
+
+test('a range containing Today is labeled Includes Live Data', () => {
+  const d = describeCallGridWindow(resolveCallGridWindow({ preset: 'last_7_days' }, NOW), NOW);
+  assert.equal(d.live, true);
+  assert.equal(d.statusWord, 'Includes Live Data');
+  assert.match(d.headerLine, /· Includes Live Data · Eastern Time$/);
+  assert.equal(d.periodTitle, 'Last 7 Days');
+  assert.equal(d.comparisonTitle, 'Previous 7 Days');
+});
+
+// --- Previous / next day navigation (callGridDayNav) -------------------------
+
+test('Next Day is disabled on Today; Previous Day steps back one Eastern day', () => {
+  const nav = callGridDayNav(resolveCallGridWindow({ preset: 'today' }, NOW), NOW);
+  assert.ok(nav);
+  assert.equal(nav!.nextQuery, null); // disabled on Today
+  assert.equal(nav!.prevQuery, 'range=custom&s=2026-07-21&e=2026-07-21');
+});
+
+test('stepping forward from yesterday returns to Today (as the today preset)', () => {
+  const nav = callGridDayNav(resolveCallGridWindow({ preset: 'yesterday' }, NOW), NOW);
+  assert.ok(nav);
+  assert.equal(nav!.nextQuery, 'range=today');
+  assert.equal(nav!.prevQuery, 'range=custom&s=2026-07-20&e=2026-07-20');
+});
+
+test('a historical day steps to adjacent custom days', () => {
+  const w = resolveCallGridWindow({ preset: 'custom', start: '2026-07-15', end: '2026-07-15' }, NOW);
+  const nav = callGridDayNav(w, NOW);
+  assert.ok(nav);
+  assert.equal(nav!.prevQuery, 'range=custom&s=2026-07-14&e=2026-07-14');
+  assert.equal(nav!.nextQuery, 'range=custom&s=2026-07-16&e=2026-07-16');
+});
+
+test('multi-day ranges have no single-day navigation', () => {
+  assert.equal(callGridDayNav(resolveCallGridWindow({ preset: 'last_7_days' }, NOW), NOW), null);
+});
+
+test('every preset serializes an explicit range (Today is not a bare URL)', () => {
+  assert.equal(callGridRangeQuery('today'), 'range=today');
+  assert.equal(callGridRangeQuery('last_7_days'), 'range=last_7_days');
+  assert.equal(callGridRangeQuery('custom', { start: '2026-07-01', end: '2026-07-05' }), 'range=custom&s=2026-07-01&e=2026-07-05');
 });

@@ -8,7 +8,7 @@
 // presets (today, this week, this month, YTD, trailing-N-days) end at `now`;
 // completed presets (yesterday, last week/2-weeks/month) end on a day boundary.
 
-import { easternYmd, easternWallTimeToUtc, BUSINESS_TIME_ZONE, type EasternYmd } from './business-time';
+import { easternYmd, easternWallTimeToUtc, BUSINESS_TIME_ZONE, BUSINESS_TIME_ZONE_LABEL, type EasternYmd } from './business-time';
 
 export const CALLGRID_PRESETS = [
   'today',
@@ -227,6 +227,131 @@ export function resolveCallGridWindow(
   }
 }
 
+// --- Live / completed presentation ------------------------------------------
+// The ONE definition of how a window is described to the operator: whether it is
+// live (in progress) or completed, its header line, its selected-period title and
+// its comparison-period title. Pure — every CallGrid surface derives its status
+// language here so the wording never drifts between Overview and a subpage.
+
+function sameYmd(a: EasternYmd, b: EasternYmd): boolean {
+  return a.year === b.year && a.month === b.month && a.day === b.day;
+}
+
+export type CallGridStatusWord = 'Live' | 'Completed' | 'Includes Live Data';
+
+export interface CallGridWindowDescription {
+  /** True when the window's last included day is the current Eastern day. */
+  live: boolean;
+  /** True when the window spans exactly one Eastern calendar day. */
+  isSingleDay: boolean;
+  statusWord: CallGridStatusWord;
+  /** Full line for beneath the page title, e.g. "Today · Live · Jul 22, 2026 · Eastern Time". */
+  headerLine: string;
+  /** Selected-period section heading, e.g. "Today · Live" / "Jul 15, 2026 · Completed" / "Last 7 Days". */
+  periodTitle: string;
+  /** Comparison-period heading, e.g. "Yesterday · Completed" / "Previous 7 Days" / "Prior Week". */
+  comparisonTitle: string;
+}
+
+const COMPARISON_TITLES: Partial<Record<CallGridPreset, string>> = {
+  today: 'Yesterday · Completed',
+  last_2_days: 'Previous 2 Days',
+  last_7_days: 'Previous 7 Days',
+  last_14_days: 'Previous 14 Days',
+  last_30_days: 'Previous 30 Days',
+  this_week: 'Comparable Prior-Week Period',
+  last_week: 'Prior Week',
+  last_2_weeks: 'Prior 2 Weeks',
+  this_month: 'Comparable Prior-Month Period',
+  last_month: 'Prior Month',
+  year_to_date: 'Comparable Prior-Year Period',
+};
+
+/** Describe a resolved window's live/completed status and its headings. `now` is
+ *  injected so "today" is the current Eastern day (never a browser-local date). */
+export function describeCallGridWindow(window: CallGridWindow, now: Date): CallGridWindowDescription {
+  const today = easternYmd(now);
+  const yesterday = shiftDays(today, -1);
+  const firstDay = easternYmd(window.start);
+  const lastDay = lastIncludedYmd(window.end);
+  const isSingleDay = sameYmd(firstDay, lastDay);
+  const isToday = isSingleDay && sameYmd(firstDay, today);
+  const isYesterday = isSingleDay && sameYmd(firstDay, yesterday);
+  // The last included day is today (live presets end at `now`; a range or custom
+  // window whose final day is today also counts as containing live data).
+  const live = sameYmd(lastDay, today);
+
+  let statusWord: CallGridStatusWord;
+  let headerLine: string;
+  let periodTitle: string;
+
+  if (isToday) {
+    statusWord = 'Live';
+    headerLine = `Today · Live · ${fmt(today)} · ${BUSINESS_TIME_ZONE_LABEL}`;
+    periodTitle = 'Today · Live';
+  } else if (isSingleDay) {
+    statusWord = 'Completed';
+    if (isYesterday) {
+      headerLine = `Yesterday · Completed · ${fmt(firstDay)} · ${BUSINESS_TIME_ZONE_LABEL}`;
+      periodTitle = 'Yesterday · Completed';
+    } else {
+      headerLine = `Completed · ${fmt(firstDay)} · ${BUSINESS_TIME_ZONE_LABEL}`;
+      periodTitle = `${fmt(firstDay)} · Completed`;
+    }
+  } else if (live) {
+    statusWord = 'Includes Live Data';
+    headerLine = `${window.label} · Includes Live Data · ${BUSINESS_TIME_ZONE_LABEL}`;
+    periodTitle = presetOrLabel(window);
+  } else {
+    statusWord = 'Completed';
+    headerLine = `${window.label} · Completed · ${BUSINESS_TIME_ZONE_LABEL}`;
+    periodTitle = presetOrLabel(window);
+  }
+
+  const comparisonTitle = isSingleDay && !isToday
+    ? 'Previous Day'
+    : COMPARISON_TITLES[window.preset] ?? 'Prior Period';
+
+  return { live, isSingleDay, statusWord, headerLine, periodTitle, comparisonTitle };
+}
+
+/** The section title for a multi-day window: the preset's name, or the date range
+ *  for a custom span. */
+function presetOrLabel(window: CallGridWindow): string {
+  return window.preset === 'custom' ? window.label : CALLGRID_PRESET_LABELS[window.preset];
+}
+
+function ymdQuery(ymd: EasternYmd): string {
+  const s = `${ymd.year}-${String(ymd.month).padStart(2, '0')}-${String(ymd.day).padStart(2, '0')}`;
+  return `range=custom&s=${s}&e=${s}`;
+}
+
+export interface CallGridDayNav {
+  /** Query string for the previous Eastern calendar day. */
+  prevQuery: string;
+  /** Query string for the next Eastern calendar day, or null when the current day
+   *  is today (Next Day is disabled — you cannot report a future day). */
+  nextQuery: string | null;
+}
+
+/** Previous-/next-day navigation for a single-day window. Returns null for any
+ *  multi-day range (the day arrows are hidden). Moving forward from a historical
+ *  day eventually lands on Today (as the `today` preset, so it reads as Live). */
+export function callGridDayNav(window: CallGridWindow, now: Date): CallGridDayNav | null {
+  const today = easternYmd(now);
+  const firstDay = easternYmd(window.start);
+  const lastDay = lastIncludedYmd(window.end);
+  if (!sameYmd(firstDay, lastDay)) return null; // not a single day
+
+  const prevQuery = ymdQuery(shiftDays(firstDay, -1));
+  if (sameYmd(firstDay, today)) {
+    return { prevQuery, nextQuery: null }; // Next Day disabled on Today
+  }
+  const next = shiftDays(firstDay, 1);
+  const nextQuery = sameYmd(next, today) ? 'range=today' : ymdQuery(next);
+  return { prevQuery, nextQuery };
+}
+
 /** Parse a URL query into a resolvable range input. Defaults to today; unknown
  *  presets and malformed custom dates fall back safely. Persisted in the URL so a
  *  selection survives navigation between CallGrid tabs. */
@@ -244,9 +369,10 @@ export function parseCallGridRange(params: { range?: string | null; s?: string |
 }
 
 /** Serialize a range selection back to a query string fragment (for nav links so
- *  the selection persists across tabs). Returns '' for the default (today). */
+ *  the selection persists across tabs). The active preset is always explicit —
+ *  including `range=today` — so every in-product URL is normalized to the selected
+ *  period and Today never silently reverts to an ambiguous bare URL. */
 export function callGridRangeQuery(preset: CallGridPreset, custom?: { start?: string; end?: string }): string {
-  if (preset === 'today') return '';
   if (preset === 'custom') {
     const s = custom?.start ?? '';
     const e = custom?.end ?? '';
