@@ -2185,6 +2185,14 @@ enum DecisionOutcome {
   NO_ACTION
 }
 
+/// Lifecycle of one attempt at one processing stage (Increment 2).
+enum ProcessingAttemptStatus {
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  DEAD_LETTERED
+}
+
 // ---- Cognitive models -----------------------------------------------------
 
 /// WHO or WHAT this is. The stable canonical entity. NOT the CRM Contact —
@@ -2571,4 +2579,27 @@ model CognitiveDecision {
   @@index([organizationId, decisionType])
   @@index([organizationId, subjectIdentityId])
   @@map("cognitive_decisions")
+}
+
+/// Per-stage processing attempt for the CognitiveEventProcessor (Increment 2).
+/// Makes failures recoverable and dead-letters queryable. A provider request is
+/// only reported successful when the accepted pipeline stages are durable; a
+/// FAILED/retryable attempt is the record that keeps the work recoverable.
+model CognitiveProcessingAttempt {
+  id               String                  @id @default(cuid())
+  organizationId   String
+  memoryEventId    String?
+  stage            String
+  attemptNumber    Int                     @default(1)
+  status           ProcessingAttemptStatus @default(PROCESSING)
+  errorCode        String?
+  safeErrorMessage String?
+  startedAt        DateTime                @default(now())
+  completedAt      DateTime?
+  nextRetryAt      DateTime?
+  createdAt        DateTime                @default(now())
+
+  @@index([organizationId, status, nextRetryAt])
+  @@index([organizationId, memoryEventId])
+  @@map("cognitive_processing_attempts")
 }

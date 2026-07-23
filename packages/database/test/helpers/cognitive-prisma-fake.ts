@@ -11,11 +11,12 @@
 
 type Row = Record<string, any>;
 
-// Delegates that carry an org-scoped composite @@unique constraint.
+// Delegates that carry a @@unique constraint (org-scoped composite, or global).
 const UNIQUE_KEYS: Record<string, string[]> = {
   cognitiveIdentity: ['organizationId', 'entityType', 'canonicalKey'],
   memoryEvent: ['organizationId', 'sourceSystem', 'sourceEventId'],
   activeStateRecord: ['organizationId', 'identityId', 'domain', 'stateKey'],
+  loopEvent: ['eventId'], // global @unique, matching the real LoopEvent model
 };
 
 const DELEGATES = [
@@ -34,6 +35,8 @@ const DELEGATES = [
   'stateChangeSubscription',
   'intelligenceHypothesis',
   'cognitiveDecision',
+  'cognitiveProcessingAttempt',
+  'loopEvent',
 ] as const;
 
 let idSeq = 0;

@@ -22,6 +22,7 @@ import { ActiveStateRepository, StateChangeOutboxRepository } from './active-sta
 import { StateChangeSubscriptionRepository } from './subscription.repository';
 import { IntelligenceHypothesisRepository } from './hypothesis.repository';
 import { CognitiveDecisionRepository } from './decision.repository';
+import { CognitiveProcessingAttemptRepository } from './processing-attempt.repository';
 
 export {
   CognitiveIdentityRepository,
@@ -58,6 +59,8 @@ export { IntelligenceHypothesisRepository } from './hypothesis.repository';
 export type { ProposeHypothesisInput } from './hypothesis.repository';
 export { CognitiveDecisionRepository } from './decision.repository';
 export type { RecordDecisionInput } from './decision.repository';
+export { CognitiveProcessingAttemptRepository } from './processing-attempt.repository';
+export type { StartAttemptInput, FailAttemptInput } from './processing-attempt.repository';
 export {
   hashIdentifier,
   normalizeIdentifier,
@@ -78,6 +81,7 @@ export interface CognitiveRepositories {
   subscriptions: StateChangeSubscriptionRepository;
   hypotheses: IntelligenceHypothesisRepository;
   decisions: CognitiveDecisionRepository;
+  processingAttempts: CognitiveProcessingAttemptRepository;
 }
 
 export function createCognitiveRepositories(prisma: PrismaClient): CognitiveRepositories {
@@ -95,5 +99,6 @@ export function createCognitiveRepositories(prisma: PrismaClient): CognitiveRepo
     subscriptions: new StateChangeSubscriptionRepository(prisma),
     hypotheses: new IntelligenceHypothesisRepository(prisma),
     decisions: new CognitiveDecisionRepository(prisma),
+    processingAttempts: new CognitiveProcessingAttemptRepository(prisma),
   };
 }

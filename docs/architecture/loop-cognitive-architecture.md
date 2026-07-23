@@ -1,9 +1,15 @@
 # Loop Cognitive Architecture
 
-**Status:** Increment 1 (canonical domain model + repositories) — **implemented**.
-Increments 2–4 (processing pipeline, explainability/publishing, real-time vertical
-slice) — **designed here, not yet built**. This document describes the full design;
-each section marks what is live today vs. planned.
+**Status:** Increments 1–2 — **implemented**. Increment 1 = canonical domain model
++ repositories. Increment 2 = the `CognitiveEventProcessor` (nine stages),
+`GovernanceEvaluator`, knowledge + active-state evaluator registries,
+`CognitiveProcessingAttempt` retry/dead-letter, and the `LoopEventConsumer` that
+reuses the existing ingress seam. Increments 3–4 (explainability/publishing;
+real-time vertical slice + admin page) — **designed here, not yet built**. Each
+section marks what is live today vs. planned.
+
+> **Not production-ready** until the migration blocker is resolved — see
+> `docs/architecture/migration-remediation-plan.md`.
 
 > This is the canonical implementation document for the cognitive foundation.
 > Where it disagrees with older `docs/` (EVENT_BUS.md, DATA_MODEL.md), this file
@@ -231,10 +237,15 @@ This is **not** a parallel system. Classification of overlapping components:
 
 ## Future phases
 
-- **Increment 2** — `CognitiveEventProcessor`: idempotency → normalize → resolve
-  identity → durable memory → governance → knowledge → affected-state recalc →
-  transaction → status transitions, with `CognitiveProcessingAttempt`
-  retry/dead-letter foundation. Provider adapters normalize outside the processor.
+- **Increment 2 (DONE)** — `CognitiveEventProcessor`: idempotency → normalize →
+  resolve identity → durable memory → governance → knowledge → affected-state
+  recalc → transaction → status transitions, with `CognitiveProcessingAttempt`
+  retry/dead-letter. Evaluators are pure (no Prisma); the processor is the only
+  I/O component and persists solely through the Increment 1 repositories. The
+  `LoopEventConsumer` drains the existing `LoopEvent` store (its previously
+  zero-caller `processed`/`markLoopEventProcessed` seam) — no second receiver.
+  Org is resolved from `LoopEvent.platform` via an injected server-side resolver,
+  never from the event body.
 - **Increment 3** — `CognitiveContextService` (`getIdentityContext`,
   `explainActiveState`), `StateChangePublisher` (outbox drain, ordered,
   idempotent, dead-letter), internal subscribers, `DecisionPolicyRegistry`.

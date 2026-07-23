@@ -152,30 +152,33 @@ Flat: Dashboard · **Brain** · CallGrid Intelligence · CRM · Creator Hub · W
 Administration (footer: Team · Work Types, permission-aware). One shared shell; longest-prefix
 active-state.
 
-## Loop Cognitive Architecture — INCREMENT 1 IN REVIEW (draft PR) · branch `feat/loop-cognitive-architecture-foundation` (off main `553ec08`)
-The canonical cognitive foundation: identity / durable memory / governed knowledge /
-explainable active state / governance / transactional outbox / subscriptions / hypotheses /
-decisions. A 4-increment controlled build; **Increment 1 (domain model + repositories) is
-done and validated**, Increments 2–4 (processing pipeline; explainability + publishing;
-real-time product-click vertical slice + admin validation page) are **designed but not built**
-(see `docs/architecture/loop-cognitive-architecture.md`).
-**Increment 1 shipped:** 15 additive Prisma models + 29 enums (`schema.prisma` §cognitive);
-15 org-scoped repositories under `packages/database/src/repositories/cognitive/` (wired into the
-barrel as `repositories.cognitive`); org-salted HMAC hashing for sensitive identifiers; additive
-migration `20260723000000_loop_cognitive_architecture_foundation` (15 tables, 0 ALTER/DROP on
-existing tables). **Not a parallel system** — reuses LoopEvent (ingress seam), DomainEvent,
-Customer/resolveCustomer, `packages/intelligence`; **`packages/marketplace-intelligence` is now
-marked DEPRECATE** (dead + broken, superseded). **Canonical:** `CognitiveIdentity` (not CRM
-Customer), `MemoryEvent` (immutable), `KnowledgeAssertion` (class-preserving), `ActiveStateRecord`
-(derived projection, evidence-required).
-**Validated:** 16 new deterministic tests (166 total pass); `@emgloop/web` + `@emgloop/database`
-typecheck clean; production build passes; migration applies on clean Postgres **from-zero** (66
-tables) and **from-current** (51→66, additive). **Not built / not claimed:** processor, publisher,
-context/explain service, vertical slice, admin page, Brain, aggregate intelligence, any LLM.
-**Caveat (pre-existing):** `sprint_11` migration has an em-dash syntax error blocking `migrate
-deploy` replay; prod applies schema via `prisma generate` + a deliberate step, so this migration
-is a deliberate human apply, not a build side effect. _(needs deploy validation: apply migration;
-nothing renders yet — no UI in Increment 1.)_
+## Loop Cognitive Architecture — INCREMENTS 1–2 IN REVIEW (draft PR #148) · branch `feat/loop-cognitive-architecture-foundation` (off main `553ec08`)
+A 4-increment controlled build of the canonical cognitive foundation (identity / durable
+memory / governed knowledge / explainable active state / governance / outbox / subscriptions /
+hypotheses / decisions); see `docs/architecture/loop-cognitive-architecture.md`. **Increment 1
+(base):** 16 additive Prisma models + 30 enums (`schema.prisma` §cognitive), 16 org-scoped
+repositories under `packages/database/src/repositories/cognitive/` (barrel `repositories.cognitive`),
+org-salted HMAC hashing, migrations `20260723000000`/`20260723000001` (additive, 0 ALTER/DROP).
+Canonical: `CognitiveIdentity` (not CRM Customer), `MemoryEvent` (immutable), `KnowledgeAssertion`
+(class-preserving), `ActiveStateRecord` (evidence-required projection). `marketplace-intelligence`
+marked DEPRECATE. **Increment 2 (processing pipeline) shipped on top of Increment 1.** The
+`CognitiveEventProcessor` (9 stages: idempotency → normalize → resolve identity →
+durable memory → governance → knowledge → active-state → transactional revision →
+status) runs entirely through the Increment 1 repositories — no parallel persistence,
+no direct Prisma from evaluators, no governance bypass. Pure evaluators:
+`GovernanceEvaluator` (deny-by-default), `KnowledgeEvaluatorRegistry` (7 event types),
+`ActiveStateEvaluatorRegistry` (Commerce/Communication/Work/Campaign). New model
+`CognitiveProcessingAttempt` (retry/dead-letter; migration `20260723000001`). **Seam
+reuse:** `LoopEventConsumer` drains the existing `LoopEvent` store via its previously
+zero-caller `processed`/`markLoopEventProcessed` methods — **no second public receiver**;
+org resolved from `platform` via an injected server-side resolver, never the event body.
+**Validated:** +15 pipeline tests (**181 total pass**); typecheck + build clean;
+inc2 migration applies from-zero (67 tables) and from-current. **RELEASE BLOCKER
+(tracked, not fixed here):** `docs/architecture/migration-remediation-plan.md` — the
+`sprint_11` migration's leading em-dash blocks `migrate deploy` replay; prod has no
+`_prisma_migrations` table. Cognitive architecture is **NOT production-ready** until
+that plan's exit criteria are met. **Next:** Increment 3 (explainability + publisher +
+subscribers + decision policies), then Increment 4 (vertical slice + admin page).
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
