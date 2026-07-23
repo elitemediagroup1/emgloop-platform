@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-07-22._
+_Last updated: 2026-07-23._
 
 ---
 
@@ -151,6 +151,53 @@ stay duration-based (timezone-independent).
 Flat: Dashboard · **Brain** · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting ·
 Administration (footer: Team · Work Types, permission-aware). One shared shell; longest-prefix
 active-state.
+
+## Loop Cognitive Architecture — INCREMENTS 1–3 IN REVIEW (draft PR #148) · branch `feat/loop-cognitive-architecture-foundation` (off main `553ec08`)
+A 4-increment controlled build of the canonical cognitive foundation (identity / durable
+memory / governed knowledge / explainable active state / governance / outbox / subscriptions /
+hypotheses / decisions); see `docs/architecture/loop-cognitive-architecture.md`. **Increment 1
+(base):** 16 additive Prisma models + 30 enums (`schema.prisma` §cognitive), 16 org-scoped
+repositories under `packages/database/src/repositories/cognitive/` (barrel `repositories.cognitive`),
+org-salted HMAC hashing, migrations `20260723000000`/`20260723000001` (additive, 0 ALTER/DROP).
+Canonical: `CognitiveIdentity` (not CRM Customer), `MemoryEvent` (immutable), `KnowledgeAssertion`
+(class-preserving), `ActiveStateRecord` (evidence-required projection). `marketplace-intelligence`
+marked DEPRECATE. **Increment 2 (processing pipeline) shipped on top of Increment 1.** The
+`CognitiveEventProcessor` (9 stages: idempotency → normalize → resolve identity →
+durable memory → governance → knowledge → active-state → transactional revision →
+status) runs entirely through the Increment 1 repositories — no parallel persistence,
+no direct Prisma from evaluators, no governance bypass. Pure evaluators:
+`GovernanceEvaluator` (deny-by-default), `KnowledgeEvaluatorRegistry` (7 event types),
+`ActiveStateEvaluatorRegistry` (Commerce/Communication/Work/Campaign). New model
+`CognitiveProcessingAttempt` (retry/dead-letter; migration `20260723000001`). **Seam
+reuse:** `LoopEventConsumer` drains the existing `LoopEvent` store via its previously
+zero-caller `processed`/`markLoopEventProcessed` methods — **no second public receiver**;
+org resolved from `platform` via an injected server-side resolver, never the event body.
+**Increment 3 (governed read surface + publisher) shipped on top of Increment 2.**
+`CognitiveContextService` is the deny-by-default READ surface — `getIdentityContext`
++ `explainActiveState` map stored rows to the Prisma-free `cognitive-context.v1` DTOs
+in `@emgloop/shared` (readers depend on the contract, never persistence). Omits
+expired/revoked/suppressed/unpermitted data (disclosed in `unknowns`), LABELS
+stale-but-live state, never leaks raw memory payloads; explains state "supported by,
+never caused by" from rows only. `StateChangePublisher` drains the transactional
+outbox → one `StateChangeDelivery` per matching ACTIVE subscription: exactly-once per
+(change, subscriber) via `(outboxId, subscriptionId)` unique + atomic single-claim,
+independent per-subscriber retry/dead-letter, REQUIRED-subscriber dead-letter fails the
+parent while OPTIONAL never blocks. Four internal subscribers (audit / decision-eval /
+work-os / dashboard-invalidation) — none execute an external action; audit records a
+safe summary only. `DecisionPolicyRegistry` (pure): 3 declarative policies over governed
+context, deterministic order-independent precedence (SUPPRESS>QUEUE>RECOMMEND>NO_ACTION);
+decisions RECORDED (idempotent by revision+policy+version), never sent; CREATE_WORK is
+approval-required. New model `StateChangeDelivery` + `DeliveryStatus`, `+required` on
+subscriptions, `+idempotencyKey` on decisions (migration `20260723000002`, additive-only).
+**Validated:** +16 tests (**197 total pass**); typecheck (`@emgloop/database`/`shared`/`web`)
++ `turbo build --filter=@emgloop/web` clean; `prisma validate` clean. **RELEASE BLOCKER
+(tracked, not fixed here):** `docs/architecture/migration-remediation-plan.md` — the
+`sprint_11` migration's leading em-dash blocks `migrate deploy` replay; prod has no
+`_prisma_migrations` table. Cognitive architecture is **NOT production-ready** until
+that plan's exit criteria are met. **Next:** Increment 4 (real-time product-click vertical
+slice + admin-only validation page `/app/admin/administration/cognitive-architecture`,
+simulator disabled in production unless an explicit safe flag is set) — not yet started.
+Refresh the PR #148 title/body to *Increments 1–3* (197-test count, three migrations).
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest

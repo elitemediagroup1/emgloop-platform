@@ -192,3 +192,9 @@ export * from './nav-match';
 
 // --- The one gate for demo/fixture seeding (fail-closed; never in production) ---
 export * from './demo-seed';
+
+// --- Loop Cognitive Architecture: governed context response contract (Inc 3) ---
+// The DTO shapes CognitiveContextService returns. Prisma-free by design so both
+// the database layer (which maps rows into them) and web consumers depend on one
+// contract, not on persistence. See ./cognitive-context.ts.
+export * from './cognitive-context';
