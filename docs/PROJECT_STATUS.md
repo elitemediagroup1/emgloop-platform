@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-07-22._
+_Last updated: 2026-07-23._
 
 ---
 
@@ -151,6 +151,31 @@ stay duration-based (timezone-independent).
 Flat: Dashboard · **Brain** · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting ·
 Administration (footer: Team · Work Types, permission-aware). One shared shell; longest-prefix
 active-state.
+
+## Loop Cognitive Architecture — INCREMENT 1 IN REVIEW (draft PR) · branch `feat/loop-cognitive-architecture-foundation` (off main `553ec08`)
+The canonical cognitive foundation: identity / durable memory / governed knowledge /
+explainable active state / governance / transactional outbox / subscriptions / hypotheses /
+decisions. A 4-increment controlled build; **Increment 1 (domain model + repositories) is
+done and validated**, Increments 2–4 (processing pipeline; explainability + publishing;
+real-time product-click vertical slice + admin validation page) are **designed but not built**
+(see `docs/architecture/loop-cognitive-architecture.md`).
+**Increment 1 shipped:** 15 additive Prisma models + 29 enums (`schema.prisma` §cognitive);
+15 org-scoped repositories under `packages/database/src/repositories/cognitive/` (wired into the
+barrel as `repositories.cognitive`); org-salted HMAC hashing for sensitive identifiers; additive
+migration `20260723000000_loop_cognitive_architecture_foundation` (15 tables, 0 ALTER/DROP on
+existing tables). **Not a parallel system** — reuses LoopEvent (ingress seam), DomainEvent,
+Customer/resolveCustomer, `packages/intelligence`; **`packages/marketplace-intelligence` is now
+marked DEPRECATE** (dead + broken, superseded). **Canonical:** `CognitiveIdentity` (not CRM
+Customer), `MemoryEvent` (immutable), `KnowledgeAssertion` (class-preserving), `ActiveStateRecord`
+(derived projection, evidence-required).
+**Validated:** 16 new deterministic tests (166 total pass); `@emgloop/web` + `@emgloop/database`
+typecheck clean; production build passes; migration applies on clean Postgres **from-zero** (66
+tables) and **from-current** (51→66, additive). **Not built / not claimed:** processor, publisher,
+context/explain service, vertical slice, admin page, Brain, aggregate intelligence, any LLM.
+**Caveat (pre-existing):** `sprint_11` migration has an em-dash syntax error blocking `migrate
+deploy` replay; prod applies schema via `prisma generate` + a deliberate step, so this migration
+is a deliberate human apply, not a build side effect. _(needs deploy validation: apply migration;
+nothing renders yet — no UI in Increment 1.)_
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest

@@ -1836,3 +1836,739 @@ enum MarketplaceReportRunStatus {
   /// Some pages read, page budget exhausted before totalPages.
   PARTIAL_PAGINATION
 }
+
+// ===========================================================================
+// LOOP COGNITIVE ARCHITECTURE FOUNDATION (Increment 1 — canonical domain)
+// ---------------------------------------------------------------------------
+// The canonical cognitive layer: identity, durable memory, governed knowledge,
+// explainable active state, governance policy, transactional outbox,
+// subscriptions, intelligence hypotheses, and decision records.
+//
+// CONSOLIDATION (see docs/architecture/loop-cognitive-architecture.md):
+//   - This is NOT a parallel event system. MemoryEvent is the org-scoped
+//     canonical durable log; the existing `LoopEvent` gateway is REUSED as the
+//     inbound ingress (its idle `processed` flag becomes the consumer seam in
+//     Increment 2). `DomainEvent` (Executive Brain fact log) and `Customer`
+//     (CRM identity aggregate) COEXIST and reference CognitiveIdentity later.
+//   - Tenancy follows the newest subsystem precedent (Work OS, vk_*): a plain
+//     indexed `organizationId` with NO Organization FK. Integrity and org
+//     scoping are enforced in the repositories (resolve-within-org, fail to
+//     null), which is the platform's mandated tenancy discipline. Cross-model
+//     references are plain id columns validated at the repository layer; adding
+//     FKs is shared future debt tracked with the other no-FK subsystems.
+//   - Additive only. No existing table is renamed, altered, or dropped.
+// ===========================================================================
+
+// ---- Cognitive enums ------------------------------------------------------
+
+/// What kind of thing an identity is. Extensible without touching the engine.
+enum CognitiveEntityType {
+  PERSON
+  COMPANY
+  HOUSEHOLD
+  EMPLOYEE
+  CREATOR
+  BUYER
+  VENDOR
+  SOURCE
+  CAMPAIGN
+  PRODUCT
+  SERVICE
+  PROPERTY
+  LOCATION
+  OPPORTUNITY
+  DOCUMENT
+  CALL
+  EMAIL
+  MEETING
+  WORK_ITEM
+  OTHER
+}
+
+enum CognitiveIdentityStatus {
+  ANONYMOUS
+  KNOWN
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// The capacity in which an identity currently participates. An identity is
+/// stable and may hold multiple overlapping roles over time.
+enum IdentityRoleType {
+  ANONYMOUS_VISITOR
+  KNOWN_VISITOR
+  CONSUMER
+  LEAD
+  CRM_CONTACT
+  BUSINESS_CONTACT
+  CREATOR
+  EMPLOYEE
+  BUYER_CONTACT
+  VENDOR_CONTACT
+  PARTNER
+  CLIENT
+  HOUSEHOLD_MEMBER
+  OTHER
+}
+
+enum IdentityRoleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum IdentityEvidenceType {
+  AUTHENTICATED_ACCOUNT
+  EMAIL
+  PHONE
+  FIRST_PARTY_COOKIE
+  SESSION_ID
+  DEVICE_ID
+  CALLER_ID
+  FORM_SUBMISSION
+  EXPLICIT_LINK
+  HOUSEHOLD_LINK
+  OTHER
+}
+
+/// How an identity resolution was reached. Mirrors the processor's resolution
+/// precedence (authenticated > confirmed link > verified contact > session).
+enum IdentityResolutionMethod {
+  AUTHENTICATED
+  EXPLICIT_LINK
+  VERIFIED_EMAIL
+  VERIFIED_PHONE
+  SESSION_CONTINUITY
+  PSEUDONYMOUS
+  HOUSEHOLD
+  MANUAL
+  OTHER
+}
+
+enum IdentityResolutionStatus {
+  PROPOSED
+  CONFIRMED
+  REJECTED
+  REVERSED
+}
+
+/// What happened. Immutable historical fact type. NEVER a derived conclusion
+/// (PRODUCT_CLICKED, not INTERESTED_IN_PURPLE_SHOES).
+enum MemoryEventType {
+  PAGE_VIEWED
+  SEARCH_PERFORMED
+  LINK_CLICKED
+  FORM_SUBMITTED
+  CALL_STARTED
+  CALL_COMPLETED
+  EMAIL_RECEIVED
+  EMAIL_SENT
+  SMS_SENT
+  SMS_RECEIVED
+  PRODUCT_VIEWED
+  PRODUCT_CLICKED
+  PURCHASE_COMPLETED
+  APPOINTMENT_REQUESTED
+  BOOKING_COMPLETED
+  WORK_CREATED
+  WORK_STEP_COMPLETED
+  CAMPAIGN_STATUS_CHANGED
+  CONSENT_CHANGED
+  IDENTITY_LINKED
+  IDENTITY_UNLINKED
+  OTHER
+}
+
+enum MemoryProcessingStatus {
+  RECEIVED
+  NORMALIZED
+  IDENTITY_RESOLVED
+  MEMORY_PERSISTED
+  STATE_UPDATED
+  PUBLISHED
+  FAILED
+  DEAD_LETTERED
+}
+
+/// The epistemic class of an assertion. Declared/observed facts are NOT the
+/// same as inferred/predicted beliefs, and must never be collapsed.
+enum AssertionClass {
+  DECLARED
+  OBSERVED
+  INFERRED
+  PREDICTED
+  ORGANIZATIONAL
+}
+
+enum AssertionStatus {
+  PROPOSED
+  ACTIVE
+  SUPERSEDED
+  REJECTED
+  EXPIRED
+  REVOKED
+}
+
+enum CognitiveValueType {
+  STRING
+  NUMBER
+  BOOLEAN
+  DATE
+  DATETIME
+  IDENTITY_REFERENCE
+  JSON
+}
+
+enum IdentityRelationshipType {
+  MEMBER_OF
+  EMPLOYED_BY
+  HOUSEHOLD_MEMBER_OF
+  CONTACT_FOR
+  CREATOR_REPRESENTED_BY
+  BUYER_OF
+  VENDOR_TO
+  PARTNER_OF
+  RELATED_TO
+  INTRODUCED_BY
+  ASSIGNED_TO
+  OWNS
+  MANAGES
+  PARTICIPATED_IN
+  OTHER
+}
+
+enum RelationshipStatus {
+  PROPOSED
+  ACTIVE
+  INACTIVE
+  REVERSED
+}
+
+/// The purpose for which data may be retained, accessed, reasoned over, or
+/// acted upon. Purpose limitation is enforced deny-by-default.
+enum DataPurpose {
+  PERSONALIZATION
+  SERVICE_DELIVERY
+  SALES
+  MARKETING
+  ANALYTICS
+  OPERATIONS
+  SUPPORT
+  AI_REASONING
+  AGGREGATION
+  EXTERNAL_ADVERTISING
+  OTHER
+}
+
+enum DataSensitivity {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  SENSITIVE
+  HIGHLY_SENSITIVE
+}
+
+enum DataScope {
+  INDIVIDUAL
+  AGGREGATE
+  COMMERCIAL
+  OPERATIONAL
+  INTERNAL
+  PUBLIC
+}
+
+/// Lawful basis for holding/using the data. Absence (NONE) denies by default.
+enum ConsentBasis {
+  CONSENT
+  CONTRACT
+  LEGITIMATE_INTEREST
+  LEGAL_OBLIGATION
+  VITAL_INTEREST
+  PUBLIC_TASK
+  NONE
+}
+
+enum GovernancePolicyStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+/// The active-state projection domain. Domain-specific — never one giant blob.
+enum ActiveStateDomain {
+  COMMERCE
+  SERVICE_JOURNEY
+  COMMUNICATION
+  RELATIONSHIP
+  SUPPORT
+  COMMERCIAL
+  ACCOUNT
+  RISK
+  OPERATIONAL
+  WORK
+  CAMPAIGN
+  CREATOR
+  OTHER
+}
+
+enum ActiveStateStatus {
+  ACTIVE
+  STALE
+  EXPIRED
+  SUPPRESSED
+  REVOKED
+}
+
+enum DecayModel {
+  NONE
+  LINEAR
+  EXPONENTIAL
+  FIXED_EXPIRATION
+  RULE_DEFINED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+  DEAD_LETTERED
+}
+
+enum SubscriberType {
+  INTERNAL_HANDLER
+  BRAIN
+  CRM
+  WORK_OS
+  WEBSITE
+  SMS
+  EMAIL
+  CALLGRID_INTELLIGENCE
+  CREATOR_HUB
+  DASHBOARD
+  OTHER
+}
+
+enum SubscriptionDeliveryMode {
+  INTERNAL_SYNC
+  INTERNAL_ASYNC
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum HypothesisStatus {
+  PROPOSED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+}
+
+enum HypothesisGeneratedBy {
+  DETERMINISTIC_RULE
+  STATISTICAL_MODEL
+  AI_MODEL
+  HUMAN
+}
+
+enum DecisionOutcome {
+  SEND
+  QUEUE
+  SUPPRESS
+  ESCALATE
+  RECOMMEND
+  CREATE_WORK
+  NO_ACTION
+}
+
+// ---- Cognitive models -----------------------------------------------------
+
+/// WHO or WHAT this is. The stable canonical entity. NOT the CRM Contact —
+/// CRM/Customer rows reference this; this never depends on them.
+model CognitiveIdentity {
+  id             String                  @id @default(cuid())
+  organizationId String
+  entityType     CognitiveEntityType
+  displayName    String?
+  canonicalKey   String
+  status         CognitiveIdentityStatus @default(ANONYMOUS)
+  metadata       Json                    @default("{}")
+  archivedAt     DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@unique([organizationId, entityType, canonicalKey])
+  @@index([organizationId, entityType])
+  @@index([organizationId, status])
+  @@map("cognitive_identities")
+}
+
+/// The CAPACITY in which an identity participates. Multiple roles may overlap;
+/// assigning a role never overwrites the identity's entity type.
+model IdentityRole {
+  id             String             @id @default(cuid())
+  organizationId String
+  identityId     String
+  roleType       IdentityRoleType
+  status         IdentityRoleStatus @default(ACTIVE)
+  effectiveFrom  DateTime           @default(now())
+  effectiveTo    DateTime?
+  sourceEventId  String?
+  metadata       Json               @default("{}")
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([organizationId, identityId])
+  @@index([organizationId, roleType, status])
+  @@map("identity_roles")
+}
+
+/// Evidence that supports an identity's existence/resolution. Raw identifiers
+/// are NEVER stored — only a keyed hash (normalizedValueHash).
+model IdentityEvidence {
+  id                  String               @id @default(cuid())
+  organizationId      String
+  identityId          String
+  evidenceType        IdentityEvidenceType
+  normalizedValueHash String
+  source              String?
+  confidence          Float?
+  consentBasis        ConsentBasis         @default(NONE)
+  permittedPurposes   DataPurpose[]        @default([])
+  observedAt          DateTime             @default(now())
+  expiresAt           DateTime?
+  revokedAt           DateTime?
+  metadata            Json                 @default("{}")
+  createdAt           DateTime             @default(now())
+
+  @@index([organizationId, identityId])
+  @@index([organizationId, evidenceType, normalizedValueHash])
+  @@map("identity_evidence")
+}
+
+/// A reversible link asserting two identities are the same/related. Confirmed
+/// links are never hard-deleted; reversal is recorded.
+model IdentityResolutionLink {
+  id                String                   @id @default(cuid())
+  organizationId    String
+  sourceIdentityId  String
+  targetIdentityId  String
+  method            IdentityResolutionMethod
+  confidence        Float?
+  status            IdentityResolutionStatus @default(PROPOSED)
+  evidenceSummary   Json                     @default("{}")
+  consentBasis      ConsentBasis             @default(NONE)
+  permittedPurposes DataPurpose[]            @default([])
+  establishedAt     DateTime                 @default(now())
+  establishedBy     String?
+  reversedAt        DateTime?
+  reversedBy        String?
+  reversalReason    String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([organizationId, sourceIdentityId])
+  @@index([organizationId, targetIdentityId])
+  @@index([organizationId, status])
+  @@map("identity_resolution_links")
+}
+
+/// WHAT HAPPENED. Immutable historical fact. Payload is never overwritten;
+/// a derived conclusion belongs in knowledge/state, not here.
+model MemoryEvent {
+  id                     String                 @id @default(cuid())
+  organizationId         String
+  eventType              MemoryEventType
+  occurredAt             DateTime
+  receivedAt             DateTime               @default(now())
+  sourceSystem           String
+  sourceEventId          String
+  actorIdentityId        String?
+  subjectIdentityId      String?
+  objectIdentityId       String?
+  channel                String?
+  context                Json                   @default("{}")
+  payload                Json                   @default("{}")
+  sensitivity            DataSensitivity        @default(INTERNAL)
+  consentBasis           ConsentBasis           @default(NONE)
+  permittedPurposes      DataPurpose[]          @default([])
+  retentionPolicy        String?
+  // Aggregate eligibility is stored SEPARATELY from individual-use purposes.
+  aggregationEligibility Boolean                @default(false)
+  processingStatus       MemoryProcessingStatus @default(RECEIVED)
+  createdAt              DateTime               @default(now())
+
+  @@unique([organizationId, sourceSystem, sourceEventId])
+  @@index([organizationId, subjectIdentityId, occurredAt])
+  @@index([organizationId, eventType, occurredAt])
+  @@index([organizationId, processingStatus])
+  @@map("memory_events")
+}
+
+/// WHAT WE KNOW OR BELIEVE, and why. Declared/observed/inferred/predicted are
+/// distinct classes and must not be flattened into "facts".
+model KnowledgeAssertion {
+  id                String             @id @default(cuid())
+  organizationId    String
+  subjectIdentityId String
+  predicate         String
+  valueType         CognitiveValueType @default(STRING)
+  value             Json               @default("{}")
+  assertionClass    AssertionClass
+  status            AssertionStatus    @default(PROPOSED)
+  sourceEventId     String?
+  sourceIdentityId  String?
+  confidence        Float?
+  sensitivity       DataSensitivity    @default(INTERNAL)
+  scope             DataScope          @default(INDIVIDUAL)
+  permittedPurposes DataPurpose[]      @default([])
+  consentBasis      ConsentBasis       @default(NONE)
+  effectiveFrom     DateTime           @default(now())
+  effectiveTo       DateTime?
+  lastVerifiedAt    DateTime?
+  expiresAt         DateTime?
+  supersededById    String?
+  ownerIdentityId   String?
+  ruleVersion       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([organizationId, subjectIdentityId, predicate, status])
+  @@index([organizationId, status, expiresAt])
+  @@map("knowledge_assertions")
+}
+
+/// HOW two identities are connected. Direction is explicit (from → to); meaning
+/// lives in the typed relationshipType, never only in free-text metadata.
+model IdentityRelationship {
+  id                String                   @id @default(cuid())
+  organizationId    String
+  fromIdentityId    String
+  toIdentityId      String
+  relationshipType  IdentityRelationshipType
+  status            RelationshipStatus       @default(ACTIVE)
+  confidence        Float?
+  sourceEventId     String?
+  effectiveFrom     DateTime                 @default(now())
+  effectiveTo       DateTime?
+  permittedPurposes DataPurpose[]            @default([])
+  metadata          Json                     @default("{}")
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([organizationId, fromIdentityId, relationshipType])
+  @@index([organizationId, toIdentityId, relationshipType])
+  @@map("identity_relationships")
+}
+
+/// FOR WHAT PURPOSE data may be retained, accessed, aggregated, reasoned over,
+/// or disclosed. Evaluation is deny-by-default (see GovernanceEvaluator).
+model DataGovernancePolicy {
+  id                          String                 @id @default(cuid())
+  organizationId              String
+  name                        String
+  description                 String?
+  appliesToEntityType         CognitiveEntityType?
+  appliesToEventType          MemoryEventType?
+  appliesToAssertionPredicate String?
+  sensitivity                 DataSensitivity?
+  allowedPurposes             DataPurpose[]          @default([])
+  deniedPurposes              DataPurpose[]          @default([])
+  allowedChannels             String[]               @default([])
+  aggregationAllowed          Boolean                @default(false)
+  aiReasoningAllowed          Boolean                @default(false)
+  externalDisclosureAllowed   Boolean                @default(false)
+  retentionDays               Int?
+  requiresConsent             Boolean                @default(false)
+  requiresHumanApproval       Boolean                @default(false)
+  status                      GovernancePolicyStatus @default(DRAFT)
+  version                     Int                    @default(1)
+  effectiveFrom               DateTime               @default(now())
+  effectiveTo                 DateTime?
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, appliesToEntityType])
+  @@index([organizationId, appliesToEventType])
+  @@map("data_governance_policies")
+}
+
+/// WHAT IS CURRENTLY TRUE — a derived, domain-scoped projection. One row per
+/// (org, identity, domain, stateKey). Never a giant per-identity blob.
+model ActiveStateRecord {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  identityId           String
+  domain               ActiveStateDomain
+  stateKey             String
+  valueType            CognitiveValueType @default(STRING)
+  value                Json               @default("{}")
+  confidence           Float?
+  status               ActiveStateStatus  @default(ACTIVE)
+  sourceEventId        String?
+  lastChangedByEventId String?
+  calculationRule      String?
+  ruleVersion          String?
+  effectiveAt          DateTime           @default(now())
+  lastEvaluatedAt      DateTime           @default(now())
+  expiresAt            DateTime?
+  decayModel           DecayModel         @default(NONE)
+  scope                DataScope          @default(INDIVIDUAL)
+  sensitivity          DataSensitivity    @default(INTERNAL)
+  permittedPurposes    DataPurpose[]      @default([])
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@unique([organizationId, identityId, domain, stateKey])
+  @@index([organizationId, identityId, domain])
+  @@index([organizationId, domain, stateKey, status])
+  @@index([organizationId, expiresAt])
+  @@map("active_state_records")
+}
+
+/// WHY a state holds its value. Every non-static state must have inspectable
+/// evidence citing a memory event, knowledge assertion, or relationship.
+model ActiveStateEvidence {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  activeStateRecordId  String
+  memoryEventId        String?
+  knowledgeAssertionId String?
+  relationshipId       String?
+  weight               Float?
+  contribution         Float?
+  observedAt           DateTime @default(now())
+  createdAt            DateTime @default(now())
+
+  @@index([organizationId, activeStateRecordId])
+  @@map("active_state_evidence")
+}
+
+/// The audit trail of state changes. Every change to an ActiveStateRecord
+/// creates exactly one revision.
+model ActiveStateRevision {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  activeStateRecordId String
+  previousValue       Json?
+  newValue            Json?
+  previousConfidence  Float?
+  newConfidence       Float?
+  changeReason        String?
+  sourceEventId       String?
+  ruleVersion         String?
+  changedAt           DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  @@index([organizationId, activeStateRecordId, changedAt])
+  @@map("active_state_revisions")
+}
+
+/// Transactional outbox: the state write and its outbox row commit together.
+/// Nothing publishes before the transaction commits.
+model StateChangeOutbox {
+  id                    String            @id @default(cuid())
+  organizationId        String
+  identityId            String
+  domain                ActiveStateDomain
+  stateKey              String
+  changeType            String
+  activeStateRecordId   String?
+  activeStateRevisionId String?
+  payload               Json              @default("{}")
+  status                OutboxStatus      @default(PENDING)
+  attemptCount          Int               @default(0)
+  availableAt           DateTime          @default(now())
+  publishedAt           DateTime?
+  lastError             String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([organizationId, status, availableAt])
+  @@map("state_change_outbox")
+}
+
+/// Which internal product/service should react to which state changes.
+/// Increment 1 supports INTERNAL_HANDLER delivery only.
+model StateChangeSubscription {
+  id                String                   @id @default(cuid())
+  organizationId    String
+  subscriberType    SubscriberType
+  subscriberKey     String
+  domain            ActiveStateDomain?
+  stateKeyPattern   String?
+  eventTypes        String[]                 @default([])
+  requiredPurposes  DataPurpose[]            @default([])
+  minimumConfidence Float?
+  deliveryMode      SubscriptionDeliveryMode @default(INTERNAL_SYNC)
+  endpointOrHandler String
+  status            SubscriptionStatus       @default(ACTIVE)
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, domain, status])
+  @@map("state_change_subscriptions")
+}
+
+/// A pattern/risk/opportunity that APPEARS to exist but is not yet accepted
+/// organizational truth. AI-generated hypotheses NEVER auto-accept.
+model IntelligenceHypothesis {
+  id                    String                @id @default(cuid())
+  organizationId        String
+  hypothesisType        String
+  subjectIdentityId     String?
+  title                 String
+  summary               String?
+  status                HypothesisStatus      @default(PROPOSED)
+  confidence            Float?
+  evidenceCount         Int                   @default(0)
+  supportingWindowStart DateTime?
+  supportingWindowEnd   DateTime?
+  scope                 DataScope             @default(INDIVIDUAL)
+  sensitivity           DataSensitivity       @default(INTERNAL)
+  permittedPurposes     DataPurpose[]         @default([])
+  generatedBy           HypothesisGeneratedBy
+  ruleVersion           String?
+  acceptedAt            DateTime?
+  acceptedBy            String?
+  rejectedAt            DateTime?
+  rejectedBy            String?
+  supersededById        String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, subjectIdentityId, status])
+  @@map("intelligence_hypotheses")
+}
+
+/// A decision made from state, policy, and evidence. Records the decision;
+/// it does NOT execute external sends in this foundation.
+model CognitiveDecision {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  decisionType       String
+  subjectIdentityId  String?
+  requestedPurpose   DataPurpose?
+  channel            String?
+  inputStateSnapshot Json            @default("{}")
+  policyEvaluation   Json            @default("{}")
+  decision           DecisionOutcome
+  reason             String?
+  confidence         Float?
+  requiresApproval   Boolean         @default(false)
+  approvedAt         DateTime?
+  approvedBy         String?
+  executedAt         DateTime?
+  createdAt          DateTime        @default(now())
+
+  @@index([organizationId, decisionType])
+  @@index([organizationId, subjectIdentityId])
+  @@map("cognitive_decisions")
+}
