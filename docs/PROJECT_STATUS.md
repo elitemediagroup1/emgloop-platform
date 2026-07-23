@@ -177,8 +177,12 @@ inc2 migration applies from-zero (67 tables) and from-current. **RELEASE BLOCKER
 (tracked, not fixed here):** `docs/architecture/migration-remediation-plan.md` — the
 `sprint_11` migration's leading em-dash blocks `migrate deploy` replay; prod has no
 `_prisma_migrations` table. Cognitive architecture is **NOT production-ready** until
-that plan's exit criteria are met. **Next:** Increment 3 (explainability + publisher +
-subscribers + decision policies), then Increment 4 (vertical slice + admin page).
+that plan's exit criteria are met. **Branch hygiene:** PR #148 title/body refreshed to
+*Increments 1–2* (181-test count, both migrations, release blocker, not-production-ready
+warning all reflected on the draft PR); generated engineering-audit exports git-ignored
+(`docs/engineering-audit/*.{html,pdf}`, commit `c3bb3d9`), files preserved on disk.
+**Next:** Increment 3 (explainability + publisher + subscribers + decision policies) —
+in progress on this branch, not yet committed — then Increment 4 (vertical slice + admin page).
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
