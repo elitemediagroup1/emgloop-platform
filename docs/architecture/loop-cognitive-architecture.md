@@ -246,9 +246,21 @@ This is **not** a parallel system. Classification of overlapping components:
   zero-caller `processed`/`markLoopEventProcessed` seam) — no second receiver.
   Org is resolved from `LoopEvent.platform` via an injected server-side resolver,
   never from the event body.
-- **Increment 3** — `CognitiveContextService` (`getIdentityContext`,
-  `explainActiveState`), `StateChangePublisher` (outbox drain, ordered,
-  idempotent, dead-letter), internal subscribers, `DecisionPolicyRegistry`.
+- **Increment 3 (DONE)** — `CognitiveContextService` (`getIdentityContext`,
+  `explainActiveState`) maps stored rows to the Prisma-free `cognitive-context.v1`
+  DTOs in `@emgloop/shared`, deny-by-default: expired/revoked/suppressed/
+  unpermitted data is omitted (and disclosed in `unknowns`), stale-but-live state
+  is returned and labelled, raw memory payloads never leave. `StateChangePublisher`
+  drains the transactional outbox and fans each change out to one
+  `StateChangeDelivery` per matching ACTIVE subscription — exactly-once per
+  (change, subscriber) via the `(outboxId, subscriptionId)` unique + atomic
+  single-claim, independent per-subscriber retry/dead-letter, and a `required`
+  subscriber's dead-letter fails the parent while optional ones never block it.
+  Four internal subscribers (audit, decision-evaluation, work-os, dashboard-
+  invalidation), none of which execute an external action. `DecisionPolicyRegistry`
+  is pure: three declarative policies over governed context with deterministic,
+  order-independent messaging precedence (SUPPRESS > QUEUE > RECOMMEND > NO_ACTION);
+  decisions are RECORDED (idempotent by revision+policy+version), never sent.
 - **Increment 4** — real-time product-click vertical slice + admin-only validation
   page `/app/admin/administration/cognitive-architecture` (simulator disabled in
   production unless an explicit safe flag is set).

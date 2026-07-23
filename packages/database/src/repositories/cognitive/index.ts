@@ -19,6 +19,7 @@ import { MemoryEventRepository } from './memory.repository';
 import { KnowledgeAssertionRepository } from './knowledge.repository';
 import { DataGovernancePolicyRepository } from './governance.repository';
 import { ActiveStateRepository, StateChangeOutboxRepository } from './active-state.repository';
+import { StateChangeDeliveryRepository } from './delivery.repository';
 import { StateChangeSubscriptionRepository } from './subscription.repository';
 import { IntelligenceHypothesisRepository } from './hypothesis.repository';
 import { CognitiveDecisionRepository } from './decision.repository';
@@ -53,6 +54,11 @@ export type {
   ApplyStateChangeResult,
   StateEvidenceInput,
 } from './active-state.repository';
+export { StateChangeDeliveryRepository } from './delivery.repository';
+export type {
+  EnsureDeliveryInput,
+  DeliveryRetryOptions,
+} from './delivery.repository';
 export { StateChangeSubscriptionRepository, stateKeyMatches } from './subscription.repository';
 export type { CreateSubscriptionInput } from './subscription.repository';
 export { IntelligenceHypothesisRepository } from './hypothesis.repository';
@@ -78,6 +84,7 @@ export interface CognitiveRepositories {
   governancePolicies: DataGovernancePolicyRepository;
   activeState: ActiveStateRepository;
   stateChangeOutbox: StateChangeOutboxRepository;
+  stateChangeDeliveries: StateChangeDeliveryRepository;
   subscriptions: StateChangeSubscriptionRepository;
   hypotheses: IntelligenceHypothesisRepository;
   decisions: CognitiveDecisionRepository;
@@ -96,6 +103,7 @@ export function createCognitiveRepositories(prisma: PrismaClient): CognitiveRepo
     governancePolicies: new DataGovernancePolicyRepository(prisma),
     activeState: new ActiveStateRepository(prisma),
     stateChangeOutbox: new StateChangeOutboxRepository(prisma),
+    stateChangeDeliveries: new StateChangeDeliveryRepository(prisma),
     subscriptions: new StateChangeSubscriptionRepository(prisma),
     hypotheses: new IntelligenceHypothesisRepository(prisma),
     decisions: new CognitiveDecisionRepository(prisma),

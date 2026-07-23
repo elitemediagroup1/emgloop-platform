@@ -101,6 +101,11 @@ export class ActiveStateRepository {
     });
   }
 
+  /** Resolve a state record by id WITHIN the org; cross-org id → null. */
+  findRecordById(organizationId: string, id: string): Promise<ActiveStateRecord | null> {
+    return this.prisma.activeStateRecord.findFirst({ where: { id, organizationId } });
+  }
+
   listForIdentity(
     organizationId: string,
     identityId: string,
@@ -244,6 +249,9 @@ export class ActiveStateRepository {
           changeReason: input.changeReason ?? null,
           sourceEventId: input.sourceEventId ?? null,
           ruleVersion: input.ruleVersion ?? null,
+          // Tie the revision timestamp to the transaction clock (same `now` as the
+          // evidence and outbox rows) rather than a marginally-later DB default.
+          changedAt: now,
         },
       });
 
@@ -295,6 +303,10 @@ export class ActiveStateRepository {
 export class StateChangeOutboxRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
+  findById(organizationId: string, id: string): Promise<StateChangeOutbox | null> {
+    return this.prisma.stateChangeOutbox.findFirst({ where: { id, organizationId } });
+  }
+
   listPending(
     organizationId: string,
     opts: { take?: number; now?: Date } = {},
@@ -304,6 +316,61 @@ export class StateChangeOutboxRepository {
       where: { organizationId, status: 'PENDING', availableAt: { lte: now } },
       orderBy: { createdAt: 'asc' },
       take: Math.min(500, Math.max(1, opts.take ?? 100)),
+    });
+  }
+
+  /**
+   * Rows the publisher should examine this pass: due PENDING rows (newly ready)
+   * plus every PROCESSING row (in-flight — some delivery may still be retrying).
+   * A PROCESSING row is revisited each pass until every matched delivery is
+   * terminal, so nothing is stranded. Ordered by createdAt for stable ordering.
+   */
+  listActiveForPublish(
+    organizationId: string,
+    opts: { take?: number; now?: Date } = {},
+  ): Promise<StateChangeOutbox[]> {
+    const now = opts.now ?? new Date();
+    return this.prisma.stateChangeOutbox.findMany({
+      where: {
+        organizationId,
+        OR: [
+          { status: 'PENDING', availableAt: { lte: now } },
+          { status: 'PROCESSING' },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: Math.min(500, Math.max(1, opts.take ?? 100)),
+    });
+  }
+
+  /**
+   * Atomically claim a single PENDING row into PROCESSING. This is a conditional
+   * UPDATE (`updateMany where status='PENDING'`), NOT a read-then-write: exactly
+   * one competing worker gets count===1 and owns the row; the loser gets 0. No
+   * raw SQL, no in-memory lock — the database row is the mutex.
+   */
+  async markProcessing(
+    organizationId: string,
+    id: string,
+  ): Promise<boolean> {
+    const res = await this.prisma.stateChangeOutbox.updateMany({
+      where: { id, organizationId, status: 'PENDING' },
+      data: { status: 'PROCESSING' },
+    });
+    return res.count === 1;
+  }
+
+  /** Terminal failure of the parent (a REQUIRED delivery dead-lettered). */
+  async markDeadLettered(
+    organizationId: string,
+    id: string,
+    error: string,
+  ): Promise<StateChangeOutbox | null> {
+    const found = await this.prisma.stateChangeOutbox.findFirst({ where: { id, organizationId } });
+    if (!found) return null;
+    return this.prisma.stateChangeOutbox.update({
+      where: { id: found.id },
+      data: { status: 'DEAD_LETTERED', lastError: error.slice(0, 500) },
     });
   }
 

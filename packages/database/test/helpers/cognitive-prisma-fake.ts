@@ -17,6 +17,8 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   memoryEvent: ['organizationId', 'sourceSystem', 'sourceEventId'],
   activeStateRecord: ['organizationId', 'identityId', 'domain', 'stateKey'],
   loopEvent: ['eventId'], // global @unique, matching the real LoopEvent model
+  stateChangeDelivery: ['outboxId', 'subscriptionId'], // one delivery per (change, subscriber)
+  cognitiveDecision: ['organizationId', 'idempotencyKey'], // NULL keys are distinct (Postgres)
 };
 
 const DELEGATES = [
@@ -33,9 +35,11 @@ const DELEGATES = [
   'activeStateRevision',
   'stateChangeOutbox',
   'stateChangeSubscription',
+  'stateChangeDelivery',
   'intelligenceHypothesis',
   'cognitiveDecision',
   'cognitiveProcessingAttempt',
+  'auditLog',
   'loopEvent',
 ] as const;
 
@@ -104,7 +108,10 @@ function makeDelegate(name: string) {
     __rows: rows,
     async create({ data }: { data: Row }): Promise<Row> {
       if (uniqueKeys) {
-        const dup = rows.find((r) => uniqueKeys.every((k) => r[k] === data[k]));
+        // Postgres treats a row as distinct when ANY indexed column is NULL, so a
+        // unique only binds rows whose every key column is non-null.
+        const anyNull = uniqueKeys.some((k) => data[k] === null || data[k] === undefined);
+        const dup = anyNull ? undefined : rows.find((r) => uniqueKeys.every((k) => r[k] === data[k]));
         if (dup) {
           const e = new Error(
             `Unique constraint failed on the fields: (${uniqueKeys.join(',')})`,
@@ -143,6 +150,14 @@ function makeDelegate(name: string) {
       if (!row) throw new Error(`${name}.update: row not found`);
       applyData(row, data);
       return { ...row };
+    },
+    // Conditional bulk update. Returns { count } like Prisma — the basis for the
+    // atomic single-claim gate (updateMany where status=PENDING → PROCESSING):
+    // exactly the rows still matching the guard are flipped.
+    async updateMany({ where, data }: { where?: Row; data: Row }): Promise<{ count: number }> {
+      const targets = rows.filter((r) => matches(r, where));
+      for (const row of targets) applyData(row, data);
+      return { count: targets.length };
     },
     async count({ where }: { where?: Row } = {}): Promise<number> {
       return rows.filter((r) => matches(r, where)).length;

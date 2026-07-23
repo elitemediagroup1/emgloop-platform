@@ -22,6 +22,8 @@ export interface CreateSubscriptionInput {
   requiredPurposes?: DataPurpose[];
   minimumConfidence?: number | null;
   deliveryMode?: SubscriptionDeliveryMode;
+  /** Whether the parent publication must wait for this subscriber to succeed. */
+  required?: boolean;
 }
 
 export class StateChangeSubscriptionRepository {
@@ -45,9 +47,14 @@ export class StateChangeSubscriptionRepository {
         requiredPurposes: input.requiredPurposes ?? [],
         minimumConfidence: input.minimumConfidence ?? null,
         deliveryMode: input.deliveryMode ?? 'INTERNAL_SYNC',
+        required: input.required ?? false,
         status: 'ACTIVE',
       },
     });
+  }
+
+  findById(organizationId: string, id: string): Promise<StateChangeSubscription | null> {
+    return this.prisma.stateChangeSubscription.findFirst({ where: { id, organizationId } });
   }
 
   async setStatus(

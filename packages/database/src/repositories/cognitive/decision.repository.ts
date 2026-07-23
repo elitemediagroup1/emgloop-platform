@@ -23,6 +23,13 @@ export interface RecordDecisionInput {
   reason?: string | null;
   confidence?: number | null;
   requiresApproval?: boolean;
+  /**
+   * Stable dedup key from (state revision, policy id, policy version) — never a
+   * timestamp. When set, the (organizationId, idempotencyKey) unique makes a
+   * repeated policy evaluation over the same revision a P2002 no-op. Callers that
+   * want idempotency use recordIdempotent().
+   */
+  idempotencyKey?: string | null;
 }
 
 export class CognitiveDecisionRepository {
@@ -42,8 +49,33 @@ export class CognitiveDecisionRepository {
         reason: input.reason ?? null,
         confidence: input.confidence ?? null,
         requiresApproval: input.requiresApproval ?? false,
+        idempotencyKey: input.idempotencyKey ?? null,
       },
     });
+  }
+
+  /**
+   * Record a decision idempotently by its (revision, policy, version) key. If a
+   * decision with that key already exists (P2002), returns the existing row
+   * instead of creating a duplicate — so a re-run of the decision subscriber over
+   * the same state revision produces exactly one decision. Requires a non-empty
+   * idempotencyKey on the input.
+   */
+  async recordIdempotent(
+    organizationId: string,
+    input: RecordDecisionInput & { idempotencyKey: string },
+  ): Promise<CognitiveDecision> {
+    try {
+      return await this.record(organizationId, input);
+    } catch (e) {
+      if ((e as { code?: string })?.code === 'P2002') {
+        const existing = await this.prisma.cognitiveDecision.findFirst({
+          where: { organizationId, idempotencyKey: input.idempotencyKey },
+        });
+        if (existing) return existing;
+      }
+      throw e;
+    }
   }
 
   findById(organizationId: string, id: string): Promise<CognitiveDecision | null> {

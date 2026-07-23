@@ -2135,6 +2135,18 @@ enum OutboxStatus {
   DEAD_LETTERED
 }
 
+/// Lifecycle of ONE delivery of a state change to ONE subscriber (Increment 3).
+/// Distinct from OutboxStatus: an outbox row fans out to many deliveries, each of
+/// which can succeed, retry, or dead-letter independently. SUCCEEDED (not
+/// PUBLISHED) is the terminal success — publication is a parent-level conclusion.
+enum DeliveryStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  DEAD_LETTERED
+}
+
 enum SubscriberType {
   INTERNAL_HANDLER
   BRAIN
@@ -2515,6 +2527,10 @@ model StateChangeSubscription {
   minimumConfidence Float?
   deliveryMode      SubscriptionDeliveryMode @default(INTERNAL_SYNC)
   endpointOrHandler String
+  // Whether the parent state-change publication must WAIT for this subscriber to
+  // succeed. Optional (default) subscribers retry and dead-letter on their own
+  // and never block the parent; a required subscriber's dead-letter fails it.
+  required          Boolean                  @default(false)
   status            SubscriptionStatus       @default(ACTIVE)
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
@@ -2522,6 +2538,41 @@ model StateChangeSubscription {
   @@index([organizationId, status])
   @@index([organizationId, domain, status])
   @@map("state_change_subscriptions")
+}
+
+/// ONE delivery of ONE state change (outbox row) to ONE subscriber. The
+/// publisher fans an outbox row out into a delivery per matching subscription and
+/// tracks each independently, because subscribers can have different results.
+///
+/// The (outboxId, subscriptionId) unique is the idempotency + single-claim
+/// boundary: at most one delivery row exists per (change, subscriber), it is
+/// claimed atomically (PENDING/FAILED → PROCESSING via a conditional update), and
+/// re-running the publisher — even concurrently — never double-dispatches.
+model StateChangeDelivery {
+  id             String         @id @default(cuid())
+  organizationId String
+  outboxId       String
+  subscriptionId String
+  subscriberKey  String
+  // Stable key derived from (revision, subscription); NOT a timestamp.
+  idempotencyKey String
+  // Denormalized from the subscription so the parent can be reconciled without a
+  // per-delivery join.
+  required       Boolean        @default(false)
+  status         DeliveryStatus @default(PENDING)
+  attemptCount   Int            @default(0)
+  availableAt    DateTime       @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  lastError      String?
+  resultSummary  String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([outboxId, subscriptionId])
+  @@index([organizationId, status, availableAt])
+  @@index([organizationId, outboxId])
+  @@map("state_change_deliveries")
 }
 
 /// A pattern/risk/opportunity that APPEARS to exist but is not yet accepted
@@ -2571,11 +2622,17 @@ model CognitiveDecision {
   reason             String?
   confidence         Float?
   requiresApproval   Boolean         @default(false)
+  // Stable dedup key derived from (state revision, policy id, policy version) —
+  // NEVER a timestamp. Nullable so pre-Increment-3 / manually-recorded decisions
+  // carry none; NULLs are distinct in Postgres, so the unique only binds keyed
+  // rows. A repeated policy evaluation over the same revision no-ops on P2002.
+  idempotencyKey     String?
   approvedAt         DateTime?
   approvedBy         String?
   executedAt         DateTime?
   createdAt          DateTime        @default(now())
 
+  @@unique([organizationId, idempotencyKey])
   @@index([organizationId, decisionType])
   @@index([organizationId, subjectIdentityId])
   @@map("cognitive_decisions")
