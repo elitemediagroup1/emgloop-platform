@@ -152,7 +152,7 @@ Flat: Dashboard · **Brain** · CallGrid Intelligence · CRM · Creator Hub · W
 Administration (footer: Team · Work Types, permission-aware). One shared shell; longest-prefix
 active-state.
 
-## Loop Cognitive Architecture — INCREMENTS 1–2 IN REVIEW (draft PR #148) · branch `feat/loop-cognitive-architecture-foundation` (off main `553ec08`)
+## Loop Cognitive Architecture — INCREMENTS 1–3 IN REVIEW (draft PR #148) · branch `feat/loop-cognitive-architecture-foundation` (off main `553ec08`)
 A 4-increment controlled build of the canonical cognitive foundation (identity / durable
 memory / governed knowledge / explainable active state / governance / outbox / subscriptions /
 hypotheses / decisions); see `docs/architecture/loop-cognitive-architecture.md`. **Increment 1
@@ -172,17 +172,32 @@ no direct Prisma from evaluators, no governance bypass. Pure evaluators:
 reuse:** `LoopEventConsumer` drains the existing `LoopEvent` store via its previously
 zero-caller `processed`/`markLoopEventProcessed` methods — **no second public receiver**;
 org resolved from `platform` via an injected server-side resolver, never the event body.
-**Validated:** +15 pipeline tests (**181 total pass**); typecheck + build clean;
-inc2 migration applies from-zero (67 tables) and from-current. **RELEASE BLOCKER
+**Increment 3 (governed read surface + publisher) shipped on top of Increment 2.**
+`CognitiveContextService` is the deny-by-default READ surface — `getIdentityContext`
++ `explainActiveState` map stored rows to the Prisma-free `cognitive-context.v1` DTOs
+in `@emgloop/shared` (readers depend on the contract, never persistence). Omits
+expired/revoked/suppressed/unpermitted data (disclosed in `unknowns`), LABELS
+stale-but-live state, never leaks raw memory payloads; explains state "supported by,
+never caused by" from rows only. `StateChangePublisher` drains the transactional
+outbox → one `StateChangeDelivery` per matching ACTIVE subscription: exactly-once per
+(change, subscriber) via `(outboxId, subscriptionId)` unique + atomic single-claim,
+independent per-subscriber retry/dead-letter, REQUIRED-subscriber dead-letter fails the
+parent while OPTIONAL never blocks. Four internal subscribers (audit / decision-eval /
+work-os / dashboard-invalidation) — none execute an external action; audit records a
+safe summary only. `DecisionPolicyRegistry` (pure): 3 declarative policies over governed
+context, deterministic order-independent precedence (SUPPRESS>QUEUE>RECOMMEND>NO_ACTION);
+decisions RECORDED (idempotent by revision+policy+version), never sent; CREATE_WORK is
+approval-required. New model `StateChangeDelivery` + `DeliveryStatus`, `+required` on
+subscriptions, `+idempotencyKey` on decisions (migration `20260723000002`, additive-only).
+**Validated:** +16 tests (**197 total pass**); typecheck (`@emgloop/database`/`shared`/`web`)
++ `turbo build --filter=@emgloop/web` clean; `prisma validate` clean. **RELEASE BLOCKER
 (tracked, not fixed here):** `docs/architecture/migration-remediation-plan.md` — the
 `sprint_11` migration's leading em-dash blocks `migrate deploy` replay; prod has no
 `_prisma_migrations` table. Cognitive architecture is **NOT production-ready** until
-that plan's exit criteria are met. **Branch hygiene:** PR #148 title/body refreshed to
-*Increments 1–2* (181-test count, both migrations, release blocker, not-production-ready
-warning all reflected on the draft PR); generated engineering-audit exports git-ignored
-(`docs/engineering-audit/*.{html,pdf}`, commit `c3bb3d9`), files preserved on disk.
-**Next:** Increment 3 (explainability + publisher + subscribers + decision policies) —
-in progress on this branch, not yet committed — then Increment 4 (vertical slice + admin page).
+that plan's exit criteria are met. **Next:** Increment 4 (real-time product-click vertical
+slice + admin-only validation page `/app/admin/administration/cognitive-architecture`,
+simulator disabled in production unless an explicit safe flag is set) — not yet started.
+Refresh the PR #148 title/body to *Increments 1–3* (197-test count, three migrations).
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
