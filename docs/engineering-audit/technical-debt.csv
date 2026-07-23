@@ -1,0 +1,29 @@
+id,debt,evidence,category,effort,priority
+TD-01,Single-tenant ingestion (LIVE_ORG_SLUG),crm/live-org.ts:18,Multi-tenancy,Multi-phase,Before-features
+TD-02,Global unique keys integration_events/marketplace_calls,schema.prisma:766;1598,Multi-tenancy,Medium,Before-features
+TD-03,Knowledge/event shared-secret master key,v1/events;lib/knowledge/gateway.ts,Security,Medium,Before-features
+TD-04,No repo-wide CI gate on main,.github/workflows verified-knowledge-ci.yml,DevOps,Small-Medium,Immediate
+TD-05,Lockfile committed but CI uses npm install,package-lock.json tracked,DevOps,Small,Immediate
+TD-06,Preview/prod DB isolation undefined,netlify.toml no context blocks,Deployment,Small,Immediate
+TD-07,Em-dash breaks Sprint-11 migration,migrations/20250626000000_sprint_11/migration.sql:1,Database,Small,Next-sprint
+TD-08,Authz coarse on /app/admin/*,app/admin/layout.tsx:18,Authorization,Medium,Before-features
+TD-09,Synchronous ingestion no queue/DLQ,services/ingestion.service.ts,Architecture,Multi-phase,Near-term
+TD-10,200-on-failure webhook contract,webhooks/callgrid+website;auction-sync,API,Medium,Next-sprint
+TD-11,No event bus; LoopEvent no consumer,loop-event.repository.ts (0 callers),Architecture,Large,Near-term
+TD-12,Work OS siloed from CRM record graph,work/actions.ts:229,Architecture,Medium,Near-term
+TD-13,$executeRawUnsafe DDL in request path,crm/live-org.ts:66-67,Security,Small,Next-sprint
+TD-14,14 models organizationId without FK,Work OS+vk_*+Marketplace,Database,Medium,Before-features
+TD-15,SCHEDULE workflows and due dates inert,workflows.repository.ts:56,Workflow,Medium,Near-term
+TD-16,Orphan packages work-os/marketplace-intelligence,0 importers; MI 62 typeerrors,Architecture,Small-Medium,Next-sprint
+TD-17,Dead apps/api stub,apps/api/src/index.ts 35 lines,Architecture,Small,Next-sprint
+TD-18,Formatter duplication relTime ~10-12x money ~6x,CRM/admin pages vs _loop-os/format.ts,Frontend,Small,Next-sprint
+TD-19,Two shells / 2 token sets / duplicated CSS,app+crm layouts import same 7 css,Frontend,Large,Long-term
+TD-20,Sprint-named CSS + /login dead placeholder,crm/sprintN.css;app/login/page.tsx,Frontend,Small,Next-sprint
+TD-21,Stale/aspirational docs,README;AUTHENTICATION.md;EVENT_BUS.md;DATA_MODEL.md,Documentation,Medium,Near-term
+TD-22,No onboarding docs; .env.example drift,no LOCAL_DEVELOPMENT/ENV_VARS,Documentation,Small-Medium,Near-term
+TD-23,err.message leaked to clients,brain:253;sync:110;backfill:78,Security,Small,Next-sprint
+TD-24,Reset token in redirect URL,auth/actions.ts:96,Security,Small,Next-sprint
+TD-25,Stale health endpoint,api/health/route.ts,Observability,Small,Next-sprint
+TD-26,admin-actions.ts statusRaw as any,crm/admin-actions.ts:374,Code-quality,Small,Next-sprint
+TD-27,NormalizationEngine in repository file; WorkRepository methods lack org arg,normalization.repository.ts;work.repository.ts,Architecture,Small-Medium,Near-term
+TD-28,No membership model (1 org per user),User.organizationId scalar,Multi-tenancy,Large,Long-term

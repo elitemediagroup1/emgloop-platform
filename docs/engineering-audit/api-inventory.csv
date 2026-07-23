@@ -1,0 +1,26 @@
+path,methods,purpose,auth,org_scope,status_200_on_failure,classification
+webhooks/callgrid,POST/GET,CallGrid ingress to full pipeline,HMAC/bearer/static fail-closed,hardcoded LIVE_ORG_SLUG,yes(partial mask),Production
+webhooks/website,POST/GET,Website ingress two auth tiers,pk_emg+domain OR HMAC,hardcoded LIVE_ORG_SLUG,yes(partial mask),Production
+integrations/callgrid/sync,POST,Pull reconcile recent calls,can(integrations manage),hardcoded LIVE_ORG_SLUG,no(500),Production
+integrations/callgrid/auction-sync,POST,1-day auction report ingest,can(integrations manage),session,yes(by design),Production
+integrations/callgrid/backfill,POST,Retrofit MarketplaceCall projection,can(integrations manage),session,no(500),Production
+integrations/callgrid/reconcile,GET,Live-vs-Loop forensics read-only,can(integrations manage),session,no(502),Production
+integrations/callgrid/auction-reconcile,GET,Auction diff read-only,can(integrations manage),session,body-level,Production
+integrations/callgrid/discover-reports,GET,Probe report contracts,can(integrations manage),session,body-level,Production
+brain/call-handling-briefing,GET,Brain diagnostic read-only unlinked,can(intelligence manage),session,500 leaks err.message,Functional-incomplete
+live/activity,GET,Live activity feed,can(intelligence view),session,n/a,Production
+live/calls,GET,Live call feed,can(intelligence view),session,n/a,Production
+live/websites,GET,Live website sessions,can(intelligence view),session,n/a,Production
+revenue,GET,Revenue attribution dashboard,can(analytics view),session,n/a,Production
+traffic,GET,Traffic intelligence dashboard,can(analytics view),session,n/a,Production
+sdk/config,GET,Public per-property SDK config,none(public),property,404,Production(public)
+sdk/emg-loop,GET/OPTIONS,Serves browser SDK JS ACAO*,none(public),n/a,n/a,Production(public)
+health,GET,Health probe,none(public),n/a,stale not_configured,Placeholder
+v1/events,POST,Loop Event Gateway store raw,shared LOOP_EVENT_SECRET plain !=,client-supplied,dedup eventId,Disconnected(no consumer)
+v1/knowledge/import,POST,Batch KG import,authenticateService,client-supplied scope,idempotent (scope key) 409,Production(external)
+v1/knowledge/claims,GET,Query claims,authenticateService,client-supplied scope,non-disclosing,Production(external)
+v1/knowledge/claims/[id],GET,Fetch single claim,authenticateService,client-supplied scope,non-disclosing,Production(external)
+v1/knowledge/entities/[id],GET,Fetch single entity,authenticateService,client-supplied scope,non-disclosing,Production(external)
+v1/knowledge/query,GET/POST,Re-export of claims (alias),inherited,client-supplied scope,duplicate URL,Duplicate
+v1/knowledge/readiness,GET,Internal readiness probe,authenticateService,scoped count,non-disclosing,Production(external)
+v1/knowledge/stats,GET,Scoped counts,authenticateService,client-supplied scope,non-disclosing,Production(external)

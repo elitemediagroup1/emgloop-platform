@@ -1,0 +1,11 @@
+id,severity,category,title,evidence,blocks_production,effort,priority
+SEC-H1,High,Multi-tenancy,Knowledge/event shared secret is cross-tenant cross-capability master key,api/v1/events/route.ts:49;lib/knowledge/gateway.ts:68,Blocks 2nd producer/tenant,Medium,Before-features
+SEC-H2,High,Multi-tenancy,Single-tenant ingestion via LIVE_ORG_SLUG,crm/live-org.ts:18 + 3 webhook/sync routes,Blocks customer #2,Large,Before customer #2
+SEC-H3,High,Authorization,/app/admin/* guarded at workspace level not RBAC matrix,app/app/admin/layout.tsx:18,No (read-mostly today),Medium,Before-features
+SEC-M1,Medium,API/Reliability,Webhooks and auction-sync return 200 on failure,webhooks/callgrid+website;auction-sync,No,Medium,Next-sprint
+SEC-M2,Medium,Production-safety,$executeRawUnsafe DDL reachable from webhook request path,crm/live-org.ts:66-67,No (static/gated),Small,Next-sprint
+SEC-M3,Medium,Multi-tenancy,Global unique keys allow cross-tenant collision,schema.prisma:766;1598,Blocks customer #2,Medium,Before customer #2
+SEC-L1,Low,Security,Password reset token echoed in redirect URL,auth/actions.ts:96,No,Small,Next-sprint
+SEC-L2,Low,Security,err.message leaked to clients,brain/call-handling-briefing:253;sync:110;backfill:78,No,Small,Next-sprint
+SEC-L3,Low,Observability,Stale health endpoint always reports not_configured,api/health/route.ts,No,Small,Next-sprint
+SEC-L4,Low,Security,LOOP_EVENT_SECRET compared with plain != not timing-safe,api/v1/events/route.ts:57;gateway.ts:74,No,Small,Next-sprint
