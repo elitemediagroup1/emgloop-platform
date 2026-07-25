@@ -32,8 +32,18 @@ import {
 
 const ORG = 'org_a';
 const OTHER_ORG = 'org_b';
-const OCCURRED = new Date('2026-07-23T12:00:00Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
+// The event time is anchored a minute BEFORE real "now" rather than a hardcoded
+// calendar date. Commerce active-state carries a 1-day TTL, the outbox/delivery
+// rows and governance policies are stamped with the wall clock, and the governed
+// read surface omits state that has expired as of the read clock — so a fixed
+// past `occurredAt` silently rots the suite the day the calendar passes the TTL
+// (which is exactly what happened: state minted at 07-23 expired 07-24 and every
+// governed-read assertion began failing). Anchoring to real now keeps all of
+// those clocks reconciled while the assertions stay logic-deterministic (nothing
+// asserts an absolute timestamp). Test 16 already relies on this by expiring the
+// state with `Date.now() + 3*DAY_MS`.
+const OCCURRED = new Date(Date.now() - 60_000);
 
 function prisma(): PrismaClient {
   return makeCognitivePrisma() as unknown as PrismaClient;
@@ -197,6 +207,9 @@ test('communication suppression takes precedence over commerce RECOMMEND', async
   await proc.processEvent(consentRevoked()); // frequencyLimitReached=true → SUPPRESS
   await subscribe(p, 'decision-evaluation'); // all domains
 
+  // The commerce interest is LIVE (event anchored near real now), so a RECOMMEND
+  // genuinely exists for SUPPRESS to override — the precedence this test names is
+  // really exercised, not vacuously satisfied by an expired commerce state.
   await new StateChangePublisher(p).run(ORG);
   const decisions = await new CognitiveDecisionRepository(p).list(ORG);
   assert.ok(decisions.length > 0, 'at least one decision recorded');
