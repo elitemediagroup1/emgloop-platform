@@ -198,7 +198,15 @@ export type {
   PingDestinationSnapshotInput,
 } from './marketplace-auction-projection';
 
+// Loop Cognitive Architecture Foundation (Increment 1) — canonical identity,
+// durable memory, governed knowledge, explainable active state, governance,
+// outbox, subscriptions, hypotheses, and decisions. Additive; server-only.
+export * from './cognitive';
+import { createCognitiveRepositories } from './cognitive';
+import type { CognitiveRepositories } from './cognitive';
+
 export interface Repositories {
+  cognitive: CognitiveRepositories;
   customers: CustomerRepository;
   interactions: InteractionRepository;
   bookings: BookingRepository;
@@ -229,6 +237,7 @@ export interface Repositories {
 
 export function createRepositories(prisma: PrismaClient): Repositories {
   return {
+    cognitive: createCognitiveRepositories(prisma),
     customers: new CustomerRepository(prisma),
     interactions: new InteractionRepository(prisma),
     bookings: new BookingRepository(prisma),

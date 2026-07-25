@@ -52,6 +52,10 @@ export * from './connection-resilience';
 export * from './repositories';
 export * from './integration-catalog';
 
+// Loop Cognitive Architecture — event processing pipeline (Increment 2).
+// Server-only; built on the Increment 1 cognitive repositories.
+export * from './services/cognitive';
+
 // Auction report ingestion — bounded, single-UTC-day, idempotent.
 export { AuctionReportIngestionService, BID_TOTAL_FIELDS, REJECTION_TOTAL_FIELDS, PING_TOTAL_FIELDS } from './services/auction-report-ingestion.service';
 export type { AuctionIngestInput, AuctionIngestResult, EndpointOutcome } from './services/auction-report-ingestion.service';

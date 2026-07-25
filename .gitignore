@@ -39,3 +39,9 @@ packages/database/prisma/migrations/dev.db*
 # Coverage / test
 coverage/
 .nyc_output/
+
+# Generated engineering-audit exports (HTML/PDF renders of the audit).
+# Scoped to this directory and to export formats only, so a future canonical
+# source doc (e.g. a Markdown original) in the same folder stays trackable.
+docs/engineering-audit/*.html
+docs/engineering-audit/*.pdf
