@@ -189,15 +189,22 @@ context, deterministic order-independent precedence (SUPPRESS>QUEUE>RECOMMEND>NO
 decisions RECORDED (idempotent by revision+policy+version), never sent; CREATE_WORK is
 approval-required. New model `StateChangeDelivery` + `DeliveryStatus`, `+required` on
 subscriptions, `+idempotencyKey` on decisions (migration `20260723000002`, additive-only).
-**Validated:** +16 tests (**197 total pass**); typecheck (`@emgloop/database`/`shared`/`web`)
-+ `turbo build --filter=@emgloop/web` clean; `prisma validate` clean. **RELEASE BLOCKER
+**Validated (current HEAD):** **197 tests pass / 0 fail**; typecheck (`@emgloop/database`/`shared`/`web`)
++ `turbo build --filter=@emgloop/web` clean; `prisma validate` clean. *(Fixture-determinism
+fix: the Increment-3 publisher tests pinned events to a hardcoded 2026-07-23 `occurredAt`;
+once the calendar passed the 1-day active-state TTL the governed read surface correctly
+omitted the now-expired state and two tests failed. Fixtures now anchor `occurredAt` near
+real now — no injected clock reconciles fixture-time TTLs with wall-clock outbox/policy rows.
+Production behavior unchanged.)* **RELEASE BLOCKER
 (tracked, not fixed here):** `docs/architecture/migration-remediation-plan.md` — the
 `sprint_11` migration's leading em-dash blocks `migrate deploy` replay; prod has no
 `_prisma_migrations` table. Cognitive architecture is **NOT production-ready** until
-that plan's exit criteria are met. **Next:** Increment 4 (real-time product-click vertical
-slice + admin-only validation page `/app/admin/administration/cognitive-architecture`,
-simulator disabled in production unless an explicit safe flag is set) — not yet started.
-Refresh the PR #148 title/body to *Increments 1–3* (197-test count, three migrations).
+that plan's exit criteria are met. The remediation plan now lists **all three** cognitive
+migrations in order (`…000000`/`…000001`/`…000002`) and their role in the future baseline.
+PR #148 is Draft, titled *Increments 1–3*, body reflects 197 tests + three migrations. **Next:**
+Increment 4 (real-time product-click vertical slice + admin-only validation page
+`/app/admin/administration/cognitive-architecture`, simulator disabled in production unless an
+explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
