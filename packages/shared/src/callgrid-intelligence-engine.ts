@@ -29,6 +29,19 @@ import {
   SEVERITY_RANK, gradeSeverity, capSeverity, deriveConfidence, findingViolations,
 } from './callgrid-intelligence';
 import type { CallGridComparisonBasis } from './callgrid-window';
+import {
+  buildFinding, type EvidenceSpec, type FindingSpec, CALL_REPORT,
+} from './callgrid-finding-builder';
+import {
+  EMPTY_SERIES, seriesOf, historyEntityKey, type HistorySeries,
+} from './callgrid-history';
+import { detectAnomalies } from './callgrid-anomaly';
+import {
+  rankFindings, recurrenceKey, type ScoredFinding,
+} from './callgrid-scoring';
+import {
+  assessMarketplaceRisk, riskUnknowns, type MarketplaceRisk, type RiskDimRow,
+} from './callgrid-risk';
 
 // --- Engine input (the canonical report, as a contract) ------------------------
 
@@ -71,6 +84,16 @@ export interface IntelligenceInput {
   comparison: IntelligenceMetrics | null;
   dimensions: Record<IntelligenceDimension, IntelligenceDimRow[]>;
   comparisonDimensions: Record<IntelligenceDimension, IntelligenceDimRow[]>;
+  /**
+   * Complete prior periods, most-recent-first. Optional: every distribution rule
+   * degrades to silence without it rather than to a two-point guess, so a caller
+   * that cannot afford the extra reads still gets correct (narrower) intelligence.
+   */
+  history?: HistorySeries;
+  /** Provider-reported bid reject rate (0–1) for the risk model. Null when unreported. */
+  bidRejectRate?: number | null;
+  /** Rate-limited share of destination failures (0–1) for the risk model. */
+  rateLimitedShare?: number | null;
 }
 
 // --- Engine output ----------------------------------------------------------------
@@ -87,14 +110,46 @@ export interface ExecutiveSummary {
   recommendedReviews: string[];
 }
 
+/**
+ * The Executive Intelligence Brief — at most five findings, ordered by
+ * Intelligence Score rather than severity alone.
+ *
+ * FIVE IS A CEILING, NOT A TARGET. A quiet period yields fewer, and a period with
+ * nothing evidence-backed to say yields none. Padding the brief to five would
+ * make the count meaningless and train an executive to skim it.
+ */
+export interface ExecutiveBrief {
+  /** At most five, highest Intelligence Score first. */
+  items: ScoredFinding[];
+  /** Findings that were produced and scored but did not make the top five. */
+  omittedCount: number;
+  /**
+   * Stated when the brief is empty — never left blank, because a blank section
+   * reads as a failure rather than as "nothing crossed the bar".
+   */
+  emptyReason: string | null;
+  /**
+   * True when scoring ran without a historical series, so novelty could not be
+   * measured and the ordering rests on fewer components.
+   */
+  scoredWithoutHistory: boolean;
+}
+
 export interface CallGridIntelligence {
   executiveSummary: ExecutiveSummary;
+  /** The five-item attention-ordered brief. */
+  brief: ExecutiveBrief;
+  /** Structural fragility of the marketplace, with every factor's determinacy. */
+  risk: MarketplaceRisk;
   /** Every finding produced, severity-ordered. */
   findings: CallGridFinding[];
+  /** Every finding with its Intelligence Score, attention-ordered. */
+  ranked: ScoredFinding[];
   changes: CallGridFinding[];
   drivers: CallGridFinding[];
   risks: CallGridFinding[];
   opportunities: CallGridFinding[];
+  anomalies: CallGridFinding[];
   investigations: CallGridFinding[];
   unknowns: IntelligenceUnknown[];
   evidenceReferences: CallGridEvidenceReference[];
@@ -126,106 +181,13 @@ function direction(change: number): 'increased' | 'decreased' | 'held steady' {
 
 // --- Evidence + finding construction --------------------------------------------------
 
-interface EvidenceSpec {
-  metricKey: string;
-  entityType: EntityType;
-  entityId?: string | null;
-  entityName?: string | null;
-  window: string;
-  providerReport?: string;
-  sourceType?: CallGridEvidenceReference['sourceType'];
-  providerField?: string | null;
-  rawValue?: number | null;
-  normalizedValue?: number | null;
-  derivedValue?: number | null;
-  formula?: string | null;
-  formulaVersion?: string | null;
-  classification: MetricClassification;
-  completeness?: number | null;
-  notes?: string | null;
-}
-
-const CALL_REPORT = 'CallGrid call reporting (MarketplaceCall projection)';
-
-function evidence(findingId: string, index: number, spec: EvidenceSpec): CallGridEvidenceReference {
-  return {
-    id: `${findingId}:e${index}`,
-    findingId,
-    sourceType: spec.sourceType ?? 'call_projection',
-    providerReport: spec.providerReport ?? CALL_REPORT,
-    metricKey: spec.metricKey,
-    entityType: spec.entityType,
-    entityId: spec.entityId ?? null,
-    entityName: spec.entityName ?? null,
-    window: spec.window,
-    providerField: spec.providerField ?? null,
-    rawValue: spec.rawValue ?? null,
-    normalizedValue: spec.normalizedValue ?? null,
-    derivedValue: spec.derivedValue ?? null,
-    formula: spec.formula ?? null,
-    formulaVersion: spec.formulaVersion ?? null,
-    classification: spec.classification,
-    completeness: spec.completeness ?? null,
-    notes: spec.notes ?? null,
-  };
-}
-
-interface FindingSpec {
-  id: string;
-  findingType: FindingType;
-  title: string;
-  plainLanguageSummary: string;
-  classification: MetricClassification;
-  severity: Severity;
-  confidence: number;
-  primaryMetric: string;
-  currentValue?: number | null;
-  comparisonValue?: number | null;
-  absoluteChange?: number | null;
-  percentageChange?: number | null;
-  affectedEntities?: AffectedEntity[];
-  drivers?: AffectedEntity[];
-  evidence: EvidenceSpec[];
-  limitations: string[];
-  unknowns?: string[];
-  recommendedReview?: string | null;
-  recommendedActionType?: string | null;
-  actionTarget?: string | null;
-  actionSafety: ActionSafety;
-  ruleId: string;
-  ruleVersion: string;
-}
-
+/**
+ * Finding construction moved to `callgrid-finding-builder.ts` when anomaly and
+ * opportunity analysis arrived — three emitters, one builder. This stays as a
+ * thin alias so the ~40 call sites below read unchanged.
+ */
 function makeFinding(spec: FindingSpec, input: IntelligenceInput): CallGridFinding {
-  const finding: CallGridFinding = {
-    id: spec.id,
-    findingType: spec.findingType,
-    title: spec.title,
-    plainLanguageSummary: spec.plainLanguageSummary,
-    classification: spec.classification,
-    severity: spec.severity,
-    confidence: spec.confidence,
-    currentWindow: input.windowLabel,
-    comparisonWindow: input.comparisonLabel,
-    primaryMetric: spec.primaryMetric,
-    currentValue: spec.currentValue ?? null,
-    comparisonValue: spec.comparisonValue ?? null,
-    absoluteChange: spec.absoluteChange ?? null,
-    percentageChange: spec.percentageChange ?? null,
-    affectedEntities: spec.affectedEntities ?? [],
-    drivers: spec.drivers ?? [],
-    supportingEvidence: spec.evidence.map((e, i) => evidence(spec.id, i + 1, e)),
-    limitations: spec.limitations,
-    unknowns: spec.unknowns ?? [],
-    recommendedReview: spec.recommendedReview ?? null,
-    recommendedActionType: spec.recommendedActionType ?? null,
-    actionTarget: spec.actionTarget ?? null,
-    actionSafety: spec.actionSafety,
-    createdAt: input.now.toISOString(),
-    ruleId: spec.ruleId,
-    ruleVersion: spec.ruleVersion,
-  };
-  return finding;
+  return buildFinding(spec, input);
 }
 
 /** The comparison caveat that applies to every finding on an in-progress window. */
@@ -934,6 +896,7 @@ function bySeverity(a: CallGridFinding, b: CallGridFinding): number {
  */
 export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence {
   const findings: CallGridFinding[] = [];
+  const history = input.history ?? EMPTY_SERIES;
 
   if (input.reportOk && input.metrics.available) {
     // A — headline performance changes.
@@ -990,6 +953,19 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     // H — billable efficiency.
     const eff = billableEfficiencyFinding(input);
     if (eff) findings.push(eff);
+
+    // I — anomalies. Distribution rules stay silent without a series rather than
+    // degrading into a two-point comparison wearing an anomaly's label.
+    findings.push(...detectAnomalies({
+      now: input.now,
+      windowLabel: input.windowLabel,
+      comparisonLabel: input.comparisonLabel,
+      includesLiveData: input.includesLiveData,
+      metrics: input.metrics,
+      comparison: input.comparison,
+      dimensions: input.dimensions,
+      history,
+    }));
   }
 
   findings.sort(bySeverity);
@@ -1008,11 +984,45 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
   );
   const investigations = findings.filter((f) => f.recommendedReview !== null);
 
+  const anomalies = findings.filter((f) => f.findingType === 'ANOMALY');
+
   const primaryChange = findings.find((f) => f.primaryMetric === 'revenue' && f.findingType === 'CHANGE') ?? null;
   const topConcern = risks[0] ?? null;
   const topOpportunity = opportunities[0] ?? null;
 
   const headline = buildHeadline(input, primaryChange);
+
+  // --- Risk -------------------------------------------------------------------
+  const toRiskRows = (rows: IntelligenceDimRow[]): RiskDimRow[] =>
+    rows.map((r) => ({
+      key: r.key, label: r.label, calls: r.calls,
+      revenueCents: r.revenueCents, marginCents: r.marginCents,
+    }));
+
+  const risk = assessMarketplaceRisk({
+    buyers: toRiskRows(input.dimensions.buyers),
+    vendors: toRiskRows(input.dimensions.vendors),
+    sources: toRiskRows(input.dimensions.sources),
+    campaigns: toRiskRows(input.dimensions.campaigns),
+    windowRevenueCents: input.metrics.revenueCents,
+    revenueSeries: seriesOf(history, 'revenueCents'),
+    bidRejectRate: input.bidRejectRate ?? null,
+    rateLimitedShare: input.rateLimitedShare ?? null,
+    includesLiveData: input.includesLiveData,
+  });
+
+  // --- Attention ordering -----------------------------------------------------
+  // Recurrence is only knowable with a series. Passing null (rather than an empty
+  // map) is what makes the novelty component WITHHOLD itself instead of scoring
+  // every finding as brand new.
+  const recurrence = history.points.length > 0 ? buildRecurrence(input, history) : null;
+  const ranked = rankFindings(findings, {
+    windowRevenueCents: input.metrics.revenueCents,
+    recurrence,
+    recurrenceWindow: recurrence ? history.points.length : null,
+  });
+
+  const briefItems = ranked.slice(0, 5);
 
   return {
     executiveSummary: {
@@ -1026,15 +1036,87 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
         .map((f) => f.recommendedReview!)
         .filter((r, i, all) => all.indexOf(r) === i),
     },
+    brief: {
+      items: briefItems,
+      omittedCount: Math.max(0, ranked.length - briefItems.length),
+      emptyReason: briefItems.length === 0 ? emptyBriefReason(input) : null,
+      scoredWithoutHistory: recurrence === null,
+    },
+    risk,
     findings,
+    ranked,
     changes,
     drivers,
     risks,
     opportunities,
+    anomalies,
     investigations,
-    unknowns: windowUnknowns(input),
+    unknowns: [...windowUnknowns(input), ...historyUnknowns(input, history), ...riskUnknownEntries(risk)],
     evidenceReferences: findings.flatMap((f) => f.supportingEvidence),
   };
+}
+
+/**
+ * How often each finding's rule+entity also fired across the historical series.
+ *
+ * Built by re-deriving, per prior period, only what is cheap and unambiguous:
+ * whether that entity carried revenue at all. This deliberately under-claims —
+ * it establishes that an entity was PRESENT and material before, not that the
+ * identical finding fired. Over-claiming recurrence would suppress genuinely new
+ * findings, which is the more damaging error.
+ */
+function buildRecurrence(input: IntelligenceInput, history: HistorySeries): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const dim of DIMENSIONS) {
+    for (const row of input.dimensions[dim]) {
+      const seriesKey = historyEntityKey(dim, row.key);
+      const appearances = history.points.filter((p) => {
+        const rev = p.entityRevenueCents[seriesKey];
+        return rev !== undefined && rev !== null && rev > 0;
+      }).length;
+      // Same identity shape the scorer uses, so a lookup cannot silently miss.
+      for (const ruleId of ['entity-contribution', 'entity-inactive', 'rank-movement', 'anomaly-entity-disappeared']) {
+        counts.set(`${ruleId}::${row.key}`, appearances);
+      }
+    }
+  }
+  return counts;
+}
+
+/** Why the brief is empty — always specific, never a shrug. */
+function emptyBriefReason(input: IntelligenceInput): string {
+  if (!input.reportOk || !input.metrics.available) {
+    return 'CallGrid reporting could not be read for this period, so no finding could be produced.';
+  }
+  if ((input.metrics.totalCalls ?? 0) === 0) {
+    return `No calls were recorded in ${input.windowLabel.toLowerCase()}, so there is nothing to analyse.`;
+  }
+  if (!input.comparison) {
+    return 'No comparison period is defined for this window, so no change could be evaluated.';
+  }
+  return 'No evidence-backed finding crossed the significance thresholds for this period.';
+}
+
+/** What the absence (or presence) of a series means for interpretation. */
+function historyUnknowns(input: IntelligenceInput, history: HistorySeries): IntelligenceUnknown[] {
+  if (history.points.length >= 4) return [];
+  return [
+    {
+      id: 'no-historical-series',
+      statement: 'Whether this period is unusual for this business, or simply different from the one before it.',
+      reason: input.includesLiveData
+        ? 'A historical range is built only from complete periods, and the selected period is still in progress. Select a completed period to establish one.'
+        : `Loop needs at least 4 complete prior periods to establish a normal range; ${history.points.length} were available.`,
+    },
+  ];
+}
+
+function riskUnknownEntries(risk: MarketplaceRisk): IntelligenceUnknown[] {
+  return riskUnknowns(risk).map((statement, i) => ({
+    id: `risk-unknown-${i + 1}`,
+    statement,
+    reason: 'The risk model withholds a factor it cannot measure rather than scoring it as safe.',
+  }));
 }
 
 /** The one sentence at the top of the page. Honest when there is nothing to say. */

@@ -191,6 +191,24 @@ export * from './callgrid-metric-contract';
 // The deterministic explanation layer over the canonical reports. Every finding
 // carries its evidence, its limitations and the versioned rule that produced it.
 export * from './callgrid-intelligence';
+// The ONE finding constructor. Three modules emit findings (engine, anomaly,
+// bid); three private constructors would be three chances to drop the evidence,
+// the rule version or the limitations that make a finding checkable.
+export * from './callgrid-finding-builder';
+// Historical series: the capability that makes "is this normal?" answerable at
+// all. Consistency, volatility, trend, oscillation, new highs and dormancy are
+// statements about a DISTRIBUTION — two points cannot support any of them, so
+// every statistic here refuses to compute below a stated minimum.
+export * from './callgrid-history';
+// Anomaly detection over that series. Distribution rules stay silent without a
+// series rather than degrading into a two-point comparison wearing the label.
+export * from './callgrid-anomaly';
+// The Intelligence Score — the one attention ordering. A component whose input
+// is missing is WITHHELD from both numerator and denominator, never scored zero.
+export * from './callgrid-scoring';
+// Marketplace Risk: structural fragility, not a prediction. Same withholding
+// rule, so a "LOW" band built from three of nine factors reports its determinacy.
+export * from './callgrid-risk';
 export * from './callgrid-intelligence-engine';
 // Bid/ping snapshot intelligence: what each rejection MEANS operationally, which
 // are expected configuration vs possibly preventable, and a deterministic review

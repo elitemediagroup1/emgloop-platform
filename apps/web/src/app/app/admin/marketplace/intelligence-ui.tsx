@@ -14,6 +14,8 @@ import type { ReactNode } from 'react';
 import type {
   CallGridFinding, CallGridEvidenceReference, IntelligenceUnknown,
   MetricClassification, Severity, AffectedEntity,
+  ExecutiveBrief, IntelligenceScore, ScoredFinding,
+  MarketplaceRisk, RiskBand,
 } from '@emgloop/shared';
 
 const SEV_LABEL: Record<Severity, string> = {
@@ -373,6 +375,224 @@ export function ContributionTable({
         Contribution is arithmetic: it shows which {entityLabel.toLowerCase()}s account for the period&rsquo;s
         change. It does not establish what caused it.
       </p>
+    </div>
+  );
+}
+
+// --- Executive Intelligence Brief ------------------------------------------------------
+
+/**
+ * The Intelligence Score, with the components behind it.
+ *
+ * The number is meaningless on its own, so it never appears on its own: the
+ * drawer names every component, what it scored, and — for a component that could
+ * not be measured — says so instead of showing a zero. A score built from four of
+ * five components is a different claim from one built from five, and the reader
+ * gets to see which they are looking at.
+ */
+export function ScoreBadge({ score }: { score: IntelligenceScore }) {
+  return (
+    <details className="cg-scorebadge">
+      <summary className="cg-scorebadge__summary" title="Attention ordering — not a value or a forecast">
+        <span className="cg-scorebadge__num">{score.score}</span>
+        <span className="cg-scorebadge__label">priority</span>
+        {score.determinacy < 1 ? (
+          <span className="cg-scorebadge__partial" title="Some components could not be measured">
+            partial
+          </span>
+        ) : null}
+      </summary>
+      <div className="cg-scorebadge__body">
+        <p className="cg-scorebadge__note">
+          Orders attention only. It is not a value, a cost, or a probability.
+        </p>
+        <dl className="cg-scorelist">
+          {score.components.map((c) => (
+            <div className="cg-scorerow" key={c.id}>
+              <dt className="cg-scorerow__name">{SCORE_LABEL[c.id]}</dt>
+              <dd className="cg-scorerow__val">
+                {c.available ? `${c.points ?? 0} / ${c.max}` : 'Not measurable'}
+                <span className="cg-scorerow__why">{c.explanation}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="cg-scorebadge__ver">Formula {score.formulaVersion}</p>
+      </div>
+    </details>
+  );
+}
+
+const SCORE_LABEL: Record<string, string> = {
+  impact: 'Impact',
+  confidence: 'Confidence',
+  novelty: 'Novelty',
+  urgency: 'Urgency',
+  reviewPriority: 'Review priority',
+};
+
+/** One brief entry: severity, what it is, the evidence, the impact, what to review. */
+function BriefItem({ item, rank }: { item: ScoredFinding; rank: number }) {
+  const f = item.finding;
+  return (
+    <article className="cg-brief__item" aria-label={f.title}>
+      <div className="cg-brief__rank" aria-hidden="true">{rank}</div>
+      <div className="cg-brief__body">
+        <header className="cg-brief__head">
+          <SeverityTag value={f.severity} />
+          <h3 className="cg-brief__title">{f.title}</h3>
+          <ScoreBadge score={item.score} />
+        </header>
+
+        <p className="cg-brief__summary">{f.plainLanguageSummary}</p>
+
+        {f.drivers.length > 0 ? <ContributorList entities={f.drivers} /> : null}
+
+        <dl className="cg-brief__meta">
+          <div>
+            <dt>Confidence</dt>
+            <dd>{Math.round(f.confidence * 100)}%</dd>
+          </div>
+          <div>
+            <dt>Basis</dt>
+            <dd><ClassificationTag value={f.classification} /></dd>
+          </div>
+          {f.comparisonWindow ? (
+            <div>
+              <dt>Compared with</dt>
+              <dd>{f.comparisonWindow}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        {f.unknowns.length > 0 ? (
+          <p className="cg-brief__unknown">
+            <span className="cg-brief__unknownlabel">Unknown</span>
+            {f.unknowns[0]}
+          </p>
+        ) : null}
+
+        {f.recommendedReview ? (
+          <p className="cg-finding__review">
+            <span className="cg-finding__reviewlabel">Recommended review</span>
+            {f.recommendedReview}
+          </p>
+        ) : null}
+
+        <EvidenceDrawer finding={f} />
+      </div>
+    </article>
+  );
+}
+
+/**
+ * The Executive Intelligence Brief — at most five, ordered by attention.
+ *
+ * Five is a CEILING. An empty brief renders its reason rather than a blank space,
+ * because "nothing crossed the bar" and "the page failed" look identical
+ * otherwise, and only one of them is fine.
+ */
+export function ExecutiveBriefSection({
+  brief,
+  sectionLabel = 'Executive Intelligence Brief',
+}: {
+  brief: ExecutiveBrief;
+  sectionLabel?: string;
+}) {
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {brief.items.length > 0 ? (
+          <p className="cg-brief__count">
+            {brief.items.length} of {brief.items.length + brief.omittedCount} findings
+          </p>
+        ) : null}
+      </div>
+
+      {brief.items.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">{brief.emptyReason ?? 'No evidence-backed finding for this period.'}</p>
+        </section>
+      ) : (
+        <div className="cg-brief">
+          {brief.items.map((item, i) => (
+            <BriefItem key={item.finding.id} item={item} rank={i + 1} />
+          ))}
+        </div>
+      )}
+
+      {brief.scoredWithoutHistory ? (
+        <p className="cg-covnote">
+          Ordered without a historical series, so novelty could not be measured. Select a
+          completed period to establish one.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// --- Marketplace Risk -------------------------------------------------------------------
+
+const RISK_CLASS: Record<RiskBand, string> = {
+  CRITICAL: 'critical', HIGH: 'high', MODERATE: 'notable', LOW: 'informational',
+};
+const RISK_LABEL: Record<RiskBand, string> = {
+  CRITICAL: 'Critical', HIGH: 'High', MODERATE: 'Moderate', LOW: 'Low',
+};
+
+/**
+ * Structural fragility, with every factor's measurability on show.
+ *
+ * The determinacy line is the point of this panel. A "LOW" computed from three of
+ * nine factors is not a clean bill of health, and a reader who cannot see that
+ * will treat it as one.
+ */
+export function MarketplaceRiskPanel({ risk }: { risk: MarketplaceRisk }) {
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">Marketplace Risk</p>
+        <span className={'cg-sev cg-sev--' + RISK_CLASS[risk.band]}>{RISK_LABEL[risk.band]}</span>
+      </div>
+
+      <section className="tile tile--wide cg-risk">
+        <p className="cg-risk__headline">{risk.headline}</p>
+
+        <p className="cg-risk__determinacy">
+          {Math.round(risk.determinacy * 100)}% of the model could be measured
+          {risk.unmeasured.length > 0
+            ? ` — ${risk.unmeasured.length} factor${risk.unmeasured.length === 1 ? '' : 's'} had no data and ${risk.unmeasured.length === 1 ? 'was' : 'were'} excluded rather than scored as safe.`
+            : '.'}
+        </p>
+
+        <details className="cg-eviddrawer">
+          <summary className="cg-evidsummary">All nine factors</summary>
+          <div className="cg-evidbody">
+            <ul className="cg-riskfactors">
+              {risk.factors.map((f) => (
+                <li className={'cg-riskfactor' + (f.available ? '' : ' cg-riskfactor--absent')} key={f.id}>
+                  <div className="cg-riskfactor__head">
+                    <span className="cg-riskfactor__name">{f.label}</span>
+                    <span className="cg-riskfactor__level">
+                      {f.available && f.level !== null ? `${Math.round(f.level * 100)}%` : 'Not measurable'}
+                    </span>
+                  </div>
+                  <p className="cg-riskfactor__measure">{f.measurement}</p>
+                  <p className="cg-riskfactor__why">{f.explanation}</p>
+                </li>
+              ))}
+            </ul>
+            <p className="cg-scorebadge__ver">Risk model {risk.modelVersion}</p>
+          </div>
+        </details>
+
+        <p className="cg-risk__caveat">
+          Risk describes the shape of the business, not anyone&rsquo;s intentions. Loop cannot see
+          contracts, caps or commercial arrangements, so it never predicts that a counterparty
+          will reduce or leave.
+        </p>
+      </section>
     </div>
   );
 }

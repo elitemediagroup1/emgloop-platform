@@ -12,13 +12,29 @@ import {
   describeCallGridWindow,
   type IntelligenceInput, type CallGridIntelligence, type DimensionIntelligence,
   type IntelligenceDimension, type BidIntelligenceInput, type BidIntelligence,
-  type CallGridFinding,
+  type CallGridFinding, type HistorySeries,
 } from '@emgloop/shared';
 import type { CallGridReport } from './callgrid-report';
 import type { BidReport } from './bid-report';
 
-/** Build the engine's input from a canonical report. `now` is the request clock. */
-export function toIntelligenceInput(report: CallGridReport, now: Date): IntelligenceInput {
+/**
+ * Build the engine's input from a canonical report. `now` is the request clock.
+ *
+ * `extras` carries the inputs that only some surfaces can afford or possess: the
+ * historical series (8 extra reads) and the bid snapshot rates. Every one is
+ * OPTIONAL and every rule that needs one degrades to silence without it, so a
+ * subpage that omits them gets narrower intelligence rather than wrong
+ * intelligence.
+ */
+export function toIntelligenceInput(
+  report: CallGridReport,
+  now: Date,
+  extras?: {
+    history?: HistorySeries;
+    bidRejectRate?: number | null;
+    rateLimitedShare?: number | null;
+  },
+): IntelligenceInput {
   const desc = describeCallGridWindow(report.window, now);
   return {
     now,
@@ -31,12 +47,23 @@ export function toIntelligenceInput(report: CallGridReport, now: Date): Intellig
     comparison: report.comparison,
     dimensions: report.dimensions,
     comparisonDimensions: report.comparisonDimensions,
+    history: extras?.history,
+    bidRejectRate: extras?.bidRejectRate ?? null,
+    rateLimitedShare: extras?.rateLimitedShare ?? null,
   };
 }
 
 /** Window-level intelligence for the Overview. */
-export function callGridIntelligence(report: CallGridReport, now: Date): CallGridIntelligence {
-  return analyzeCallGrid(toIntelligenceInput(report, now));
+export function callGridIntelligence(
+  report: CallGridReport,
+  now: Date,
+  extras?: {
+    history?: HistorySeries;
+    bidRejectRate?: number | null;
+    rateLimitedShare?: number | null;
+  },
+): CallGridIntelligence {
+  return analyzeCallGrid(toIntelligenceInput(report, now, extras));
 }
 
 /** Intelligence for one dimension page — same engine, same rules, scoped. */

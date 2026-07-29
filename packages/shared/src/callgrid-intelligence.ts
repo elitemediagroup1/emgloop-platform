@@ -195,8 +195,9 @@ export interface SignificanceRule {
   percentageThreshold: number | null;
   /** Minimum population before a change is trustworthy at all. */
   minimumVolume: number;
-  /** Which window the comparison is drawn from. */
-  baselineWindow: 'comparison_window' | 'latest_snapshot';
+  /** Which window the comparison is drawn from. `historical_series` means the rule
+   *  judges against a distribution of complete prior periods, not a single one. */
+  baselineWindow: 'comparison_window' | 'latest_snapshot' | 'historical_series';
   /** How severity escalates once the rule fires. */
   severityLogic: string;
   /** When the rule must stay silent even though its thresholds were met. */

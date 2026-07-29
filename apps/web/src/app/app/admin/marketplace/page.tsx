@@ -6,11 +6,12 @@ import {
 } from "@emgloop/shared";
 import { num } from "../../_loop-os";
 import { loadCallGridReport, type CallGridDimRow, type CallGridMetrics } from "./callgrid-report";
-import { loadBidReport, bidSnapshotMatches } from "./bid-report";
+import { loadBidReport, bidSnapshotMatches, overallRejectRate, destinationRateLimitedShare } from "./bid-report";
 import { callGridIntelligence, bidIntelligence } from "./intelligence-data";
 import CallGridDateRange from "./CallGridDateRange";
 import { SnapshotNotice, easternClock } from "./dimension-ui";
-import { ExecutiveIntelligence, FindingList, UnknownsSection } from "./intelligence-ui";
+import { ExecutiveBriefSection, MarketplaceRiskPanel, FindingList, UnknownsSection } from "./intelligence-ui";
+import { loadCallGridHistory } from "./callgrid-history-data";
 
 export const dynamic = "force-dynamic";
 
@@ -150,10 +151,24 @@ export default async function CallGridIntelligencePage({
   const desc = describeCallGridWindow(window, now);
   const dayNav = callGridDayNav(window, now);
 
-  const [report, bid] = await Promise.all([loadCallGridReport(org, window), loadBidReport(org)]);
+  // History is loaded ONLY here. It costs one read per prior period, and only the
+  // Overview runs the distribution rules (anomalies, volatility, novelty) that
+  // need it. A live window returns an empty series by construction, so this is
+  // free on Today.
+  const [report, bid, history] = await Promise.all([
+    loadCallGridReport(org, window),
+    loadBidReport(org),
+    loadCallGridHistory(org, window),
+  ]);
 
   const bidMatches = bidSnapshotMatches(bid.meta, window);
-  const intel = callGridIntelligence(report, now);
+
+  // Bid-derived risk inputs. Both are null when the provider did not report them,
+  // which makes the risk model WITHHOLD those factors rather than score them safe.
+  const bidRejectRate = overallRejectRate(bid.sources);
+  const rateLimitedShare = destinationRateLimitedShare(bid.destinations);
+
+  const intel = callGridIntelligence(report, now, { history, bidRejectRate, rateLimitedShare });
   const bidIntel = bidIntelligence(bid, now, desc.periodTitle, bidMatches);
   const compareShort = desc.comparisonTitle.split(" · ")[0];
 
@@ -213,15 +228,13 @@ export default async function CallGridIntelligencePage({
           </div>
         ) : null}
 
-        {/* 5 — Executive Intelligence */}
-        <ExecutiveIntelligence
-          headline={intel.executiveSummary.headline}
-          primaryChange={intel.executiveSummary.primaryChange}
-          drivers={intel.executiveSummary.drivers}
-          topConcern={intel.executiveSummary.topConcern}
-          topOpportunity={intel.executiveSummary.topOpportunity}
-          recommendedReviews={intel.executiveSummary.recommendedReviews}
-        />
+        {/* 5 — Executive Intelligence Brief: at most five, attention-ordered.
+             Replaces the passive summary; the headline survives as its one-line lede. */}
+        <p className="cg-exec__headline cg-exec__headline--lede">{intel.executiveSummary.headline}</p>
+        <ExecutiveBriefSection brief={intel.brief} />
+
+        {/* 5b — Marketplace Risk: structural fragility, with determinacy on show. */}
+        <MarketplaceRiskPanel risk={intel.risk} />
 
         {/* 6 — Top Performers (the ranked rows the subpages show) */}
         <div className="cg-sec">

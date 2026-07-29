@@ -2117,3 +2117,71 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 .recon-verdict--good { color: var(--loop-good); }
 .recon-verdict--warn { color: var(--loop-warn); }
 .recon-verdict--crit { color: var(--loop-crit); }
+
+/* --- Executive Intelligence Brief -------------------------------------------
+   Attention-ordered, at most five. The rank number carries the ordering visually
+   so a reader does not have to infer it from position alone. */
+.cg-exec__headline--lede { margin: 0 0 4px; font-size: 15px; line-height: 1.55; color: var(--loop-text); }
+.cg-brief { display: flex; flex-direction: column; gap: 10px; }
+.cg-brief__count { margin: 0; font-size: 11.5px; color: var(--loop-text-3); }
+.cg-brief__item {
+  display: flex; gap: 12px; padding: 14px 16px;
+  border: 1px solid var(--loop-line); border-radius: 12px; background: var(--loop-surface);
+}
+.cg-brief__rank {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 11.5px; font-weight: 700;
+  color: var(--loop-text-3); border: 1px solid var(--loop-line);
+}
+.cg-brief__body { flex: 1 1 auto; min-width: 0; }
+.cg-brief__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-brief__title { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--loop-text); flex: 1 1 auto; min-width: 0; }
+.cg-brief__summary { margin: 8px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text-2); }
+.cg-brief__meta { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 10px 0 0; }
+.cg-brief__meta div { display: flex; flex-direction: column; gap: 1px; }
+.cg-brief__meta dt { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-brief__meta dd { margin: 0; font-size: 12.5px; color: var(--loop-text-2); }
+.cg-brief__unknown { margin: 10px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-text-3); display: flex; flex-direction: column; gap: 2px; }
+.cg-brief__unknownlabel { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+
+/* Score badge — the number never appears without the components behind it. */
+.cg-scorebadge { flex: 0 0 auto; }
+.cg-scorebadge__summary {
+  display: inline-flex; align-items: baseline; gap: 5px; cursor: pointer;
+  padding: 2px 8px; border: 1px solid var(--loop-line); border-radius: 999px; list-style: none;
+}
+.cg-scorebadge__summary::-webkit-details-marker { display: none; }
+.cg-scorebadge__num { font-size: 13px; font-weight: 700; color: var(--loop-text); }
+.cg-scorebadge__label { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); }
+.cg-scorebadge__partial { font-size: 10px; color: var(--loop-warn); }
+.cg-scorebadge__body { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--loop-line); border-radius: 10px; }
+.cg-scorebadge__note { margin: 0 0 8px; font-size: 11.5px; color: var(--loop-text-3); }
+.cg-scorebadge__ver { margin: 8px 0 0; font-size: 10.5px; color: var(--loop-text-3); }
+.cg-scorelist { margin: 0; display: flex; flex-direction: column; gap: 7px; }
+.cg-scorerow { display: flex; gap: 10px; align-items: baseline; }
+.cg-scorerow__name { flex: 0 0 108px; font-size: 11.5px; font-weight: 650; color: var(--loop-text-2); }
+.cg-scorerow__val { margin: 0; font-size: 11.5px; color: var(--loop-text); display: flex; flex-direction: column; gap: 1px; }
+.cg-scorerow__why { font-size: 11px; line-height: 1.45; color: var(--loop-text-3); }
+
+/* --- Marketplace Risk -------------------------------------------------------
+   The determinacy line is the point: a LOW band from three of nine factors is
+   not a clean bill of health, and must not read as one. */
+.cg-risk__headline { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text); }
+.cg-risk__determinacy { margin: 8px 0 0; font-size: 12px; line-height: 1.55; color: var(--loop-text-3); }
+.cg-risk__caveat { margin: 10px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); }
+.cg-riskfactors { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.cg-riskfactor { padding-bottom: 9px; border-bottom: 1px solid var(--loop-line); }
+.cg-riskfactor:last-child { border-bottom: 0; padding-bottom: 0; }
+.cg-riskfactor--absent { opacity: .72; }
+.cg-riskfactor__head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.cg-riskfactor__name { font-size: 12.5px; font-weight: 650; color: var(--loop-text); }
+.cg-riskfactor__level { font-size: 11.5px; font-weight: 650; color: var(--loop-text-2); }
+.cg-riskfactor--absent .cg-riskfactor__level { color: var(--loop-text-3); font-weight: 500; }
+.cg-riskfactor__measure { margin: 3px 0 0; font-size: 12px; line-height: 1.5; color: var(--loop-text-2); }
+.cg-riskfactor__why { margin: 2px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+@media (max-width: 640px) {
+  .cg-brief__item { padding: 12px; gap: 10px; }
+  .cg-scorerow { flex-direction: column; gap: 1px; }
+  .cg-scorerow__name { flex: none; }
+}
