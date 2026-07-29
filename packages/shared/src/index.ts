@@ -203,6 +203,9 @@ export * from './callgrid-history';
 // Anomaly detection over that series. Distribution rules stay silent without a
 // series rather than degrading into a two-point comparison wearing the label.
 export * from './callgrid-anomaly';
+// Per-entity findings that only a distribution can support: record periods,
+// sustained fades, rising dominance, emergence and consistency.
+export * from './callgrid-entity-intelligence';
 // The Intelligence Score — the one attention ordering. A component whose input
 // is missing is WITHHELD from both numerator and denominator, never scored zero.
 export * from './callgrid-scoring';

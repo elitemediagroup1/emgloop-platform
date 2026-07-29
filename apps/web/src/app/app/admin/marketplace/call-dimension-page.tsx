@@ -23,6 +23,7 @@ import {
   parseDimSort, sortRows, buildDimQuery,
 } from './dimension-metrics';
 import { dimensionIntelligence } from './intelligence-data';
+import { loadCallGridHistory } from './callgrid-history-data';
 import {
   DimensionShell, SummaryTiles, PerformanceTable, TrendCell, DetailPanel, ActivitySection,
   type PerfColumn, type SummaryTile,
@@ -62,14 +63,21 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
   const desc = describeCallGridWindow(window, now);
   const sort = parseDimSort(searchParams?.sort, searchParams?.dir);
 
-  const report = await loadCallGridReport(org, window);
+  // History powers the per-entity series findings (record periods, sustained
+  // fades, rising dominance, emergence, consistency) — the ones a delta against a
+  // single prior period cannot support. A live window yields an empty series by
+  // construction, so this costs nothing on Today.
+  const [report, history] = await Promise.all([
+    loadCallGridReport(org, window),
+    loadCallGridHistory(org, window),
+  ]);
   const allRows = report.dimensions[config.dim];
   const rows = sortRows(allRows, sort.key, sort.dir);
   const priorByKey = report.comparisonByKey[config.dim];
   const s = summarizeRows(allRows);
   const totalCalls = s.totalCalls;
 
-  const intel = dimensionIntelligence(report, config.dim as IntelligenceDimension, now);
+  const intel = dimensionIntelligence(report, config.dim as IntelligenceDimension, now, { history });
 
   const selectedKey = searchParams?.[config.selectionParam] ?? null;
   const selected: CallGridDimRow | null = selectedKey ? allRows.find((r) => r.key === selectedKey) ?? null : null;

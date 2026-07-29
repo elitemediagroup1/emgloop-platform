@@ -71,8 +71,9 @@ export function dimensionIntelligence(
   report: CallGridReport,
   dim: IntelligenceDimension,
   now: Date,
+  extras?: { history?: HistorySeries },
 ): DimensionIntelligence {
-  return analyzeDimension(toIntelligenceInput(report, now), dim);
+  return analyzeDimension(toIntelligenceInput(report, now, extras), dim);
 }
 
 /**

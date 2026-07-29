@@ -42,6 +42,7 @@ import {
 import {
   assessMarketplaceRisk, riskUnknowns, type MarketplaceRisk, type RiskDimRow,
 } from './callgrid-risk';
+import { entitySeriesFindings, type EntityRow } from './callgrid-entity-intelligence';
 
 // --- Engine input (the canonical report, as a contract) ------------------------
 
@@ -954,7 +955,27 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     const eff = billableEfficiencyFinding(input);
     if (eff) findings.push(eff);
 
-    // I — anomalies. Distribution rules stay silent without a series rather than
+    // I — per-entity series findings: record periods, sustained fades, rising
+    // dominance, emergence and consistency. Silent without a series.
+    for (const dim of DIMENSIONS) {
+      findings.push(...entitySeriesFindings(
+        {
+          now: input.now,
+          windowLabel: input.windowLabel,
+          comparisonLabel: input.comparisonLabel,
+          includesLiveData: input.includesLiveData,
+          windowRevenueCents: input.metrics.revenueCents,
+          history,
+        },
+        dim,
+        toEntityRows(input.dimensions[dim]),
+        // One per rule per dimension on the Overview — four dimensions at two each
+        // would bury the headline the brief exists to surface.
+        1,
+      ));
+    }
+
+    // J — anomalies. Distribution rules stay silent without a series rather than
     // degrading into a two-point comparison wearing an anomaly's label.
     findings.push(...detectAnomalies({
       now: input.now,
@@ -1167,6 +1188,21 @@ export function analyzeDimension(input: IntelligenceInput, dim: IntelligenceDime
     if (conc) findings.push(conc);
     findings.push(...lifecycleFindings(input, dim));
     findings.push(...efficiencyMovers(input, dim));
+
+    // The dimension page has room for more than the Overview, so it takes the
+    // default cap rather than the Overview's one-per-rule.
+    findings.push(...entitySeriesFindings(
+      {
+        now: input.now,
+        windowLabel: input.windowLabel,
+        comparisonLabel: input.comparisonLabel,
+        includesLiveData: input.includesLiveData,
+        windowRevenueCents: input.metrics.revenueCents,
+        history: input.history ?? EMPTY_SERIES,
+      },
+      dim,
+      toEntityRows(cur),
+    ));
   }
 
   findings.sort(bySeverity);
@@ -1271,3 +1307,10 @@ export function allFindingViolations(findings: readonly CallGridFinding[]): stri
 }
 
 export { coverage };
+
+/** Project canonical dimension rows onto the entity-intelligence contract. */
+function toEntityRows(rows: readonly IntelligenceDimRow[]): EntityRow[] {
+  return rows.map((r) => ({
+    key: r.key, label: r.label, calls: r.calls, revenueCents: r.revenueCents,
+  }));
+}

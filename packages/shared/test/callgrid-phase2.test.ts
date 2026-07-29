@@ -445,3 +445,161 @@ test('entity keys are namespaced per dimension so ids cannot collide', () => {
 test('MIN_SERIES_POINTS is the single stated bar for every distribution rule', () => {
   assert.ok(MIN_SERIES_POINTS >= 3, 'a distribution needs more than a couple of points');
 });
+
+// --- Per-entity series intelligence ---------------------------------------------
+
+import { entitySeriesFindings, ENTITY_SIGNIFICANCE_RULES } from '../src/callgrid-entity-intelligence';
+
+function entitySeriesOf(perPeriod: Array<{ entity: number | null; window: number | null }>): HistorySeries {
+  const points: HistoryPoint[] = perPeriod.map((p, i) => ({
+    period: { index: i + 1, start: new Date(0), end: new Date(0), spanDays: 1 },
+    totalCalls: 100, billableCalls: 40,
+    revenueCents: p.window, profitCents: p.window,
+    entityRevenueCents: { [historyEntityKey('buyers', 'b1')]: p.entity },
+    entityCalls: { [historyEntityKey('buyers', 'b1')]: 10 },
+    entityLabels: { [historyEntityKey('buyers', 'b1')]: 'Acme' },
+  }));
+  return { points, suppressedForLiveWindow: false };
+}
+
+const entityCtx = (history: HistorySeries, windowRevenueCents: number | null = 1_000_000) => ({
+  now: NOW, windowLabel: 'Yesterday', comparisonLabel: 'The day before',
+  includesLiveData: false, windowRevenueCents, history,
+});
+
+const eRow = (revenueCents: number | null, calls = 20) => ({
+  key: 'b1', label: 'Acme', calls, revenueCents,
+});
+
+test('entity series findings stay silent without a series', () => {
+  const found = entitySeriesFindings(entityCtx({ points: [], suppressedForLiveWindow: false }), 'buyers', [eRow(500_000)]);
+  assert.deepEqual(found, []);
+});
+
+test('a record LOW is a risk; a record HIGH is not escalated above it', () => {
+  const history = entitySeriesOf([
+    { entity: 400_000, window: 1_000_000 },
+    { entity: 420_000, window: 1_000_000 },
+    { entity: 410_000, window: 1_000_000 },
+    { entity: 405_000, window: 1_000_000 },
+  ]);
+  const low = entitySeriesFindings(entityCtx(history), 'buyers', [eRow(50_000)])
+    .find((f) => f.ruleId === 'entity-record-period');
+  assert.ok(low, 'a worst-on-record period must be reported');
+  assert.equal(low!.findingType, 'RISK');
+  assert.equal(low!.severity, 'NOTABLE');
+
+  const high = entitySeriesFindings(entityCtx(history), 'buyers', [eRow(900_000)])
+    .find((f) => f.ruleId === 'entity-record-period');
+  assert.ok(high);
+  assert.equal(high!.findingType, 'OPPORTUNITY');
+  // Good news must not crowd out a problem in the brief.
+  assert.equal(high!.severity, 'INFORMATIONAL');
+});
+
+test('an emerging entity is identified rather than presented as explosive growth', () => {
+  // Absent from the older half, present in the recent half.
+  const history = entitySeriesOf([
+    { entity: 200_000, window: 1_000_000 },
+    { entity: 150_000, window: 1_000_000 },
+    { entity: null, window: 1_000_000 },
+    { entity: null, window: 1_000_000 },
+  ]);
+  const found = entitySeriesFindings(entityCtx(history), 'buyers', [eRow(300_000)]);
+  const emerging = found.find((f) => f.ruleId === 'entity-emerging');
+  assert.ok(emerging, 'an entity absent early and present recently is emerging');
+  assert.match(emerging!.plainLanguageSummary, /short base/i);
+});
+
+test('a sustained fade is reported as distinct from a single down period', () => {
+  const history = entitySeriesOf([
+    { entity: 300_000, window: 1_000_000 },
+    { entity: 500_000, window: 1_000_000 },
+    { entity: 700_000, window: 1_000_000 },
+    { entity: 900_000, window: 1_000_000 },
+  ]);
+  const found = entitySeriesFindings(entityCtx(history), 'buyers', [eRow(100_000)]);
+  const dormant = found.find((f) => f.ruleId === 'entity-dormant');
+  assert.ok(dormant, 'a monotonic decline across periods must be flagged as a fade');
+  assert.match(dormant!.plainLanguageSummary, /sustained fade/i);
+});
+
+test('rising dominance compares against the entity OWN historical share', () => {
+  const history = entitySeriesOf([
+    { entity: 100_000, window: 1_000_000 }, // 10%
+    { entity: 100_000, window: 1_000_000 },
+    { entity: 100_000, window: 1_000_000 },
+    { entity: 100_000, window: 1_000_000 },
+  ]);
+  // Now 60% of a 1,000,000 window — a 50-point lift over its own 10% norm.
+  const found = entitySeriesFindings(entityCtx(history, 1_000_000), 'buyers', [eRow(600_000)]);
+  const dom = found.find((f) => f.ruleId === 'entity-rising-dominance');
+  assert.ok(dom);
+  assert.equal(dom!.findingType, 'CONCENTRATION');
+  assert.match(dom!.plainLanguageSummary, /says nothing about/i);
+});
+
+test('dominance is suppressed when window revenue is unknown — no fabricated denominator', () => {
+  const history = entitySeriesOf([
+    { entity: 100_000, window: 1_000_000 },
+    { entity: 100_000, window: 1_000_000 },
+    { entity: 100_000, window: 1_000_000 },
+    { entity: 100_000, window: 1_000_000 },
+  ]);
+  const found = entitySeriesFindings(entityCtx(history, null), 'buyers', [eRow(600_000)]);
+  assert.equal(found.filter((f) => f.ruleId === 'entity-rising-dominance').length, 0);
+});
+
+test('an erratic entity is flagged so a single delta about it is read with caution', () => {
+  const history = entitySeriesOf([
+    { entity: 900_000, window: 2_000_000 },
+    { entity: 100_000, window: 2_000_000 },
+    { entity: 800_000, window: 2_000_000 },
+    { entity: 120_000, window: 2_000_000 },
+  ]);
+  const found = entitySeriesFindings(entityCtx(history, 2_000_000), 'buyers', [eRow(500_000)]);
+  const c = found.find((f) => f.ruleId === 'entity-consistency');
+  assert.ok(c, 'a coefficient of variation above 0.5 must be surfaced');
+  assert.equal(c!.severity, 'INFORMATIONAL');
+});
+
+test('every entity finding is well-formed and recommends only review', () => {
+  const history = entitySeriesOf([
+    { entity: 300_000, window: 1_000_000 },
+    { entity: 500_000, window: 1_000_000 },
+    { entity: 700_000, window: 1_000_000 },
+    { entity: 900_000, window: 1_000_000 },
+  ]);
+  const found = entitySeriesFindings(entityCtx(history), 'buyers', [eRow(100_000)]);
+  assert.ok(found.length > 0);
+  for (const f of found) {
+    assert.deepEqual(findingViolations(f), [], `${f.ruleId}: ${f.title}`);
+    if (f.recommendedReview) {
+      // Never "increase traffic" — the forbidden-verb guard lives in findingViolations,
+      // but assert the intent directly too.
+      assert.ok(!/\b(increase|boost|scale|reroute|pause)\b/i.test(f.recommendedReview), f.recommendedReview);
+    }
+  }
+});
+
+test('entity rules are capped per rule so a page cannot become a list', () => {
+  const history = entitySeriesOf([
+    { entity: 400_000, window: 1_000_000 },
+    { entity: 420_000, window: 1_000_000 },
+    { entity: 410_000, window: 1_000_000 },
+    { entity: 405_000, window: 1_000_000 },
+  ]);
+  const manyRows = Array.from({ length: 10 }, () => eRow(50_000));
+  const found = entitySeriesFindings(entityCtx(history), 'buyers', manyRows, 2);
+  const perRule = new Map<string, number>();
+  for (const f of found) perRule.set(f.ruleId, (perRule.get(f.ruleId) ?? 0) + 1);
+  for (const [ruleId, n] of perRule) assert.ok(n <= 2, `${ruleId} emitted ${n}`);
+});
+
+test('every entity rule declares its version, suppression and reason for existing', () => {
+  for (const rule of ENTITY_SIGNIFICANCE_RULES) {
+    assert.ok(rule.ruleId && rule.version);
+    assert.ok(rule.suppressionConditions.length > 0, `${rule.ruleId} must say when it stays silent`);
+    assert.ok(rule.explanation.length > 20, `${rule.ruleId} must explain why it exists`);
+  }
+});
