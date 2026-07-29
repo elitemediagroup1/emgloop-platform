@@ -146,7 +146,17 @@ priority Immediate/Today/This Week/Monitor/Informational — urgency requires ma
 trustworthy evidence, so a CRITICAL finding on weak evidence is Monitor, not Immediate.
 Annualization withheld unless the series shows stability, and always suppressed on a live window.
 
-**527 tests pass** (shared 330 · database 197); typecheck clean on web/shared/database; build compiles.
+**Phase 5:** `callgrid-reasoning.ts` — findings as a connected system. Relations classified
+LIKELY_ROOT_CAUSE / POSSIBLE_CONTRIBUTOR / DOWNSTREAM_EFFECT / CORRELATED_CHANGE /
+INDEPENDENT_EVENT / UNKNOWN, where **root cause means arithmetic attribution (where a change came
+from), never mechanism** — the definition renders inline beside every badge. A root-cause claim
+needs ≥60% contribution AND no competitor ≥25%. Union-find clusters so one movement is not read as
+several problems; an unconnected finding is stated as "isolated rather than systemic". Stability
+(8 classes) from completed periods only, with volatility outranking trend. Timeline derived from
+the history series (the only place sequence exists). Logical relationship graph emitted as plain
+data for the Brain/Work OS to consume. Business Story closes every page.
+
+**566 tests pass** (shared 369 · database 197); typecheck clean on web/shared/database; build compiles.
 
 **⚠️ Still NOT DONE:** the Bids page redesign (its "closed targets overnight" example is
 unreachable — the snapshot has no hour-of-day dimension), and **Phase 1's production reconciliation

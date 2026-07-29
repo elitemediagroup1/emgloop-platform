@@ -2304,3 +2304,57 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
   .cg-ds__boundary { grid-template-columns: 1fr; gap: 14px; }
   .cg-ds { padding: 13px; }
 }
+
+/* --- Operational Reasoning --------------------------------------------------
+   Every relation badge renders its DEFINITION inline. "Likely Root Cause" means
+   arithmetic attribution — where a change came from — and a reader must never be
+   left to supply their own reading of that phrase. */
+.cg-cluster { padding: 15px 17px; border: 1px solid var(--loop-line); border-radius: 12px; background: var(--loop-surface); }
+.cg-cluster__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-cluster__title { margin: 0; font-size: 15px; font-weight: 650; color: var(--loop-text); flex: 1 1 240px; min-width: 0; }
+.cg-cluster__count { font-size: 11px; color: var(--loop-text-3); white-space: nowrap; }
+.cg-cluster__narrative { margin: 10px 0 0; font-size: 13.5px; line-height: 1.65; color: var(--loop-text-2); }
+.cg-cluster__block { margin-top: 12px; }
+.cg-cluster__downstream { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
+.cg-cluster__downstream li { font-size: 12px; line-height: 1.5; color: var(--loop-text-2); }
+.cg-cluster__none { margin: 0; font-size: 12px; line-height: 1.5; color: var(--loop-text-3); }
+.cg-cluster__unknowns { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--loop-line); }
+
+.cg-relations { margin: 0 0 4px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.cg-relation { padding-bottom: 10px; border-bottom: 1px solid var(--loop-line); }
+.cg-relation:last-child { border-bottom: 0; padding-bottom: 0; }
+.cg-relation__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-relation__conf { font-size: 11px; color: var(--loop-text-3); }
+.cg-relation__def { margin: 5px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); font-style: italic; }
+.cg-relation__basis { margin: 4px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-text-2); }
+.cg-relation__measure { margin: 3px 0 0; font-size: 11.5px; color: var(--loop-text); font-variant-numeric: tabular-nums; }
+
+/* Timeline — oldest first, because the sequence is the point. */
+.cg-timeline { margin: 8px 0 0; padding: 0 0 0 14px; list-style: none; border-left: 1px solid var(--loop-line); display: flex; flex-direction: column; gap: 12px; }
+.cg-tlitem { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.cg-tlitem::before {
+  content: ""; position: absolute; left: -18px; top: 6px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--loop-surface); border: 1px solid var(--loop-line);
+}
+.cg-tlwhen { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-tlwhat { font-size: 13px; line-height: 1.5; color: var(--loop-text); }
+.cg-tlmeasure { font-size: 11.5px; color: var(--loop-text-2); font-variant-numeric: tabular-nums; }
+
+/* Stability */
+.cg-stability { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.cg-stabrow {
+  display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 4px 10px;
+  align-items: center; padding: 10px 12px;
+  border: 1px solid var(--loop-line); border-radius: 10px; background: var(--loop-surface);
+}
+.cg-stabname { font-size: 13px; font-weight: 650; color: var(--loop-text); }
+.cg-stabbasis { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* Business Story */
+.cg-story__text { margin: 0; font-size: 14px; line-height: 1.7; color: var(--loop-text); }
+.cg-story__note { margin: 10px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); }
+
+@media (max-width: 640px) {
+  .cg-cluster { padding: 13px; }
+  .cg-stabrow { grid-template-columns: 1fr; }
+}

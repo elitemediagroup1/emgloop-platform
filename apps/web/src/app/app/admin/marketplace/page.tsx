@@ -13,6 +13,7 @@ import { SnapshotNotice, easternClock } from "./dimension-ui";
 import {
   MarketplaceRiskPanel, BusinessHealthSection, DecisionSupportSection,
   OpportunitiesSection, FindingList, UnknownsSection,
+  ReasoningSection, IntelligenceTimeline, StabilitySection, BusinessStorySection,
 } from "./intelligence-ui";
 import { loadCallGridHistory } from "./callgrid-history-data";
 
@@ -252,7 +253,11 @@ export default async function CallGridIntelligencePage({
           emptyLine={intel.brief.emptyReason ?? 'No evidence-backed finding for this period.'}
         />
 
-        {/* 2 — Business Health */}
+        {/* 2 — How these connect. Placed immediately after the brief so a reader
+             sees ONE business movement rather than five separate alarms. */}
+        <ReasoningSection reasoning={intel.reasoning} />
+
+        {/* 3 — Business Health */}
         <BusinessHealthSection health={intel.health} />
 
         {/* 3 — Biggest Changes: changes and anomalies, never metric restatements. */}
@@ -286,7 +291,11 @@ export default async function CallGridIntelligencePage({
           emptyLine="Nothing is queued for review this period."
         />
 
-        {/* 7 — What Loop Cannot Determine */}
+        {/* 7 — Sequence and stability, both from completed periods only. */}
+        <IntelligenceTimeline events={intel.reasoning.timeline} />
+        <StabilitySection assessments={intel.reasoning.stability} />
+
+        {/* 8 — What Loop Cannot Determine */}
         <UnknownsSection unknowns={[...intel.unknowns, ...bidIntel.unknowns]} />
 
         {/* 8 — Trend and structural analysis */}
@@ -368,7 +377,10 @@ export default async function CallGridIntelligencePage({
           )}
         </div>
 
-        {/* 11 — Quick Access (navigate only; carries the selected range) */}
+        {/* Business Story — the executive narrative that closes the page. */}
+        <BusinessStorySection reasoning={intel.reasoning} />
+
+        {/* Quick Access (navigate only; carries the selected range) */}
         <div className="cg-sec">
           <p className="cg-seclabel">Quick Access</p>
           <div className="cg-qa">

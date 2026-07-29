@@ -374,6 +374,72 @@ inflates it by however much of the period has not happened yet.
 
 ---
 
+## Operational Reasoning
+
+`callgrid-reasoning.ts`. Findings as a connected system rather than a list.
+
+### The claim this layer may make, and the one it may not
+
+From call records, Loop can establish exactly two kinds of relationship:
+
+1. **Arithmetic attribution** — "this entity accounts for 62% of the revenue
+   change" is a fact about where a number came from. It is subtraction, not a
+   theory.
+2. **Formula lineage** — profit is `revenue − payout − cost`, so a profit move is
+   structurally downstream of a revenue move. These are facts about the metric
+   contract, not guesses about the world.
+
+It **cannot establish mechanism**. Nothing here knows why a buyer sent less
+traffic, and nothing CallGrid exposes would say. So **`LIKELY_ROOT_CAUSE` means
+"this is where the change came from", in the accounting sense — never "this is why
+it happened"**, and `RELATION_DEFINITION` renders that qualification inline next to
+every badge so a reader is never left to supply their own reading of the phrase.
+
+A test asserts no relation basis, cluster narrative or Business Story contains
+*caused by* / *because of* / *due to* / *resulted from*.
+
+### Classification
+
+`LIKELY_ROOT_CAUSE` · `POSSIBLE_CONTRIBUTOR` · `DOWNSTREAM_EFFECT` ·
+`CORRELATED_CHANGE` · `INDEPENDENT_EVENT` · `UNKNOWN`.
+
+Checked in that order, so the strongest **supported** claim wins and nothing is
+upgraded beyond its evidence. A root-cause claim requires ≥60% contribution **and**
+no competitor at ≥25% — dominance alone is not enough, because a rival explanation
+must be absent before one origin can be named. Co-occurrence is the weakest edge
+and is labelled `CORRELATED_CHANGE` precisely so it cannot be read as more.
+
+### Clusters
+
+Union-find over the relation edges. Related findings collapse into one cluster so
+a single underlying movement is not read as several separate problems; a finding
+with no edge becomes its own cluster and is described as **isolated rather than
+systemic** — a real business conclusion, not a failure to find one.
+
+### Stability
+
+`STABLE` · `IMPROVING` · `DETERIORATING` · `RECOVERING` · `VOLATILE` · `EMERGING` ·
+`DECLINING` · `DORMANT` · `UNKNOWN`, from **completed periods only**.
+
+Order of checks matters: shape (dormant/emerging) before trend, because a trend
+computed across an absence is meaningless; and **volatility outranks trend**,
+because a trend line through an erratic series describes the line, not the
+business. Below `MIN_SERIES_POINTS` the answer is UNKNOWN, never a guess.
+
+### Timeline
+
+Findings all describe the selected window, so a sequence cannot be built from
+them. The timeline is derived from the **history series** — the only place
+sequence actually exists — and is ordered oldest-first.
+
+### Relationship graph
+
+Logical, not visual. Plain `{nodes, edges}` data with a `basis` on every edge, so
+the Brain, Work OS or any later consumer can read the reasoning without importing
+a rendering concern or re-deriving the edges.
+
+---
+
 ## Bid intelligence
 
 Counting rejections is not intelligence — most rejections are configuration

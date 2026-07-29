@@ -51,6 +51,7 @@ import {
   findOpportunities, opportunityUnknowns, type Opportunity, type OpportunityRow,
 } from './callgrid-opportunity';
 import { buildDecisionSupport, type DecisionSupportCard } from './callgrid-decision-support';
+import { reasonAboutFindings, type OperationalReasoning } from './callgrid-reasoning';
 
 // --- Engine input (the canonical report, as a contract) ------------------------
 
@@ -174,6 +175,12 @@ export interface CallGridIntelligence {
    * make. Loop owns the facts; the operator owns the decision.
    */
   decisionSupport: DecisionSupportCard[];
+  /**
+   * Findings understood as a connected system: relations, clusters, the
+   * chronological feed, entity stability, the logical graph and the Business
+   * Story. Consumes findings; produces no metric of its own.
+   */
+  reasoning: OperationalReasoning;
   /** Every finding produced, severity-ordered. */
   findings: CallGridFinding[];
   /** Every finding with its Intelligence Score, attention-ordered. */
@@ -1146,6 +1153,21 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     periodsPerYear: input.periodsPerYear ?? null,
   });
 
+  // --- Reasoning --------------------------------------------------------------
+  // Runs over findings the engine already produced. It can establish arithmetic
+  // attribution and formula lineage; it can never establish mechanism.
+  const reasoning = reasonAboutFindings({
+    findings,
+    history,
+    selectedPeriodLabel: input.windowLabel,
+    includesLiveData: input.includesLiveData,
+    entities: DIMENSIONS.flatMap((dim) =>
+      input.dimensions[dim].slice(0, 5).map((r) => ({
+        dimension: dim, key: r.key, name: r.label, revenueCents: r.revenueCents,
+      })),
+    ),
+  });
+
   return {
     executiveSummary: {
       headline,
@@ -1168,6 +1190,7 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     health,
     opportunityFindings,
     decisionSupport,
+    reasoning,
     findings,
     ranked,
     changes,
@@ -1182,6 +1205,7 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
       ...riskUnknownEntries(risk),
       ...healthUnknownEntries(health),
       ...opportunityUnknownEntries(opportunityFindings),
+      ...reasoningUnknownEntries(reasoning),
     ],
     evidenceReferences: findings.flatMap((f) => f.supportingEvidence),
   };
@@ -1285,6 +1309,8 @@ export interface DimensionIntelligence {
   risks: CallGridFinding[];
   /** Decision support cards for this dimension, ordered by review priority. */
   decisionSupport: DecisionSupportCard[];
+  /** Reasoning scoped to this dimension's findings and entities. */
+  reasoning: OperationalReasoning;
 }
 
 /**
@@ -1387,8 +1413,19 @@ export function analyzeDimension(input: IntelligenceInput, dim: IntelligenceDime
     periodsPerYear: input.periodsPerYear ?? null,
   });
 
+  const dimReasoning = reasonAboutFindings({
+    findings,
+    history: input.history ?? EMPTY_SERIES,
+    selectedPeriodLabel: input.windowLabel,
+    includesLiveData: input.includesLiveData,
+    entities: cur.slice(0, 8).map((r) => ({
+      dimension: dim, key: r.key, name: r.label, revenueCents: r.revenueCents,
+    })),
+  });
+
   return {
-    findings, unknowns, contributions, ranked, health, opportunities, risks, decisionSupport,
+    findings, unknowns, contributions, ranked, health, opportunities, risks,
+    decisionSupport, reasoning: dimReasoning,
   };
 }
 
@@ -1484,5 +1521,14 @@ function opportunityUnknownEntries(opportunities: readonly Opportunity[]): Intel
     id: `opportunity-unknown-${i + 1}`,
     statement,
     reason: 'Opportunity amounts are measured exposure or an arithmetic gap. Loop never forecasts what would be gained.',
+  }));
+}
+
+
+function reasoningUnknownEntries(reasoning: OperationalReasoning): IntelligenceUnknown[] {
+  return reasoning.unknowns.map((statement, i) => ({
+    id: `reasoning-unknown-${i + 1}`,
+    statement,
+    reason: 'The reasoning layer relates findings by arithmetic attribution and metric-formula lineage. Neither establishes mechanism, so no relationship it reports is a causal claim.',
   }));
 }

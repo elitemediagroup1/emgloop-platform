@@ -31,6 +31,7 @@ import {
 import {
   FindingList, UnknownsSection, ContributionTable,
   BusinessHealthSection, OpportunitiesSection, DecisionSupportSection,
+  ReasoningSection, IntelligenceTimeline, StabilitySection, BusinessStorySection,
 } from './intelligence-ui';
 
 export interface CallDimensionConfig {
@@ -171,9 +172,16 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
             }
           />
 
+          <ReasoningSection reasoning={intel.reasoning} />
+
           <BusinessHealthSection
             health={{ overall: intel.health, dimensions: [intel.health], modelVersion: 'v1' }}
             sectionLabel={`${config.entityLabel} Health`}
+          />
+
+          <StabilitySection
+            assessments={intel.reasoning.stability}
+            sectionLabel={`${config.entityLabel} Stability`}
           />
 
           <OpportunitiesSection
@@ -196,6 +204,8 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
               compact
             />
           ) : null}
+
+          <IntelligenceTimeline events={intel.reasoning.timeline} />
 
           <UnknownsSection unknowns={intel.unknowns} />
 
@@ -247,6 +257,8 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
             items={[]}
             emptyLine={`No durable ${config.entityLabelLower}-level CallGrid events for this period.`}
           />
+
+          <BusinessStorySection reasoning={intel.reasoning} />
         </>
       )}
     </DimensionShell>

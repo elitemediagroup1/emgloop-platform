@@ -216,6 +216,9 @@ export * from './callgrid-opportunity';
 // reading of it, makes missing information first-class, and names the review a
 // person should make. Loop owns the facts; operators own the decisions.
 export * from './callgrid-decision-support';
+// Operational reasoning: findings as a connected system. It may claim arithmetic
+// attribution and metric-formula lineage; it may never claim mechanism.
+export * from './callgrid-reasoning';
 // The Intelligence Score — the one attention ordering. A component whose input
 // is missing is WITHHELD from both numerator and denominator, never scored zero.
 export * from './callgrid-scoring';

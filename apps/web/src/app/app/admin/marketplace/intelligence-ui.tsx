@@ -18,10 +18,13 @@ import type {
   MarketplaceRisk, RiskBand,
   BusinessHealth, HealthScore, HealthBand, Opportunity,
   DecisionSupportCard, ReviewUrgency, EvidenceStrength,
+  OperationalReasoning, ReasoningCluster, RelationKind,
+  TimelineEvent, StabilityAssessment, StabilityClass,
 } from '@emgloop/shared';
 import {
   HEALTH_BAND_LABEL, healthByUrgency,
   REVIEW_URGENCY_LABEL, REVIEW_CATEGORY_LABEL, EVIDENCE_STRENGTH_LABEL,
+  RELATION_LABEL, RELATION_DEFINITION, STABILITY_LABEL,
 } from '@emgloop/shared';
 
 const SEV_LABEL: Record<Severity, string> = {
@@ -967,6 +970,226 @@ export function DecisionSupportSection({
           {shown.map((c) => <DecisionSupportCardView key={c.findingId} card={c} />)}
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Operational Reasoning ------------------------------------------------------------
+
+const RELATION_CLASS: Record<RelationKind, string> = {
+  LIKELY_ROOT_CAUSE: 'high',
+  POSSIBLE_CONTRIBUTOR: 'notable',
+  DOWNSTREAM_EFFECT: 'notable',
+  CORRELATED_CHANGE: 'informational',
+  INDEPENDENT_EVENT: 'informational',
+  UNKNOWN: 'informational',
+};
+
+const STABILITY_CLASS: Record<StabilityClass, string> = {
+  STABLE: 'healthy', IMPROVING: 'healthy', RECOVERING: 'watch',
+  DETERIORATING: 'risk', DECLINING: 'critical', VOLATILE: 'risk',
+  EMERGING: 'watch', DORMANT: 'unknown', UNKNOWN: 'unknown',
+};
+
+/**
+ * One reasoning cluster: a group of findings Loop can show are related, with the
+ * narrative that connects them and the chain that justifies it.
+ *
+ * Every relation badge carries its DEFINITION inline. "Likely Root Cause" means
+ * arithmetic attribution — where the change came from — and a reader must never
+ * be left to supply their own reading of that phrase.
+ */
+function ReasoningClusterView({ cluster }: { cluster: ReasoningCluster }) {
+  return (
+    <article className="cg-cluster" aria-label={cluster.anchor.title}>
+      <header className="cg-cluster__head">
+        <SeverityTag value={cluster.anchor.severity} />
+        <h3 className="cg-cluster__title">{cluster.anchor.title}</h3>
+        <span className="cg-cluster__count">
+          {cluster.members.length === 1
+            ? 'Isolated'
+            : `${cluster.members.length} related findings`}
+        </span>
+      </header>
+
+      <p className="cg-cluster__narrative">{cluster.narrative}</p>
+
+      {cluster.likelyDownstream.length > 0 ? (
+        <div className="cg-cluster__block">
+          <p className="cg-ds__blocklabel">Follows from this by formula</p>
+          <ul className="cg-cluster__downstream">
+            {cluster.likelyDownstream.map((d, i) => <li key={i}>{d}</li>)}
+          </ul>
+        </div>
+      ) : null}
+
+      <details className="cg-eviddrawer">
+        <summary className="cg-evidsummary">
+          Why Loop believes these are related ({cluster.relations.length})
+        </summary>
+        <div className="cg-evidbody">
+          {cluster.relations.length === 0 ? (
+            <p className="cg-cluster__none">
+              No measured relationship connects this finding to any other in the period. It is
+              reported alone rather than joined to others by an assumed link.
+            </p>
+          ) : (
+            <ul className="cg-relations">
+              {cluster.relations.map((r, i) => (
+                <li className="cg-relation" key={i}>
+                  <div className="cg-relation__head">
+                    <span className={'cg-sev cg-sev--' + RELATION_CLASS[r.kind]}>
+                      {RELATION_LABEL[r.kind]}
+                    </span>
+                    <span className="cg-relation__conf">{Math.round(r.confidence * 100)}% confidence</span>
+                  </div>
+                  <p className="cg-relation__def">{RELATION_DEFINITION[r.kind]}</p>
+                  <p className="cg-relation__basis">{r.basis}</p>
+                  {r.measurement ? <p className="cg-relation__measure">{r.measurement}</p> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="cg-cluster__unknowns">
+            <p className="cg-ds__blocklabel">Unknown dependencies</p>
+            <ul className="cg-ds__missing">
+              {cluster.unknowns.map((u, i) => <li key={i}>{u}</li>)}
+            </ul>
+          </div>
+        </div>
+      </details>
+    </article>
+  );
+}
+
+/** Connected findings, grouped so one movement is not read as several problems. */
+export function ReasoningSection({
+  reasoning,
+  limit = 4,
+  sectionLabel = 'How These Connect',
+}: {
+  reasoning: OperationalReasoning;
+  limit?: number;
+  sectionLabel?: string;
+}) {
+  const shown = reasoning.clusters.slice(0, limit);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {reasoning.clusters.length > shown.length ? (
+          <p className="cg-brief__count">{shown.length} of {reasoning.clusters.length}</p>
+        ) : null}
+      </div>
+      {shown.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No findings to relate for this period.
+          </p>
+        </section>
+      ) : (
+        <div className="cg-findings">
+          {shown.map((c) => <ReasoningClusterView key={c.id} cluster={c} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The chronological feed. Built from completed periods — the only place sequence exists. */
+export function IntelligenceTimeline({
+  events,
+  sectionLabel = 'Intelligence Timeline',
+}: {
+  events: readonly TimelineEvent[];
+  sectionLabel?: string;
+}) {
+  return (
+    <div className="cg-sec">
+      <p className="cg-seclabel">{sectionLabel}</p>
+      {events.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No sequence can be shown. A timeline is built only from completed periods, and not
+            enough are available for this selection.
+          </p>
+        </section>
+      ) : (
+        <ol className="cg-timeline">
+          {events.map((e, i) => (
+            <li className="cg-tlitem" key={i}>
+              <span className="cg-tlwhen">{e.periodLabel}</span>
+              <span className="cg-tlwhat">{e.statement}</span>
+              {e.measurement ? <span className="cg-tlmeasure">{e.measurement}</span> : null}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/** Entity stability, classified from completed periods only. */
+export function StabilitySection({
+  assessments,
+  sectionLabel = 'Entity Stability',
+}: {
+  assessments: readonly StabilityAssessment[];
+  sectionLabel?: string;
+}) {
+  const classified = assessments.filter((a) => a.classification !== 'UNKNOWN');
+  const unclassified = assessments.length - classified.length;
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {unclassified > 0 ? (
+          <p className="cg-brief__count">{unclassified} without enough history</p>
+        ) : null}
+      </div>
+      {classified.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No entity has enough completed history to classify. Loop reports Unknown rather than
+            assuming stability.
+          </p>
+        </section>
+      ) : (
+        <ul className="cg-stability">
+          {classified.map((a) => (
+            <li className="cg-stabrow" key={`${a.entityKey}:${a.entityName}`}>
+              <span className="cg-stabname">{a.entityName}</span>
+              <span className={'cg-healthband cg-healthband--' + STABILITY_CLASS[a.classification]}>
+                {STABILITY_LABEL[a.classification]}
+              </span>
+              <span className="cg-stabbasis">{a.basis}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The Business Story — the executive narrative that closes a page.
+ *
+ * Composed from the clusters that already exist, so it cannot assert anything the
+ * relations do not support. "Isolated rather than systemic" is a real conclusion,
+ * not a failure to find one.
+ */
+export function BusinessStorySection({ reasoning }: { reasoning: OperationalReasoning }) {
+  return (
+    <div className="cg-sec">
+      <p className="cg-seclabel">Business Story</p>
+      <section className="tile tile--wide cg-story">
+        <p className="cg-story__text">{reasoning.businessStory}</p>
+        <p className="cg-story__note">
+          Composed from measured relationships only. Loop can attribute a change arithmetically and
+          follow it through the metric formulas; it cannot observe routing, caps, schedules, budgets
+          or demand, so nothing here is a causal claim. Reasoning {reasoning.version}.
+        </p>
+      </section>
     </div>
   );
 }
