@@ -196,6 +196,10 @@ export * from './callgrid-intelligence-engine';
 // are expected configuration vs possibly preventable, and a deterministic review
 // ORDER (never a revenue estimate — the bid reports carry no revenue).
 export * from './callgrid-bid-intelligence';
+// Reconciliation: proves Overview ↔ subpage internally, and makes the provider
+// leg (which CallGrid exposes no endpoint for) a recorded manual check rather
+// than an assumption.
+export * from './callgrid-reconciliation';
 
 
 // --- Period-over-period trend (today vs yesterday), honesty-first ---

@@ -2022,4 +2022,98 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .cg-watch__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cg-tag { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); border: 1px solid var(--loop-line-strong); border-radius: 999px; padding: 1px 7px; }
 
+
+/* ---- Intelligence: findings, evidence, unknowns ----
+   The explanation layer. A finding always renders with its severity, how it was
+   arrived at (verified / derived / inferred), and a drawer holding the evidence
+   behind it — the drawer is a native <details>, so inspecting a conclusion needs
+   no client JavaScript. */
+.cg-findings { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.cg-finding { background: var(--loop-surface); border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 14px 16px; }
+.cg-finding__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cg-finding__title { margin: 0; font-size: 14.5px; font-weight: 640; color: var(--loop-text); line-height: 1.35; flex: 1 1 auto; min-width: 0; }
+.cg-finding__summary { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--loop-text-2); }
+.cg-finding__review { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--loop-text); display: flex; flex-direction: column; gap: 2px; }
+.cg-finding__reviewlabel { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+
+/* Classification tags: how a value was arrived at, not how confident we feel. */
+.cg-class { flex: none; font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; font-weight: 700; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--loop-line-strong); color: var(--loop-text-3); cursor: help; }
+.cg-class--verified { color: var(--loop-good); border-color: rgba(90, 200, 150, .45); }
+.cg-class--derived { color: var(--loop-accent-2); border-color: rgba(122, 162, 255, .45); }
+.cg-class--inferred { color: var(--loop-warn); border-color: rgba(242, 180, 91, .45); }
+.cg-class--unknown, .cg-class--unavailable { color: var(--loop-text-3); }
+
+.cg-contriblist { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.cg-contriblist li { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; border: 1px solid var(--loop-line); border-radius: 999px; padding: 3px 10px; }
+.cg-contribname { font-weight: 600; color: var(--loop-text); }
+.cg-contribshare { color: var(--loop-text-3); }
+
+/* Evidence drawer */
+.cg-eviddrawer { margin-top: 12px; border-top: 1px solid var(--loop-line); padding-top: 10px; }
+.cg-evidsummary { cursor: pointer; font-size: 12px; font-weight: 620; color: var(--loop-accent-2); letter-spacing: .01em; list-style: none; }
+.cg-evidsummary::-webkit-details-marker { display: none; }
+.cg-evidsummary::before { content: '▸ '; }
+details[open] > .cg-evidsummary::before { content: '▾ '; }
+.cg-evidbody { margin-top: 12px; display: flex; flex-direction: column; gap: 14px; }
+.cg-evidmeta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 20px; margin: 0; }
+.cg-evidmeta > div { display: flex; flex-direction: column; gap: 2px; }
+.cg-evidmeta dt { color: var(--loop-text-3); font-size: 11px; }
+.cg-evidmeta dd { margin: 0; color: var(--loop-text); font-size: 12.5px; font-weight: 550; }
+.cg-evidtable { font-size: 12px; }
+.cg-evidtable td { vertical-align: top; }
+.cg-evidfield { color: var(--loop-text-3); }
+.cg-evidformula { margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--loop-text-3); }
+.cg-evidnote { margin-top: 4px; font-size: 11.5px; color: var(--loop-text-3); line-height: 1.4; }
+.cg-evidsec__title { margin: 0 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-evidlist { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; line-height: 1.5; color: var(--loop-text-2); }
+
+/* Executive intelligence panel */
+.cg-exec { display: flex; flex-direction: column; gap: 16px; }
+.cg-exec__headline { margin: 0; font-size: 15.5px; line-height: 1.55; font-weight: 560; color: var(--loop-text); }
+.cg-exec__block { display: flex; flex-direction: column; gap: 6px; }
+.cg-exec__blocktitle { margin: 0; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-exec__reviews { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; line-height: 1.5; color: var(--loop-text-2); }
+
+/* What Loop cannot determine — a first-class section, never a footnote. */
+.cg-unknowns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.cg-unknown { display: flex; flex-direction: column; gap: 3px; }
+.cg-unknown__statement { font-size: 13.5px; font-weight: 570; color: var(--loop-text); line-height: 1.45; }
+.cg-unknown__reason { font-size: 12.5px; color: var(--loop-text-3); line-height: 1.5; }
+
+/* Coverage / provenance notes under a tile row or table */
+.cg-covnote, .cg-tablenote { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--loop-text-3); }
+.cg-rankwas { color: var(--loop-text-3); }
+.cg-qcell { max-width: 280px; font-size: 12px; line-height: 1.45; color: var(--loop-text-2); white-space: normal; }
+.cg-reason__meta { margin: 6px 0 0; font-size: 11.5px; color: var(--loop-text-3); }
+
+/* Bids Overview callout */
+.cg-bidcallout { margin-top: 12px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.cg-bidcallout__lead { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--loop-text); }
+.cg-bidcallout__review { margin: 0; font-size: 13px; line-height: 1.5; color: var(--loop-text); display: flex; flex-direction: column; gap: 2px; }
+.cg-bidcallout__limit { margin: 0; font-size: 12px; color: var(--loop-text-3); line-height: 1.45; }
+
+/* Top-performer tiles are links through to the matching subpage */
+.cg-perftile { text-decoration: none; display: block; }
+.cg-perftile:hover { border-color: var(--loop-line-strong); }
+
+/* Activity: a finding stamped with the window it was derived from */
+.cg-actitem { display: flex; flex-direction: column; gap: 4px; }
+.cg-actwhen { margin: 0; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; font-weight: 650; color: var(--loop-text-3); }
+
+/* Responsive: tables scroll inside their own wrapper; the page never does. */
+@media (max-width: 900px) {
+  .cg-evidmeta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cg-qcell { max-width: 200px; }
+}
+@media (max-width: 560px) {
+  .cg-evidmeta { grid-template-columns: 1fr; }
+  .cg-finding { padding: 12px 13px; }
+  .cg-finding__title { font-size: 14px; }
+}
+
 /* ===================== END CALLGRID INTELLIGENCE ===================== */
+/* ---- Diagnostics: reconciliation verdict ---- */
+.recon-verdict { font-weight: 600; }
+.recon-verdict--good { color: var(--loop-good); }
+.recon-verdict--warn { color: var(--loop-warn); }
+.recon-verdict--crit { color: var(--loop-crit); }

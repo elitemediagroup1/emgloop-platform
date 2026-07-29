@@ -1,49 +1,49 @@
-// CallGrid Intelligence — Bids (the operational workspace).
+// CallGrid Intelligence — Bids: the operational intelligence workspace.
 //
-// NOT an engineering diagnostics page (that moved to Administration → Diagnostics
-// → CallGrid). This is the operator's view of bid opportunities, wins and
-// rejection patterns. Bid/ping data is snapshot-based (the provider's report
-// endpoints accept no arbitrary range), so this reflects the LATEST synchronized
-// snapshot and says so — it never fabricates historical bid reporting and never
-// pretends to honor the calendar range. Source and destination grains are kept
-// strictly separate; their counts are never added together.
+// NOT an engineering diagnostics page (endpoint status, sync logs, denominator
+// hypotheses and rule dumps live under Administration → Diagnostics → CallGrid).
+// This page answers, for an operator: where are opportunities failing, which of
+// those failures are configuration behaving as configured, which might be
+// preventable, what should be reviewed first, and what cannot be determined.
+//
+// Two invariants it exists to protect:
+//   - Source grain and destination grain are separate populations. Their counts
+//     are never added, and neither is the other's denominator.
+//   - Bid reports carry no revenue, so no monetary impact is ever stated.
+//
+// Bid data is snapshot-only — the provider's endpoints accept no date range — so
+// this reflects the latest synchronized snapshot and says so throughout.
 
 import { requireCrmContext } from '../../../../../crm/crm-data';
-import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow } from '@emgloop/shared';
+import {
+  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow,
+  sumReported, sourceWinRate,
+} from '@emgloop/shared';
 import { num } from '../../../_loop-os';
-import { loadBidReport, sumBid, bidSnapshotMatches, type BidSourceRow, type PingDestinationRow } from '../bid-report';
+import { loadBidReport, bidSnapshotMatches, type BidSourceRow, type PingDestinationRow } from '../bid-report';
+import { bidIntelligence } from '../intelligence-data';
 import {
   DimensionShell, SummaryTiles, PerformanceTable, SnapshotNotice, ActivitySection,
   type PerfColumn, type SummaryTile,
 } from '../dimension-ui';
+import { FindingList, UnknownsSection } from '../intelligence-ui';
 
 export const dynamic = 'force-dynamic';
 
 const n = (v: number | null) => (v === null ? '—' : num(v));
 const pct = (v: number | null) => (v === null ? '—' : v + '%');
 
-const SRC_REASONS: { key: keyof BidSourceRow['rejections']; label: string; note: string }[] = [
-  { key: 'failedAcceptance', label: 'Failed Acceptance', note: 'The bid did not meet a target’s acceptance criteria.' },
-  { key: 'duplicateBids', label: 'Duplicate Bids', note: 'A duplicate bid was detected for the same opportunity.' },
-  { key: 'closed', label: 'Closed Target', note: 'The target was closed — often intentional configuration.' },
-  { key: 'paused', label: 'Paused Target', note: 'The target was paused — often intentional configuration.' },
-  { key: 'failedTagRules', label: 'Failed Tag Rules', note: 'The bid did not satisfy a configured tag rule.' },
-  { key: 'duplicateCaller', label: 'Duplicate Caller', note: 'The caller was already seen within the provider’s window.' },
-  { key: 'callerIdRejected', label: 'Caller ID Rejected', note: 'The caller ID was rejected by a target rule.' },
-];
+const PRIORITY_CLASS: Record<string, string> = {
+  CRITICAL: 'critical', HIGH: 'high', MEDIUM: 'notable', LOW: 'informational',
+};
 
-const DEST_REASONS: { key: keyof PingDestinationRow; label: string; note: string }[] = [
-  { key: 'rateLimited', label: 'Rate Limited', note: 'The destination’s configured throughput limit was reached.' },
-  { key: 'pingTimeout', label: 'Timed Out', note: 'The destination did not respond in time.' },
-  { key: 'minRevenue', label: 'Below Minimum Revenue', note: 'The opportunity was below the destination’s minimum-revenue floor.' },
-  { key: 'failedTagRules', label: 'Failed Tag Rules', note: 'The ping did not satisfy a configured tag rule.' },
-];
-
-function otherDestFailures(d: PingDestinationRow): number | null {
-  return sumBid([d], (r) => r.apiFailed) === null && sumBid([d], (r) => r.suppressed) === null && sumBid([d], (r) => r.failedAcceptance) === null
-    ? null
-    : (d.apiFailed ?? 0) + (d.suppressed ?? 0) + (d.failedAcceptance ?? 0);
-}
+const CATEGORY_LABEL: Record<string, string> = {
+  EXPECTED_CONFIGURATION: 'Expected configuration',
+  POTENTIALLY_PREVENTABLE: 'Possibly preventable',
+  TRAFFIC_OR_IDENTITY: 'Traffic or identity',
+  COMMERCIAL_OR_ACCEPTANCE: 'Commercial terms',
+  UNKNOWN: 'Undocumented by provider',
+};
 
 export default async function BidsPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
   const { organizationId: org } = await requireCrmContext();
@@ -55,22 +55,31 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
   const desc = describeCallGridWindow(window, now);
 
   const bid = await loadBidReport(org);
+  const matches = bidSnapshotMatches(bid.meta, window);
+  const intel = bidIntelligence(bid, now, desc.periodTitle, matches);
+
   const sources = [...bid.sources].sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
   const destinations = bid.destinations;
 
-  const opportunities = sumBid(sources, (r) => r.total);
-  const submitted = sumBid(sources, (r) => r.bids);
-  const won = sumBid(sources, (r) => r.won);
-  const rejected = sumBid(sources, (r) => r.rejected);
-  const winRate = submitted && submitted > 0 && won !== null ? Math.round((won / submitted) * 100) : null;
+  // Every total counts only the rows that reported the field, and discloses how
+  // many did — an unreported metric is "—", never a manufactured zero.
+  const opportunities = sumReported(sources, (r) => r.total);
+  const submitted = sumReported(sources, (r) => r.bids);
+  const won = sumReported(sources, (r) => r.won);
+  const rejected = sumReported(sources, (r) => r.rejected);
+  const winRate = sourceWinRate(won.total, submitted.total);
 
   const summary: SummaryTile[] = [
-    { title: 'Bid Opportunities', value: n(opportunities) },
-    { title: 'Bids Submitted', value: n(submitted) },
-    { title: 'Bids Won', value: n(won) },
-    { title: 'Source Win Rate', value: pct(winRate) },
-    { title: 'Rejected Opportunities', value: n(rejected) },
-    { title: 'Reporting Coverage', value: `${sources.length} sources · ${destinations.length} destinations` },
+    { title: 'Bid Opportunities', value: n(opportunities.total), sub: `${opportunities.reported} of ${opportunities.of} sources reported` },
+    { title: 'Bids Submitted', value: n(submitted.total), sub: `${submitted.reported} of ${submitted.of} sources reported` },
+    { title: 'Bids Won', value: n(won.total) },
+    { title: 'Source Win Rate', value: winRate === null ? '—' : Math.round(winRate * 100) + '%', sub: 'Won ÷ bids submitted' },
+    { title: 'Rejected Opportunities', value: n(rejected.total) },
+    {
+      title: 'Snapshot Age',
+      value: intel.snapshotAgeDays === null ? '—' : intel.snapshotAgeDays === 0 ? 'Today' : `${intel.snapshotAgeDays}d`,
+      sub: `${sources.length} sources · ${destinations.length} destinations`,
+    },
   ];
 
   const sourceCols: PerfColumn<BidSourceRow>[] = [
@@ -82,42 +91,25 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
     { label: 'Rejected', align: 'right', render: (r) => n(r.rejected) },
     { label: 'Reject Rate', align: 'right', render: (r) => (r.rejectRatePct === null ? '—' : Math.round(r.rejectRatePct) + '%') },
   ];
+
   const destCols: PerfColumn<PingDestinationRow>[] = [
     { label: 'Destination', render: (r) => r.name },
     { label: 'Accepted', align: 'right', render: (r) => n(r.accepted) },
     { label: 'Rate Limited', align: 'right', render: (r) => n(r.rateLimited) },
     { label: 'Timed Out', align: 'right', render: (r) => n(r.pingTimeout) },
+    { label: 'API Failed', align: 'right', render: (r) => n(r.apiFailed) },
     { label: 'Below Min Revenue', align: 'right', render: (r) => n(r.minRevenue) },
     { label: 'Failed Tag Rules', align: 'right', render: (r) => n(r.failedTagRules) },
-    { label: 'Other Verified Failures', align: 'right', render: (r) => n(otherDestFailures(r)) },
+    { label: 'Invalid Number', align: 'right', render: (r) => n(r.invalidNumber) },
+    { label: 'Missing Amount', align: 'right', render: (r) => n(r.missingAmount) },
+    { label: 'Suppressed', align: 'right', render: (r) => n(r.suppressed) },
   ];
-
-  const srcReasonTotals = SRC_REASONS.map((r) => ({ ...r, count: sumBid(sources, (s) => s.rejections[r.key]) })).filter((r) => r.count !== null);
-  const destReasonTotals = DEST_REASONS.map((r) => ({ ...r, count: sumBid(destinations, (d) => d[r.key] as number | null) })).filter((r) => r.count !== null);
-
-  // Operational watch list — evidence-backed only; no invented prices/revenue.
-  // Sentinel -1 sorts nulls last (never displayed); thresholds check null explicitly
-  // — a measurement is never coerced to a real-looking zero.
-  const watch: { title: string; entity: string; value: string; note: string }[] = [];
-  for (const d of [...destinations].sort((a, b) => (b.rateLimited ?? -1) - (a.rateLimited ?? -1)).slice(0, 2)) {
-    if (d.rateLimited !== null && d.rateLimited > 0) watch.push({ title: 'High rate-limited volume', entity: d.name, value: `${num(d.rateLimited)} rate-limited`, note: 'The destination’s throughput limit is being hit. Review its rate limit or routing weight.' });
-  }
-  for (const d of [...destinations].sort((a, b) => (b.pingTimeout ?? -1) - (a.pingTimeout ?? -1)).slice(0, 1)) {
-    if (d.pingTimeout !== null && d.pingTimeout > 0) watch.push({ title: 'Unusual timeout volume', entity: d.name, value: `${num(d.pingTimeout)} timed out`, note: 'The destination is timing out. Review its endpoint responsiveness.' });
-  }
-  for (const s of [...sources].sort((a, b) => (b.rejections.duplicateBids ?? -1) - (a.rejections.duplicateBids ?? -1)).slice(0, 1)) {
-    const dup = s.rejections.duplicateBids;
-    if (dup !== null && dup > 0) watch.push({ title: 'Duplicate-bid volume', entity: s.name, value: `${num(dup)} duplicate bids`, note: 'Duplicate bids are being submitted for this source. Review its bidding configuration.' });
-  }
-  for (const s of sources) {
-    if (s.winRatePct !== null && s.bids !== null && s.bids >= 10 && s.winRatePct < 10) watch.push({ title: 'Low source win rate', entity: s.name, value: `${s.winRatePct}% of ${num(s.bids)} bids`, note: 'This source wins few of the bids it submits. Review targeting and floor prices.' });
-  }
 
   return (
     <DimensionShell
       active="bids"
       title="Bids"
-      subtitle="Bid opportunities, wins, and rejection patterns for the selected period."
+      subtitle="Where bid opportunities fail, which failures are expected, and what to review first."
       window={window}
       now={now}
       customStart={range.start}
@@ -130,6 +122,7 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
         <div className="cg-sec"><section className="tile tile--wide"><p className="tile__line">No bid report data has been synchronized yet.</p></section></div>
       ) : (
         <>
+          {/* Snapshot window, freshness and completeness */}
           <div className="cg-sec">
             <p className="cg-seclabel">Bid Reporting Window</p>
             <SnapshotNotice
@@ -138,58 +131,114 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
               fetchedAt={bid.meta.fetchedAt}
               reportTimezone={bid.meta.reportTimezone}
               selectedPeriodLabel={desc.periodTitle}
-              matchesSelectedPeriod={bidSnapshotMatches(bid.meta, window)}
+              matchesSelectedPeriod={matches}
             />
           </div>
+
+          {/* Bid Executive Intelligence */}
+          <div className="cg-sec">
+            <p className="cg-seclabel">Bid Executive Intelligence</p>
+            <section className="tile tile--wide cg-exec" aria-label="Bid Executive Intelligence">
+              <p className="cg-exec__headline">{intel.headline}</p>
+            </section>
+          </div>
+
           <SummaryTiles tiles={summary} label="Bid Summary" />
 
-          <PerformanceTable sectionLabel="Source Bid Performance" columns={sourceCols} rows={sources} getKey={(r) => r.key} emptyLine="No source bid data for this snapshot." />
-          <PerformanceTable sectionLabel="Destination Outcomes" columns={destCols} rows={destinations} getKey={(r) => r.key} emptyLine="No destination ping data for this snapshot." />
-
-          <div className="cg-sec">
-            <p className="cg-seclabel">Why Opportunities Did Not Progress</p>
-            <div className="cg-reasongroups">
-              <div>
-                <p className="cg-reasongroup__title">Source-Side Rejections</p>
-                <div className="cg-reasons">
-                  {srcReasonTotals.length === 0 ? <p className="tile__line cg-muted">None reported.</p> : srcReasonTotals.map((r) => (
-                    <div className="cg-reason" key={r.key}><div className="cg-reason__head"><span className="cg-reason__label">{r.label}</span><span className="cg-reason__count">{num(r.count!)}</span></div><p className="cg-reason__note">{r.note}</p></div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="cg-reasongroup__title">Destination-Side Outcomes</p>
-                <div className="cg-reasons">
-                  {destReasonTotals.length === 0 ? <p className="tile__line cg-muted">None reported.</p> : destReasonTotals.map((r) => (
-                    <div className="cg-reason" key={String(r.key)}><div className="cg-reason__head"><span className="cg-reason__label">{r.label}</span><span className="cg-reason__count">{num(r.count!)}</span></div><p className="cg-reason__note">{r.note}</p></div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="cg-sec">
-            <p className="cg-seclabel">Operational Watch List</p>
-            {watch.length === 0 ? (
-              <section className="tile tile--wide"><p className="tile__line">No bid operational issues detected for this snapshot.</p></section>
-            ) : (
-              <ul className="cg-watch__list">
-                {watch.map((w, i) => (
-                  <li className="cg-watch__item cg-watch__item--stack" key={i}>
-                    <span className="cg-watch__title">{w.title} — {w.entity}</span>
-                    <span className="cg-watch__val">{w.value}</span>
-                    <span className="cg-watch__text">{w.note}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <ActivitySection
-            sectionLabel="Recent Bid Activity"
-            items={[]}
-            emptyLine="Bid changes require two synchronized snapshots to derive; only the latest snapshot is available."
+          {/* Source and destination grains, kept strictly apart */}
+          <PerformanceTable
+            sectionLabel="Source Bid Performance"
+            columns={sourceCols}
+            rows={sources}
+            getKey={(r) => r.key}
+            emptyLine="No source bid data in this snapshot."
           />
+          <p className="cg-tablenote">
+            Source-grain counts describe opportunities a traffic source presented. Win rate is wins divided by bids
+            <em> submitted</em>, not by opportunities presented.
+          </p>
+
+          <PerformanceTable
+            sectionLabel="Destination Outcomes"
+            columns={destCols}
+            rows={destinations}
+            getKey={(r) => r.key}
+            emptyLine="No destination ping data in this snapshot."
+          />
+          <p className="cg-tablenote">
+            Destination-grain counts describe what happened to pings at each endpoint. These are a different population
+            from the source table above and are never added to it. Accepted pings are not a total-pings denominator —
+            CallGrid does not report pings attempted per destination, so no acceptance rate is shown.
+          </p>
+
+          {/* Rejection intelligence, classified */}
+          <FindingList
+            sectionLabel="Rejection Intelligence"
+            findings={intel.findings}
+            emptyLine="No rejections or destination failures were reported in this snapshot."
+          />
+
+          {/* Review Priority Queue */}
+          <div className="cg-sec">
+            <p className="cg-seclabel">Review Priority Queue</p>
+            {intel.priorityQueue.length === 0 ? (
+              <section className="tile tile--wide"><p className="tile__line">Nothing in this snapshot needs review.</p></section>
+            ) : (
+              <div className="adm-tablewrap">
+                <table className="adm-table dim-table">
+                  <thead>
+                    <tr>
+                      <th>Priority</th>
+                      <th>Issue</th>
+                      <th>Source or Destination</th>
+                      <th>Category</th>
+                      <th className="dim-num">Count</th>
+                      <th className="dim-num">Share of grain</th>
+                      <th>Why it matters</th>
+                      <th>Recommended review</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {intel.priorityQueue.map((q) => (
+                      <tr className="dim-row" key={q.id}>
+                        <td><span className={'cg-sev cg-sev--' + (PRIORITY_CLASS[q.priority] ?? 'informational')}>{q.priority}</span></td>
+                        <td>{q.issue}</td>
+                        <td>{q.entityLabel}</td>
+                        <td>{CATEGORY_LABEL[q.category] ?? q.category}</td>
+                        <td className="dim-num">{num(q.count)}</td>
+                        <td className="dim-num">{q.ratePct === null ? '—' : q.ratePct + '%'}</td>
+                        <td className="cg-qcell">{q.whyItMatters}</td>
+                        <td className="cg-qcell">{q.recommendedReview}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="cg-tablenote">
+              Priority sets review ORDER only. It is not a value, a cost, or an amount — the bid reports carry no
+              revenue, so no monetary impact can be calculated from them. Share is measured within each outcome&rsquo;s
+              own grain.
+            </p>
+          </div>
+
+          {/* What Loop cannot determine */}
+          <UnknownsSection unknowns={intel.unknowns} />
+
+          {/* Change vs a prior snapshot — only when one genuinely exists */}
+          {intel.snapshotChanges.length > 0 ? (
+            <FindingList
+              sectionLabel="Recent Bid Changes"
+              findings={intel.snapshotChanges}
+              emptyLine=""
+            />
+          ) : (
+            <ActivitySection
+              sectionLabel="Recent Bid Changes"
+              items={[]}
+              emptyLine="Only one bid snapshot is stored. A change over time needs two, so no bid trend is shown."
+            />
+          )}
         </>
       )}
     </DimensionShell>
