@@ -181,6 +181,13 @@ export * from './truth';
 export * from './business-time';
 export * from './callgrid-window';
 
+// --- The canonical CallGrid metric contract ---
+// Every CallGrid business metric: its provenance, grain, versioned formula, and
+// what zero / unknown / unavailable each mean for it — plus the one
+// implementation of each formula. No surface may define a metric independently.
+export * from './callgrid-metric-contract';
+
+
 // --- Period-over-period trend (today vs yesterday), honesty-first ---
 export * from './metric-trend';
 
