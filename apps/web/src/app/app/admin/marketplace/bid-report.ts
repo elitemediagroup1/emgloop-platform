@@ -56,6 +56,8 @@ export interface PingDestinationRow {
   failedAcceptance: number | null;
   apiFailed: number | null;
   suppressed: number | null;
+  invalidNumber: number | null;
+  missingAmount: number | null;
 }
 
 export interface BidReport {
@@ -125,6 +127,8 @@ export async function loadBidReport(organizationId: string): Promise<BidReport> 
       failedAcceptance: d.failedAcceptance,
       apiFailed: d.apiFailed,
       suppressed: d.suppressed,
+      invalidNumber: d.invalidNumber,
+      missingAmount: d.missingAmount,
     }));
 
     const reportTimezone = (sourceSnaps[0]?.reportTimezone ?? destSnaps[0]?.reportTimezone) ?? null;
@@ -164,15 +168,4 @@ export function bidSnapshotMatches(meta: BidSnapshotMeta | null, window: CallGri
     snap.getUTCMonth() + 1 === selStart.month &&
     snap.getUTCDate() === selStart.day
   );
-}
-
-/** Sum a numeric field across rows, null when NO row reported it (never a coerced 0). */
-export function sumBid<T>(rows: readonly T[], pick: (r: T) => number | null): number | null {
-  let total = 0;
-  let counted = 0;
-  for (const r of rows) {
-    const v = pick(r);
-    if (typeof v === 'number' && Number.isFinite(v)) { total += v; counted += 1; }
-  }
-  return counted > 0 ? total : null;
 }
