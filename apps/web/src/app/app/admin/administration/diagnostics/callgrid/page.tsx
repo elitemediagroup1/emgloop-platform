@@ -9,10 +9,15 @@
 import Link from 'next/link';
 import { requirePermission } from '../../../../../../auth/guard';
 import { loadAuctionPageData } from './diagnostics-data';
+import { ReconciliationPanel } from './reconciliation-panel';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CallGridDiagnosticsPage() {
+export default async function CallGridDiagnosticsPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | undefined>;
+}) {
   const session = await requirePermission('settings', 'view');
   const data = await loadAuctionPageData(session.organizationId);
 
@@ -23,6 +28,9 @@ export default async function CallGridDiagnosticsPage() {
         <h1 className="loop-title">CallGrid</h1>
         <p className="loop-subtitle">Technical bid/provider diagnostics — endpoint sync, denominators, funnel, and reconciliation. Not part of the operator-facing CallGrid Intelligence.</p>
       </div>
+
+      {/* Call-report reconciliation runs for any window, with or without bid data. */}
+      <ReconciliationPanel organizationId={session.organizationId} searchParams={searchParams} />
 
       {!data.window ? (
         <section className="adm-card">

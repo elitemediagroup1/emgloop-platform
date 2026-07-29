@@ -38,9 +38,18 @@ export interface CallDimensionAggregate {
   calls: number;
   monetized: number;
   converted: number;
+  /** Sum of REPORTED values only. With partial coverage this is a lower bound —
+   *  read it together with the matching callsWith* count, never on its own. */
   revenueCents: number;
   payoutCents: number;
   costCents: number;
+  /** How many of this entity's calls actually carried each economic value.
+   *  Zero means the value is UNKNOWN for this entity, not that it earned zero —
+   *  without these counters a buyer nobody priced is indistinguishable from a
+   *  buyer that genuinely produced $0, and every ranking built on it is wrong. */
+  callsWithRevenue: number;
+  callsWithPayout: number;
+  callsWithCost: number;
 }
 
 /** A window of aggregated call economics (matches CallGridWindow structurally,
@@ -348,6 +357,7 @@ export class MarketplaceCallRepository {
 interface DimAccum {
   key: string; label: string; calls: number; monetized: number; converted: number;
   revenueCents: number; payoutCents: number; costCents: number;
+  callsWithRevenue: number; callsWithPayout: number; callsWithCost: number;
 }
 
 function bump(
@@ -359,13 +369,19 @@ function bump(
   // still count in window totals but never become an actionable dimension.
   if (!label) return;
   const k = (key ?? label).toLowerCase();
-  const cur = map.get(k) ?? { key: k, label, calls: 0, monetized: 0, converted: 0, revenueCents: 0, payoutCents: 0, costCents: 0 };
+  const cur = map.get(k) ?? {
+    key: k, label, calls: 0, monetized: 0, converted: 0,
+    revenueCents: 0, payoutCents: 0, costCents: 0,
+    callsWithRevenue: 0, callsWithPayout: 0, callsWithCost: 0,
+  };
   cur.calls += 1;
   if (monetized === true) cur.monetized += 1;
   if (converted === true) cur.converted += 1;
-  cur.revenueCents += rev ?? 0;
-  cur.payoutCents += pay ?? 0;
-  cur.costCents += cost ?? 0;
+  // Track coverage alongside every economic sum. A missing value adds nothing AND
+  // counts nothing, so the caller can tell "unpriced" from "priced at zero".
+  if (rev !== null) { cur.revenueCents += rev; cur.callsWithRevenue += 1; }
+  if (pay !== null) { cur.payoutCents += pay; cur.callsWithPayout += 1; }
+  if (cost !== null) { cur.costCents += cost; cur.callsWithCost += 1; }
   map.set(k, cur);
 }
 
@@ -373,8 +389,9 @@ function toDims(map: Map<string, DimAccum>): CallDimensionAggregate[] {
   return [...map.values()].sort((a, b) => b.revenueCents - a.revenueCents);
 }
 
-/** Pure: aggregate call rows into a CallWindowAggregate. Null-aware summation;
- * coverage counts track how many rows actually carried each economic value. */
+/** Pure: aggregate call rows into a CallWindowAggregate. Null-aware summation at
+ * BOTH grains — the window totals and every dimension row carry coverage counts
+ * for how many calls actually reported each economic value. */
 export function aggregateRows(rows: CallRow[]): CallWindowAggregate {
   let calls = 0, monetized = 0, converted = 0;
   let revenueCents = 0, payoutCents = 0, costCents = 0;

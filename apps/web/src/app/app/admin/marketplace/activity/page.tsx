@@ -1,23 +1,34 @@
 // CallGrid Intelligence — Activity.
 //
-// The chronological CallGrid operational stream. CallGrid exposes no durable
-// operational event log, so this DERIVES clear changes between verified snapshots
-// (the selected window vs its comparison window) and labels them honestly as
-// "Derived from CallGrid reporting". It never fabricates event timestamps more
-// precise than the underlying window, and it carries only CallGrid business
-// events — no user/CRM/integration/platform/Work-OS activity.
+// The CallGrid operational change stream. CallGrid exposes no durable operational
+// event log, so every item here is a FINDING produced by the same intelligence
+// engine the Overview and the dimension pages use — not a second set of rules
+// with its own thresholds. What appears here appears there, with the same
+// evidence and the same rule version.
+//
+// It never fabricates a timestamp more precise than the window a finding was
+// derived from: a period-level conclusion is stamped with the reporting window,
+// because pretending to know the minute something happened would be an invention.
+//
+// CallGrid business events only — no user, CRM, integration, platform or Work OS
+// activity.
 
 import Link from 'next/link';
 import { requireCrmContext } from '../../../../../crm/crm-data';
-import { parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow } from '@emgloop/shared';
-import { money, num } from '../../../_loop-os';
-import { loadCallGridReport, type CallGridDimRow, type Dimension } from '../callgrid-report';
+import {
+  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow,
+  type CallGridFinding,
+} from '@emgloop/shared';
+import { loadCallGridReport } from '../callgrid-report';
+import { loadBidReport, bidSnapshotMatches } from '../bid-report';
+import { callGridIntelligence, bidIntelligence } from '../intelligence-data';
 import { buildDimQuery } from '../dimension-metrics';
 import { DimensionShell } from '../dimension-ui';
+import { FindingCard, UnknownsSection } from '../intelligence-ui';
 
 export const dynamic = 'force-dynamic';
 
-type FilterKey = 'all' | 'buyers' | 'vendors' | 'sources' | 'campaigns' | 'bids' | 'calls';
+type FilterKey = 'all' | 'buyers' | 'vendors' | 'sources' | 'campaigns' | 'bids' | 'calls' | 'intelligence';
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'buyers', label: 'Buyers' },
@@ -26,56 +37,28 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'campaigns', label: 'Campaigns' },
   { key: 'bids', label: 'Bids' },
   { key: 'calls', label: 'Calls' },
+  { key: 'intelligence', label: 'Intelligence' },
 ];
 
-interface Event {
-  id: string;
-  scope: FilterKey;
-  title: string;
-  detail: string;
-  href?: string;
-}
-
-const NOUN: Record<Dimension, string> = { buyers: 'Buyer', vendors: 'Vendor', sources: 'Source', campaigns: 'Campaign' };
-
-// Derive notable revenue movements + activation/inactivation for one dimension.
-function deriveDimension(
-  dim: Dimension,
-  rows: CallGridDimRow[],
-  priorByKey: Map<string, CallGridDimRow>,
-  rangeQuery: string,
-): Event[] {
-  const scope = dim as FilterKey;
-  const noun = NOUN[dim];
-  const events: Event[] = [];
-  const selectionParam = dim === 'buyers' ? 'buyer' : dim === 'vendors' ? 'vendor' : dim === 'sources' ? 'source' : 'campaign';
-  const href = (key: string) => `/app/admin/marketplace/${dim}?` + buildDimQuery({ [selectionParam]: key, ...(rangeQuery ? Object.fromEntries(new URLSearchParams(rangeQuery)) : {}) });
-
-  for (const r of rows) {
-    const prior = priorByKey.get(r.key);
-    if (!prior || prior.revenueCents <= 0) {
-      if (r.calls > 0) events.push({ id: `${dim}:new:${r.key}`, scope, title: `${noun} began receiving traffic`, detail: `${r.label} · ${num(r.calls)} calls`, href: href(r.key) });
-      continue;
-    }
-    const change = Math.round(((r.revenueCents - prior.revenueCents) / prior.revenueCents) * 100);
-    if (Math.abs(change) >= 20) {
-      events.push({
-        id: `${dim}:rev:${r.key}`,
-        scope,
-        title: `${noun} revenue ${change > 0 ? 'increased' : 'declined'}`,
-        detail: `${r.label} · ${money(r.revenueCents)} (${change > 0 ? '+' : ''}${change}%)`,
-        href: href(r.key),
-      });
-    }
+/**
+ * Which filter a finding belongs to.
+ *
+ * Derived from the finding's own id and entity types — a finding about a buyer
+ * files under Buyers whichever rule produced it.
+ */
+function scopeOf(finding: CallGridFinding): FilterKey {
+  const entity = finding.affectedEntities[0]?.entityType ?? finding.supportingEvidence[0]?.entityType;
+  switch (entity) {
+    case 'buyer': return 'buyers';
+    case 'vendor': return 'vendors';
+    case 'source': return 'sources';
+    case 'campaign': return 'campaigns';
+    case 'bid_source':
+    case 'bid_destination': return 'bids';
+    default: break;
   }
-  // Inactivation: had revenue last window, gone/zero now.
-  const currentKeys = new Set(rows.map((r) => r.key));
-  for (const [key, prior] of priorByKey) {
-    if (!currentKeys.has(key) && prior.revenueCents > 0) {
-      events.push({ id: `${dim}:gone:${key}`, scope, title: `${noun} became inactive`, detail: `${prior.label} · no activity this period (was ${money(prior.revenueCents)})` });
-    }
-  }
-  return events.sort((a, b) => a.title.localeCompare(b.title)).slice(0, 8);
+  if (finding.primaryMetric === 'totalCalls' || finding.primaryMetric === 'billableRate') return 'calls';
+  return 'intelligence';
 }
 
 export default async function ActivityPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
@@ -88,21 +71,13 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
   const filter = (FILTERS.find((f) => f.key === searchParams?.filter)?.key ?? 'all') as FilterKey;
   const desc = describeCallGridWindow(window, now);
 
-  const report = await loadCallGridReport(org, window);
+  const [report, bid] = await Promise.all([loadCallGridReport(org, window), loadBidReport(org)]);
 
-  const dims: Dimension[] = ['buyers', 'vendors', 'sources', 'campaigns'];
-  let events: Event[] = report.ok
-    ? dims.flatMap((d) => deriveDimension(d, report.dimensions[d], report.comparisonByKey[d], rangeQuery))
-    : [];
-  // Overall call volume movement (the 'calls' scope).
-  if (report.ok && report.comparison && report.metrics.totalCalls !== null && report.comparison.totalCalls) {
-    const prev = report.comparison.totalCalls;
-    const change = prev > 0 ? Math.round(((report.metrics.totalCalls - prev) / prev) * 100) : 0;
-    if (Math.abs(change) >= 10) {
-      events.push({ id: 'calls:volume', scope: 'calls', title: `Total call volume ${change > 0 ? 'increased' : 'declined'}`, detail: `${num(report.metrics.totalCalls)} calls (${change > 0 ? '+' : ''}${change}%)` });
-    }
-  }
-  if (filter !== 'all') events = events.filter((e) => e.scope === filter);
+  const intel = callGridIntelligence(report, now);
+  const bidIntel = bidIntelligence(bid, now, desc.periodTitle, bidSnapshotMatches(bid.meta, window));
+
+  const all = [...intel.findings, ...bidIntel.findings, ...bidIntel.snapshotChanges];
+  const items = (filter === 'all' ? all : all.filter((f) => scopeOf(f) === filter));
 
   const filterHref = (key: FilterKey) =>
     '?' + buildDimQuery({
@@ -112,11 +87,17 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
       filter: key === 'all' ? undefined : key,
     });
 
+  // A period-level finding gets the window it was derived from, never a minute.
+  const stampFor = (f: CallGridFinding) =>
+    f.currentWindow.startsWith('Latest')
+      ? f.currentWindow
+      : `Detected for the ${window.label} reporting window`;
+
   return (
     <DimensionShell
       active="activity"
       title="Activity"
-      subtitle="Operational changes across CallGrid for the selected period."
+      subtitle="Changes the intelligence engine identified across CallGrid for the selected period."
       window={window}
       now={now}
       customStart={range.start}
@@ -137,25 +118,34 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
         <p className="cg-seclabel">Activity · {desc.periodTitle} · Derived from CallGrid reporting</p>
         {!report.ok ? (
           <section className="tile tile--wide"><p className="tile__line cg-muted">CallGrid data could not be loaded.</p></section>
-        ) : events.length === 0 ? (
-          <section className="tile tile--wide"><p className="tile__line">No notable CallGrid changes for this period.</p></section>
+        ) : items.length === 0 ? (
+          <section className="tile tile--wide">
+            <p className="tile__line">No CallGrid changes for this period clear the significance thresholds.</p>
+          </section>
         ) : (
-          <ul className="dim-activity cg-actlist">
-            {events.map((e) => (
-              <li className="dim-activity__item" key={e.id}>
-                <span className="dim-activity__title">{e.href ? <Link href={e.href} className="dim-rowlink">{e.title}</Link> : e.title}</span>
-                <span className="dim-activity__detail">{e.detail}</span>
-                <span className="dim-activity__when">{window.label}</span>
-              </li>
+          <div className="cg-findings">
+            {items.map((f) => (
+              <div className="cg-actitem" key={f.id}>
+                <p className="cg-actwhen">{stampFor(f)}</p>
+                <FindingCard finding={f} compact />
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
-      {filter === 'bids' ? (
+
+      {filter === 'bids' && bidIntel.snapshotChanges.length === 0 ? (
         <div className="cg-sec">
-          <section className="tile tile--wide"><p className="tile__line cg-muted">Bid changes require two synchronized snapshots to derive; only the latest snapshot is available. See the Bids workspace.</p></section>
+          <section className="tile tile--wide">
+            <p className="tile__line cg-muted">
+              Bid items describe the latest synchronized snapshot, not the selected period. A change over time needs a
+              second stored snapshot, and only one is kept.
+            </p>
+          </section>
         </div>
       ) : null}
+
+      <UnknownsSection unknowns={intel.unknowns} />
     </DimensionShell>
   );
 }

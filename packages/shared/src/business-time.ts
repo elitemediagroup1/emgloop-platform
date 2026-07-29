@@ -85,6 +85,39 @@ export function easternYmd(instant: Date): EasternYmd {
   return { year: p.year!, month: p.month!, day: p.day! };
 }
 
+/** The Eastern wall-clock time of day at `instant`. */
+export interface EasternTimeOfDay {
+  hour: number; // 0-23
+  minute: number;
+  second: number;
+  ms: number;
+}
+
+/**
+ * The Eastern wall-clock time of day at `instant`.
+ *
+ * Used to anchor an elapsed-matched comparison window: "yesterday through the
+ * same time" must mean the same WALL-CLOCK time, not the same number of elapsed
+ * milliseconds — on a DST-transition day those differ by an hour, and matching
+ * raw elapsed time would silently compare 14 hours of today against 13 or 15
+ * hours of yesterday. Hour and minute come from ICU (DST-aware); second and
+ * millisecond carry straight through because zone offsets are whole minutes.
+ */
+export function easternTimeOfDay(instant: Date): EasternTimeOfDay {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TIME_ZONE,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const p: Record<string, number> = {};
+  for (const part of dtf.formatToParts(instant)) {
+    if (part.type !== 'literal') p[part.type] = Number(part.value);
+  }
+  return { hour: p.hour!, minute: p.minute!, second: p.second!, ms: instant.getUTCMilliseconds() };
+}
+
 /** The Eastern wall-clock hour (0-23) at `instant` — for time-of-day greetings. */
 export function easternHour(instant: Date): number {
   const s = new Intl.DateTimeFormat('en-US', {

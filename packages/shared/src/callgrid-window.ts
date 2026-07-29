@@ -8,7 +8,10 @@
 // presets (today, this week, this month, YTD, trailing-N-days) end at `now`;
 // completed presets (yesterday, last week/2-weeks/month) end on a day boundary.
 
-import { easternYmd, easternWallTimeToUtc, BUSINESS_TIME_ZONE, BUSINESS_TIME_ZONE_LABEL, type EasternYmd } from './business-time';
+import {
+  easternYmd, easternWallTimeToUtc, easternTimeOfDay,
+  BUSINESS_TIME_ZONE, BUSINESS_TIME_ZONE_LABEL, type EasternYmd,
+} from './business-time';
 
 export const CALLGRID_PRESETS = [
   'today',
@@ -64,6 +67,18 @@ export const CALLGRID_PRESET_LABELS: Record<CallGridPreset, string> = {
   custom: 'Custom',
 };
 
+/**
+ * How the comparison window was built.
+ *
+ * `elapsed_matched` — the selected window is still in progress, so the comparison
+ *   is cut at the SAME wall-clock point of its own period. "Today so far" is
+ *   compared against "yesterday to the same time", never against all of yesterday.
+ * `complete_period` — the selected window is a finished period, compared against
+ *   the equally-long finished period immediately before it.
+ * `none` — no comparison is defined.
+ */
+export type CallGridComparisonBasis = 'elapsed_matched' | 'complete_period' | 'none';
+
 export interface CallGridWindow {
   start: Date;
   end: Date;
@@ -71,7 +86,19 @@ export interface CallGridWindow {
   preset: CallGridPreset;
   comparisonStart: Date | null;
   comparisonEnd: Date | null;
+  /** How the comparison was cut — the difference between an honest and a fake delta. */
+  comparisonBasis: CallGridComparisonBasis;
+  /** Plain description of the comparison period, e.g. "Yesterday to the same time". */
+  comparisonLabel: string | null;
   label: string; // e.g. "Jul 22, 2026" or "Jul 16 – Jul 22, 2026"
+  /** True when the window's last included day is the current Eastern day. */
+  includesLiveData: boolean;
+  /** True when the window spans exactly one Eastern calendar day. */
+  isSingleDay: boolean;
+  /** True when the window is a finished period (no live data inside it). */
+  isCompleted: boolean;
+  /** False when the requested range was malformed and we fell back to Today. */
+  isValid: boolean;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -111,6 +138,25 @@ function rangeLabel(start: Date, end: Date, startYmd: EasternYmd): string {
   return `${left} – ${fmt(endYmd)}`;
 }
 
+function sameYmdPair(a: EasternYmd, b: EasternYmd): boolean {
+  return a.year === b.year && a.month === b.month && a.day === b.day;
+}
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+/** The instant of `now`'s Eastern wall-clock time of day, on the Eastern day `ymd`.
+ *  DST-safe: it re-anchors to the wall clock, not to elapsed milliseconds. */
+function wallClockOn(ymd: EasternYmd, now: Date): Date {
+  const t = easternTimeOfDay(now);
+  return easternWallTimeToUtc(ymd.year, ymd.month, ymd.day, t.hour, t.minute, t.second, t.ms);
+}
+/** Whole Eastern calendar days from `from` to `to`, inclusive of both ends. */
+function inclusiveDaySpan(from: EasternYmd, to: EasternYmd): number {
+  const a = Date.UTC(from.year, from.month - 1, from.day);
+  const b = Date.UTC(to.year, to.month - 1, to.day);
+  return Math.round((b - a) / DAY) + 1;
+}
+
 function parseYmd(s: string | undefined): EasternYmd | null {
   if (!s) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
@@ -122,105 +168,209 @@ function parseYmd(s: string | undefined): EasternYmd | null {
   return { year, month, day };
 }
 
-/** A trailing-N-days window ending at `now`, with the immediately preceding N-day
- *  period as its comparison. N=1 is "today". */
-function trailingDays(today: EasternYmd, now: Date, n: number, preset: CallGridPreset): CallGridWindow {
+// --- Window construction -----------------------------------------------------
+
+interface RawWindow {
+  preset: CallGridPreset;
+  start: Date;
+  end: Date;
+  startYmd: EasternYmd;
+  comparisonStart: Date | null;
+  comparisonEnd: Date | null;
+  comparisonBasis: CallGridComparisonBasis;
+  comparisonLabel: string | null;
+  isValid?: boolean;
+}
+
+/** Finish a raw window: derive the live/single-day/completed flags and the label. */
+function build(raw: RawWindow, now: Date): CallGridWindow {
+  const today = easternYmd(now);
+  const firstDay = easternYmd(raw.start);
+  const lastDay = lastIncludedYmd(raw.end);
+  const includesLiveData = sameYmdPair(lastDay, today);
+  return {
+    start: raw.start,
+    end: raw.end,
+    timezone: BUSINESS_TIME_ZONE,
+    preset: raw.preset,
+    comparisonStart: raw.comparisonStart,
+    comparisonEnd: raw.comparisonEnd,
+    comparisonBasis: raw.comparisonBasis,
+    comparisonLabel: raw.comparisonLabel,
+    label: rangeLabel(raw.start, raw.end, raw.startYmd),
+    includesLiveData,
+    isSingleDay: sameYmdPair(firstDay, lastDay),
+    isCompleted: !includesLiveData,
+    isValid: raw.isValid ?? true,
+  };
+}
+
+/**
+ * A trailing-N-Eastern-day window ending at `now` (so it is N-1 complete days plus
+ * the elapsed part of today), compared against the immediately preceding N-day
+ * period **cut at the same wall-clock time**.
+ *
+ * This elapsed match is the whole point. Comparing a partial window against N
+ * COMPLETE prior days manufactures a decline that is really just the clock — at
+ * 9am "Today" would read -85% against a full yesterday every single morning. The
+ * economics source accepts arbitrary instants, so there is no reason to accept
+ * that distortion. N=1 is Today vs yesterday-to-the-same-time.
+ */
+function trailingDays(today: EasternYmd, now: Date, n: number, preset: CallGridPreset): RawWindow {
   const startYmd = shiftDays(today, -(n - 1));
-  const start = dayStart(startYmd);
-  const compEnd = start;
-  const compStart = dayStart(shiftDays(startYmd, -n));
-  return { start, end: now, timezone: BUSINESS_TIME_ZONE, preset, comparisonStart: compStart, comparisonEnd: compEnd, label: rangeLabel(start, now, startYmd) };
+  return {
+    preset,
+    start: dayStart(startYmd),
+    end: now,
+    startYmd,
+    comparisonStart: dayStart(shiftDays(startYmd, -n)),
+    comparisonEnd: wallClockOn(shiftDays(today, -n), now),
+    comparisonBasis: 'elapsed_matched',
+    comparisonLabel: n === 1 ? 'Yesterday to the same time' : `The previous ${n} days to the same time`,
+  };
 }
 
 /**
  * Resolve a preset (or custom range) into a fully-specified window with its
- * comparison period. Every boundary is Eastern. Unknown presets fall back to today.
+ * comparison period. Every boundary is Eastern. A malformed custom range falls
+ * back to Today and reports `isValid: false` rather than failing silently.
  */
 export function resolveCallGridWindow(
   input: { preset: CallGridPreset; start?: string; end?: string },
   now: Date,
 ): CallGridWindow {
   const today = easternYmd(now);
-  const tz = BUSINESS_TIME_ZONE;
 
   switch (input.preset) {
-    case 'today': {
-      const start = dayStart(today);
-      const y = shiftDays(today, -1);
-      return { start, end: now, timezone: tz, preset: 'today', comparisonStart: dayStart(y), comparisonEnd: start, label: fmt(today) };
-    }
+    case 'today':
+      return build(trailingDays(today, now, 1, 'today'), now);
+    case 'last_2_days': return build(trailingDays(today, now, 2, 'last_2_days'), now);
+    case 'last_7_days': return build(trailingDays(today, now, 7, 'last_7_days'), now);
+    case 'last_14_days': return build(trailingDays(today, now, 14, 'last_14_days'), now);
+    case 'last_30_days': return build(trailingDays(today, now, 30, 'last_30_days'), now);
+
     case 'yesterday': {
       const y = shiftDays(today, -1);
-      const start = dayStart(y);
-      const end = dayStart(today);
-      const before = shiftDays(today, -2);
-      return { start, end, timezone: tz, preset: 'yesterday', comparisonStart: dayStart(before), comparisonEnd: start, label: fmt(y) };
+      return build({
+        preset: 'yesterday',
+        start: dayStart(y), end: dayStart(today), startYmd: y,
+        comparisonStart: dayStart(shiftDays(today, -2)), comparisonEnd: dayStart(y),
+        comparisonBasis: 'complete_period', comparisonLabel: 'The day before',
+      }, now);
     }
-    case 'last_2_days': return trailingDays(today, now, 2, 'last_2_days');
-    case 'last_7_days': return trailingDays(today, now, 7, 'last_7_days');
-    case 'last_14_days': return trailingDays(today, now, 14, 'last_14_days');
-    case 'last_30_days': return trailingDays(today, now, 30, 'last_30_days');
     case 'this_week': {
       const offset = (weekdayOf(today) + 6) % 7; // days since Monday
       const weekStartYmd = shiftDays(today, -offset);
-      const start = dayStart(weekStartYmd);
-      // Comparison: the corresponding elapsed portion of last week.
-      const lastWeekStart = dayStart(shiftDays(weekStartYmd, -7));
-      const elapsed = now.getTime() - start.getTime();
-      return { start, end: now, timezone: tz, preset: 'this_week', comparisonStart: lastWeekStart, comparisonEnd: new Date(lastWeekStart.getTime() + elapsed), label: rangeLabel(start, now, weekStartYmd) };
+      // Comparison: last week cut at the same weekday and wall-clock time.
+      return build({
+        preset: 'this_week',
+        start: dayStart(weekStartYmd), end: now, startYmd: weekStartYmd,
+        comparisonStart: dayStart(shiftDays(weekStartYmd, -7)),
+        comparisonEnd: wallClockOn(shiftDays(today, -7), now),
+        comparisonBasis: 'elapsed_matched', comparisonLabel: 'Last week to the same point',
+      }, now);
     }
     case 'last_week': {
       const offset = (weekdayOf(today) + 6) % 7;
       const weekStartYmd = shiftDays(today, -offset);
       const lwStartYmd = shiftDays(weekStartYmd, -7);
-      const start = dayStart(lwStartYmd);
-      const end = dayStart(weekStartYmd);
-      const compStart = dayStart(shiftDays(weekStartYmd, -14));
-      return { start, end, timezone: tz, preset: 'last_week', comparisonStart: compStart, comparisonEnd: start, label: rangeLabel(start, end, lwStartYmd) };
+      return build({
+        preset: 'last_week',
+        start: dayStart(lwStartYmd), end: dayStart(weekStartYmd), startYmd: lwStartYmd,
+        comparisonStart: dayStart(shiftDays(weekStartYmd, -14)), comparisonEnd: dayStart(lwStartYmd),
+        comparisonBasis: 'complete_period', comparisonLabel: 'The prior week',
+      }, now);
     }
     case 'last_2_weeks': {
       const offset = (weekdayOf(today) + 6) % 7;
       const weekStartYmd = shiftDays(today, -offset);
       const startYmd = shiftDays(weekStartYmd, -14);
-      const start = dayStart(startYmd);
-      const end = dayStart(weekStartYmd);
-      const compStart = dayStart(shiftDays(weekStartYmd, -28));
-      return { start, end, timezone: tz, preset: 'last_2_weeks', comparisonStart: compStart, comparisonEnd: start, label: rangeLabel(start, end, startYmd) };
+      return build({
+        preset: 'last_2_weeks',
+        start: dayStart(startYmd), end: dayStart(weekStartYmd), startYmd,
+        comparisonStart: dayStart(shiftDays(weekStartYmd, -28)), comparisonEnd: dayStart(startYmd),
+        comparisonBasis: 'complete_period', comparisonLabel: 'The prior 2 weeks',
+      }, now);
     }
     case 'this_month': {
       const monthStartYmd = firstOfMonth(today);
-      const start = dayStart(monthStartYmd);
-      const lastMonthStart = dayStart(prevMonth(monthStartYmd));
-      const elapsed = now.getTime() - start.getTime();
-      return { start, end: now, timezone: tz, preset: 'this_month', comparisonStart: lastMonthStart, comparisonEnd: new Date(lastMonthStart.getTime() + elapsed), label: rangeLabel(start, now, monthStartYmd) };
+      const lastMonthStart = prevMonth(monthStartYmd);
+      // Same day-of-month and wall clock last month, clamped when last month is
+      // shorter (Mar 31 has no Feb 31 — it compares against Feb 28/29).
+      const cmpDay = Math.min(today.day, daysInMonth(lastMonthStart.year, lastMonthStart.month));
+      return build({
+        preset: 'this_month',
+        start: dayStart(monthStartYmd), end: now, startYmd: monthStartYmd,
+        comparisonStart: dayStart(lastMonthStart),
+        comparisonEnd: wallClockOn({ ...lastMonthStart, day: cmpDay }, now),
+        comparisonBasis: 'elapsed_matched', comparisonLabel: 'Last month to the same point',
+      }, now);
     }
     case 'last_month': {
       const monthStartYmd = firstOfMonth(today);
       const lmStartYmd = prevMonth(monthStartYmd);
-      const start = dayStart(lmStartYmd);
-      const end = dayStart(monthStartYmd);
-      const compStart = dayStart(prevMonth(lmStartYmd));
-      return { start, end, timezone: tz, preset: 'last_month', comparisonStart: compStart, comparisonEnd: start, label: rangeLabel(start, end, lmStartYmd) };
+      return build({
+        preset: 'last_month',
+        start: dayStart(lmStartYmd), end: dayStart(monthStartYmd), startYmd: lmStartYmd,
+        comparisonStart: dayStart(prevMonth(lmStartYmd)), comparisonEnd: dayStart(lmStartYmd),
+        comparisonBasis: 'complete_period', comparisonLabel: 'The prior month',
+      }, now);
     }
     case 'year_to_date': {
       const yearStartYmd: EasternYmd = { year: today.year, month: 1, day: 1 };
-      const start = dayStart(yearStartYmd);
-      const priorYearStart = dayStart({ year: today.year - 1, month: 1, day: 1 });
-      const span = now.getTime() - start.getTime();
-      return { start, end: now, timezone: tz, preset: 'year_to_date', comparisonStart: priorYearStart, comparisonEnd: new Date(priorYearStart.getTime() + span), label: rangeLabel(start, now, yearStartYmd) };
+      const priorYear = today.year - 1;
+      // Same calendar date and wall clock last year (Feb 29 clamps to Feb 28).
+      const cmpDay = Math.min(today.day, daysInMonth(priorYear, today.month));
+      return build({
+        preset: 'year_to_date',
+        start: dayStart(yearStartYmd), end: now, startYmd: yearStartYmd,
+        comparisonStart: dayStart({ year: priorYear, month: 1, day: 1 }),
+        comparisonEnd: wallClockOn({ year: priorYear, month: today.month, day: cmpDay }, now),
+        comparisonBasis: 'elapsed_matched', comparisonLabel: 'Last year to the same point',
+      }, now);
     }
     case 'custom': {
       const s = parseYmd(input.start);
       const e = parseYmd(input.end);
-      if (!s || !e) return resolveCallGridWindow({ preset: 'today' }, now); // invalid → safe default
+      if (!s || !e) {
+        return { ...resolveCallGridWindow({ preset: 'today' }, now), isValid: false };
+      }
       // Order-tolerant, inclusive end date.
-      const a = dayStart(s);
-      const b = dayStart(e);
-      const [startD, lastD] = a.getTime() <= b.getTime() ? [s, e] : [e, s];
+      const a = Date.UTC(s.year, s.month - 1, s.day);
+      const b = Date.UTC(e.year, e.month - 1, e.day);
+      const [startD, lastRequested] = a <= b ? [s, e] : [e, s];
+      const todayMs = Date.UTC(today.year, today.month - 1, today.day);
+      const startMs = Date.UTC(startD.year, startD.month - 1, startD.day);
+      // A range that starts in the future has no reportable period at all.
+      if (startMs > todayMs) {
+        return { ...resolveCallGridWindow({ preset: 'today' }, now), isValid: false };
+      }
+      // Never report past now: an end date of today (or later) ends at `now`.
+      const lastMs = Date.UTC(lastRequested.year, lastRequested.month - 1, lastRequested.day);
+      const endsToday = lastMs >= todayMs;
+      const lastD = endsToday ? today : lastRequested;
+      const span = inclusiveDaySpan(startD, lastD);
+
+      if (endsToday) {
+        // Live custom range: same elapsed-matched treatment as a trailing window.
+        return build({
+          preset: 'custom',
+          start: dayStart(startD), end: now, startYmd: startD,
+          comparisonStart: dayStart(shiftDays(startD, -span)),
+          comparisonEnd: wallClockOn(shiftDays(today, -span), now),
+          comparisonBasis: 'elapsed_matched',
+          comparisonLabel: `The previous ${span} days to the same time`,
+        }, now);
+      }
       const start = dayStart(startD);
       const end = dayStart(shiftDays(lastD, 1)); // exclusive end = day after the last included day
-      const len = end.getTime() - start.getTime();
-      return { start, end, timezone: tz, preset: 'custom', comparisonStart: new Date(start.getTime() - len), comparisonEnd: start, label: rangeLabel(start, end, startD) };
+      return build({
+        preset: 'custom',
+        start, end, startYmd: startD,
+        comparisonStart: dayStart(shiftDays(startD, -span)), comparisonEnd: start,
+        comparisonBasis: 'complete_period',
+        comparisonLabel: `The preceding ${span} day${span === 1 ? '' : 's'}`,
+      }, now);
     }
     default:
       return resolveCallGridWindow({ preset: 'today' }, now);
@@ -233,8 +383,14 @@ export function resolveCallGridWindow(
 // its comparison-period title. Pure — every CallGrid surface derives its status
 // language here so the wording never drifts between Overview and a subpage.
 
-function sameYmd(a: EasternYmd, b: EasternYmd): boolean {
-  return a.year === b.year && a.month === b.month && a.day === b.day;
+const sameYmd = sameYmdPair;
+
+/** Eastern wall-clock time of day, e.g. "2:30 PM" — used to state exactly where an
+ *  in-progress window (and therefore its comparison) was cut. */
+export function easternTimeLabel(instant: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TIME_ZONE, hour: 'numeric', minute: '2-digit',
+  }).format(instant);
 }
 
 export type CallGridStatusWord = 'Live' | 'Completed' | 'Includes Live Data';
@@ -249,22 +405,28 @@ export interface CallGridWindowDescription {
   headerLine: string;
   /** Selected-period section heading, e.g. "Today · Live" / "Jul 15, 2026 · Completed" / "Last 7 Days". */
   periodTitle: string;
-  /** Comparison-period heading, e.g. "Yesterday · Completed" / "Previous 7 Days" / "Prior Week". */
+  /** Comparison-period heading, e.g. "Yesterday · through 2:30 PM" / "Prior Week". */
   comparisonTitle: string;
+  /** One plain sentence on how the comparison was cut, or null when there is none. */
+  comparisonNote: string | null;
 }
 
+// Base comparison headings. For an in-progress window these are suffixed with the
+// exact Eastern cut time, so the operator can see the comparison is like-for-like
+// ("Yesterday · through 2:30 PM") rather than guessing whether a partial period is
+// being measured against a complete one.
 const COMPARISON_TITLES: Partial<Record<CallGridPreset, string>> = {
-  today: 'Yesterday · Completed',
+  today: 'Yesterday',
   last_2_days: 'Previous 2 Days',
   last_7_days: 'Previous 7 Days',
   last_14_days: 'Previous 14 Days',
   last_30_days: 'Previous 30 Days',
-  this_week: 'Comparable Prior-Week Period',
+  this_week: 'Last Week',
   last_week: 'Prior Week',
   last_2_weeks: 'Prior 2 Weeks',
-  this_month: 'Comparable Prior-Month Period',
+  this_month: 'Last Month',
   last_month: 'Prior Month',
-  year_to_date: 'Comparable Prior-Year Period',
+  year_to_date: 'Last Year',
 };
 
 /** Describe a resolved window's live/completed status and its headings. `now` is
@@ -308,11 +470,29 @@ export function describeCallGridWindow(window: CallGridWindow, now: Date): CallG
     periodTitle = presetOrLabel(window);
   }
 
-  const comparisonTitle = isSingleDay && !isToday
+  const baseComparison = isSingleDay && !isToday
     ? 'Previous Day'
     : COMPARISON_TITLES[window.preset] ?? 'Prior Period';
 
-  return { live, isSingleDay, statusWord, headerLine, periodTitle, comparisonTitle };
+  // An in-progress window is compared against the same wall-clock point of the
+  // prior period, and says so. Naming the cut time is what makes a delta on a
+  // live window trustworthy rather than a function of what time it is.
+  const elapsedMatched = window.comparisonBasis === 'elapsed_matched';
+  const cutLabel = elapsedMatched && window.comparisonEnd ? easternTimeLabel(window.comparisonEnd) : null;
+  const comparisonTitle = cutLabel ? `${baseComparison} · through ${cutLabel}` : baseComparison;
+
+  let comparisonNote: string | null;
+  if (window.comparisonBasis === 'none' || !window.comparisonEnd) {
+    comparisonNote = null;
+  } else if (elapsedMatched) {
+    comparisonNote =
+      `${baseComparison} is measured only up to ${cutLabel} ${BUSINESS_TIME_ZONE_LABEL} — the same point ` +
+      `${isToday ? 'of the day' : 'of the period'} the selected window has reached — so the two periods cover the same elapsed time.`;
+  } else {
+    comparisonNote = `${baseComparison} is a complete period of the same length, so the two are directly comparable.`;
+  }
+
+  return { live, isSingleDay, statusWord, headerLine, periodTitle, comparisonTitle, comparisonNote };
 }
 
 /** The section title for a multi-day window: the preset's name, or the date range

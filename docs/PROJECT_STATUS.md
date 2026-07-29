@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-07-23._
+_Last updated: 2026-07-29._
 
 ---
 
@@ -41,65 +41,100 @@ sidebar item (icon `brain`); CallGrid uses `chart`.
 **Follow-up:** the Bids page (`/marketplace/auction`) is still a raw-table surface — needs a
 real drill-down pass. _(needs deploy validation: real values + reconciliation.)_
 
-## CallGrid Intelligence finalization — ALL PAGES BUILT (verified) · branch stack `feat/callgrid-intelligence-finalization` (#143) → `feat/callgrid-date-window` (#144) → `feat/callgrid-dimension-pages` (tip, contains all)
-An 18-phase controlled reorg/correction of `/app/admin/marketplace` (not a redesign). **Canonical
-source proven:** `crmRepos.marketplaceCalls.aggregateWindow(org, since, until)` →
-`{calls, monetized(=billable), revenueCents, payoutCents, costCents, callsWithRevenue, buyers[],
-vendors[], sources[], campaigns[]}` is THE CallGrid economics source; it takes arbitrary Eastern
-windows. Bid/ping data is a **separate snapshot grain** (latest synced window only, UTC-requested).
-**Locked decisions:** canonical Bids route = `/marketplace/bids` (`/auction` = redirect only);
-native date inputs replaced by the two-month visual calendar.
+## CallGrid Intelligence — factuality, reconciliation & intelligence — IN REVIEW (draft PR #149) · branch `feat/callgrid-intelligence-factuality` (off main `9551cdc`)
+The pass that turns `/app/admin/marketplace` from a reporting copy of CallGrid into an
+explainable, checkable workspace. Nine commits; **423 tests pass (shared 226 · database 197)**,
+typecheck clean on web/shared/database, `turbo build --filter=@emgloop/web` passes.
 
-**Foundation (in review):**
-- **#143 (draft):** fixed the **Buyers contradiction** — Buyers read `revenueIntelligence`
-  (CRM/revenue; UNKNOWN → false 0) while Overview read the call projection. Buyers now reads the
-  **same canonical source**; cross-product content stripped. Retired its paid-off zero-coercion ledger entry.
-- **#144 (draft, stacked):** shared **date-window contract** (`resolveCallGridWindow` — all presets +
-  comparisons, Eastern, 13 tests); canonical **`callgrid-report`** service (Truth-honest); **date-range
-  picker** (URL-driven, persists across tabs). Overview + Buyers wired.
+**The root cause of the distrust, found and fixed.** `today` and every trailing-N-day preset
+compared a PARTIAL window against N COMPLETE prior days. At 9am "Today" reported a ~-85% revenue
+collapse — every morning, forever. Every in-progress window is now cut against the same
+**wall-clock** point of its own period (wall clock, not elapsed ms, so a DST day doesn't compare
+14 hours against 13). Also fixed in the same class: `this_month`/`year_to_date` day clamping,
+custom ranges ending at a future midnight, and future-only ranges. Windows now carry
+`comparisonBasis`/`includesLiveData`/`isCompleted`/`isValid`, and the UI names the cut time
+("Yesterday · through 2:30 PM").
 
-**On `feat/callgrid-dimension-pages` (tip — the single clean base):**
-- **Committed:** two-month **calendar** picker (`CallGridDateRange`); **shared dimension design
-  language** (`dimension-ui.tsx` shell/tiles/table/detail/activity/SnapshotNotice, `dimension-metrics.ts`,
-  `call-dimension-page.tsx`); **Buyers/Vendors/Campaigns unified** (thin config wrappers — one product,
-  different data); **Sources** verified hybrid (range-honoring Total/Active Sources from calls +
-  snapshot-only bid metrics under `SnapshotNotice`; `bid-report.ts` = one canonical bid-snapshot reader).
-  Also committed: **Activity** (derived operational stream + filters); **Bids workspace**
-  (`/bids` — snapshot summary, source vs destination tables kept strictly separate, two-group
-  rejection reasons, operational watch list, honest recent-activity); **`/auction` → `/bids`
-  redirect** + nav/Quick-Access repointed; **diagnostics moved** → `/app/admin/administration/diagnostics/callgrid`
-  (admin-guarded, out of the CallGrid tab bar; `auction-data.ts` → `diagnostics-data.ts`); retired the
-  vendors/campaigns zero-coercion ledger entries; CSS. **All eight pages (steps 1–8) committed.**
-- **Verified now:** `@emgloop/shared` **106/106**, `apps/web` **typecheck clean**, `turbo build` **passes**.
+**Second root-cause fix (data layer).** `aggregateWindow`'s dimension accumulator did
+`revenueCents += rev ?? 0` with no coverage counter — so an unpriced buyer was indistinguishable
+from one that earned $0, and every ranking, share, concentration and contribution built on those
+rows was wrong. Per-row coverage counters added; the report service now carries nullable
+economics, and unknown revenue renders "Unknown" and **sorts last in both directions**.
 
-## CallGrid date control + data-consistency correction — IN REVIEW (draft PR #146) · branch `fix/callgrid-date-control` (off merged #145 content)
-Correction pass making the shared date control visibly govern every route. Foundation was already
-single-sourced (`resolveCallGridWindow` + `loadCallGridReport` + `loadBidReport`); this wires the
-missing behavior. **Committed & validated (typecheck clean · `turbo build` passes · `@emgloop/shared` 116/116):**
-- **Shared contract:** `describeCallGridWindow` (one source of Live/Completed/Includes-Live language +
-  header line + period/comparison titles); `callGridDayNav` (prev/next Eastern day, Next disabled on
-  Today, forward-off-history returns to Today); `callGridRangeQuery` normalizes **Today explicitly**
-  (`range=today`). +13 tests.
-- **Every route:** live/completed header line + period-titled summary heading; prev/next-day arrows
-  (single-day only) + Live indicator/`Updated <time> ET`/**Refresh** (`router.refresh()`, no polling)
-  when live; selected range persists on all tab/Quick-Access/sort/selection links (Today included).
-- **Overview:** per-metric **comparison indicator** ("No valid comparison" when prior 0/unknown/unavail);
-  new **Bids Overview** (6 snapshot metrics → `/bids`, snapshot-match honesty); **Watch List now
-  CallGrid-derived only** (`callgrid-watch.ts`) — Brain dependency removed from this surface. Section
-  order: Header·Date·Selected·Comparison·Top Performers·**Bids Overview**·Watch·Quick Access.
-- **Bids/Sources:** `bidSnapshotMatches` (conservative same-day-only); "Bid Reporting Window" reconciled
-  against the selected period. Compact metric-tile density (typography unchanged).
-- **Reconciliation is structural** (unchanged & re-verified): Overview Top {dimension} = `dimensions[dim][0]`
-  and each subpage table is the same collection/sort — one aggregation path.
+**Built:** canonical metric contract (every metric's provenance, grain, versioned formula, and
+what zero/unknown/unavailable mean, plus the one implementation of each formula) · deterministic
+intelligence engine (findings with evidence + limitations + unknowns + ruleId/version; a versioned
+significance registry holding every threshold; contribution-not-causation enforced by test) · bid
+rejection classification registry + a review-priority score that orders work **without pricing it**
+· evidence drawers (native `<details>`, no client JS) · "What Loop Cannot Determine" as a
+first-class section on every page · Bids rebuilt as an operational workspace · Activity rebuilt on
+engine findings instead of its own thresholds · reconciliation harness under Administration →
+Diagnostics.
 
-**Remaining before this is done:** (a) **deploy validation** against real production CallGrid data —
-numeric top-5 reconciliation per dimension, on-screen Live/Completed verification, and **screenshots**
-(no DB/runtime/browser in the sandbox — deploy-only, Matt merges/deploys); (b) remainder of the spec's
-full test suite (no web render/route test harness per CLAUDE.md); (c) responsive polish pass.
-- ℹ️ Honest limits held: **Campaigns** uses Avg Rev/Billable, not Profit (not reliably attributable at
-  dimension grain); **Sources** shows aggregate rejection reasons (per-source `?source=` detail not built);
-  bid data is snapshot-only — **historical bid snapshots are a separate future ingestion project**.
-- ✅ Resolved this pass: Overview Watch List no longer sources Brain risks (now CallGrid-operational only).
+**Deleted (replacement rule):** `callgrid-dimensions.ts` (a parallel hardcoded-7-day path, zero
+importers) and `callgrid-watch.ts` (superseded by the engine).
+
+**⚠️ NOT production-validated, and this is the gate.** The sandbox has no database, no runtime and
+no browser, so **no figure here has been seen against real data**. The preview deploy exists and is
+green (`deploy-preview-149--emgloop2.netlify.app`, commit `886e890`, Netlify `6a6a1734d96e2e0008cbfac7`),
+but `/app/admin/*` is server-guarded and CallGrid needs a UI login, so **the validation itself
+requires a human with both credentials**. The instrument is written and empty:
+**`docs/validation/callgrid-production-reconciliation.md`** — it carries the verified Loop-side
+metric/timezone definitions, each period's exact UTC boundaries, the harness query contract, and one
+blank cell per figure that must be observed. What remains:
+1. **Deploy validation** — for Today / Yesterday / This Week / one historical day / Last 7 Days /
+   Last Week / one custom range, compare Loop vs CallGrid revenue, profit, billable and total, then
+   the top five rows per dimension. Use the diagnostics panel
+   (`/app/admin/administration/diagnostics/callgrid?range=…&dim=…&cgCalls=…`) and classify every
+   discrepancy MATCH / EXPECTED_ROUNDING / KNOWN_PROVIDER_LIMITATION / BUG.
+2. **Intelligence validation** — for ≥5 real periods, confirm each finding's evidence is correct,
+   its wording does not overstate causation, and an operator finds it useful.
+3. **Responsive check** on real content (desktop/tablet/mobile).
+
+**⚠️ Hard provider limitation (new, important).** CallGrid has **no working aggregate
+call-statistics endpoint** — `POST /api/reports/stats` returned HTTP 400 on the live discovery run
+and has never returned 200. Loop's call economics come from ingested call records, not a CallGrid
+report, so "do the numbers match CallGrid" **cannot be automated**. The harness therefore accepts
+figures typed in from the CallGrid interface, and `fullyReconciled` requires no defects AND nothing
+unverified — a window with unentered figures reports "This is NOT a pass."
+
+**Honest limits held:** bid data is snapshot-only (one window stored) so **no bid trend is shown
+anywhere**; historical bid snapshots remain a separate ingestion project. Campaign/vendor profit is
+not attributable at that grain and says so. Entity counts mean "observed this period" — CallGrid
+exposes no roster. **No LLM narrative** — every string is deterministic template language.
+
+### Phase 2 — Executive Intelligence Engine (same branch/PR, commits `5621408`, `de25fe9`)
+The engine could see exactly **two points**, which express a change but cannot express
+consistency, volatility, trend, oscillation, a new high/low, emergence or dormancy — all
+statements about a **distribution**. Phase 2 built the series and the layers over it.
+
+- **Historical series** (`callgrid-history.ts`) — N complete prior periods of the same Eastern-day
+  span, read through the same `aggregateWindow`. **Only complete periods**: a live window returns
+  `[]`, never a shortened series. Every statistic declares a minimum and returns a *reason* when it
+  declines. Nulls excluded, never zeroed; a period that fails to read is dropped, not counted as a
+  zero-revenue period. Entity keys namespaced per dimension against id collisions.
+- **Executive Intelligence Brief** — ≤5, ordered by Intelligence Score. Five is a ceiling; an empty
+  brief states *why*.
+- **Intelligence Score** (`callgrid-scoring.ts`) — Impact/Confidence/Novelty/Urgency/Review.
+  A component whose input is missing is **withheld** from numerator *and* denominator (never zeroed)
+  and `determinacy` reports how much of the scale ran. Ordering is stable to the finding id.
+- **Marketplace Risk** (`callgrid-risk.ts`) — 9 factors, LOW/MODERATE/HIGH/CRITICAL, same
+  withholding rule; the panel leads with "N% of the model could be measured". Only *decline*
+  contributes to trend; unpriced rows excluded from concentration.
+- **Anomalies** (`callgrid-anomaly.ts`) — outliers, entity disappearance, revenue/volume divergence,
+  profit divergence, oscillation. Silent without a series rather than degrading to two points.
+- **Per-entity intelligence** (`callgrid-entity-intelligence.ts`) — record period, emerging, dormant,
+  consistency, rising dominance. Record *low* is a RISK, record *high* is INFORMATIONAL so good news
+  cannot outrank a problem. Capped per rule, sorted by materiality before the cap.
+
+**471 tests pass** (shared 274 · database 197); typecheck clean on web/shared/database; build passes.
+
+**⚠️ NOT DONE in Phase 2** — the Bids page redesign around "where is money being lost" (the existing
+priority queue and rejection classification from Phase 1 still stand, but the page was not rebuilt),
+a dedicated Opportunity engine beyond the record-high/emerging findings that now carry
+`OPPORTUNITY`, and the sweep to remove anything that merely restates a metric. **Also still unrun:
+the entire Phase 1 production reconciliation** — Phase 2 was built on the *assumption* that the
+metric layer is trusted, which the worksheet has not yet verified.
 
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
 Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized
@@ -224,7 +259,8 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
    CallGrid scorecard reconciliation; Brain page renders the moved Executive Brain.
 4. **Platform floor** (CLAUDE.md Long-Term Goals): commit the lockfile; a CI gate on `main`; a
    **web test harness** (route/render/permission tests can't run without one today).
-5. **CallGrid polish:** Bids raw-table page → real drill-down; per-drill-down copy.
+5. **CallGrid deploy validation** — the only thing standing between this branch and "done".
+   See the CallGrid block above for the exact per-period checklist.
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
