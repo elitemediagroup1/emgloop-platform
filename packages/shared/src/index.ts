@@ -187,6 +187,12 @@ export * from './callgrid-window';
 // implementation of each formula. No surface may define a metric independently.
 export * from './callgrid-metric-contract';
 
+// --- CallGrid Intelligence: findings, evidence, significance, and the engine ---
+// The deterministic explanation layer over the canonical reports. Every finding
+// carries its evidence, its limitations and the versioned rule that produced it.
+export * from './callgrid-intelligence';
+export * from './callgrid-intelligence-engine';
+
 
 // --- Period-over-period trend (today vs yesterday), honesty-first ---
 export * from './metric-trend';
