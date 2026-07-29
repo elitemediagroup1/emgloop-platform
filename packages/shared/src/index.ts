@@ -192,6 +192,10 @@ export * from './callgrid-metric-contract';
 // carries its evidence, its limitations and the versioned rule that produced it.
 export * from './callgrid-intelligence';
 export * from './callgrid-intelligence-engine';
+// Bid/ping snapshot intelligence: what each rejection MEANS operationally, which
+// are expected configuration vs possibly preventable, and a deterministic review
+// ORDER (never a revenue estimate — the bid reports carry no revenue).
+export * from './callgrid-bid-intelligence';
 
 
 // --- Period-over-period trend (today vs yesterday), honesty-first ---
