@@ -41,7 +41,7 @@ sidebar item (icon `brain`); CallGrid uses `chart`.
 **Follow-up:** the Bids page (`/marketplace/auction`) is still a raw-table surface — needs a
 real drill-down pass. _(needs deploy validation: real values + reconciliation.)_
 
-## CallGrid Intelligence — factuality, reconciliation & intelligence — IN REVIEW (draft PR #<TBD>) · branch `feat/callgrid-intelligence-factuality` (off main `9551cdc`)
+## CallGrid Intelligence — factuality, reconciliation & intelligence — IN REVIEW (draft PR #149) · branch `feat/callgrid-intelligence-factuality` (off main `9551cdc`)
 The pass that turns `/app/admin/marketplace` from a reporting copy of CallGrid into an
 explainable, checkable workspace. Nine commits; **423 tests pass (shared 226 · database 197)**,
 typecheck clean on web/shared/database, `turbo build --filter=@emgloop/web` passes.
