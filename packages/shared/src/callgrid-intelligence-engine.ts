@@ -43,6 +43,13 @@ import {
   assessMarketplaceRisk, riskUnknowns, type MarketplaceRisk, type RiskDimRow,
 } from './callgrid-risk';
 import { entitySeriesFindings, type EntityRow } from './callgrid-entity-intelligence';
+import {
+  assessBusinessHealth, healthUnknowns,
+  type BusinessHealth, type HealthDimRow, type HealthScore, type HealthDimensionId,
+} from './callgrid-health';
+import {
+  findOpportunities, opportunityUnknowns, type Opportunity, type OpportunityRow,
+} from './callgrid-opportunity';
 
 // --- Engine input (the canonical report, as a contract) ------------------------
 
@@ -95,6 +102,12 @@ export interface IntelligenceInput {
   bidRejectRate?: number | null;
   /** Rate-limited share of destination failures (0–1) for the risk model. */
   rateLimitedShare?: number | null;
+  /**
+   * Comparison rows keyed by entity, per dimension. Optional: the rules that need
+   * a per-entity prior (value-per-call movement) skip the entity rather than
+   * guessing when it is absent.
+   */
+  comparisonByKey?: Record<IntelligenceDimension, ReadonlyMap<string, IntelligenceDimRow>>;
 }
 
 // --- Engine output ----------------------------------------------------------------
@@ -142,6 +155,10 @@ export interface CallGridIntelligence {
   brief: ExecutiveBrief;
   /** Structural fragility of the marketplace, with every factor's determinacy. */
   risk: MarketplaceRisk;
+  /** Business health across seven dimensions plus an overall. UNKNOWN, never HEALTHY, when unmeasurable. */
+  health: BusinessHealth;
+  /** Opportunities with measured exposure or gap — never a forecast of upside. */
+  opportunityFindings: Opportunity[];
   /** Every finding produced, severity-ordered. */
   findings: CallGridFinding[];
   /** Every finding with its Intelligence Score, attention-ordered. */
@@ -1045,6 +1062,67 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
 
   const briefItems = ranked.slice(0, 5);
 
+  // --- Health -----------------------------------------------------------------
+  // Consumes the risk model rather than recomputing concentration: a health panel
+  // that disagreed with the risk panel would be worse than no health panel.
+  const toHealthRows = (rows: IntelligenceDimRow[]): HealthDimRow[] =>
+    rows.map((r) => ({ key: r.key, label: r.label, calls: r.calls, monetized: r.monetized, revenueCents: r.revenueCents }));
+
+  const health = assessBusinessHealth({
+    metrics: input.metrics,
+    risk,
+    revenueSeries: seriesOf(history, 'revenueCents'),
+    profitSeries: seriesOf(history, 'profitCents'),
+    callSeries: seriesOf(history, 'totalCalls'),
+    dimensions: {
+      buyers: toHealthRows(input.dimensions.buyers),
+      vendors: toHealthRows(input.dimensions.vendors),
+      campaigns: toHealthRows(input.dimensions.campaigns),
+      sources: toHealthRows(input.dimensions.sources),
+    },
+    includesLiveData: input.includesLiveData,
+  });
+
+  // --- Opportunities ----------------------------------------------------------
+  const toOppRows = (rows: IntelligenceDimRow[]): OpportunityRow[] =>
+    rows.map((r) => ({ key: r.key, label: r.label, calls: r.calls, monetized: r.monetized, revenueCents: r.revenueCents }));
+
+  const emptyByKey = new Map<string, OpportunityRow>();
+  const byKey = (dim: IntelligenceDimension): ReadonlyMap<string, OpportunityRow> => {
+    const src = input.comparisonByKey?.[dim];
+    if (!src) return emptyByKey;
+    const out = new Map<string, OpportunityRow>();
+    for (const [k, r] of src) {
+      out.set(k, { key: r.key, label: r.label, calls: r.calls, monetized: r.monetized, revenueCents: r.revenueCents });
+    }
+    return out;
+  };
+
+  const opportunityFindings = (input.reportOk && input.metrics.available)
+    ? findOpportunities({
+        now: input.now,
+        windowLabel: input.windowLabel,
+        comparisonLabel: input.comparisonLabel,
+        includesLiveData: input.includesLiveData,
+        windowRevenueCents: input.metrics.revenueCents,
+        totalCalls: input.metrics.totalCalls,
+        billableCalls: input.metrics.billableCalls,
+        revenueCoverage: input.metrics.revenueCoverage,
+        dimensions: {
+          buyers: toOppRows(input.dimensions.buyers),
+          vendors: toOppRows(input.dimensions.vendors),
+          sources: toOppRows(input.dimensions.sources),
+          campaigns: toOppRows(input.dimensions.campaigns),
+        },
+        comparisonByKey: {
+          buyers: byKey('buyers'), vendors: byKey('vendors'),
+          sources: byKey('sources'), campaigns: byKey('campaigns'),
+        },
+        history,
+        risk,
+      })
+    : [];
+
   return {
     executiveSummary: {
       headline,
@@ -1064,6 +1142,8 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
       scoredWithoutHistory: recurrence === null,
     },
     risk,
+    health,
+    opportunityFindings,
     findings,
     ranked,
     changes,
@@ -1072,7 +1152,13 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     opportunities,
     anomalies,
     investigations,
-    unknowns: [...windowUnknowns(input), ...historyUnknowns(input, history), ...riskUnknownEntries(risk)],
+    unknowns: [
+      ...windowUnknowns(input),
+      ...historyUnknowns(input, history),
+      ...riskUnknownEntries(risk),
+      ...healthUnknownEntries(health),
+      ...opportunityUnknownEntries(opportunityFindings),
+    ],
     evidenceReferences: findings.flatMap((f) => f.supportingEvidence),
   };
 }
@@ -1165,6 +1251,14 @@ export interface DimensionIntelligence {
   unknowns: IntelligenceUnknown[];
   /** Ranked contribution table for the dimension. */
   contributions: AffectedEntity[];
+  /** Findings with their Intelligence Score, attention-ordered. */
+  ranked: ScoredFinding[];
+  /** This dimension's health score. UNKNOWN, never HEALTHY, when unmeasurable. */
+  health: HealthScore;
+  /** Opportunities scoped to this dimension, most material first. */
+  opportunities: Opportunity[];
+  /** Risks scoped to this dimension. */
+  risks: CallGridFinding[];
 }
 
 /**
@@ -1234,7 +1328,35 @@ export function analyzeDimension(input: IntelligenceInput, dim: IntelligenceDime
     });
   }
 
-  return { findings, unknowns, contributions };
+  // Health and opportunities reuse the SAME models the Overview uses, scoped to
+  // this dimension — a buyer health badge that disagreed with the Overview's
+  // would be a second source of truth, which is the failure mode this repo is
+  // most prone to.
+  const full = analyzeCallGrid(input);
+  const healthId: HealthDimensionId =
+    dim === 'buyers' ? 'buyer' : dim === 'vendors' ? 'vendor'
+      : dim === 'campaigns' ? 'campaign' : 'source';
+  const health = full.health.dimensions.find((d) => d.id === healthId) ?? full.health.overall;
+
+  const opportunities = full.opportunityFindings.filter((o) =>
+    o.finding.affectedEntities.some((e) => e.entityType === noun.entity)
+    || o.finding.id.includes(dim),
+  );
+
+  const ranked = rankFindings(findings, {
+    windowRevenueCents: input.metrics.revenueCents,
+    recurrence: null,
+    recurrenceWindow: null,
+  });
+
+  const risks = findings.filter(
+    (f) => f.findingType === 'RISK' || f.findingType === 'CONCENTRATION'
+      || (f.findingType === 'MARGIN' && (f.percentageChange ?? 0) < 0),
+  );
+
+  return {
+    findings, unknowns, contributions, ranked, health, opportunities, risks,
+  };
 }
 
 /** Entities whose revenue per billable call moved most — the efficiency story a
@@ -1312,5 +1434,22 @@ export { coverage };
 function toEntityRows(rows: readonly IntelligenceDimRow[]): EntityRow[] {
   return rows.map((r) => ({
     key: r.key, label: r.label, calls: r.calls, revenueCents: r.revenueCents,
+  }));
+}
+
+
+function healthUnknownEntries(health: BusinessHealth): IntelligenceUnknown[] {
+  return healthUnknowns(health).map((statement, i) => ({
+    id: `health-unknown-${i + 1}`,
+    statement,
+    reason: 'A health dimension whose signals could not be measured is reported Unknown, never Healthy — a green badge over absent data is worse than no badge.',
+  }));
+}
+
+function opportunityUnknownEntries(opportunities: readonly Opportunity[]): IntelligenceUnknown[] {
+  return opportunityUnknowns(opportunities).map((statement, i) => ({
+    id: `opportunity-unknown-${i + 1}`,
+    statement,
+    reason: 'Opportunity amounts are measured exposure or an arithmetic gap. Loop never forecasts what would be gained.',
   }));
 }

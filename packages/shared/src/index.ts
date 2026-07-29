@@ -206,6 +206,12 @@ export * from './callgrid-anomaly';
 // Per-entity findings that only a distribution can support: record periods,
 // sustained fades, rising dominance, emergence and consistency.
 export * from './callgrid-entity-intelligence';
+// Business Health: the second section of every page. A dimension whose signals
+// cannot be measured is UNKNOWN, never HEALTHY.
+export * from './callgrid-health';
+// Opportunities, sized by MEASURED exposure or an arithmetic gap — never a
+// forecast of upside, which would require caps, capacity and demand Loop cannot see.
+export * from './callgrid-opportunity';
 // The Intelligence Score — the one attention ordering. A component whose input
 // is missing is WITHHELD from both numerator and denominator, never scored zero.
 export * from './callgrid-scoring';

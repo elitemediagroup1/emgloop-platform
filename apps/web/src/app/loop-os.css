@@ -2185,3 +2185,70 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
   .cg-scorerow { flex-direction: column; gap: 1px; }
   .cg-scorerow__name { flex: none; }
 }
+
+/* --- Business Health --------------------------------------------------------
+   UNKNOWN is styled distinctly from HEALTHY, deliberately. A dimension Loop could
+   not assess must never read as one it assessed and passed. */
+.cg-health { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 8px; }
+.cg-health__overall { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text); }
+.cg-health__card { border: 1px solid var(--loop-line); border-radius: 10px; background: var(--loop-surface); }
+.cg-health__summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 10px 12px; list-style: none;
+}
+.cg-health__summary::-webkit-details-marker { display: none; }
+.cg-health__label { flex: 1 1 auto; font-size: 12.5px; font-weight: 650; color: var(--loop-text); }
+.cg-health__num { font-size: 12.5px; font-weight: 700; color: var(--loop-text-2); }
+.cg-health__body { padding: 0 12px 12px; }
+.cg-health__explain { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--loop-text-2); }
+.cg-health__signals { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.cg-signal { padding-bottom: 8px; border-bottom: 1px solid var(--loop-line); }
+.cg-signal:last-child { border-bottom: 0; padding-bottom: 0; }
+.cg-signal--absent { opacity: .72; }
+.cg-signal__head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.cg-signal__name { font-size: 12px; font-weight: 650; color: var(--loop-text); }
+.cg-signal__score { font-size: 11.5px; font-weight: 650; color: var(--loop-text-2); }
+.cg-signal--absent .cg-signal__score { color: var(--loop-text-3); font-weight: 500; }
+.cg-signal__measure { margin: 3px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-2); }
+.cg-signal__why { margin: 2px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+.cg-healthband {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--loop-line); white-space: nowrap;
+}
+.cg-healthband--healthy { color: var(--loop-ok, #5ad19b); border-color: rgba(90,209,155,.45); }
+.cg-healthband--watch { color: var(--loop-accent-2); border-color: rgba(122,162,255,.45); }
+.cg-healthband--risk { color: var(--loop-warn); border-color: rgba(242,180,91,.45); }
+.cg-healthband--critical { color: var(--loop-crit); border-color: rgba(242,104,138,.45); }
+/* Dashed, muted, and never green — "we could not check" must not look like "it is fine". */
+.cg-healthband--unknown { color: var(--loop-text-3); border-style: dashed; }
+
+/* --- Opportunities ----------------------------------------------------------
+   The money is labelled by BASIS ("Measured exposure" / "Arithmetic gap"), never
+   as upside — Loop cannot forecast what acting would gain. */
+.cg-opp { padding: 14px 16px; border: 1px solid var(--loop-line); border-radius: 12px; background: var(--loop-surface); }
+.cg-opp__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-opp__title { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--loop-text); flex: 1 1 auto; min-width: 0; }
+.cg-opp__summary { margin: 8px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text-2); }
+.cg-opp__meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 10px 0 0; }
+.cg-opp__meta div { display: flex; flex-direction: column; gap: 1px; }
+.cg-opp__meta dt { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-opp__meta dd { margin: 0; font-size: 12.5px; color: var(--loop-text-2); }
+.cg-opp__money { font-size: 15px !important; font-weight: 700; color: var(--loop-text) !important; }
+.cg-opp__caveat { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* --- Action placeholders ----------------------------------------------------
+   Inert by construction: disabled buttons, never links. Nothing behind them is
+   built, and a control that looks live but does nothing is fabricated functionality. */
+.cg-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; }
+.cg-action {
+  font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: 999px;
+  border: 1px dashed var(--loop-line); background: transparent; color: var(--loop-text-3);
+  cursor: not-allowed;
+}
+.cg-actions__note { font-size: 11px; color: var(--loop-text-3); }
+
+@media (max-width: 640px) {
+  .cg-health { grid-template-columns: 1fr; }
+  .cg-opp { padding: 12px; }
+}

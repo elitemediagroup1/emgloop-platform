@@ -10,17 +10,26 @@ import { loadBidReport, bidSnapshotMatches, overallRejectRate, destinationRateLi
 import { callGridIntelligence, bidIntelligence } from "./intelligence-data";
 import CallGridDateRange from "./CallGridDateRange";
 import { SnapshotNotice, easternClock } from "./dimension-ui";
-import { ExecutiveBriefSection, MarketplaceRiskPanel, FindingList, UnknownsSection } from "./intelligence-ui";
+import {
+  ExecutiveBriefSection, MarketplaceRiskPanel, BusinessHealthSection,
+  OpportunitiesSection, FindingList, UnknownsSection,
+} from "./intelligence-ui";
 import { loadCallGridHistory } from "./callgrid-history-data";
 
 export const dynamic = "force-dynamic";
 
-// CallGrid Intelligence — Overview.
+// CallGrid Intelligence — the Operations Center.
 //
 // CallGrid reports the marketplace; this page explains it. Sections, in order:
-// Header · Date · Selected metrics · Comparison · Executive Intelligence · Top
-// Performers · Performance Drivers · Bids Overview · Risks & Opportunities ·
-// What Loop Cannot Determine · Quick Access.
+// Header · Date · Executive Brief · Business Health · Biggest Changes · Top
+// Opportunities · Top Risks · Operational Watch List · What Loop Cannot
+// Determine · Trend & structural analysis · Metric summary · Top Performers ·
+// Bids Overview · Quick Access.
+//
+// The ORDER is the product decision. Metrics sit BELOW the intelligence because
+// they answer "what happened", which CallGrid already answers. This page exists
+// to answer why it happened, whether it matters, and what to do — so a reader
+// must reach those before they reach a tile.
 //
 // Every number comes from the canonical report service for the selected window,
 // and every conclusion from the deterministic intelligence engine — which reads
@@ -183,6 +192,19 @@ export default async function CallGridIntelligencePage({
 
   const topBidConcern = bidIntel.priorityQueue[0] ?? null;
 
+  // Changes, not metrics: headline moves plus anomalies, severity-ordered. A
+  // metric restatement ("Revenue was $12,400") is deliberately not eligible here.
+  const biggestChanges = [...intel.changes, ...intel.anomalies].slice(0, 5);
+
+  // The watch list is ordered by Intelligence Score — what to look at first, not
+  // what happens to sort first. Brief items are excluded so the page does not
+  // repeat itself two sections later.
+  const briefIds = new Set(intel.brief.items.map((i) => i.finding.id));
+  const watchList = intel.ranked
+    .filter((r) => r.finding.recommendedReview !== null && !briefIds.has(r.finding.id))
+    .slice(0, 6)
+    .map((r) => r.finding);
+
   return (
     <div className="loop-os">
       <div className="cmd cg-page">
@@ -208,7 +230,60 @@ export default async function CallGridIntelligencePage({
           <p className="cg-covnote">The requested date range was not valid, so Today is shown.</p>
         ) : null}
 
-        {/* 3 — Selected period */}
+        {/* ------------------------------------------------------------------
+            SECTION ORDER IS THE PRODUCT DECISION HERE.
+
+            Intelligence leads; raw numbers are demoted to supporting evidence at
+            the bottom. A reader who opens this page for five minutes must reach
+            "what should my team do today" before they reach a metric tile — if
+            the tiles came first they would answer "what happened", which is the
+            question CallGrid already answers.
+           ------------------------------------------------------------------ */}
+
+        {/* 1 — Executive Intelligence Brief */}
+        <p className="cg-exec__headline cg-exec__headline--lede">{intel.executiveSummary.headline}</p>
+        <ExecutiveBriefSection brief={intel.brief} />
+
+        {/* 2 — Business Health */}
+        <BusinessHealthSection health={intel.health} />
+
+        {/* 3 — Biggest Changes: changes and anomalies, never metric restatements. */}
+        <FindingList
+          sectionLabel="Biggest Changes"
+          findings={biggestChanges}
+          emptyLine={
+            report.comparison
+              ? "Nothing moved enough this period to clear the significance thresholds."
+              : "No comparison period is defined for this selection, so no change can be reported."
+          }
+        />
+
+        {/* 4 — Top Opportunities: as prominent as risks, per the design order. */}
+        <OpportunitiesSection opportunities={intel.opportunityFindings} />
+
+        {/* 5 — Top Risks */}
+        <FindingList
+          sectionLabel="Top Risks"
+          findings={intel.risks.slice(0, 4)}
+          emptyLine="No evidence-backed risk for this period."
+        />
+
+        {/* 6 — Operational Watch List, ordered by Intelligence Score. Never alphabetical. */}
+        <FindingList
+          sectionLabel="Operational Watch List"
+          findings={watchList}
+          emptyLine="Nothing is queued for review this period."
+          compact
+        />
+
+        {/* 7 — What Loop Cannot Determine */}
+        <UnknownsSection unknowns={[...intel.unknowns, ...bidIntel.unknowns]} />
+
+        {/* 8 — Trend and structural analysis */}
+        <MarketplaceRiskPanel risk={intel.risk} />
+
+        {/* 9 — Metric summary. Below the intelligence, deliberately: these are the
+             evidence behind the conclusions above, not the headline. */}
         <div className="cg-sec">
           <p className="cg-seclabel">{desc.periodTitle}</p>
           <MetricTiles
@@ -219,7 +294,6 @@ export default async function CallGridIntelligencePage({
           />
         </div>
 
-        {/* 4 — Comparison period */}
         {report.comparison ? (
           <div className="cg-sec">
             <p className="cg-seclabel">{desc.comparisonTitle}</p>
@@ -228,15 +302,7 @@ export default async function CallGridIntelligencePage({
           </div>
         ) : null}
 
-        {/* 5 — Executive Intelligence Brief: at most five, attention-ordered.
-             Replaces the passive summary; the headline survives as its one-line lede. */}
-        <p className="cg-exec__headline cg-exec__headline--lede">{intel.executiveSummary.headline}</p>
-        <ExecutiveBriefSection brief={intel.brief} />
-
-        {/* 5b — Marketplace Risk: structural fragility, with determinacy on show. */}
-        <MarketplaceRiskPanel risk={intel.risk} />
-
-        {/* 6 — Top Performers (the ranked rows the subpages show) */}
+        {/* 10 — Top Performers (the ranked rows the subpages show) */}
         <div className="cg-sec">
           <p className="cg-seclabel">Top Performers</p>
           <div className="cg-tiles">
@@ -247,18 +313,7 @@ export default async function CallGridIntelligencePage({
           </div>
         </div>
 
-        {/* 7 — Performance Drivers */}
-        <FindingList
-          sectionLabel="Performance Drivers"
-          findings={intel.drivers}
-          emptyLine={
-            report.comparison
-              ? "No single buyer, vendor, source or campaign accounts for enough of this period's change to name."
-              : "No comparison period is defined for this selection, so contribution cannot be calculated."
-          }
-        />
-
-        {/* 8 — Bids Overview (snapshot grain; links to the Bids workspace) */}
+        {/* 11 — Bids Overview (snapshot grain; links to the Bids workspace) */}
         <div className="cg-sec">
           <div className="cg-sechead">
             <p className="cg-seclabel">Bids Overview</p>
@@ -278,14 +333,6 @@ export default async function CallGridIntelligencePage({
                 selectedPeriodLabel={desc.periodTitle}
                 matchesSelectedPeriod={bidMatches}
               />
-              <div className="cg-bidtiles">
-                <BidTile label="Bid Opportunities" value={bidNum(opportunities.total)} />
-                <BidTile label="Bids Submitted" value={bidNum(submitted.total)} />
-                <BidTile label="Bids Won" value={bidNum(won.total)} />
-                <BidTile label="Source Win Rate" value={winRate === null ? "—" : Math.round(winRate * 100) + "%"} />
-                <BidTile label="Rejected Opportunities" value={bidNum(rejected.total)} />
-                <BidTile label="Latest Bid Snapshot" value={utcDate(bid.meta.windowStart)} />
-              </div>
               <div className="cg-bidcallout">
                 <p className="cg-bidcallout__lead">{bidIntel.headline}</p>
                 {topBidConcern ? (
@@ -299,26 +346,17 @@ export default async function CallGridIntelligencePage({
                   {bidIntel.snapshotChanges.length === 0 ? " No earlier snapshot is stored, so no bid trend is shown." : ""}
                 </p>
               </div>
+              <div className="cg-bidtiles">
+                <BidTile label="Bid Opportunities" value={bidNum(opportunities.total)} />
+                <BidTile label="Bids Submitted" value={bidNum(submitted.total)} />
+                <BidTile label="Bids Won" value={bidNum(won.total)} />
+                <BidTile label="Source Win Rate" value={winRate === null ? "—" : Math.round(winRate * 100) + "%"} />
+                <BidTile label="Rejected Opportunities" value={bidNum(rejected.total)} />
+                <BidTile label="Latest Bid Snapshot" value={utcDate(bid.meta.windowStart)} />
+              </div>
             </>
           )}
         </div>
-
-        {/* 9 — Risks and Opportunities */}
-        <FindingList
-          sectionLabel="Risks"
-          findings={intel.risks.slice(0, 4)}
-          emptyLine="No evidence-backed risks for this period."
-          compact
-        />
-        <FindingList
-          sectionLabel="Opportunities"
-          findings={intel.opportunities.slice(0, 3)}
-          emptyLine="No evidence-backed opportunities for this period."
-          compact
-        />
-
-        {/* 10 — What Loop Cannot Determine */}
-        <UnknownsSection unknowns={[...intel.unknowns, ...bidIntel.unknowns]} />
 
         {/* 11 — Quick Access (navigate only; carries the selected range) */}
         <div className="cg-sec">

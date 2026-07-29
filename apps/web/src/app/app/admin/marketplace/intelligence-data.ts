@@ -50,6 +50,8 @@ export function toIntelligenceInput(
     history: extras?.history,
     bidRejectRate: extras?.bidRejectRate ?? null,
     rateLimitedShare: extras?.rateLimitedShare ?? null,
+    // Already built by the canonical report service — passed through, never rebuilt.
+    comparisonByKey: report.comparisonByKey,
   };
 }
 

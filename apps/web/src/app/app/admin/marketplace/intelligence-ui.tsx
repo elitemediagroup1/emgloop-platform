@@ -16,7 +16,9 @@ import type {
   MetricClassification, Severity, AffectedEntity,
   ExecutiveBrief, IntelligenceScore, ScoredFinding,
   MarketplaceRisk, RiskBand,
+  BusinessHealth, HealthScore, HealthBand, Opportunity,
 } from '@emgloop/shared';
+import { HEALTH_BAND_LABEL, healthByUrgency } from '@emgloop/shared';
 
 const SEV_LABEL: Record<Severity, string> = {
   CRITICAL: 'Critical', HIGH: 'High', NOTABLE: 'Notable', INFORMATIONAL: 'Informational',
@@ -593,6 +595,214 @@ export function MarketplaceRiskPanel({ risk }: { risk: MarketplaceRisk }) {
           will reduce or leave.
         </p>
       </section>
+    </div>
+  );
+}
+
+// --- Business Health -------------------------------------------------------------------
+
+const HEALTH_CLASS: Record<HealthBand, string> = {
+  HEALTHY: 'healthy', WATCH: 'watch', RISK: 'risk', CRITICAL: 'critical', UNKNOWN: 'unknown',
+};
+
+/**
+ * One health dimension.
+ *
+ * UNKNOWN is styled distinctly from HEALTHY on purpose. A dimension Loop could not
+ * assess must never read as one it assessed and passed — that is the difference
+ * between "we checked and it is fine" and "we could not check", and a green badge
+ * over absent data is the most dangerous thing this panel could render.
+ */
+function HealthCard({ score }: { score: HealthScore }) {
+  return (
+    <details className="cg-health__card" aria-label={score.label}>
+      <summary className="cg-health__summary">
+        <span className="cg-health__label">{score.label}</span>
+        <span className={'cg-healthband cg-healthband--' + HEALTH_CLASS[score.band]}>
+          {HEALTH_BAND_LABEL[score.band]}
+        </span>
+        {score.score !== null ? <span className="cg-health__num">{score.score}</span> : null}
+      </summary>
+      <div className="cg-health__body">
+        <p className="cg-health__explain">{score.explanation}</p>
+        <ul className="cg-health__signals">
+          {score.signals.map((s) => (
+            <li className={'cg-signal' + (s.available ? '' : ' cg-signal--absent')} key={s.id}>
+              <div className="cg-signal__head">
+                <span className="cg-signal__name">{s.label}</span>
+                <span className="cg-signal__score">
+                  {s.available && s.score !== null ? `${Math.round(s.score * 100)}` : 'Not measurable'}
+                </span>
+              </div>
+              <p className="cg-signal__measure">{s.measurement}</p>
+              <p className="cg-signal__why">{s.interpretation}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
+/** Business Health — section two of every page. Worst band first, never alphabetical. */
+export function BusinessHealthSection({
+  health,
+  sectionLabel = 'Business Health',
+}: {
+  health: BusinessHealth;
+  sectionLabel?: string;
+}) {
+  const ordered = healthByUrgency(health);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        <span className={'cg-healthband cg-healthband--' + HEALTH_CLASS[health.overall.band]}>
+          Overall: {HEALTH_BAND_LABEL[health.overall.band]}
+        </span>
+      </div>
+
+      <section className="tile tile--wide">
+        <p className="cg-health__overall">{health.overall.explanation}</p>
+      </section>
+
+      <div className="cg-health">
+        {ordered.map((d) => <HealthCard key={d.id} score={d} />)}
+      </div>
+    </div>
+  );
+}
+
+// --- Opportunities ----------------------------------------------------------------------
+
+const IMPACT_BASIS_LABEL: Record<Opportunity['impactBasis'], string> = {
+  measured_exposure: 'Measured exposure',
+  measured_gap: 'Arithmetic gap',
+  none: 'Not quantifiable',
+};
+
+function money(cents: number | null): string {
+  if (cents === null) return 'Not quantifiable';
+  return '$' + Math.round(Math.abs(cents) / 100).toLocaleString('en-US');
+}
+
+/**
+ * One opportunity.
+ *
+ * The money is labelled by BASIS, never as upside. "Measured exposure" and
+ * "expected gain" are different claims, and only the first is supportable — Loop
+ * cannot see caps, capacity, demand or budgets, so it never predicts what acting
+ * would produce. A number presented as upside that is really arithmetic is the
+ * most expensive dishonesty here: someone reallocates budget against it.
+ */
+function OpportunityCard({ item }: { item: Opportunity }) {
+  const f = item.finding;
+  return (
+    <article className="cg-opp" aria-label={f.title}>
+      <header className="cg-opp__head">
+        <SeverityTag value={f.severity} />
+        <h3 className="cg-opp__title">{f.title}</h3>
+      </header>
+
+      <p className="cg-opp__summary">{f.plainLanguageSummary}</p>
+
+      <dl className="cg-opp__meta">
+        <div>
+          <dt>{IMPACT_BASIS_LABEL[item.impactBasis]}</dt>
+          <dd className="cg-opp__money">{money(item.estimatedImpactCents)}</dd>
+        </div>
+        <div>
+          <dt>What this concerns</dt>
+          <dd>{item.lever}</dd>
+        </div>
+        <div>
+          <dt>Confidence</dt>
+          <dd>{Math.round(f.confidence * 100)}%</dd>
+        </div>
+      </dl>
+
+      <p className="cg-opp__caveat">
+        {item.impactBasis === 'none'
+          ? 'No amount can be attached to this from the data available.'
+          : 'This amount is measured from observed rows. It is what is at stake, not a prediction of what acting would gain.'}
+      </p>
+
+      {f.recommendedReview ? (
+        <p className="cg-finding__review">
+          <span className="cg-finding__reviewlabel">Recommended review</span>
+          {f.recommendedReview}
+        </p>
+      ) : null}
+
+      <ActionBar finding={f} />
+      <EvidenceDrawer finding={f} />
+    </article>
+  );
+}
+
+/** Top Opportunities — as prominent as risks, per the design order. */
+export function OpportunitiesSection({
+  opportunities,
+  limit = 4,
+  sectionLabel = 'Top Opportunities',
+}: {
+  opportunities: readonly Opportunity[];
+  limit?: number;
+  sectionLabel?: string;
+}) {
+  const shown = opportunities.slice(0, limit);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {opportunities.length > shown.length ? (
+          <p className="cg-brief__count">{shown.length} of {opportunities.length}</p>
+        ) : null}
+      </div>
+      {shown.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No evidence-backed opportunity for this period. Loop only surfaces one when it can
+            measure what is at stake.
+          </p>
+        </section>
+      ) : (
+        <div className="cg-findings">
+          {shown.map((o) => <OpportunityCard key={o.finding.id} item={o} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Action placeholders ------------------------------------------------------------------
+
+/**
+ * Workflow actions — INTERFACE ONLY.
+ *
+ * These are deliberately inert `disabled` buttons, not links or handlers. Nothing
+ * behind them is built, and a control that looks live but does nothing is exactly
+ * the fabricated-functionality failure this repository forbids. `title` says so on
+ * hover, and `aria-disabled` carries it to assistive technology rather than
+ * leaving it as a visual-only cue.
+ */
+export function ActionBar({ finding }: { finding: CallGridFinding }) {
+  const actions = ['Investigate', 'Assign', 'Create Work Item', 'Watch', 'Resolve', 'Ignore'];
+  return (
+    <div className="cg-actions" role="group" aria-label={`Actions for ${finding.title} — not yet available`}>
+      {actions.map((a) => (
+        <button
+          type="button"
+          className="cg-action"
+          key={a}
+          disabled
+          aria-disabled="true"
+          title="Not yet available — workflow actions are not built."
+        >
+          {a}
+        </button>
+      ))}
+      <span className="cg-actions__note">Workflow actions are not built yet.</span>
     </div>
   );
 }
