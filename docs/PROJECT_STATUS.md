@@ -75,7 +75,13 @@ Diagnostics.
 importers) and `callgrid-watch.ts` (superseded by the engine).
 
 **⚠️ NOT production-validated, and this is the gate.** The sandbox has no database, no runtime and
-no browser, so **no figure here has been seen against real data**. What remains:
+no browser, so **no figure here has been seen against real data**. The preview deploy exists and is
+green (`deploy-preview-149--emgloop2.netlify.app`, commit `886e890`, Netlify `6a6a1734d96e2e0008cbfac7`),
+but `/app/admin/*` is server-guarded and CallGrid needs a UI login, so **the validation itself
+requires a human with both credentials**. The instrument is written and empty:
+**`docs/validation/callgrid-production-reconciliation.md`** — it carries the verified Loop-side
+metric/timezone definitions, each period's exact UTC boundaries, the harness query contract, and one
+blank cell per figure that must be observed. What remains:
 1. **Deploy validation** — for Today / Yesterday / This Week / one historical day / Last 7 Days /
    Last Week / one custom range, compare Loop vs CallGrid revenue, profit, billable and total, then
    the top five rows per dimension. Use the diagnostics panel
