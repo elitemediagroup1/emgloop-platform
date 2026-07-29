@@ -163,12 +163,122 @@ happened to get priced.
 
 ---
 
+## The historical series
+
+`callgrid-history.ts`. The engine originally saw exactly two points: the selected
+window and one comparison window. Two points express a **change**. They cannot
+express consistency, volatility, a trend, an oscillation, a new high, a new low,
+emergence or dormancy — each of those is a statement about a **distribution**.
+
+Answering them from two points is how a product starts inventing, so the series is
+explicit: `buildHistoryPeriods(window, n)` produces `n` complete prior periods of
+the same Eastern-day span, and the loader reads them through the same
+`aggregateWindow` as everything else.
+
+Three rules make it safe:
+
+1. **Only complete periods.** A live or invalid window returns `[]` — not a
+   shortened series. A partial measurement inside a mean corrupts the mean, the
+   deviation and the trend at once; that is the same defect that made "Today"
+   report an -85% collapse every morning.
+2. **Every statistic states its minimum and its refusal.** Below
+   `MIN_SERIES_POINTS` (4) each returns `{ value: null, reason }`. A null with no
+   reason is indistinguishable from a bug.
+3. **Nulls are excluded, never zeroed** — from means, deviations, trends and
+   z-scores alike. `usablePoints` vs `totalPoints` is reported on every result. A
+   period that failed to read is dropped by the loader for the same reason: a
+   period Loop could not read is not a period in which nothing happened.
+
+Entity keys are namespaced per dimension (`buyers::x1`), because the provider's id
+spaces are not guaranteed distinct and a collision's first symptom would be a
+confident, wrong "this buyer disappeared".
+
+History is loaded on the Overview and the dimension pages only — one read per
+prior period.
+
+---
+
 ## What the engine produces
 
 Families implemented: overall performance change · contribution analysis ·
 volume-versus-value inference · concentration · entity lifecycle (inactive,
 newly active) · rank movement · margin · billable efficiency · per-dimension
 efficiency movers.
+
+**Anomalies** (`callgrid-anomaly.ts`) — revenue and volume outliers against the
+distribution, entity disappearance, revenue/volume divergence, profit divergence,
+and oscillation. An anomaly is a point against a distribution, which is a
+different question from a change: a 30% drop is not unusual in a business that
+routinely swings 40%, and a 12% drop is alarming in one that has never moved more
+than 3%. Every distribution rule stays **silent** without a series rather than
+degrading into a two-point comparison wearing an anomaly's label.
+
+**Per-entity series findings** (`callgrid-entity-intelligence.ts`) — record
+period, emerging, dormant, consistency, rising dominance. A record **low** is a
+RISK; a record **high** is INFORMATIONAL, so good news cannot outrank a problem in
+a five-item brief. Each rule is capped per dimension and sorted by materiality
+before the cap.
+
+---
+
+## The Executive Intelligence Brief
+
+At most **five** findings, ordered by Intelligence Score rather than severity.
+
+Five is a **ceiling, not a target**. A quiet period yields fewer; a period with
+nothing evidence-backed yields none, and an empty brief renders *why* it is empty
+— "nothing crossed the bar" and "the page broke" otherwise look identical, and
+only one of them is fine.
+
+### The Intelligence Score
+
+`callgrid-scoring.ts`, versioned. Five components: **Impact** (40) ·
+**Confidence** (20) · **Novelty** (15) · **Urgency** (15) · **Review priority**
+(10).
+
+It orders **attention**. It is not a value, a cost, or a probability, and the
+drawer says so above the component list.
+
+**The rule that shapes the file:** a component whose input is missing is not
+scored zero — zero would mean "measured, and it contributed nothing", which is a
+claim. It is **withheld** from both numerator and denominator, named in
+`unmeasured`, and `determinacy` reports how much of the scale actually ran.
+Novelty is unanswerable without a series, so with no history it withholds itself
+rather than marking every finding brand new.
+
+Impact prefers the move as a **share of window revenue** — $3,000 means something
+different in a $9,000 week than a $900,000 one — and falls back to severity when
+there is no denominator, naming which basis it used. Ordering is stable to the
+finding id, because a brief that reorders itself on refresh is not trustworthy.
+
+---
+
+## Marketplace Risk
+
+`callgrid-risk.ts`. Nine factors: buyer / profit / vendor / source / campaign
+concentration, revenue volatility, revenue trend, bid rejection, rate limiting.
+Bands LOW / MODERATE / HIGH / CRITICAL.
+
+It measures **structural fragility** — how exposed the marketplace is to one thing
+going wrong. It is not a prediction or a probability of loss. A high score does
+not mean something bad is happening; it means there is little to absorb it if it
+did.
+
+A composite is the easiest place in a product to fabricate: roll nine factors into
+one number, let the missing ones default to zero, and you get a reassuring LOW
+built mostly out of data you never had. So the same withholding rule applies, and
+the panel leads with *"N% of the model could be measured"*.
+
+Two deliberate asymmetries:
+
+- **Only decline contributes** to the trend factor. Growth is not risk, and
+  scoring it as such would be the model quietly punishing a healthy business.
+- **Unpriced rows are excluded** from concentration, never counted as zero — one
+  priced buyer beside three unpriced ones must not read as total concentration.
+
+**Concentration is dependency, not fault.** Every factor describes the shape of
+the business, never a counterparty's intentions; a test asserts the model never
+predicts anyone will leave, churn or reduce.
 
 ### Language rules encoded in the engine
 

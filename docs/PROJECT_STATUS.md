@@ -103,6 +103,39 @@ anywhere**; historical bid snapshots remain a separate ingestion project. Campai
 not attributable at that grain and says so. Entity counts mean "observed this period" — CallGrid
 exposes no roster. **No LLM narrative** — every string is deterministic template language.
 
+### Phase 2 — Executive Intelligence Engine (same branch/PR, commits `5621408`, `de25fe9`)
+The engine could see exactly **two points**, which express a change but cannot express
+consistency, volatility, trend, oscillation, a new high/low, emergence or dormancy — all
+statements about a **distribution**. Phase 2 built the series and the layers over it.
+
+- **Historical series** (`callgrid-history.ts`) — N complete prior periods of the same Eastern-day
+  span, read through the same `aggregateWindow`. **Only complete periods**: a live window returns
+  `[]`, never a shortened series. Every statistic declares a minimum and returns a *reason* when it
+  declines. Nulls excluded, never zeroed; a period that fails to read is dropped, not counted as a
+  zero-revenue period. Entity keys namespaced per dimension against id collisions.
+- **Executive Intelligence Brief** — ≤5, ordered by Intelligence Score. Five is a ceiling; an empty
+  brief states *why*.
+- **Intelligence Score** (`callgrid-scoring.ts`) — Impact/Confidence/Novelty/Urgency/Review.
+  A component whose input is missing is **withheld** from numerator *and* denominator (never zeroed)
+  and `determinacy` reports how much of the scale ran. Ordering is stable to the finding id.
+- **Marketplace Risk** (`callgrid-risk.ts`) — 9 factors, LOW/MODERATE/HIGH/CRITICAL, same
+  withholding rule; the panel leads with "N% of the model could be measured". Only *decline*
+  contributes to trend; unpriced rows excluded from concentration.
+- **Anomalies** (`callgrid-anomaly.ts`) — outliers, entity disappearance, revenue/volume divergence,
+  profit divergence, oscillation. Silent without a series rather than degrading to two points.
+- **Per-entity intelligence** (`callgrid-entity-intelligence.ts`) — record period, emerging, dormant,
+  consistency, rising dominance. Record *low* is a RISK, record *high* is INFORMATIONAL so good news
+  cannot outrank a problem. Capped per rule, sorted by materiality before the cap.
+
+**471 tests pass** (shared 274 · database 197); typecheck clean on web/shared/database; build passes.
+
+**⚠️ NOT DONE in Phase 2** — the Bids page redesign around "where is money being lost" (the existing
+priority queue and rejection classification from Phase 1 still stand, but the page was not rebuilt),
+a dedicated Opportunity engine beyond the record-high/emerging findings that now carry
+`OPPORTUNITY`, and the sweep to remove anything that merely restates a metric. **Also still unrun:
+the entire Phase 1 production reconciliation** — Phase 2 was built on the *assumption* that the
+metric layer is trusted, which the worksheet has not yet verified.
+
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
 Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized
 route→product resolver. **Start Work rebuilt (#135)** as a centered sectioned form; **Work
