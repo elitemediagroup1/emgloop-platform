@@ -30,7 +30,7 @@ import {
 } from './dimension-ui';
 import {
   FindingList, UnknownsSection, ContributionTable,
-  BusinessHealthSection, OpportunitiesSection,
+  BusinessHealthSection, OpportunitiesSection, DecisionSupportSection,
 } from './intelligence-ui';
 
 export interface CallDimensionConfig {
@@ -85,10 +85,8 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
   // Attention-ordered: the top five lead the page, the rest fall below the
   // metrics as "also worth reviewing". Ordering by score rather than severity is
   // what stops an INFORMATIONAL record-high from outranking a live problem.
-  const topFindings = intel.ranked.slice(0, 5).map((r) => r.finding);
-  const topIds = new Set(topFindings.map((f) => f.id));
+  const topIds = new Set(intel.decisionSupport.slice(0, 5).map((c) => c.findingId));
   const remainingFindings = intel.ranked
-    .slice(5)
     .map((r) => r.finding)
     .filter((f) => !topIds.has(f.id));
 
@@ -162,9 +160,10 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
               answer "what happened", which CallGrid already answers. They are now
               evidence beneath the conclusions that read them. */}
 
-          <FindingList
+          <DecisionSupportSection
+            cards={intel.decisionSupport}
+            limit={5}
             sectionLabel={`Executive ${config.entityLabel} Intelligence`}
-            findings={topFindings}
             emptyLine={
               report.comparison
                 ? `No ${config.entityLabelLower} movement in this period clears the significance thresholds.`

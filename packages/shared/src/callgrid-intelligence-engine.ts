@@ -50,6 +50,7 @@ import {
 import {
   findOpportunities, opportunityUnknowns, type Opportunity, type OpportunityRow,
 } from './callgrid-opportunity';
+import { buildDecisionSupport, type DecisionSupportCard } from './callgrid-decision-support';
 
 // --- Engine input (the canonical report, as a contract) ------------------------
 
@@ -108,6 +109,12 @@ export interface IntelligenceInput {
    * guessing when it is absent.
    */
   comparisonByKey?: Record<IntelligenceDimension, ReadonlyMap<string, IntelligenceDimRow>>;
+  /**
+   * How many windows of this length fit in a year. Supplied by the adapter from
+   * the resolved window's Eastern span. Null suppresses every annualization —
+   * the decision-support layer then states that rather than guessing a cadence.
+   */
+  periodsPerYear?: number | null;
 }
 
 // --- Engine output ----------------------------------------------------------------
@@ -159,6 +166,14 @@ export interface CallGridIntelligence {
   health: BusinessHealth;
   /** Opportunities with measured exposure or gap — never a forecast of upside. */
   opportunityFindings: Opportunity[];
+  /**
+   * Decision support cards, ordered by review priority.
+   *
+   * A projection over `ranked` — it separates measured fact from Loop's reading of
+   * it, states what information is missing, and names the review a person should
+   * make. Loop owns the facts; the operator owns the decision.
+   */
+  decisionSupport: DecisionSupportCard[];
   /** Every finding produced, severity-ordered. */
   findings: CallGridFinding[];
   /** Every finding with its Intelligence Score, attention-ordered. */
@@ -1123,6 +1138,14 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
       })
     : [];
 
+  // --- Decision support -------------------------------------------------------
+  const oppByFindingId = new Map(opportunityFindings.map((o) => [o.finding.id, o] as const));
+  const decisionSupport = buildDecisionSupport(ranked, {
+    opportunitiesByFindingId: oppByFindingId,
+    revenueSeries: seriesOf(history, 'revenueCents'),
+    periodsPerYear: input.periodsPerYear ?? null,
+  });
+
   return {
     executiveSummary: {
       headline,
@@ -1144,6 +1167,7 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     risk,
     health,
     opportunityFindings,
+    decisionSupport,
     findings,
     ranked,
     changes,
@@ -1259,6 +1283,8 @@ export interface DimensionIntelligence {
   opportunities: Opportunity[];
   /** Risks scoped to this dimension. */
   risks: CallGridFinding[];
+  /** Decision support cards for this dimension, ordered by review priority. */
+  decisionSupport: DecisionSupportCard[];
 }
 
 /**
@@ -1354,8 +1380,15 @@ export function analyzeDimension(input: IntelligenceInput, dim: IntelligenceDime
       || (f.findingType === 'MARGIN' && (f.percentageChange ?? 0) < 0),
   );
 
+  const dimOppByFindingId = new Map(opportunities.map((o) => [o.finding.id, o] as const));
+  const decisionSupport = buildDecisionSupport(ranked, {
+    opportunitiesByFindingId: dimOppByFindingId,
+    revenueSeries: seriesOf(input.history ?? EMPTY_SERIES, 'revenueCents'),
+    periodsPerYear: input.periodsPerYear ?? null,
+  });
+
   return {
-    findings, unknowns, contributions, ranked, health, opportunities, risks,
+    findings, unknowns, contributions, ranked, health, opportunities, risks, decisionSupport,
   };
 }
 

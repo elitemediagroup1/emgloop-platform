@@ -129,6 +129,30 @@ statements about a **distribution**. Phase 2 built the series and the layers ove
 
 **471 tests pass** (shared 274 · database 197); typecheck clean on web/shared/database; build passes.
 
+### Phase 3–4 — Operations Command Center + Decision Support (draft PR #150, branch `feat/callgrid-operations-command-center`)
+**Phase 3:** every page leads with intelligence; metrics demoted below it. Business Health (7
+dimensions + overall) — a dimension whose signals cannot be measured is **UNKNOWN, never HEALTHY**
+(a test caught health returning CRITICAL from an unreadable report; now gated at the model). Health
+*consumes* the risk model rather than recomputing concentration. Opportunity engine sizes **measured
+exposure** or an **arithmetic gap**, never forecast upside. Action placeholders are inert
+`disabled` buttons.
+
+**Phase 4:** `callgrid-decision-support.ts` — a projection over existing findings, no second
+contract. Observation (fact) and Interpretation (Loop's reading) render as separate blocks, as do
+Measured Facts (Loop) and Business Judgment (operator). Missing Information is first-class. Ten
+review categories resolved from rule+entity, not wording. Evidence strength HIGH/MODERATE/LOW/
+INSUFFICIENT (coverage caps it; an engine-declared INSUFFICIENT can never be upgraded here). Review
+priority Immediate/Today/This Week/Monitor/Informational — urgency requires materiality **and**
+trustworthy evidence, so a CRITICAL finding on weak evidence is Monitor, not Immediate.
+Annualization withheld unless the series shows stability, and always suppressed on a live window.
+
+**527 tests pass** (shared 330 · database 197); typecheck clean on web/shared/database; build compiles.
+
+**⚠️ Still NOT DONE:** the Bids page redesign (its "closed targets overnight" example is
+unreachable — the snapshot has no hour-of-day dimension), and **Phase 1's production reconciliation
+has still never been run**. Every health band, opportunity amount and evidence-strength badge
+inherits whatever the metric layer gets wrong.
+
 **⚠️ NOT DONE in Phase 2** — the Bids page redesign around "where is money being lost" (the existing
 priority queue and rejection classification from Phase 1 still stand, but the page was not rebuilt),
 a dedicated Opportunity engine beyond the record-high/emerging findings that now carry

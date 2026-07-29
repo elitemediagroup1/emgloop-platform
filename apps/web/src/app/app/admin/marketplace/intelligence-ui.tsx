@@ -17,8 +17,12 @@ import type {
   ExecutiveBrief, IntelligenceScore, ScoredFinding,
   MarketplaceRisk, RiskBand,
   BusinessHealth, HealthScore, HealthBand, Opportunity,
+  DecisionSupportCard, ReviewUrgency, EvidenceStrength,
 } from '@emgloop/shared';
-import { HEALTH_BAND_LABEL, healthByUrgency } from '@emgloop/shared';
+import {
+  HEALTH_BAND_LABEL, healthByUrgency,
+  REVIEW_URGENCY_LABEL, REVIEW_CATEGORY_LABEL, EVIDENCE_STRENGTH_LABEL,
+} from '@emgloop/shared';
 
 const SEV_LABEL: Record<Severity, string> = {
   CRITICAL: 'Critical', HIGH: 'High', NOTABLE: 'Notable', INFORMATIONAL: 'Informational',
@@ -803,6 +807,166 @@ export function ActionBar({ finding }: { finding: CallGridFinding }) {
         </button>
       ))}
       <span className="cg-actions__note">Workflow actions are not built yet.</span>
+    </div>
+  );
+}
+
+// --- Decision Support ---------------------------------------------------------------------
+
+const URGENCY_CLASS: Record<ReviewUrgency, string> = {
+  IMMEDIATE: 'critical', TODAY: 'high', THIS_WEEK: 'notable',
+  MONITOR: 'informational', INFORMATIONAL: 'informational',
+};
+const STRENGTH_CLASS: Record<EvidenceStrength, string> = {
+  HIGH: 'healthy', MODERATE: 'watch', LOW: 'risk', INSUFFICIENT: 'unknown',
+};
+
+function impactMoney(cents: number | null): string {
+  if (cents === null) return 'Not quantifiable';
+  return '$' + Math.round(Math.abs(cents) / 100).toLocaleString('en-US');
+}
+
+/**
+ * One decision support card.
+ *
+ * The structure is the product: Observation (what was measured) and
+ * Interpretation (Loop's reading of it) are rendered as SEPARATE labelled blocks,
+ * as are Measured Facts and Business Judgment. A reader must never have to work
+ * out which of the two they are looking at — Loop owns the facts, the operator
+ * owns the decision, and the layout says so rather than the copy having to.
+ */
+export function DecisionSupportCardView({ card }: { card: DecisionSupportCard }) {
+  const f = card.finding;
+  return (
+    <article className="cg-ds" aria-label={card.title}>
+      <header className="cg-ds__head">
+        <span className={'cg-sev cg-sev--' + URGENCY_CLASS[card.reviewPriority]}>
+          {REVIEW_URGENCY_LABEL[card.reviewPriority]}
+        </span>
+        <h3 className="cg-ds__title">{card.title}</h3>
+        <span className="cg-ds__cat">{REVIEW_CATEGORY_LABEL[card.category]}</span>
+        <span className={'cg-healthband cg-healthband--' + STRENGTH_CLASS[card.evidenceStrength]}>
+          {EVIDENCE_STRENGTH_LABEL[card.evidenceStrength]}
+        </span>
+      </header>
+
+      <div className="cg-ds__block">
+        <p className="cg-ds__blocklabel">Observation — measured</p>
+        <p className="cg-ds__obs">{card.observation}</p>
+      </div>
+
+      <div className="cg-ds__block">
+        <p className="cg-ds__blocklabel">Interpretation — Loop&rsquo;s reading of the measurement</p>
+        <p className="cg-ds__interp">{card.interpretation}</p>
+      </div>
+
+      <div className="cg-ds__block">
+        <p className="cg-ds__blocklabel">Business impact</p>
+        <p className="cg-ds__impact">
+          <span className="cg-ds__money">{impactMoney(card.businessImpact.amountCents)}</span>
+          <span className="cg-ds__impactlabel">{card.businessImpact.label}</span>
+        </p>
+        <p className="cg-ds__impactnote">{card.businessImpact.statement}</p>
+        {card.businessImpact.annualizationBasis ? (
+          <p className="cg-ds__annual">{card.businessImpact.annualizationBasis}</p>
+        ) : null}
+      </div>
+
+      {card.recommendedReview ? (
+        <div className="cg-ds__block cg-ds__block--review">
+          <p className="cg-ds__blocklabel">Recommended review</p>
+          <p className="cg-ds__review">{card.recommendedReview}</p>
+        </div>
+      ) : null}
+
+      {/* Missing information is a first-class block, not a footnote. It is what
+          stands between this observation and a stronger conclusion. */}
+      <div className="cg-ds__block cg-ds__block--missing">
+        <p className="cg-ds__blocklabel">What information is missing</p>
+        {card.missingInformation.length === 0 ? (
+          <p className="cg-ds__missingnone">
+            Nothing further is required to read this observation. It does not follow that an action is justified.
+          </p>
+        ) : (
+          <ul className="cg-ds__missing">
+            {card.missingInformation.map((m, i) => <li key={i}>{m}</li>)}
+          </ul>
+        )}
+      </div>
+
+      <details className="cg-eviddrawer">
+        <summary className="cg-evidsummary">Measured facts and the decision boundary</summary>
+        <div className="cg-evidbody">
+          <div className="cg-ds__boundary">
+            <div className="cg-ds__col">
+              <p className="cg-ds__collabel">Measured facts — Loop</p>
+              <ul className="cg-ds__facts">
+                {card.measuredFacts.map((fact, i) => (
+                  <li key={i}>
+                    <span className="cg-ds__factmetric">{fact.metric}</span>
+                    {fact.entity ? <span className="cg-ds__factentity"> · {fact.entity}</span> : null}
+                    <span className="cg-ds__factval"> {fact.value}</span>
+                    <span className="cg-ds__factwin">{fact.window}</span>
+                    <span className="cg-ds__facttag">{fact.reported ? 'Reported by CallGrid' : 'Calculated by Loop'}</span>
+                    {fact.formula ? <span className="cg-evidformula">{fact.formula}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="cg-ds__col">
+              <p className="cg-ds__collabel">Business judgment — operator</p>
+              <ul className="cg-ds__judgment">
+                {card.businessJudgment.map((j, i) => <li key={i}>{j}</li>)}
+              </ul>
+              <p className="cg-ds__boundarynote">
+                Loop does not make these determinations. It has no visibility into contracts,
+                capacity, budgets or commercial terms.
+              </p>
+            </div>
+          </div>
+          {card.score ? (
+            <p className="cg-scorebadge__ver">
+              Review priority derived from Intelligence Score {card.score.score}
+              {card.score.determinacy < 1 ? ` (${Math.round(card.score.determinacy * 100)}% of components measurable)` : ''}
+              {' · '}Decision support {card.version}
+            </p>
+          ) : null}
+        </div>
+      </details>
+
+      <ActionBar finding={f} />
+    </article>
+  );
+}
+
+/** A set of decision support cards, ordered by review priority. */
+export function DecisionSupportSection({
+  cards,
+  limit = 5,
+  sectionLabel = 'Decision Support',
+  emptyLine = 'No evidence-backed finding for this period.',
+}: {
+  cards: readonly DecisionSupportCard[];
+  limit?: number;
+  sectionLabel?: string;
+  emptyLine?: string;
+}) {
+  const shown = cards.slice(0, limit);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {cards.length > shown.length ? (
+          <p className="cg-brief__count">{shown.length} of {cards.length}</p>
+        ) : null}
+      </div>
+      {shown.length === 0 ? (
+        <section className="tile tile--wide"><p className="tile__line cg-muted">{emptyLine}</p></section>
+      ) : (
+        <div className="cg-findings">
+          {shown.map((c) => <DecisionSupportCardView key={c.findingId} card={c} />)}
+        </div>
+      )}
     </div>
   );
 }

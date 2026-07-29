@@ -13,6 +13,7 @@ import {
   type IntelligenceInput, type CallGridIntelligence, type DimensionIntelligence,
   type IntelligenceDimension, type BidIntelligenceInput, type BidIntelligence,
   type CallGridFinding, type HistorySeries,
+  easternSpanDays,
 } from '@emgloop/shared';
 import type { CallGridReport } from './callgrid-report';
 import type { BidReport } from './bid-report';
@@ -52,7 +53,25 @@ export function toIntelligenceInput(
     rateLimitedShare: extras?.rateLimitedShare ?? null,
     // Already built by the canonical report service — passed through, never rebuilt.
     comparisonByKey: report.comparisonByKey,
+    // How many windows of this length fit a year. Derived from the window's own
+    // Eastern span so a 1-day view annualizes over 365 and a 7-day view over 52.
+    // Null for a live window: annualizing a partial period would overstate it.
+    periodsPerYear: periodsPerYearOf(report),
   };
+}
+
+/**
+ * Periods of this window's length in a year.
+ *
+ * Returns null for an in-progress window. A live period is a partial
+ * measurement, and multiplying a partial period up to a year inflates it by
+ * however much of the period has not happened yet.
+ */
+function periodsPerYearOf(report: CallGridReport): number | null {
+  if (report.window.includesLiveData || !report.window.isCompleted) return null;
+  const days = easternSpanDays(report.window.start, report.window.end);
+  if (days <= 0) return null;
+  return Math.round((365 / days) * 100) / 100;
 }
 
 /** Window-level intelligence for the Overview. */

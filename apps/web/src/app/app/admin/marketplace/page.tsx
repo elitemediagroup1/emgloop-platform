@@ -11,7 +11,7 @@ import { callGridIntelligence, bidIntelligence } from "./intelligence-data";
 import CallGridDateRange from "./CallGridDateRange";
 import { SnapshotNotice, easternClock } from "./dimension-ui";
 import {
-  ExecutiveBriefSection, MarketplaceRiskPanel, BusinessHealthSection,
+  MarketplaceRiskPanel, BusinessHealthSection, DecisionSupportSection,
   OpportunitiesSection, FindingList, UnknownsSection,
 } from "./intelligence-ui";
 import { loadCallGridHistory } from "./callgrid-history-data";
@@ -200,10 +200,13 @@ export default async function CallGridIntelligencePage({
   // what happens to sort first. Brief items are excluded so the page does not
   // repeat itself two sections later.
   const briefIds = new Set(intel.brief.items.map((i) => i.finding.id));
-  const watchList = intel.ranked
-    .filter((r) => r.finding.recommendedReview !== null && !briefIds.has(r.finding.id))
-    .slice(0, 6)
-    .map((r) => r.finding);
+  const watchCards = intel.decisionSupport.filter(
+    (c) => c.recommendedReview !== null && !briefIds.has(c.findingId),
+  );
+
+  // The brief's own findings, rendered as decision support so the top of the page
+  // carries the same fact/judgment separation as the watch list.
+  const briefCards = intel.decisionSupport.filter((c) => briefIds.has(c.findingId));
 
   return (
     <div className="loop-os">
@@ -242,7 +245,12 @@ export default async function CallGridIntelligencePage({
 
         {/* 1 — Executive Intelligence Brief */}
         <p className="cg-exec__headline cg-exec__headline--lede">{intel.executiveSummary.headline}</p>
-        <ExecutiveBriefSection brief={intel.brief} />
+        <DecisionSupportSection
+          cards={briefCards}
+          limit={5}
+          sectionLabel="Executive Intelligence Brief"
+          emptyLine={intel.brief.emptyReason ?? 'No evidence-backed finding for this period.'}
+        />
 
         {/* 2 — Business Health */}
         <BusinessHealthSection health={intel.health} />
@@ -268,12 +276,14 @@ export default async function CallGridIntelligencePage({
           emptyLine="No evidence-backed risk for this period."
         />
 
-        {/* 6 — Operational Watch List, ordered by Intelligence Score. Never alphabetical. */}
-        <FindingList
+        {/* 6 — Operational Watch List as DECISION SUPPORT, ordered by review
+             priority. Each card separates the measured fact from Loop's reading
+             of it, and states what information is missing before a decision. */}
+        <DecisionSupportSection
+          cards={watchCards}
+          limit={6}
           sectionLabel="Operational Watch List"
-          findings={watchList}
           emptyLine="Nothing is queued for review this period."
-          compact
         />
 
         {/* 7 — What Loop Cannot Determine */}

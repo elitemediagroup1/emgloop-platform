@@ -212,6 +212,10 @@ export * from './callgrid-health';
 // Opportunities, sized by MEASURED exposure or an arithmetic gap — never a
 // forecast of upside, which would require caps, capacity and demand Loop cannot see.
 export * from './callgrid-opportunity';
+// Decision Support: the projection that separates measured fact from Loop's
+// reading of it, makes missing information first-class, and names the review a
+// person should make. Loop owns the facts; operators own the decisions.
+export * from './callgrid-decision-support';
 // The Intelligence Score — the one attention ordering. A component whose input
 // is missing is WITHHELD from both numerator and denominator, never scored zero.
 export * from './callgrid-scoring';
