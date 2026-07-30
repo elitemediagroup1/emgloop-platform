@@ -129,6 +129,40 @@ statements about a **distribution**. Phase 2 built the series and the layers ove
 
 **471 tests pass** (shared 274 · database 197); typecheck clean on web/shared/database; build passes.
 
+### Phase 3–4 — Operations Command Center + Decision Support (draft PR #150, branch `feat/callgrid-operations-command-center`)
+**Phase 3:** every page leads with intelligence; metrics demoted below it. Business Health (7
+dimensions + overall) — a dimension whose signals cannot be measured is **UNKNOWN, never HEALTHY**
+(a test caught health returning CRITICAL from an unreadable report; now gated at the model). Health
+*consumes* the risk model rather than recomputing concentration. Opportunity engine sizes **measured
+exposure** or an **arithmetic gap**, never forecast upside. Action placeholders are inert
+`disabled` buttons.
+
+**Phase 4:** `callgrid-decision-support.ts` — a projection over existing findings, no second
+contract. Observation (fact) and Interpretation (Loop's reading) render as separate blocks, as do
+Measured Facts (Loop) and Business Judgment (operator). Missing Information is first-class. Ten
+review categories resolved from rule+entity, not wording. Evidence strength HIGH/MODERATE/LOW/
+INSUFFICIENT (coverage caps it; an engine-declared INSUFFICIENT can never be upgraded here). Review
+priority Immediate/Today/This Week/Monitor/Informational — urgency requires materiality **and**
+trustworthy evidence, so a CRITICAL finding on weak evidence is Monitor, not Immediate.
+Annualization withheld unless the series shows stability, and always suppressed on a live window.
+
+**Phase 5:** `callgrid-reasoning.ts` — findings as a connected system. Relations classified
+LIKELY_ROOT_CAUSE / POSSIBLE_CONTRIBUTOR / DOWNSTREAM_EFFECT / CORRELATED_CHANGE /
+INDEPENDENT_EVENT / UNKNOWN, where **root cause means arithmetic attribution (where a change came
+from), never mechanism** — the definition renders inline beside every badge. A root-cause claim
+needs ≥60% contribution AND no competitor ≥25%. Union-find clusters so one movement is not read as
+several problems; an unconnected finding is stated as "isolated rather than systemic". Stability
+(8 classes) from completed periods only, with volatility outranking trend. Timeline derived from
+the history series (the only place sequence exists). Logical relationship graph emitted as plain
+data for the Brain/Work OS to consume. Business Story closes every page.
+
+**566 tests pass** (shared 369 · database 197); typecheck clean on web/shared/database; build compiles.
+
+**⚠️ Still NOT DONE:** the Bids page redesign (its "closed targets overnight" example is
+unreachable — the snapshot has no hour-of-day dimension), and **Phase 1's production reconciliation
+has still never been run**. Every health band, opportunity amount and evidence-strength badge
+inherits whatever the metric layer gets wrong.
+
 **⚠️ NOT DONE in Phase 2** — the Bids page redesign around "where is money being lost" (the existing
 priority queue and rejection classification from Phase 1 still stand, but the page was not rebuilt),
 a dedicated Opportunity engine beyond the record-high/emerging findings that now carry

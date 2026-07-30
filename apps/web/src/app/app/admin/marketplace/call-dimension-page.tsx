@@ -28,7 +28,11 @@ import {
   DimensionShell, SummaryTiles, PerformanceTable, TrendCell, DetailPanel, ActivitySection,
   type PerfColumn, type SummaryTile,
 } from './dimension-ui';
-import { FindingList, UnknownsSection, ContributionTable } from './intelligence-ui';
+import {
+  FindingList, UnknownsSection, ContributionTable,
+  BusinessHealthSection, OpportunitiesSection, DecisionSupportSection,
+  ReasoningSection, IntelligenceTimeline, StabilitySection, BusinessStorySection,
+} from './intelligence-ui';
 
 export interface CallDimensionConfig {
   dim: Dimension;
@@ -78,6 +82,14 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
   const totalCalls = s.totalCalls;
 
   const intel = dimensionIntelligence(report, config.dim as IntelligenceDimension, now, { history });
+
+  // Attention-ordered: the top five lead the page, the rest fall below the
+  // metrics as "also worth reviewing". Ordering by score rather than severity is
+  // what stops an INFORMATIONAL record-high from outranking a live problem.
+  const topIds = new Set(intel.decisionSupport.slice(0, 5).map((c) => c.findingId));
+  const remainingFindings = intel.ranked
+    .map((r) => r.finding)
+    .filter((f) => !topIds.has(f.id));
 
   const selectedKey = searchParams?.[config.selectionParam] ?? null;
   const selected: CallGridDimRow | null = selectedKey ? allRows.find((r) => r.key === selectedKey) ?? null : null;
@@ -144,6 +156,59 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
         </div>
       ) : (
         <>
+          {/* ORDER: intelligence, then health, then opportunities, then risks,
+              then metrics, then tables. The summary tiles used to sit first; they
+              answer "what happened", which CallGrid already answers. They are now
+              evidence beneath the conclusions that read them. */}
+
+          <DecisionSupportSection
+            cards={intel.decisionSupport}
+            limit={5}
+            sectionLabel={`Executive ${config.entityLabel} Intelligence`}
+            emptyLine={
+              report.comparison
+                ? `No ${config.entityLabelLower} movement in this period clears the significance thresholds.`
+                : 'No comparison period is defined for this selection, so no change can be analysed.'
+            }
+          />
+
+          <ReasoningSection reasoning={intel.reasoning} />
+
+          <BusinessHealthSection
+            health={{ overall: intel.health, dimensions: [intel.health], modelVersion: 'v1' }}
+            sectionLabel={`${config.entityLabel} Health`}
+          />
+
+          <StabilitySection
+            assessments={intel.reasoning.stability}
+            sectionLabel={`${config.entityLabel} Stability`}
+          />
+
+          <OpportunitiesSection
+            opportunities={intel.opportunities}
+            sectionLabel={`${config.entityLabel} Opportunities`}
+          />
+
+          <FindingList
+            sectionLabel={`${config.entityLabel} Risks`}
+            findings={intel.risks.slice(0, 4)}
+            emptyLine={`No evidence-backed ${config.entityLabelLower} risk for this period.`}
+            compact
+          />
+
+          {remainingFindings.length > 0 ? (
+            <FindingList
+              sectionLabel="Also Worth Reviewing"
+              findings={remainingFindings}
+              emptyLine=""
+              compact
+            />
+          ) : null}
+
+          <IntelligenceTimeline events={intel.reasoning.timeline} />
+
+          <UnknownsSection unknowns={intel.unknowns} />
+
           <SummaryTiles tiles={tiles} label={`${config.title} · ${desc.periodTitle}`} />
           {s.revenueCoverage !== null && s.revenueCoverage < 1 && s.revenueCoverage > 0 ? (
             <p className="cg-covnote">
@@ -151,16 +216,6 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
               totals here are lower bounds.
             </p>
           ) : null}
-
-          <FindingList
-            sectionLabel={`${config.entityLabel} Intelligence`}
-            findings={intel.findings}
-            emptyLine={
-              report.comparison
-                ? `No ${config.entityLabelLower} movement in this period clears the significance thresholds.`
-                : 'No comparison period is defined for this selection, so no change can be analysed.'
-            }
-          />
 
           <PerformanceTable
             sectionLabel={`${config.entityLabel} Performance`}
@@ -195,12 +250,15 @@ export async function CallDimensionPage({ config, searchParams }: { config: Call
             money={money}
           />
 
-          <UnknownsSection unknowns={intel.unknowns} />
+          {/* Unknowns moved ABOVE the metrics with the rest of the intelligence.
+              Rendering them here as well would repeat the section on one page. */}
 
           <ActivitySection
             items={[]}
             emptyLine={`No durable ${config.entityLabelLower}-level CallGrid events for this period.`}
           />
+
+          <BusinessStorySection reasoning={intel.reasoning} />
         </>
       )}
     </DimensionShell>

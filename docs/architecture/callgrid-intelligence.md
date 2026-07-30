@@ -304,6 +304,142 @@ across every generated recommendation in the test suite.
 
 ---
 
+## Decision Support
+
+`callgrid-decision-support.ts`. **Loop owns the facts. Operators own the decisions.**
+
+A recommendation says "do X". Decision support says: here is what was measured,
+here is why it matters, here is what you would need to know before deciding, and
+here is the decision that deserves review. Only the second is honestly producible
+here, because the inputs that determine the first — contractual caps, available
+inventory, budgets, commercial terms, demand elasticity — are not in this system.
+
+This is a **projection over existing findings**, not a second contract. Every
+field is derived from a `CallGridFinding` the engine already produced; if the
+engine did not conclude it, this layer cannot invent it.
+
+Each card carries:
+
+| Block | Source | Owner |
+|---|---|---|
+| **Observation** | Structured fields (metric, current/comparison value, window) | Loop |
+| **Interpretation** | The finding's plain-language summary, labelled as Loop's reading | Loop |
+| **Business impact** | Measured change, exposure, or arithmetic gap | Loop |
+| **Recommended review** | The finding's review, safe-verb enforced | Loop surfaces |
+| **What information is missing** | Unknowns ∪ limitations, first-class | Loop |
+| **Measured facts** | Evidence only | Loop |
+| **Business judgment** | The determination itself | **Operator** |
+
+Observation is built from structured fields rather than by slicing summary text,
+so rewording a rule cannot drift it — asserted by test.
+
+### Review categories
+
+Ten, resolved from rule id and entity type — never from wording, so a reworded
+finding cannot silently change category. **Data trustworthiness outranks the
+business question:** a finding whose classification is UNKNOWN becomes a Data
+Quality Review, because if the measurement is in doubt the review is about the
+data, not the decision it would inform.
+
+### Evidence strength
+
+HIGH / MODERATE / LOW / INSUFFICIENT, deterministic over the finding's own
+confidence and the completeness on its evidence. Two rules:
+
+- **Coverage caps strength.** A conclusion drawn over half-priced rows cannot be
+  high-confidence however tight the arithmetic is.
+- **This layer may never upgrade a finding the engine marked
+  `INSUFFICIENT_EVIDENCE`** — that would let the projection overrule the rule that
+  produced it.
+
+### Review priority
+
+Immediate / Today / This Week / Monitor / Informational. (Named `ReviewUrgency` in
+code; `ReviewPriority` is already the bid module's ordering band, and two exported
+types sharing one name is how a codebase grows a second vocabulary for one idea.)
+
+Urgency requires **both** materiality and trustworthy evidence. A CRITICAL finding
+resting on insufficient evidence is **not** Immediate — acting urgently on a
+number that may be wrong is worse than waiting. Good news is never urgent
+regardless of size.
+
+### Annualization
+
+Offered only when the series shows the figure is stable enough for "if this
+persists" to be a defensible premise: no series, or revenue volatility above 35%,
+and the annual figure is **withheld** with the reason stated. The message always
+leads with *what* was withheld, not just why a statistic failed. A live window
+suppresses annualization entirely — multiplying a partial period up to a year
+inflates it by however much of the period has not happened yet.
+
+---
+
+## Operational Reasoning
+
+`callgrid-reasoning.ts`. Findings as a connected system rather than a list.
+
+### The claim this layer may make, and the one it may not
+
+From call records, Loop can establish exactly two kinds of relationship:
+
+1. **Arithmetic attribution** — "this entity accounts for 62% of the revenue
+   change" is a fact about where a number came from. It is subtraction, not a
+   theory.
+2. **Formula lineage** — profit is `revenue − payout − cost`, so a profit move is
+   structurally downstream of a revenue move. These are facts about the metric
+   contract, not guesses about the world.
+
+It **cannot establish mechanism**. Nothing here knows why a buyer sent less
+traffic, and nothing CallGrid exposes would say. So **`LIKELY_ROOT_CAUSE` means
+"this is where the change came from", in the accounting sense — never "this is why
+it happened"**, and `RELATION_DEFINITION` renders that qualification inline next to
+every badge so a reader is never left to supply their own reading of the phrase.
+
+A test asserts no relation basis, cluster narrative or Business Story contains
+*caused by* / *because of* / *due to* / *resulted from*.
+
+### Classification
+
+`LIKELY_ROOT_CAUSE` · `POSSIBLE_CONTRIBUTOR` · `DOWNSTREAM_EFFECT` ·
+`CORRELATED_CHANGE` · `INDEPENDENT_EVENT` · `UNKNOWN`.
+
+Checked in that order, so the strongest **supported** claim wins and nothing is
+upgraded beyond its evidence. A root-cause claim requires ≥60% contribution **and**
+no competitor at ≥25% — dominance alone is not enough, because a rival explanation
+must be absent before one origin can be named. Co-occurrence is the weakest edge
+and is labelled `CORRELATED_CHANGE` precisely so it cannot be read as more.
+
+### Clusters
+
+Union-find over the relation edges. Related findings collapse into one cluster so
+a single underlying movement is not read as several separate problems; a finding
+with no edge becomes its own cluster and is described as **isolated rather than
+systemic** — a real business conclusion, not a failure to find one.
+
+### Stability
+
+`STABLE` · `IMPROVING` · `DETERIORATING` · `RECOVERING` · `VOLATILE` · `EMERGING` ·
+`DECLINING` · `DORMANT` · `UNKNOWN`, from **completed periods only**.
+
+Order of checks matters: shape (dormant/emerging) before trend, because a trend
+computed across an absence is meaningless; and **volatility outranks trend**,
+because a trend line through an erratic series describes the line, not the
+business. Below `MIN_SERIES_POINTS` the answer is UNKNOWN, never a guess.
+
+### Timeline
+
+Findings all describe the selected window, so a sequence cannot be built from
+them. The timeline is derived from the **history series** — the only place
+sequence actually exists — and is ordered oldest-first.
+
+### Relationship graph
+
+Logical, not visual. Plain `{nodes, edges}` data with a `basis` on every edge, so
+the Brain, Work OS or any later consumer can read the reasoning without importing
+a rendering concern or re-deriving the edges.
+
+---
+
 ## Bid intelligence
 
 Counting rejections is not intelligence — most rejections are configuration

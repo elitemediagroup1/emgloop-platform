@@ -2185,3 +2185,176 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
   .cg-scorerow { flex-direction: column; gap: 1px; }
   .cg-scorerow__name { flex: none; }
 }
+
+/* --- Business Health --------------------------------------------------------
+   UNKNOWN is styled distinctly from HEALTHY, deliberately. A dimension Loop could
+   not assess must never read as one it assessed and passed. */
+.cg-health { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 8px; }
+.cg-health__overall { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text); }
+.cg-health__card { border: 1px solid var(--loop-line); border-radius: 10px; background: var(--loop-surface); }
+.cg-health__summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 10px 12px; list-style: none;
+}
+.cg-health__summary::-webkit-details-marker { display: none; }
+.cg-health__label { flex: 1 1 auto; font-size: 12.5px; font-weight: 650; color: var(--loop-text); }
+.cg-health__num { font-size: 12.5px; font-weight: 700; color: var(--loop-text-2); }
+.cg-health__body { padding: 0 12px 12px; }
+.cg-health__explain { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--loop-text-2); }
+.cg-health__signals { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.cg-signal { padding-bottom: 8px; border-bottom: 1px solid var(--loop-line); }
+.cg-signal:last-child { border-bottom: 0; padding-bottom: 0; }
+.cg-signal--absent { opacity: .72; }
+.cg-signal__head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.cg-signal__name { font-size: 12px; font-weight: 650; color: var(--loop-text); }
+.cg-signal__score { font-size: 11.5px; font-weight: 650; color: var(--loop-text-2); }
+.cg-signal--absent .cg-signal__score { color: var(--loop-text-3); font-weight: 500; }
+.cg-signal__measure { margin: 3px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-2); }
+.cg-signal__why { margin: 2px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+.cg-healthband {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--loop-line); white-space: nowrap;
+}
+.cg-healthband--healthy { color: var(--loop-ok, #5ad19b); border-color: rgba(90,209,155,.45); }
+.cg-healthband--watch { color: var(--loop-accent-2); border-color: rgba(122,162,255,.45); }
+.cg-healthband--risk { color: var(--loop-warn); border-color: rgba(242,180,91,.45); }
+.cg-healthband--critical { color: var(--loop-crit); border-color: rgba(242,104,138,.45); }
+/* Dashed, muted, and never green — "we could not check" must not look like "it is fine". */
+.cg-healthband--unknown { color: var(--loop-text-3); border-style: dashed; }
+
+/* --- Opportunities ----------------------------------------------------------
+   The money is labelled by BASIS ("Measured exposure" / "Arithmetic gap"), never
+   as upside — Loop cannot forecast what acting would gain. */
+.cg-opp { padding: 14px 16px; border: 1px solid var(--loop-line); border-radius: 12px; background: var(--loop-surface); }
+.cg-opp__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-opp__title { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--loop-text); flex: 1 1 auto; min-width: 0; }
+.cg-opp__summary { margin: 8px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text-2); }
+.cg-opp__meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 10px 0 0; }
+.cg-opp__meta div { display: flex; flex-direction: column; gap: 1px; }
+.cg-opp__meta dt { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-opp__meta dd { margin: 0; font-size: 12.5px; color: var(--loop-text-2); }
+.cg-opp__money { font-size: 15px !important; font-weight: 700; color: var(--loop-text) !important; }
+.cg-opp__caveat { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* --- Action placeholders ----------------------------------------------------
+   Inert by construction: disabled buttons, never links. Nothing behind them is
+   built, and a control that looks live but does nothing is fabricated functionality. */
+.cg-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; }
+.cg-action {
+  font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: 999px;
+  border: 1px dashed var(--loop-line); background: transparent; color: var(--loop-text-3);
+  cursor: not-allowed;
+}
+.cg-actions__note { font-size: 11px; color: var(--loop-text-3); }
+
+@media (max-width: 640px) {
+  .cg-health { grid-template-columns: 1fr; }
+  .cg-opp { padding: 12px; }
+}
+
+/* --- Decision Support -------------------------------------------------------
+   The STRUCTURE is the product. Observation and Interpretation are separate
+   labelled blocks, as are Measured Facts and Business Judgment — a reader must
+   never have to work out which of the two they are reading. */
+.cg-ds { padding: 15px 17px; border: 1px solid var(--loop-line); border-radius: 12px; background: var(--loop-surface); }
+.cg-ds__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-ds__title { margin: 0; font-size: 15px; font-weight: 650; color: var(--loop-text); flex: 1 1 260px; min-width: 0; }
+.cg-ds__cat {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--loop-text-3); border: 1px solid var(--loop-line); border-radius: 999px; padding: 2px 8px;
+}
+.cg-ds__block { margin-top: 12px; }
+.cg-ds__blocklabel {
+  margin: 0 0 3px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  font-weight: 700; color: var(--loop-text-3);
+}
+.cg-ds__obs { margin: 0; font-size: 13px; line-height: 1.55; color: var(--loop-text); font-variant-numeric: tabular-nums; }
+.cg-ds__interp { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text-2); }
+.cg-ds__impact { margin: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.cg-ds__money { font-size: 18px; font-weight: 700; color: var(--loop-text); }
+.cg-ds__impactlabel { font-size: 12px; color: var(--loop-text-3); }
+.cg-ds__impactnote { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--loop-text-3); }
+.cg-ds__annual { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--loop-text-2); }
+.cg-ds__block--review { padding: 9px 11px; border-left: 2px solid var(--loop-accent-2); background: rgba(122,162,255,.06); border-radius: 0 8px 8px 0; }
+.cg-ds__review { margin: 0; font-size: 13px; line-height: 1.55; color: var(--loop-text); }
+.cg-ds__block--missing { padding: 9px 11px; border-left: 2px dashed var(--loop-line); border-radius: 0 8px 8px 0; }
+.cg-ds__missing { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
+.cg-ds__missing li { font-size: 12px; line-height: 1.5; color: var(--loop-text-3); }
+.cg-ds__missingnone { margin: 0; font-size: 12px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* The decision boundary, rendered as two columns so it reads as a boundary. */
+.cg-ds__boundary { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.cg-ds__col { min-width: 0; }
+.cg-ds__collabel { margin: 0 0 6px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-ds__facts, .cg-ds__judgment { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.cg-ds__facts li { display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; }
+.cg-ds__factmetric { font-weight: 650; color: var(--loop-text); }
+.cg-ds__factentity { color: var(--loop-text-2); }
+.cg-ds__factval { font-weight: 700; color: var(--loop-text); font-variant-numeric: tabular-nums; }
+.cg-ds__factwin, .cg-ds__facttag { font-size: 11px; color: var(--loop-text-3); }
+.cg-ds__judgment li {
+  font-size: 11.5px; line-height: 1.5; color: var(--loop-text-2);
+  padding-left: 11px; position: relative;
+}
+.cg-ds__judgment li::before { content: "?"; position: absolute; left: 0; color: var(--loop-text-3); font-weight: 700; }
+.cg-ds__boundarynote { margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: var(--loop-text-3); }
+
+@media (max-width: 720px) {
+  .cg-ds__boundary { grid-template-columns: 1fr; gap: 14px; }
+  .cg-ds { padding: 13px; }
+}
+
+/* --- Operational Reasoning --------------------------------------------------
+   Every relation badge renders its DEFINITION inline. "Likely Root Cause" means
+   arithmetic attribution — where a change came from — and a reader must never be
+   left to supply their own reading of that phrase. */
+.cg-cluster { padding: 15px 17px; border: 1px solid var(--loop-line); border-radius: 12px; background: var(--loop-surface); }
+.cg-cluster__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-cluster__title { margin: 0; font-size: 15px; font-weight: 650; color: var(--loop-text); flex: 1 1 240px; min-width: 0; }
+.cg-cluster__count { font-size: 11px; color: var(--loop-text-3); white-space: nowrap; }
+.cg-cluster__narrative { margin: 10px 0 0; font-size: 13.5px; line-height: 1.65; color: var(--loop-text-2); }
+.cg-cluster__block { margin-top: 12px; }
+.cg-cluster__downstream { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
+.cg-cluster__downstream li { font-size: 12px; line-height: 1.5; color: var(--loop-text-2); }
+.cg-cluster__none { margin: 0; font-size: 12px; line-height: 1.5; color: var(--loop-text-3); }
+.cg-cluster__unknowns { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--loop-line); }
+
+.cg-relations { margin: 0 0 4px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.cg-relation { padding-bottom: 10px; border-bottom: 1px solid var(--loop-line); }
+.cg-relation:last-child { border-bottom: 0; padding-bottom: 0; }
+.cg-relation__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cg-relation__conf { font-size: 11px; color: var(--loop-text-3); }
+.cg-relation__def { margin: 5px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); font-style: italic; }
+.cg-relation__basis { margin: 4px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-text-2); }
+.cg-relation__measure { margin: 3px 0 0; font-size: 11.5px; color: var(--loop-text); font-variant-numeric: tabular-nums; }
+
+/* Timeline — oldest first, because the sequence is the point. */
+.cg-timeline { margin: 8px 0 0; padding: 0 0 0 14px; list-style: none; border-left: 1px solid var(--loop-line); display: flex; flex-direction: column; gap: 12px; }
+.cg-tlitem { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.cg-tlitem::before {
+  content: ""; position: absolute; left: -18px; top: 6px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--loop-surface); border: 1px solid var(--loop-line);
+}
+.cg-tlwhen { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--loop-text-3); }
+.cg-tlwhat { font-size: 13px; line-height: 1.5; color: var(--loop-text); }
+.cg-tlmeasure { font-size: 11.5px; color: var(--loop-text-2); font-variant-numeric: tabular-nums; }
+
+/* Stability */
+.cg-stability { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.cg-stabrow {
+  display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 4px 10px;
+  align-items: center; padding: 10px 12px;
+  border: 1px solid var(--loop-line); border-radius: 10px; background: var(--loop-surface);
+}
+.cg-stabname { font-size: 13px; font-weight: 650; color: var(--loop-text); }
+.cg-stabbasis { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* Business Story */
+.cg-story__text { margin: 0; font-size: 14px; line-height: 1.7; color: var(--loop-text); }
+.cg-story__note { margin: 10px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); }
+
+@media (max-width: 640px) {
+  .cg-cluster { padding: 13px; }
+  .cg-stabrow { grid-template-columns: 1fr; }
+}

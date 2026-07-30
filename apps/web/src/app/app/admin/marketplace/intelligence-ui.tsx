@@ -16,6 +16,15 @@ import type {
   MetricClassification, Severity, AffectedEntity,
   ExecutiveBrief, IntelligenceScore, ScoredFinding,
   MarketplaceRisk, RiskBand,
+  BusinessHealth, HealthScore, HealthBand, Opportunity,
+  DecisionSupportCard, ReviewUrgency, EvidenceStrength,
+  OperationalReasoning, ReasoningCluster, RelationKind,
+  TimelineEvent, StabilityAssessment, StabilityClass,
+} from '@emgloop/shared';
+import {
+  HEALTH_BAND_LABEL, healthByUrgency,
+  REVIEW_URGENCY_LABEL, REVIEW_CATEGORY_LABEL, EVIDENCE_STRENGTH_LABEL,
+  RELATION_LABEL, RELATION_DEFINITION, STABILITY_LABEL,
 } from '@emgloop/shared';
 
 const SEV_LABEL: Record<Severity, string> = {
@@ -591,6 +600,594 @@ export function MarketplaceRiskPanel({ risk }: { risk: MarketplaceRisk }) {
           Risk describes the shape of the business, not anyone&rsquo;s intentions. Loop cannot see
           contracts, caps or commercial arrangements, so it never predicts that a counterparty
           will reduce or leave.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+// --- Business Health -------------------------------------------------------------------
+
+const HEALTH_CLASS: Record<HealthBand, string> = {
+  HEALTHY: 'healthy', WATCH: 'watch', RISK: 'risk', CRITICAL: 'critical', UNKNOWN: 'unknown',
+};
+
+/**
+ * One health dimension.
+ *
+ * UNKNOWN is styled distinctly from HEALTHY on purpose. A dimension Loop could not
+ * assess must never read as one it assessed and passed — that is the difference
+ * between "we checked and it is fine" and "we could not check", and a green badge
+ * over absent data is the most dangerous thing this panel could render.
+ */
+function HealthCard({ score }: { score: HealthScore }) {
+  return (
+    <details className="cg-health__card" aria-label={score.label}>
+      <summary className="cg-health__summary">
+        <span className="cg-health__label">{score.label}</span>
+        <span className={'cg-healthband cg-healthband--' + HEALTH_CLASS[score.band]}>
+          {HEALTH_BAND_LABEL[score.band]}
+        </span>
+        {score.score !== null ? <span className="cg-health__num">{score.score}</span> : null}
+      </summary>
+      <div className="cg-health__body">
+        <p className="cg-health__explain">{score.explanation}</p>
+        <ul className="cg-health__signals">
+          {score.signals.map((s) => (
+            <li className={'cg-signal' + (s.available ? '' : ' cg-signal--absent')} key={s.id}>
+              <div className="cg-signal__head">
+                <span className="cg-signal__name">{s.label}</span>
+                <span className="cg-signal__score">
+                  {s.available && s.score !== null ? `${Math.round(s.score * 100)}` : 'Not measurable'}
+                </span>
+              </div>
+              <p className="cg-signal__measure">{s.measurement}</p>
+              <p className="cg-signal__why">{s.interpretation}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
+/** Business Health — section two of every page. Worst band first, never alphabetical. */
+export function BusinessHealthSection({
+  health,
+  sectionLabel = 'Business Health',
+}: {
+  health: BusinessHealth;
+  sectionLabel?: string;
+}) {
+  const ordered = healthByUrgency(health);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        <span className={'cg-healthband cg-healthband--' + HEALTH_CLASS[health.overall.band]}>
+          Overall: {HEALTH_BAND_LABEL[health.overall.band]}
+        </span>
+      </div>
+
+      <section className="tile tile--wide">
+        <p className="cg-health__overall">{health.overall.explanation}</p>
+      </section>
+
+      <div className="cg-health">
+        {ordered.map((d) => <HealthCard key={d.id} score={d} />)}
+      </div>
+    </div>
+  );
+}
+
+// --- Opportunities ----------------------------------------------------------------------
+
+const IMPACT_BASIS_LABEL: Record<Opportunity['impactBasis'], string> = {
+  measured_exposure: 'Measured exposure',
+  measured_gap: 'Arithmetic gap',
+  none: 'Not quantifiable',
+};
+
+function money(cents: number | null): string {
+  if (cents === null) return 'Not quantifiable';
+  return '$' + Math.round(Math.abs(cents) / 100).toLocaleString('en-US');
+}
+
+/**
+ * One opportunity.
+ *
+ * The money is labelled by BASIS, never as upside. "Measured exposure" and
+ * "expected gain" are different claims, and only the first is supportable — Loop
+ * cannot see caps, capacity, demand or budgets, so it never predicts what acting
+ * would produce. A number presented as upside that is really arithmetic is the
+ * most expensive dishonesty here: someone reallocates budget against it.
+ */
+function OpportunityCard({ item }: { item: Opportunity }) {
+  const f = item.finding;
+  return (
+    <article className="cg-opp" aria-label={f.title}>
+      <header className="cg-opp__head">
+        <SeverityTag value={f.severity} />
+        <h3 className="cg-opp__title">{f.title}</h3>
+      </header>
+
+      <p className="cg-opp__summary">{f.plainLanguageSummary}</p>
+
+      <dl className="cg-opp__meta">
+        <div>
+          <dt>{IMPACT_BASIS_LABEL[item.impactBasis]}</dt>
+          <dd className="cg-opp__money">{money(item.estimatedImpactCents)}</dd>
+        </div>
+        <div>
+          <dt>What this concerns</dt>
+          <dd>{item.lever}</dd>
+        </div>
+        <div>
+          <dt>Confidence</dt>
+          <dd>{Math.round(f.confidence * 100)}%</dd>
+        </div>
+      </dl>
+
+      <p className="cg-opp__caveat">
+        {item.impactBasis === 'none'
+          ? 'No amount can be attached to this from the data available.'
+          : 'This amount is measured from observed rows. It is what is at stake, not a prediction of what acting would gain.'}
+      </p>
+
+      {f.recommendedReview ? (
+        <p className="cg-finding__review">
+          <span className="cg-finding__reviewlabel">Recommended review</span>
+          {f.recommendedReview}
+        </p>
+      ) : null}
+
+      <ActionBar finding={f} />
+      <EvidenceDrawer finding={f} />
+    </article>
+  );
+}
+
+/** Top Opportunities — as prominent as risks, per the design order. */
+export function OpportunitiesSection({
+  opportunities,
+  limit = 4,
+  sectionLabel = 'Top Opportunities',
+}: {
+  opportunities: readonly Opportunity[];
+  limit?: number;
+  sectionLabel?: string;
+}) {
+  const shown = opportunities.slice(0, limit);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {opportunities.length > shown.length ? (
+          <p className="cg-brief__count">{shown.length} of {opportunities.length}</p>
+        ) : null}
+      </div>
+      {shown.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No evidence-backed opportunity for this period. Loop only surfaces one when it can
+            measure what is at stake.
+          </p>
+        </section>
+      ) : (
+        <div className="cg-findings">
+          {shown.map((o) => <OpportunityCard key={o.finding.id} item={o} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Action placeholders ------------------------------------------------------------------
+
+/**
+ * Workflow actions — INTERFACE ONLY.
+ *
+ * These are deliberately inert `disabled` buttons, not links or handlers. Nothing
+ * behind them is built, and a control that looks live but does nothing is exactly
+ * the fabricated-functionality failure this repository forbids. `title` says so on
+ * hover, and `aria-disabled` carries it to assistive technology rather than
+ * leaving it as a visual-only cue.
+ */
+export function ActionBar({ finding }: { finding: CallGridFinding }) {
+  const actions = ['Investigate', 'Assign', 'Create Work Item', 'Watch', 'Resolve', 'Ignore'];
+  return (
+    <div className="cg-actions" role="group" aria-label={`Actions for ${finding.title} — not yet available`}>
+      {actions.map((a) => (
+        <button
+          type="button"
+          className="cg-action"
+          key={a}
+          disabled
+          aria-disabled="true"
+          title="Not yet available — workflow actions are not built."
+        >
+          {a}
+        </button>
+      ))}
+      <span className="cg-actions__note">Workflow actions are not built yet.</span>
+    </div>
+  );
+}
+
+// --- Decision Support ---------------------------------------------------------------------
+
+const URGENCY_CLASS: Record<ReviewUrgency, string> = {
+  IMMEDIATE: 'critical', TODAY: 'high', THIS_WEEK: 'notable',
+  MONITOR: 'informational', INFORMATIONAL: 'informational',
+};
+const STRENGTH_CLASS: Record<EvidenceStrength, string> = {
+  HIGH: 'healthy', MODERATE: 'watch', LOW: 'risk', INSUFFICIENT: 'unknown',
+};
+
+function impactMoney(cents: number | null): string {
+  if (cents === null) return 'Not quantifiable';
+  return '$' + Math.round(Math.abs(cents) / 100).toLocaleString('en-US');
+}
+
+/**
+ * One decision support card.
+ *
+ * The structure is the product: Observation (what was measured) and
+ * Interpretation (Loop's reading of it) are rendered as SEPARATE labelled blocks,
+ * as are Measured Facts and Business Judgment. A reader must never have to work
+ * out which of the two they are looking at — Loop owns the facts, the operator
+ * owns the decision, and the layout says so rather than the copy having to.
+ */
+export function DecisionSupportCardView({ card }: { card: DecisionSupportCard }) {
+  const f = card.finding;
+  return (
+    <article className="cg-ds" aria-label={card.title}>
+      <header className="cg-ds__head">
+        <span className={'cg-sev cg-sev--' + URGENCY_CLASS[card.reviewPriority]}>
+          {REVIEW_URGENCY_LABEL[card.reviewPriority]}
+        </span>
+        <h3 className="cg-ds__title">{card.title}</h3>
+        <span className="cg-ds__cat">{REVIEW_CATEGORY_LABEL[card.category]}</span>
+        <span className={'cg-healthband cg-healthband--' + STRENGTH_CLASS[card.evidenceStrength]}>
+          {EVIDENCE_STRENGTH_LABEL[card.evidenceStrength]}
+        </span>
+      </header>
+
+      <div className="cg-ds__block">
+        <p className="cg-ds__blocklabel">Observation — measured</p>
+        <p className="cg-ds__obs">{card.observation}</p>
+      </div>
+
+      <div className="cg-ds__block">
+        <p className="cg-ds__blocklabel">Interpretation — Loop&rsquo;s reading of the measurement</p>
+        <p className="cg-ds__interp">{card.interpretation}</p>
+      </div>
+
+      <div className="cg-ds__block">
+        <p className="cg-ds__blocklabel">Business impact</p>
+        <p className="cg-ds__impact">
+          <span className="cg-ds__money">{impactMoney(card.businessImpact.amountCents)}</span>
+          <span className="cg-ds__impactlabel">{card.businessImpact.label}</span>
+        </p>
+        <p className="cg-ds__impactnote">{card.businessImpact.statement}</p>
+        {card.businessImpact.annualizationBasis ? (
+          <p className="cg-ds__annual">{card.businessImpact.annualizationBasis}</p>
+        ) : null}
+      </div>
+
+      {card.recommendedReview ? (
+        <div className="cg-ds__block cg-ds__block--review">
+          <p className="cg-ds__blocklabel">Recommended review</p>
+          <p className="cg-ds__review">{card.recommendedReview}</p>
+        </div>
+      ) : null}
+
+      {/* Missing information is a first-class block, not a footnote. It is what
+          stands between this observation and a stronger conclusion. */}
+      <div className="cg-ds__block cg-ds__block--missing">
+        <p className="cg-ds__blocklabel">What information is missing</p>
+        {card.missingInformation.length === 0 ? (
+          <p className="cg-ds__missingnone">
+            Nothing further is required to read this observation. It does not follow that an action is justified.
+          </p>
+        ) : (
+          <ul className="cg-ds__missing">
+            {card.missingInformation.map((m, i) => <li key={i}>{m}</li>)}
+          </ul>
+        )}
+      </div>
+
+      <details className="cg-eviddrawer">
+        <summary className="cg-evidsummary">Measured facts and the decision boundary</summary>
+        <div className="cg-evidbody">
+          <div className="cg-ds__boundary">
+            <div className="cg-ds__col">
+              <p className="cg-ds__collabel">Measured facts — Loop</p>
+              <ul className="cg-ds__facts">
+                {card.measuredFacts.map((fact, i) => (
+                  <li key={i}>
+                    <span className="cg-ds__factmetric">{fact.metric}</span>
+                    {fact.entity ? <span className="cg-ds__factentity"> · {fact.entity}</span> : null}
+                    <span className="cg-ds__factval"> {fact.value}</span>
+                    <span className="cg-ds__factwin">{fact.window}</span>
+                    <span className="cg-ds__facttag">{fact.reported ? 'Reported by CallGrid' : 'Calculated by Loop'}</span>
+                    {fact.formula ? <span className="cg-evidformula">{fact.formula}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="cg-ds__col">
+              <p className="cg-ds__collabel">Business judgment — operator</p>
+              <ul className="cg-ds__judgment">
+                {card.businessJudgment.map((j, i) => <li key={i}>{j}</li>)}
+              </ul>
+              <p className="cg-ds__boundarynote">
+                Loop does not make these determinations. It has no visibility into contracts,
+                capacity, budgets or commercial terms.
+              </p>
+            </div>
+          </div>
+          {card.score ? (
+            <p className="cg-scorebadge__ver">
+              Review priority derived from Intelligence Score {card.score.score}
+              {card.score.determinacy < 1 ? ` (${Math.round(card.score.determinacy * 100)}% of components measurable)` : ''}
+              {' · '}Decision support {card.version}
+            </p>
+          ) : null}
+        </div>
+      </details>
+
+      <ActionBar finding={f} />
+    </article>
+  );
+}
+
+/** A set of decision support cards, ordered by review priority. */
+export function DecisionSupportSection({
+  cards,
+  limit = 5,
+  sectionLabel = 'Decision Support',
+  emptyLine = 'No evidence-backed finding for this period.',
+}: {
+  cards: readonly DecisionSupportCard[];
+  limit?: number;
+  sectionLabel?: string;
+  emptyLine?: string;
+}) {
+  const shown = cards.slice(0, limit);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {cards.length > shown.length ? (
+          <p className="cg-brief__count">{shown.length} of {cards.length}</p>
+        ) : null}
+      </div>
+      {shown.length === 0 ? (
+        <section className="tile tile--wide"><p className="tile__line cg-muted">{emptyLine}</p></section>
+      ) : (
+        <div className="cg-findings">
+          {shown.map((c) => <DecisionSupportCardView key={c.findingId} card={c} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Operational Reasoning ------------------------------------------------------------
+
+const RELATION_CLASS: Record<RelationKind, string> = {
+  LIKELY_ROOT_CAUSE: 'high',
+  POSSIBLE_CONTRIBUTOR: 'notable',
+  DOWNSTREAM_EFFECT: 'notable',
+  CORRELATED_CHANGE: 'informational',
+  INDEPENDENT_EVENT: 'informational',
+  UNKNOWN: 'informational',
+};
+
+const STABILITY_CLASS: Record<StabilityClass, string> = {
+  STABLE: 'healthy', IMPROVING: 'healthy', RECOVERING: 'watch',
+  DETERIORATING: 'risk', DECLINING: 'critical', VOLATILE: 'risk',
+  EMERGING: 'watch', DORMANT: 'unknown', UNKNOWN: 'unknown',
+};
+
+/**
+ * One reasoning cluster: a group of findings Loop can show are related, with the
+ * narrative that connects them and the chain that justifies it.
+ *
+ * Every relation badge carries its DEFINITION inline. "Likely Root Cause" means
+ * arithmetic attribution — where the change came from — and a reader must never
+ * be left to supply their own reading of that phrase.
+ */
+function ReasoningClusterView({ cluster }: { cluster: ReasoningCluster }) {
+  return (
+    <article className="cg-cluster" aria-label={cluster.anchor.title}>
+      <header className="cg-cluster__head">
+        <SeverityTag value={cluster.anchor.severity} />
+        <h3 className="cg-cluster__title">{cluster.anchor.title}</h3>
+        <span className="cg-cluster__count">
+          {cluster.members.length === 1
+            ? 'Isolated'
+            : `${cluster.members.length} related findings`}
+        </span>
+      </header>
+
+      <p className="cg-cluster__narrative">{cluster.narrative}</p>
+
+      {cluster.likelyDownstream.length > 0 ? (
+        <div className="cg-cluster__block">
+          <p className="cg-ds__blocklabel">Follows from this by formula</p>
+          <ul className="cg-cluster__downstream">
+            {cluster.likelyDownstream.map((d, i) => <li key={i}>{d}</li>)}
+          </ul>
+        </div>
+      ) : null}
+
+      <details className="cg-eviddrawer">
+        <summary className="cg-evidsummary">
+          Why Loop believes these are related ({cluster.relations.length})
+        </summary>
+        <div className="cg-evidbody">
+          {cluster.relations.length === 0 ? (
+            <p className="cg-cluster__none">
+              No measured relationship connects this finding to any other in the period. It is
+              reported alone rather than joined to others by an assumed link.
+            </p>
+          ) : (
+            <ul className="cg-relations">
+              {cluster.relations.map((r, i) => (
+                <li className="cg-relation" key={i}>
+                  <div className="cg-relation__head">
+                    <span className={'cg-sev cg-sev--' + RELATION_CLASS[r.kind]}>
+                      {RELATION_LABEL[r.kind]}
+                    </span>
+                    <span className="cg-relation__conf">{Math.round(r.confidence * 100)}% confidence</span>
+                  </div>
+                  <p className="cg-relation__def">{RELATION_DEFINITION[r.kind]}</p>
+                  <p className="cg-relation__basis">{r.basis}</p>
+                  {r.measurement ? <p className="cg-relation__measure">{r.measurement}</p> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="cg-cluster__unknowns">
+            <p className="cg-ds__blocklabel">Unknown dependencies</p>
+            <ul className="cg-ds__missing">
+              {cluster.unknowns.map((u, i) => <li key={i}>{u}</li>)}
+            </ul>
+          </div>
+        </div>
+      </details>
+    </article>
+  );
+}
+
+/** Connected findings, grouped so one movement is not read as several problems. */
+export function ReasoningSection({
+  reasoning,
+  limit = 4,
+  sectionLabel = 'How These Connect',
+}: {
+  reasoning: OperationalReasoning;
+  limit?: number;
+  sectionLabel?: string;
+}) {
+  const shown = reasoning.clusters.slice(0, limit);
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {reasoning.clusters.length > shown.length ? (
+          <p className="cg-brief__count">{shown.length} of {reasoning.clusters.length}</p>
+        ) : null}
+      </div>
+      {shown.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No findings to relate for this period.
+          </p>
+        </section>
+      ) : (
+        <div className="cg-findings">
+          {shown.map((c) => <ReasoningClusterView key={c.id} cluster={c} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The chronological feed. Built from completed periods — the only place sequence exists. */
+export function IntelligenceTimeline({
+  events,
+  sectionLabel = 'Intelligence Timeline',
+}: {
+  events: readonly TimelineEvent[];
+  sectionLabel?: string;
+}) {
+  return (
+    <div className="cg-sec">
+      <p className="cg-seclabel">{sectionLabel}</p>
+      {events.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No sequence can be shown. A timeline is built only from completed periods, and not
+            enough are available for this selection.
+          </p>
+        </section>
+      ) : (
+        <ol className="cg-timeline">
+          {events.map((e, i) => (
+            <li className="cg-tlitem" key={i}>
+              <span className="cg-tlwhen">{e.periodLabel}</span>
+              <span className="cg-tlwhat">{e.statement}</span>
+              {e.measurement ? <span className="cg-tlmeasure">{e.measurement}</span> : null}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/** Entity stability, classified from completed periods only. */
+export function StabilitySection({
+  assessments,
+  sectionLabel = 'Entity Stability',
+}: {
+  assessments: readonly StabilityAssessment[];
+  sectionLabel?: string;
+}) {
+  const classified = assessments.filter((a) => a.classification !== 'UNKNOWN');
+  const unclassified = assessments.length - classified.length;
+  return (
+    <div className="cg-sec">
+      <div className="cg-sechead">
+        <p className="cg-seclabel">{sectionLabel}</p>
+        {unclassified > 0 ? (
+          <p className="cg-brief__count">{unclassified} without enough history</p>
+        ) : null}
+      </div>
+      {classified.length === 0 ? (
+        <section className="tile tile--wide">
+          <p className="tile__line cg-muted">
+            No entity has enough completed history to classify. Loop reports Unknown rather than
+            assuming stability.
+          </p>
+        </section>
+      ) : (
+        <ul className="cg-stability">
+          {classified.map((a) => (
+            <li className="cg-stabrow" key={`${a.entityKey}:${a.entityName}`}>
+              <span className="cg-stabname">{a.entityName}</span>
+              <span className={'cg-healthband cg-healthband--' + STABILITY_CLASS[a.classification]}>
+                {STABILITY_LABEL[a.classification]}
+              </span>
+              <span className="cg-stabbasis">{a.basis}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The Business Story — the executive narrative that closes a page.
+ *
+ * Composed from the clusters that already exist, so it cannot assert anything the
+ * relations do not support. "Isolated rather than systemic" is a real conclusion,
+ * not a failure to find one.
+ */
+export function BusinessStorySection({ reasoning }: { reasoning: OperationalReasoning }) {
+  return (
+    <div className="cg-sec">
+      <p className="cg-seclabel">Business Story</p>
+      <section className="tile tile--wide cg-story">
+        <p className="cg-story__text">{reasoning.businessStory}</p>
+        <p className="cg-story__note">
+          Composed from measured relationships only. Loop can attribute a change arithmetically and
+          follow it through the metric formulas; it cannot observe routing, caps, schedules, budgets
+          or demand, so nothing here is a causal claim. Reasoning {reasoning.version}.
         </p>
       </section>
     </div>
