@@ -2602,6 +2602,12 @@ model IntelligenceHypothesis {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
+  // The operational threads opened against this belief. A hypothesis is what Loop
+  // THINKS is happening; a priority is what the organization is DOING about it.
+  // Two axes, deliberately not collapsed: a belief can be accepted as true and
+  // still be unassigned, and a priority can be resolved while the belief stands.
+  operationalPriorities OperationalPriority[]
+
   @@index([organizationId, status])
   @@index([organizationId, subjectIdentityId, status])
   @@map("intelligence_hypotheses")
@@ -2632,6 +2638,8 @@ model CognitiveDecision {
   executedAt         DateTime?
   createdAt          DateTime        @default(now())
 
+  operationalObservations OperationalObservation[]
+
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, decisionType])
   @@index([organizationId, subjectIdentityId])
@@ -2659,4 +2667,247 @@ model CognitiveProcessingAttempt {
   @@index([organizationId, status, nextRetryAt])
   @@index([organizationId, memoryEventId])
   @@map("cognitive_processing_attempts")
+}
+
+// ===========================================================================
+// OPERATIONAL DECISION LIFECYCLE (platform primitives)
+// ---------------------------------------------------------------------------
+// The human execution layer of the intelligence engine. This is where a thing
+// Loop noticed becomes a thing the organization is doing something about, and
+// where the outcome of that work is recorded so future intelligence can be
+// measured against it rather than merely asserted.
+//
+// GENERIC BY CONSTRUCTION. There is no CallGrid in this section and there must
+// never be. CallGrid Intelligence is the FIRST PRODUCER of these primitives, not
+// their owner; `sourceSystem` is how a producer names itself. CRM, Accounting,
+// Website Intelligence and Creator Intelligence are expected to produce into the
+// same two tables, which is the whole reason they are shaped this way. A
+// `CallGridPriority` table would have made the second producer a migration.
+//
+// EVENT-SOURCED, NOT STATE-SOURCED. `OperationalObservation` is an append-only
+// log and is the ONLY source of truth. Every lifecycle fact — assigned, watched,
+// contacted, resolved, reopened — is an immutable row with an actor and a time.
+// The projection columns on `OperationalPriority` (state, owner, reopenCount,
+// resolvedAt, outcome…) are a REBUILDABLE CACHE that exists so a lane can be
+// queried with an index instead of a full log replay. They are written in the
+// same transaction as the observation that causes them, and
+// `projectLifecycle()` in @emgloop/shared is the single implementation that
+// produces them — proven by test to be reconstructable from the log alone.
+// Storing only the current state would destroy the history permanently, and the
+// history is the asset: recovery rates, time-to-resolution, intervention
+// effectiveness and false-positive rates are all statements about the log.
+//
+// TENANCY. `organizationId` is a plain indexed column with NO Organization FK,
+// matching the newest subsystem precedent (Work OS, vk_*, cognitive) rather than
+// introducing a second tenancy pattern for two tables. Isolation is enforced in
+// the repositories (resolve-within-org, fail closed to null); the missing FKs are
+// existing shared debt tracked with those subsystems, not new debt. The FKs that
+// ARE declared here are intra-subsystem integrity: an observation cannot outlive
+// the priority it describes.
+//
+// Additive only. No existing table is renamed, altered, or dropped.
+// ===========================================================================
+
+/// The operator's lane. Deliberately the same five states as `QUEUE_STATES` in
+/// @emgloop/shared, so the database and the queue UI cannot drift apart.
+enum OperationalPriorityState {
+  NEEDS_REVIEW
+  ASSIGNED
+  WATCHING
+  RESOLVED
+  DISMISSED
+}
+
+/// Who caused an observation. There is no AI actor because there is no LLM in
+/// this codebase — adding one here would imply a capability that does not exist.
+enum OperationalActorType {
+  HUMAN
+  SYSTEM
+}
+
+/// The lifecycle vocabulary.
+///
+/// Every member is a fact that something in THIS branch can actually produce:
+/// either the intelligence engine observed it, or an operator recorded it by
+/// hand. Types that only a future integration could emit (EMAIL_SENT,
+/// MEETING_BOOKED, WORK_ITEM_CREATED) are deliberately absent — a vocabulary
+/// that describes capabilities the product does not have is the same failure as
+/// a button that does nothing, just harder to notice.
+enum OperationalObservationType {
+  // --- Produced by the intelligence engine ---
+  /// First time this recurrence key was ever seen.
+  SITUATION_DETECTED
+  /// Seen again in a later analysis run while still open.
+  SITUATION_RESIGHTED
+  /// Previously resolved or dismissed, and now detected again.
+  REOPENED
+
+  // --- Recorded by an operator ---
+  REVIEWED
+  ASSIGNED
+  OWNER_CHANGED
+  WATCH_STARTED
+  WATCH_STOPPED
+  NOTE_ADDED
+  CONTACT_ATTEMPTED
+  CONTACT_COMPLETED
+  AWAITING_RESPONSE
+  RESPONSE_RECEIVED
+  ESCALATED
+  OUTCOME_RECORDED
+  RESOLVED
+  DISMISSED
+}
+
+/// How a priority ended, and — where it can be measured — whether Loop's read of
+/// it was any good. This is the learning signal: false-positive rate, recovery
+/// rate and time-to-resolution are all derived from these values across the log.
+/// UNKNOWN is a first-class answer; an operator who closes something without
+/// knowing the outcome must not be forced to invent one.
+enum OperationalOutcome {
+  RECOVERED
+  PARTIALLY_RECOVERED
+  NOT_RECOVERED
+  NO_ACTION_NEEDED
+  FALSE_POSITIVE
+  ACCEPTED_RISK
+  NOT_ACTIONABLE
+  UNKNOWN
+}
+
+/// A durable thing the organization is working on, opened by an intelligence
+/// producer and closed by a human.
+///
+/// Identity is `(organizationId, sourceSystem, recurrenceKey)`. The recurrence
+/// key is derived by the producer from its rule and the entity the finding is
+/// about — never from a timestamp — which is precisely what lets the same
+/// situation tomorrow land on the same row, and what makes "this is the third
+/// time this month" a fact rather than an impression.
+model OperationalPriority {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The producer that opened this. 'CALLGRID' today; a plain string so the
+  /// second producer is a value, not a migration.
+  sourceSystem  String
+  /// Stable across analysis runs for the same underlying event.
+  recurrenceKey String
+
+  /// What Loop believed when it opened this, if the producer recorded a belief.
+  hypothesisId String?
+
+  title   String
+  summary String?
+
+  // --- Detection facts, owned by the producer -----------------------------
+  firstDetectedAt DateTime
+  lastDetectedAt  DateTime
+  /// How many analysis runs have seen it. Distinct from reopenCount.
+  detectionCount  Int      @default(1)
+
+  /// Producer vocabulary, kept as a string so a new producer with a different
+  /// severity scale does not require a schema change.
+  severity    String
+  impactCents Int?
+  impactLabel String?
+
+  // --- Projection of the observation log (CACHE — never edited directly) ---
+  // Every column below is reproducible by replaying `observations` through
+  // projectLifecycle(). Written only in the same transaction as the observation
+  // that causes it. If these ever disagree with the log, the log is right.
+  state               OperationalPriorityState @default(NEEDS_REVIEW)
+  ownerUserId         String?
+  stateChangedAt      DateTime?
+  reopenCount         Int                      @default(0)
+  resolvedAt          DateTime?
+  outcome             OperationalOutcome?
+  measuredEffectCents Int?
+  observationCount    Int                      @default(0)
+  lastObservationAt   DateTime?
+  /// Version of the projection implementation that wrote these columns, so a
+  /// changed reducer can be detected and the cache rebuilt.
+  projectionVersion   String                   @default("v1")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  observations OperationalObservation[]
+  hypothesis   IntelligenceHypothesis?  @relation(fields: [hypothesisId], references: [id])
+
+  @@unique([organizationId, sourceSystem, recurrenceKey])
+  @@index([organizationId, state])
+  @@index([organizationId, ownerUserId, state])
+  @@index([organizationId, sourceSystem, lastDetectedAt])
+  @@index([hypothesisId])
+  @@map("operational_priorities")
+}
+
+/// One immutable fact in the life of a priority.
+///
+/// There is no `updatedAt` and the repository exposes no update path: a row that
+/// can be edited is not a log, and every statistic Loop will later derive about
+/// its own usefulness depends on this log being trustworthy.
+model OperationalObservation {
+  id             String  @id @default(cuid())
+  organizationId String
+  priorityId     String
+  /// Set when this observation records a decision that was evaluated through the
+  /// cognitive decision layer, so the two views of a decision never fork.
+  decisionId     String?
+
+  observationType OperationalObservationType
+
+  /// Identity of the analysis period that produced a DETECTED / RESIGHTED /
+  /// REOPENED row, e.g. "yesterday:2026-07-29". Null on everything an operator
+  /// records by hand.
+  ///
+  /// This is what stops the log filling with noise: the Overview is a
+  /// server-rendered page that re-runs the engine on every request, so without a
+  /// per-period key a refresh would append a sighting, and an operator leaving
+  /// the tab open would manufacture hundreds of them. The unique below binds only
+  /// rows that carry a key (NULLs are distinct in Postgres), so a duplicate
+  /// sighting fails with P2002 and is swallowed as "already recorded this
+  /// period" — race-safe without a lock. Same device as
+  /// `cognitive_decisions.idempotencyKey`.
+  detectionKey String?
+
+  /// When it happened in the world.
+  occurredAt DateTime
+  /// When Loop learned about it. Equal to occurredAt for anything recorded live;
+  /// different whenever an operator records something after the fact.
+  recordedAt DateTime @default(now())
+  /// Monotonic per priority. Gives the log a deterministic order independent of
+  /// timestamp collisions, and the unique below makes concurrent appends fail
+  /// loudly (P2002 → retry) instead of silently interleaving.
+  sequence   Int
+
+  actorType   OperationalActorType
+  actorUserId String?
+  /// What produced it: 'callgrid-intelligence', 'operator', …
+  source      String
+
+  note     String?
+  evidence Json    @default("{}")
+
+  /// Present on ASSIGNED / OWNER_CHANGED.
+  assignedToUserId    String?
+  /// Present on OUTCOME_RECORDED / RESOLVED / DISMISSED.
+  outcome             OperationalOutcome?
+  /// The measured business effect, when one was actually measured. Never a
+  /// forecast and never a recovery estimate — an operator types what happened.
+  measuredEffectCents Int?
+  measuredEffectBasis String?
+
+  createdAt DateTime @default(now())
+
+  priority OperationalPriority @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  decision CognitiveDecision?  @relation(fields: [decisionId], references: [id])
+
+  @@unique([priorityId, sequence])
+  @@unique([priorityId, detectionKey])
+  @@index([organizationId, priorityId, sequence])
+  @@index([organizationId, observationType, occurredAt])
+  @@index([organizationId, actorUserId])
+  @@index([decisionId])
+  @@map("operational_observations")
 }

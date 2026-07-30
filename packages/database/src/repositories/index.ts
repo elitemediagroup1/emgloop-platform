@@ -33,6 +33,7 @@ import { RevenueIntelligenceRepository } from './revenue-intelligence.repository
 import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
+import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 
 export * from './types';
@@ -164,6 +165,13 @@ export type { ImportOutcome } from './verified-knowledge.repository';
 
 // MarketplaceCall — sensor-neutral operational call projection for Intelligence.
 export { MarketplaceCallRepository, aggregateRows } from './marketplace-call.repository';
+// Operational decision lifecycle (platform primitives). Generic by construction:
+// CallGrid Intelligence is the first producer, not the owner.
+export { OperationalPriorityRepository } from './operational-priority.repository';
+export type {
+  DetectSituationInput, DetectResult, RecordObservationInput,
+  ListPrioritiesOptions, PriorityWithLog,
+} from './operational-priority.repository';
 export type { CallWindowAggregate, CallDimensionAggregate, BackfillResult } from './marketplace-call.repository';
 export {
   projectInteractionToMarketplaceCall,
@@ -233,6 +241,7 @@ export interface Repositories {
   verifiedKnowledge: VerifiedKnowledgeRepository;
   marketplaceCalls: MarketplaceCallRepository;
   marketplaceAuction: MarketplaceAuctionRepository;
+  operationalPriorities: OperationalPriorityRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -264,5 +273,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
     marketplaceCalls: new MarketplaceCallRepository(prisma),
     marketplaceAuction: new MarketplaceAuctionRepository(prisma),
+    operationalPriorities: new OperationalPriorityRepository(prisma),
   };
 }
