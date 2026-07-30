@@ -165,7 +165,10 @@ test('re-sighting an assigned priority does not drag it back into the queue', as
     detection({ detectionKey: 'yesterday:2026-07-29', detectedAt: day(1) }),
   );
   assert.equal(again.priority.state, 'ASSIGNED');
-  assert.equal(again.priority.ownerUserId, 'user-sam');
+  // Assignment is EXECUTION, so it lands on the assignee. Ownership is
+  // accountability and is set separately; a re-sighting disturbs neither.
+  assert.equal(again.priority.assigneeUserId, 'user-sam');
+  assert.equal(again.priority.ownerUserId, null);
 });
 
 // --- Reappearance -----------------------------------------------------------

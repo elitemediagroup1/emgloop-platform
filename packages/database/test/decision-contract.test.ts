@@ -57,6 +57,7 @@ function fieldNames(mapName: string): Set<string> {
 const COLUMNS: Record<string, Set<string>> = {
   operational_priorities: fieldNames('operational_priorities'),
   operational_observations: fieldNames('operational_observations'),
+  decision_evidence: fieldNames('decision_evidence'),
 };
 
 // --- The claim the whole contract rests on ----------------------------------
@@ -102,7 +103,7 @@ test('every RESERVED field states what has to happen before it exists', () => {
 
 test('the contract covers both tables and is not secretly one-sided', () => {
   const tables = new Set(DECISION_FIELDS.map((f) => f.table));
-  assert.equal(tables.size, 2);
+  assert.equal(tables.size, 3, 'priorities, observations and evidence');
   assert.ok(decisionFields('PERSISTED').length > 20);
   assert.ok(decisionFields('RESERVED').length > 0, 'a contract with nothing reserved is not being honest about its gaps');
 });

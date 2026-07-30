@@ -201,7 +201,7 @@ export interface DecisionField {
   name: string;
   status: FieldStatus;
   /** Which table holds it (or would). */
-  table: 'operational_priorities' | 'operational_observations';
+  table: 'operational_priorities' | 'operational_observations' | 'decision_evidence';
   /** What it is, and — for RESERVED — what has to happen before it exists. */
   note: string;
 }
@@ -219,11 +219,15 @@ export const DECISION_FIELDS: readonly DecisionField[] = [
   { name: 'sourceSystem', status: 'PERSISTED', table: 'operational_priorities', note: 'The producer. See DECISION_PRODUCERS.' },
   { name: 'recurrenceKey', status: 'PERSISTED', table: 'operational_priorities', note: 'Producer rule + entity, never a timestamp. Makes the same situation tomorrow the same row.' },
   { name: 'hypothesisId', status: 'PERSISTED', table: 'operational_priorities', note: 'The belief this was opened from (IntelligenceHypothesis). What Loop THOUGHT, as opposed to what the org DID.' },
+  { name: 'sourceReference', status: 'PERSISTED', table: 'operational_priorities', note: "The producer's own handle for the subject — an invoice id, a page path. Opaque to the platform and never parsed here." },
+  { name: 'producerVersion', status: 'PERSISTED', table: 'operational_priorities', note: "Which build of the producer opened this, so history stays interpretable after the producer's logic changes." },
 
   // --- Description ----------------------------------------------------------
   { name: 'title', status: 'PERSISTED', table: 'operational_priorities', note: 'One line, business language.' },
   { name: 'summary', status: 'PERSISTED', table: 'operational_priorities', note: 'What happened. Measured, no interpretation.' },
   { name: 'severity', status: 'PERSISTED', table: 'operational_priorities', note: 'DECISION_SEVERITIES. A producer maps its own scale into this at the boundary.' },
+  { name: 'priority', status: 'PERSISTED', table: 'operational_priorities', note: 'Operator-settable urgency, independent of producer severity. A CRITICAL finding scheduled for next month is both.' },
+  { name: 'confidence', status: 'PERSISTED', table: 'operational_priorities', note: "The producer's confidence, 0-1. Null when it does not express one — never defaulted, because a defaulted confidence is a claim." },
 
   // --- Impact ---------------------------------------------------------------
   { name: 'impactCents', status: 'PERSISTED', table: 'operational_priorities', note: 'Measured amount. NULL means unmeasured — never 0.' },
@@ -239,7 +243,8 @@ export const DECISION_FIELDS: readonly DecisionField[] = [
 
   // --- Lifecycle (a projection of the log, never set directly) --------------
   { name: 'state', status: 'PERSISTED', table: 'operational_priorities', note: 'Projection. NEEDS_REVIEW / ASSIGNED / WATCHING / RESOLVED / DISMISSED.' },
-  { name: 'ownerUserId', status: 'PERSISTED', table: 'operational_priorities', note: 'Projection. Who owns it.' },
+  { name: 'ownerUserId', status: 'PERSISTED', table: 'operational_priorities', note: 'Projection. ACCOUNTABILITY — who answers for the outcome. Changes rarely.' },
+  { name: 'assigneeUserId', status: 'PERSISTED', table: 'operational_priorities', note: 'Projection. EXECUTION — who is working it now, or null. Changes often. Never derived from owner or from state.' },
   { name: 'stateChangedAt', status: 'PERSISTED', table: 'operational_priorities', note: 'Projection. When the lane last changed.' },
   { name: 'reopenCount', status: 'PERSISTED', table: 'operational_priorities', note: 'Projection. Resolutions that did not hold.' },
   { name: 'resolvedAt', status: 'PERSISTED', table: 'operational_priorities', note: 'Projection. Cleared on reopen.' },
@@ -255,13 +260,35 @@ export const DECISION_FIELDS: readonly DecisionField[] = [
   { name: 'actorType', status: 'PERSISTED', table: 'operational_observations', note: 'HUMAN or SYSTEM. There is no AI actor because there is no LLM.' },
   { name: 'actorUserId', status: 'PERSISTED', table: 'operational_observations', note: 'Who did it.' },
   { name: 'evidence', status: 'PERSISTED', table: 'operational_observations', note: 'DecisionEvidenceSnapshot on the opening observation. Why the record can still explain itself after a rule version changes.' },
-  { name: 'note', status: 'PERSISTED', table: 'operational_observations', note: "The operator's own words." },
+  { name: 'note', status: 'PERSISTED', table: 'operational_observations', note: "The operator's own words about the moment." },
+  { name: 'reason', status: 'PERSISTED', table: 'operational_observations', note: 'Why the transition happened. Belongs to the change; `note` belongs to the moment.' },
+  { name: 'previousState', status: 'PERSISTED', table: 'operational_observations', note: 'The lane before this observation, when it moved one.' },
+  { name: 'newState', status: 'PERSISTED', table: 'operational_observations', note: 'The lane after, so a timeline answers "what changed" without replaying the log.' },
+  { name: 'destinationSystem', status: 'PERSISTED', table: 'operational_observations', note: 'Where a CONVERTED_TO_WORK outcome went. Generic: the engine records that work was created somewhere, never which product.' },
+  { name: 'destinationType', status: 'PERSISTED', table: 'operational_observations', note: 'What kind of thing was created in the destination system.' },
+  { name: 'destinationId', status: 'PERSISTED', table: 'operational_observations', note: 'Its id in that system. Opaque here.' },
+  { name: 'evidenceId', status: 'PERSISTED', table: 'operational_observations', note: 'The evidence this observation cites, when it cites some.' },
   { name: 'decisionId', status: 'PERSISTED', table: 'operational_observations', note: 'Link to a CognitiveDecision when one evaluated this.' },
+
+  // --- Evidence (immutable, append-only) ------------------------------------
+  { name: 'source', status: 'PERSISTED', table: 'decision_evidence', note: 'Where the value came from: a provider report, a canonical service, a person.' },
+  { name: 'metricKey', status: 'PERSISTED', table: 'decision_evidence', note: "What it measures, in the producer's contract vocabulary." },
+  { name: 'ruleId', status: 'PERSISTED', table: 'decision_evidence', note: 'The rule that produced it.' },
+  { name: 'ruleVersion', status: 'PERSISTED', table: 'decision_evidence', note: 'At which version — the key to interpreting evidence after a rule changes.' },
+  { name: 'formulaVersion', status: 'PERSISTED', table: 'decision_evidence', note: 'Version of the formula behind a derived value.' },
+  { name: 'calculationVersion', status: 'PERSISTED', table: 'decision_evidence', note: 'Version of the calculation that produced derivedValue.' },
+  { name: 'producerVersion', status: 'PERSISTED', table: 'decision_evidence', note: 'Which build of the producer emitted this evidence.' },
+  { name: 'rawValue', status: 'PERSISTED', table: 'decision_evidence', note: 'As the provider expressed it. Kept alongside the other two because an argument about a number is usually an argument about which one.' },
+  { name: 'normalizedValue', status: 'PERSISTED', table: 'decision_evidence', note: 'After normalization into our units.' },
+  { name: 'derivedValue', status: 'PERSISTED', table: 'decision_evidence', note: 'After our formula.' },
+  { name: 'completeness', status: 'PERSISTED', table: 'decision_evidence', note: 'Fraction of the population that reported the value, when partial.' },
+  { name: 'limitations', status: 'PERSISTED', table: 'decision_evidence', note: 'What this evidence cannot support, carried with it forever.' },
+  { name: 'unknowns', status: 'PERSISTED', table: 'decision_evidence', note: 'What it leaves undetermined.' },
+  { name: 'observedAt', status: 'PERSISTED', table: 'decision_evidence', note: 'When the evidence describes the world.' },
 
   // --- Reserved -------------------------------------------------------------
   { name: 'category', status: 'RESERVED', table: 'operational_priorities', note: 'Cross-producer grouping (revenue / risk / compliance / quality). Needs a column and, more importantly, a vocabulary agreed across producers — inventing one from CallGrid alone would bake in a marketplace shape.' },
   { name: 'tags', status: 'RESERVED', table: 'operational_priorities', note: 'Free-form operator labels. Needs a column; deliberately after category, so tags do not become a substitute for a missing taxonomy.' },
-  { name: 'confidence', status: 'RESERVED', table: 'operational_priorities', note: "The producer's confidence as a first-class sortable column. Captured inside the evidence snapshot today, which is enough to read and not enough to rank by." },
   { name: 'relatedDecisionIds', status: 'RESERVED', table: 'operational_priorities', note: 'The reasoning graph across decisions. It exists in-memory per analysis run and is not persisted; making it durable is a join table, not a column.' },
   { name: 'dueAt', status: 'RESERVED', table: 'operational_priorities', note: 'A promised-by date. Needs a column AND an answer to what happens when it passes — a date nothing acts on is decoration.' },
 ] as const;

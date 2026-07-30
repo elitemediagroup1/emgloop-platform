@@ -53,6 +53,7 @@ export type {
   ApplyStateChangeInput,
   ApplyStateChangeResult,
   StateEvidenceInput,
+  EnqueueOutboxInput,
 } from './active-state.repository';
 export { StateChangeDeliveryRepository } from './delivery.repository';
 export type {

@@ -85,12 +85,103 @@ test('REVIEWED records that a human looked but does NOT clear the lane', () => {
   assert.equal(p.observationCount, 2, 'but the fact that someone looked is kept');
 });
 
-test('assigning moves the lane and records the owner', () => {
+test('assigning moves the lane and records the ASSIGNEE, not the owner', () => {
   reset();
   const p = projectLifecycle([detected(0), obs('ASSIGNED', 5, { assignedToUserId: 'user-sam' })]);
   assert.equal(p.state, 'ASSIGNED');
-  assert.equal(p.ownerUserId, 'user-sam');
+  assert.equal(p.assigneeUserId, 'user-sam', 'assignment is execution');
+  assert.equal(p.ownerUserId, null, 'and it does NOT make Sam accountable for the outcome');
   assert.deepEqual(p.stateChangedAt, at(5));
+});
+
+// --- Ownership and assignment are different dimensions -----------------------
+//
+// Accountability ("who owns this problem") and execution ("who is working it
+// today") answer different questions, and the platform must be able to answer
+// each without deriving it from the other. A manager owns revenue quality; a
+// specialist works the item; the item sits in a lane. Three answers, three
+// sources.
+
+test('owner and assignee are independent, and neither is derived from the lane', () => {
+  reset();
+  const p = projectLifecycle([
+    detected(0),
+    obs('OWNER_CHANGED', 5, { assignedToUserId: 'user-matt' }),
+    obs('ASSIGNED', 10, { assignedToUserId: 'user-sam' }),
+  ]);
+  assert.equal(p.ownerUserId, 'user-matt');
+  assert.equal(p.assigneeUserId, 'user-sam');
+  assert.equal(p.state, 'ASSIGNED');
+});
+
+test('taking ownership does not take the work, and does not move the lane', () => {
+  reset();
+  const p = projectLifecycle([detected(0), obs('OWNER_CHANGED', 5, { assignedToUserId: 'user-matt' })]);
+  assert.equal(p.ownerUserId, 'user-matt');
+  assert.equal(p.assigneeUserId, null, 'owning it is not working it');
+  assert.equal(p.state, 'NEEDS_REVIEW', 'and it still needs somebody to pick it up');
+});
+
+test('handover changes who works it and nothing else', () => {
+  reset();
+  const p = projectLifecycle([
+    detected(0),
+    obs('OWNER_CHANGED', 5, { assignedToUserId: 'user-matt' }),
+    obs('ASSIGNED', 10, { assignedToUserId: 'user-sam' }),
+    obs('WATCH_STARTED', 15),
+    obs('REASSIGNED', 20, { assignedToUserId: 'user-lisa' }),
+  ]);
+  assert.equal(p.assigneeUserId, 'user-lisa');
+  assert.equal(p.ownerUserId, 'user-matt', 'ownership survives every handover');
+  assert.equal(p.state, 'WATCHING', 'reassigning a watched item does not stop the watch');
+});
+
+test('unassigning returns it to the queue but leaves accountability intact', () => {
+  reset();
+  const p = projectLifecycle([
+    detected(0),
+    obs('OWNER_CHANGED', 5, { assignedToUserId: 'user-matt' }),
+    obs('ASSIGNED', 10, { assignedToUserId: 'user-sam' }),
+    obs('UNASSIGNED', 20),
+  ]);
+  assert.equal(p.assigneeUserId, null);
+  assert.equal(p.state, 'NEEDS_REVIEW', 'nobody is working it, so it is the queue\'s problem again');
+  assert.equal(p.ownerUserId, 'user-matt', 'but Matt still answers for it');
+});
+
+test('unassigning a watched or closed item does not drag it out of that position', () => {
+  reset();
+  const watched = projectLifecycle([
+    detected(0),
+    obs('ASSIGNED', 5, { assignedToUserId: 'user-sam' }),
+    obs('WATCH_STARTED', 10),
+    obs('UNASSIGNED', 15),
+  ]);
+  assert.equal(watched.state, 'WATCHING', 'watching is a deliberate position');
+  assert.equal(watched.assigneeUserId, null);
+
+  reset();
+  const closed = projectLifecycle([
+    detected(0),
+    obs('ASSIGNED', 5, { assignedToUserId: 'user-sam' }),
+    obs('RESOLVED', 10, { outcome: 'RECOVERED' }),
+    obs('UNASSIGNED', 15),
+  ]);
+  assert.equal(closed.state, 'RESOLVED', 'losing an assignee cannot reopen a decision');
+});
+
+test('attribute changes are recorded but move nothing', () => {
+  reset();
+  const p = projectLifecycle([
+    detected(0),
+    obs('ASSIGNED', 5, { assignedToUserId: 'user-sam' }),
+    obs('PRIORITY_CHANGED', 10),
+    obs('SEVERITY_CHANGED', 11),
+    obs('EVIDENCE_ADDED', 12),
+  ]);
+  assert.equal(p.state, 'ASSIGNED');
+  assert.equal(p.assigneeUserId, 'user-sam');
+  assert.equal(p.observationCount, 5, 'but each is kept: "who raised this to urgent" is a real question');
 });
 
 // --- Facts that must NOT disturb the lane -----------------------------------
@@ -103,7 +194,7 @@ test('re-sighting an owned item does not drag it back to needing review', () => 
     obs('SITUATION_RESIGHTED', 1440, { actorType: 'SYSTEM', actorUserId: null, source: 'callgrid-intelligence' }),
   ]);
   assert.equal(p.state, 'ASSIGNED');
-  assert.equal(p.ownerUserId, 'user-sam');
+  assert.equal(p.assigneeUserId, 'user-sam');
 });
 
 test('progress inside a lane never changes the lane', () => {
@@ -122,7 +213,7 @@ test('progress inside a lane never changes the lane', () => {
     ...progress.map((t, i) => obs(t, 10 + i)),
   ]);
   assert.equal(p.state, 'ASSIGNED');
-  assert.equal(p.ownerUserId, 'user-sam');
+  assert.equal(p.assigneeUserId, 'user-sam');
 });
 
 test('reassigning a watched item keeps it watched, and reassigning a closed one does not resurrect it', () => {
@@ -134,6 +225,7 @@ test('reassigning a watched item keeps it watched, and reassigning a closed one 
   ]);
   assert.equal(watched.state, 'WATCHING');
   assert.equal(watched.ownerUserId, 'user-sam');
+  assert.equal(watched.assigneeUserId, null, 'ownership never implies assignment');
 
   reset();
   const closed = projectLifecycle([
@@ -153,7 +245,7 @@ test('stopping a watch returns an owned item to its owner and an unowned one to 
     obs('WATCH_STARTED', 10),
     obs('WATCH_STOPPED', 15),
   ]);
-  assert.equal(owned.state, 'ASSIGNED');
+  assert.equal(owned.state, 'ASSIGNED', 'it returns to the person working it');
 
   reset();
   const unowned = projectLifecycle([detected(0), obs('WATCH_STARTED', 10), obs('WATCH_STOPPED', 15)]);
@@ -203,7 +295,7 @@ test('a full journey with a relapse replays to the right place', () => {
     obs('ASSIGNED', 40_100, { assignedToUserId: 'user-sam' }),
   ]);
   assert.equal(p.state, 'ASSIGNED');
-  assert.equal(p.ownerUserId, 'user-sam');
+  assert.equal(p.assigneeUserId, 'user-sam');
   assert.equal(p.reopenCount, 1);
   assert.equal(p.resolvedAt, null);
 });

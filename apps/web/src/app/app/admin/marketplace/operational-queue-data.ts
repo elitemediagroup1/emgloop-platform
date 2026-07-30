@@ -14,16 +14,20 @@ import 'server-only';
 // lifecycle and the whole history for free. That is the entire reason the tables are
 // shaped the way they are.
 //
+// CallGrid goes through the DECISION ENGINE, never through persistence. It has no
+// privileged access to the tables, no ability to write an observation directly and
+// no way to update a projection column — exactly the same position CRM,
+// Accounting and Website Intelligence will be in. That is the test of whether this
+// is a platform: the first producer must not be able to do anything the second
+// one cannot.
+//
 // WHAT IS DELIBERATELY NOT HERE: no Work OS record is created, no CRM object is
-// touched, no notification is sent, no active-state or organizational-memory write
-// happens. Those are future consumers of this record, and each is its own branch.
-// A lifecycle event published here would be a Work OS integration wearing a
-// different name.
+// touched, no notification is sent. The engine publishes a domain event for every
+// lifecycle change and those are future consumers of it, each its own branch.
 
 import {
   callGridDetectionKey,
   callGridDetectedAt,
-  projectLifecycle,
   summarizeHistory,
   summarizeDecisionActivity,
   buildEvidenceSnapshot,
@@ -37,7 +41,7 @@ import {
   type DecisionEvidenceValue,
   type DecisionClaim,
 } from "@emgloop/shared";
-import { repositories, type OperationalPriority, type OperationalObservation } from "@emgloop/database";
+import { decisionEngine, repositories, type OperationalPriority, type OperationalObservation } from "@emgloop/database";
 
 /** The producer's name in the lifecycle layer. One constant, used nowhere else. */
 export const CALLGRID_SOURCE = "CALLGRID";
@@ -191,8 +195,8 @@ export async function loadOperationalQueue(
 
   try {
     for (const situation of queue.situations) {
-      const { priority } = await repositories.operationalPriorities.detect(organizationId, {
-        sourceSystem: CALLGRID_SOURCE,
+      const { decision: priority } = await decisionEngine.create(organizationId, {
+        producer: CALLGRID_SOURCE,
         recurrenceKey: situation.key,
         detectionKey,
         detectedAt,
@@ -201,7 +205,34 @@ export async function loadOperationalQueue(
         severity: situation.severity,
         impactCents: situation.impact.amountCents,
         impactLabel: situation.impact.label,
-        evidence: evidenceFor(situation) as unknown as Record<string, unknown>,
+        sourceReference: situation.observations[0]?.affectedEntities[0]?.entityId ?? null,
+        producerVersion: situation.version,
+        confidence: situation.observations[0]?.confidence ?? null,
+        // Evidence as first-class rows, so it can be appended to later. The
+        // snapshot is kept too: it is the opening picture, which stays true even
+        // as evidence accumulates.
+        evidence: situation.observations.flatMap((f) =>
+          f.supportingEvidence.slice(0, 8).map((e) => ({
+            source: e.providerReport,
+            metricKey: e.metricKey,
+            window: e.window,
+            ruleId: f.ruleId,
+            ruleVersion: f.ruleVersion,
+            formulaVersion: e.formulaVersion,
+            confidence: f.confidence,
+            rawValue: e.rawValue,
+            normalizedValue: e.normalizedValue,
+            derivedValue: e.derivedValue,
+            completeness: e.completeness,
+            entityType: e.entityType,
+            entityId: e.entityId,
+            entityName: e.entityName,
+            limitations: f.limitations,
+            unknowns: f.unknowns,
+            observedAt: detectedAt,
+          })),
+        ),
+        evidenceSnapshot: evidenceFor(situation) as unknown as Record<string, unknown>,
         // The belief, recorded alongside the operational thread on a FIRST
         // sighting only. Always PROPOSED — Loop never accepts its own guess.
         hypothesis: {
@@ -230,10 +261,7 @@ export async function loadOperationalQueue(
     // Logs for the rows that will actually render.
     for (const item of items.slice(0, context.logLimit ?? 3)) {
       if (!item.record) continue;
-      const log = await repositories.operationalPriorities.listObservations(
-        organizationId,
-        item.record.id,
-      );
+      const log = await decisionEngine.getHistory(organizationId, item.record.id);
       item.log = log;
       item.history = summarizeHistory(log.map(toLifecycle));
     }
@@ -270,10 +298,10 @@ export async function loadOperationalQueue(
   let activity = summarizeDecisionActivity([]);
   let openWork: OperationalPriority[] = [];
   try {
-    counts = await repositories.operationalPriorities.countsByState(organizationId, CALLGRID_SOURCE);
+    counts = await decisionEngine.countsByState(organizationId, CALLGRID_SOURCE);
     activity = await loadDecisionActivity(organizationId);
-    openWork = await repositories.operationalPriorities.list(organizationId, {
-      sourceSystem: CALLGRID_SOURCE,
+    openWork = await decisionEngine.list(organizationId, {
+      producer: CALLGRID_SOURCE,
       states: ["ASSIGNED", "WATCHING"],
       take: 25,
     });
@@ -295,15 +323,15 @@ export async function loadOperationalQueue(
  * cannot exist.
  */
 export async function loadDecisionActivity(organizationId: string): Promise<DecisionActivity> {
-  const priorities = await repositories.operationalPriorities.list(organizationId, {
-    sourceSystem: CALLGRID_SOURCE,
+  const priorities = await decisionEngine.list(organizationId, {
+    producer: CALLGRID_SOURCE,
     take: 500,
   });
 
   const closed = priorities.filter((p) => p.state === "RESOLVED" || p.state === "DISMISSED");
   const durations = new Map<string, number | null>();
   for (const p of closed) {
-    const log = await repositories.operationalPriorities.listObservations(organizationId, p.id);
+    const log = await decisionEngine.getHistory(organizationId, p.id);
     durations.set(p.id, summarizeHistory(log.map(toLifecycle)).msToResolution);
   }
 
@@ -330,15 +358,14 @@ export async function loadPriorityDetail(
   organizationId: string,
   priorityId: string,
 ): Promise<PriorityDetail | null> {
-  const found = await repositories.operationalPriorities.findWithLog(organizationId, priorityId);
+  const found = await decisionEngine.get(organizationId, priorityId);
   if (!found) return null;
   // Projected here rather than trusted from the row, so the detail view is the
   // one place that can never show a stale cache.
-  const projection = projectLifecycle(found.observations.map(toLifecycle));
   return {
-    priority: found.priority,
+    priority: found.decision,
     observations: found.observations,
     history: found.history,
-    state: projection.state,
+    state: found.currentState,
   };
 }
