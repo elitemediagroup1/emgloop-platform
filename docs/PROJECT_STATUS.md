@@ -62,7 +62,7 @@ copy of CallGrid into an explainable workspace, then into an operations centre.
   when unmeasurable) · reconciliation harness under Administration → Diagnostics.
 - **Deleted (replacement rule):** `callgrid-dimensions.ts`, `callgrid-watch.ts`.
 
-### In progress — THE DECISION CENTER (draft PR #151, branch `feat/callgrid-operational-review`)
+### THE DECISION CENTER — DONE (merged #151; migration replay fix merged #152)
 Turns the Overview from an analytics surface into a queue that is **cleared**, with decisions
 that survive a refresh. Built outside-in: queue → lifecycle → persistence → history, coupled
 deliberately because a button that forgets is worse than no button.
@@ -99,7 +99,7 @@ deliberately because a button that forgets is worse than no button.
 `turbo build --filter=@emgloop/web` passes · `prisma validate` clean. Migration is additive only
 (0 DROP / 0 rename / 0 column-type change), ASCII header.
 
-**⚠️ GATE — still cannot go live, but the code half is now done (draft PR #152).** The `sprint_11`
+**⚠️ GATE — merged, but still not live in production.** The code half is done and merged (#152). The `sprint_11`
 em-dash is fixed on its own branch and the full 11-migration chain is **verified to replay from an
 empty Postgres 16 with no drift** (71 tables). What remains is human-run against production: back
 up + restore-test, `migrate resolve --applied` every existing migration (resolve, never run), then
@@ -124,6 +124,47 @@ up + restore-test, `migrate resolve --applied` every existing migration (resolve
 vendor profit is not attributable at that grain and says so; entity counts mean "observed this
 period" (CallGrid exposes no roster). **No LLM anywhere** — every string is deterministic template
 language.
+
+## Canonical Decision contract + Engineering Principles — IN REVIEW (draft PR #153) · branch `feat/canonical-decision-contract` (off main `a46f561`)
+The platform-layer pass Matt asked for before CRM: define the canonical Decision, write the
+laws down, and answer "could Accounting use this tomorrow" honestly.
+
+- **`decision-contract.ts`** — one model for every producer: producer registry, one shared
+  severity vocabulary (a cross-producer queue cannot rank CRITICAL against P1), impact-unit
+  vocabulary, evidence-snapshot shape, and `DECISION_FIELDS` marking every field
+  **PERSISTED** or **RESERVED**.
+- **The anti-`EVENT_BUS.md` device.** A test walks `DECISION_FIELDS` against the real Prisma
+  columns in BOTH directions: a PERSISTED field with no column fails, and a RESERVED field
+  that quietly gained one fails too. Every RESERVED field must state what has to happen
+  before it exists. The contract therefore cannot describe a system that does not exist.
+- **Reserved, honestly:** `impactUnit` (today's column is `impactCents`, which assumes every
+  producer measures money — false for Website/Support/Compliance), `costCents`, `category`
+  (deliberately NOT invented from CallGrid alone), `tags`, sortable `confidence`,
+  `relatedDecisionIds`, `dueAt`.
+- **Two gaps found and closed, both introduced in #151.** (1) Evidence was never persisted —
+  the engine recomputes on every render so an OPEN decision always looked right, but a
+  decision closed weeks ago under a since-changed rule version kept its conclusion and lost
+  its reason. Now snapshotted into the immutable opening observation, limitations and
+  unknowns included, truncation disclosed. No migration — the `evidence` column already
+  existed and was never written. (2) `hypothesisId` was a dead FK; now populated on first
+  sighting **in the same transaction** (proposing first would orphan a belief on a race),
+  always PROPOSED / DETERMINISTIC_RULE.
+- **`docs/ENGINEERING_PRINCIPLES.md`** — Matt's 8 platform invariants. Each carries the rule,
+  the scar, what a violation looks like, and **what enforces it — including "nothing yet"**.
+  `CLAUDE.md` links to it and keeps process; the invariants doc owns system laws. No
+  restatement in both, so they cannot drift like the four architecture docs did.
+- **⚠️ Rule 6 (publish, don't couple) is the largest open gap and says so.** The cognitive
+  outbox + `StateChangeSubscription` + a `WORK_OS` subscriber type all exist (#148) and the
+  Decision Center **does not publish into them**. The rule holds today by discipline, not
+  enforcement.
+
+**Validated:** 423 shared · 225 database tests · typecheck clean (shared/database/web) ·
+web build passes. No schema change, no migration.
+
+**NEXT (not started, awaiting merge): the Decision Engine API** — the named facade
+(create/assign/watch/resolve/reopen/falsePositive/history/timeline/evidence/related/
+publish/subscribe) over these primitives, with `publish`/`subscribe` wired to the existing
+outbox. That closes Rule 6 and is the last platform layer before CRM.
 
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
 Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized
@@ -256,7 +297,7 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
    `migrate resolve --applied`, `migrate deploy`, then upgrade the Netlify build step separately.
    Until those run, any branch that adds a table is code-complete but not live — currently #148
    and #151.
-7. **Next foundation layer (proposed, NOT started): the Decision Engine API.** A named facade over
+7. **Next foundation layer (IN REVIEW as the contract; API NOT started): the Decision Engine API.** A named facade over
    the Decision Center primitives — create / assign / watch / resolve / reopen / falsePositive /
    history / timeline / evidence / related / publish / subscribe — so a new intelligence module is
    "detect, then create a decision" and inherits everything else. `publish`/`subscribe` map onto the

@@ -69,6 +69,35 @@ export interface DetectSituationInput {
   impactLabel?: string | null;
   /** The belief this was opened from, when the producer recorded one. */
   hypothesisId?: string | null;
+  /**
+   * What the producer knew when it opened this — rules, versions, the values
+   * behind the claim, and what it could not determine. Written once into the
+   * opening observation and never edited.
+   *
+   * This is what makes the RECORD explain itself rather than only the live
+   * analysis. A decision resolved six weeks ago, under a rule version that has
+   * since changed, cannot be re-derived; without this snapshot the moment a
+   * threshold moves every historical decision silently loses the reason it was
+   * raised, and the outcome data Loop uses to judge its own recommendations
+   * becomes uninterpretable.
+   */
+  evidence?: Record<string, unknown>;
+  /**
+   * The belief to record alongside a NEWLY opened priority.
+   *
+   * Created in the same transaction as the priority, so a first sighting can
+   * never leave an orphan hypothesis behind — which is exactly what would happen
+   * if a caller proposed one first and then lost the race to open the priority.
+   */
+  hypothesis?: {
+    hypothesisType: string;
+    title: string;
+    summary?: string | null;
+    confidence?: number | null;
+    ruleVersion?: string | null;
+    supportingWindowStart?: Date | null;
+    supportingWindowEnd?: Date | null;
+  };
 }
 
 export interface DetectResult {
@@ -223,21 +252,51 @@ export class OperationalPriorityRepository {
 
     if (!existing) {
       try {
-        const priority = await this.prisma.operationalPriority.create({
-          data: {
-            organizationId,
-            sourceSystem: input.sourceSystem,
-            recurrenceKey: input.recurrenceKey,
-            hypothesisId: input.hypothesisId ?? null,
-            title: input.title,
-            summary: input.summary ?? null,
-            firstDetectedAt: input.detectedAt,
-            lastDetectedAt: input.detectedAt,
-            detectionCount: 1,
-            severity: input.severity,
-            impactCents: input.impactCents ?? null,
-            impactLabel: input.impactLabel ?? null,
-          },
+        const priority = await this.prisma.$transaction(async (tx) => {
+          // The belief and the operational thread are opened together or not at
+          // all. A hypothesis is ALWAYS created PROPOSED — there is no path here
+          // that accepts one, because acceptance requires an attributed human
+          // (the same hard invariant IntelligenceHypothesisRepository holds).
+          // Written through `tx` rather than that repository so the two rows share
+          // one transaction; the invariant is duplicated deliberately and the
+          // duplication is one literal.
+          const hypothesisId = input.hypothesis
+            ? (
+                await tx.intelligenceHypothesis.create({
+                  data: {
+                    organizationId,
+                    hypothesisType: input.hypothesis.hypothesisType,
+                    title: input.hypothesis.title,
+                    summary: input.hypothesis.summary ?? null,
+                    status: 'PROPOSED',
+                    confidence: input.hypothesis.confidence ?? null,
+                    supportingWindowStart: input.hypothesis.supportingWindowStart ?? null,
+                    supportingWindowEnd: input.hypothesis.supportingWindowEnd ?? null,
+                    scope: 'OPERATIONAL',
+                    sensitivity: 'INTERNAL',
+                    generatedBy: 'DETERMINISTIC_RULE',
+                    ruleVersion: input.hypothesis.ruleVersion ?? null,
+                  },
+                })
+              ).id
+            : (input.hypothesisId ?? null);
+
+          return tx.operationalPriority.create({
+            data: {
+              organizationId,
+              sourceSystem: input.sourceSystem,
+              recurrenceKey: input.recurrenceKey,
+              hypothesisId,
+              title: input.title,
+              summary: input.summary ?? null,
+              firstDetectedAt: input.detectedAt,
+              lastDetectedAt: input.detectedAt,
+              detectionCount: 1,
+              severity: input.severity,
+              impactCents: input.impactCents ?? null,
+              impactLabel: input.impactLabel ?? null,
+            },
+          });
         });
         const after = await this.append(organizationId, priority, {
           observationType: 'SITUATION_DETECTED',
@@ -246,6 +305,7 @@ export class OperationalPriorityRepository {
           actorUserId: null,
           source: input.sourceSystem,
           detectionKey: input.detectionKey,
+          evidence: input.evidence,
         });
         return { priority: after ?? priority, effect: 'OPENED' };
       } catch (e) {
