@@ -125,6 +125,44 @@ vendor profit is not attributable at that grain and says so; entity counts mean 
 period" (CallGrid exposes no roster). **No LLM anywhere** — every string is deterministic template
 language.
 
+## The Decision Engine — IN REVIEW (draft PR #154) · branch `feat/decision-engine` (stacked on #153)
+The final platform layer between intelligence producers and every consumer. **CallGrid now
+consumes it and touches persistence nowhere** — `repositories.operationalPriorities` appears
+zero times in the producer.
+
+- **One event bus.** `StateChangeOutbox` generalized additively: `subjectType` (ACTIVE_STATE /
+  DECISION / WORK_ITEM / MEMORY / KNOWLEDGE / IDENTITY), `subjectId`, `eventType`, and
+  `identityId` now NULLABLE — most decisions describe the business, not a person. No second
+  outbox, no DomainEventOutbox, no fabricated identities. Existing active-state publishing,
+  deliveries, retries and subscriptions untouched.
+- **`packages/database/src/services/decision/`** — `DecisionEngine` is the only producer-facing
+  surface. 17 methods. Every state change is one transaction: resolve in-org → validate
+  transition → append immutable observation → rewrite projection from the whole log → publish
+  exactly one domain event → commit.
+- **Owner ≠ assignee ≠ state**, three independent dimensions. Ownership is accountability and
+  changes rarely; assignment is execution and changes often; neither derives the other or the lane.
+- **`ignore()` is an action; the outcome says why.** Outcomes extended additively with DUPLICATE,
+  MERGED, SUPPRESSED, EXPIRED, CONVERTED_TO_WORK. The work destination lives on the observation,
+  so the engine never names Work OS or CRM.
+- **Evidence is a table now** (`decision_evidence`), append-only, carrying rule/formula/
+  calculation/producer versions, raw/normalized/derived values, completeness, limitations and
+  unknowns. The #153 JSON snapshot remains as the opening picture.
+- **Docs:** `docs/architecture/decision-engine.md` — purpose, boundaries, both contracts, the four
+  models, outbox integration, replay/idempotency guarantees, how to add the next producer, and a
+  **Not built** section.
+
+**Validated:** 429 shared · 250 database tests · typecheck clean (shared/database/web) · web build
+passes · **from-zero replay against PostgreSQL 16: all 12 migrations apply to an empty database,
+`migrate diff` reports no drift, 72 tables.** Both new migrations additive — 0 DROP, 0 rename.
+
+**⚠️ NO SUBSCRIBER CONSUMES DECISION EVENTS YET.** The engine publishes and the outbox delivers to
+matching subscriptions; none are registered for `DECISION` subjects. That closes
+ENGINEERING_PRINCIPLES **Rule 6**, and it is the next branch — Work OS first.
+
+**NEXT after that: CRM as the second producer.** Per Matt, not until the Decision Center is
+genuinely reusable. The engine test suite is written from an ACCOUNTING and WEBSITE producer's
+position precisely to keep that answer honest.
+
 ## Canonical Decision contract + Engineering Principles — IN REVIEW (draft PR #153) · branch `feat/canonical-decision-contract` (off main `a46f561`)
 The platform-layer pass Matt asked for before CRM: define the canonical Decision, write the
 laws down, and answer "could Accounting use this tomorrow" honestly.
