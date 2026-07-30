@@ -56,6 +56,13 @@ we tolerate, not a pattern to copy.
 
 These are not aspirations. They are enforced in review.
 
+> **Platform invariants live in `docs/ENGINEERING_PRINCIPLES.md`, not here.** That file owns
+> the laws about *what must be true of the system* — append-only truth, state as a rebuildable
+> projection, evidence outliving its conclusion, generic decisions, publish-don't-couple,
+> unknown over fabricated certainty. This section owns how *we work*. Where the two touch
+> (rules 1–4 below), that file is the authority and carries the enforcement detail; don't
+> restate it here, or the two will drift the way the four architecture docs did.
+
 1. **Never fabricate functionality.** If it isn't built, it doesn't get a button.
 2. **Never fake AI.** No canned strings presented as reasoning. If an LLM isn't called, don't call it
    intelligence. (`crm/layout.tsx` once rendered a hardcoded "Brain Status: Online" — that is the
@@ -295,6 +302,7 @@ ingestion, be more careful than you think you need to be.
 | `README.md` | The product pitch, stack, or setup steps change. Audience: a new human. | Sprint detail. (It currently claims "Sprint 1 — no customer-facing features." It's wrong. Fix it when you touch it.) |
 | `docs/ARCHITECTURE.md` | A structural decision changes: a new package, a boundary move, a deploy change. Audience: an engineer designing against it. | Aspirations. If it isn't built, it doesn't go here. There are already four competing architecture docs — add to none of them; collapse them. |
 | `CLAUDE.md` (this file) | A **rule** changes, a scar is earned, or the baseline shifts. Audience: the next Claude session. | Narrative or sprint logs. This is a constitution, not a changelog. |
+| `docs/ENGINEERING_PRINCIPLES.md` | A platform **invariant** is established or its enforcement changes. Audience: every engineer, every module, every agent — and a reader who no longer has this repo's layout. | Anything about process, branches or review (that is this file). Anything not yet built — a principle for an unbuilt system is `EVENT_BUS.md` again. |
 | `docs/PROJECT_STATUS.md` | The end of a work batch: record where each project/workstream stands, the open PR, and the next step. Audience: the next session (and Matt), to resume without losing the thread. | History or a changelog. ONE current-state block per workstream — overwrite it, don't append. Git holds the history. |
 
 **Where we left off lives in `docs/PROJECT_STATUS.md`, never here.** Read it at the
