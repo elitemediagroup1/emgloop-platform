@@ -258,3 +258,11 @@ export * from './demo-seed';
 // the database layer (which maps rows into them) and web consumers depend on one
 // contract, not on persistence. See ./cognitive-context.ts.
 export * from './cognitive-context';
+
+// --- Operational decision lifecycle (platform primitives) ---
+// The pure projection from an append-only observation log to the current state
+// of a priority, plus the operational history and decision-activity statistics
+// derived from that log. Event-sourced by construction: the log is the truth and
+// the stored state columns are a rebuildable cache. Generic — CallGrid
+// Intelligence is the first producer, not the owner. See ./operational-lifecycle.ts.
+export * from './operational-lifecycle';
