@@ -219,6 +219,11 @@ export * from './callgrid-decision-support';
 // Operational reasoning: findings as a connected system. It may claim arithmetic
 // attribution and metric-formula lineage; it may never claim mechanism.
 export * from './callgrid-reasoning';
+// The Situation — the atom of the operational review system. Findings are MERGED
+// into one business event BEFORE anything is ranked, so an operator receives one
+// row per thing that is happening rather than one row per symptom. Every merge
+// discloses its observation count and stays reversible by the reader.
+export * from './callgrid-situation';
 // The Intelligence Score — the one attention ordering. A component whose input
 // is missing is WITHHELD from both numerator and denominator, never scored zero.
 export * from './callgrid-scoring';
