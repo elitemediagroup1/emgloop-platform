@@ -19,6 +19,19 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   loopEvent: ['eventId'], // global @unique, matching the real LoopEvent model
   stateChangeDelivery: ['outboxId', 'subscriptionId'], // one delivery per (change, subscriber)
   cognitiveDecision: ['organizationId', 'idempotencyKey'], // NULL keys are distinct (Postgres)
+  // Operational lifecycle. `recurrenceKey` is what makes the same situation
+  // tomorrow the same row; `detectionKey` is what stops a page refresh
+  // appending a sighting (NULL on operator-recorded rows, so the unique binds
+  // only detection rows).
+  operationalPriority: ['organizationId', 'sourceSystem', 'recurrenceKey'],
+};
+
+// A delegate may carry more than one unique. Prisma enforces each independently.
+const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
+  operationalObservation: [
+    ['priorityId', 'sequence'],
+    ['priorityId', 'detectionKey'],
+  ],
 };
 
 const DELEGATES = [
@@ -41,6 +54,8 @@ const DELEGATES = [
   'cognitiveProcessingAttempt',
   'auditLog',
   'loopEvent',
+  'operationalPriority',
+  'operationalObservation',
 ] as const;
 
 let idSeq = 0;
@@ -102,12 +117,15 @@ function applyData(row: Row, data: Row): void {
 
 function makeDelegate(name: string) {
   const rows: Row[] = [];
-  const uniqueKeys = UNIQUE_KEYS[name];
+  const uniques: string[][] = [
+    ...(UNIQUE_KEYS[name] ? [UNIQUE_KEYS[name]!] : []),
+    ...(EXTRA_UNIQUE_KEYS[name] ?? []),
+  ];
 
   return {
     __rows: rows,
     async create({ data }: { data: Row }): Promise<Row> {
-      if (uniqueKeys) {
+      for (const uniqueKeys of uniques) {
         // Postgres treats a row as distinct when ANY indexed column is NULL, so a
         // unique only binds rows whose every key column is non-null.
         const anyNull = uniqueKeys.some((k) => data[k] === null || data[k] === undefined);
@@ -130,20 +148,22 @@ function makeDelegate(name: string) {
       rows.push(row);
       return { ...row };
     },
-    async findFirst({ where, orderBy }: { where?: Row; orderBy?: any } = {}): Promise<Row | null> {
+    async findFirst(
+      { where, orderBy, select }: { where?: Row; orderBy?: any; select?: Row } = {},
+    ): Promise<Row | null> {
       const found = sortRows(rows.filter((r) => matches(r, where)), orderBy);
-      return found.length ? { ...found[0] } : null;
+      return found.length ? project({ ...found[0] }, select) : null;
     },
     async findUnique({ where }: { where: Row }): Promise<Row | null> {
       const found = rows.find((r) => matches(r, where));
       return found ? { ...found } : null;
     },
     async findMany(
-      { where, orderBy, take }: { where?: Row; orderBy?: any; take?: number } = {},
+      { where, orderBy, take, select }: { where?: Row; orderBy?: any; take?: number; select?: Row } = {},
     ): Promise<Row[]> {
       let out = sortRows(rows.filter((r) => matches(r, where)), orderBy);
       if (typeof take === 'number') out = out.slice(0, take);
-      return out.map((r) => ({ ...r }));
+      return out.map((r) => project({ ...r }, select)!);
     },
     async update({ where, data }: { where: Row; data: Row }): Promise<Row> {
       const row = rows.find((r) => matches(r, where));
@@ -163,6 +183,15 @@ function makeDelegate(name: string) {
       return rows.filter((r) => matches(r, where)).length;
     },
   };
+}
+
+// `select` narrows the returned columns, as Prisma does. Faithful enough that a
+// repository relying on a projection cannot pass here and fail in production.
+function project(row: Row | null, select?: Row): Row | null {
+  if (!row || !select) return row;
+  const out: Row = {};
+  for (const [k, want] of Object.entries(select)) if (want) out[k] = row[k];
+  return out;
 }
 
 function sortRows(list: Row[], orderBy: any): Row[] {

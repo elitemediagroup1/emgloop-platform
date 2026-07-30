@@ -52,6 +52,10 @@ import {
 } from './callgrid-opportunity';
 import { buildDecisionSupport, type DecisionSupportCard } from './callgrid-decision-support';
 import { reasonAboutFindings, type OperationalReasoning } from './callgrid-reasoning';
+import {
+  buildQueue, buildBriefing, queueUnknowns,
+  type SituationQueue, type Briefing,
+} from './callgrid-situation';
 
 // --- Engine input (the canonical report, as a contract) ------------------------
 
@@ -181,6 +185,17 @@ export interface CallGridIntelligence {
    * Story. Consumes findings; produces no metric of its own.
    */
   reasoning: OperationalReasoning;
+  /**
+   * The operator's queue — findings MERGED into Situations, then ranked.
+   *
+   * This is the surface's primary input and the reason the ordering inverted:
+   * `ranked` scores individual findings, so one business event competes with
+   * itself several times over. `queue` scores the merged event, so what reaches
+   * an operator is one row per thing that is actually happening.
+   */
+  queue: SituationQueue;
+  /** The briefing, assembled from `queue` — one source, two renderings. */
+  briefing: Briefing;
   /** Every finding produced, severity-ordered. */
   findings: CallGridFinding[];
   /** Every finding with its Intelligence Score, attention-ordered. */
@@ -1168,6 +1183,17 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     ),
   });
 
+  // --- The queue --------------------------------------------------------------
+  // Merge BEFORE rank. `reasoning.clusters` already unions findings over measured
+  // relations only; this is where that stops being a view and becomes the unit of
+  // the product. Assembled here rather than in the surface so the Overview and a
+  // subpage cannot disagree about what one Situation is.
+  const queue = buildQueue(
+    { reasoning, ranked, decisionSupport, opportunities: opportunityFindings },
+    { reportOk: input.reportOk, periodLabel: input.windowLabel },
+  );
+  const briefing = buildBriefing(queue, { periodLabel: input.windowLabel });
+
   return {
     executiveSummary: {
       headline,
@@ -1191,6 +1217,8 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
     opportunityFindings,
     decisionSupport,
     reasoning,
+    queue,
+    briefing,
     findings,
     ranked,
     changes,
@@ -1206,6 +1234,7 @@ export function analyzeCallGrid(input: IntelligenceInput): CallGridIntelligence 
       ...healthUnknownEntries(health),
       ...opportunityUnknownEntries(opportunityFindings),
       ...reasoningUnknownEntries(reasoning),
+      ...queueUnknowns(queue),
     ],
     evidenceReferences: findings.flatMap((f) => f.supportingEvidence),
   };

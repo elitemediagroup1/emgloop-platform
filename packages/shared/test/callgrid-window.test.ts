@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   resolveCallGridWindow, parseCallGridRange, easternYmd,
   describeCallGridWindow, callGridDayNav, callGridRangeQuery,
+  callGridDetectionKey, callGridDetectedAt,
 } from '../src/index';
 
 // A fixed reference instant: Wed Jul 22, 2026, 14:30 ET (EDT, -4) = 18:30Z.
@@ -321,4 +322,40 @@ test('a custom range entirely in the future is invalid and falls back to today',
 test('a completed window states its comparison is directly comparable', () => {
   const d = describeCallGridWindow(resolveCallGridWindow({ preset: 'yesterday' }, NOW), NOW);
   assert.match(d.comparisonNote!, /complete period of the same length/);
+});
+
+// --- Detection identity ------------------------------------------------------
+
+test('the detection key is stable across a live window, and changes with the day', () => {
+  // 9:05am and 4:40pm on the same Eastern day must produce the SAME key, or the
+  // server-rendered Overview would record a sighting on every request.
+  const morning = resolveCallGridWindow(parseCallGridRange({ range: 'today' }), new Date('2026-07-30T13:05:00Z'));
+  const afternoon = resolveCallGridWindow(parseCallGridRange({ range: 'today' }), new Date('2026-07-30T20:40:00Z'));
+  assert.equal(callGridDetectionKey(morning), callGridDetectionKey(afternoon));
+
+  const nextDay = resolveCallGridWindow(parseCallGridRange({ range: 'today' }), new Date('2026-07-31T13:05:00Z'));
+  assert.notEqual(callGridDetectionKey(nextDay), callGridDetectionKey(morning));
+});
+
+test('different periods of the same length are different keys', () => {
+  const now = new Date('2026-07-30T20:00:00Z');
+  const today = resolveCallGridWindow(parseCallGridRange({ range: 'today' }), now);
+  const yesterday = resolveCallGridWindow(parseCallGridRange({ range: 'yesterday' }), now);
+  const week = resolveCallGridWindow(parseCallGridRange({ range: 'last_7_days' }), now);
+  const keys = new Set([today, yesterday, week].map(callGridDetectionKey));
+  assert.equal(keys.size, 3);
+});
+
+test('a detection is never stamped in the future', () => {
+  const now = new Date('2026-07-30T18:00:00Z');
+  const today = resolveCallGridWindow(parseCallGridRange({ range: 'today' }), now);
+  const at = callGridDetectedAt(today, now);
+  assert.ok(at.getTime() <= now.getTime(), 'a live window ends in the future; the sighting must not');
+
+  const yesterday = resolveCallGridWindow(parseCallGridRange({ range: 'yesterday' }), now);
+  assert.deepEqual(
+    callGridDetectedAt(yesterday, now),
+    yesterday.end,
+    'a completed period stamps the sighting to the period, not to when someone looked',
+  );
 });

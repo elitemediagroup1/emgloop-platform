@@ -219,6 +219,11 @@ export * from './callgrid-decision-support';
 // Operational reasoning: findings as a connected system. It may claim arithmetic
 // attribution and metric-formula lineage; it may never claim mechanism.
 export * from './callgrid-reasoning';
+// The Situation — the atom of the operational review system. Findings are MERGED
+// into one business event BEFORE anything is ranked, so an operator receives one
+// row per thing that is happening rather than one row per symptom. Every merge
+// discloses its observation count and stays reversible by the reader.
+export * from './callgrid-situation';
 // The Intelligence Score — the one attention ordering. A component whose input
 // is missing is WITHHELD from both numerator and denominator, never scored zero.
 export * from './callgrid-scoring';
@@ -253,3 +258,11 @@ export * from './demo-seed';
 // the database layer (which maps rows into them) and web consumers depend on one
 // contract, not on persistence. See ./cognitive-context.ts.
 export * from './cognitive-context';
+
+// --- Operational decision lifecycle (platform primitives) ---
+// The pure projection from an append-only observation log to the current state
+// of a priority, plus the operational history and decision-activity statistics
+// derived from that log. Event-sourced by construction: the log is the truth and
+// the stored state columns are a rebuildable cache. Generic — CallGrid
+// Intelligence is the first producer, not the owner. See ./operational-lifecycle.ts.
+export * from './operational-lifecycle';

@@ -11,32 +11,62 @@ import { callGridIntelligence, bidIntelligence } from "./intelligence-data";
 import CallGridDateRange from "./CallGridDateRange";
 import { SnapshotNotice, easternClock } from "./dimension-ui";
 import {
-  MarketplaceRiskPanel, BusinessHealthSection, DecisionSupportSection,
-  OpportunitiesSection, FindingList, UnknownsSection,
-  ReasoningSection, IntelligenceTimeline, StabilitySection, BusinessStorySection,
+  MarketplaceRiskPanel, OpportunitiesSection, FindingList, UnknownsSection,
+  BusinessStorySection,
 } from "./intelligence-ui";
+import {
+  BriefingBlock, LaneBar, QueueSection, DecisionActivitySection, OpenWorkSection,
+  type QueueMember,
+} from "./queue-ui";
+import { loadOperationalQueue } from "./operational-queue-data";
+import { hasPermission } from "../../../../auth/guard";
+import { repositories } from "@emgloop/database";
+import { CallGridNav } from "./_CallGridNav";
 import { loadCallGridHistory } from "./callgrid-history-data";
+import type { Situation } from "@emgloop/shared";
 
 export const dynamic = "force-dynamic";
 
-// CallGrid Intelligence — the Operations Center.
+/**
+ * How many undecided items reach the first screen.
+ *
+ * A ceiling, not a target. Three is what a person can hold while deciding; the
+ * rest are counted, not hidden.
+ */
+const QUEUE_LIMIT = 3;
+
+// CallGrid Intelligence — the Executive Queue.
 //
-// CallGrid reports the marketplace; this page explains it. Sections, in order:
-// Header · Date · Executive Brief · Business Health · Biggest Changes · Top
-// Opportunities · Top Risks · Operational Watch List · What Loop Cannot
-// Determine · Trend & structural analysis · Metric summary · Top Performers ·
-// Bids Overview · Quick Access.
+// THIS PAGE IS A QUEUE, NOT A DOCUMENT. It is cleared, not read. The first screen
+// answers "is there a fire", names at most three things that need a decision, and
+// says which to start with and why. Everything else is below it or one expansion
+// behind it.
 //
-// The ORDER is the product decision. Metrics sit BELOW the intelligence because
-// they answer "what happened", which CallGrid already answers. This page exists
-// to answer why it happened, whether it matters, and what to do — so a reader
-// must reach those before they reach a tile.
+// Order: Nav · Period · Briefing · Lanes · The queue (≤3) · Money · Story ·
+// The numbers · What Loop could not determine · Provenance.
+//
+// The ordering rule that produced this: a section earns its place by changing a
+// decision. Metrics answer "what happened", which CallGrid already answers, so
+// they sit last and are framed as the audit trail for the conclusions above them
+// rather than as information in their own right.
+//
+// The queue's rows are SITUATIONS, not findings — related observations merged
+// before anything was ranked, so one business event is one row rather than four.
+// See `callgrid-situation.ts` for the three constraints on that merge.
 //
 // Every number comes from the canonical report service for the selected window,
 // and every conclusion from the deterministic intelligence engine — which reads
 // only those same reports. Nothing on this page is computed locally, so Overview
-// and a subpage cannot disagree: Top Buyer IS `dimensions.buyers[0]`, the first
-// row of the Buyers table.
+// and a subpage cannot disagree.
+//
+// THE QUEUE IS NOW DURABLE. Assign / watch / resolve / dismiss write an immutable
+// observation through the operational lifecycle primitives, and the state an
+// operator leaves behind is the state they come back to. The lanes are filled
+// from that record rather than derived from one analysis run, which is why they
+// count every open priority and not just the ones this period detected.
+//
+// The analysis above is unchanged and still the only source of every conclusion:
+// the lifecycle layer records what was DECIDED, never what is TRUE.
 
 function money(cents: number | null, available: boolean): string {
   if (!available) return "Unavailable";
@@ -51,15 +81,6 @@ function count(n: number | null, available: boolean): string {
 function utcDate(d: Date): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" }).format(d);
 }
-
-const QUICK: { label: string; href: string }[] = [
-  { label: "Buyers", href: "/app/admin/marketplace/buyers" },
-  { label: "Vendors", href: "/app/admin/marketplace/vendors" },
-  { label: "Sources", href: "/app/admin/marketplace/sources" },
-  { label: "Campaigns", href: "/app/admin/marketplace/campaigns" },
-  { label: "Bids", href: "/app/admin/marketplace/bids" },
-  { label: "Activity", href: "/app/admin/marketplace/activity" },
-];
 
 // A per-tile comparison indicator. Null (→ "No valid comparison") whenever the
 // prior value is unavailable, unknown or zero — never a percentage off nothing.
@@ -179,6 +200,21 @@ export default async function CallGridIntelligencePage({
   const rateLimitedShare = destinationRateLimitedShare(bid.destinations);
 
   const intel = callGridIntelligence(report, now, { history, bidRejectRate, rateLimitedShare });
+
+  // The analysis becomes an operational record here, and only here. Detection is
+  // idempotent per analysis period, so re-rendering this page cannot inflate the
+  // log; see `callGridDetectionKey`.
+  const canAct = await hasPermission("intelligence", "update");
+  const ops = await loadOperationalQueue(
+    org,
+    intel.queue,
+    { window, now, logLimit: QUEUE_LIMIT },
+  );
+  // Names for owners. Read-only, and only the roster this organization can see.
+  const members: QueueMember[] = (await repositories.iam.listUsers(org))
+    .filter((m) => m.status === "ACTIVE")
+    .map((m) => ({ id: m.id, name: m.name, email: m.email }));
+  const returnTo = `/app/admin/marketplace${rangeQuery ? `?${rangeQuery}` : ""}`;
   const bidIntel = bidIntelligence(bid, now, desc.periodTitle, bidMatches);
   const compareShort = desc.comparisonTitle.split(" · ")[0];
 
@@ -193,34 +229,36 @@ export default async function CallGridIntelligencePage({
 
   const topBidConcern = bidIntel.priorityQueue[0] ?? null;
 
-  // Changes, not metrics: headline moves plus anomalies, severity-ordered. A
-  // metric restatement ("Revenue was $12,400") is deliberately not eligible here.
-  const biggestChanges = [...intel.changes, ...intel.anomalies].slice(0, 5);
-
-  // The watch list is ordered by Intelligence Score — what to look at first, not
-  // what happens to sort first. Brief items are excluded so the page does not
-  // repeat itself two sections later.
-  const briefIds = new Set(intel.brief.items.map((i) => i.finding.id));
-  const watchCards = intel.decisionSupport.filter(
-    (c) => c.recommendedReview !== null && !briefIds.has(c.findingId),
-  );
-
-  // The brief's own findings, rendered as decision support so the top of the page
-  // carries the same fact/judgment separation as the watch list.
-  const briefCards = intel.decisionSupport.filter((c) => briefIds.has(c.findingId));
+  // Where a Situation's numbers live. The queue names a business event; this is
+  // how an operator reaches the rows behind it. Derived from the entity the
+  // Situation is about — nothing is invented when there is no entity.
+  const DIM_ROUTE: Record<string, string> = {
+    buyer: "buyers", vendor: "vendors", source: "sources", campaign: "campaigns",
+    bid_source: "bids", bid_destination: "bids",
+  };
+  const hrefFor = (s: Situation): string | null => {
+    const entity = s.observations[0]?.affectedEntities[0];
+    const route = entity ? DIM_ROUTE[entity.entityType] : undefined;
+    if (!route) return null;
+    const q = rangeQuery ? `?${rangeQuery}` : "";
+    return `/app/admin/marketplace/${route}${q}`;
+  };
 
   return (
     <div className="loop-os">
       <div className="cmd cg-page">
-        {/* 1 — Header */}
+        {/* Header. The product's own nav renders here too — it already exists and
+            already carries the range, so the Overview no longer keeps a second
+            navigation of its own. */}
         <div className="cmd-head">
           <div className="cmd-head__main">
             <p className="cmd-head__greeting">CallGrid Intelligence</p>
             <p className="cmd-head__meta">{desc.headerLine}</p>
           </div>
         </div>
+        <CallGridNav active="overview" rangeQuery={rangeQuery} />
 
-        {/* 2 — Date control */}
+        {/* Period control */}
         <CallGridDateRange
           preset={window.preset}
           customStart={range.start}
@@ -235,74 +273,66 @@ export default async function CallGridIntelligencePage({
         ) : null}
 
         {/* ------------------------------------------------------------------
-            SECTION ORDER IS THE PRODUCT DECISION HERE.
+            THE FIRST SCREEN. Briefing, then the lanes, then at most three rows.
 
-            Intelligence leads; raw numbers are demoted to supporting evidence at
-            the bottom. A reader who opens this page for five minutes must reach
-            "what should my team do today" before they reach a metric tile — if
-            the tiles came first they would answer "what happened", which is the
-            question CallGrid already answers.
+            Nothing else may go above this. A section wanting to be here has to
+            displace one of the three, and the answer is almost always no — if the
+            operator has to scroll before they understand their business, the page
+            has failed.
            ------------------------------------------------------------------ */}
 
-        {/* 1 — Executive Intelligence Brief */}
-        <p className="cg-exec__headline cg-exec__headline--lede">{intel.executiveSummary.headline}</p>
-        <DecisionSupportSection
-          cards={briefCards}
-          limit={5}
-          sectionLabel="Executive Intelligence Brief"
-          emptyLine={intel.brief.emptyReason ?? 'No evidence-backed finding for this period.'}
+        <BriefingBlock
+          briefing={intel.briefing}
+          queue={intel.queue}
+          periodLabel={desc.periodTitle}
+          live={desc.live}
+          persistenceError={ops.persistenceError}
         />
 
-        {/* 2 — How these connect. Placed immediately after the brief so a reader
-             sees ONE business movement rather than five separate alarms. */}
-        <ReasoningSection reasoning={intel.reasoning} />
+        <LaneBar counts={ops.counts} unavailable={Boolean(ops.persistenceError)} />
 
-        {/* 3 — Business Health */}
-        <BusinessHealthSection health={intel.health} />
-
-        {/* 3 — Biggest Changes: changes and anomalies, never metric restatements. */}
-        <FindingList
-          sectionLabel="Biggest Changes"
-          findings={biggestChanges}
-          emptyLine={
-            report.comparison
-              ? "Nothing moved enough this period to clear the significance thresholds."
-              : "No comparison period is defined for this selection, so no change can be reported."
-          }
+        <QueueSection
+          items={ops.items}
+          emptyReason={intel.queue.emptyReason}
+          limit={QUEUE_LIMIT}
+          hrefFor={hrefFor}
+          members={members}
+          canAct={canAct}
+          returnTo={returnTo}
+          now={now}
         />
 
-        {/* 4 — Top Opportunities: as prominent as risks, per the design order. */}
-        <OpportunitiesSection opportunities={intel.opportunityFindings} />
+        <OpenWorkSection openWork={ops.openWork} members={members} now={now} />
 
-        {/* 5 — Top Risks */}
+        <DecisionActivitySection activity={ops.activity} />
+
+        {/* ------------------------------------------------------------------
+            BELOW THE FOLD. Reached by choosing to, never on the way to the queue.
+           ------------------------------------------------------------------ */}
+
+        {/* Money. Losses and available amounts are the same question — where is
+            the money — so they are one section ranked by magnitude rather than two
+            ranked by sign. Opportunities keep their impact-basis label: the amount
+            is measured exposure or an arithmetic gap, never predicted upside. */}
+        <OpportunitiesSection opportunities={intel.opportunityFindings} sectionLabel="Money Available" />
+
         <FindingList
-          sectionLabel="Top Risks"
+          sectionLabel="Risks Worth Attention"
           findings={intel.risks.slice(0, 4)}
           emptyLine="No evidence-backed risk for this period."
+          compact
         />
 
-        {/* 6 — Operational Watch List as DECISION SUPPORT, ordered by review
-             priority. Each card separates the measured fact from Loop's reading
-             of it, and states what information is missing before a decision. */}
-        <DecisionSupportSection
-          cards={watchCards}
-          limit={6}
-          sectionLabel="Operational Watch List"
-          emptyLine="Nothing is queued for review this period."
-        />
-
-        {/* 7 — Sequence and stability, both from completed periods only. */}
-        <IntelligenceTimeline events={intel.reasoning.timeline} />
-        <StabilitySection assessments={intel.reasoning.stability} />
-
-        {/* 8 — What Loop Cannot Determine */}
-        <UnknownsSection unknowns={[...intel.unknowns, ...bidIntel.unknowns]} />
-
-        {/* 8 — Trend and structural analysis */}
+        {/* Structural fragility. The band is a business statement; its determinacy
+            is the reason a LOW built from three of nine factors is not a clean
+            bill of health. */}
         <MarketplaceRiskPanel risk={intel.risk} />
 
-        {/* 9 — Metric summary. Below the intelligence, deliberately: these are the
-             evidence behind the conclusions above, not the headline. */}
+        {/* The narrative, promoted out of the page footer where nobody reached it. */}
+        <BusinessStorySection reasoning={intel.reasoning} />
+
+        {/* The numbers. Last, and framed as the audit trail for everything above
+             rather than as information in its own right. */}
         <div className="cg-sec">
           <p className="cg-seclabel">{desc.periodTitle}</p>
           <MetricTiles
@@ -313,29 +343,39 @@ export default async function CallGridIntelligencePage({
           />
         </div>
 
-        {report.comparison ? (
-          <div className="cg-sec">
-            <p className="cg-seclabel">{desc.comparisonTitle}</p>
-            <MetricTiles score={report.comparison} />
-            {desc.comparisonNote ? <p className="cg-covnote">{desc.comparisonNote}</p> : null}
+        {/* The comparison period, and the biggest names, both folded into the
+             numbers rather than given sections of their own. A second identical
+             four-tile grid restated what the per-tile delta already carries, and
+             "Top Buyer" is a leaderboard restatement of what CallGrid shows — it
+             survives here because it is also how an operator navigates. */}
+        <details className="cg-sec cg-numdetail">
+          <summary className="cg-seclabel cg-numdetail__summary">
+            Prior period, coverage and the biggest names
+          </summary>
+          <div className="cg-numdetail__body">
+            {report.comparison ? (
+              <>
+                <p className="cg-seclabel">{desc.comparisonTitle}</p>
+                <MetricTiles score={report.comparison} />
+                {desc.comparisonNote ? <p className="cg-covnote">{desc.comparisonNote}</p> : null}
+              </>
+            ) : (
+              <p className="cg-covnote">No comparison period is defined for this selection.</p>
+            )}
+            <div className="cg-tiles">
+              <PerformerTile label="Top Buyer" row={report.dimensions.buyers[0] ?? null} href={`/app/admin/marketplace/buyers?${rangeQuery}`} />
+              <PerformerTile label="Top Vendor" row={report.dimensions.vendors[0] ?? null} href={`/app/admin/marketplace/vendors?${rangeQuery}`} />
+              <PerformerTile label="Top Source" row={report.dimensions.sources[0] ?? null} href={`/app/admin/marketplace/sources?${rangeQuery}`} />
+              <PerformerTile label="Top Campaign" row={report.dimensions.campaigns[0] ?? null} href={`/app/admin/marketplace/campaigns?${rangeQuery}`} />
+            </div>
           </div>
-        ) : null}
+        </details>
 
-        {/* 10 — Top Performers (the ranked rows the subpages show) */}
-        <div className="cg-sec">
-          <p className="cg-seclabel">Top Performers</p>
-          <div className="cg-tiles">
-            <PerformerTile label="Top Buyer" row={report.dimensions.buyers[0] ?? null} href={`/app/admin/marketplace/buyers?${rangeQuery}`} />
-            <PerformerTile label="Top Vendor" row={report.dimensions.vendors[0] ?? null} href={`/app/admin/marketplace/vendors?${rangeQuery}`} />
-            <PerformerTile label="Top Source" row={report.dimensions.sources[0] ?? null} href={`/app/admin/marketplace/sources?${rangeQuery}`} />
-            <PerformerTile label="Top Campaign" row={report.dimensions.campaigns[0] ?? null} href={`/app/admin/marketplace/campaigns?${rangeQuery}`} />
-          </div>
-        </div>
-
-        {/* 11 — Bids Overview (snapshot grain; links to the Bids workspace) */}
+        {/* Bids. Snapshot grain, fenced with its own window label because it does
+             not honour the selected period — a provenance fact, not a caveat. */}
         <div className="cg-sec">
           <div className="cg-sechead">
-            <p className="cg-seclabel">Bids Overview</p>
+            <p className="cg-seclabel">Bids · latest snapshot</p>
             <Link className="cg-seclink" href={`/app/admin/marketplace/bids?${rangeQuery}`}>Open Bids →</Link>
           </div>
           {!bid.ok ? (
@@ -377,20 +417,21 @@ export default async function CallGridIntelligencePage({
           )}
         </div>
 
-        {/* Business Story — the executive narrative that closes the page. */}
-        <BusinessStorySection reasoning={intel.reasoning} />
+        {/* What Loop could not determine. One line at the foot, expandable —
+             demoted from a section, but never deleted. A product that shows
+             conclusions while hiding their limits is not one you can delegate to,
+             and this is what makes the rest believable. */}
+        <UnknownsSection
+          unknowns={[...intel.unknowns, ...bidIntel.unknowns]}
+          sectionLabel="What Loop could not determine about this period"
+        />
 
-        {/* Quick Access (navigate only; carries the selected range) */}
-        <div className="cg-sec">
-          <p className="cg-seclabel">Quick Access</p>
-          <div className="cg-qa">
-            {QUICK.map((q) => (
-              <Link className="tile cg-qatile" href={rangeQuery ? `${q.href}?${rangeQuery}` : q.href} key={q.href}>
-                <span className="tile__title">{q.label}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
+        {/* Provenance. The last line on the page. */}
+        <p className="q-prov">
+          {desc.headerLine}
+          {desc.comparisonNote ? ` · ${desc.comparisonNote}` : ""}
+          {` · read ${easternClock(now)}`}
+        </p>
       </div>
     </div>
   );
