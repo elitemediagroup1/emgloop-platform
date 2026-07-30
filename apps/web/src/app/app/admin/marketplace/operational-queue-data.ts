@@ -52,7 +52,10 @@ export interface LivePriority {
   /** Null only when persistence failed — the analysis still renders. */
   record: OperationalPriority | null;
   state: PriorityState;
+  /** ACCOUNTABILITY — who answers for this. */
   ownerUserId: string | null;
+  /** EXECUTION — who is working it now. Separate question, separate answer. */
+  assigneeUserId: string | null;
   reopenCount: number;
   /** How many distinct analysis periods have seen this. 1 means "first time". */
   detectionCount: number;
@@ -250,6 +253,7 @@ export async function loadOperationalQueue(
         record: priority,
         state: priority.state as PriorityState,
         ownerUserId: priority.ownerUserId,
+        assigneeUserId: priority.assigneeUserId,
         reopenCount: priority.reopenCount,
         detectionCount: priority.detectionCount,
         firstDetectedAt: priority.firstDetectedAt,
@@ -258,8 +262,12 @@ export async function loadOperationalQueue(
       });
     }
 
-    // Logs for the rows that will actually render.
-    for (const item of items.slice(0, context.logLimit ?? 3)) {
+    // Logs for every row that renders. The queue now shows EVERY decision rather
+    // than a capped few, so a cap here would mean a card whose history silently
+    // came back empty — the one failure mode a queue built on an append-only log
+    // cannot have. One indexed read per decision, over a list the engine already
+    // keeps small.
+    for (const item of items.slice(0, context.logLimit ?? items.length)) {
       if (!item.record) continue;
       const log = await decisionEngine.getHistory(organizationId, item.record.id);
       item.log = log;
@@ -278,6 +286,7 @@ export async function loadOperationalQueue(
         record: null,
         state: "NEEDS_REVIEW",
         ownerUserId: null,
+        assigneeUserId: null,
         reopenCount: 0,
         detectionCount: 0,
         firstDetectedAt: null,

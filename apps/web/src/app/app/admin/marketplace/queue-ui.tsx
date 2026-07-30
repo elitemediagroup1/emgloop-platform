@@ -19,6 +19,18 @@
 // timeline). Collapsing those into one voice is how a product starts sounding
 // like it knows more than it does.
 //
+// THIS IS AN INBOX, NOT A REPORT. Every decision is on the page — there is no
+// "N more tracked" and nothing is behind a count. What differs is how much room
+// each gets: the few that need a decision get full cards, the rest get compact
+// ones, owned work gets a line, closed work collapses. A reader who suspects the
+// product is withholding items stops trusting the count, and then stops trusting
+// the queue, so tiering is a presentation choice that must never become a filter.
+//
+// THE EYE SHOULD LAND ON THE ACTION. Within a card the recommended action is the
+// largest thing after the title. What happened is context for the decision, not
+// the point of the card — an operator opening this at 8am needs to know what to
+// DO, and the measurement is how they check it afterwards.
+//
 // Presentational server components only. The expansions are native <details>, so
 // inspecting a conclusion costs no client JavaScript.
 
@@ -29,8 +41,10 @@ import type {
 } from '@emgloop/shared';
 import {
   ESCALATION_LABEL, REVIEW_URGENCY_LABEL, PRIORITY_STATES, OPERATIONAL_OUTCOMES,
-  standingOf,
+  standingOf, confidenceOf, whyItMatters, expectedOutcomes, tierDecisions,
+  HEALTH_BAND_LABEL,
 } from '@emgloop/shared';
+import type { BusinessHealth, EvidenceStrength } from '@emgloop/shared';
 import type { OperationalObservation, OperationalPriority } from '@emgloop/database';
 import { EvidenceDrawer } from './intelligence-ui';
 import type { LivePriority } from './operational-queue-data';
@@ -125,37 +139,90 @@ function verdictOf(s: Situation): string {
  * start with and why. A COO does not just list; they sequence, and the reason
  * for the sequence is the single most valuable string here.
  */
-export function BriefingBlock({
-  briefing, queue, periodLabel, live, persistenceError,
+/**
+ * The first five seconds.
+ *
+ * Answers "what kind of day is this" before anything else, then names what needs
+ * a person and why to start there. Written to sound like a colleague rather than
+ * a report — but every clause is sourced: the health verdict comes from the
+ * health model (which returns UNKNOWN rather than HEALTHY when it cannot
+ * measure), the counts come from the queue, and the money is measured.
+ *
+ * DELIBERATELY ABSENT: an estimated review time. Nothing measures how long a
+ * review takes, so a figure there would be the one invented number on a page
+ * built to have none. Once enough decisions have been closed, the record can
+ * answer it from median time-to-first-decision — and until then it says nothing
+ * rather than guessing.
+ *
+ * There is also no claim of authorship. No LLM wrote this; it is deterministic
+ * template language, and implying otherwise would be the fake-AI failure by name.
+ */
+export function ExecutiveBrief({
+  briefing, situationCount, needingDecision, health, operatorName, periodLabel,
+  live, updatedLabel, persistenceError,
 }: {
   briefing: Briefing;
-  queue: SituationQueue;
+  situationCount: number;
+  needingDecision: number;
+  health: BusinessHealth;
+  operatorName: string | null;
   periodLabel: string;
   live: boolean;
+  updatedLabel: string;
   persistenceError?: string | null;
 }) {
+  const band = health.overall.band;
+  const greeting = operatorName ? `Good day, ${operatorName}.` : 'Good day.';
+
   return (
-    <section className="q-brief" aria-label="Briefing">
-      <p className="q-brief__period">
-        {periodLabel}
-        {live ? <span className="q-brief__live"> · still in progress</span> : null}
+    <section className="xb" aria-label="Briefing">
+      <div className="xb__top">
+        <p className="xb__greet">{greeting}</p>
+        <span className={'xb__pulse xb__pulse--' + (live ? 'live' : 'done')}>
+          <span className="xb__dot" aria-hidden="true" />
+          {live ? 'Live' : 'Completed'} · {periodLabel} · updated {updatedLabel}
+        </span>
+      </div>
+
+      {/* The verdict. Sourced from the health model, never asserted here — and
+          UNKNOWN is rendered as UNKNOWN, because "we could not read the data" and
+          "everything is fine" must never look the same. */}
+      <p className={'xb__verdict xb__verdict--' + band.toLowerCase()}>
+        {band === 'UNKNOWN'
+          ? 'Loop could not establish overall health for this period.'
+          : `Marketplace health: ${HEALTH_BAND_LABEL[band].toLowerCase()}.`}
+        <span className="xb__verdictwhy">{health.overall.explanation}</span>
       </p>
-      <p className="q-brief__opener">{briefing.opener}</p>
-      {briefing.sequencing ? <p className="q-brief__seq">{briefing.sequencing}</p> : null}
-      {briefing.measuredImpactCents !== null ? (
-        <p className="q-brief__total">
-          <span className="q-brief__totalnum">{money(briefing.measuredImpactCents)}</span>
-          <span className="q-brief__totallabel">
-            measured across {queue.situations.length} item{queue.situations.length === 1 ? '' : 's'}
+
+      <div className="xb__counts">
+        <span className="xb__count">
+          <b>{needingDecision}</b> need a decision
+        </span>
+        <span className="xb__count xb__count--muted">
+          <b>{situationCount}</b> tracked this period
+        </span>
+        {briefing.measuredImpactCents !== null ? (
+          <span className="xb__count xb__count--money">
+            <b>{money(briefing.measuredImpactCents)}</b> measured
             {briefing.unpricedCount > 0
-              ? ` · ${briefing.unpricedCount} carr${briefing.unpricedCount === 1 ? 'ies' : 'y'} no amount Loop can measure`
+              ? ` · ${briefing.unpricedCount} unmeasurable`
               : ''}
           </span>
+        ) : null}
+      </div>
+
+      {/* The single most valuable sentence on the page: not what is wrong, but
+          which one to start with and why. A COO sequences; they do not list. */}
+      {briefing.sequencing ? (
+        <p className="xb__seq">
+          <a className="xb__cta" href="#decision-queue">Open the queue</a>
+          <span className="xb__seqtext">{briefing.sequencing}</span>
         </p>
-      ) : null}
-      {/* A degraded operational record is stated at the top, not discovered by an
-          operator wondering why their assignment disappeared. */}
-      {persistenceError ? <p className="q-brief__degraded">{persistenceError}</p> : null}
+      ) : (
+        <p className="xb__seq"><span className="xb__seqtext">{briefing.opener}</span></p>
+      )}
+
+      {persistenceError ? <p className="xb__degraded">{persistenceError}</p> : null}
     </section>
   );
 }
@@ -407,11 +474,14 @@ function ActionBar({
   }
 
   const closed = item.state === 'RESOLVED' || item.state === 'DISMISSED';
+  const outcomes = expectedOutcomes(item.situation);
 
   return (
     <div className="q-do">
       {!closed ? (
         <>
+          {/* Assignment first: the commonest action on an undecided item is
+              giving it to somebody. */}
           <form action={assignAction} className="q-do__row">
             <HiddenFields priorityId={id} returnTo={returnTo} />
             <label className="q-do__lbl" htmlFor={`a-${id}`}>Owner</label>
@@ -467,10 +537,17 @@ function ActionBar({
           <form action={resolveAction} className="q-do__form">
             <HiddenFields priorityId={id} returnTo={returnTo} />
             <p className="q-do__formh">Resolve</p>
-            <label className="q-do__lbl" htmlFor={`o-${id}`}>What happened</label>
+            {/* EXPECTED OUTCOME. Every decision should have a visible end, so an
+                operator knows what "done" looks like before they start. These are
+                the lifecycle's terminal states in business language — not
+                predictions, and Loop never says which one will happen. A weakly
+                evidenced decision leads with "Loop should not have raised this",
+                because burying that would suppress the feedback the intelligence
+                needs most. */}
+            <label className="q-do__lbl" htmlFor={`o-${id}`}>How this ends</label>
             <select className="q-do__sel" id={`o-${id}`} name="outcome" defaultValue="UNKNOWN">
-              {OPERATIONAL_OUTCOMES.map((o) => (
-                <option key={o} value={o}>{OUTCOME_LABEL[o] ?? o}</option>
+              {outcomes.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
             <label className="q-do__lbl" htmlFor={`e-${id}`}>
@@ -667,6 +744,27 @@ function StandingBlock({
 }
 
 /**
+ * How much to trust this decision, and what that rests on.
+ *
+ * The strength is the engine's own evidence grade — coverage-capped, and an
+ * engine-declared INSUFFICIENT can never be upgraded here. The basis is
+ * countable, because an operator who disagrees with a badge needs to see what
+ * produced it.
+ */
+function ConfidenceBadge({ confidence }: { confidence: ReturnType<typeof confidenceOf> }) {
+  const tone = confidence.strength.toLowerCase();
+  return (
+    <span
+      className={'q-conf q-conf--' + tone}
+      title={confidence.basis.join(' · ')}
+    >
+      <span className="q-conf__dot" aria-hidden="true" />
+      {confidence.label}
+    </span>
+  );
+}
+
+/**
  * One queue row: rank, name, verdict, money, the decision, one line of why.
  *
  * A card invites reading; a row invites choosing. The operator picks one and
@@ -675,7 +773,7 @@ function StandingBlock({
  * useful thing to know before reading any further.
  */
 export function SituationRow({
-  item, rank, entityHref, members, canAct, returnTo, now,
+  item, rank, entityHref, members, canAct, returnTo, now, tier = 'primary',
 }: {
   item: LivePriority;
   rank: number;
@@ -684,24 +782,36 @@ export function SituationRow({
   canAct: boolean;
   returnTo: string;
   now: Date;
+  /** How much room this card gets. Never how much information it contains. */
+  tier?: 'primary' | 'compact';
 }) {
   const s = item.situation;
   const owned = item.state === 'ASSIGNED' || item.state === 'WATCHING';
   const closed = item.state === 'RESOLVED' || item.state === 'DISMISSED';
+  const confidence = confidenceOf(s);
+  const why = whyItMatters(s);
 
   return (
-    <article className={'q-row q-row--' + railTone(s, item.state)} aria-label={s.title}>
+    <article
+      className={'q-row q-row--' + railTone(s, item.state) + ' q-row--' + tier}
+      aria-label={s.title}
+    >
       <div className="q-row__rail" aria-hidden="true" />
       <div className="q-row__body">
         <div className="q-row__top">
           <span className="q-row__rank" aria-hidden="true">{rank}</span>
           <h3 className="q-row__title">{s.title}</h3>
-          {/* Once somebody owns it, the engine's urgency stops being the headline —
-              the human fact outranks it. */}
+          {/* Confidence sits beside the title on EVERY card. Loop is a decision
+              system; how much to trust a decision is not a detail to be found
+              later, and a badge with no stated basis is just a colour — the
+              basis is one hover or one expansion away, never absent. */}
+          <ConfidenceBadge confidence={confidence} />
+          {/* Once somebody owns it, the engine's urgency stops being the headline
+              — the human fact outranks it. */}
           {owned || closed ? (
             <span className={'q-row__state q-row__state--' + item.state.toLowerCase()}>
               {STATE_LABEL[item.state]}
-              {item.ownerUserId ? ` · ${nameOf(members, item.ownerUserId)}` : ''}
+              {item.assigneeUserId ? ` · ${nameOf(members, item.assigneeUserId)}` : ''}
             </span>
           ) : (
             <span className="q-row__verdict">{verdictOf(s)}</span>
@@ -714,18 +824,41 @@ export function SituationRow({
           {item.detectionCount > 1 ? (
             <span className="q-row__seen">seen {item.detectionCount}×</span>
           ) : null}
-          {s.observationCount > 1 ? (
-            <span className="q-row__merged" title="Loop merged related observations into one item">
-              {s.observationCount} observations
-            </span>
-          ) : null}
         </div>
 
-        <p className="q-row__money">{money(s.impact.amountCents)}</p>
-        <p className="q-row__moneylabel">{s.impact.label.toLowerCase()}</p>
+        {/* One sentence. What happened, measured, no interpretation. */}
+        <p className="q-row__sum">{s.whatHappened}</p>
 
-        {s.decision ? <p className="q-row__decision">{s.decision}</p> : null}
-        <p className="q-row__why">{s.whyItMatters}</p>
+        {/* THE FOCAL POINT. The eye should land on what to DO, not on what
+            happened — the measurement is how an operator checks the decision
+            afterwards, not how they make it. */}
+        {s.decision ? <p className="q-row__action">{s.decision}</p> : null}
+
+        {/* Why it matters, in consequences rather than deltas. "1039 moved from
+            #1 to #6" means nothing; "44% of buyer revenue sits with one buyer"
+            is a thing a person can act on. Null when nothing measurable
+            follows, rather than filled with a restatement of the title. */}
+        {why ? (
+          <p className="q-row__why">
+            <span className="q-row__whylabel">Why this matters</span>
+            {why}
+          </p>
+        ) : null}
+
+        <div className="q-row__facts">
+          <span className={'q-chip q-chip--' + (s.impact.amountCents === null ? 'unknown' : 'money')}>
+            {money(s.impact.amountCents)}
+            <span className="q-chip__note">{s.impact.label.toLowerCase()}</span>
+          </span>
+          <span className="q-chip">
+            {s.observationCount} observation{s.observationCount === 1 ? '' : 's'}
+            <span className="q-chip__note">merged</span>
+          </span>
+          <span className="q-chip">
+            {item.ownerUserId ? nameOf(members, item.ownerUserId) : 'Unowned'}
+            <span className="q-chip__note">accountable</span>
+          </span>
+        </div>
 
         {canAct ? (
           <ActionBar item={item} members={members} returnTo={returnTo} />
@@ -855,86 +988,165 @@ export function SituationRow({
  * what is UNDECIDED, and a critical item somebody is already handling is not the
  * reader's next action.
  */
+/**
+ * The queue. An inbox, not a report.
+ *
+ * EVERY decision is on this page. There is no "N more tracked", nothing behind a
+ * count and nothing collapsed away that still needs a person — the tiers change
+ * how much ROOM an item gets, never whether it appears. An operator who suspects
+ * the product is hiding items stops trusting the count, and a queue nobody trusts
+ * is a report with buttons.
+ *
+ * Four tiers, in the order attention should flow:
+ *   1. Needs a decision — full cards, action-first, the first three.
+ *   2. Also undecided   — compact cards, same information, less room.
+ *   3. Someone has it   — one line each; it is not the reader's problem today.
+ *   4. Closed           — collapsed, because the record is what matters now.
+ */
 export function QueueSection({
-  items, emptyReason, limit = 3, hrefFor, members, canAct, returnTo, now,
+  items, emptyReason, hrefFor, members, canAct, returnTo, now,
 }: {
   items: LivePriority[];
   emptyReason: string | null;
-  limit?: number;
   hrefFor: (s: Situation) => string | null;
   members: QueueMember[];
   canAct: boolean;
   returnTo: string;
   now: Date;
 }) {
-  const undecided = items.filter((i) => i.state === 'NEEDS_REVIEW');
-  const handled = items.filter((i) => i.state !== 'NEEDS_REVIEW');
-  const shown = undecided.slice(0, limit);
-  const held = undecided.length - shown.length;
+  const tiers = tierDecisions(
+    items,
+    (i) => ({
+      undecided: i.state === 'NEEDS_REVIEW',
+      closed: i.state === 'RESOLVED' || i.state === 'DISMISSED',
+    }),
+  );
 
   if (items.length === 0) {
     return (
-      <section className="q-empty" aria-label="Nothing needs attention">
+      <section className="q-empty" id="decision-queue" aria-label="Nothing needs attention">
         <p className="q-empty__text">{emptyReason}</p>
       </section>
     );
   }
 
+  let rank = 0;
+  const nextRank = () => (rank += 1);
+
   return (
-    <div className="q-queue">
-      {shown.length === 0 ? (
+    <div className="q-queue" id="decision-queue">
+      {/* --- Needs a decision ------------------------------------------- */}
+      {tiers.primary.length > 0 ? (
+        <>
+          <TierHead
+            tone="fire"
+            label="Needs a decision"
+            count={tiers.primary.length + tiers.active.length}
+          />
+          {tiers.primary.map((item) => (
+            <SituationRow
+              key={item.situation.id}
+              item={item}
+              rank={nextRank()}
+              entityHref={hrefFor(item.situation)}
+              members={members}
+              canAct={canAct}
+              returnTo={returnTo}
+              now={now}
+              tier="primary"
+            />
+          ))}
+        </>
+      ) : (
         <section className="q-empty" aria-label="Nothing undecided">
           <p className="q-empty__text">
-            Everything Loop found this period has been decided on. {handled.length} item
-            {handled.length === 1 ? ' is' : 's are'} owned, watched or closed below.
+            Everything Loop found this period has been decided on.
           </p>
         </section>
+      )}
+
+      {/* --- Also undecided, compact ------------------------------------- */}
+      {tiers.active.length > 0 ? (
+        <>
+          <TierHead tone="warn" label="Also waiting on a decision" count={tiers.active.length} />
+          {tiers.active.map((item) => (
+            <SituationRow
+              key={item.situation.id}
+              item={item}
+              rank={nextRank()}
+              entityHref={hrefFor(item.situation)}
+              members={members}
+              canAct={canAct}
+              returnTo={returnTo}
+              now={now}
+              tier="compact"
+            />
+          ))}
+        </>
       ) : null}
 
-      {shown.map((item, i) => (
-        <SituationRow
-          key={item.situation.id}
-          item={item}
-          rank={i + 1}
-          entityHref={hrefFor(item.situation)}
-          members={members}
-          canAct={canAct}
-          returnTo={returnTo}
-          now={now}
-        />
-      ))}
-
-      {held > 0 ? (
-        <p className="q-held">
-          {held} more undecided
-          {' · '}
-          <span className="q-held__note">
-            Loop surfaces at most {limit} so the list stays a decision rather than a report.
-          </span>
-        </p>
+      {/* --- Someone has it ---------------------------------------------- */}
+      {tiers.monitoring.length > 0 ? (
+        <>
+          <TierHead tone="calm" label="Someone has it" count={tiers.monitoring.length} />
+          <ul className="q-lines">
+            {tiers.monitoring.map((item) => (
+              <li className="q-line" key={item.situation.id}>
+                <span className={'q-line__state q-line__state--' + item.state.toLowerCase()}>
+                  {STATE_LABEL[item.state]}
+                </span>
+                <span className="q-line__title">{item.situation.title}</span>
+                <span className="q-line__who">
+                  {item.assigneeUserId
+                    ? nameOf(members, item.assigneeUserId)
+                    : item.ownerUserId
+                      ? `${nameOf(members, item.ownerUserId)} (owner)`
+                      : 'Unassigned'}
+                </span>
+                <span className="q-line__age">
+                  {since(item.record?.stateChangedAt ?? item.firstDetectedAt, now)}
+                </span>
+                <span className="q-line__money">{money(item.situation.impact.amountCents)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       ) : null}
 
-      {handled.length > 0 ? (
+      {/* --- Closed ------------------------------------------------------- */}
+      {tiers.closed.length > 0 ? (
         <details className="q-handled">
           <summary className="q-handled__summary">
-            {handled.length} already decided this period
+            {tiers.closed.length} closed this period
           </summary>
           <div className="q-handled__body">
-            {handled.map((item, i) => (
+            {tiers.closed.map((item) => (
               <SituationRow
                 key={item.situation.id}
                 item={item}
-                rank={shown.length + i + 1}
+                rank={nextRank()}
                 entityHref={hrefFor(item.situation)}
                 members={members}
                 canAct={canAct}
                 returnTo={returnTo}
                 now={now}
+                tier="compact"
               />
             ))}
           </div>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+/** A tier heading. Weight and colour carry the priority; the words confirm it. */
+function TierHead({ tone, label, count }: { tone: string; label: string; count: number }) {
+  return (
+    <div className={'q-tier q-tier--' + tone}>
+      <span className="q-tier__dot" aria-hidden="true" />
+      <span className="q-tier__label">{label}</span>
+      <span className="q-tier__count">{count}</span>
     </div>
   );
 }
