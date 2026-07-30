@@ -1,9 +1,11 @@
 # Migration Remediation Plan (release blocker)
 
-**Status:** OPEN — tracked release blocker. The Loop Cognitive Architecture is
-**not production-ready** until this is resolved. This plan is documentation only;
-**no repair is performed in the cognitive-architecture branch** (one objective per
-branch, and migration repair touches release tooling, not cognitive code).
+**Status:** OPEN — tracked release blocker. It now blocks **two** workstreams: the
+Loop Cognitive Architecture (PR #148) and the operational decision lifecycle
+(PR #151). Neither is production-ready until this is resolved.
+
+**Step 1 (the code fix) is DONE** — see §3a. Steps 2 onward are human-run against
+production and remain open. Nothing in any feature branch performs them.
 
 **Owner action required:** a human runs the controlled deployment steps below.
 Do **not** run `prisma migrate deploy` against production until step 3 is done.
@@ -43,8 +45,34 @@ assume idempotent.
 - makes the file replay cleanly on a database from zero.
 
 The fix is a one-character-class comment correction, done in a **dedicated PR**
-(not this one), with the same correction applied to the other four em-dash headers
-opportunistically (pure hygiene, no behavior change).
+(not this one).
+
+**The other four em-dash headers were deliberately LEFT ALONE.** They already
+replay cleanly (proven below), so editing them would buy nothing and would change
+four more migration checksums — and a changed checksum makes Prisma refuse to run
+against any database that has already recorded the old one. Touching the minimum
+number of historical files is the safer trade.
+
+## 3a. The fix, and the proof it works (done)
+
+Reproduced and verified against a throwaway PostgreSQL 16 instance, from an
+EMPTY database, in both directions:
+
+- **Before the fix**, `prisma migrate deploy` fails exactly as described above:
+  `P3018` / database error `42601`, `syntax error at or near "—"`, position 1 of
+  `20250626000000_sprint_11_provider_category_ingestion_analytics`.
+- **After the fix** (leading `—--` -> `--`, zero executable DDL changed), all
+  **10** migrations apply from empty and `migrate status` reports
+  *Database schema is up to date!*
+- **No drift**: `prisma migrate diff --from-url <replayed-db>
+  --to-schema-datamodel schema.prisma` returns *This is an empty migration* —
+  the replayed database matches the datamodel exactly, so a green `deploy` is not
+  hiding a divergence.
+- **69 tables** in `public` (68 modelled + `_prisma_migrations`).
+
+This closes the first exit-criterion box. It does **not** close the others: the
+remaining steps touch production and require a human, a backup, and a restore
+test.
 
 ## 4. How Prisma migration history will be baselined
 
@@ -153,7 +181,9 @@ DATABASE_URL="$PROD_URL" npx prisma migrate status
 
 ## Exit criteria (all required to lift the blocker)
 
-- [ ] `sprint_11` comment fixed (dedicated PR) and from-zero replay green in CI.
+- [x] `sprint_11` comment fixed (dedicated PR) and from-zero replay verified on a
+      throwaway Postgres 16 (see §3a). **Still not enforced in CI — there is no CI
+      gate on `main` at all, so this remains a human check until one exists.**
 - [ ] Production backed up and restore-tested.
 - [ ] Production baselined (`_prisma_migrations` populated; `migrate status` clean).
 - [ ] Cognitive migrations applied via `migrate deploy`; 18 tables verified.
