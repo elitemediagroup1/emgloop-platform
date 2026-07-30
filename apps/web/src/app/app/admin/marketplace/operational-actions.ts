@@ -12,8 +12,10 @@
 //      no action here reads one.
 //   3. The priority is resolved WITHIN that organization by the repository, which
 //      fails closed to null. A cross-org id is not-found, never forbidden.
-//   4. An immutable observation is appended, and the state is recomputed from the
-//      whole log. There is no path that sets a state without recording why.
+//   4. The DECISION ENGINE performs the write. These actions never touch a
+//      repository, never append an observation themselves and never write a
+//      projection column — the engine owns the transaction, the projection and
+//      the domain event, and doing any of it here would skip the other two.
 //   5. The affected routes are revalidated.
 //
 // There is no action that edits or deletes an observation, because there is no
@@ -23,7 +25,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { requirePermission } from '../../../../auth/guard';
-import { repositories } from '@emgloop/database';
+import { decisionEngine, repositories } from '@emgloop/database';
 import type { OperationalOutcome, OperationalObservationType } from '@emgloop/database';
 import { OPERATIONAL_OUTCOMES } from '@emgloop/shared';
 
@@ -88,7 +90,7 @@ async function record(
   observationType: OperationalObservationType,
   build: (formData: FormData) => {
     note?: string | null;
-    assignedToUserId?: string | null;
+    reason?: string | null;
     outcome?: OperationalOutcome | null;
     measuredEffectCents?: number | null;
     measuredEffectBasis?: string | null;
@@ -97,21 +99,14 @@ async function record(
   const session = await requirePermission('intelligence', 'update');
   const priorityId = requiredField(formData, 'priorityId');
 
-  await repositories.operationalPriorities.recordObservation(
-    session.organizationId,
-    priorityId,
-    {
-      observationType,
-      // The operator is recording something as it happens. A backdating control
-      // is deliberately absent: it would let the durations Loop reports be shaped
-      // by hand, and nothing in this branch needs it.
-      occurredAt: new Date(),
-      actorType: 'HUMAN',
-      actorUserId: session.userId,
-      source: 'operator',
-      ...build(formData),
-    },
-  );
+  await decisionEngine.addObservation(session.organizationId, priorityId, {
+    observationType,
+    // The operator is recording something as it happens. A backdating control is
+    // deliberately absent: it would let the durations Loop reports be shaped by
+    // hand, and nothing here needs it.
+    actor: { type: 'HUMAN', userId: session.userId, source: 'operator' },
+    ...build(formData),
+  });
 
   revalidatePath(MARKETPLACE_ROOT);
   revalidatePath(backTo(formData));
@@ -146,27 +141,19 @@ export async function assignAction(formData: FormData): Promise<void> {
     throw new Error('That person is not an active member of this organization');
   }
 
-  const existing = await repositories.operationalPriorities.findById(
-    session.organizationId,
-    priorityId,
-  );
-  if (!existing) return; // Not-found, and no audit entry for a write that did not happen.
-
-  await repositories.operationalPriorities.recordObservation(
-    session.organizationId,
-    priorityId,
-    {
-      // Re-assignment is a different fact from first assignment, and conflating
-      // them would lose "how long before this got an owner".
-      observationType: existing.ownerUserId ? 'OWNER_CHANGED' : 'ASSIGNED',
-      occurredAt: new Date(),
-      actorType: 'HUMAN',
-      actorUserId: session.userId,
-      source: 'operator',
-      assignedToUserId: assignee,
+  // The engine decides whether this is a first assignment or a handover, and
+  // resolves the decision within the organization. A cross-org id throws
+  // DecisionNotFoundError, which is not-found rather than forbidden.
+  try {
+    await decisionEngine.assign(session.organizationId, priorityId, {
+      actor: { type: 'HUMAN', userId: session.userId, source: 'operator' },
+      assigneeUserId: assignee,
       note: optionalText(formData, 'note'),
-    },
-  );
+    });
+  } catch (e) {
+    if ((e as { code?: string })?.code === 'DECISION_NOT_FOUND') return;
+    throw e;
+  }
 
   revalidatePath(MARKETPLACE_ROOT);
   revalidatePath(backTo(formData));
@@ -176,6 +163,10 @@ export async function assignAction(formData: FormData): Promise<void> {
 
 export async function watchAction(formData: FormData): Promise<void> {
   await record(formData, 'WATCH_STARTED', (f) => ({ note: optionalText(f, 'note') }));
+}
+
+export async function escalateDecisionAction(formData: FormData): Promise<void> {
+  await record(formData, 'ESCALATED', (f) => ({ note: optionalText(f, 'note') }));
 }
 
 export async function stopWatchingAction(formData: FormData): Promise<void> {
@@ -232,12 +223,17 @@ export async function recordOutcomeAction(formData: FormData): Promise<void> {
 // --- Closing ----------------------------------------------------------------
 
 export async function resolveAction(formData: FormData): Promise<void> {
-  await record(formData, 'RESOLVED', (f) => ({
-    outcome: parseOutcome(f),
-    measuredEffectCents: parseEffectCents(f),
-    measuredEffectBasis: optionalText(f, 'effectBasis', 500),
-    note: optionalText(f, 'note'),
-  }));
+  const session = await requirePermission('intelligence', 'update');
+  const priorityId = requiredField(formData, 'priorityId');
+  await decisionEngine.resolve(session.organizationId, priorityId, {
+    actor: { type: 'HUMAN', userId: session.userId, source: 'operator' },
+    outcome: parseOutcome(formData),
+    measuredEffectCents: parseEffectCents(formData),
+    measuredEffectBasis: optionalText(formData, 'effectBasis', 500),
+    note: optionalText(formData, 'note'),
+  });
+  revalidatePath(MARKETPLACE_ROOT);
+  revalidatePath(backTo(formData));
 }
 
 /**
@@ -250,8 +246,16 @@ export async function resolveAction(formData: FormData): Promise<void> {
  * "dismissed" would destroy the only feedback Loop gets about its own accuracy.
  */
 export async function dismissAction(formData: FormData): Promise<void> {
-  await record(formData, 'DISMISSED', (f) => ({
-    outcome: parseOutcome(f),
-    note: optionalText(f, 'note'),
-  }));
+  const session = await requirePermission('intelligence', 'update');
+  const priorityId = requiredField(formData, 'priorityId');
+  // `ignore` is the action; the OUTCOME carries why. "Dismissed" alone records
+  // what the operator did and nothing about what was true.
+  await decisionEngine.ignore(session.organizationId, priorityId, {
+    actor: { type: 'HUMAN', userId: session.userId, source: 'operator' },
+    outcome: parseOutcome(formData),
+    reason: optionalText(formData, 'note'),
+    note: optionalText(formData, 'note'),
+  });
+  revalidatePath(MARKETPLACE_ROOT);
+  revalidatePath(backTo(formData));
 }
