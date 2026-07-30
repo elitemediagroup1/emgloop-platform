@@ -457,6 +457,7 @@ export class OperationalPriorityRepository {
           ...extra,
           state: projection.state,
           ownerUserId: projection.ownerUserId,
+          assigneeUserId: projection.assigneeUserId,
           stateChangedAt: projection.stateChangedAt,
           reopenCount: projection.reopenCount,
           resolvedAt: projection.resolvedAt,
@@ -492,6 +493,7 @@ export class OperationalPriorityRepository {
       data: {
         state: projection.state,
         ownerUserId: projection.ownerUserId,
+        assigneeUserId: projection.assigneeUserId,
         stateChangedAt: projection.stateChangedAt,
         reopenCount: projection.reopenCount,
         resolvedAt: projection.resolvedAt,

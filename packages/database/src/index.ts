@@ -55,6 +55,12 @@ export * from './integration-catalog';
 // Loop Cognitive Architecture — event processing pipeline (Increment 2).
 // Server-only; built on the Increment 1 cognitive repositories.
 export * from './services/cognitive';
+// The Decision Engine — the canonical producer-facing service for turning
+// intelligence into durable operational decisions. Producers use THIS, never the
+// underlying repositories: reaching past it bypasses the transaction boundary,
+// the projection and the outbox publication in one go.
+export * from './services/decision';
+import { createDecisionEngine } from './services/decision';
 
 // Auction report ingestion — bounded, single-UTC-day, idempotent.
 export { AuctionReportIngestionService, BID_TOTAL_FIELDS, REJECTION_TOTAL_FIELDS, PING_TOTAL_FIELDS } from './services/auction-report-ingestion.service';
@@ -110,6 +116,16 @@ export * from './work-os/start-work';
 export * from './work-os/workflow';
 
 export const repositories: Repositories = createRepositories(prisma);
+
+/**
+ * The Decision Engine, over the shared client.
+ *
+ * THE producer-facing surface for operational decisions. A producer uses this and
+ * never `repositories.operationalPriorities` — reaching past it skips the
+ * transaction boundary, the projection rewrite and the outbox publication in one
+ * go, and each of those failures is silent.
+ */
+export const decisionEngine = createDecisionEngine(prisma);
 
 export * from '@prisma/client';
 export default prisma;

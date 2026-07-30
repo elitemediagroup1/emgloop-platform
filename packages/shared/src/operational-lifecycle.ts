@@ -52,7 +52,12 @@ export const OBSERVATION_TYPES = [
   'REOPENED',
   'REVIEWED',
   'ASSIGNED',
+  'REASSIGNED',
+  'UNASSIGNED',
   'OWNER_CHANGED',
+  'PRIORITY_CHANGED',
+  'SEVERITY_CHANGED',
+  'EVIDENCE_ADDED',
   'WATCH_STARTED',
   'WATCH_STOPPED',
   'NOTE_ADDED',
@@ -75,6 +80,11 @@ export const OPERATIONAL_OUTCOMES = [
   'FALSE_POSITIVE',
   'ACCEPTED_RISK',
   'NOT_ACTIONABLE',
+  'DUPLICATE',
+  'MERGED',
+  'SUPPRESSED',
+  'EXPIRED',
+  'CONVERTED_TO_WORK',
   'UNKNOWN',
 ] as const;
 export type OperationalOutcome = (typeof OPERATIONAL_OUTCOMES)[number];
@@ -124,7 +134,18 @@ export interface LifecycleObservation {
 /** Exactly the projection columns on `operational_priorities`. */
 export interface LifecycleProjection {
   state: PriorityState;
+  /**
+   * ACCOUNTABILITY — who answers for this reaching an outcome. Changes rarely.
+   *
+   * Deliberately independent of `assigneeUserId` and of `state`. The platform
+   * must always be able to answer "who owns this problem", "who is working it
+   * today" and "where is it in the queue" separately, because they are three
+   * different dimensions and deriving any of them from another loses
+   * information the moment a manager owns work a specialist performs.
+   */
   ownerUserId: string | null;
+  /** EXECUTION — who is actively working it, or null. Changes often. */
+  assigneeUserId: string | null;
   stateChangedAt: Date | null;
   reopenCount: number;
   resolvedAt: Date | null;
@@ -160,6 +181,11 @@ export function orderLog(
  * unowned) rather than throwing — a priority whose observations failed to load
  * must read as "needs review", never as resolved.
  */
+/** Compare a lane without tripping narrowing across the mutating closure below. */
+function isLane(state: PriorityState, lane: PriorityState): boolean {
+  return state === lane;
+}
+
 export function projectLifecycle(
   observations: readonly LifecycleObservation[],
 ): LifecycleProjection {
@@ -167,6 +193,7 @@ export function projectLifecycle(
 
   let state: PriorityState = 'NEEDS_REVIEW';
   let ownerUserId: string | null = null;
+  let assigneeUserId: string | null = null;
   let stateChangedAt: Date | null = null;
   let reopenCount = 0;
   let resolvedAt: Date | null = null;
@@ -214,15 +241,43 @@ export function projectLifecycle(
         break;
 
       case 'ASSIGNED':
-        ownerUserId = o.assignedToUserId;
+        // Execution. Someone is now working it, which is also what moves it out
+        // of the review lane.
+        assigneeUserId = o.assignedToUserId;
         enter('ASSIGNED', o.occurredAt);
         break;
 
+      case 'REASSIGNED':
+        // Handover. The work continues, so the lane does not move — a reassigned
+        // watched item stays watched and a reassigned closed one stays closed.
+        assigneeUserId = o.assignedToUserId;
+        break;
+
+      case 'UNASSIGNED':
+        // Nobody is working it. It returns to the queue unless it is being
+        // watched or is already closed, because those are deliberate positions
+        // that losing an assignee does not undo.
+        assigneeUserId = null;
+        // `isLane` rather than a direct comparison: `enter` mutates `state` from
+        // inside a closure, which TypeScript's narrowing cannot see, so a literal
+        // comparison here is reported as impossible. A typed predicate keeps the
+        // check honest instead of silencing it with a cast.
+        if (isLane(state, 'ASSIGNED')) enter('NEEDS_REVIEW', o.occurredAt);
+        break;
+
       case 'OWNER_CHANGED':
-        // Ownership moves without disturbing the lane. Reassigning a watched item
-        // must not drag it out of WATCHING, and reassigning a closed one must not
-        // resurrect it.
+        // Accountability moves without disturbing execution OR the lane. A
+        // manager taking ownership does not take the work, and does not change
+        // where the item sits in the queue.
         ownerUserId = o.assignedToUserId;
+        break;
+
+      case 'PRIORITY_CHANGED':
+      case 'SEVERITY_CHANGED':
+      case 'EVIDENCE_ADDED':
+        // Attributes of the decision, not of its lifecycle. Recorded because
+        // "who raised this to urgent, and when" is a real operational question;
+        // they move nothing.
         break;
 
       case 'WATCH_STARTED':
@@ -230,9 +285,11 @@ export function projectLifecycle(
         break;
 
       case 'WATCH_STOPPED':
-        // Falls back to where it belongs rather than to a fixed lane: an owned
-        // item returns to its owner, an unowned one returns to the queue.
-        enter(ownerUserId ? 'ASSIGNED' : 'NEEDS_REVIEW', o.occurredAt);
+        // Falls back to where it belongs rather than to a fixed lane: an item
+        // somebody is working returns to them, an unworked one returns to the
+        // queue. Keyed on the ASSIGNEE, not the owner — an item can be owned by a
+        // manager and worked by nobody, and that belongs in the queue.
+        enter(assigneeUserId ? 'ASSIGNED' : 'NEEDS_REVIEW', o.occurredAt);
         break;
 
       // --- Progress ---------------------------------------------------------
@@ -283,6 +340,7 @@ export function projectLifecycle(
   return {
     state,
     ownerUserId,
+    assigneeUserId,
     stateChangedAt,
     reopenCount,
     resolvedAt,
@@ -331,6 +389,7 @@ export function summarizeHistory(observations: readonly LifecycleObservation[]):
     'RESOLVED',
     'DISMISSED',
   ];
+  // Reassignment is not a first decision — the decision to act was already made.
   const firstDecision = log.find((o) => DECIDING.includes(o.observationType)) ?? null;
   const close = [...log].reverse().find(
     (o) => o.observationType === 'RESOLVED' || o.observationType === 'DISMISSED',

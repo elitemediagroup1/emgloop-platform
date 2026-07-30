@@ -56,6 +56,7 @@ const DELEGATES = [
   'loopEvent',
   'operationalPriority',
   'operationalObservation',
+  'decisionEvidence',
 ] as const;
 
 let idSeq = 0;

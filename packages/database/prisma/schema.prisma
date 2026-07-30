@@ -2781,8 +2781,16 @@ enum OperationalObservationType {
 
   // --- Recorded by an operator ---
   REVIEWED
+  /// Execution. Who is doing the work right now; expected to change often.
   ASSIGNED
+  REASSIGNED
+  UNASSIGNED
+  /// Accountability. Who answers for the outcome; expected to change rarely.
+  /// Never overloaded with assignment — they answer different questions.
   OWNER_CHANGED
+  PRIORITY_CHANGED
+  SEVERITY_CHANGED
+  EVIDENCE_ADDED
   WATCH_STARTED
   WATCH_STOPPED
   NOTE_ADDED
@@ -2809,6 +2817,21 @@ enum OperationalOutcome {
   FALSE_POSITIVE
   ACCEPTED_RISK
   NOT_ACTIONABLE
+  /// The same finding as another decision. Kept distinct from FALSE_POSITIVE:
+  /// a duplicate was RIGHT, it was just already known.
+  DUPLICATE
+  /// Folded into another decision that now carries the work.
+  MERGED
+  /// Real, and deliberately silenced for a period.
+  SUPPRESSED
+  /// Closed by time rather than by anyone deciding. Distinguishing this from a
+  /// real resolution is what stops the resolution rate flattering itself.
+  EXPIRED
+  /// Became durable work in another operational system. Deliberately NOT named
+  /// after Work OS: the destination is recorded on the observation
+  /// (destinationSystem / destinationType / destinationId), because the outcome
+  /// answers "what happened" and metadata answers "where did it go".
+  CONVERTED_TO_WORK
   UNKNOWN
 }
 
@@ -2842,18 +2865,38 @@ model OperationalPriority {
   /// How many analysis runs have seen it. Distinct from reopenCount.
   detectionCount  Int      @default(1)
 
-  /// Producer vocabulary, kept as a string so a new producer with a different
-  /// severity scale does not require a schema change.
-  severity    String
-  impactCents Int?
-  impactLabel String?
+  /// The canonical platform vocabulary (DECISION_SEVERITIES). Kept as a string so
+  /// a new producer is never blocked by a migration; producers map their own
+  /// scale in at the boundary, where the mapping is visible.
+  severity        String
+  /// Operator-settable urgency, independent of producer severity. A CRITICAL
+  /// finding somebody has decided to handle next month is both critical and low
+  /// priority, and collapsing the two loses that.
+  priority        String?
+  /// The producer's own confidence in the finding, 0-1. Null when it does not
+  /// express one — never defaulted, because a defaulted confidence is a claim.
+  confidence      Float?
+  impactCents     Int?
+  impactLabel     String?
+  /// The producer's own handle for the thing this is about, opaque to the
+  /// platform: an invoice id, a campaign id, a page path. Never parsed here.
+  sourceReference String?
+  /// Which build of the producer opened this, so history stays interpretable
+  /// after the producer's logic changes.
+  producerVersion String?
 
   // --- Projection of the observation log (CACHE — never edited directly) ---
   // Every column below is reproducible by replaying `observations` through
   // projectLifecycle(). Written only in the same transaction as the observation
   // that causes it. If these ever disagree with the log, the log is right.
   state               OperationalPriorityState @default(NEEDS_REVIEW)
+  /// ACCOUNTABILITY. Who answers for this reaching an outcome. Changes rarely.
   ownerUserId         String?
+  /// EXECUTION. Who is actively working it, or null. Changes often.
+  /// Deliberately separate from ownerUserId: "who owns this problem" and "who is
+  /// working it today" are different questions and neither may be derived from
+  /// the other, nor from the lane.
+  assigneeUserId      String?
   stateChangedAt      DateTime?
   reopenCount         Int                      @default(0)
   resolvedAt          DateTime?
@@ -2868,12 +2911,14 @@ model OperationalPriority {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  observations OperationalObservation[]
-  hypothesis   IntelligenceHypothesis?  @relation(fields: [hypothesisId], references: [id])
+  observations     OperationalObservation[]
+  hypothesis       IntelligenceHypothesis?  @relation(fields: [hypothesisId], references: [id])
+  DecisionEvidence DecisionEvidence[]
 
   @@unique([organizationId, sourceSystem, recurrenceKey])
   @@index([organizationId, state])
   @@index([organizationId, ownerUserId, state])
+  @@index([organizationId, assigneeUserId, state])
   @@index([organizationId, sourceSystem, lastDetectedAt])
   @@index([hypothesisId])
   @@map("operational_priorities")
@@ -2926,8 +2971,23 @@ model OperationalObservation {
   note     String?
   evidence Json    @default("{}")
 
-  /// Present on ASSIGNED / OWNER_CHANGED.
+  /// Present on ASSIGNED / REASSIGNED / OWNER_CHANGED.
   assignedToUserId    String?
+  /// The lane before and after, when this observation moved it. Stored rather
+  /// than re-derived so the timeline can answer "what changed" without replaying
+  /// the log up to that point.
+  previousState       OperationalPriorityState?
+  newState            OperationalPriorityState?
+  /// Why, in the actor's words. Distinct from `note`: the reason belongs to the
+  /// transition, the note belongs to the moment.
+  reason              String?
+  /// The evidence this observation was recorded against, when it cites some.
+  evidenceId          String?
+  /// Where a CONVERTED_TO_WORK outcome went. Generic on purpose: the Decision
+  /// Engine records that work was created somewhere, never which product.
+  destinationSystem   String?
+  destinationType     String?
+  destinationId       String?
   /// Present on OUTCOME_RECORDED / RESOLVED / DISMISSED.
   outcome             OperationalOutcome?
   /// The measured business effect, when one was actually measured. Never a
@@ -2937,8 +2997,9 @@ model OperationalObservation {
 
   createdAt DateTime @default(now())
 
-  priority OperationalPriority @relation(fields: [priorityId], references: [id], onDelete: Cascade)
-  decision CognitiveDecision?  @relation(fields: [decisionId], references: [id])
+  priority      OperationalPriority @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  decision      CognitiveDecision?  @relation(fields: [decisionId], references: [id])
+  citedEvidence DecisionEvidence?   @relation(fields: [evidenceId], references: [id])
 
   @@unique([priorityId, sequence])
   @@unique([priorityId, detectionKey])
@@ -2946,5 +3007,78 @@ model OperationalObservation {
   @@index([organizationId, observationType, occurredAt])
   @@index([organizationId, actorUserId])
   @@index([decisionId])
+  @@index([evidenceId])
   @@map("operational_observations")
+}
+
+/// One immutable piece of evidence behind a decision.
+///
+/// Append-only, like observations: evidence is never edited, replaced or deleted,
+/// and `addEvidence` means APPEND. There is no `updatedAt` and no repository
+/// method that could change one.
+///
+/// Why a table rather than a JSON blob on the opening observation (which is what
+/// #153 shipped): evidence accumulates. A decision that is re-sighted under a new
+/// rule version, or that an operator adds a measurement to, gains evidence over
+/// time — and a blob written once cannot express that without being rewritten,
+/// which append-only forbids. The blob remains valid for what it was: the opening
+/// snapshot.
+model DecisionEvidence {
+  id             String @id @default(cuid())
+  organizationId String
+  priorityId     String
+
+  /// Where the value came from: a provider report, a canonical service, a person.
+  source    String
+  /// What it measures, in the producer's contract vocabulary.
+  metricKey String
+  /// Which period it describes, in operator language.
+  window    String?
+
+  /// What the producer's rule was, and at which version. The key to interpreting
+  /// this evidence after the rule has changed.
+  ruleId             String?
+  ruleVersion        String?
+  formulaVersion     String?
+  /// The version of the calculation that produced `derivedValue`.
+  calculationVersion String?
+  /// Which build of the producer emitted it.
+  producerVersion    String?
+
+  /// 0-1. Null when the producer does not express one.
+  confidence Float?
+
+  /// As the provider expressed it, after normalization, and after our formula.
+  /// All three are kept: an argument about a number is almost always an argument
+  /// about which of these three somebody was looking at.
+  rawValue        Float?
+  normalizedValue Float?
+  derivedValue    Float?
+  /// Fraction of the population that reported the value, when partial.
+  completeness    Float?
+
+  entityType String?
+  entityId   String?
+  entityName String?
+
+  /// What this evidence CANNOT support, carried alongside it forever. Evidence
+  /// that keeps its value and loses its caveats is how a hedged claim becomes a
+  /// confident one.
+  limitations String[] @default([])
+  unknowns    String[] @default([])
+
+  /// Producer-specific extras. Opaque to the platform, never parsed here.
+  payload Json @default("{}")
+
+  /// When the evidence describes the world.
+  observedAt DateTime
+  /// When Loop recorded it. No updatedAt: this row is immutable.
+  createdAt  DateTime @default(now())
+
+  priority     OperationalPriority      @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  observations OperationalObservation[]
+
+  @@index([organizationId, priorityId, observedAt])
+  @@index([organizationId, metricKey])
+  @@map("decision_evidence")
 }
