@@ -353,3 +353,86 @@ test('history is derived for a priority and survives a relapse', async () => {
   assert.equal(after!.history.msToResolution, null, 'a resolution that did not hold is not one');
   assert.equal(after!.history.timesReopened, 1);
 });
+
+// --- The record explains itself ---------------------------------------------
+//
+// The whole point of a snapshot: an OPEN decision can always be re-derived from
+// the live engine, but a decision closed months ago, under a rule version that
+// has since moved, cannot. These assert the record keeps its reasons.
+
+test('the opening observation carries the evidence, and later sightings do not rewrite it', async () => {
+  const { repo } = makeRepo();
+  const evidence = {
+    contractVersion: 'decision.v1',
+    producer: 'CALLGRID',
+    rules: [{ ruleId: 'buyer-decline', ruleVersion: 'v2' }],
+    confidence: 0.8,
+    limitations: ['Bid data is snapshot-only'],
+  };
+  const { priority } = await repo.detect(ORG, detection({ evidence }));
+
+  const opening = (await repo.listObservations(ORG, priority.id))[0]!;
+  assert.equal(opening.observationType, 'SITUATION_DETECTED');
+  assert.deepEqual(opening.evidence, evidence);
+
+  // A later sighting under a CHANGED rule version must not overwrite what was
+  // true when the decision was opened — the log is append-only.
+  await repo.detect(
+    ORG,
+    detection({
+      detectionKey: 'later',
+      detectedAt: day(1),
+      evidence: { ...evidence, rules: [{ ruleId: 'buyer-decline', ruleVersion: 'v9' }] },
+    }),
+  );
+  const after = await repo.listObservations(ORG, priority.id);
+  assert.deepEqual(after[0]!.evidence, evidence, 'the opening reason is immutable');
+  assert.equal(after.length, 2);
+});
+
+test('a first sighting records the belief, always PROPOSED, in the same transaction', async () => {
+  const { prisma, repo } = makeRepo();
+  const { priority } = await repo.detect(
+    ORG,
+    detection({
+      hypothesis: {
+        hypothesisType: 'buyer-decline',
+        title: 'Markytek stopped purchasing',
+        summary: 'This traces to one buyer rather than a broad shift.',
+        confidence: 0.8,
+        ruleVersion: 'v2',
+      },
+    }),
+  );
+
+  assert.ok(priority.hypothesisId, 'the FK must be live, not decorative');
+  const hypothesis = await prisma.intelligenceHypothesis.findFirst({
+    where: { id: priority.hypothesisId },
+  });
+  assert.equal(hypothesis.status, 'PROPOSED', 'Loop never accepts its own guess');
+  assert.equal(hypothesis.generatedBy, 'DETERMINISTIC_RULE', 'there is no LLM in this path');
+  assert.equal(hypothesis.organizationId, ORG);
+  assert.equal(hypothesis.ruleVersion, 'v2');
+});
+
+test('a re-sighting does not open a second belief', async () => {
+  const { prisma, repo } = makeRepo();
+  const hypothesis = {
+    hypothesisType: 'buyer-decline', title: 'Markytek stopped purchasing', confidence: 0.8,
+  };
+  await repo.detect(ORG, detection({ hypothesis }));
+  await repo.detect(ORG, detection({ hypothesis, detectionKey: 'd2', detectedAt: day(1) }));
+  await repo.detect(ORG, detection({ hypothesis, detectionKey: 'd3', detectedAt: day(2) }));
+
+  const all = await prisma.intelligenceHypothesis.findMany({ where: { organizationId: ORG } });
+  assert.equal(all.length, 1, 'the belief is opened once, with the operational thread');
+});
+
+test('a producer that records no belief still opens a decision', async () => {
+  // Not every producer has a hypothesis to state. The FK stays null rather than
+  // the detection failing or a placeholder belief being invented.
+  const { repo } = makeRepo();
+  const { priority } = await repo.detect(ORG, detection());
+  assert.equal(priority.hypothesisId ?? null, null);
+  assert.equal(priority.state, 'NEEDS_REVIEW');
+});

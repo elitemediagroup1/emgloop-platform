@@ -26,6 +26,7 @@ import {
   projectLifecycle,
   summarizeHistory,
   summarizeDecisionActivity,
+  buildEvidenceSnapshot,
   type Situation,
   type SituationQueue,
   type CallGridWindow,
@@ -33,6 +34,8 @@ import {
   type DecisionActivity,
   type LifecycleObservation,
   type LifecycleHistory,
+  type DecisionEvidenceValue,
+  type DecisionClaim,
 } from "@emgloop/shared";
 import { repositories, type OperationalPriority, type OperationalObservation } from "@emgloop/database";
 
@@ -101,6 +104,58 @@ function toLifecycle(o: OperationalObservation): LifecycleObservation {
 }
 
 /**
+ * Snapshot everything the engine knew about a Situation, in the platform's
+ * producer-neutral shape.
+ *
+ * The engine recomputes findings on every request, so an OPEN decision can always
+ * show its evidence live. A decision resolved six weeks ago cannot: rule versions
+ * move, thresholds change, and the window it was about is gone. Without this the
+ * historical record keeps the conclusion and loses the reason — and the outcome
+ * data that Loop will use to judge its own recommendations becomes impossible to
+ * interpret.
+ *
+ * Limitations and unknowns are carried across deliberately. A snapshot that keeps
+ * the finding and drops the caveats is how a hedged claim quietly becomes a
+ * confident one.
+ */
+function evidenceFor(situation: Situation) {
+  const values: DecisionEvidenceValue[] = situation.observations.flatMap((f) =>
+    f.supportingEvidence.map((e) => ({
+      metricKey: e.metricKey,
+      source: e.providerReport,
+      window: e.window,
+      entityType: e.entityType,
+      entityId: e.entityId,
+      entityName: e.entityName,
+      rawValue: e.rawValue,
+      normalizedValue: e.normalizedValue,
+      derivedValue: e.derivedValue,
+      formula: e.formula,
+      formulaVersion: e.formulaVersion,
+      completeness: e.completeness,
+    })),
+  );
+
+  const claims: DecisionClaim[] = situation.chain.links.map((l) => ({
+    statement: l.statement,
+    basis: l.basis,
+  }));
+
+  return buildEvidenceSnapshot({
+    producer: CALLGRID_SOURCE,
+    rules: situation.observations.map((f) => ({ ruleId: f.ruleId, ruleVersion: f.ruleVersion })),
+    // The lead finding's confidence. Averaging across merged findings would
+    // invent a number none of the rules produced.
+    confidence: situation.observations[0]?.confidence ?? null,
+    observationCount: situation.observationCount,
+    claims,
+    values,
+    limitations: situation.observations.flatMap((f) => f.limitations),
+    unknowns: situation.unknowns,
+  });
+}
+
+/**
  * Build the queue and record what the engine saw.
  *
  * Detection is idempotent per analysis period (see `callGridDetectionKey`), so
@@ -146,6 +201,18 @@ export async function loadOperationalQueue(
         severity: situation.severity,
         impactCents: situation.impact.amountCents,
         impactLabel: situation.impact.label,
+        evidence: evidenceFor(situation) as unknown as Record<string, unknown>,
+        // The belief, recorded alongside the operational thread on a FIRST
+        // sighting only. Always PROPOSED — Loop never accepts its own guess.
+        hypothesis: {
+          hypothesisType: situation.observations[0]?.ruleId ?? "callgrid.situation",
+          title: situation.title,
+          summary: situation.read.claim,
+          confidence: situation.observations[0]?.confidence ?? null,
+          ruleVersion: situation.observations[0]?.ruleVersion ?? null,
+          supportingWindowStart: context.window.start,
+          supportingWindowEnd: context.window.end,
+        },
       });
       items.push({
         situation,
