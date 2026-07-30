@@ -1,4 +1,4 @@
-—-- Sprint 11 — First Live Integration (ServicesInMyCity + CallGrid)
+-- Sprint 11 — First Live Integration (ServicesInMyCity + CallGrid)
 --
 -- Adds the INGESTION and ANALYTICS members to the ProviderCategory enum.
 -- These were introduced in the schema during Sprint 10 but never captured in a
