@@ -273,3 +273,9 @@ export * from './operational-lifecycle';
 // this contract cannot describe a system that does not exist. See
 // ./decision-contract.ts.
 export * from './decision-contract';
+
+// --- Decision card composition (presentation only) ---
+// Confidence, the operational consequence, the ways a decision can end, and the
+// visual tiering that shows EVERYTHING while giving the few the most room.
+// Pure re-arrangement of measured fields — nothing here concludes anything.
+export * from './decision-card';

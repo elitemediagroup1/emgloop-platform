@@ -2555,6 +2555,123 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 .q-act__caveat { margin: 10px 0 0; font-size: 12px; line-height: 1.55; color: var(--loop-text-3); }
 .q-act__empty { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text-3); max-width: 70ch; }
 
+/* ===========================================================================
+   THE DECISION CENTER — mission control, not a report.
+
+   The old page rendered ~16 blocks of equal visual weight, so the reader did the
+   triage the product was supposed to do. Here weight, colour and size carry
+   priority BEFORE any word is read: a fire and a footnote must never look alike.
+
+   Nothing is hidden to achieve it. Every decision is on the page; the tiers
+   change how much room each gets. A queue that summarises is a report.
+   =========================================================================== */
+
+/* --- The executive brief --------------------------------------------------
+   The first five seconds. One large sentence answering "what kind of day is
+   this", then the counts, then which one to start with and why. */
+.xb { display: flex; flex-direction: column; gap: 10px; padding: 6px 0 4px; }
+.xb__top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.xb__greet { margin: 0; font-size: clamp(20px, 2.6vw, 26px); font-weight: 650; letter-spacing: -.02em; color: var(--loop-text); }
+
+/* The heartbeat. A CSS-only pulse — no client JS, and no claim of a refresh
+   rate the page does not actually have. */
+.xb__pulse { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .04em; color: var(--loop-text-3); }
+.xb__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--loop-text-3); }
+.xb__pulse--live .xb__dot { background: var(--loop-good); animation: xb-beat 2.4s ease-in-out infinite; }
+@keyframes xb-beat { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .xb__pulse--live .xb__dot { animation: none; } }
+
+.xb__verdict { margin: 0; font-size: clamp(17px, 2.1vw, 21px); font-weight: 600; line-height: 1.35; letter-spacing: -.01em; color: var(--loop-text); max-width: 70ch; }
+.xb__verdict--healthy { color: var(--loop-good); }
+.xb__verdict--watch { color: var(--loop-warn); }
+.xb__verdict--risk, .xb__verdict--critical { color: var(--loop-crit); }
+.xb__verdict--unknown { color: var(--loop-text-2); }
+.xb__verdictwhy { display: block; margin-top: 4px; font-size: 13.5px; font-weight: 400; line-height: 1.55; color: var(--loop-text-3); }
+
+.xb__counts { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.xb__count { font-size: 12.5px; color: var(--loop-text-3); }
+.xb__count b { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--loop-text); margin-right: 5px; }
+.xb__count--muted b { color: var(--loop-text-2); }
+.xb__count--money b { color: var(--loop-text); }
+
+.xb__seq { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 2px 0 0; }
+.xb__cta { display: inline-flex; align-items: center; font: inherit; font-size: 13px; font-weight: 650; padding: 8px 16px; border-radius: 8px; background: var(--loop-accent-2); color: var(--loop-bg); text-decoration: none; }
+.xb__cta:hover { filter: brightness(1.08); color: var(--loop-bg); }
+.xb__seqtext { font-size: 14px; line-height: 1.5; color: var(--loop-text-2); max-width: 64ch; }
+.xb__degraded { margin: 4px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-warn); max-width: 72ch; }
+
+/* --- Tier headings --------------------------------------------------------
+   The eye should know the priority of a whole block before reading its label. */
+.q-tier { display: flex; align-items: center; gap: 9px; margin: 18px 0 2px; padding-bottom: 7px; border-bottom: 1px solid var(--loop-line); }
+.q-tier:first-child { margin-top: 4px; }
+.q-tier__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--loop-line-strong); }
+.q-tier--fire .q-tier__dot { background: var(--loop-crit); }
+.q-tier--warn .q-tier__dot { background: var(--loop-warn); }
+.q-tier--calm .q-tier__dot { background: var(--loop-text-3); }
+.q-tier__label { font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-2); }
+.q-tier--fire .q-tier__label { color: var(--loop-crit); }
+.q-tier__count { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--loop-text-3); }
+
+/* --- Confidence -----------------------------------------------------------
+   Loop is a decision system, so how much to trust a decision belongs beside the
+   title on every card, never two clicks away. */
+.q-conf { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--loop-line-strong); color: var(--loop-text-2); cursor: help; }
+.q-conf__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.q-conf--high { color: var(--loop-good); border-color: rgba(122,208,160,.4); }
+.q-conf--moderate { color: var(--loop-text-2); }
+.q-conf--low { color: var(--loop-warn); border-color: rgba(242,180,91,.4); }
+.q-conf--insufficient { color: var(--loop-crit); border-color: rgba(242,104,138,.4); }
+
+/* --- The card: action first ----------------------------------------------- */
+.q-row__sum { margin: 9px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 70ch; }
+
+/* THE FOCAL POINT. Larger than the measurement, because an operator opening
+   this at 8am needs to know what to DO; the number is how they check it after. */
+.q-row__action { margin: 11px 0 0; font-size: clamp(16px, 1.9vw, 19px); font-weight: 650; line-height: 1.4; letter-spacing: -.012em; color: var(--loop-text); max-width: 60ch; }
+
+.q-row__why { margin: 9px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--loop-text-2); max-width: 68ch; }
+.q-row__whylabel { display: block; font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; color: var(--loop-text-3); margin-bottom: 2px; }
+
+.q-row__facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.q-chip { display: inline-flex; flex-direction: column; gap: 1px; padding: 6px 11px; border: 1px solid var(--loop-line); border-radius: 7px; background: var(--loop-bg); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--loop-text); }
+.q-chip__note { font-size: 9.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-chip--unknown { color: var(--loop-text-3); }
+
+/* Compact tier: same information, less room. Nothing is removed. */
+.q-row--compact .q-row__body { padding: 12px 14px 13px; }
+.q-row--compact .q-row__title { font-size: 14.5px; }
+.q-row--compact .q-row__action { font-size: 14.5px; margin-top: 7px; }
+.q-row--compact .q-row__sum { font-size: 12.5px; margin-top: 5px; }
+.q-row--compact .q-row__why { display: none; }
+.q-row--compact .q-row__facts { margin-top: 8px; }
+.q-row--compact .q-chip { padding: 4px 9px; font-size: 12px; }
+
+/* --- One-line tier: someone already has it -------------------------------- */
+.q-lines { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.q-line { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto auto auto; gap: 4px 14px; align-items: baseline; padding: 9px 2px; border-bottom: 1px solid var(--loop-line); }
+.q-line:last-child { border-bottom: 0; }
+.q-line__state { font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-line__state--watching { color: var(--loop-warn); }
+.q-line__title { font-size: 13.5px; font-weight: 600; color: var(--loop-text); min-width: 0; }
+.q-line__who { font-size: 12px; color: var(--loop-text-2); }
+.q-line__age, .q-line__money { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--loop-text-3); }
+
+/* --- Demoted report layer -------------------------------------------------
+   Metrics, risk and the story are supporting evidence now. They keep every
+   figure; they stop competing with the decisions above them. */
+.cg-supporting { margin-top: 26px; border-top: 1px solid var(--loop-line); padding-top: 6px; }
+.cg-supporting > summary { cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); padding: 10px 0; list-style: none; }
+.cg-supporting > summary::-webkit-details-marker { display: none; }
+.cg-supporting > summary::before { content: '▸ '; }
+.cg-supporting[open] > summary::before { content: '▾ '; }
+.cg-supporting__body { display: flex; flex-direction: column; gap: 18px; padding-top: 10px; }
+
+@media (max-width: 640px) {
+  .q-line { grid-template-columns: 1fr; }
+  .q-row__action { font-size: 15.5px; }
+  .xb__counts { gap: 6px 14px; }
+}
+
 @media (max-width: 640px) {
   .q-standing > div { grid-template-columns: 1fr; gap: 2px; }
   .q-time__item { grid-template-columns: 1fr; }

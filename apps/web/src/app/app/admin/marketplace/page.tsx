@@ -15,7 +15,7 @@ import {
   BusinessStorySection,
 } from "./intelligence-ui";
 import {
-  BriefingBlock, LaneBar, QueueSection, DecisionActivitySection, OpenWorkSection,
+  ExecutiveBrief, LaneBar, QueueSection, DecisionActivitySection, OpenWorkSection,
   type QueueMember,
 } from "./queue-ui";
 import { loadOperationalQueue } from "./operational-queue-data";
@@ -27,13 +27,6 @@ import type { Situation } from "@emgloop/shared";
 
 export const dynamic = "force-dynamic";
 
-/**
- * How many undecided items reach the first screen.
- *
- * A ceiling, not a target. Three is what a person can hold while deciding; the
- * rest are counted, not hidden.
- */
-const QUEUE_LIMIT = 3;
 
 // CallGrid Intelligence — the Executive Queue.
 //
@@ -173,7 +166,7 @@ export default async function CallGridIntelligencePage({
 }: {
   searchParams?: { range?: string; s?: string; e?: string };
 }) {
-  const { organizationId: org } = await requireCrmContext();
+  const { organizationId: org, session } = await requireCrmContext();
 
   const now = new Date();
   const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
@@ -208,13 +201,18 @@ export default async function CallGridIntelligencePage({
   const ops = await loadOperationalQueue(
     org,
     intel.queue,
-    { window, now, logLimit: QUEUE_LIMIT },
+    { window, now },
   );
   // Names for owners. Read-only, and only the roster this organization can see.
   const members: QueueMember[] = (await repositories.iam.listUsers(org))
     .filter((m) => m.status === "ACTIVE")
     .map((m) => ({ id: m.id, name: m.name, email: m.email }));
   const returnTo = `/app/admin/marketplace${rangeQuery ? `?${rangeQuery}` : ""}`;
+  // The reader's own name, from the roster already loaded for the assignee
+  // selector. Null when the row cannot be found — the brief then greets without
+  // a name rather than inventing one.
+  const operatorName =
+    members.find((m) => m.id === session.userId)?.name?.trim() || null;
   const bidIntel = bidIntelligence(bid, now, desc.periodTitle, bidMatches);
   const compareShort = desc.comparisonTitle.split(" · ")[0];
 
@@ -281,11 +279,15 @@ export default async function CallGridIntelligencePage({
             has failed.
            ------------------------------------------------------------------ */}
 
-        <BriefingBlock
+        <ExecutiveBrief
           briefing={intel.briefing}
-          queue={intel.queue}
+          situationCount={intel.queue.situations.length}
+          needingDecision={ops.items.filter((i) => i.state === "NEEDS_REVIEW").length}
+          health={intel.health}
+          operatorName={operatorName}
           periodLabel={desc.periodTitle}
           live={desc.live}
+          updatedLabel={easternClock(now)}
           persistenceError={ops.persistenceError}
         />
 
@@ -294,7 +296,6 @@ export default async function CallGridIntelligencePage({
         <QueueSection
           items={ops.items}
           emptyReason={intel.queue.emptyReason}
-          limit={QUEUE_LIMIT}
           hrefFor={hrefFor}
           members={members}
           canAct={canAct}
@@ -314,6 +315,19 @@ export default async function CallGridIntelligencePage({
             the money — so they are one section ranked by magnitude rather than two
             ranked by sign. Opportunities keep their impact-basis label: the amount
             is measured exposure or an arithmetic gap, never predicted upside. */}
+        {/* ------------------------------------------------------------------
+            THE SUPPORTING LAYER.
+
+            Everything below is evidence FOR the decisions above, not information
+            in its own right — an operator should understand the business before
+            they see revenue. Nothing has been removed and no figure has changed;
+            it is one expansion away instead of competing for the same attention
+            as the queue. That is the whole difference between a command centre
+            and a dashboard.
+           ------------------------------------------------------------------ */}
+        <details className="cg-supporting">
+          <summary>The numbers behind this — money, risk, the story, metrics and bids</summary>
+          <div className="cg-supporting__body">
         <OpportunitiesSection opportunities={intel.opportunityFindings} sectionLabel="Money Available" />
 
         <FindingList
@@ -421,6 +435,9 @@ export default async function CallGridIntelligencePage({
              demoted from a section, but never deleted. A product that shows
              conclusions while hiding their limits is not one you can delegate to,
              and this is what makes the rest believable. */}
+          </div>
+        </details>
+
         <UnknownsSection
           unknowns={[...intel.unknowns, ...bidIntel.unknowns]}
           sectionLabel="What Loop could not determine about this period"
