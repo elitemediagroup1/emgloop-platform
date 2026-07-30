@@ -21,6 +21,7 @@ import type {
   ActiveStateRevision,
   ActiveStateEvidence,
   StateChangeOutbox,
+  OutboxSubjectType,
   ActiveStateDomain,
   ActiveStateStatus,
   CognitiveValueType,
@@ -300,8 +301,64 @@ export class ActiveStateRepository {
 // StateChangeOutboxRepository — drained by the publisher (Increment 3).
 // ---------------------------------------------------------------------------
 
+/**
+ * A publication request from any subsystem.
+ *
+ * `identityId` is optional because most subjects are not people: a decision about
+ * revenue concentration has no CognitiveIdentity, and inventing one to satisfy a
+ * column would put non-entities into the identity graph.
+ */
+export interface EnqueueOutboxInput {
+  subjectType: OutboxSubjectType;
+  subjectId: string;
+  /** What happened, e.g. 'DecisionAssigned'. One subject emits many event types. */
+  eventType: string;
+  /** Used by subscription matching alongside `stateKey`. */
+  domain: ActiveStateDomain;
+  stateKey: string;
+  changeType: string;
+  identityId?: string | null;
+  payload?: Record<string, unknown>;
+  availableAt?: Date;
+}
+
 export class StateChangeOutboxRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  /**
+   * Publish a domain event through the platform's ONE outbox.
+   *
+   * Loop has a single publishing mechanism, not one per subsystem — active state
+   * was its first subject, decisions are its second, and the next is a
+   * `subjectType` value rather than another table with its own publisher, its own
+   * retry semantics and its own way of being subtly wrong.
+   *
+   * `tx` is REQUIRED-by-convention for lifecycle writes: the event and the fact
+   * that caused it must commit together, or a subscriber learns about something
+   * that did not happen (or worse, never learns about something that did). Pass
+   * the ambient client only for genuinely standalone publications.
+   */
+  enqueue(
+    organizationId: string,
+    input: EnqueueOutboxInput,
+    tx?: Pick<PrismaClient, 'stateChangeOutbox'>,
+  ): Promise<StateChangeOutbox> {
+    const client = tx ?? this.prisma;
+    return client.stateChangeOutbox.create({
+      data: {
+        organizationId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        eventType: input.eventType,
+        identityId: input.identityId ?? null,
+        domain: input.domain,
+        stateKey: input.stateKey,
+        changeType: input.changeType,
+        payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+        ...(input.availableAt ? { availableAt: input.availableAt } : {}),
+      },
+    });
+  }
 
   findById(organizationId: string, id: string): Promise<StateChangeOutbox | null> {
     return this.prisma.stateChangeOutbox.findFirst({ where: { id, organizationId } });

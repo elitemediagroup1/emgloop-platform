@@ -89,6 +89,15 @@ const decisionEvaluationSubscriber: SubscriberHandler = async (ctx, deps) => {
   const identityId = ctx.outbox.identityId;
   const recordId = ctx.outbox.activeStateRecordId;
 
+  // Every policy here reasons over an IDENTITY's governed context. A change with
+  // no identity — a decision about the business rather than about a person, e.g.
+  // "revenue concentration increased" — has nothing for them to evaluate. It
+  // declines with a reason rather than being handed a fabricated identity, which
+  // is the only other way this could have been made to typecheck.
+  if (!identityId) {
+    return { status: 'noop', summary: 'no identity on this change; messaging policies are identity-scoped' };
+  }
+
   // Resolve the source channel of this change THROUGH the context service.
   let channel: string | null = null;
   if (recordId) {
@@ -144,6 +153,11 @@ const decisionEvaluationSubscriber: SubscriberHandler = async (ctx, deps) => {
 const workOsSubscriber: SubscriberHandler = async (ctx, deps) => {
   const org = ctx.organizationId;
   const identityId = ctx.outbox.identityId;
+  // Same rule as above: this policy reads an identity's campaign context, so a
+  // change without one is not something it can have an opinion about.
+  if (!identityId) {
+    return { status: 'noop', summary: 'no identity on this change; campaign work policy is identity-scoped' };
+  }
   const policy = DecisionPolicyRegistry.get('campaign-operational-review');
   if (!policy) return { status: 'noop', summary: 'no campaign work policy registered' };
 

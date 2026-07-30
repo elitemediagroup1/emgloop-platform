@@ -2491,10 +2491,37 @@ model ActiveStateRevision {
 
 /// Transactional outbox: the state write and its outbox row commit together.
 /// Nothing publishes before the transaction commits.
+/// What kind of thing an outbox row is about.
+///
+/// Loop has ONE event bus, not one per subsystem. Active state was the first
+/// subject; decisions are the second; work items, memory, knowledge and identity
+/// are named here so the next subsystem is a value rather than a second outbox.
+/// This is the SUBJECT, never the event — what happened is `eventType`.
+enum OutboxSubjectType {
+  ACTIVE_STATE
+  DECISION
+  WORK_ITEM
+  MEMORY
+  KNOWLEDGE
+  IDENTITY
+}
+
 model StateChangeOutbox {
   id                    String            @id @default(cuid())
   organizationId        String
-  identityId            String
+  /// What changed. Subscribers switch on this.
+  subjectType           OutboxSubjectType @default(ACTIVE_STATE)
+  /// The id of the thing that changed, within `subjectType`.
+  subjectId             String?
+  /// What happened to it, e.g. 'ActiveStateChanged', 'DecisionAssigned'.
+  /// Distinct from `subjectType`: one subject emits many event types.
+  eventType             String            @default("ActiveStateChanged")
+  /// NULLABLE, deliberately. Many decisions describe the BUSINESS rather than a
+  /// person — "revenue concentration increased", "profit volatility rose" — and
+  /// have no CognitiveIdentity. Fabricating one to satisfy a column would put
+  /// non-entities into the identity graph and force every identity query to
+  /// filter them out. Populated only when the subject genuinely has an identity.
+  identityId            String?
   domain                ActiveStateDomain
   stateKey              String
   changeType            String
@@ -2510,6 +2537,7 @@ model StateChangeOutbox {
   updatedAt             DateTime          @updatedAt
 
   @@index([organizationId, status, availableAt])
+  @@index([organizationId, subjectType, subjectId])
   @@map("state_change_outbox")
 }
 
