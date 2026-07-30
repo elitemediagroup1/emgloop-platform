@@ -2472,6 +2472,96 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 .cg-numdetail__summary { cursor: pointer; }
 .cg-numdetail__body { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
 
+/* ---------------------------------------------------------------------------
+   The decision lifecycle.
+
+   Three voices, three treatments, never blended: what was MEASURED (the money,
+   already styled above), what Loop READ into it (the chain and the read), and
+   what a HUMAN did about it — the block below. A row somebody owns cools to a
+   held rail so the reader's eye skips it; the queue's job is to show what is
+   still undecided.
+   --------------------------------------------------------------------------- */
+
+.q-brief__degraded { margin: 8px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-warn); max-width: 72ch; }
+
+.q-row--held > .q-row__rail { background: var(--loop-line-strong); }
+.q-row--done > .q-row__rail { background: var(--loop-line); }
+.q-row--done { opacity: .72; }
+.q-row__state { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); border-radius: 5px; padding: 2px 6px; }
+.q-row__state--resolved { color: var(--loop-good); border-color: var(--loop-line); }
+.q-row__state--dismissed { color: var(--loop-text-3); }
+.q-row__back { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-crit); border: 1px solid rgba(242,104,138,.45); border-radius: 5px; padding: 1px 5px; cursor: help; }
+.q-row__seen { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--loop-text-3); }
+
+/* Standing: the durable facts this whole branch exists to make possible. */
+.q-standing { display: grid; gap: 9px; margin: 0; padding: 12px 14px; background: var(--loop-bg); border: 1px solid var(--loop-line); border-radius: 8px; }
+.q-standing > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 14px; }
+.q-standing dt { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-standing dd { margin: 0; font-size: 13px; line-height: 1.5; color: var(--loop-text-2); }
+
+/* Controls. Real buttons, because every one of them survives a refresh. */
+.q-do { display: flex; flex-direction: column; gap: 9px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--loop-line); }
+.q-do__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.q-do__inline { display: inline-flex; }
+.q-do__lbl { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-do__sel, .q-do__in { font: inherit; font-size: 13px; padding: 6px 9px; background: var(--loop-bg); color: var(--loop-text); border: 1px solid var(--loop-line-strong); border-radius: 7px; min-width: 0; }
+.q-do__in { width: 100%; max-width: 320px; }
+.q-do__btn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; background: var(--loop-elev); color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); border-radius: 7px; cursor: pointer; }
+.q-do__btn:hover { color: var(--loop-text); border-color: var(--loop-text-3); }
+.q-do__btn--primary { background: var(--loop-accent-2); border-color: var(--loop-accent-2); color: var(--loop-bg); }
+.q-do__btn--primary:hover { filter: brightness(1.08); color: var(--loop-bg); }
+.q-do__more { margin-top: 2px; }
+.q-do__summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--loop-accent-2); list-style: none; }
+.q-do__summary::-webkit-details-marker { display: none; }
+.q-do__summary::before { content: '▸ '; color: var(--loop-text-3); }
+.q-do__more[open] > .q-do__summary::before { content: '▾ '; }
+.q-do__panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding-top: 12px; }
+.q-do__form { display: flex; flex-direction: column; gap: 7px; padding: 12px 13px; background: var(--loop-bg); border: 1px solid var(--loop-line); border-radius: 8px; }
+.q-do__formh { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-do__hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* History. A system row and a human row must be distinguishable at a glance. */
+.q-time { padding: 12px 14px; background: var(--loop-bg); border: 1px solid var(--loop-line); border-radius: 8px; }
+.q-time__h { margin: 0 0 9px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-time__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.q-time__item { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 4px 12px; padding-left: 10px; border-left: 2px solid var(--loop-line-strong); }
+.q-time__item--system { border-left-color: var(--loop-line); }
+.q-time__when { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--loop-text-3); }
+.q-time__what { font-size: 13px; font-weight: 600; color: var(--loop-text); }
+.q-time__who { font-size: 11.5px; color: var(--loop-text-3); text-align: right; }
+.q-time__outcome, .q-time__effect, .q-time__note { grid-column: 2 / -1; font-size: 12px; line-height: 1.5; color: var(--loop-text-2); }
+.q-time__effect { font-variant-numeric: tabular-nums; }
+.q-time__note { color: var(--loop-text-3); }
+
+.q-handled { margin-top: 4px; }
+.q-handled__summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--loop-text-2); }
+.q-handled__body { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+
+/* Open work: what is owned right now, whichever period found it. */
+.q-ow__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.q-ow__item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 4px 14px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--loop-line); }
+.q-ow__item:last-child { border-bottom: 0; }
+.q-ow__title { font-size: 13.5px; font-weight: 600; color: var(--loop-text); min-width: 0; }
+.q-ow__who { font-size: 12px; color: var(--loop-text-2); }
+.q-ow__age { font-size: 11.5px; color: var(--loop-text-3); }
+.q-ow__money { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--loop-text-2); }
+
+/* Decisions: the only section that measures the product, not the business. */
+.q-act__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.q-act__item { display: flex; flex-direction: column; gap: 3px; padding: 13px 14px; background: var(--loop-bg); border: 1px solid var(--loop-line); border-radius: 8px; }
+.q-act__num { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.02em; color: var(--loop-text); }
+.q-act__label { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-act__note { font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+.q-act__caveat { margin: 10px 0 0; font-size: 12px; line-height: 1.55; color: var(--loop-text-3); }
+.q-act__empty { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--loop-text-3); max-width: 70ch; }
+
+@media (max-width: 640px) {
+  .q-standing > div { grid-template-columns: 1fr; gap: 2px; }
+  .q-time__item { grid-template-columns: 1fr; }
+  .q-time__who { text-align: left; }
+  .q-ow__item { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 640px) {
   .q-detail > div { grid-template-columns: 1fr; gap: 3px; }
   .q-row__body { padding: 13px 14px 14px; }

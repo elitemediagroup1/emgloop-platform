@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildSituations, buildQueue, buildBriefing, queueUnknowns, laneAvailability,
+  buildSituations, buildQueue, buildBriefing, queueUnknowns,
   escalationOf, bySituationAttention,
   QUEUE_STATES, QUEUE_STATE_LABEL, ESCALATION_STATES, ESCALATION_LABEL, SITUATION_VERSION,
   type SituationInput,
@@ -182,17 +182,15 @@ test('a genuinely quiet period gets a trustworthy all-clear that says what was e
   assert.match(queue.emptyReason!, /every significance rule was evaluated/i);
 });
 
-test('lanes that cannot fill yet say why, rather than showing a bare zero', () => {
-  const lanes = laneAvailability();
-  assert.equal(lanes.length, QUEUE_STATES.length);
-  const review = lanes.find((l) => l.state === 'NEEDS_REVIEW')!;
-  assert.equal(review.available, true);
-  assert.equal(review.unavailableReason, null);
-
-  for (const lane of lanes.filter((l) => l.state !== 'NEEDS_REVIEW')) {
-    assert.equal(lane.available, false);
-    assert.ok(lane.unavailableReason, `${lane.state} must state why it cannot fill`);
-  }
+test('the engine has no opinion about who owns a Situation', () => {
+  // The lane is a fact about what a human decided. It lives in the operational
+  // record and is joined on in the surface; an engine that guessed at it would be
+  // asserting ownership it cannot observe. Every Situation therefore leaves the
+  // engine as NEEDS_REVIEW, meaning "the analysis has no opinion", and the five
+  // lanes exist only as the shared vocabulary both sides agree on.
+  const queue = buildQueue(inputFor([finding()]), { reportOk: true, periodLabel: 'Yesterday' });
+  for (const s of queue.situations) assert.equal(s.queueState, 'NEEDS_REVIEW');
+  assert.equal(QUEUE_STATES.length, 5);
 });
 
 test('every queue state and escalation state has an operator-facing label', () => {
@@ -211,7 +209,12 @@ test('escalation is WITHHELD rather than defaulting to "new" when history is abs
   const esc = escalationOf(cluster);
   assert.equal(esc.state, 'UNKNOWN', 'Loop must not claim a first sighting it cannot establish');
   assert.equal(esc.withheld, true);
-  assert.match(esc.basis, /does not yet retain/i);
+  // The reason must describe the ANALYSIS's limit — it reads one window — and not
+  // claim the platform has no memory. It has one now; the engine simply is not
+  // the part that holds it.
+  assert.match(esc.basis, /from this period alone/i);
+  assert.match(esc.basis, /operational record/i);
+  assert.doesNotMatch(esc.basis, /does not yet retain/i);
 });
 
 test('SPREADING is claimed only when genuinely observed across dimensions', () => {
@@ -353,12 +356,15 @@ test('unpriced situations are counted, never silently dropped from the total', (
 
 // --- Page-level unknowns ---------------------------------------------------------------
 
-test('the queue discloses that it cannot know whether someone is already on it', () => {
+test('the queue no longer claims it cannot know whether someone is on it', () => {
+  // Retired deliberately. Ownership IS knowable now — it is in the operational
+  // record — so disclosing it as an unknown would be the opposite failure to the
+  // one the disclosure was written for: understating what the product can do.
   const queue = buildQueue(inputFor([finding({ affectedEntities: [entity('markytek')] })]), {
     reportOk: true, periodLabel: 'Yesterday',
   });
   const unknowns = queueUnknowns(queue);
-  assert.ok(unknowns.some((u) => /already working/i.test(u.statement)));
+  assert.ok(!unknowns.some((u) => /already working/i.test(u.statement)));
   assert.ok(unknowns.every((u) => u.reason.length > 0), 'every unknown must state its reason');
 });
 
@@ -406,7 +412,6 @@ test('analyzeCallGrid exposes a queue and a briefing derived from it', () => {
   assert.ok(intel.queue, 'the engine must expose the operator queue');
   assert.equal(intel.queue.version, SITUATION_VERSION);
   assert.ok(intel.briefing.opener.length > 0);
-  assert.equal(intel.queue.lanes.length, QUEUE_STATES.length);
 });
 
 test('the queue never contains more rows than there are findings', () => {

@@ -14,12 +14,26 @@ import {
   MarketplaceRiskPanel, OpportunitiesSection, FindingList, UnknownsSection,
   BusinessStorySection,
 } from "./intelligence-ui";
-import { BriefingBlock, LaneBar, QueueSection } from "./queue-ui";
+import {
+  BriefingBlock, LaneBar, QueueSection, DecisionActivitySection, OpenWorkSection,
+  type QueueMember,
+} from "./queue-ui";
+import { loadOperationalQueue } from "./operational-queue-data";
+import { hasPermission } from "../../../../auth/guard";
+import { repositories } from "@emgloop/database";
 import { CallGridNav } from "./_CallGridNav";
 import { loadCallGridHistory } from "./callgrid-history-data";
 import type { Situation } from "@emgloop/shared";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * How many undecided items reach the first screen.
+ *
+ * A ceiling, not a target. Three is what a person can hold while deciding; the
+ * rest are counted, not hidden.
+ */
+const QUEUE_LIMIT = 3;
 
 // CallGrid Intelligence — the Executive Queue.
 //
@@ -45,10 +59,14 @@ export const dynamic = "force-dynamic";
 // only those same reports. Nothing on this page is computed locally, so Overview
 // and a subpage cannot disagree.
 //
-// NOTE ON THE MISSING BUTTONS: assign / watch / dismiss / resolve are the point
-// of a queue, and each is a state that must survive a refresh. Loop does not yet
-// remember operator decisions, so they are absent and the page says why. Six
-// inert buttons is the fabricated-functionality failure this repo forbids.
+// THE QUEUE IS NOW DURABLE. Assign / watch / resolve / dismiss write an immutable
+// observation through the operational lifecycle primitives, and the state an
+// operator leaves behind is the state they come back to. The lanes are filled
+// from that record rather than derived from one analysis run, which is why they
+// count every open priority and not just the ones this period detected.
+//
+// The analysis above is unchanged and still the only source of every conclusion:
+// the lifecycle layer records what was DECIDED, never what is TRUE.
 
 function money(cents: number | null, available: boolean): string {
   if (!available) return "Unavailable";
@@ -182,6 +200,21 @@ export default async function CallGridIntelligencePage({
   const rateLimitedShare = destinationRateLimitedShare(bid.destinations);
 
   const intel = callGridIntelligence(report, now, { history, bidRejectRate, rateLimitedShare });
+
+  // The analysis becomes an operational record here, and only here. Detection is
+  // idempotent per analysis period, so re-rendering this page cannot inflate the
+  // log; see `callGridDetectionKey`.
+  const canAct = await hasPermission("intelligence", "update");
+  const ops = await loadOperationalQueue(
+    org,
+    intel.queue,
+    { window, now, logLimit: QUEUE_LIMIT },
+  );
+  // Names for owners. Read-only, and only the roster this organization can see.
+  const members: QueueMember[] = (await repositories.iam.listUsers(org))
+    .filter((m) => m.status === "ACTIVE")
+    .map((m) => ({ id: m.id, name: m.name, email: m.email }));
+  const returnTo = `/app/admin/marketplace${rangeQuery ? `?${rangeQuery}` : ""}`;
   const bidIntel = bidIntelligence(bid, now, desc.periodTitle, bidMatches);
   const compareShort = desc.comparisonTitle.split(" · ")[0];
 
@@ -253,11 +286,25 @@ export default async function CallGridIntelligencePage({
           queue={intel.queue}
           periodLabel={desc.periodTitle}
           live={desc.live}
+          persistenceError={ops.persistenceError}
         />
 
-        <LaneBar queue={intel.queue} />
+        <LaneBar counts={ops.counts} unavailable={Boolean(ops.persistenceError)} />
 
-        <QueueSection queue={intel.queue} limit={3} hrefFor={hrefFor} />
+        <QueueSection
+          items={ops.items}
+          emptyReason={intel.queue.emptyReason}
+          limit={QUEUE_LIMIT}
+          hrefFor={hrefFor}
+          members={members}
+          canAct={canAct}
+          returnTo={returnTo}
+          now={now}
+        />
+
+        <OpenWorkSection openWork={ops.openWork} members={members} now={now} />
+
+        <DecisionActivitySection activity={ops.activity} />
 
         {/* ------------------------------------------------------------------
             BELOW THE FOLD. Reached by choosing to, never on the way to the queue.

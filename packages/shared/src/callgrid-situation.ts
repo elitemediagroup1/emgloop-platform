@@ -43,10 +43,11 @@ export const SITUATION_VERSION = 'v1';
 //
 // The operator's workflow, not the engine's. These are the lanes of the queue.
 //
-// Only NEEDS_REVIEW is reachable today: every other lane is a state an operator
-// PUT something into, and nothing yet stores that. `laneAvailability` below says
-// so out loud rather than rendering four lanes that can never fill — a lane that
-// is permanently empty for an unstated reason reads as a broken product.
+// The engine does not know which lane a Situation is in and must not guess: the
+// lane is a fact about what a HUMAN decided, it lives in the operational record
+// (`operational_priorities`), and it is joined on in the surface. Every Situation
+// the engine emits is therefore NEEDS_REVIEW — meaning "the analysis has no
+// opinion about who owns this", not "nobody owns this".
 
 export const QUEUE_STATES = [
   'NEEDS_REVIEW',
@@ -64,33 +65,6 @@ export const QUEUE_STATE_LABEL: Record<QueueState, string> = {
   RESOLVED: 'Resolved',
   DISMISSED: 'Dismissed',
 };
-
-/**
- * Whether a lane can hold anything yet, and if not, why.
- *
- * This is the honest-empty-state rule applied to a workflow rather than to a
- * number: "Assigned — 0" is indistinguishable from "assignment does not exist
- * yet", and only one of those is acceptable to show without explanation.
- */
-export interface LaneAvailability {
-  state: QueueState;
-  label: string;
-  available: boolean;
-  /** Present whenever `available` is false. */
-  unavailableReason: string | null;
-}
-
-const NOT_YET_PERSISTED =
-  'Loop does not yet remember operator decisions between visits, so nothing can be in this lane. It fills once the decision lifecycle is durable.';
-
-export function laneAvailability(): LaneAvailability[] {
-  return QUEUE_STATES.map((state) => ({
-    state,
-    label: QUEUE_STATE_LABEL[state],
-    available: state === 'NEEDS_REVIEW',
-    unavailableReason: state === 'NEEDS_REVIEW' ? null : NOT_YET_PERSISTED,
-  }));
-}
 
 // --- Escalation ------------------------------------------------------------------
 //
@@ -155,7 +129,7 @@ export function escalationOf(cluster: ReasoningCluster): Escalation {
   return {
     state: 'UNKNOWN',
     basis:
-      'Whether this is new, worsening or easing cannot be established: Loop does not yet retain what it reported in prior periods, so it has nothing to compare this sighting against.',
+      'Whether this is worsening or easing cannot be established from this period alone. The analysis sees one window; how often this has been seen before, and whether it was closed and came back, come from the operational record and are shown alongside this.',
     withheld: true,
   };
 }
@@ -361,9 +335,6 @@ export interface SituationInput {
 export interface SituationQueue {
   /** Attention-ordered. The cut to a handful happens in the surface, not here. */
   situations: Situation[];
-  lanes: LaneAvailability[];
-  /** Count per lane. Every lane but NEEDS_REVIEW is 0 until lifecycle persists. */
-  counts: Record<QueueState, number>;
   /**
    * Stated when the queue is empty — an all-clear must say what was examined,
    * because "nothing needed you" and "nothing could be read" look identical
@@ -441,8 +412,8 @@ export function buildSituations(input: SituationInput): Situation[] {
       severity,
       score: lead.score,
       reviewPriority: priority,
-      // Derived, not stored. Every Situation needs review because Loop cannot yet
-      // remember that one was assigned, watched or dismissed.
+      // The analysis has no opinion about ownership. The real lane is joined on
+      // from the operational record in the surface; see `LivePriority`.
       queueState: 'NEEDS_REVIEW',
       escalation: escalationOf(cluster),
       impact,
@@ -509,10 +480,6 @@ export function buildQueue(
   context: { reportOk: boolean; periodLabel: string },
 ): SituationQueue {
   const situations = buildSituations(input);
-  const counts = QUEUE_STATES.reduce(
-    (acc, s) => ({ ...acc, [s]: situations.filter((x) => x.queueState === s).length }),
-    {} as Record<QueueState, number>,
-  );
 
   const emptyReason = situations.length > 0
     ? null
@@ -520,7 +487,7 @@ export function buildQueue(
       ? 'Loop could not read CallGrid for this period, so it cannot tell you whether anything needs attention. This is not an all-clear.'
       : `Nothing needs your attention for ${context.periodLabel}. Every significance rule was evaluated and none of them cleared its threshold.`;
 
-  return { situations, lanes: laneAvailability(), counts, emptyReason, version: SITUATION_VERSION };
+  return { situations, emptyReason, version: SITUATION_VERSION };
 }
 
 // --- The briefing --------------------------------------------------------------------
@@ -600,18 +567,9 @@ export function queueUnknowns(queue: SituationQueue): IntelligenceUnknown[] {
   if (queue.situations.some((s) => s.escalation.withheld)) {
     out.push({
       id: 'situation:escalation-history',
-      statement: 'Whether these are new, worsening or easing.',
+      statement: 'Whether these are worsening or easing.',
       reason:
-        'Loop does not yet retain what it reported in prior periods, so it cannot compare this sighting against an earlier one.',
-    });
-  }
-
-  const unavailable = queue.lanes.filter((l) => !l.available);
-  if (unavailable.length > 0) {
-    out.push({
-      id: 'situation:lifecycle',
-      statement: `Whether anyone is already working on these (${unavailable.map((l) => l.label.toLowerCase()).join(', ')}).`,
-      reason: NOT_YET_PERSISTED,
+        'The analysis reads one window at a time, so the direction of travel is not established here. How often each has been seen, and whether it was closed and came back, come from the operational record.',
     });
   }
 
