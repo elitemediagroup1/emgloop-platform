@@ -2358,3 +2358,122 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
   .cg-cluster { padding: 13px; }
   .cg-stabrow { grid-template-columns: 1fr; }
 }
+
+/* ---------------------------------------------------------------------------
+   The Executive Queue — CallGrid Intelligence's primary surface.
+
+   Two type sizes carry the whole hierarchy: the briefing opener and each row's
+   money. Everything else is body text or a label. Severity is a rail colour and
+   a position, never a word — "Critical" is engine vocabulary, and the row's
+   rank already says which is worst.
+   --------------------------------------------------------------------------- */
+
+.q-brief { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
+.q-brief__period { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-brief__live { color: var(--loop-warn); }
+.q-brief__opener { margin: 0; font-size: clamp(22px, 3.4vw, 30px); font-weight: 650; letter-spacing: -.02em; line-height: 1.15; text-wrap: balance; color: var(--loop-text); }
+.q-brief__seq { margin: 2px 0 0; font-size: 15.5px; line-height: 1.5; color: var(--loop-text-2); max-width: 68ch; }
+.q-brief__total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 0; }
+.q-brief__totalnum { font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--loop-text); }
+.q-brief__totallabel { font-size: 12px; color: var(--loop-text-3); }
+
+/* Lanes. An unavailable lane shows an em dash and says what it waits for —
+   "0" and "not tracked yet" must never look the same. */
+.q-lanes { display: flex; flex-wrap: wrap; gap: 8px; }
+.q-lane { display: flex; align-items: baseline; gap: 7px; padding: 8px 12px; border: 1px solid var(--loop-line); border-radius: 8px; background: var(--loop-elev); }
+.q-lane--pending { opacity: .62; }
+.q-lane__count { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--loop-text); }
+.q-lane__label { font-size: 12px; color: var(--loop-text-2); }
+.q-lane__why { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); border: 1px solid var(--loop-line); border-radius: 5px; padding: 1px 5px; cursor: help; }
+
+.q-queue { display: flex; flex-direction: column; gap: 12px; }
+
+.q-row { display: grid; grid-template-columns: 4px minmax(0, 1fr); background: var(--loop-elev); border: 1px solid var(--loop-line); border-radius: 10px; overflow: hidden; }
+.q-row__rail { background: var(--loop-line-strong); }
+.q-row--fire > .q-row__rail { background: var(--loop-crit); }
+.q-row--warn > .q-row__rail { background: var(--loop-warn); }
+.q-row--calm > .q-row__rail { background: var(--loop-good); }
+.q-row__body { padding: 15px 17px 16px; min-width: 0; }
+.q-row__top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 11px; }
+.q-row__rank { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--loop-text-3); }
+.q-row__title { margin: 0; font-size: 16.5px; font-weight: 650; letter-spacing: -.012em; color: var(--loop-text); }
+.q-row__verdict { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); border-radius: 5px; padding: 2px 6px; }
+.q-row--fire .q-row__verdict { color: var(--loop-crit); border-color: rgba(242,104,138,.45); }
+.q-row--warn .q-row__verdict { color: var(--loop-warn); border-color: rgba(242,180,91,.45); }
+.q-row__merged { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--loop-text-3); cursor: help; }
+.q-row__money { margin: 10px 0 0; font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.022em; line-height: 1.05; color: var(--loop-text); }
+.q-row__moneylabel { margin: 2px 0 0; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-row__decision { margin: 13px 0 0; font-size: 15.5px; font-weight: 600; line-height: 1.45; color: var(--loop-text); max-width: 64ch; }
+.q-row__why { margin: 4px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 68ch; }
+
+.q-row__more { margin-top: 13px; border-top: 1px solid var(--loop-line); padding-top: 11px; }
+.q-row__summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--loop-accent-2); list-style: none; }
+.q-row__summary::-webkit-details-marker { display: none; }
+.q-row__summary::before { content: '▸ '; color: var(--loop-text-3); }
+.q-row__more[open] > .q-row__summary::before { content: '▾ '; }
+.q-row__detail { display: flex; flex-direction: column; gap: 15px; padding-top: 14px; }
+.q-row__open { margin: 0; }
+.q-open { font-size: 12.5px; font-weight: 600; color: var(--loop-accent-2); text-decoration: none; }
+.q-open:hover { text-decoration: underline; }
+
+.q-detail { display: grid; gap: 12px; margin: 0; }
+.q-detail > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 14px; }
+.q-detail dt { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); padding-top: 3px; }
+.q-detail dd { margin: 0; font-size: 14px; line-height: 1.55; color: var(--loop-text-2); max-width: 62ch; }
+.q-detail__money { display: block; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--loop-text); }
+.q-detail__esc { display: block; font-size: 15px; font-weight: 620; color: var(--loop-text); }
+.q-detail__note { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.55; color: var(--loop-text-3); }
+
+/* Loop's read. The disconfirming row is why this block exists. */
+.q-read { background: var(--loop-panel); border: 1px solid var(--loop-line); border-radius: 9px; padding: 15px 16px; }
+.q-read__h { margin: 0 0 9px; font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--loop-accent-2); }
+.q-read__claim { margin: 0 0 12px; font-size: 15.5px; font-weight: 620; line-height: 1.45; color: var(--loop-text); max-width: 62ch; }
+.q-read__list { display: grid; gap: 10px; margin: 0; }
+.q-read__list dt { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-read__list dd { margin: 2px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--loop-text-2); max-width: 64ch; }
+
+/* The chain, and its stated end. The terminus is the most important honesty
+   device on the page, so it is styled as a deliberate stop rather than a note. */
+.q-chain { display: flex; flex-direction: column; gap: 10px; }
+.q-chain__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.q-chain__link { position: relative; padding-left: 18px; }
+.q-chain__link::before { content: ''; position: absolute; left: 4px; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--loop-accent); }
+.q-chain__link--attributed::before { background: var(--loop-warn); }
+.q-chain__link--follows_by_formula::before { background: var(--loop-text-3); }
+.q-chain__stmt { display: block; font-size: 14px; line-height: 1.5; color: var(--loop-text-2); }
+.q-chain__basis { display: block; margin-top: 2px; font-size: 11.5px; color: var(--loop-text-3); }
+.q-chain__end { margin-left: 6px; border-left: 2px dashed var(--loop-line-strong); padding: 2px 0 2px 14px; }
+.q-chain__endtext { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--loop-text-2); max-width: 60ch; }
+.q-chain__extend { margin: 7px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--loop-text-3); max-width: 60ch; }
+.q-chain__extendlabel { display: block; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); margin-bottom: 2px; }
+
+/* The merge stays reversible. */
+.q-obs { border: 1px solid var(--loop-line); border-radius: 8px; padding: 11px 13px; }
+.q-obs__summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--loop-text-2); }
+.q-obs__body { display: flex; flex-direction: column; gap: 13px; padding-top: 12px; }
+.q-obs__item { border-top: 1px solid var(--loop-line); padding-top: 11px; }
+.q-obs__item:first-child { border-top: 0; padding-top: 0; }
+.q-obs__title { margin: 0; font-size: 13.5px; font-weight: 620; color: var(--loop-text); }
+.q-obs__sum { margin: 3px 0 7px; font-size: 12.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+.q-gaps { border-top: 1px solid var(--loop-line); padding-top: 12px; }
+.q-gaps__h { margin: 0 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-gaps__list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.q-gaps__list li { font-size: 12.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+.q-empty { background: var(--loop-elev); border: 1px solid var(--loop-line); border-left: 3px solid var(--loop-good); border-radius: 10px; padding: 18px 20px; }
+.q-empty__text { margin: 0; font-size: 15.5px; line-height: 1.55; color: var(--loop-text-2); max-width: 66ch; }
+
+.q-held { margin: 2px 0 0; font-size: 12.5px; color: var(--loop-text-3); }
+.q-held__note { color: var(--loop-text-3); }
+.q-actions-note { margin: 6px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 72ch; }
+.q-prov { margin: 6px 0 0; font-size: 11px; color: var(--loop-text-3); }
+
+.cg-numdetail__summary { cursor: pointer; }
+.cg-numdetail__body { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
+
+@media (max-width: 640px) {
+  .q-detail > div { grid-template-columns: 1fr; gap: 3px; }
+  .q-row__body { padding: 13px 14px 14px; }
+  .q-brief__opener { font-size: 21px; }
+}
