@@ -20,8 +20,12 @@
 // an argument, so a test can state the instant it is reasoning about and a
 // fixture cannot rot as the calendar moves.
 //
-// GENERIC. Nothing here knows what CallGrid is. These are the platform's
-// lifecycle primitives; CallGrid Intelligence is the first producer.
+// GENERIC. Nothing here knows what CallGrid is. These are the primitives of the
+// DECISION CENTER — the one place in Loop where a decision is made, owned and
+// closed, whatever noticed it. CallGrid Intelligence is the first producer to
+// arrive; CRM, Accounting, Marketing, Website, Support and Creator intelligence
+// are expected to follow, and each is a `sourceSystem` value rather than a new
+// table.
 
 export const LIFECYCLE_PROJECTION_VERSION = 'v1';
 

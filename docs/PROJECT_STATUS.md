@@ -62,7 +62,7 @@ copy of CallGrid into an explainable workspace, then into an operations centre.
   when unmeasurable) · reconciliation harness under Administration → Diagnostics.
 - **Deleted (replacement rule):** `callgrid-dimensions.ts`, `callgrid-watch.ts`.
 
-### In progress — the operational review system (this branch, 5 commits, no PR yet)
+### In progress — THE DECISION CENTER (draft PR #151, branch `feat/callgrid-operational-review`)
 Turns the Overview from an analytics surface into a queue that is **cleared**, with decisions
 that survive a refresh. Built outside-in: queue → lifecycle → persistence → history, coupled
 deliberately because a button that forgets is worse than no button.
@@ -73,7 +73,11 @@ deliberately because a button that forgets is worse than no button.
   a Situation inherits the WORST severity so merging can never soften urgency.
 - **Platform primitives, not CallGrid tables.** `operational_priorities` + `operational_observations`
   (+4 enums). `sourceSystem` names the producer; CallGrid is the FIRST one, not the owner. CRM,
-  Accounting and Website Intelligence write through the same surface with no migration.
+  Accounting, Marketing, Website, Support, Compliance and Creator intelligence write through the
+  same surface with no migration.
+- **Named the Decision Center** (Matt, 2026-07-30). Architecture-level name only — the identifiers
+  stay plain because they describe a row's shape; the Decision Center is what the collection IS.
+  This is the one place in Loop where a decision is made, owned and closed, whatever noticed it.
 - **Event-sourced.** The observation log is the truth; the state columns are a documented,
   rebuildable cache written in the same transaction. `projectLifecycle` (pure, in `@emgloop/shared`)
   is the single definition of "current state". Ordering is by **sequence** (the order Loop learned
@@ -95,11 +99,13 @@ deliberately because a button that forgets is worse than no button.
 `turbo build --filter=@emgloop/web` passes · `prisma validate` clean. Migration is additive only
 (0 DROP / 0 rename / 0 column-type change), ASCII header.
 
-**⚠️ GATE — this branch cannot go live until the migration remediation runs.** Production has no
-`_prisma_migrations` table and the Netlify build runs `prisma generate` only, so the two new tables
-will not exist in production. See `docs/architecture/migration-remediation-plan.md`: fix the
-`sprint_11` em-dash (one-character comment fix, its own PR), back up and baseline production, then
-upgrade the build step in a separate reviewed change. **Human-run; nothing in this branch does it.**
+**⚠️ GATE — still cannot go live, but the code half is now done (draft PR #152).** The `sprint_11`
+em-dash is fixed on its own branch and the full 11-migration chain is **verified to replay from an
+empty Postgres 16 with no drift** (71 tables). What remains is human-run against production: back
+up + restore-test, `migrate resolve --applied` every existing migration (resolve, never run), then
+`migrate deploy`, then upgrade the Netlify build from `prisma generate` to
+`migrate deploy && generate` as a separate reviewed change. See
+`docs/architecture/migration-remediation-plan.md`.
 
 **⚠️ Still open, unchanged by this branch:**
 1. **Phase 1 production reconciliation has never been run.** Every health band, opportunity amount
@@ -109,9 +115,10 @@ upgrade the build step in a separate reviewed change. **Human-run; nothing in th
    (`POST /api/reports/stats` has never returned 200), so this cannot be automated.
 2. **Bids page redesign** — still a raw-table surface; its "closed targets overnight" example is
    unreachable because the snapshot carries no hour-of-day dimension.
-3. **Permissions question for Matt:** `intelligence:update` is OWNER/ADMIN only, so a MANAGER sees
-   the queue read-only. Should managers be able to own a priority? That is a MATRIX change, not
-   something to widen quietly.
+3. ~~Permissions question~~ **ANSWERED (Matt, 2026-07-30): leave `intelligence:update` at
+   OWNER/ADMIN.** Managers have no defined operational role yet. When CRM lands and roles like
+   Operations/Sales/CSR/Accounting Manager exist, those permissions come from the MATRIX — not from
+   CallGrid, and not invented ahead of the roles they serve.
 
 **Honest limits held:** bid data is snapshot-only so **no bid trend is shown anywhere**; campaign/
 vendor profit is not attributable at that grain and says so; entity counts mean "observed this
@@ -243,11 +250,18 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
    **web test harness** (route/render/permission tests can't run without one today).
 5. **CallGrid deploy validation** — still unrun, and still the gate on trusting any figure the
    intelligence layer reports. See the CallGrid block above for the exact per-period checklist.
-6. **Migration remediation (human-run, blocks the operational-review branch AND the cognitive
-   architecture).** `docs/architecture/migration-remediation-plan.md`: fix the `sprint_11` em-dash
-   in its own PR, back up + baseline production, apply the additive migrations, then upgrade the
-   Netlify build from `prisma generate` to `migrate deploy && generate` as a separate reviewed
-   change. Until this runs, any branch that adds a table is code-complete but not live.
+6. **Migration remediation — code half DONE (draft PR #152), production half OUTSTANDING.**
+   The em-dash fix is verified by from-zero replay against real Postgres. The remaining steps are
+   human-run against production data: back up + restore-test, baseline with
+   `migrate resolve --applied`, `migrate deploy`, then upgrade the Netlify build step separately.
+   Until those run, any branch that adds a table is code-complete but not live — currently #148
+   and #151.
+7. **Next foundation layer (proposed, NOT started): the Decision Engine API.** A named facade over
+   the Decision Center primitives — create / assign / watch / resolve / reopen / falsePositive /
+   history / timeline / evidence / related / publish / subscribe — so a new intelligence module is
+   "detect, then create a decision" and inherits everything else. `publish`/`subscribe` map onto the
+   cognitive outbox and `StateChangeSubscription` that #148 already merged (there is a `WORK_OS`
+   subscriber type waiting). **Blocked on #151 merging** — one foundation layer at a time.
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged

@@ -2670,12 +2670,21 @@ model CognitiveProcessingAttempt {
 }
 
 // ===========================================================================
-// OPERATIONAL DECISION LIFECYCLE (platform primitives)
+// THE DECISION CENTER (platform primitives)
 // ---------------------------------------------------------------------------
 // The human execution layer of the intelligence engine. This is where a thing
 // Loop noticed becomes a thing the organization is doing something about, and
 // where the outcome of that work is recorded so future intelligence can be
 // measured against it rather than merely asserted.
+//
+// NAMED FOR WHAT IT BECOMES, not for where it started. This is not "CallGrid's
+// review queue" and it is not a marketplace feature: it is the one place in Loop
+// where a decision is made, owned and closed, whatever noticed it. CRM,
+// Accounting, Marketing, Website, Support, Compliance and Creator intelligence
+// are all expected to arrive here, and each of them is a `sourceSystem` value
+// rather than a schema change. The identifiers below stay deliberately plain
+// (`OperationalPriority`, `OperationalObservation`) because they describe the
+// shape of the row; the Decision Center is what the collection of them IS.
 //
 // GENERIC BY CONSTRUCTION. There is no CallGrid in this section and there must
 // never be. CallGrid Intelligence is the FIRST PRODUCER of these primitives, not
