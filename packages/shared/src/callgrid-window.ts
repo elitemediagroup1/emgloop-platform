@@ -560,3 +560,39 @@ export function callGridRangeQuery(preset: CallGridPreset, custom?: { start?: st
   }
   return `range=${preset}`;
 }
+
+// --- Detection identity ------------------------------------------------------
+
+/**
+ * The identity of the analysis period a detection came from.
+ *
+ * Used as the idempotency key when a producer records that it saw a situation:
+ * the same period may be re-analysed any number of times (the Overview is
+ * server-rendered and re-runs the engine on every request) and must record
+ * exactly one sighting. Built from the window's Eastern calendar span, so a
+ * refresh at 9:05 and one at 4:40 on the same day produce the same key while
+ * tomorrow produces a different one.
+ *
+ * Deliberately NOT built from `end` directly: a live window's end moves with the
+ * clock, so keying on the instant would make every request a new period.
+ */
+export function callGridDetectionKey(window: CallGridWindow): string {
+  const from = easternYmd(window.start);
+  const to = lastIncludedYmd(window.end);
+  const iso = (y: EasternYmd) =>
+    `${y.year}-${String(y.month).padStart(2, '0')}-${String(y.day).padStart(2, '0')}`;
+  const span = iso(from) === iso(to) ? iso(from) : `${iso(from)}..${iso(to)}`;
+  return `${window.preset}:${span}`;
+}
+
+/**
+ * The instant a detection from this window should be stamped with.
+ *
+ * The end of the period being analysed, clamped to `now` for a live window —
+ * a sighting must never be dated in the future, and a completed period's
+ * sighting belongs to that period rather than to whenever somebody opened the
+ * page to look at it.
+ */
+export function callGridDetectedAt(window: CallGridWindow, now: Date): Date {
+  return window.end.getTime() > now.getTime() ? now : window.end;
+}
