@@ -266,3 +266,10 @@ export * from './cognitive-context';
 // the stored state columns are a rebuildable cache. Generic — CallGrid
 // Intelligence is the first producer, not the owner. See ./operational-lifecycle.ts.
 export * from './operational-lifecycle';
+
+// --- The canonical Decision contract (the Decision Center's platform model) ---
+// One model for every producer, with each field marked PERSISTED or RESERVED and
+// a test in @emgloop/database walking that list against the real columns — so
+// this contract cannot describe a system that does not exist. See
+// ./decision-contract.ts.
+export * from './decision-contract';
