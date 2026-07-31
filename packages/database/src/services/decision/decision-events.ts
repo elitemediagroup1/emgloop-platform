@@ -1,4 +1,17 @@
-// Lifecycle change -> domain event.
+// Lifecycle change -> domain event, bound to the Prisma enum.
+//
+// THE VOCABULARY IS NOT DEFINED HERE. It lives in `@emgloop/shared`
+// (`decision-events.ts`) as the Decision Event Contract v1, because a subscriber
+// must be able to depend on it without depending on persistence. This file does
+// one thing the contract cannot: it binds that map to the PRISMA enum, so the
+// database's notion of an observation type and the contract's notion cannot
+// drift apart silently.
+//
+// The binding is the check. `Record<OperationalObservationType, DecisionEventName>`
+// fails to compile if the Prisma enum gains a member the contract does not map,
+// or if the contract maps one to a name that is not in the vocabulary. A test
+// then walks it in the other direction — every contract event reachable, every
+// published name declared.
 //
 // ONE event per lifecycle operation, published through the platform's single
 // outbox. The Decision Engine knows nothing about who consumes them: no
@@ -6,47 +19,19 @@
 // never requires touching this file.
 
 import type { OperationalObservationType } from '@prisma/client';
+import {
+  DECISION_EVENT_TYPE as CONTRACT_EVENT_TYPE,
+  type DecisionEventName,
+} from '@emgloop/shared';
 
 /**
- * The event a given observation announces.
+ * The event a given observation announces, keyed by the Prisma enum.
  *
- * A total map rather than a lookup with a fallback: a new observation type must
- * force a deliberate decision about what the world gets told, and TypeScript's
- * exhaustiveness check is what makes that happen at compile time rather than in
- * production as a silently unpublished change.
+ * A re-export with a stricter type, never a second table. If this line stops
+ * compiling, the contract and the schema have diverged — fix the contract, do
+ * not widen this type.
  */
-export const DECISION_EVENT_TYPE: Record<OperationalObservationType, string> = {
-  SITUATION_DETECTED: 'DecisionCreated',
-  SITUATION_RESIGHTED: 'DecisionObserved',
-  REOPENED: 'DecisionReopened',
-  REVIEWED: 'DecisionReviewed',
-  ASSIGNED: 'DecisionAssigned',
-  REASSIGNED: 'DecisionAssigned',
-  UNASSIGNED: 'DecisionUnassigned',
-  OWNER_CHANGED: 'DecisionOwnerChanged',
-  PRIORITY_CHANGED: 'DecisionPriorityChanged',
-  SEVERITY_CHANGED: 'DecisionSeverityChanged',
-  EVIDENCE_ADDED: 'DecisionEvidenceAdded',
-  WATCH_STARTED: 'DecisionWatched',
-  WATCH_STOPPED: 'DecisionUnwatched',
-  NOTE_ADDED: 'DecisionNoteAdded',
-  CONTACT_ATTEMPTED: 'DecisionProgressRecorded',
-  CONTACT_COMPLETED: 'DecisionProgressRecorded',
-  AWAITING_RESPONSE: 'DecisionProgressRecorded',
-  RESPONSE_RECEIVED: 'DecisionProgressRecorded',
-  ESCALATED: 'DecisionEscalated',
-  OUTCOME_RECORDED: 'DecisionOutcomeRecorded',
-  RESOLVED: 'DecisionResolved',
-  DISMISSED: 'DecisionClosed',
-};
+export const DECISION_EVENT_TYPE: Record<OperationalObservationType, DecisionEventName> =
+  CONTRACT_EVENT_TYPE;
 
-/**
- * The subscription routing key for a decision.
- *
- * Namespaced by producer so a subscriber can watch one producer's decisions
- * without matching every decision in the platform, and prefixed with `decision.`
- * so it can never collide with an active-state key.
- */
-export function decisionStateKey(producer: string, recurrenceKey: string): string {
-  return `decision.${producer}.${recurrenceKey}`;
-}
+export { decisionStateKey, type DecisionEventName } from '@emgloop/shared';

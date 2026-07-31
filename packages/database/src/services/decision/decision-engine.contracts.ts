@@ -17,7 +17,7 @@ import type {
   OperationalObservationType,
   OperationalActorType,
 } from '@prisma/client';
-import type { LifecycleHistory, PriorityState } from '@emgloop/shared';
+import type { LifecycleHistory, PriorityState, DecisionEventName } from '@emgloop/shared';
 
 /** Who is acting. Every lifecycle write is attributed. */
 export interface DecisionActor {
@@ -161,8 +161,13 @@ export interface DecisionResult {
   observation: OperationalObservation | null;
   /** What actually happened, so a caller can report it honestly. */
   effect: 'CREATED' | 'RESIGHTED' | 'REOPENED' | 'UPDATED' | 'UNCHANGED';
-  /** The event written to the outbox, when one was. */
-  eventType: string | null;
+  /**
+   * The event written to the outbox, when one was.
+   *
+   * Typed against the contract vocabulary rather than `string`, so a method that
+   * reports an event name cannot invent one that no subscriber will ever match.
+   */
+  eventType: DecisionEventName | null;
 }
 
 /** The full read model. */
