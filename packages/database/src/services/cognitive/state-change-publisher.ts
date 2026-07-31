@@ -21,6 +21,16 @@
 //   - ORDERED drain: rows are examined oldest-first (createdAt asc); a claimed
 //     parent stays PROCESSING and is revisited each pass until every matched
 //     delivery is terminal, so a slow retry never strands the row.
+//   - NO DELIVERY IS STRANDED BY A DEAD WORKER: each pass first reclaims
+//     deliveries left in PROCESSING beyond the lease. Until this existed, a
+//     serverless timeout or a mid-dispatch deploy left a delivery that was never
+//     retried, never dead-lettered and never surfaced — the difference between
+//     "at-least-once" and "at-least-once unless the process dies".
+//
+// NOT guaranteed, and stated because a subscriber author will assume otherwise:
+// per-subject ORDER. Retry is independent per delivery, so a later change can
+// succeed while an earlier one is still backing off. Consumers order by the
+// sequence in the payload. See DELIVERY_GUARANTEES in @emgloop/shared.
 //
 // Tenancy: organizationId is the first argument to run() and to every repository
 // call, always from trusted server context — never from an outbox payload.
@@ -41,11 +51,15 @@ import {
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
 const DEFAULT_BATCH_SIZE = 100;
+/** Must comfortably exceed the slowest legitimate handler — see reclaimStale. */
+const DEFAULT_LEASE_MS = 5 * 60_000;
 
 export interface PublisherOptions {
   maxAttempts?: number;
   retryDelayMs?: number;
   batchSize?: number;
+  /** How long a claimed delivery may stay PROCESSING before it is presumed dead. */
+  leaseMs?: number;
 }
 
 export interface PublisherDeps {
@@ -69,6 +83,8 @@ export interface PublishResult {
   deliveriesSucceeded: number;
   deliveriesFailed: number;
   deliveriesDeadLettered: number;
+  /** Deliveries recovered from an abandoned PROCESSING state this pass. */
+  deliveriesReclaimed: number;
 }
 
 function emptyResult(): PublishResult {
@@ -82,6 +98,7 @@ function emptyResult(): PublishResult {
     deliveriesSucceeded: 0,
     deliveriesFailed: 0,
     deliveriesDeadLettered: 0,
+    deliveriesReclaimed: 0,
   };
 }
 
@@ -102,6 +119,7 @@ export class StateChangePublisher {
   private readonly maxAttempts: number;
   private readonly retryDelayMs: number;
   private readonly batchSize: number;
+  private readonly leaseMs: number;
 
   constructor(prisma: PrismaClient, opts: PublisherOptions = {}, deps: PublisherDeps = {}) {
     this.repos = deps.repos ?? createCognitiveRepositories(prisma);
@@ -110,6 +128,7 @@ export class StateChangePublisher {
     this.maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.retryDelayMs = opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
+    this.leaseMs = opts.leaseMs ?? DEFAULT_LEASE_MS;
   }
 
   /**
@@ -126,6 +145,22 @@ export class StateChangePublisher {
     }
     const now = opts.now ?? new Date();
     const result = emptyResult();
+
+    // Recover anything a previous worker abandoned BEFORE dispatching, so a
+    // delivery stranded by a timeout or a mid-dispatch deploy rejoins this pass
+    // rather than waiting for a human to notice it.
+    //
+    // This lives in the publisher rather than in whatever triggers it, because it
+    // is part of the delivery guarantee, not part of the schedule. Every caller —
+    // the drain route, a test, a future queue worker — inherits it without having
+    // to remember.
+    const recovered = await this.repos.stateChangeDeliveries.reclaimStale(organizationId, {
+      leaseMs: this.leaseMs,
+      maxAttempts: this.maxAttempts,
+      now,
+    });
+    result.deliveriesReclaimed = recovered.reclaimed;
+    result.deliveriesDeadLettered += recovered.deadLettered;
 
     const rows = await this.repos.stateChangeOutbox.listActiveForPublish(organizationId, {
       take: opts.take ?? this.batchSize,
