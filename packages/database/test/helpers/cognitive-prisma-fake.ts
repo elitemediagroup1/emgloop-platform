@@ -26,6 +26,24 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   operationalPriority: ['organizationId', 'sourceSystem', 'recurrenceKey'],
 };
 
+/**
+ * Column defaults the schema applies and this double otherwise would not.
+ *
+ * Only the ones a query FILTERS on, which is what makes them matter: a row
+ * created without `status` does not match `where status: 'PENDING'`, so a drain
+ * that is correct in production silently finds nothing here. That is the worst
+ * kind of test double — it fails a working query and invites someone to "fix"
+ * the query until the fake is happy.
+ *
+ * Deliberately not a general default engine. These mirror `@default(...)` in
+ * schema.prisma; if one drifts, the fake is wrong and should be corrected here.
+ */
+const COLUMN_DEFAULTS: Record<string, Row> = {
+  stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
+  stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
+  stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
+};
+
 // A delegate may carry more than one unique. Prisma enforces each independently.
 const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
   operationalObservation: [
@@ -86,13 +104,26 @@ function cmp(a: any, b: any): number {
 function condMatches(value: any, cond: any): boolean {
   if (cond === null) return value === null || value === undefined;
   if (isPlainObject(cond)) {
-    if ('not' in cond) return value !== cond.not;
-    if ('in' in cond) return (cond.in as any[]).includes(value);
-    if ('gt' in cond) return value != null && cmp(value, cond.gt) > 0;
-    if ('gte' in cond) return value != null && cmp(value, cond.gte) >= 0;
-    if ('lt' in cond) return value != null && cmp(value, cond.lt) < 0;
-    if ('lte' in cond) return value != null && cmp(value, cond.lte) <= 0;
-    return false;
+    // EVERY operator present must hold, as Prisma ANDs them. This used to return
+    // on the FIRST one it recognised, so `{ not: null, lt: cutoff }` silently
+    // dropped the `lt` and matched every non-null row — a filter narrowing by
+    // age would have passed its test while doing nothing. A fake that quietly
+    // over-matches is worse than no fake: the suite stays green and the
+    // assertion stops meaning anything.
+    const checks: boolean[] = [];
+    if ('not' in cond) {
+      checks.push(cond.not === null ? value !== null && value !== undefined : value !== cond.not);
+    }
+    if ('in' in cond) checks.push((cond.in as any[]).includes(value));
+    if ('notIn' in cond) checks.push(!(cond.notIn as any[]).includes(value));
+    if ('gt' in cond) checks.push(value != null && cmp(value, cond.gt) > 0);
+    if ('gte' in cond) checks.push(value != null && cmp(value, cond.gte) >= 0);
+    if ('lt' in cond) checks.push(value != null && cmp(value, cond.lt) < 0);
+    if ('lte' in cond) checks.push(value != null && cmp(value, cond.lte) <= 0);
+    // An unrecognised operator must not silently pass. Matching nothing surfaces
+    // as a failing assertion; matching everything hides a broken query.
+    if (checks.length === 0) return false;
+    return checks.every(Boolean);
   }
   return value === cond;
 }
@@ -144,6 +175,12 @@ function makeDelegate(name: string) {
         id: data.id ?? nextId(),
         createdAt: now,
         updatedAt: now,
+        // Schema defaults first, so anything the caller passed still wins.
+        ...(COLUMN_DEFAULTS[name] ?? {}),
+        // `availableAt` defaults to now() in the schema for the queue models.
+        ...(COLUMN_DEFAULTS[name] && 'status' in (COLUMN_DEFAULTS[name] as Row)
+          ? { availableAt: now }
+          : {}),
         ...data,
       };
       rows.push(row);
@@ -160,9 +197,24 @@ function makeDelegate(name: string) {
       return found ? { ...found } : null;
     },
     async findMany(
-      { where, orderBy, take, select }: { where?: Row; orderBy?: any; take?: number; select?: Row } = {},
+      { where, orderBy, take, select, distinct }: {
+        where?: Row; orderBy?: any; take?: number; select?: Row; distinct?: string[];
+      } = {},
     ): Promise<Row[]> {
       let out = sortRows(rows.filter((r) => matches(r, where)), orderBy);
+      // Applied BEFORE take, as Prisma does: `distinct` then `take` returns N
+      // distinct rows, whereas the reverse would return the distinct subset of
+      // the first N — a difference that matters to a drain paging through
+      // organizations.
+      if (distinct?.length) {
+        const seen = new Set<string>();
+        out = out.filter((r) => {
+          const key = distinct.map((k) => String(r[k])).join(' ');
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
       if (typeof take === 'number') out = out.slice(0, take);
       return out.map((r) => project({ ...r }, select)!);
     },
