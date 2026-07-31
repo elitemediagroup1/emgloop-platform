@@ -1,7 +1,8 @@
 # The Decision Event Contract
 
-**Status:** v1. The vocabulary, the payload and the routing key are built and published today.
-**Delivery is not** — see *The gap* below before building a subscriber.
+**Status:** v1. The vocabulary, the payload and the routing key are built and published today, and
+a drain now delivers them. Read *The gap* before building a subscriber: ordering is not guaranteed,
+and delivery depends on configuration this repository cannot assert.
 
 **This document is not the contract.** The contract is
 [`packages/shared/src/decision-events.ts`](../../packages/shared/src/decision-events.ts). It is
@@ -24,8 +25,9 @@ So the contract enforces itself instead:
 | `packages/database` types its map as `Record<OperationalObservationType, DecisionEventName>` | An event name the contract does not declare is a compile error, not a subscriber that silently never fires |
 | The engine's payload is annotated `DecisionEventPayloadV1` | A renamed or dropped field is a compile error rather than a runtime break in every subscriber |
 | Tests walk the map against the **Prisma enum** in both directions | The schema and the contract cannot diverge |
-| A test scans for a `StateChangePublisher` caller | If somebody builds the drain and forgets this contract, the suite fails and names the line to change |
-| A test reads `claim()` | If somebody adds a lease, the `at-least-once` caveat stops being allowed to say `PARTIAL` |
+| A test scans for an `OutboxDrainRunner` caller | Remove the trigger and `delivery-execution` must go back to `NOT_BUILT`; add one and it may not stay `NOT_BUILT` |
+| A test reads the reclaim and the publisher | Delete `reclaimStale` and `at-least-once` may no longer claim `GUARANTEED` |
+| A test reads the drain route | It fails if the endpoint ever starts reading an organization, a query string or a body |
 
 The last two are the point. The contract is not allowed to describe a system that does not exist,
 **and it is not allowed to keep describing one that has since been built.**
@@ -67,28 +69,62 @@ legitimately behave that a naive handler gets wrong.
 non-guaranteed ones first — a contract listing only its guarantees reads as though the rest are
 guaranteed too.
 
-**`delivery-execution` is `NOT_BUILT`. Nothing drains the outbox in production.**
-`StateChangePublisher` has no caller outside its own tests: no cron, no route, no worker. Events
-are written and accumulate unread, so every other guarantee currently describes rows nobody
-reads. **A subscriber built before a drain exists is provably dead code.**
+**`per-subject-ordering` is `NOT_BUILT`, and this is the one that will bite a handler author.** The
+drain examines rows oldest-first, but per-delivery retry is independent, so a later event can
+succeed while an earlier one is still backing off. Order by `payload.sequence`; never assume
+`previousState` matches what you last saw.
 
-Two more worth knowing before writing a handler:
+**`delivery-execution` is `PARTIAL`.** The drain is built — `OutboxDrainRunner` resolves which
+organizations have work and runs a bounded pass for each, triggered by a guarded endpoint on a
+schedule. It is not `GUARANTEED` because whether it actually runs depends on configuration this
+repository cannot assert. See *Running the drain*.
 
-- **`per-subject-ordering` is `NOT_BUILT`.** The drain examines rows oldest-first, but per-delivery
-  retry is independent, so a later event can succeed while an earlier one is still backing off.
-  Order by `payload.sequence`; never assume `previousState` matches what you last saw.
-- **`at-least-once` is `PARTIAL`.** `claim()` is a conditional update over `PENDING`/`FAILED` only,
-  so a worker that dies mid-handler strands its delivery in `PROCESSING` and nothing reclaims it.
-  Closing this needs a visibility timeout. Handlers must still be idempotent, because a `FAILED`
-  delivery that already had a side effect does retry.
+**`at-least-once` is now `GUARANTEED`**, and was not before. `claim()` covers `PENDING`/`FAILED`
+only, so a worker that died mid-handler used to strand its delivery in `PROCESSING` forever —
+never retried, never dead-lettered, never surfaced. `reclaimStale()` now runs at the start of every
+pass: a delivery held past the lease returns to `PENDING`, or dead-letters with a stated reason once
+its attempts are spent, so a handler that reliably kills its worker surfaces instead of looping.
+
+Handlers must still be idempotent. A reclaimed or `FAILED` delivery may already have had a side
+effect.
+
+## Running the drain
+
+Nothing about the schedule reaches the runner, the publisher or the engine — that is the point.
+Replacing the trigger with EventBridge, a queue worker, an ECS scheduled task or an admin button is
+a change to the caller alone.
+
+| Piece | Where |
+|---|---|
+| What a pass *is* | `OutboxDrainRunner` (`packages/database/src/services/cognitive/`) |
+| The endpoint | `POST /api/internal/outbox/drain` |
+| The schedule | `.github/workflows/drain-outbox.yml`, every 5 minutes |
+
+Required configuration, **without which nothing is delivered**:
+
+- `OUTBOX_DRAIN_SECRET` in the deployment environment. Absent, the endpoint returns 401 — it fails
+  closed rather than running unauthenticated, because an open drain endpoint is a denial-of-service
+  lever on every tenant's queue at once.
+- `OUTBOX_DRAIN_URL` and `OUTBOX_DRAIN_SECRET` as repository secrets for the workflow.
+
+Verify with a manual `workflow_dispatch` run before relying on it. The response body is the
+observability surface until an admin page exists: organizations drained, what published, what was
+reclaimed, what dead-lettered, and whether the pass ran out of time. Counters and ids only — no
+payloads and no tenant rows.
+
+The endpoint takes **no organization and no parameters**, and a test asserts it never will. A drain
+that accepted a tenant would be a cross-tenant lever behind a secret that authenticates a class of
+caller rather than a tenant.
 
 ## Adding a subscriber
 
-Not yet — see above. When the drain exists: register a `StateChangeSubscription` with
-`subscriberType`, an `eventTypes` list drawn from `DECISION_EVENT_NAMES`, and a `stateKeyPattern`
-built with `decisionStateKey(producer, recurrenceKey)` to watch one producer without matching every
-decision on the platform. Mark it `required` only if the parent publication should fail when it
-dead-letters.
+Register a `StateChangeSubscription` with `subscriberType`, an `eventTypes` list drawn from
+`DECISION_EVENT_NAMES`, and a `stateKeyPattern` built with `decisionStateKey(producer,
+recurrenceKey)` to watch one producer without matching every decision on the platform. Mark it
+`required` only if the parent publication should fail when it dead-letters.
+
+Read `SUBSCRIBER_RULES` first, and confirm the drain is configured — an unconfigured drain means a
+correctly-registered subscriber still receives nothing.
 
 Note that the existing cognitive `work-os` subscriber is **not** a Work OS integration: it is
 identity-scoped, and `identityId` is null for most decisions by design, so it would no-op on

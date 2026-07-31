@@ -234,11 +234,11 @@ export const DELIVERY_GUARANTEES: readonly DeliveryGuarantee[] = [
   },
   {
     id: 'at-least-once',
-    status: 'PARTIAL',
+    status: 'GUARANTEED',
     statement:
-      'A claimed delivery either succeeds, retries, or dead-letters — EXCEPT when the worker dies mid-handler. There is no lease timeout, so a delivery abandoned in PROCESSING is never reclaimed and will not retry.',
+      'A claimed delivery always reaches a terminal state. It succeeds, retries with back-off, or dead-letters — including when the worker dies mid-handler, which previously stranded it in PROCESSING forever: never retried, never dead-lettered, never surfaced.',
     enforcedBy:
-      'Nothing reclaims a stale PROCESSING delivery. Closing this needs a visibility timeout (claim rows whose startedAt is older than a lease) — not built. Subscribers must still be idempotent, because a FAILED delivery that already had a side effect does retry.',
+      'StateChangeDeliveryRepository.reclaimStale(), called at the start of every publisher pass: a delivery held past the lease returns to PENDING, or dead-letters with a stated reason once its attempts are spent so a handler that reliably kills its worker surfaces instead of looping. Subscribers must still be idempotent — a reclaimed or FAILED delivery may already have had a side effect.',
   },
   {
     id: 'per-subject-ordering',
@@ -250,11 +250,11 @@ export const DELIVERY_GUARANTEES: readonly DeliveryGuarantee[] = [
   },
   {
     id: 'delivery-execution',
-    status: 'NOT_BUILT',
+    status: 'PARTIAL',
     statement:
-      'NOTHING DRAINS THE OUTBOX IN PRODUCTION. Events are written and never delivered. StateChangePublisher has no caller outside its own tests — no cron, no route, no worker. Every guarantee above currently describes rows that accumulate unread.',
+      'A drain exists and runs on a schedule: OutboxDrainRunner resolves which organizations have work and runs a bounded pass for each, triggered by a guarded endpoint. It is PARTIAL rather than GUARANTEED because whether it actually runs depends on configuration this repository cannot assert — OUTBOX_DRAIN_SECRET in the deployment, plus OUTBOX_DRAIN_URL and OUTBOX_DRAIN_SECRET in the scheduled workflow. Unconfigured, the endpoint fails closed with 401 and nothing is delivered.',
     enforcedBy:
-      'Nothing. This is the gate on the first real subscriber: a subscriber built before a drain exists is provably dead code.',
+      'OutboxDrainRunner + POST /api/internal/outbox/drain + .github/workflows/drain-outbox.yml. The trigger is deliberately replaceable: swapping the schedule for a queue worker or a Lambda changes the caller and nothing downstream. Verify with a manual workflow_dispatch run before relying on it.',
   },
 ];
 

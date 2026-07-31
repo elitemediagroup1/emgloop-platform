@@ -144,50 +144,73 @@ test('every declared event is reachable from a real enum member', () => {
 // --- The guarantees, checked against reality ----------------------------------
 
 test('the delivery-execution guarantee tells the truth about the drain', () => {
-  // The whole point of an executable contract. If someone builds the drain, this
-  // fails until the contract is updated; if someone marks it GUARANTEED without
-  // building it, this fails too.
-  const callers = sourceFiles(join(ROOT, 'src'))
-    .concat(sourceFiles(join(ROOT, '..', '..', 'apps', 'web', 'src')))
-    .filter((f) => /new StateChangePublisher\s*\(/.test(readFileSync(f, 'utf8')));
+  // The whole point of an executable contract. The meaningful signal is not that
+  // a publisher is CONSTRUCTED — the runner does that by definition — but that
+  // something outside the drain module actually INVOKES it. That is the trigger.
+  const triggers = sourceFiles(join(ROOT, '..', '..', 'apps', 'web', 'src'))
+    .concat(sourceFiles(join(ROOT, 'scripts')))
+    .filter((f) => /(new OutboxDrainRunner|createOutboxDrainRunner)\s*\(/.test(readFileSync(f, 'utf8')));
 
   const declared = DELIVERY_GUARANTEES.find((g) => g.id === 'delivery-execution');
   assert.ok(declared, 'the delivery-execution guarantee must exist');
 
-  if (callers.length === 0) {
+  if (triggers.length === 0) {
     assert.equal(
       declared.status,
       'NOT_BUILT',
-      'nothing constructs StateChangePublisher, so delivery-execution must stay NOT_BUILT',
+      'nothing invokes OutboxDrainRunner, so delivery-execution must stay NOT_BUILT',
     );
   } else {
     assert.notEqual(
       declared.status,
       'NOT_BUILT',
-      `StateChangePublisher is now constructed in ${callers.join(', ')} — update the delivery-execution guarantee in packages/shared/src/decision-events.ts`,
+      `OutboxDrainRunner is invoked in ${triggers.join(', ')} — update the delivery-execution guarantee in packages/shared/src/decision-events.ts`,
     );
   }
 });
 
-test('the at-least-once caveat matches the claim implementation', () => {
-  // The claim is a conditional update over PENDING|FAILED only. A delivery
-  // abandoned in PROCESSING is therefore never reclaimed, which is why the
-  // guarantee is PARTIAL rather than GUARANTEED. If a lease is added, this fails.
+test('the drain trigger takes no organization from the request', () => {
+  // The one rule that must never regress on this endpoint. A drain that accepts
+  // a tenant is a cross-tenant lever behind a secret that authenticates a CLASS
+  // of caller rather than a tenant — exactly the multi-tenant failure mode.
+  const route = readFileSync(
+    join(ROOT, '..', '..', 'apps', 'web', 'src', 'app', 'api', 'internal', 'outbox', 'drain', 'route.ts'),
+    'utf8',
+  );
+  for (const forbidden of ['organizationId', 'orgId', 'searchParams', 'request.json()']) {
+    assert.ok(
+      !route.includes(forbidden),
+      `the drain route must not read "${forbidden}" — organizations are resolved server-side`,
+    );
+  }
+  // And it must fail closed rather than running unauthenticated.
+  assert.match(route, /timingSafeEqual/);
+  assert.match(route, /if \(!expected\)/);
+});
+
+test('at-least-once is backed by a real reclaim, called by the publisher', () => {
+  // The guarantee moved from PARTIAL to GUARANTEED, so the mechanism has to be
+  // there. If someone deletes the reclaim, this fails rather than leaving the
+  // contract overclaiming.
   const repo = readFileSync(
     join(ROOT, 'src', 'repositories', 'cognitive', 'delivery.repository.ts'),
     'utf8',
   );
-  const claim = repo.slice(repo.indexOf('async claim('));
-  const body = claim.slice(0, claim.indexOf('\n  }'));
-  const reclaimsStale = /PROCESSING'/.test(body.split('data:')[0] ?? '');
+  const publisher = readFileSync(
+    join(ROOT, 'src', 'services', 'cognitive', 'state-change-publisher.ts'),
+    'utf8',
+  );
+
+  assert.match(repo, /async reclaimStale\(/, 'the reclaim must exist');
+  // A stale row must be able to reach a terminal state, not just recycle: a
+  // handler that reliably kills its worker would otherwise loop forever.
+  assert.match(repo, /DEAD_LETTERED/);
+  assert.match(
+    publisher,
+    /reclaimStale\(/,
+    'the publisher must reclaim before dispatching, or the guarantee is not enforced anywhere',
+  );
 
   const declared = DELIVERY_GUARANTEES.find((g) => g.id === 'at-least-once');
-  assert.ok(declared);
-  if (!reclaimsStale) {
-    assert.equal(
-      declared.status,
-      'PARTIAL',
-      'claim() does not reclaim stale PROCESSING rows, so at-least-once must stay PARTIAL',
-    );
-  }
+  assert.equal(declared?.status, 'GUARANTEED');
 });

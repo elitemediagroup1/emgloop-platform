@@ -161,10 +161,29 @@ test('every guarantee states what it is and what enforces it', () => {
 
 test('the contract admits what is NOT built', () => {
   // A contract listing only its guarantees reads as though the rest are
-  // guaranteed too. These two are the ones a subscriber author most needs.
-  assert.equal(guaranteeStatus('delivery-execution'), 'NOT_BUILT');
+  // guaranteed too. Ordering is the one a subscriber author most needs, and it
+  // does not hold: independent retry means a later event can land first.
   assert.equal(guaranteeStatus('per-subject-ordering'), 'NOT_BUILT');
-  assert.equal(guaranteeStatus('at-least-once'), 'PARTIAL');
+
+  // The drain exists but its execution depends on deployment configuration this
+  // repository cannot assert, so it may not claim more than PARTIAL.
+  assert.equal(guaranteeStatus('delivery-execution'), 'PARTIAL');
+  assert.match(
+    DELIVERY_GUARANTEES.find((g) => g.id === 'delivery-execution')!.statement,
+    /OUTBOX_DRAIN_SECRET/,
+    'a PARTIAL delivery guarantee must name what is missing, or it reads as guaranteed',
+  );
+});
+
+test('a dead worker can no longer strand a delivery', () => {
+  // This was PARTIAL: claim() covered PENDING/FAILED only, so a delivery
+  // abandoned in PROCESSING was never retried, never dead-lettered and never
+  // surfaced. The reclaim closed it; the guarantee may now say so.
+  assert.equal(guaranteeStatus('at-least-once'), 'GUARANTEED');
+  const g = DELIVERY_GUARANTEES.find((x) => x.id === 'at-least-once')!;
+  assert.match(g.enforcedBy, /reclaimStale/);
+  // Idempotency is still required — a reclaimed delivery may already have run.
+  assert.match(g.enforcedBy, /idempotent/i);
 });
 
 test('subscriber rules exist and name the traps that were actually hit', () => {
