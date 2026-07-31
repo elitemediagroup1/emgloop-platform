@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-07-30._
+_Last updated: 2026-07-31._
 
 ---
 
@@ -125,7 +125,7 @@ vendor profit is not attributable at that grain and says so; entity counts mean 
 period" (CallGrid exposes no roster). **No LLM anywhere** — every string is deterministic template
 language.
 
-## The Decision Engine — IN REVIEW (draft PR #154) · branch `feat/decision-engine` (stacked on #153)
+## The Decision Engine — DONE (merged #154)
 The final platform layer between intelligence producers and every consumer. **CallGrid now
 consumes it and touches persistence nowhere** — `repositories.operationalPriorities` appears
 zero times in the producer.
@@ -163,7 +163,46 @@ ENGINEERING_PRINCIPLES **Rule 6**, and it is the next branch — Work OS first.
 genuinely reusable. The engine test suite is written from an ACCOUNTING and WEBSITE producer's
 position precisely to keep that answer honest.
 
-## Canonical Decision contract + Engineering Principles — IN REVIEW (draft PR #153) · branch `feat/canonical-decision-contract` (off main `a46f561`)
+## Decision Center experience — #155 merged; platform split IN REVIEW (draft PR #156) · branch `feat/decision-center-experience` (off main `a57f159`)
+The surface pass that turned the Decision Center from a report into an inbox (#155), then
+made it a *platform* surface rather than CallGrid's page (#156).
+
+- **Split by coupling, not convenience (#156).** The engine, contract, persistence and events
+  were already producer-neutral; the EXPERIENCE was not — all of it lived in `marketplace/`,
+  so producer #2 would have had to import from a CallGrid folder or fork the surface.
+  `app/app/admin/_decisions/decision-ui.tsx` now holds the producer-neutral half (MissionBrief,
+  LaneRail, ConfidencePill, OwnershipTag, DecisionActions, DecisionTimeline,
+  DecisionActivityPanel, OpenWorkPanel, UnknownGroups, TierHead) and takes platform types only.
+  Server actions arrive as a `DecisionActionSet` prop, so it imports no producer's action module.
+- **What is honestly still coupled:** the queue and the card body read `Situation`, a CallGrid
+  type, and stay in `marketplace/queue-ui.tsx`. Lifting them would mean dragging CallGrid types
+  into the platform folder or inventing a shape the canonical contract cannot fill (those fields
+  are still RESERVED). The file header names this rather than implying the split is finished.
+- **The route deliberately does NOT move.** `/app/admin/decisions` is not earned until a second
+  producer publishes decisions — extracting it today would rename a CallGrid page and call it a
+  platform (Matt, 2026-07-31). The split is done now so that later move is a file move.
+- **Resolve is a primary action** with a one-question confirmation, not a one-click close: a
+  blind resolve would make UNKNOWN the default recorded outcome, and the false-positive rate the
+  activity panel publishes is only worth something if that field is real. Recovery is folded into
+  the outcome rather than asked separately — two fields that can disagree would corrupt the only
+  dataset Loop has for judging its own recommendations. Prior closures render ABOVE the outcome
+  field, so history is visible before it is added to.
+- **Presentation became a tested contract.** `ownershipOf` / `outcomeChoices` / `priorClosure` /
+  `groupUnknowns` / `storyDigest` are pure functions in `@emgloop/shared`, asserted by invariant
+  (grouping conserves every choice; tiering conserves every item; recovery outcomes only when
+  something measurable exists to recover) rather than by output.
+- **Retired:** `_MarketplaceDecisionQueue.tsx`, the loop-os `AttentionRow` queue this supersedes.
+
+**Validated:** 457 shared tests (28 new) · typecheck clean (web/shared/database) · web build
+passes · server components only, no new client JavaScript. **No migration** — no schema change.
+
+**NEXT (Matt, 2026-07-31): "Operator Velocity" — Decision Center v2, zero backend.** Reduce
+reading, increase scanning: hierarchy instead of paragraphs, decision cards closer to
+Linear/GitHub Issues, a visual timeline instead of text, a fully actionable Mission Brief,
+confidence as a visual scale, and history surfaced as a first-class product surface
+(seen N times · resolved · returned · average recovery · typical owner).
+
+## Canonical Decision contract + Engineering Principles — DONE (merged #153)
 The platform-layer pass Matt asked for before CRM: define the canonical Decision, write the
 laws down, and answer "could Accounting use this tomorrow" honestly.
 
@@ -199,10 +238,8 @@ laws down, and answer "could Accounting use this tomorrow" honestly.
 **Validated:** 423 shared · 225 database tests · typecheck clean (shared/database/web) ·
 web build passes. No schema change, no migration.
 
-**NEXT (not started, awaiting merge): the Decision Engine API** — the named facade
-(create/assign/watch/resolve/reopen/falsePositive/history/timeline/evidence/related/
-publish/subscribe) over these primitives, with `publish`/`subscribe` wired to the existing
-outbox. That closes Rule 6 and is the last platform layer before CRM.
+**Superseded by #154**, which built that facade. Rule 6 remains open until a subscriber
+actually consumes `DECISION` events — see the Decision Engine block above.
 
 ## Work OS — DONE (merged #130, CSS #132); Start Work + Work Types (#135)
 Dashboard-matched one-screen tile grid, business terminology, **Team Work** page, centralized
@@ -335,12 +372,17 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
    `migrate resolve --applied`, `migrate deploy`, then upgrade the Netlify build step separately.
    Until those run, any branch that adds a table is code-complete but not live — currently #148
    and #151.
-7. **Next foundation layer (IN REVIEW as the contract; API NOT started): the Decision Engine API.** A named facade over
-   the Decision Center primitives — create / assign / watch / resolve / reopen / falsePositive /
-   history / timeline / evidence / related / publish / subscribe — so a new intelligence module is
-   "detect, then create a decision" and inherits everything else. `publish`/`subscribe` map onto the
-   cognitive outbox and `StateChangeSubscription` that #148 already merged (there is a `WORK_OS`
-   subscriber type waiting). **Blocked on #151 merging** — one foundation layer at a time.
+7. **The Decision Center sequence (Matt, 2026-07-31).** Architecture follows actual reuse, never
+   speculation — each step earns the next:
+   1. Merge #156.
+   2. **Operator Velocity** — Decision Center v2 UI/workflow polish, zero backend.
+   3. **Work OS as the FIRST subscriber** to `DECISION` events. This is what closes
+      ENGINEERING_PRINCIPLES Rule 6, which currently holds by discipline rather than enforcement.
+   4. Prove the event bus end to end.
+   5. CRM onto the Decision Engine (producer #2).
+   6. Accounting onto the Decision Engine (producer #3).
+   7. **Only then** extract `/app/admin/decisions` as its own route — by which point #156 has
+      made it close to a file move.
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged

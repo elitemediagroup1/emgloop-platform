@@ -2368,14 +2368,6 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
    rank already says which is worst.
    --------------------------------------------------------------------------- */
 
-.q-brief { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
-.q-brief__period { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
-.q-brief__live { color: var(--loop-warn); }
-.q-brief__opener { margin: 0; font-size: clamp(22px, 3.4vw, 30px); font-weight: 650; letter-spacing: -.02em; line-height: 1.15; text-wrap: balance; color: var(--loop-text); }
-.q-brief__seq { margin: 2px 0 0; font-size: 15.5px; line-height: 1.5; color: var(--loop-text-2); max-width: 68ch; }
-.q-brief__total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 0; }
-.q-brief__totalnum { font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--loop-text); }
-.q-brief__totallabel { font-size: 12px; color: var(--loop-text-3); }
 
 /* Lanes. An unavailable lane shows an em dash and says what it waits for —
    "0" and "not tracked yet" must never look the same. */
@@ -2388,22 +2380,31 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 
 .q-queue { display: flex; flex-direction: column; gap: 12px; }
 
-.q-row { display: grid; grid-template-columns: 4px minmax(0, 1fr); background: var(--loop-elev); border: 1px solid var(--loop-line); border-radius: 10px; overflow: hidden; }
+/* The rail carries urgency in WIDTH as well as hue, so the ranking survives
+   greyscale and colour blindness. The verdict line says it in words too — a
+   4px colour bar was the only signal, and it was the wrong one to be alone. */
+.q-row { --q-rail: 3px; display: grid; grid-template-columns: var(--q-rail) minmax(0, 1fr); background: var(--loop-elev); border: 1px solid var(--loop-line); border-radius: 10px; overflow: hidden; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.q-row:hover { border-color: var(--loop-line-strong); box-shadow: 0 12px 28px -22px rgba(0,0,0,.9); }
 .q-row__rail { background: var(--loop-line-strong); }
+/* Landing here from the brief. Without it the page jumps and the reader has to
+   work out which card they were sent to. */
+.q-row:target { border-color: var(--loop-accent-2); box-shadow: 0 0 0 1px var(--loop-accent-2); scroll-margin-top: 76px; }
+.q-row--fire { --q-rail: 6px; }
 .q-row--fire > .q-row__rail { background: var(--loop-crit); }
+.q-row--warn { --q-rail: 4px; }
 .q-row--warn > .q-row__rail { background: var(--loop-warn); }
+.q-row--calm { --q-rail: 3px; }
 .q-row--calm > .q-row__rail { background: var(--loop-good); }
 .q-row__body { padding: 15px 17px 16px; min-width: 0; }
 .q-row__top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 11px; }
 .q-row__rank { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--loop-text-3); }
 .q-row__title { margin: 0; font-size: 16.5px; font-weight: 650; letter-spacing: -.012em; color: var(--loop-text); }
-.q-row__verdict { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); border-radius: 5px; padding: 2px 6px; }
-.q-row--fire .q-row__verdict { color: var(--loop-crit); border-color: rgba(242,104,138,.45); }
-.q-row--warn .q-row__verdict { color: var(--loop-warn); border-color: rgba(242,180,91,.45); }
-.q-row__merged { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--loop-text-3); cursor: help; }
-.q-row__money { margin: 10px 0 0; font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.022em; line-height: 1.05; color: var(--loop-text); }
-.q-row__moneylabel { margin: 2px 0 0; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--loop-text-3); }
-.q-row__decision { margin: 13px 0 0; font-size: 15.5px; font-weight: 600; line-height: 1.45; color: var(--loop-text); max-width: 64ch; }
+/* Urgency in words, on its own line. Small, but never the smallest thing on the
+   card the way a 10px badge was. */
+.q-row__verdict { margin: 8px 0 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-row--fire .q-row__verdict { color: var(--loop-crit); }
+.q-row--warn .q-row__verdict { color: var(--loop-warn); }
+.q-row__verdict--closed { color: var(--loop-text-3); }
 .q-row__why { margin: 4px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 68ch; }
 
 .q-row__more { margin-top: 13px; border-top: 1px solid var(--loop-line); padding-top: 11px; }
@@ -2464,9 +2465,6 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 .q-empty { background: var(--loop-elev); border: 1px solid var(--loop-line); border-left: 3px solid var(--loop-good); border-radius: 10px; padding: 18px 20px; }
 .q-empty__text { margin: 0; font-size: 15.5px; line-height: 1.55; color: var(--loop-text-2); max-width: 66ch; }
 
-.q-held { margin: 2px 0 0; font-size: 12.5px; color: var(--loop-text-3); }
-.q-held__note { color: var(--loop-text-3); }
-.q-actions-note { margin: 6px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 72ch; }
 .q-prov { margin: 6px 0 0; font-size: 11px; color: var(--loop-text-3); }
 
 .cg-numdetail__summary { cursor: pointer; }
@@ -2482,14 +2480,10 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
    still undecided.
    --------------------------------------------------------------------------- */
 
-.q-brief__degraded { margin: 8px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-warn); max-width: 72ch; }
 
 .q-row--held > .q-row__rail { background: var(--loop-line-strong); }
 .q-row--done > .q-row__rail { background: var(--loop-line); }
 .q-row--done { opacity: .72; }
-.q-row__state { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); border-radius: 5px; padding: 2px 6px; }
-.q-row__state--resolved { color: var(--loop-good); border-color: var(--loop-line); }
-.q-row__state--dismissed { color: var(--loop-text-3); }
 .q-row__back { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-crit); border: 1px solid rgba(242,104,138,.45); border-radius: 5px; padding: 1px 5px; cursor: help; }
 .q-row__seen { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--loop-text-3); }
 
@@ -2500,25 +2494,54 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 .q-standing dd { margin: 0; font-size: 13px; line-height: 1.5; color: var(--loop-text-2); }
 
 /* Controls. Real buttons, because every one of them survives a refresh. */
-.q-do { display: flex; flex-direction: column; gap: 9px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--loop-line); }
-.q-do__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.q-do__inline { display: inline-flex; }
-.q-do__lbl { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
-.q-do__sel, .q-do__in { font: inherit; font-size: 13px; padding: 6px 9px; background: var(--loop-bg); color: var(--loop-text); border: 1px solid var(--loop-line-strong); border-radius: 7px; min-width: 0; }
-.q-do__in { width: 100%; max-width: 320px; }
-.q-do__btn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; background: var(--loop-elev); color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); border-radius: 7px; cursor: pointer; }
-.q-do__btn:hover { color: var(--loop-text); border-color: var(--loop-text-3); }
-.q-do__btn--primary { background: var(--loop-accent-2); border-color: var(--loop-accent-2); color: var(--loop-bg); }
-.q-do__btn--primary:hover { filter: brightness(1.08); color: var(--loop-bg); }
-.q-do__more { margin-top: 2px; }
-.q-do__summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--loop-accent-2); list-style: none; }
-.q-do__summary::-webkit-details-marker { display: none; }
-.q-do__summary::before { content: '▸ '; color: var(--loop-text-3); }
-.q-do__more[open] > .q-do__summary::before { content: '▾ '; }
-.q-do__panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding-top: 12px; }
-.q-do__form { display: flex; flex-direction: column; gap: 7px; padding: 12px 13px; background: var(--loop-bg); border: 1px solid var(--loop-line); border-radius: 8px; }
-.q-do__formh { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
-.q-do__hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--loop-text-3); }
+/* THE CONTROLS, IN A REAL HIERARCHY.
+
+   Every control used to be the same button — assign, watch, mark reviewed, made
+   contact and tried-no-answer sat in one row as five peers, and RESOLVE, the
+   action the whole product exists to capture, was one of four stacked forms
+   behind a collapsed "Close this out". The most consequential thing an operator
+   can do was the hardest thing to reach.
+
+   Review / Assign / Resolve are primary. Watch and Dismiss are quiet. Contact,
+   notes and outcome-without-closing are overflow. Every target clears 44px. */
+.q-do { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--loop-line); }
+.q-do__primary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.q-do__secondary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 14px; }
+.q-do__unit { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.q-do__assign { gap: 6px; }
+.q-do__overflow { margin-left: auto; }
+.q-do__pair { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.q-btn { font: inherit; font-size: 13px; font-weight: 600; min-height: 44px; padding: 10px 16px; display: inline-flex; align-items: center; justify-content: center; background: var(--loop-elev); color: var(--loop-text-2); border: 1px solid var(--loop-line-strong); border-radius: 8px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease, transform .12s ease; }
+.q-btn:hover { color: var(--loop-text); border-color: var(--loop-text-3); }
+.q-btn:active { transform: translateY(1px); }
+.q-btn--primary { background: var(--loop-accent-2); border-color: var(--loop-accent-2); color: var(--loop-bg); font-weight: 650; }
+.q-btn--primary:hover { filter: brightness(1.08); color: var(--loop-bg); border-color: var(--loop-accent-2); }
+.q-btn--quiet { min-height: 36px; padding: 7px 12px; font-size: 12.5px; background: transparent; border-color: var(--loop-line); }
+.q-btn--summary { list-style: none; }
+.q-btn--summary::-webkit-details-marker { display: none; }
+.q-btn--summary::after { content: ' ▾'; opacity: .7; }
+details[open] > .q-btn--summary::after { content: ' ▴'; }
+
+.q-lbl { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-sel, .q-in { font: inherit; font-size: 13px; min-height: 40px; padding: 8px 10px; background: var(--loop-bg); color: var(--loop-text); border: 1px solid var(--loop-line-strong); border-radius: 8px; min-width: 0; }
+.q-sel--wide { width: 100%; max-width: 420px; }
+.q-in { width: 100%; max-width: 320px; }
+.q-in::placeholder { color: var(--loop-text-3); }
+.q-hint { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); max-width: 60ch; }
+
+/* A control panel opens under its own button rather than in a shared drawer. */
+.q-panelwrap { position: relative; }
+.q-panel { display: flex; flex-direction: column; gap: 8px; margin-top: 9px; padding: 14px 15px; background: var(--loop-bg); border: 1px solid var(--loop-line-strong); border-radius: 10px; max-width: 480px; }
+.q-panel--wide { max-width: 620px; }
+.q-panel__h { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--loop-text-3); }
+/* How this went last time, read back from the log and shown BEFORE the control.
+   An operator closing something for the fourth time should see that the previous
+   three resolutions did not hold. */
+.q-panel__prior { margin: 0; padding: 8px 10px; font-size: 12px; line-height: 1.5; color: var(--loop-text-2); background: var(--loop-elev); border-left: 2px solid var(--loop-warn); border-radius: 0 6px 6px 0; }
+.q-panel__block { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--loop-line); }
+.q-panel__block:first-child { padding-top: 0; border-top: 0; }
+.q-actnote { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--loop-line); font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 72ch; }
 
 /* History. A system row and a human row must be distinguishable at a glance. */
 .q-time { padding: 12px 14px; background: var(--loop-bg); border: 1px solid var(--loop-line); border-radius: 8px; }
@@ -2581,23 +2604,57 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 @keyframes xb-beat { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .xb__pulse--live .xb__dot { animation: none; } }
 
-.xb__verdict { margin: 0; font-size: clamp(17px, 2.1vw, 21px); font-weight: 600; line-height: 1.35; letter-spacing: -.01em; color: var(--loop-text); max-width: 70ch; }
-.xb__verdict--healthy { color: var(--loop-good); }
-.xb__verdict--watch { color: var(--loop-warn); }
-.xb__verdict--risk, .xb__verdict--critical { color: var(--loop-crit); }
-.xb__verdict--unknown { color: var(--loop-text-2); }
-.xb__verdictwhy { display: block; margin-top: 4px; font-size: 13.5px; font-weight: 400; line-height: 1.55; color: var(--loop-text-3); }
+/* The verdict. A GLYPH carries the band as well as the colour, so business
+   health is legible in greyscale and to a reader who cannot separate red from
+   amber — the band was previously hue-only, which made the single most important
+   word on the page the least accessible one. */
+.xb__verdictrow { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 12px; align-items: start; padding: 13px 15px; border: 1px solid var(--loop-line); border-left-width: 3px; border-radius: 10px; background: var(--loop-elev); }
+.xb__glyph { width: 22px; height: 22px; border-radius: 50%; border: 2px solid currentColor; position: relative; margin-top: 2px; color: var(--loop-text-3); }
+.xb__glyph::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: currentColor; }
+.xb__verdict { margin: 0; font-size: clamp(17px, 2.1vw, 21px); font-weight: 620; line-height: 1.35; letter-spacing: -.01em; color: var(--loop-text); max-width: 70ch; }
+.xb__verdictwhy { display: block; margin-top: 5px; font-size: 13.5px; font-weight: 400; line-height: 1.55; color: var(--loop-text-2); }
+
+/* HEALTHY: a full disc. WATCH: a half. RISK/CRITICAL: a ring with a bar.
+   UNKNOWN: an empty ring — "we could not read it" must never look like "fine". */
+.xb__verdictrow--healthy { border-left-color: var(--loop-good); }
+.xb__verdictrow--healthy .xb__glyph { color: var(--loop-good); }
+.xb__verdictrow--watch { border-left-color: var(--loop-warn); }
+.xb__verdictrow--watch .xb__glyph { color: var(--loop-warn); }
+.xb__verdictrow--watch .xb__glyph::after { inset: 3px; clip-path: inset(0 50% 0 0); }
+.xb__verdictrow--risk, .xb__verdictrow--critical { border-left-color: var(--loop-crit); }
+.xb__verdictrow--risk .xb__glyph, .xb__verdictrow--critical .xb__glyph { color: var(--loop-crit); }
+.xb__verdictrow--risk .xb__glyph::after, .xb__verdictrow--critical .xb__glyph::after { inset: 7px 3px; border-radius: 2px; }
+.xb__verdictrow--unknown { border-left-color: var(--loop-line-strong); }
+.xb__verdictrow--unknown .xb__glyph { color: var(--loop-text-3); }
+.xb__verdictrow--unknown .xb__glyph::after { background: none; }
 
 .xb__counts { display: flex; flex-wrap: wrap; gap: 8px 20px; }
 .xb__count { font-size: 12.5px; color: var(--loop-text-3); }
-.xb__count b { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--loop-text); margin-right: 5px; }
-.xb__count--muted b { color: var(--loop-text-2); }
-.xb__count--money b { color: var(--loop-text); }
+.xb__count b { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--loop-text-2); margin-right: 5px; }
+.xb__count--lead b { font-size: 24px; color: var(--loop-text); }
+.xb__count--muted b { color: var(--loop-text-3); }
+.xb__count--money b { font-size: 16px; color: var(--loop-text); }
 
-.xb__seq { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 2px 0 0; }
-.xb__cta { display: inline-flex; align-items: center; font: inherit; font-size: 13px; font-weight: 650; padding: 8px 16px; border-radius: 8px; background: var(--loop-accent-2); color: var(--loop-bg); text-decoration: none; }
+/* The two facts that most change what an operator does first. Previously two
+   collapses deep inside the supporting drawer, where the screen that decides a
+   morning could not reach them. */
+.xb__focus { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 2px; }
+.xb__focuscard { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid var(--loop-line); border-top-width: 2px; border-radius: 9px; background: var(--loop-elev); text-decoration: none; transition: border-color .18s ease, transform .18s ease; }
+a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: translateY(-1px); }
+.xb__focuscard--risk { border-top-color: var(--loop-crit); }
+.xb__focuscard--opportunity { border-top-color: var(--loop-good); }
+.xb__focuslabel { font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
+.xb__focustitle { font-size: 14.5px; font-weight: 620; line-height: 1.35; color: var(--loop-text); }
+.xb__focusamt { margin-top: 3px; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--loop-text); }
+.xb__focusamt--none { font-size: 13.5px; font-weight: 600; color: var(--loop-text-3); }
+.xb__focusbasis { display: block; margin-top: 1px; font-size: 10.5px; font-weight: 500; line-height: 1.45; letter-spacing: .02em; color: var(--loop-text-3); }
+
+/* Which one to start with, and why. A COO sequences; they do not list. */
+.xb__start { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label cta' 'text cta'; gap: 2px 16px; align-items: center; padding: 13px 15px; border: 1px solid var(--loop-line); border-radius: 10px; background: var(--loop-panel); }
+.xb__startlabel { grid-area: label; margin: 0; font-size: 9.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--loop-accent-2); }
+.xb__starttext { grid-area: text; margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--loop-text); max-width: 68ch; }
+.xb__cta { grid-area: cta; display: inline-flex; align-items: center; white-space: nowrap; font: inherit; font-size: 13px; font-weight: 650; padding: 9px 16px; border-radius: 8px; background: var(--loop-accent-2); color: var(--loop-bg); text-decoration: none; }
 .xb__cta:hover { filter: brightness(1.08); color: var(--loop-bg); }
-.xb__seqtext { font-size: 14px; line-height: 1.5; color: var(--loop-text-2); max-width: 64ch; }
 .xb__degraded { margin: 4px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-warn); max-width: 72ch; }
 
 /* --- Tier headings --------------------------------------------------------
@@ -2614,13 +2671,43 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 
 /* --- Confidence -----------------------------------------------------------
    Loop is a decision system, so how much to trust a decision belongs beside the
-   title on every card, never two clicks away. */
-.q-conf { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--loop-line-strong); color: var(--loop-text-2); cursor: help; }
-.q-conf__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.q-conf--high { color: var(--loop-good); border-color: rgba(122,208,160,.4); }
-.q-conf--moderate { color: var(--loop-text-2); }
-.q-conf--low { color: var(--loop-warn); border-color: rgba(242,180,91,.4); }
-.q-conf--insufficient { color: var(--loop-crit); border-color: rgba(242,104,138,.4); }
+   title on every card. It used to be a coloured badge whose entire justification
+   lived in a `title` attribute: unreachable by keyboard, invisible on touch, and
+   announced inconsistently by screen readers. It is now a <details> — the grade
+   is three countable pips (so it survives greyscale) and the basis opens in
+   place, by click or by keyboard. A badge whose grounds cannot be checked is a
+   colour, and an operator who disagrees with it has nothing to look at. */
+.q-conf { display: inline-block; }
+.q-conf__summary { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--loop-line-strong); color: var(--loop-text-2); cursor: pointer; list-style: none; }
+.q-conf__summary::-webkit-details-marker { display: none; }
+.q-conf__summary:hover { border-color: var(--loop-text-3); }
+.q-conf__pips { display: inline-flex; gap: 2px; }
+.q-conf__pip { width: 5px; height: 5px; border-radius: 50%; border: 1px solid currentColor; }
+.q-conf__pip.is-on { background: currentColor; }
+.q-conf__label { font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.q-conf--high .q-conf__summary { color: var(--loop-good); border-color: rgba(55,211,155,.4); }
+.q-conf--moderate .q-conf__summary { color: var(--loop-text-2); }
+.q-conf--low .q-conf__summary { color: var(--loop-warn); border-color: rgba(242,180,91,.4); }
+.q-conf--insufficient .q-conf__summary { color: var(--loop-crit); border-color: rgba(242,104,138,.4); }
+.q-conf__panel { margin-top: 7px; padding: 11px 13px; border: 1px solid var(--loop-line); border-radius: 8px; background: var(--loop-bg); max-width: 44ch; }
+.q-conf__basish { margin: 0 0 5px; font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
+.q-conf__basis { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; }
+.q-conf__basis li { font-size: 12px; line-height: 1.5; color: var(--loop-text-2); }
+.q-conf__det { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* --- Ownership ------------------------------------------------------------
+   Accountability and execution are two independent columns in the engine and
+   were rendered in four places under three different words. One tag, one
+   vocabulary: the mark says WHETHER anyone has it, the words say who. */
+.q-own { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--loop-line); font-size: 11px; font-weight: 600; color: var(--loop-text-2); cursor: help; }
+.q-own__mark { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; }
+.q-own--unowned { color: var(--loop-warn); border-color: rgba(242,180,91,.4); }
+.q-own--owned { color: var(--loop-text-2); }
+.q-own--owned .q-own__mark { background: currentColor; }
+.q-own--in_progress { color: var(--loop-accent-2); border-color: rgba(122,162,255,.4); }
+.q-own--in_progress .q-own__mark { background: currentColor; }
+.q-own--closed { color: var(--loop-text-3); }
+.q-own--closed .q-own__mark { background: currentColor; opacity: .5; }
 
 /* --- The card: action first ----------------------------------------------- */
 .q-row__sum { margin: 9px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 70ch; }
@@ -2642,7 +2729,10 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 .q-row--compact .q-row__title { font-size: 14.5px; }
 .q-row--compact .q-row__action { font-size: 14.5px; margin-top: 7px; }
 .q-row--compact .q-row__sum { font-size: 12.5px; margin-top: 5px; }
-.q-row--compact .q-row__why { display: none; }
+/* "Why this matters" is NOT hidden here. Compact means less room, never less
+   information — dropping the consequence turned a layout decision into an
+   editorial one, and it is the sentence an operator most needs to triage. */
+.q-row--compact .q-row__why { font-size: 12.5px; margin-top: 6px; }
 .q-row--compact .q-row__facts { margin-top: 8px; }
 .q-row--compact .q-chip { padding: 4px 9px; font-size: 12px; }
 
@@ -2666,21 +2756,148 @@ details[open] > .cg-evidsummary::before { content: '▾ '; }
 .cg-supporting[open] > summary::before { content: '▾ '; }
 .cg-supporting__body { display: flex; flex-direction: column; gap: 18px; padding-top: 10px; }
 
-@media (max-width: 640px) {
-  .q-line { grid-template-columns: 1fr; }
-  .q-row__action { font-size: 15.5px; }
-  .xb__counts { gap: 6px 14px; }
+
+/* --- Section headings -----------------------------------------------------
+   `.cg-sec__h` and `.cg-sec__sub` were used by the queue's sections and never
+   defined, so every one of them rendered at the browser's default <h2> size —
+   which is why "Decisions" and "Open work" shouted louder than the queue they
+   sit beneath. */
+.cg-sec__h { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--loop-text-3); }
+.cg-sec__sub { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 72ch; }
+
+/* --- Lanes: work on the left, record on the right -------------------------
+   Five equal chips said nothing about which of them is the operator's problem.
+   The open lanes carry the weight; the closed ones sit past a divider. */
+.q-lane--open { background: var(--loop-elev); }
+.q-lane--open .q-lane__count { font-size: 19px; color: var(--loop-text); }
+.q-lane--needs_review { border-color: var(--loop-line-strong); }
+.q-lane--needs_review .q-lane__count { color: var(--loop-accent-2); }
+.q-lane--watching .q-lane__count { color: var(--loop-warn); }
+.q-lane--closed { background: transparent; border-style: dashed; }
+.q-lane--closed .q-lane__count, .q-lane--closed .q-lane__label { color: var(--loop-text-3); }
+.q-lane--resolved { margin-left: auto; }
+
+/* --- Card expansions ------------------------------------------------------
+   Evidence used to be three summaries deep — card, then "Show me why", then
+   "the N observations separately", then the drawer. It is the reason to believe
+   anything above it, so it now sits beside the reasoning rather than under it. */
+.q-row__expansions { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--loop-line); }
+.q-row__more { margin: 0; border: 0; padding: 0; flex: 1 1 100%; }
+.q-row__more--evidence .q-row__summary { color: var(--loop-text-2); }
+
+/* --- Today's story --------------------------------------------------------
+   Promoted out of the supporting drawer. A headline and whole-sentence bullets;
+   the narratives are never clipped, because these sentences carry their own
+   hedging and a truncated hedge reads as a confident claim. */
+.q-story__headline { margin: 0; font-size: clamp(16px, 2vw, 19px); font-weight: 620; line-height: 1.4; letter-spacing: -.012em; color: var(--loop-text); max-width: 66ch; }
+.q-story__list { margin: 4px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; }
+.q-story__list li { font-size: 13.5px; line-height: 1.6; color: var(--loop-text-2); max-width: 70ch; }
+.q-story__more { margin-top: 2px; }
+.q-story__summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--loop-accent-2); list-style: none; }
+.q-story__summary::-webkit-details-marker { display: none; }
+.q-story__summary::before { content: '▸ '; color: var(--loop-text-3); }
+.q-story__more[open] > .q-story__summary::before { content: '▾ '; }
+.q-story__body { display: flex; flex-direction: column; gap: 9px; padding-top: 10px; }
+.q-story__rest { margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--loop-text-2); max-width: 72ch; }
+.q-story__note { margin: 6px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); max-width: 76ch; }
+
+/* --- Unknowns: grouped so they teach instead of warn ----------------------
+   A flat list of a dozen caveats reads as a wall and gets skipped, which is the
+   worst outcome for the block that makes everything above it believable. */
+.q-unk__head { display: flex; align-items: baseline; gap: 10px; }
+.q-unk__count { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--loop-text-3); border: 1px solid var(--loop-line); border-radius: 20px; padding: 1px 8px; }
+.q-unk__groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 9px; }
+.q-unk__group { border: 1px solid var(--loop-line); border-radius: 9px; background: var(--loop-elev); overflow: hidden; }
+.q-unk__group--platform { border-left: 2px solid var(--loop-accent); }
+.q-unk__group--data { border-left: 2px solid var(--loop-text-3); }
+.q-unk__group--business { border-left: 2px solid var(--loop-warn); }
+.q-unk__group--historical { border-left: 2px solid var(--loop-line-strong); }
+.q-unk__summary { display: flex; align-items: center; gap: 10px; padding: 11px 13px; cursor: pointer; list-style: none; }
+.q-unk__summary::-webkit-details-marker { display: none; }
+.q-unk__summary::after { content: '▸'; margin-left: auto; color: var(--loop-text-3); font-size: 11px; }
+.q-unk__group[open] > .q-unk__summary::after { content: '▾'; }
+.q-unk__glabel { font-size: 12.5px; font-weight: 620; color: var(--loop-text); }
+.q-unk__gcount { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--loop-text-3); }
+.q-unk__body { padding: 0 13px 13px; display: flex; flex-direction: column; gap: 10px; }
+.q-unk__blurb { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--loop-text-3); }
+.q-unk__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.q-unk__item { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; border-top: 1px solid var(--loop-line); }
+.q-unk__item:first-child { padding-top: 0; border-top: 0; }
+.q-unk__stmt { font-size: 12.5px; line-height: 1.5; color: var(--loop-text-2); }
+.q-unk__reason { font-size: 11.5px; line-height: 1.5; color: var(--loop-text-3); }
+
+/* --- Loading ---------------------------------------------------------------
+   A shape, not a spinner, in the real proportions of what is coming — so the
+   layout does not jump. It carries NO numbers and no text from the page: a
+   skeleton that reuses the last render's figures shows a value that was never
+   measured for this period, which is a fabricated metric with a short life. */
+.q-skel { display: flex; flex-direction: column; gap: 14px; padding-top: 8px; }
+.q-skel__brief, .q-skel__cardbody { display: flex; flex-direction: column; gap: 9px; }
+.q-skel__bar, .q-skel__count, .q-skel__lane, .q-skel__chip, .q-skel__focuscard, .q-skel__rail {
+  display: block; border-radius: 6px;
+  background: linear-gradient(90deg, var(--loop-elev) 0%, var(--loop-panel-2) 50%, var(--loop-elev) 100%);
+  background-size: 200% 100%; animation: loop-shimmer 1.6s linear infinite;
+}
+.q-skel__bar--greet { width: 240px; height: 26px; }
+.q-skel__bar--verdict { width: min(70%, 460px); height: 21px; }
+.q-skel__bar--why { width: min(85%, 620px); height: 13px; }
+.q-skel__bar--title { width: min(55%, 380px); height: 17px; }
+.q-skel__bar--action { width: min(75%, 520px); height: 19px; }
+.q-skel__bar--line { width: min(90%, 640px); height: 13px; }
+.q-skel__row { display: flex; flex-wrap: wrap; gap: 10px; }
+.q-skel__count { width: 92px; height: 24px; }
+.q-skel__chip { width: 108px; height: 32px; border-radius: 7px; }
+.q-skel__focus { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.q-skel__focuscard { height: 92px; border-radius: 9px; }
+.q-skel__lanes { display: flex; flex-wrap: wrap; gap: 8px; }
+.q-skel__lane { width: 128px; height: 40px; border-radius: 8px; }
+.q-skel__card { display: grid; grid-template-columns: 6px minmax(0, 1fr); border: 1px solid var(--loop-line); border-radius: 10px; overflow: hidden; }
+.q-skel__rail { height: 100%; border-radius: 0; }
+.q-skel__cardbody { padding: 15px 17px 16px; }
+
+/* --- Accessibility ---------------------------------------------------------
+   Every <summary> on this surface has `list-style: none` and none of them had a
+   focus ring, so a keyboard user lost their place entirely. One rule, scoped to
+   the whole OS shell, on every interactive thing. */
+.loop-os :is(button, summary, select, input, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--loop-accent-2);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* Visible only to assistive technology. */
+.q-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
 
+/* --- Responsive ------------------------------------------------------------
+   Density reduces; content never does. Nothing is hidden at any width. */
+@media (max-width: 900px) {
+  .xb__start { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'label' 'text' 'cta'; gap: 4px; }
+  .xb__cta { justify-self: start; margin-top: 8px; }
+}
 @media (max-width: 640px) {
+  .q-line { grid-template-columns: 1fr; }
   .q-standing > div { grid-template-columns: 1fr; gap: 2px; }
   .q-time__item { grid-template-columns: 1fr; }
   .q-time__who { text-align: left; }
   .q-ow__item { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 640px) {
   .q-detail > div { grid-template-columns: 1fr; gap: 3px; }
   .q-row__body { padding: 13px 14px 14px; }
-  .q-brief__opener { font-size: 21px; }
+  .q-row__action { font-size: 15.5px; }
+  .xb__counts { gap: 6px 14px; }
+  .xb__verdictrow { grid-template-columns: 22px minmax(0, 1fr); gap: 10px; padding: 12px; }
+  /* Primary actions go full width and stay on one row; nothing moves to an
+     overflow it was not already in. */
+  .q-do__primary { flex-direction: column; align-items: stretch; }
+  .q-do__unit, .q-do__assign { width: 100%; }
+  .q-do__assign .q-sel { flex: 1 1 auto; }
+  .q-btn { width: 100%; }
+  .q-do__overflow { margin-left: 0; }
+  .q-panel { max-width: none; }
+  .q-unk__groups { grid-template-columns: 1fr; }
+  .q-lane--resolved { margin-left: 0; }
 }
+
+/* The shell-wide reduced-motion rule already disables animation and transition
+   inside `.loop-os`; the shimmer and the hover lifts are both covered by it. */

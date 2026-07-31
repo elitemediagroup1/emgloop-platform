@@ -11,13 +11,13 @@ import { callGridIntelligence, bidIntelligence } from "./intelligence-data";
 import CallGridDateRange from "./CallGridDateRange";
 import { SnapshotNotice, easternClock } from "./dimension-ui";
 import {
-  MarketplaceRiskPanel, OpportunitiesSection, FindingList, UnknownsSection,
-  BusinessStorySection,
+  MarketplaceRiskPanel, OpportunitiesSection, FindingList,
 } from "./intelligence-ui";
 import {
-  ExecutiveBrief, LaneBar, QueueSection, DecisionActivitySection, OpenWorkSection,
-  type QueueMember,
+  ExecutiveBrief, LaneRail, QueueSection, DecisionActivitySection, OpenWorkSection,
+  UnknownGroups, TodaysStorySection, anchorForFinding, type QueueMember,
 } from "./queue-ui";
+import { groupUnknowns } from "@emgloop/shared";
 import { loadOperationalQueue } from "./operational-queue-data";
 import { hasPermission } from "../../../../auth/guard";
 import { repositories } from "@emgloop/database";
@@ -250,7 +250,11 @@ export default async function CallGridIntelligencePage({
             navigation of its own. */}
         <div className="cmd-head">
           <div className="cmd-head__main">
-            <p className="cmd-head__greeting">CallGrid Intelligence</p>
+            {/* An <h1>, not a <p>. The page had no top-level heading at all, so
+                every section heading below floated under nothing and a screen
+                reader's document outline started at level 2. The class already
+                sets margin: 0, so nothing moves. */}
+            <h1 className="cmd-head__greeting">CallGrid Intelligence</h1>
             <p className="cmd-head__meta">{desc.headerLine}</p>
           </div>
         </div>
@@ -281,17 +285,43 @@ export default async function CallGridIntelligencePage({
 
         <ExecutiveBrief
           briefing={intel.briefing}
-          situationCount={intel.queue.situations.length}
-          needingDecision={ops.items.filter((i) => i.state === "NEEDS_REVIEW").length}
           health={intel.health}
+          // From the durable record, not from this period's analysis. An item
+          // assigned last week is part of today's workload even when the selected
+          // window does not contain it.
+          counts={{
+            needsDecision: ops.counts.NEEDS_REVIEW,
+            assigned: ops.counts.ASSIGNED,
+            watching: ops.counts.WATCHING,
+            closed: ops.counts.RESOLVED + ops.counts.DISMISSED,
+          }}
           operatorName={operatorName}
           periodLabel={desc.periodTitle}
           live={desc.live}
           updatedLabel={easternClock(now)}
+          now={now}
+          // The two facts that most change what an operator does first. Both are
+          // findings the engine already ranked; neither is computed here, and
+          // both were previously two collapses deep in the supporting drawer.
+          topRisk={intel.risks[0] ?? null}
+          topOpportunity={intel.opportunityFindings[0] ?? null}
+          // To the Situation that MERGED the finding, since the queue ranks
+          // Situations. Falls back to the queue itself rather than to an anchor
+          // that does not resolve.
+          riskHref={
+            anchorForFinding(intel.queue.situations, intel.risks[0]?.id ?? null)
+            ?? (intel.risks[0] ? "#decision-queue" : null)
+          }
+          opportunityHref={
+            anchorForFinding(
+              intel.queue.situations,
+              intel.opportunityFindings[0]?.finding.id ?? null,
+            ) ?? (intel.opportunityFindings[0] ? "#decision-queue" : null)
+          }
           persistenceError={ops.persistenceError}
         />
 
-        <LaneBar counts={ops.counts} unavailable={Boolean(ops.persistenceError)} />
+        <LaneRail counts={ops.counts} unavailable={Boolean(ops.persistenceError)} />
 
         <QueueSection
           items={ops.items}
@@ -304,6 +334,12 @@ export default async function CallGridIntelligencePage({
         />
 
         <OpenWorkSection openWork={ops.openWork} members={members} now={now} />
+
+        {/* The narrative, promoted OUT of the supporting drawer. It explains the
+            queue rather than measuring the business, so it belongs beside the
+            decisions and not with the metrics — as one paragraph in a tile three
+            collapses down, nobody reached it. */}
+        <TodaysStorySection reasoning={intel.reasoning} />
 
         <DecisionActivitySection activity={ops.activity} />
 
@@ -341,9 +377,6 @@ export default async function CallGridIntelligencePage({
             is the reason a LOW built from three of nine factors is not a clean
             bill of health. */}
         <MarketplaceRiskPanel risk={intel.risk} />
-
-        {/* The narrative, promoted out of the page footer where nobody reached it. */}
-        <BusinessStorySection reasoning={intel.reasoning} />
 
         {/* The numbers. Last, and framed as the audit trail for everything above
              rather than as information in its own right. */}
@@ -438,8 +471,14 @@ export default async function CallGridIntelligencePage({
           </div>
         </details>
 
-        <UnknownsSection
-          unknowns={[...intel.unknowns, ...bidIntel.unknowns]}
+        {/* What Loop could not determine — grouped by the KIND of limit, so it
+            teaches rather than warns. A flat list of a dozen caveats reads as a
+            wall and gets skipped, which is the worst possible outcome for the
+            block that makes everything above it believable. Nothing is dropped:
+            an id with no group is kept in a visible "everything else", and a test
+            fails when the engines emit one. */}
+        <UnknownGroups
+          groups={groupUnknowns([...intel.unknowns, ...bidIntel.unknowns])}
           sectionLabel="What Loop could not determine about this period"
         />
 
