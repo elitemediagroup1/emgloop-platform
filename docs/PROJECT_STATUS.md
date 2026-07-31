@@ -155,15 +155,62 @@ zero times in the producer.
 passes · **from-zero replay against PostgreSQL 16: all 12 migrations apply to an empty database,
 `migrate diff` reports no drift, 72 tables.** Both new migrations additive — 0 DROP, 0 rename.
 
-**⚠️ NO SUBSCRIBER CONSUMES DECISION EVENTS YET.** The engine publishes and the outbox delivers to
-matching subscriptions; none are registered for `DECISION` subjects. That closes
-ENGINEERING_PRINCIPLES **Rule 6**, and it is the next branch — Work OS first.
+**⚠️ NO SUBSCRIBER CONSUMES DECISION EVENTS YET.** The engine publishes, and as of PR #157 a drain
+actually delivers to matching subscriptions — but none are registered for `DECISION` subjects.
+Registering the first one (Work OS) is what closes ENGINEERING_PRINCIPLES **Rule 6**.
 
 **NEXT after that: CRM as the second producer.** Per Matt, not until the Decision Center is
 genuinely reusable. The engine test suite is written from an ACCOUNTING and WEBSITE producer's
 position precisely to keep that answer honest.
 
-## Decision Center experience — #155 merged; platform split IN REVIEW (draft PR #156) · branch `feat/decision-center-experience` (off main `a57f159`)
+## Decision Event Contract + the outbox drain — IN REVIEW (draft PR #157) · branch `feat/decision-event-contract` (off main `5352aef`)
+The prerequisite Matt asked for before the first subscriber: define what leaves the engine, then
+make it actually leave.
+
+- **The contract is CODE, not prose** — `packages/shared/src/decision-events.ts`. Prisma-free, so
+  subscribers depend on the contract and never on persistence. `packages/database` re-exports the
+  map under `Record<OperationalObservationType, DecisionEventName>`, so the schema and the contract
+  fail to compile the moment they disagree. There is no second table.
+- **Two phantom events caught before a line of subscriber was written.** `DecisionDismissed` and
+  `DecisionMerged` do not exist and never did — dismissal announces `DecisionClosed`, and a merge is
+  an OUTCOME arriving as `DecisionResolved`/`DecisionClosed` with `outcome: 'MERGED'`. A handler on
+  either name compiles, registers and never fires. Tests assert their absence.
+- **The payload was an untyped object literal.** A renamed field would have broken every subscriber
+  at runtime with no compile error anywhere. Now built as `DecisionEventPayloadV1`. It deliberately
+  carries no title/severity/impact: a payload duplicating the row goes stale, and copying business
+  content into an outbox row widens what a delivery bug can leak.
+- **Nothing drained the outbox.** Rule 6 held in form (the engine names no subscriber) while no
+  subscriber could receive anything. `OutboxDrainRunner` + `POST /api/internal/outbox/drain` +
+  `.github/workflows/drain-outbox.yml` close it. **The trigger is replaceable by construction** —
+  the runner owns what a pass IS, the route owns only auth, the workflow only the schedule.
+- **A dead worker used to strand a delivery forever.** `claim()` covered PENDING/FAILED only, so a
+  timeout or a mid-dispatch deploy left a row that was never retried, never dead-lettered and never
+  surfaced. `reclaimStale()` recovers it, or dead-letters it once attempts are spent so a poison
+  handler surfaces instead of looping. `at-least-once` moved PARTIAL → GUARANTEED on that basis.
+- **The contract polices itself.** Tests fail if the drain trigger disappears, if `reclaimStale` is
+  deleted, if the route ever starts reading an organization, or if a PARTIAL guarantee stops naming
+  what is missing. It cannot describe a system that does not exist, and cannot keep describing one
+  that has since been built.
+- **A test-double bug fixed underneath it all:** the in-memory Prisma fake returned on the FIRST
+  operator in a condition, so `{ not: null, lt: cutoff }` matched every non-null row — a filter
+  narrowing by age would have passed its test while doing nothing. `distinct` and column defaults
+  were also missing. No production code changed; 259 existing tests passed unmoved.
+
+**Validated:** 471 shared · 269 database (10 new drain tests, 9 contract-binding) · typecheck clean
+(shared/database/web) · web build registers the route. **No migration.**
+
+**⚠️ NOT LIVE UNTIL CONFIGURED.** `OUTBOX_DRAIN_SECRET` in the deployment, plus `OUTBOX_DRAIN_URL`
+and `OUTBOX_DRAIN_SECRET` as repository secrets. Unconfigured, the endpoint fails closed with 401
+and nothing is delivered — which is why `delivery-execution` is PARTIAL, not GUARANTEED. Verify
+with a manual `workflow_dispatch` run.
+
+**NEXT: the Work OS subscriber**, now that it would land on a spine that provably delivers. Note
+the existing cognitive `work-os` handler is NOT a Work OS integration — it is identity-scoped
+(`identityId` is null for most decisions by design, so it no-ops on nearly all of them) and records
+a `CognitiveDecision`, creating no `WorkInstance`.
+
+## Decision Center experience — #155 and #156 merged
+
 The surface pass that turned the Decision Center from a report into an inbox (#155), then
 made it a *platform* surface rather than CallGrid's page (#156).
 
