@@ -20,6 +20,15 @@ export { CognitiveContextService } from './context-service';
 export type { GetIdentityContextInput, ExplainActiveStateInput } from './context-service';
 export { StateChangePublisher } from './state-change-publisher';
 export type { PublisherOptions, PublisherDeps, PublishResult } from './state-change-publisher';
+// The trigger-agnostic drain. The publisher drains ONE organization; this decides
+// which organizations have work and bounds a pass. Swapping the schedule for a
+// queue worker replaces the caller, never this.
+export { OutboxDrainRunner, createOutboxDrainRunner } from './outbox-drain-runner';
+export type {
+  OutboxDrainOptions,
+  OutboxDrainResult,
+  OrganizationDrainResult,
+} from './outbox-drain-runner';
 export {
   DecisionPolicyRegistry,
   messagingPrecedenceRank,

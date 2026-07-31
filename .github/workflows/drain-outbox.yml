@@ -1,0 +1,73 @@
+# Drain the state-change outbox.
+#
+# The Decision Engine writes domain events into the outbox transactionally, and
+# StateChangePublisher delivers them — but something has to run. This workflow is
+# that something, and it is deliberately the DUMBEST possible trigger: it holds a
+# secret and makes one POST. All drain behaviour (which organizations, how much
+# per pass, reclaiming abandoned deliveries, retry, dead-lettering) lives in
+# OutboxDrainRunner, so replacing this with EventBridge, a queue worker, an ECS
+# scheduled task or a Kubernetes CronJob is a change to this file alone.
+#
+# WHY GITHUB ACTIONS, FOR NOW. It adds no dependency, no package and no second
+# runtime to a repo whose defining failure mode is parallel systems, and the
+# pattern already exists here. Its scheduling is coarse and can lag by minutes —
+# acceptable for operational decisions, and the honest reason to move to a real
+# queue later is latency, not correctness.
+#
+# SAFETY. The endpoint takes no organization and no parameters; every drain pass
+# is idempotent and safe to run concurrently, so a delayed run overlapping the
+# next one contends on database rows rather than double-delivering. A failed HTTP
+# status fails the job, so a broken drain shows up as a red run instead of a queue
+# quietly filling.
+
+name: Drain outbox
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub does not guarantee this cadence under load; the
+    # drain is bounded per pass and simply catches up on the next run.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    # Manual runs for debugging and for verifying the endpoint after a deploy.
+
+# A late run must not pile onto a running one. Passes are safe to overlap, but
+# queueing them up achieves nothing.
+concurrency:
+  group: drain-outbox
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: POST the drain endpoint
+        env:
+          DRAIN_URL: ${{ secrets.OUTBOX_DRAIN_URL }}
+          DRAIN_SECRET: ${{ secrets.OUTBOX_DRAIN_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DRAIN_URL:-}" ] || [ -z "${DRAIN_SECRET:-}" ]; then
+            echo "::error::OUTBOX_DRAIN_URL and OUTBOX_DRAIN_SECRET must both be set."
+            echo "Until they are, nothing drains the outbox and no subscriber can receive an event."
+            exit 1
+          fi
+
+          # --fail-with-body so a non-2xx fails the step AND still prints why.
+          # The secret goes in a header, never in the URL, so it cannot land in a
+          # proxy log or a redirect.
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 60 \
+            --request POST "${DRAIN_URL}" \
+            --header "x-emg-drain-secret: ${DRAIN_SECRET}" \
+            --header 'content-type: application/json')
+
+          echo "$response"
+
+          # Surface the headline numbers in the run summary so a human scanning
+          # the history can see whether anything is moving without opening logs.
+          echo "### Outbox drain" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$response" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
