@@ -485,4 +485,48 @@ export class StateChangeOutboxRepository {
       },
     });
   }
+
+  /**
+   * Which organizations currently have outbox work waiting. **Cross-org, and the
+   * only method here that is.**
+   *
+   * WHY THIS IS NOT THE TENANCY VIOLATION IT LOOKS LIKE. The rule in CLAUDE.md is
+   * that the organization always comes from the signed session and a tenant-owned
+   * row is resolved within it. That rule governs REQUEST paths, where the danger
+   * is a caller naming someone else's tenant. This is a background worker: there
+   * is no session, no user, and no request-supplied organization to be confused
+   * with — a drain that could only see one tenant would simply never deliver
+   * anyone else's events.
+   *
+   * The narrowing that keeps it honest:
+   *   · it returns ORGANIZATION IDS ONLY — never a tenant-owned row, never a
+   *     payload, never anything a leak would expose;
+   *   · every subsequent read and write is scoped per organization through the
+   *     normal org-first repository methods;
+   *   · nothing reachable from a user request calls it. The one caller is the
+   *     drain runner, behind a server-only secret.
+   *
+   * It must never grow a filter argument sourced from a request. If a caller ever
+   * wants "just this org", they already have the org-scoped methods above.
+   */
+  async listOrganizationIdsWithPendingWork(
+    opts: { now?: Date; take?: number } = {},
+  ): Promise<string[]> {
+    const now = opts.now ?? new Date();
+    const rows = await this.prisma.stateChangeOutbox.findMany({
+      where: {
+        OR: [
+          { status: 'PENDING', availableAt: { lte: now } },
+          // In-flight parents are included because a delivery that is retrying
+          // needs later passes to finish it; excluding them would strand the row.
+          { status: 'PROCESSING' },
+        ],
+      },
+      select: { organizationId: true },
+      distinct: ['organizationId'],
+      orderBy: { organizationId: 'asc' },
+      take: Math.min(500, Math.max(1, opts.take ?? 100)),
+    });
+    return rows.map((r) => r.organizationId);
+  }
 }

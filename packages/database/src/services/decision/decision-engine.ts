@@ -48,6 +48,7 @@ import {
   isDecisionSeverity,
   type LifecycleObservation,
   type PriorityState,
+  type DecisionEventPayloadV1,
 } from '@emgloop/shared';
 
 import { StateChangeOutboxRepository } from '../../repositories/cognitive/active-state.repository';
@@ -803,6 +804,25 @@ export class DecisionEngine {
     // Exactly one domain event, in the same transaction as the fact that caused
     // it. The engine names no subscriber and attempts no delivery: the publisher
     // drains the outbox, and adding a consumer never touches this file.
+    //
+    // The payload is typed against the CONTRACT, not written free-hand. It was an
+    // untyped object literal until v1: nothing stopped a field being renamed or
+    // dropped here, and every subscriber would have broken at runtime with no
+    // compile error anywhere. Carries no title, severity or impact deliberately —
+    // see DecisionEventPayloadV1 for why a payload that duplicates the row is
+    // worse than one a subscriber has to re-read.
+    const payload: DecisionEventPayloadV1 = {
+      decisionId: decision.id,
+      producer: decision.sourceSystem,
+      observationId: observation.id,
+      sequence,
+      previousState: before,
+      newState: projection.state,
+      ownerUserId: projection.ownerUserId,
+      assigneeUserId: projection.assigneeUserId,
+      outcome: projection.outcome,
+    };
+
     await this.outbox.enqueue(
       organizationId,
       {
@@ -813,17 +833,7 @@ export class DecisionEngine {
         stateKey: decisionStateKey(decision.sourceSystem, decision.recurrenceKey),
         changeType: op.observationType,
         identityId: op.identityId ?? null,
-        payload: {
-          decisionId: decision.id,
-          producer: decision.sourceSystem,
-          observationId: observation.id,
-          sequence,
-          previousState: before,
-          newState: projection.state,
-          ownerUserId: projection.ownerUserId,
-          assigneeUserId: projection.assigneeUserId,
-          outcome: projection.outcome,
-        },
+        payload,
       },
       tx as unknown as Pick<PrismaClient, 'stateChangeOutbox'>,
     );

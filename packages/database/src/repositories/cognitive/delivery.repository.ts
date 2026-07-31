@@ -38,6 +38,17 @@ export interface DeliveryRetryOptions {
 }
 
 const DEFAULT_MAX_ATTEMPTS = 5;
+
+/**
+ * How long a claimed delivery may stay PROCESSING before it is considered
+ * abandoned.
+ *
+ * Generous on purpose. Reclaiming a delivery that is merely slow re-runs a
+ * handler that may already have had a side effect, so the lease must comfortably
+ * exceed the slowest legitimate handler rather than the average one. Five minutes
+ * is well past any serverless execution limit this runs under.
+ */
+const DEFAULT_LEASE_MS = 5 * 60_000;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
 
 export class StateChangeDeliveryRepository {
@@ -168,5 +179,86 @@ export class StateChangeDeliveryRepository {
           : new Date(now.getTime() + (opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS)),
       },
     });
+  }
+
+  /**
+   * Recover deliveries abandoned mid-flight.
+   *
+   * THE GAP THIS CLOSES. `claim()` moves PENDING/FAILED → PROCESSING and nothing
+   * else ever moves a row out of PROCESSING except the handler that claimed it.
+   * A worker that died — a serverless timeout, a deploy mid-dispatch, an OOM —
+   * therefore left its delivery in PROCESSING permanently: never retried, never
+   * dead-lettered, never surfaced. It simply stopped existing as far as the
+   * publisher was concerned. That is the difference between "at-least-once" and
+   * "at-least-once unless the process dies", and only one of those is a
+   * guarantee a subscriber can build on.
+   *
+   * Deliberately a SEPARATE method rather than a wider `claim()` predicate. A
+   * reclaim is not a claim: it is a statement that a previous attempt is presumed
+   * dead, it is the one transition that can re-run a side effect that already
+   * happened, and it deserves to be visible in `lastError` rather than folded
+   * invisibly into normal dispatch.
+   *
+   * EXHAUSTED ROWS DEAD-LETTER INSTEAD OF RECYCLING. A handler that reliably
+   * kills its worker would otherwise be reclaimed forever, burning every run and
+   * never surfacing. Once a row has spent its attempts it becomes DEAD_LETTERED
+   * with a stated reason, which is a visible failure rather than a silent loop.
+   */
+  async reclaimStale(
+    organizationId: string,
+    opts: { leaseMs?: number; maxAttempts?: number; now?: Date } = {},
+  ): Promise<{ reclaimed: number; deadLettered: number }> {
+    const now = opts.now ?? new Date();
+    const leaseMs = opts.leaseMs ?? DEFAULT_LEASE_MS;
+    const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    const cutoff = new Date(now.getTime() - leaseMs);
+
+    const stale = await this.prisma.stateChangeDelivery.findMany({
+      where: {
+        organizationId,
+        status: 'PROCESSING',
+        // A row claimed but never stamped cannot be aged, so it is left alone
+        // rather than reclaimed on a guess.
+        startedAt: { not: null, lt: cutoff },
+      },
+      take: 500,
+    });
+
+    let reclaimed = 0;
+    let deadLettered = 0;
+
+    for (const row of stale) {
+      // Conditional on still being the same PROCESSING row, so a worker that
+      // wakes up and completes between the read and the write wins the race
+      // rather than being trampled.
+      if (row.attemptCount >= maxAttempts) {
+        const res = await this.prisma.stateChangeDelivery.updateMany({
+          where: { id: row.id, organizationId, status: 'PROCESSING' },
+          data: {
+            status: 'DEAD_LETTERED',
+            completedAt: now,
+            lastError:
+              `Abandoned in PROCESSING for more than ${Math.round(leaseMs / 1000)}s `
+              + `after ${row.attemptCount} attempt(s); presumed dead and not retried again.`,
+          },
+        });
+        deadLettered += res.count;
+        continue;
+      }
+
+      const res = await this.prisma.stateChangeDelivery.updateMany({
+        where: { id: row.id, organizationId, status: 'PROCESSING' },
+        data: {
+          status: 'PENDING',
+          availableAt: now,
+          lastError:
+            `Reclaimed after being abandoned in PROCESSING for more than `
+            + `${Math.round(leaseMs / 1000)}s. The previous attempt may have partially run.`,
+        },
+      });
+      reclaimed += res.count;
+    }
+
+    return { reclaimed, deadLettered };
   }
 }

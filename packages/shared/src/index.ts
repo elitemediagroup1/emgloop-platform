@@ -274,6 +274,13 @@ export * from './operational-lifecycle';
 // ./decision-contract.ts.
 export * from './decision-contract';
 
+// --- The Decision Event contract (what leaves the engine) ---
+// The canonical observation -> event map, the payload every subscriber receives,
+// and — read these FIRST — the delivery guarantees, including the ones marked
+// NOT_BUILT. The contract is code rather than prose precisely so it cannot
+// describe a stream the system does not publish. See ./decision-events.ts.
+export * from './decision-events';
+
 // --- Decision card composition (presentation only) ---
 // Confidence, the operational consequence, the ways a decision can end, and the
 // visual tiering that shows EVERYTHING while giving the few the most room.
