@@ -286,3 +286,11 @@ export * from './decision-events';
 // visual tiering that shows EVERYTHING while giving the few the most room.
 // Pure re-arrangement of measured fields — nothing here concludes anything.
 export * from './decision-card';
+
+// --- Commercial Intelligence: Performance Objectives (Stage 1) ---
+// Human-authored intent — what an organization or a person is trying to
+// accomplish. The referent a future CI Signal is defined *relative to*, and the
+// only Commercial Intelligence concept that exists today. Carries no metric,
+// target or attainment: Loop cannot measure those, and a field claiming
+// otherwise would be a number tracing to nothing. See ./performance-objective.ts.
+export * from './performance-objective';
