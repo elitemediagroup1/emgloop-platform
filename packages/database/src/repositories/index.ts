@@ -35,6 +35,7 @@ import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
 import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
+import { PerformanceObjectiveRepository } from './performance-objective.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -210,6 +211,16 @@ export type {
 // durable memory, governed knowledge, explainable active state, governance,
 // outbox, subscriptions, hypotheses, and decisions. Additive; server-only.
 export * from './cognitive';
+
+// Commercial Intelligence Stage 1 — Performance Objectives. Human-authored
+// intent, and the ONLY Commercial Intelligence concept that exists today.
+export { PerformanceObjectiveRepository } from './performance-objective.repository';
+export type {
+  PerformanceObjectiveResult,
+  CreatePerformanceObjectiveInput,
+  UpdatePerformanceObjectiveInput,
+  ListPerformanceObjectivesOptions,
+} from './performance-objective.repository';
 import { createCognitiveRepositories } from './cognitive';
 import type { CognitiveRepositories } from './cognitive';
 
@@ -242,6 +253,7 @@ export interface Repositories {
   marketplaceCalls: MarketplaceCallRepository;
   marketplaceAuction: MarketplaceAuctionRepository;
   operationalPriorities: OperationalPriorityRepository;
+  performanceObjectives: PerformanceObjectiveRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -274,5 +286,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     marketplaceCalls: new MarketplaceCallRepository(prisma),
     marketplaceAuction: new MarketplaceAuctionRepository(prisma),
     operationalPriorities: new OperationalPriorityRepository(prisma),
+    performanceObjectives: new PerformanceObjectiveRepository(prisma),
   };
 }
