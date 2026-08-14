@@ -439,9 +439,9 @@ to be relevant TO. This batch builds that referent (human-authored intent) and s
   explorer, no score, no chart, no recommendation: none of those exist, and hinting at them would
   promise what the platform cannot do.
 
-**Validated:** 482 shared (12 new) · 290 database (22 new) · typecheck clean (shared/database/web) ·
+**Validated:** 482 shared (11 new) · 290 database (21 new) · typecheck clean (shared/database/web) ·
 `turbo build --filter=@emgloop/web` passes and registers the route · `prisma validate` clean ·
-**from-zero replay against PostgreSQL 16: all 13 migrations apply to an empty database,
+**from-zero replay against PostgreSQL 16: all 14 migrations apply to an empty database,
 `migrate diff` reports no drift, 73 tables.** Migration is additive only — 2 enums, 1 table, 3
 indexes, 3 FKs, 0 DROP / 0 rename / 0 column-type change, no existing table altered, ASCII header.
 
@@ -454,9 +454,14 @@ concept gets fabricated. Stage 2 is its own branch and its own approval.
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a
-repository-impact assessment **only**: ten artifacts under
-`docs/architecture/business-identity-assessment/`, audited at `main` = `1b71715` (post-#157).
-**No branch, no schema, no migration, no implementation, no PR.** The directory is untracked on `main`.
+repository-impact assessment **only**: ten artifacts audited at `main` = `1b71715` (post-#157).
+**No branch, no schema, no migration, no implementation, no PR.**
+
+⚠️ **THE TEN ARTIFACTS ARE NOT IN THIS REPOSITORY.** They exist only in the authoring workspace as
+untracked files under `docs/architecture/business-identity-assessment/`, and nothing in this
+document links to a file a reader can open. Committing them is a separate documentation change,
+deliberately not folded into the Commercial Intelligence branch. Every filename cited in this block
+refers to one of those uncommitted artifacts — treat the summary below as the record until they land.
 
 **What the audit changes about the plan:**
 - **The cognitive identity layer is real, tested, and has ZERO production callers.** `apps/web/src`
@@ -503,9 +508,9 @@ schema**) as its own branch. Business Identity implementation has not begun.
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
 "Not Configured / unavailable" states and **never** show fabricated data. (CRM specifically
 must never surface CallGrid caller records as contacts — the `Customer` table is shared.)
-**CRM design may proceed now** — see `business-identity-crm-design-guidance.md`: 13 areas
-SAFE_TO_FINALIZE, 11 PROVISIONAL, 15 binding FORBIDDEN_ASSUMPTIONs. **CRM code may not begin
-until Business Identity Stage 2 lands.**
+**CRM design may proceed now** — per the assessment's CRM design guidance (uncommitted; see the
+Business Identity block): 13 areas SAFE_TO_FINALIZE, 11 PROVISIONAL, 15 binding
+FORBIDDEN_ASSUMPTIONs. **CRM code may not begin until Business Identity Stage 2 lands.**
 
 ---
 
@@ -532,7 +537,7 @@ until Business Identity Stage 2 lands.**
 7. **Business Identity approval packet — 19 decisions, none accepted.** Blocks CRM v1 code (not CRM
    design). Answer **Q2** first to unblock the most downstream work; **Q1** is the only one where
    "yes in principle, no date" leaves the project worse off than a clear "not yet". See the
-   Business Identity block above and `business-identity-decision-log.md` §5-6.
+   Business Identity block above; the decision log itself (§5-6) is one of the uncommitted artifacts.
 8. **`/crm/merge` defects** — unread `mergedInto` filter, irreversible re-pointing, false
    "soft-archived" comment. Own ticket, outside the Business Identity project (Q10).
 9. **The Decision Center sequence (Matt, 2026-07-31).** Architecture follows actual reuse, never
