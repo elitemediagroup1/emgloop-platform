@@ -113,6 +113,10 @@ export interface WorkspaceConfig extends ShellConfig {
 const CALLGRID_INTEL = { resource: 'intelligence', action: 'view' } as const;
 const ADMIN_ONLY = { resource: 'users', action: 'view' } as const;
 const WORK_TYPES_ADMIN = { resource: 'settings', action: 'view' } as const;
+// Commercial Intelligence Stage 1. Its own resource, not 'intelligence' — see
+// the note in iam.repository.ts about why reading conclusions and authoring
+// intent are governed separately.
+const OBJECTIVES_VIEW = { resource: 'commercialIntelligence', action: 'view' } as const;
 
 const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
@@ -138,6 +142,7 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
       items: [
         { href: '/app/admin/administration/team', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
         { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: WORK_TYPES_ADMIN },
+        { href: '/app/admin/administration/objectives', label: 'Objectives', icon: 'target', requires: OBJECTIVES_VIEW },
       ],
     },
   ],

@@ -33,7 +33,15 @@ export type Resource =
   | 'audit'
   | 'analytics'
   | 'integrations'
-  | 'intelligence';
+  | 'intelligence'
+  // Commercial Intelligence Stage 1. Governs Performance Objectives — human
+  // authored intent. Deliberately NOT folded into 'intelligence': that resource
+  // governs READING what Loop concluded (briefings, live activity, CallGrid
+  // analysis) and is granted broadly, down to READ_ONLY. Authoring what the
+  // organization is trying to accomplish is a different act by different people,
+  // and reusing one resource for both would have silently handed every
+  // READ_ONLY user a write capability the day the first form shipped.
+  | 'commercialIntelligence';
 
 
 export type Action = 'view' | 'create' | 'update' | 'delete' | 'manage';
@@ -64,6 +72,26 @@ const RW: Action[] = ['view', 'create', 'update'];
 const RO: Action[] = ['view'];
 
 
+// COMMERCIAL INTELLIGENCE STAGE 1 -- what `commercialIntelligence` grants, and
+// the one thing it deliberately does not.
+//
+// OWNER / ADMIN manage Performance Objectives. EMPLOYEE and READ_ONLY may view
+// them, matching how every other read-only intelligence surface is granted.
+//
+// MANAGER IS VIEW-ONLY HERE, AND THAT IS A DELIBERATE NARROWING. The intended
+// product policy is that a MANAGER may manage objectives for the people they
+// manage -- and Loop cannot express that sentence. `MANAGER` is an
+// AUTHORIZATION LEVEL in a static role matrix; it is NOT an organizational fact.
+// There is no Team model, no Division model and no reporting relationship in
+// this schema, so "the people they manage" resolves to nothing. The only
+// grant this matrix could actually issue is org-wide create/update, which would
+// let any MANAGER author a personal objective naming ANY member -- authority
+// over arbitrary users, arriving by implication. Deny-by-default says take the
+// narrower grant and report the gap rather than approximate the wider one.
+//
+// Widening this needs a real platform relationship (or a product decision that
+// org-wide authoring is acceptable), never an inference from the role name.
+
 // The capability matrix. Deny-by-default: anything not listed is denied.
 // Sprint 10 adds analytics/integrations/intelligence columns.
 const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
@@ -71,26 +99,32 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ALL, aiEmployees: ALL, settings: ALL, audit: ALL,
     analytics: ALL, integrations: ALL, intelligence: ALL,
+    commercialIntelligence: ALL,
   },
   ADMIN: {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ['view', 'update'], aiEmployees: ALL, settings: ALL, audit: ['view'],
     analytics: ALL, integrations: ALL, intelligence: ALL,
+    commercialIntelligence: ALL,
   },
   MANAGER: {
     customers: RW, pipeline: RW, inbox: RW, workflows: RW, users: ['view'],
     organizations: RO, aiEmployees: RW, settings: ['view'], audit: ['view'],
     analytics: RO, integrations: ['view'], intelligence: RO,
+    // NARROWED DELIBERATELY -- see the note above the matrix.
+    commercialIntelligence: RO,
   },
   EMPLOYEE: {
     customers: RW, pipeline: RW, inbox: RW, workflows: RO, users: [],
     organizations: [], aiEmployees: RO, settings: [], audit: [],
     analytics: RO, integrations: [], intelligence: RO,
+    commercialIntelligence: RO,
   },
   READ_ONLY: {
     customers: RO, pipeline: RO, inbox: RO, workflows: RO, users: [],
     organizations: [], aiEmployees: RO, settings: [], audit: [],
     analytics: RO, integrations: [], intelligence: RO,
+    commercialIntelligence: RO,
   },
 };
 

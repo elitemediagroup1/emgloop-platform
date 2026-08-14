@@ -24,6 +24,7 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // appending a sighting (NULL on operator-recorded rows, so the unique binds
   // only detection rows).
   operationalPriority: ['organizationId', 'sourceSystem', 'recurrenceKey'],
+  user: ['organizationId', 'email'],
 };
 
 /**
@@ -39,6 +40,12 @@ const UNIQUE_KEYS: Record<string, string[]> = {
  * schema.prisma; if one drifts, the fake is wrong and should be corrected here.
  */
 const COLUMN_DEFAULTS: Record<string, Row> = {
+  // A performance objective is ACTIVE and open-ended unless stated otherwise,
+  // matching @default(ACTIVE) — a row created without one must still match
+  // `where status: 'ACTIVE'`, or the list query would be correct in production
+  // and silently empty here.
+  performanceObjective: { status: 'ACTIVE' },
+  user: { status: 'ACTIVE', metadata: {} },
   stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
   stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
   stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
@@ -75,6 +82,12 @@ const DELEGATES = [
   'operationalPriority',
   'operationalObservation',
   'decisionEvidence',
+  // Commercial Intelligence Stage 1. `user` is here because the Performance
+  // Objective repository validates that a USER-scoped objective names an actual
+  // member of the SAME organization, and that check is a real query — proving it
+  // needs a real row to miss on.
+  'user',
+  'performanceObjective',
 ] as const;
 
 let idSeq = 0;

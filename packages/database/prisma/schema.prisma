@@ -241,6 +241,8 @@ model Organization {
   sessions                UserSession[]
   customPermissions       Permission[]
   capabilities            OrganizationCapability[]
+  // --- Commercial Intelligence Stage 1 ---
+  performanceObjectives   PerformanceObjective[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -317,12 +319,18 @@ model User {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
-  assignedConversations Conversation[]  @relation("ConversationAssignee")
+  assignedConversations Conversation[]         @relation("ConversationAssignee")
   auditLogs             AuditLog[]
   // --- Sprint 2 ---
-  sentInvitations       Invitation[]    @relation("InvitationInviter")
+  sentInvitations       Invitation[]           @relation("InvitationInviter")
   passwordResets        PasswordReset[]
   userSessions          UserSession[]
+  // --- Commercial Intelligence Stage 1 ---
+  // Two distinct relations: the objectives that are ABOUT this user, and the
+  // ones this user WROTE. Neither implies the other, and neither implies any
+  // authority over anybody else.
+  scopedObjectives      PerformanceObjective[] @relation("PerformanceObjectiveScopedUser")
+  authoredObjectives    PerformanceObjective[] @relation("PerformanceObjectiveAuthor")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -3081,4 +3089,110 @@ model DecisionEvidence {
   @@index([organizationId, priorityId, observedAt])
   @@index([organizationId, metricKey])
   @@map("decision_evidence")
+}
+
+// ===========================================================================
+// COMMERCIAL INTELLIGENCE — STAGE 1: PERFORMANCE OBJECTIVES
+// ---------------------------------------------------------------------------
+// HUMAN-AUTHORED INTENT. What an organization or a person is trying to
+// accomplish. Nothing here observes, scores, ranks, measures or concludes
+// anything: this table answers "what matters to this organization or user?"
+// and stops there.
+//
+// WHY IT EXISTS AT ALL. Commercial Intelligence defines a CI Signal as a data
+// point tied to a performance objective. Loop had no such concept anywhere —
+// not a model, not a type, not a field — so "relevant" had nothing to be
+// relevant TO. This is that missing referent, and it is deliberately the only
+// new CI concept in Stage 1.
+//
+// NOT A PERFORMANCE-MANAGEMENT PRODUCT. There is no metric, no target, no unit,
+// no baseline, no attainment, no progress and no achievement state, and their
+// absence is the design rather than an omission. A `targetValue` column would
+// silently commit the platform to a measurement semantics nobody has approved,
+// and every later surface would render a number Loop cannot actually compute.
+// Knowing WHAT MATTERS precedes calculating whether a number was hit.
+//
+// SCOPE IS ORGANIZATION OR USER, AND NOTHING ELSE. Team and Division are not
+// canonical concepts in Loop — there is no Team model, no Division model and no
+// reporting relationship anywhere in this schema. A `TEAM` scope member, or a
+// free-text `teamName`, would be a fabricated referent pointing at nothing. The
+// enum therefore has exactly two members, and gains a third only when Loop has
+// a real entity for it to point at.
+//
+// SCOPE IS NOT VISIBILITY. `scopeUserId` says whose objective this IS, never
+// who may READ it. Access is decided entirely by the existing deny-by-default
+// RBAC matrix on the `commercialIntelligence` resource. In particular, the
+// MANAGER role is an AUTHORIZATION LEVEL and NOT an organizational fact: it does
+// not mean a user manages anyone, has reports, or owns a team, because Loop has
+// no relationship that could establish that. No query in this subsystem may
+// infer one.
+//
+// TENANCY. Real foreign keys with defined delete behaviour, deliberately unlike
+// the scalar-organizationId-no-FK precedent of Work OS, vk_*, the cognitive
+// layer and operational_*. Those carry known orphan-on-delete debt; this table
+// is new, so there is no migration cost to being correct from the first row.
+// Objectives are tenant data and die with the tenant.
+//
+// Additive only. No existing table is renamed, altered or dropped.
+// ===========================================================================
+
+/// Whose intent this is. Exactly two members, deliberately — see the note above
+/// about Team and Division having no canonical referent in Loop today.
+enum PerformanceObjectiveScope {
+  ORGANIZATION
+  USER
+}
+
+/// The smallest lifecycle that separates current intent from historical intent.
+///
+/// There is no ACHIEVED, MISSED, ON_TRACK, AT_RISK or OFF_TRACK member, and
+/// there must not be: every one of them is a claim about measured performance,
+/// which is exactly the machinery this stage does not build. An objective is
+/// either being pursued or it is history.
+enum PerformanceObjectiveStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model PerformanceObjective {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// What the organization or person is trying to accomplish, in their words.
+  title       String
+  description String?
+
+  scope PerformanceObjectiveScope
+
+  /// REQUIRED when scope is USER, and NULL when scope is ORGANIZATION. The
+  /// repository enforces both directions and validates same-tenant membership;
+  /// the column is nullable because ORGANIZATION-scoped rows genuinely have no
+  /// user, and fabricating one to satisfy a NOT NULL would put a false fact in
+  /// the table.
+  scopeUserId String?
+
+  status PerformanceObjectiveStatus @default(ACTIVE)
+
+  /// The period the intent applies to. `effectiveTo` is NULL for open-ended
+  /// intent — distinct from ARCHIVED, which is somebody deciding to stop
+  /// pursuing it. One is a date; the other is a decision.
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+
+  /// Authorship. SetNull rather than Cascade: who wrote an objective is
+  /// attribution, and it should survive the author leaving the organization —
+  /// the same reasoning audit_logs.userId already follows.
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scopeUser    User?        @relation("PerformanceObjectiveScopedUser", fields: [scopeUserId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("PerformanceObjectiveAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([organizationId, scope, status])
+  @@index([organizationId, scopeUserId])
+  @@map("performance_objectives")
 }

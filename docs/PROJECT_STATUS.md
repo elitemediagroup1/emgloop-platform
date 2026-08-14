@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-07-31._
+_Last updated: 2026-08-14._
 
 ---
 
@@ -163,7 +163,7 @@ Registering the first one (Work OS) is what closes ENGINEERING_PRINCIPLES **Rule
 genuinely reusable. The engine test suite is written from an ACCOUNTING and WEBSITE producer's
 position precisely to keep that answer honest.
 
-## Decision Event Contract + the outbox drain — IN REVIEW (draft PR #157) · branch `feat/decision-event-contract` (off main `5352aef`)
+## Decision Event Contract + the outbox drain — DONE (merged #157; `main` = `1b71715`)
 The prerequisite Matt asked for before the first subscriber: define what leaves the engine, then
 make it actually leave.
 
@@ -393,10 +393,124 @@ Increment 4 (real-time product-click vertical slice + admin-only validation page
 `/app/admin/administration/cognitive-architecture`, simulator disabled in production unless an
 explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 
+## Commercial Intelligence — STAGE 1 IN REVIEW (draft PR #158) · branch `feat/ci-performance-objectives` (off main `1b71715`)
+The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
+CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
+concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
+to be relevant TO. This batch builds that referent (human-authored intent) and stops there.
+
+- **The contract is CODE** — `packages/shared/src/performance-objective.ts`, Prisma-free
+  (`performance-objective.v1`), the rule `decision-contract.ts` and `cognitive-context.ts` already
+  follow. Closed rejection vocabulary + `validatePerformanceObjectiveShape` as a pure function, so
+  the form, the action and the repository cannot drift on what counts as invalid.
+- **No metric, target, unit, baseline, attainment, progress or achievement state, and their absence
+  is the design.** Loop cannot measure attainment today; a `targetValue` column would commit the
+  platform to a measurement semantics nobody has approved and put a number on screen that traces to
+  nothing. Status is `ACTIVE | ARCHIVED` only — there is no ON_TRACK/AT_RISK/ACHIEVED, because each
+  is a claim about measured performance. Knowing WHAT MATTERS precedes calculating whether a number
+  was hit, and the two are separate approvals.
+- **Scope is `ORGANIZATION | USER`, and that is a constraint rather than a starting point.** Loop
+  has no Team model, no Division, no Department and no reporting relationship, so a `TEAM` member
+  would point at an entity that does not exist and a free-text team name would be a fabricated
+  identifier some later query would have to pretend to resolve. A third member arrives when Loop has
+  a canonical entity for it to reference.
+- **Tenancy enforced at the data layer from line one, not retrofitted.** `organizationId` is the
+  first required argument of every repository method; the row is resolved WITHIN the organization and
+  fails closed to `null`; a cross-org id is NOT-FOUND, never forbidden. Every action checks the
+  return value before writing audit — no audit row for a write that did not happen.
+- **Real foreign keys with defined delete behaviour**, unlike the scalar-`organizationId`-no-FK
+  precedent of Work OS / `vk_*` / cognitive / `operational_*`. Those carry known orphan-on-delete
+  debt; a new table has no migration cost to being correct. Org CASCADE, `scopeUser` CASCADE (a
+  USER-scoped objective whose user is gone violates the scope invariant), `createdBy` SET NULL
+  (authorship is attribution and outlives the author leaving — `audit_logs.userId`'s reasoning).
+- **A new RBAC resource, `commercialIntelligence`, deliberately NOT folded into `intelligence`.**
+  That resource governs READING what Loop concluded and is granted down to READ_ONLY; authoring what
+  the organization is trying to accomplish is a different act by different people, and reusing one
+  resource would have silently handed every READ_ONLY user a write capability the day the form shipped.
+- **⚠️ MANAGER is view-only, and that is a deliberate narrowing that reports a platform gap.** The
+  intended policy — a manager manages objectives for the people they manage — is a sentence Loop
+  cannot express: `MANAGER` is an authorization level in a static matrix, NOT an organizational fact,
+  and "the people they manage" resolves to nothing. The only grant the matrix could actually issue is
+  org-wide create/update, which is authority over arbitrary users arriving by implication. Widening
+  needs a real platform relationship or an explicit product decision, never an inference from a role
+  name.
+- **Surface:** `/app/admin/administration/objectives` — a form and a list, server components only,
+  existing `adm-*` classes, no new CSS, no new client JavaScript. No headline feed, no signal
+  explorer, no score, no chart, no recommendation: none of those exist, and hinting at them would
+  promise what the platform cannot do.
+
+**Validated:** 482 shared (11 new) · 290 database (21 new) · typecheck clean (shared/database/web) ·
+`turbo build --filter=@emgloop/web` passes and registers the route · `prisma validate` clean ·
+**from-zero replay against PostgreSQL 16: all 14 migrations apply to an empty database,
+`migrate diff` reports no drift, 73 tables.** Migration is additive only — 2 enums, 1 table, 3
+indexes, 3 FKs, 0 DROP / 0 rename / 0 column-type change, no existing table altered, ASCII header.
+
+**⚠️ NOT LIVE — the migration gate.** Adds a table, so it inherits open thread 6: production has no
+`_prisma_migrations` ledger and the Netlify build runs `prisma generate` only. Code-complete, not live.
+
+**NEXT: nothing in CI until Stage 1 is merged and an objective actually exists.** A CI Signal is
+defined relative to an objective; building the signal layer against an empty referent is how a
+concept gets fabricated. Stage 2 is its own branch and its own approval.
+
+## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
+The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a
+repository-impact assessment **only**: ten artifacts audited at `main` = `1b71715` (post-#157).
+**No branch, no schema, no migration, no implementation, no PR.**
+
+⚠️ **THE TEN ARTIFACTS ARE NOT IN THIS REPOSITORY.** They exist only in the authoring workspace as
+untracked files under `docs/architecture/business-identity-assessment/`, and nothing in this
+document links to a file a reader can open. Committing them is a separate documentation change,
+deliberately not folded into the Commercial Intelligence branch. Every filename cited in this block
+refers to one of those uncommitted artifacts — treat the summary below as the record until they land.
+
+**What the audit changes about the plan:**
+- **The cognitive identity layer is real, tested, and has ZERO production callers.** `apps/web/src`
+  contains no reference to any cognitive symbol; `CognitiveIdentity`/`IdentityRole`/`IdentityEvidence`/
+  `IdentityResolutionLink`/`IdentityRelationship` are touched only by their own repositories and by
+  `cognitive-core.test.ts` / `cognitive-pipeline.test.ts`. (The outbox/drain half of
+  `services/cognitive/` **is** production-reachable — same folder, different half.)
+- **It cannot be reused, for semantic reasons not naming ones.** `IdentityEvidence` stores
+  `normalizedValueHash` only, so no contact value can ever be displayed; `entityType` is inside
+  `CognitiveIdentity`'s unique key, so a record can never change type; `IdentityRelationship` collapses
+  Affiliation + StructuralLink + CommercialRelationship + Event + OpportunityParticipant into one edge
+  table. Disposition: **KEEP_SEPARATE**, with an optional one-directional link later.
+- **`Customer` is ingestion-owned and semantically mixed** — anonymous website visitors (no name/email/
+  phone, tagged `anonymous-visitor`), caller-ID leads and hand-edited CRM records in one table, all
+  listed together at `/crm/customers`. It becomes a **DomainProjection**, never a Party, and must not
+  be auto-backfilled.
+- **There is no Opportunity model.** The CRM "pipeline" is a string in `Customer.attributes`. Every
+  multi-party opportunity concept is a clean slate.
+- **The best prior art is orphaned.** `KnowledgeAssertion`'s supersession, `IdentityResolutionStatus`'s
+  lifecycle and `IdentityResolutionLink`'s reversal fields are close to the approved design and none of
+  them run. Copy the shapes; do not reuse the tables.
+- **Events need no new infrastructure.** `OutboxSubjectType.IDENTITY` already exists; the contract is a
+  separate file on the existing outbox. Net cost is one additive enum member on `ActiveStateDomain`.
+- **Recommended foundation is smaller than proposed:** 8 before-code capabilities, 5 proposed items
+  demoted, **4 additive migrations rather than 12** (fewer manual production operations is safer while
+  there is no migration ledger).
+
+**⚠️ GATE — 19 open approval decisions, none accepted.** Bucketed A (10, before Stage 1 contracts) /
+B (4, before schema) / C (2, before CRM production) / D (3, deferrable). Roots are **Q1** (production
+migration deployment — scheduled, not merely agreed) and **Q2** (may `packages/business-identity` be
+created). Four need Charlie and Lexi: Q4, concern 11, Q6, Q8. Gates G1, G2, G3, G7, G9, G11, G12 are
+groupable without further debate; G5 and G8 carry named carve-outs; G4 and G6 cannot be grouped.
+
+**Live defect found, deliberately NOT folded in (Q10).** `/crm/merge` writes `metadata.mergedInto` and
+**nothing reads it** — merged customers stay in every list, search and count, and `findDuplicates()`
+re-proposes the same pair indefinitely. The merge is also irreversible (`updateMany` destroys the
+original `customerId`; the audit records counts only) and its header comment claiming "soft-archived
+(kept for audit)" is false. Needs its own ticket, outside this project.
+
+**NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
+schema**) as its own branch. Business Identity implementation has not begun.
+
 ## CRM · Creator Hub · Accounting — NOT BUILT
 Approved operating areas, shown in the sidebar, but not built/connected. They render honest
 "Not Configured / unavailable" states and **never** show fabricated data. (CRM specifically
 must never surface CallGrid caller records as contacts — the `Customer` table is shared.)
+**CRM design may proceed now** — per the assessment's CRM design guidance (uncommitted; see the
+Business Identity block): 13 areas SAFE_TO_FINALIZE, 11 PROVISIONAL, 15 binding
+FORBIDDEN_ASSUMPTIONs. **CRM code may not begin until Business Identity Stage 2 lands.**
 
 ---
 
@@ -413,23 +527,35 @@ must never surface CallGrid caller records as contacts — the `Customer` table 
    **web test harness** (route/render/permission tests can't run without one today).
 5. **CallGrid deploy validation** — still unrun, and still the gate on trusting any figure the
    intelligence layer reports. See the CallGrid block above for the exact per-period checklist.
-6. **Migration remediation — code half DONE (draft PR #152), production half OUTSTANDING.**
+6. **Migration remediation — code half DONE (merged #152), production half OUTSTANDING.**
    The em-dash fix is verified by from-zero replay against real Postgres. The remaining steps are
    human-run against production data: back up + restore-test, baseline with
-   `migrate resolve --applied`, `migrate deploy`, then upgrade the Netlify build step separately.
-   Until those run, any branch that adds a table is code-complete but not live — currently #148
-   and #151.
-7. **The Decision Center sequence (Matt, 2026-07-31).** Architecture follows actual reuse, never
+   `migrate resolve --applied`, `migrate deploy`, then upgrade the Netlify build step separately
+   (today it is `prisma generate` only). Until those run, **any branch that adds a table is
+   code-complete but not live** — #148 today, and Business Identity next. This is the single
+   largest blocker on the roadmap and it is not any feature team's to fix.
+7. **Business Identity approval packet — 19 decisions, none accepted.** Blocks CRM v1 code (not CRM
+   design). Answer **Q2** first to unblock the most downstream work; **Q1** is the only one where
+   "yes in principle, no date" leaves the project worse off than a clear "not yet". See the
+   Business Identity block above; the decision log itself (§5-6) is one of the uncommitted artifacts.
+8. **`/crm/merge` defects** — unread `mergedInto` filter, irreversible re-pointing, false
+   "soft-archived" comment. Own ticket, outside the Business Identity project (Q10).
+9. **The Decision Center sequence (Matt, 2026-07-31).** Architecture follows actual reuse, never
    speculation — each step earns the next:
-   1. Merge #156.
+   1. ~~Merge #156.~~ **Done**; #157 (event contract + drain) also merged.
    2. **Operator Velocity** — Decision Center v2 UI/workflow polish, zero backend.
    3. **Work OS as the FIRST subscriber** to `DECISION` events. This is what closes
       ENGINEERING_PRINCIPLES Rule 6, which currently holds by discipline rather than enforcement.
+      The drain now provably delivers — no subscription is registered for `DECISION` subjects.
    4. Prove the event bus end to end.
-   5. CRM onto the Decision Engine (producer #2).
+   5. CRM onto the Decision Engine (producer #2) — now downstream of Business Identity too.
    6. Accounting onto the Decision Engine (producer #3).
    7. **Only then** extract `/app/admin/decisions` as its own route — by which point #156 has
       made it close to a file move.
+10. **Commercial Intelligence Stage 1 in review** (draft PR #158, branch `feat/ci-performance-objectives`).
+    Performance Objectives only — the referent a CI Signal is defined against. Stage 2 does not
+    start until Stage 1 merges and real objectives exist; a signal layer built against an empty
+    referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged

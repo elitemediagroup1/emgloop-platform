@@ -86,6 +86,16 @@ const PATHS: Record<string, React.ReactNode> = {
   star: (
     <path d="M12 3l2.6 5.5 6 .8-4.3 4.2 1 6-5.3-2.9L6.4 19.5l1-6L3 9.3l6-.8L12 3Z" />
   ),
+  // Objectives (Commercial Intelligence Stage 1). Added because an unmapped name
+  // silently falls back to `grid`, which is Dashboard's icon — two different
+  // destinations rendering the same glyph reads as a bug, not as minimalism.
+  target: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="12" cy="12" r="1" />
+    </>
+  ),
   portal: (
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />
