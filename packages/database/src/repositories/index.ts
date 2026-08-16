@@ -39,6 +39,11 @@ import { PerformanceObjectiveRepository } from './performance-objective.reposito
 // Commercial Intelligence Stage 2. Deliberately NOT named `signals`: that key is
 // the incumbent behavioural SignalRepository and stays exactly where it is.
 import { CommercialSignalRepository } from './commercial-signal.repository';
+// Commercial Intelligence Stage 3. `measureBindings` says what an objective means
+// in measurable terms; `headlines` records that something measurable about it
+// changed. Neither is a decision, and neither writes to `operationalPriorities`.
+import { ObjectiveMeasureBindingRepository } from './objective-measure-binding.repository';
+import { HeadlineRepository } from './headline.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -176,7 +181,7 @@ export type {
   DetectSituationInput, DetectResult, RecordObservationInput,
   ListPrioritiesOptions, PriorityWithLog,
 } from './operational-priority.repository';
-export type { CallWindowAggregate, CallDimensionAggregate, BackfillResult } from './marketplace-call.repository';
+export type { CallWindowAggregate, CallDimensionAggregate, BackfillResult, PopulationCandidateRow } from './marketplace-call.repository';
 export {
   projectInteractionToMarketplaceCall,
 } from './marketplace-call-projection';
@@ -236,6 +241,25 @@ export type {
   EstablishResult,
   ListCommercialSignalsOptions,
 } from './commercial-signal.repository';
+
+// Commercial Intelligence Stage 3 v1 — Objective Measure Bindings and Headlines.
+// A binding is a human-confirmed, immutable, versioned statement of what to
+// measure and which rows count. A Headline is a measured development in that
+// objective's world: a PERSISTED OBJECT WITH NO WORK LIFECYCLE — no owner, no
+// assignee, no lane, no outcome vocabulary. Judgement and action remain the
+// Decision Center's, and nothing here produces one.
+export { ObjectiveMeasureBindingRepository } from './objective-measure-binding.repository';
+export type {
+  ConfirmBindingInput,
+  ConfirmBindingResult,
+} from './objective-measure-binding.repository';
+export { HeadlineRepository } from './headline.repository';
+export type {
+  RecordHeadlineInput,
+  RecordHeadlineResult,
+  RecordOutcome,
+  ListHeadlinesOptions,
+} from './headline.repository';
 import { createCognitiveRepositories } from './cognitive';
 import type { CognitiveRepositories } from './cognitive';
 
@@ -270,6 +294,8 @@ export interface Repositories {
   operationalPriorities: OperationalPriorityRepository;
   performanceObjectives: PerformanceObjectiveRepository;
   commercialSignals: CommercialSignalRepository;
+  measureBindings: ObjectiveMeasureBindingRepository;
+  headlines: HeadlineRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -304,5 +330,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     operationalPriorities: new OperationalPriorityRepository(prisma),
     performanceObjectives: new PerformanceObjectiveRepository(prisma),
     commercialSignals: new CommercialSignalRepository(prisma),
+    measureBindings: new ObjectiveMeasureBindingRepository(prisma),
+    headlines: new HeadlineRepository(prisma),
   };
 }

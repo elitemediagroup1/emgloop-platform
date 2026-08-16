@@ -36,6 +36,13 @@ const UNIQUE_KEYS: Record<string, string[]> = {
     'sourceKey',
     'evaluatorId',
   ],
+  // Commercial Intelligence Stage 3. A binding version is unique per objective,
+  // so two concurrent confirmations collide loudly instead of interleaving.
+  objectiveMeasureBinding: ['performanceObjectiveId', 'version'],
+  // A headline's identity is TIMESTAMP-FREE and tenant-scoped: the same
+  // development next period must land on the same row, and two concurrent
+  // detection runs must converge on one.
+  headline: ['organizationId', 'performanceObjectiveId', 'recurrenceKey'],
 };
 
 /**
@@ -62,6 +69,19 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   // path needs a default here and `createdAt` already supplies the instant.
   commercialSignal: { evaluationCount: 1 },
   user: { status: 'ACTIVE', metadata: {} },
+  // A headline is established once and counted from one, matching @default(1).
+  // The array columns default to empty in the schema; a repository reading one
+  // back would work in production and throw here without them.
+  headline: { detectionCount: 1, limitations: [], unknowns: [] },
+  // A binding's population arrays default to empty, and `memberLabels` to {}.
+  objectiveMeasureBinding: {
+    campaignExternalIds: [],
+    sourceExternalIds: [],
+    buyerExternalIds: [],
+    vendorExternalIds: [],
+    callerStates: [],
+    memberLabels: {},
+  },
   stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
   stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
   stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
@@ -76,6 +96,10 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
  */
 const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
   commercialSignal: ['firstEvaluatedAt', 'lastEvaluatedAt'],
+  // The repository sets both explicitly on create; these keep a row written by a
+  // narrower future caller consistent with `createdAt`.
+  headline: ['firstDetectedAt', 'lastDetectedAt'],
+  objectiveMeasureBinding: ['confirmedAt'],
 };
 
 // A delegate may carry more than one unique. Prisma enforces each independently.
@@ -84,6 +108,9 @@ const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
     ['priorityId', 'sequence'],
     ['priorityId', 'detectionKey'],
   ],
+  // A binding may supersede at most one predecessor. NULL is distinct in
+  // Postgres, so this binds only rows that actually point at something.
+  objectiveMeasureBinding: [['supersededByBindingId']],
 };
 
 const DELEGATES = [
@@ -119,6 +146,12 @@ const DELEGATES = [
   // evaluation service reads calls through MarketplaceCallRepository, and its
   // tests supply that read directly rather than faking another domain's table.
   'commercialSignal',
+  // Commercial Intelligence Stage 3. `marketplaceCall` is deliberately NOT here:
+  // the detection service reads call AGGREGATES through MarketplaceCallRepository,
+  // and its tests supply that read directly rather than faking another domain's
+  // table — the same stance the Stage 2 tests take.
+  'objectiveMeasureBinding',
+  'headline',
 ] as const;
 
 let idSeq = 0;

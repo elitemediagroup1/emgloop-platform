@@ -245,6 +245,9 @@ model Organization {
   performanceObjectives   PerformanceObjective[]
   // --- Commercial Intelligence Stage 2 ---
   commercialSignals       CommercialSignal[]
+  // --- Commercial Intelligence Stage 3 ---
+  measureBindings         ObjectiveMeasureBinding[]
+  headlines               Headline[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -333,6 +336,11 @@ model User {
   // authority over anybody else.
   scopedObjectives      PerformanceObjective[] @relation("PerformanceObjectiveScopedUser")
   authoredObjectives    PerformanceObjective[] @relation("PerformanceObjectiveAuthor")
+  // Stage 3: who confirmed a measure binding, and who dismissed a headline.
+  // Attribution only — neither implies authority over anybody else, and neither
+  // is read as an organizational relationship anywhere.
+  confirmedMeasureBindings ObjectiveMeasureBinding[] @relation("ObjectiveMeasureBindingConfirmer")
+  dismissedHeadlines       Headline[]                @relation("HeadlineDismisser")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -3194,6 +3202,8 @@ model PerformanceObjective {
   createdBy    User?        @relation("PerformanceObjectiveAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   commercialSignals CommercialSignal[]
+  measureBindings   ObjectiveMeasureBinding[]
+  headlines         Headline[]
 
   @@index([organizationId, status])
   @@index([organizationId, scope, status])
@@ -3319,4 +3329,224 @@ model CommercialSignal {
   @@index([organizationId, observedAt])
   @@index([organizationId, performanceObjectiveId, observedAt], map: "commercial_signals_org_objective_observedAt_idx")
   @@map("commercial_signals")
+}
+
+// ===========================================================================
+// COMMERCIAL INTELLIGENCE -- STAGE 3 v1: BINDINGS AND HEADLINES
+// ---------------------------------------------------------------------------
+// Two tables. The first says what an objective means in measurable terms; the
+// second records that something measurable about it changed.
+//
+// A HEADLINE IS NOT A DECISION, AND THIS SECTION MUST NEVER MAKE IT ONE.
+// `headlines` carries no ownerUserId, no assigneeUserId, no lane, no state
+// machine, no OperationalOutcome, no reopen counter and no observation log. A
+// Decision means the organization has judged a matter and is acting; that lives
+// in `operational_priorities` and already works. If a future change proposes any
+// of those columns here, the thing being modelled is a Decision and the answer is
+// to promote into the Decision Center instead. Promotion is Stage 3 v1.1 and no
+// column for it exists yet -- naming a field is free, adding a column is a claim.
+//
+// WHY A SEPARATE BINDING TABLE RATHER THAN COLUMNS ON THE OBJECTIVE. Objective
+// text is editable. A binding stored on the objective would be editable with it,
+// and every Headline ever produced would silently change meaning -- the same
+// reasoning that made Stage 2 reject a projection. Bindings are therefore
+// immutable after confirmation and supersede-only, and every Headline records the
+// exact binding version it was produced under. One objective may hold many
+// bindings; Stage 3 v1 authors one at a time, and multiplicity costs no migration
+// because it is already a separate row.
+//
+// THE POPULATION IS SELECTED, NEVER INFERRED. Members are stored as arrays of the
+// provider's own EXTERNAL IDS, per dimension. There is no `vertical` column and
+// there must not be: Loop has no vertical concept anywhere, and deriving one by
+// parsing provider label text would put industry-specific data in a shared layer
+// on top of unnormalized strings. There is no geography model either --
+// `callerStates` is an OPTIONAL ADDITIONAL restriction that is empty by default,
+// because where a caller physically was and which business motion a campaign
+// belongs to are different facts and only a human can say which one an objective
+// means.
+//
+// LABELS ARE DISPLAY, NEVER IDENTITY. `memberLabels` is a display-only map from
+// external id to the label as it read at confirmation. Nothing may resolve a
+// member through it, and no query may parse it.
+//
+// NO FOREIGN KEY TO THE SOURCE DOMAIN. `marketplace_calls` carries a scalar
+// organizationId with no FK and a GLOBALLY unique (provider, externalId); a
+// reference would inherit both defects. External ids are opaque handles here,
+// exactly as `CommercialSignal.sourceKey` treats them.
+//
+// TENANCY. Real foreign keys with defined delete behaviour, following the
+// performance_objectives and commercial_signals precedent rather than the
+// scalar-organizationId-no-FK debt of Work OS, vk_* and operational_*.
+//
+// Additive only. No existing table is renamed, altered or dropped.
+// ===========================================================================
+
+model ObjectiveMeasureBinding {
+  id                     String @id @default(cuid())
+  organizationId         String
+  performanceObjectiveId String
+
+  /// 1-based, monotonic per objective. Part of the unique below, so two
+  /// concurrent confirmations collide loudly rather than interleaving.
+  version Int
+
+  /// A member of MEASURE_METRICS. Held as a string, not an enum, so a sixth
+  /// measure is a contract change rather than production DDL -- the same
+  /// reasoning CommercialSignal.relevanceBasis gives. Validated on the way in
+  /// AND on the way out; an unrecognised value fails closed.
+  metric String
+  /// HIGHER_IS_BETTER | LOWER_IS_BETTER. Human intent about which way is good,
+  /// which is the same kind of statement the objective's title already is. This
+  /// is NOT a target: no number is being aimed at and none is stored.
+  direction String
+
+  /// The confirmed population, as the provider's own external ids. A member the
+  /// provider gave a label but no id is NOT selectable -- a population keyed on a
+  /// label changes shape the day somebody renames a campaign upstream.
+  campaignExternalIds String[] @default([])
+  sourceExternalIds   String[] @default([])
+  buyerExternalIds    String[] @default([])
+  vendorExternalIds   String[] @default([])
+
+  /// OPTIONAL ADDITIONAL RESTRICTION on where the caller physically was. EMPTY
+  /// MEANS NO RESTRICTION -- never "unknown", and never a filter matching nothing.
+  callerStates String[] @default([])
+
+  /// externalId -> label as it read at confirmation. DISPLAY ONLY. Never parsed,
+  /// never used to resolve a member, never an input to anything.
+  memberLabels Json @default("{}")
+
+  /// Whose confirmation this is. SetNull rather than Cascade: a binding outlives
+  /// the person who confirmed it, the reasoning audit_logs.userId already follows.
+  confirmedByUserId String?
+  confirmedAt       DateTime @default(now())
+
+  /// The ONLY two fields writable after confirmation, and only once. Everything
+  /// else is immutable, and the repository exposes no method that could change it.
+  supersededAt          DateTime?
+  supersededByBindingId String?   @unique
+
+  createdAt DateTime @default(now())
+
+  organization         Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  performanceObjective PerformanceObjective     @relation(fields: [performanceObjectiveId], references: [id], onDelete: Cascade)
+  confirmedBy          User?                    @relation("ObjectiveMeasureBindingConfirmer", fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+  supersededBy         ObjectiveMeasureBinding? @relation("BindingSupersession", fields: [supersededByBindingId], references: [id], onDelete: SetNull)
+  supersedes           ObjectiveMeasureBinding? @relation("BindingSupersession")
+
+  headlines Headline[]
+
+  @@unique([performanceObjectiveId, version], map: "objective_measure_bindings_objective_version_key")
+  @@index([organizationId, performanceObjectiveId, supersededAt], map: "objective_measure_bindings_org_objective_active_idx")
+  @@map("objective_measure_bindings")
+}
+
+/// A measured development in one objective's world.
+///
+/// Established once and never rewritten. Re-detecting the same development in a
+/// later period moves `lastDetectedAt`, `detectionCount` and `lastDetectionKey`
+/// and touches nothing else -- the same discipline CommercialSignal keeps, and
+/// for the same reason: a record of what Loop measured is worthless if a later
+/// run can quietly revise it.
+///
+/// There is no `updatedAt`, deliberately. The only mutations this row admits are
+/// the three sighting counters and the three dismissal fields, each written once
+/// per event, and a general modification stamp would imply the rest is editable.
+model Headline {
+  id                     String @id @default(cuid())
+  organizationId         String
+  performanceObjectiveId String
+  /// The EXACT binding version this was produced under, never the latest one.
+  /// Restrict on delete: a Headline whose definition has been deleted cannot be
+  /// interpreted, so the binding may not disappear beneath it.
+  measureBindingId       String
+
+  /// Identity, and it contains no timestamp. Derived from the binding version,
+  /// the metric, the rule and the DIRECTION of the move, so the same development
+  /// next period lands on this row rather than creating a second one, and so an
+  /// oscillating measure keeps "rose" and "fell" as the two different statements
+  /// about the world that they are.
+  recurrenceKey String
+
+  ruleId          String
+  ruleVersion     String
+  producerVersion String
+
+  metric   String
+  /// INCREASE | DECREASE.
+  movement String
+  /// True when the move runs against the objective's stated direction. A fact
+  /// about arithmetic and a human's own declared intent -- never a judgement
+  /// about whether the business is doing well.
+  againstObjective Boolean
+
+  /// The measured development in one line. DISPLAY ONLY, and NO EVALUATOR, RULE
+  /// OR FUTURE MEASUREMENT MAY READ IT. It contains Loop's own words as well as
+  /// the source's, and Stage 2 shipped a real defect by letting CI-authored text
+  /// become the evidence for CI's own conclusion.
+  statement String
+
+  // --- The measurement. Every field traces to rows in the source domain. ----
+  /// In the metric's own unit: cents for REVENUE, a count for CALL_VOLUME, a
+  /// 0-1 fraction for a rate. The unit is derived from `metric` rather than
+  /// stored, so a value and its unit can never disagree.
+  currentValue       Float?
+  priorValue         Float?
+  absoluteChange     Float?
+  /// A fraction, not a percentage. Null when there was no non-zero baseline.
+  percentageChange   Float?
+  /// What each value was computed OVER. Stated so a reader can judge the sample
+  /// rather than trust the number.
+  currentDenominator Int
+  priorDenominator   Int
+  /// 0-1. Null where the metric has no coverage concept.
+  currentCoverage    Float?
+  priorCoverage      Float?
+
+  comparisonBasis    String
+  currentWindowStart DateTime
+  currentWindowEnd   DateTime
+  priorWindowStart   DateTime
+  priorWindowEnd     DateTime
+
+  /// What this measurement cannot support, and what it leaves open. Carried
+  /// alongside the numbers forever: evidence that keeps its value and loses its
+  /// caveats is how a hedged claim becomes a confident one.
+  limitations String[] @default([])
+  unknowns    String[] @default([])
+
+  // --- Recurrence. The only counters that move. -----------------------------
+  firstDetectedAt DateTime @default(now())
+  lastDetectedAt  DateTime @default(now())
+  detectionCount  Int      @default(1)
+  /// Identity of the completed comparison period most recently recorded. A run
+  /// over a period already recorded changes nothing, which is what makes a
+  /// server-rendered surface safe to refresh -- the device
+  /// `OperationalObservation.detectionKey` already proved.
+  lastDetectionKey String
+
+  // --- Attention feedback. NOT an outcome, and NOT a lifecycle. -------------
+  /// Dismissal records that a human did not need this. It never reopens, never
+  /// suppresses recurrence, and carries no claim about what the organization will
+  /// do -- that is Decision semantics and lives in operational_priorities.
+  dismissedAt      DateTime?
+  dismissedByUserId String?
+  /// WRONG (retune detection) | IMMATERIAL (retune attention). Deliberately NOT
+  /// OperationalOutcome: that vocabulary answers "did acting work", which nobody
+  /// has been asked here.
+  dismissalBasis   String?
+
+  createdAt DateTime @default(now())
+
+  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  performanceObjective PerformanceObjective    @relation(fields: [performanceObjectiveId], references: [id], onDelete: Cascade)
+  measureBinding       ObjectiveMeasureBinding @relation(fields: [measureBindingId], references: [id], onDelete: Restrict)
+  dismissedBy          User?                   @relation("HeadlineDismisser", fields: [dismissedByUserId], references: [id], onDelete: SetNull)
+
+  /// Idempotency, scoped to the tenant. Two runs over the same period, and two
+  /// concurrent runs, converge on one row.
+  @@unique([organizationId, performanceObjectiveId, recurrenceKey], map: "headlines_org_objective_recurrence_key")
+  @@index([organizationId, lastDetectedAt], map: "headlines_org_lastDetectedAt_idx")
+  @@index([organizationId, performanceObjectiveId, dismissedAt], map: "headlines_org_objective_dismissed_idx")
+  @@map("headlines")
 }

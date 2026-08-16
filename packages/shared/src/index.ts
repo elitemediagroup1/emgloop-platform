@@ -303,3 +303,25 @@ export * from './performance-objective';
 // `TERM_MATCH` is a deterministic Stage 2 mechanism, not that model.
 // See ./commercial-signal.ts.
 export * from './commercial-signal';
+
+// --- Commercial Intelligence: Headlines (Stage 3 v1) ---
+// How an objective becomes measurable, what a measured development is, and what
+// makes one worth a person's time.
+//
+//   objective-measure-binding  what to measure and which rows count. Human-
+//                              confirmed, immutable, versioned. No target, no
+//                              baseline, no formula builder — those are a KPI
+//                              product and a separate approval.
+//   commercial-measurement     the pure arithmetic and the ONE materiality rule.
+//                              Every threshold is inherited from
+//                              CALLGRID_SIGNIFICANCE_RULES, not invented here.
+//   headline                   the development record. A PERSISTED OBJECT WITH NO
+//                              WORK LIFECYCLE — no owner, no assignee, no lane, no
+//                              outcome. A Decision is a different thing and
+//                              `OperationalPriority` already is it.
+//
+// Commercial Signals sit BESIDE this flow. They may be cited as supporting
+// detail; they never define a population, a denominator or an importance.
+export * from './objective-measure-binding';
+export * from './commercial-measurement';
+export * from './headline';

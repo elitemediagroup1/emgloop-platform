@@ -68,6 +68,16 @@ import { createDecisionEngine } from './services/decision';
 export { CommercialSignalEvaluationService, COMMERCIAL_SIGNAL_MAX_OBSERVATIONS } from './services/commercial-signal-evaluation.service';
 export type { EvaluationRunSummary, EvaluationRunOptions } from './services/commercial-signal-evaluation.service';
 
+// Commercial Intelligence Stage 3 v1 — turning a confirmed measure binding into a
+// measured development. Reads objectives, bindings and call AGGREGATES; writes
+// only `headlines`. It reads no Commercial Signal, and it does nothing
+// downstream: no decision, no evidence, no work item, no notification, no event.
+export { HeadlineDetectionService } from './services/headline-detection.service';
+export type {
+  DetectionRunSummary,
+  ObjectiveDetectionOutcome,
+} from './services/headline-detection.service';
+
 // Auction report ingestion — bounded, single-UTC-day, idempotent.
 export { AuctionReportIngestionService, BID_TOTAL_FIELDS, REJECTION_TOTAL_FIELDS, PING_TOTAL_FIELDS } from './services/auction-report-ingestion.service';
 export type { AuctionIngestInput, AuctionIngestResult, EndpointOutcome } from './services/auction-report-ingestion.service';
