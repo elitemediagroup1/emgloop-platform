@@ -166,3 +166,44 @@ export function easternYesterdayWindow(now: Date): DayWindow {
 export function easternTodayWindow(now: Date): DayWindow {
   return { start: startOfEasternDay(now), end: now };
 }
+
+/** A period and the equal-length period immediately before it. */
+export interface ComparisonWindows {
+  /** The most recent COMPLETE span. Never includes the in-progress day. */
+  current: DayWindow;
+  /** The equal-length span immediately before `current`. */
+  prior: DayWindow;
+}
+
+/**
+ * The trailing `days` COMPLETE Eastern days, and the equal span before them.
+ *
+ * COMPLETE MEANS COMPLETE. Both windows end on an Eastern midnight boundary and
+ * neither can touch the in-progress day, because comparing a partial period
+ * against a whole one is the defect that made "Today" report an ~85% revenue
+ * collapse every morning until PR #149. A caller that wants live data must ask
+ * for it explicitly somewhere else; it can never arrive through this function.
+ *
+ * Boundaries are walked one Eastern day at a time rather than subtracting
+ * `days * 86_400_000`, because a DST transition day is 23 or 25 hours long and
+ * millisecond arithmetic would silently shift every boundary by an hour twice a
+ * year — which shows up as a phantom change in whatever is being compared.
+ */
+export function easternTrailingCompleteWindows(now: Date, days: number): ComparisonWindows {
+  const span = Math.max(1, Math.floor(days));
+  // The first instant of today Eastern is the first instant that is NOT complete.
+  const currentEnd = startOfEasternDay(now);
+  const currentStart = shiftBackEasternDays(currentEnd, span);
+  const priorStart = shiftBackEasternDays(currentStart, span);
+  return {
+    current: { start: currentStart, end: currentEnd },
+    prior: { start: priorStart, end: currentStart },
+  };
+}
+
+/** `count` Eastern days earlier than `instant`, one calendar day at a time. */
+function shiftBackEasternDays(instant: Date, count: number): Date {
+  let cursor = startOfEasternDay(instant);
+  for (let i = 0; i < count; i += 1) cursor = startOfPreviousEasternDay(cursor);
+  return cursor;
+}
