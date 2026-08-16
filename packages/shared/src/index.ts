@@ -294,3 +294,12 @@ export * from './decision-card';
 // target or attainment: Loop cannot measure those, and a field claiming
 // otherwise would be a number tracing to nothing. See ./performance-objective.ts.
 export * from './performance-objective';
+
+// --- Commercial Intelligence: Commercial Signals (Stage 2) ---
+// An observed fact evaluated RELATIVE TO a Performance Objective, plus the
+// reason it may be relevant. Distinct in every respect from the incumbent
+// behavioural `Signal` model, which this contract does not read, wrap or touch.
+// Carries no score and no confidence: Loop has no approved relevance model, and
+// `TERM_MATCH` is a deterministic Stage 2 mechanism, not that model.
+// See ./commercial-signal.ts.
+export * from './commercial-signal';
