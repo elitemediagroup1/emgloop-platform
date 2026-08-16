@@ -393,7 +393,7 @@ Increment 4 (real-time product-click vertical slice + admin-only validation page
 `/app/admin/administration/cognitive-architecture`, simulator disabled in production unless an
 explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 
-## Commercial Intelligence — STAGE 1 IN REVIEW (draft PR #158) · branch `feat/ci-performance-objectives` (off main `1b71715`)
+## Commercial Intelligence — STAGE 1 MERGED (#158, main `42910b4`) · STAGE 2 IN REVIEW (branch `feat/ci-commercial-signals`, off main `42910b4`)
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -448,9 +448,66 @@ indexes, 3 FKs, 0 DROP / 0 rename / 0 column-type change, no existing table alte
 **⚠️ NOT LIVE — the migration gate.** Adds a table, so it inherits open thread 6: production has no
 `_prisma_migrations` ledger and the Netlify build runs `prisma generate` only. Code-complete, not live.
 
-**NEXT: nothing in CI until Stage 1 is merged and an objective actually exists.** A CI Signal is
-defined relative to an objective; building the signal layer against an empty referent is how a
-concept gets fabricated. Stage 2 is its own branch and its own approval.
+### Stage 2 — Commercial Signals (IN REVIEW)
+An observed fact evaluated **relative to** a Performance Objective, plus the reason it may matter.
+The primitive, one deterministic evaluator to prove it, and nothing else.
+
+- **`CommercialSignal` / `commercial_signals`, and the incumbent behavioural `Signal` is UNTOUCHED.**
+  That model is customer/conversation enrichment written by `services/signal-registry.ts` and read by
+  four repositories; the two share an English word and nothing else. Nothing was renamed, wrapped,
+  aliased, migrated or read. The migration emits no DDL naming `signals`.
+- **Selectively persisted — positive determinations only.** A row exists because an evaluator
+  concluded an observation may matter. Evaluations concluding nothing write nothing, so the ABSENCE
+  of a row means only that no positive determination was recorded — **never** that Loop examined
+  something and dismissed it. Stage 2 keeps no negative-evaluation history. A projection was rejected
+  outright: objective text is editable, so re-deriving after an edit would rewrite what CI believed in
+  the past.
+- **Fact and inference are structurally separate.** `CommercialSignalView` nests the source's
+  statement under `observation` and Loop's conclusion under `relevance`; the table separates them by
+  column group. A shape that cannot tell them apart eventually presents the second as the first.
+- **⚠️ `TERM_MATCH` is a Stage 2 validation mechanism, NOT the approved relevance model.** Objectives
+  are free text with no metric, so the evaluator compares normalized significant terms and records
+  which ones matched. It is deliberately dumb: "Nike hires a new CMO" may matter enormously to "grow
+  brand partnerships" while sharing no word with it, and a test asserts the limit (Texas ≠ TX) so
+  nobody "fixes" it with synonyms, stemming or an ontology. No score, no confidence, no weights, no
+  embeddings, no LLM. The extension point is `relevanceBasis` / `evaluatorId` / `evaluatorVersion`.
+- **Provenance by reference, and NO FK to the source domain.** `sourceSystem` + `sourceKey` are opaque
+  handles, never parsed — `OperationalPriority.sourceReference`'s shape. A real FK to
+  `marketplace_calls` was rejected: that table has a scalar `organizationId` with no FK and a
+  **globally** unique `(provider, externalId)`, and a reference would inherit both defects.
+- **Idempotency is tenant-scoped:** `@@unique(organizationId, performanceObjectiveId, sourceSystem,
+  sourceKey, evaluatorId)`. Re-running moves `lastEvaluatedAt` / `evaluationCount` and rewrites
+  nothing else — not the rationale, not the basis, not the observation. History is not revisable.
+- **Source:** CallGrid calls via `marketplace_calls`, read through `MarketplaceCallRepository`
+  (one additive read method, `listWindowSummaries`; no existing method or caller changed, no write
+  path touched). `ServiceRequest` was evaluated and rejected — it has **zero active producers**.
+- **RBAC reuses `commercialIntelligence`.** `view` to read, `update` to run an evaluation. No new
+  resource, action or role. MANAGER holds `view` only, a consequence of the Stage 1 matrix and not a
+  statement about who manages whom; nothing in Stage 2 reads a role as an organizational relationship.
+- **No Stage 2 events.** No consumer exists and Stage 3 is not authorized; an outbox type with no
+  reader is `EVENT_BUS.md` again.
+- **Surface:** one guarded action and one read-only table on the existing objectives page. Ordered by
+  when the observation happened and by nothing else — no ranking, no badge, no CTA on a row, nothing
+  to click through to. It is an inspection surface, not an attention surface.
+
+**Stage 2 validated:** 498 shared (16 new) · 314 database (24 new) · typecheck clean
+(shared/database/web) · `turbo run build` passes · `prisma validate` clean ·
+**from-zero replay against PostgreSQL 16: all 15 migrations apply to an empty database and
+`migrate diff --exit-code` reports no drift** · hand-written migration DDL verified byte-identical to
+`prisma migrate diff --from-empty` output · **end-to-end against real Postgres**: two active
+objectives, one real call row → exactly one signal (roofing matched, SSDI did not), re-run reaffirmed
+without duplicating, cross-tenant objective id returned `null`, and 0 rows written to
+`operational_priorities` / `state_change_outbox` / `signals` / `audit_logs`. Migration is additive
+only — 1 table, 2 indexes, 1 unique, 2 FKs, 0 enums, 0 DROP / 0 rename / 0 column-type change, no
+existing table altered, ASCII header.
+
+**⚠️ NOT LIVE — the migration gate.** Adds a table, so it inherits open thread 6: production has no
+`_prisma_migrations` ledger and the Netlify build runs `prisma generate` only. **CODE COMPLETE, NOT
+DEPLOYED.**
+
+**NEXT: Stage 3 (Headlines) has not begun and must not begin before Stage 2 is reviewed and merged.**
+No Headline schema, generation, routing, feed, seven-business-day logic, Investigate, Subject or Case
+exists, and no Stage 3 abstraction was prepared in advance.
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a
@@ -552,7 +609,8 @@ FORBIDDEN_ASSUMPTIONs. **CRM code may not begin until Business Identity Stage 2 
    6. Accounting onto the Decision Engine (producer #3).
    7. **Only then** extract `/app/admin/decisions` as its own route — by which point #156 has
       made it close to a file move.
-10. **Commercial Intelligence Stage 1 in review** (draft PR #158, branch `feat/ci-performance-objectives`).
+10. **Commercial Intelligence Stage 2 in review** (branch `feat/ci-commercial-signals`). Stage 1
+    merged as #158. Stage 3 (Headlines) is not started and is a separate approval.
     Performance Objectives only — the referent a CI Signal is defined against. Stage 2 does not
     start until Stage 1 merges and real objectives exist; a signal layer built against an empty
     referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.

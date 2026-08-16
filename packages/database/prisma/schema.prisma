@@ -243,6 +243,8 @@ model Organization {
   capabilities            OrganizationCapability[]
   // --- Commercial Intelligence Stage 1 ---
   performanceObjectives   PerformanceObjective[]
+  // --- Commercial Intelligence Stage 2 ---
+  commercialSignals       CommercialSignal[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -3191,8 +3193,130 @@ model PerformanceObjective {
   scopeUser    User?        @relation("PerformanceObjectiveScopedUser", fields: [scopeUserId], references: [id], onDelete: Cascade)
   createdBy    User?        @relation("PerformanceObjectiveAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
+  commercialSignals CommercialSignal[]
+
   @@index([organizationId, status])
   @@index([organizationId, scope, status])
   @@index([organizationId, scopeUserId])
   @@map("performance_objectives")
+}
+
+// ===========================================================================
+// COMMERCIAL INTELLIGENCE -- STAGE 2: COMMERCIAL SIGNALS
+// ===========================================================================
+//
+// A fact Loop observed, evaluated RELATIVE TO a Performance Objective, together
+// with the reason it may be relevant. That is the whole of the concept and it
+// stops there.
+//
+// THIS IS NOT THE `Signal` MODEL ABOVE. `Signal` (see the CRM section) is
+// BEHAVIOURAL enrichment attached to a customer or a conversation -- churn risk,
+// intent, journey stage -- written by services/signal-registry.ts and read by
+// four repositories. It knows nothing about objectives, and its `confidence`
+// answers a different question. The two share an English word and nothing else.
+// `Signal` is not renamed, altered, extended, wrapped, aliased or read by
+// anything in this section, and this migration emits no DDL against it.
+//
+// SIGNALS ARE MACHINE-FACING. This table is what Loop noticed, not what a human
+// is being asked to look at. Deciding what deserves a person's attention is a
+// later stage with its own vocabulary; nothing here ranks, prioritizes, routes,
+// notifies or escalates, and no column exists that a feed could sort by.
+//
+// FACT AND INFERENCE ARE SEPARATED BY COLUMN GROUP, not by convention. Everything
+// under "the observed fact" belongs to the producing domain and is restated here
+// only so a determination can explain itself; everything under "CI's inference"
+// is Loop's own conclusion. The distinction survives in the read contract, which
+// nests them (see packages/shared/src/commercial-signal.ts).
+//
+// CI DOES NOT OWN THE SOURCE RECORD, AND HAS NO FOREIGN KEY TO IT.
+// `sourceSystem` + `sourceKey` are opaque handles, never parsed here -- the same
+// shape `OperationalPriority.sourceSystem` / `recurrenceKey` uses. A real FK to
+// `marketplace_calls` was considered and rejected: that table carries a scalar
+// organizationId with no FK and a GLOBALLY unique (provider, externalId), and a
+// reference would inherit both defects. The source stays authoritative; CI holds
+// a pointer and its own correct tenancy.
+//
+// POSITIVE DETERMINATIONS ONLY. A row exists because an evaluator concluded an
+// observation may matter to an objective. Evaluations that concluded nothing
+// write nothing, so the ABSENCE of a row means only that no positive
+// determination was recorded -- never that something was examined and dismissed.
+// Stage 2 keeps no negative-evaluation history and no query may imply one.
+//
+// NO SCORE AND NO CONFIDENCE COLUMN. Loop has no approved relevance model, and a
+// float here would be a fabricated certainty that every later surface would
+// render. The extension point is `relevanceBasis` / `evaluatorId` /
+// `evaluatorVersion`.
+//
+// TENANCY. Real foreign keys with defined delete behaviour, following the
+// performance_objectives precedent directly above rather than the
+// scalar-organizationId-no-FK debt of Work OS, vk_* and operational_*. Signals
+// are tenant data and die with the tenant; they also die with the objective they
+// were defined against, because a signal relative to nothing is not a signal.
+//
+// Additive only. No existing table is renamed, altered or dropped.
+// ===========================================================================
+
+model CommercialSignal {
+  id                     String @id @default(cuid())
+  organizationId         String
+  /// The objective this observation was evaluated against. REQUIRED: relevance
+  /// is a relation, not a property, and a signal with no referent is a data
+  /// point Loop simply noticed.
+  performanceObjectiveId String
+
+  // --- The observed fact. Owned by its producing domain. -------------------
+  /// The producer that owns this fact ('CALLGRID' today). A plain string so the
+  /// second producer is a value rather than a migration.
+  sourceSystem       String
+  /// Stable identity of the observation WITHIN sourceSystem. Re-observing the
+  /// same fact must produce the same key, or idempotency binds to nothing.
+  sourceKey          String
+  /// The producer's own handle for the subject -- a call id, an invoice number.
+  /// Opaque here and NEVER parsed.
+  sourceReference    String?
+  /// When the fact occurred AT THE SOURCE. Distinct from firstEvaluatedAt (when
+  /// CI looked) and createdAt (when the row was written). Three instants, and
+  /// collapsing any two of them makes the history unreadable.
+  observedAt         DateTime
+  /// The fact in one line, in the source's terms. A restatement for explanation,
+  /// never a substitute for reading the source.
+  observationSummary String
+
+  // --- CI's inference. Never the source's statement. -----------------------
+  /// How relevance was established. Held as a string, not an enum, so a new
+  /// evaluator is a contract change rather than production DDL -- the same
+  /// reasoning OperationalPriority.severity gives.
+  relevanceBasis     String
+  /// Why this may matter to this objective, in a sentence a human can check.
+  relevanceRationale String
+  /// WHICH evaluator concluded this and WHICH build of it, so a determination
+  /// stays interpretable after the evaluator's logic changes.
+  evaluatorId        String
+  evaluatorVersion   String
+
+  /// The determination is established once and never rewritten. Re-evaluation
+  /// moves the two counters below and touches nothing else -- the same shape
+  /// OperationalPriority.firstDetectedAt / lastDetectedAt / detectionCount uses.
+  /// A record of what CI believed is worthless if a later run can overwrite it.
+  firstEvaluatedAt DateTime @default(now())
+  lastEvaluatedAt  DateTime @default(now())
+  evaluationCount  Int      @default(1)
+
+  createdAt DateTime @default(now())
+
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  performanceObjective PerformanceObjective @relation(fields: [performanceObjectiveId], references: [id], onDelete: Cascade)
+
+  /// Idempotency, scoped to the tenant. Re-running an evaluation over the same
+  /// window must not accumulate duplicates. `evaluatorId` is part of the key so
+  /// a future evaluator reaching the same observation records its OWN
+  /// determination instead of silently overwriting another evaluator's.
+  /// `map:` is explicit on both composite indexes because Prisma's generated
+  /// names exceed Postgres's 63-character identifier limit and would be
+  /// truncated. A truncated name is still deterministic, but it is not READABLE
+  /// in a migration file, and this repository hand-writes its migrations.
+  @@unique([organizationId, performanceObjectiveId, sourceSystem, sourceKey, evaluatorId], map: "commercial_signals_org_objective_source_evaluator_key")
+  @@index([organizationId, observedAt])
+  @@index([organizationId, performanceObjectiveId, observedAt], map: "commercial_signals_org_objective_observedAt_idx")
+  @@map("commercial_signals")
 }

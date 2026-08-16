@@ -62,6 +62,12 @@ export * from './services/cognitive';
 export * from './services/decision';
 import { createDecisionEngine } from './services/decision';
 
+// Commercial Intelligence Stage 2 — evaluating observable activity against
+// Performance Objectives. Reads two domains, writes only commercial_signals,
+// and does nothing downstream: no headline, no decision, no work, no event.
+export { CommercialSignalEvaluationService, COMMERCIAL_SIGNAL_MAX_OBSERVATIONS } from './services/commercial-signal-evaluation.service';
+export type { EvaluationRunSummary, EvaluationRunOptions } from './services/commercial-signal-evaluation.service';
+
 // Auction report ingestion — bounded, single-UTC-day, idempotent.
 export { AuctionReportIngestionService, BID_TOTAL_FIELDS, REJECTION_TOTAL_FIELDS, PING_TOTAL_FIELDS } from './services/auction-report-ingestion.service';
 export type { AuctionIngestInput, AuctionIngestResult, EndpointOutcome } from './services/auction-report-ingestion.service';

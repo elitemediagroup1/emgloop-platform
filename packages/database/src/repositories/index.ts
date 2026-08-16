@@ -36,6 +36,9 @@ import { MarketplaceCallRepository } from './marketplace-call.repository';
 import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 import { PerformanceObjectiveRepository } from './performance-objective.repository';
+// Commercial Intelligence Stage 2. Deliberately NOT named `signals`: that key is
+// the incumbent behavioural SignalRepository and stays exactly where it is.
+import { CommercialSignalRepository } from './commercial-signal.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
@@ -213,7 +216,7 @@ export type {
 export * from './cognitive';
 
 // Commercial Intelligence Stage 1 — Performance Objectives. Human-authored
-// intent, and the ONLY Commercial Intelligence concept that exists today.
+// intent: the referent a Commercial Signal is defined relative to.
 export { PerformanceObjectiveRepository } from './performance-objective.repository';
 export type {
   PerformanceObjectiveResult,
@@ -221,6 +224,18 @@ export type {
   UpdatePerformanceObjectiveInput,
   ListPerformanceObjectivesOptions,
 } from './performance-objective.repository';
+
+// Commercial Intelligence Stage 2 — Commercial Signals. An observed fact
+// evaluated relative to one of those objectives. Distinct in every respect from
+// `SignalRepository` above, which owns the incumbent behavioural Signal model
+// and is untouched.
+export { CommercialSignalRepository } from './commercial-signal.repository';
+export type {
+  EstablishCommercialSignalInput,
+  EstablishOutcome,
+  EstablishResult,
+  ListCommercialSignalsOptions,
+} from './commercial-signal.repository';
 import { createCognitiveRepositories } from './cognitive';
 import type { CognitiveRepositories } from './cognitive';
 
@@ -254,6 +269,7 @@ export interface Repositories {
   marketplaceAuction: MarketplaceAuctionRepository;
   operationalPriorities: OperationalPriorityRepository;
   performanceObjectives: PerformanceObjectiveRepository;
+  commercialSignals: CommercialSignalRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -287,5 +303,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     marketplaceAuction: new MarketplaceAuctionRepository(prisma),
     operationalPriorities: new OperationalPriorityRepository(prisma),
     performanceObjectives: new PerformanceObjectiveRepository(prisma),
+    commercialSignals: new CommercialSignalRepository(prisma),
   };
 }

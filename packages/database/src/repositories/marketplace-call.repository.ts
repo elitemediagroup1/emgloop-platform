@@ -210,6 +210,62 @@ export class MarketplaceCallRepository {
   }
 
   /**
+   * Read-only window listing of the descriptive fields on a call.
+   *
+   * ADDED FOR, BUT NOT OWNED BY, A CONSUMER. Commercial Intelligence needs to
+   * READ calls in order to evaluate them against a Performance Objective, and
+   * this is how it does that: through the repository that owns the table, not by
+   * reaching into `prisma.marketplaceCall` from another module. Nothing about
+   * the call record changes, no write path is affected, and no existing method
+   * or caller is altered.
+   *
+   * Selects only identity, source time and the LABELS the provider already
+   * supplied. No caller phone, no economics, no raw payload -- a consumer that
+   * only needs to know what a call was about must not be handed money or PII on
+   * the way past.
+   *
+   * `provider` is included because it is the sensor's own name and a consumer
+   * must be able to record WHERE a fact came from without hardcoding 'callgrid'.
+   */
+  async listWindowSummaries(
+    organizationId: string,
+    since: Date,
+    until: Date,
+    take: number,
+  ): Promise<
+    Array<{
+      id: string;
+      provider: string;
+      externalId: string;
+      sourceOccurredAt: Date;
+      buyerLabel: string | null;
+      vendorLabel: string | null;
+      sourceLabel: string | null;
+      campaignLabel: string | null;
+      callerState: string | null;
+      status: string | null;
+    }>
+  > {
+    return this.prisma.marketplaceCall.findMany({
+      where: { organizationId, sourceOccurredAt: { gte: since, lt: until } },
+      orderBy: { sourceOccurredAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        provider: true,
+        externalId: true,
+        sourceOccurredAt: true,
+        buyerLabel: true,
+        vendorLabel: true,
+        sourceLabel: true,
+        campaignLabel: true,
+        callerState: true,
+        status: true,
+      },
+    });
+  }
+
+  /**
    * The canonical CallGrid window metrics, each as Truth.
    *
    * This is the authoritative operational read for the Marketplace. It reads
