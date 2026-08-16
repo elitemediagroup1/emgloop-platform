@@ -22,6 +22,8 @@ import {
   truthFromSum,
   success,
   hasValue,
+  type BindingDimension,
+  type PopulationWindowAggregate,
   type Truth,
   type TruthMeta,
 } from '@emgloop/shared';
@@ -29,6 +31,20 @@ import {
   projectInteractionToMarketplaceCall,
   type MarketplaceCallProjection,
 } from './marketplace-call-projection';
+
+/**
+ * One observed dimension member, offered for binding selection.
+ *
+ * `externalId` is non-nullable: a member with no stable provider id is never
+ * returned, because it cannot be bound safely.
+ */
+export interface PopulationCandidateRow {
+  dimension: BindingDimension;
+  externalId: string;
+  /** Most recent observed label. DISPLAY ONLY — never identity. */
+  label: string | null;
+  observedCalls: number;
+}
 
 /** One participant's aggregated economics for a window (matches the Intelligence
  * CallGridDimensionWindow shape structurally). */
@@ -263,6 +279,227 @@ export class MarketplaceCallRepository {
         status: true,
       },
     });
+  }
+
+  // --- Commercial Intelligence Stage 3: the aggregate read boundary ----------
+  //
+  // AGGREGATES ONLY, AND THAT IS THE POINT. Stage 3 measures a bound population
+  // over a window; it does not need to see a call, so it is not handed one. No
+  // row leaves this method: no caller phone, no caller zip, no per-call revenue,
+  // no external id, no label. Only counts and one sum, which is the narrowest
+  // thing that can answer "what was this measure, over this population, in this
+  // period" -- the same boundary `listWindowSummaries` drew when it selected
+  // labels and refused economics.
+  //
+  // NULL IS NEVER ZERO. Every nullable field is returned as a (true, reported)
+  // pair so the caller can compute a rate over the calls that actually CARRIED
+  // the flag, and can state coverage rather than implying full reporting. A call
+  // whose `converted` the provider never sent has not been observed as false, and
+  // counting it as false would manufacture the outcome the rate measures.
+
+  /**
+   * One window's aggregate facts about an explicitly selected population.
+   *
+   * THE POPULATION IS AN EXPLICIT SELECTION AND NOTHING ELSE. The caller supplies
+   * the provider's own external ids per dimension. No label is parsed, no vertical
+   * is inferred, no geography is derived, and no Commercial Signal is consulted --
+   * a signal is a lexical relevance determination and using one as a measurement
+   * denominator would turn a documented limitation into a percentage.
+   *
+   * Members across dimensions are ORed: a call belongs to the population if it
+   * matches any selected campaign, source, buyer or vendor. `callerStates` is a
+   * separate AND-ed restriction, and an EMPTY array means no restriction at all
+   * rather than a filter that matches nothing.
+   *
+   * Returns null when no dimension member was supplied. An empty population is a
+   * caller error, not an empty result -- returning zeros for it would report the
+   * whole tenant as having measured nothing.
+   */
+  async aggregatePopulationWindow(
+    organizationId: string,
+    population: {
+      campaignExternalIds?: readonly string[];
+      sourceExternalIds?: readonly string[];
+      buyerExternalIds?: readonly string[];
+      vendorExternalIds?: readonly string[];
+      callerStates?: readonly string[];
+    },
+    window: { start: Date; end: Date },
+  ): Promise<PopulationWindowAggregate | null> {
+    const any: Prisma.MarketplaceCallWhereInput[] = [];
+    if (population.campaignExternalIds?.length) {
+      any.push({ campaignExternalId: { in: [...population.campaignExternalIds] } });
+    }
+    if (population.sourceExternalIds?.length) {
+      any.push({ sourceExternalId: { in: [...population.sourceExternalIds] } });
+    }
+    if (population.buyerExternalIds?.length) {
+      any.push({ buyerExternalId: { in: [...population.buyerExternalIds] } });
+    }
+    if (population.vendorExternalIds?.length) {
+      any.push({ vendorExternalId: { in: [...population.vendorExternalIds] } });
+    }
+    // FAIL CLOSED. No selection means no population, and no population means
+    // there is nothing to measure -- never "measure everything".
+    if (any.length === 0) return null;
+
+    // Tenant first, always. Both sides of every comparison load org-scoped, so no
+    // cross-organization row can enter an aggregate even if a caller supplies
+    // another tenant's external id -- that id simply matches nothing here.
+    const where: Prisma.MarketplaceCallWhereInput = {
+      organizationId,
+      sourceOccurredAt: { gte: window.start, lt: window.end },
+      OR: any,
+    };
+    if (population.callerStates?.length) {
+      where.callerState = { in: population.callerStates.map((s) => s.trim().toUpperCase()) };
+    }
+
+    const [
+      totalCalls,
+      revenue,
+      revenueReported,
+      monetizedTrue,
+      monetizedReported,
+      convertedTrue,
+      convertedReported,
+      noRouteTrue,
+      noRouteReported,
+    ] = await Promise.all([
+      this.prisma.marketplaceCall.count({ where }),
+      this.prisma.marketplaceCall.aggregate({ where, _sum: { revenueCents: true } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, revenueCents: { not: null } } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, monetized: true } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, monetized: { not: null } } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, converted: true } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, converted: { not: null } } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, noRoute: true } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, noRoute: { not: null } } }),
+    ]);
+
+    return {
+      totalCalls,
+      // Prisma returns null for _sum over an empty set AND for a set where every
+      // row is null. Both mean the same thing here -- nobody told us -- and both
+      // must stay null rather than becoming a confident $0.
+      revenueCents: revenueReported > 0 ? (revenue._sum.revenueCents ?? null) : null,
+      revenueReported,
+      monetizedTrue,
+      monetizedReported,
+      convertedTrue,
+      convertedReported,
+      noRouteTrue,
+      noRouteReported,
+    };
+  }
+
+  /**
+   * Dimension members Loop has ACTUALLY OBSERVED, offered for binding selection.
+   *
+   * Only members carrying a stable external id are returned. A member the
+   * provider labelled but never identified cannot be bound, because a population
+   * keyed on a label changes shape the day somebody renames a campaign upstream --
+   * and the surface should say so rather than silently offering it.
+   *
+   * The label is returned for display only. It is the most recent one observed in
+   * the offer window and it is never identity.
+   */
+  async listPopulationCandidates(
+    organizationId: string,
+    since: Date,
+    limitPerDimension = 100,
+  ): Promise<PopulationCandidateRow[]> {
+    // Four explicit groupBy calls rather than one loop over field names. Prisma's
+    // generated groupBy types are keyed on the literal `by` fields, and a dynamic
+    // key degrades them to an error string — recoverable only with a cast, and a
+    // cast here would silence the exact check that proves these columns exist.
+    // Verbose and typed beats terse and `any`.
+    const base = { organizationId, sourceOccurredAt: { gte: since } };
+    const out: PopulationCandidateRow[] = [];
+
+    const campaigns = await this.prisma.marketplaceCall.groupBy({
+      by: ['campaignExternalId', 'campaignLabel'],
+      where: { ...base, campaignExternalId: { not: null } },
+      _count: { _all: true },
+      // Prisma requires an orderBy alongside take, and it must name a field in
+      // `by`. The meaningful ordering (most observed first) is applied once at
+      // the end over all four dimensions, so this one only has to be stable.
+      orderBy: { campaignExternalId: 'asc' },
+      take: limitPerDimension,
+    });
+    for (const r of campaigns) {
+      if (!r.campaignExternalId) continue;
+      out.push({
+        dimension: 'CAMPAIGN',
+        externalId: r.campaignExternalId,
+        label: r.campaignLabel,
+        observedCalls: r._count._all,
+      });
+    }
+
+    const sources = await this.prisma.marketplaceCall.groupBy({
+      by: ['sourceExternalId', 'sourceLabel'],
+      where: { ...base, sourceExternalId: { not: null } },
+      _count: { _all: true },
+      // Prisma requires an orderBy alongside take, and it must name a field in
+      // `by`. The meaningful ordering (most observed first) is applied once at
+      // the end over all four dimensions, so this one only has to be stable.
+      orderBy: { sourceExternalId: 'asc' },
+      take: limitPerDimension,
+    });
+    for (const r of sources) {
+      if (!r.sourceExternalId) continue;
+      out.push({
+        dimension: 'SOURCE',
+        externalId: r.sourceExternalId,
+        label: r.sourceLabel,
+        observedCalls: r._count._all,
+      });
+    }
+
+    const buyers = await this.prisma.marketplaceCall.groupBy({
+      by: ['buyerExternalId', 'buyerLabel'],
+      where: { ...base, buyerExternalId: { not: null } },
+      _count: { _all: true },
+      // Prisma requires an orderBy alongside take, and it must name a field in
+      // `by`. The meaningful ordering (most observed first) is applied once at
+      // the end over all four dimensions, so this one only has to be stable.
+      orderBy: { buyerExternalId: 'asc' },
+      take: limitPerDimension,
+    });
+    for (const r of buyers) {
+      if (!r.buyerExternalId) continue;
+      out.push({
+        dimension: 'BUYER',
+        externalId: r.buyerExternalId,
+        label: r.buyerLabel,
+        observedCalls: r._count._all,
+      });
+    }
+
+    const vendors = await this.prisma.marketplaceCall.groupBy({
+      by: ['vendorExternalId', 'vendorLabel'],
+      where: { ...base, vendorExternalId: { not: null } },
+      _count: { _all: true },
+      // Prisma requires an orderBy alongside take, and it must name a field in
+      // `by`. The meaningful ordering (most observed first) is applied once at
+      // the end over all four dimensions, so this one only has to be stable.
+      orderBy: { vendorExternalId: 'asc' },
+      take: limitPerDimension,
+    });
+    for (const r of vendors) {
+      if (!r.vendorExternalId) continue;
+      out.push({
+        dimension: 'VENDOR',
+        externalId: r.vendorExternalId,
+        label: r.vendorLabel,
+        observedCalls: r._count._all,
+      });
+    }
+
+    // Most-observed first, so the picker leads with the members a human is most
+    // likely to recognise. Ties break on external id for a stable order.
+    return out.sort((a, b) => b.observedCalls - a.observedCalls || a.externalId.localeCompare(b.externalId));
   }
 
   /**
