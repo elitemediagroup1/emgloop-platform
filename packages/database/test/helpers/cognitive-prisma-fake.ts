@@ -25,6 +25,17 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // only detection rows).
   operationalPriority: ['organizationId', 'sourceSystem', 'recurrenceKey'],
   user: ['organizationId', 'email'],
+  // Commercial Intelligence Stage 2. TENANT-SCOPED, unlike marketplace_calls'
+  // global (provider, externalId): re-running an evaluation over the same window
+  // must reaffirm one determination rather than accumulate duplicates, and
+  // `evaluatorId` is in the key so a future evaluator records its own.
+  commercialSignal: [
+    'organizationId',
+    'performanceObjectiveId',
+    'sourceSystem',
+    'sourceKey',
+    'evaluatorId',
+  ],
 };
 
 /**
@@ -45,10 +56,26 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   // `where status: 'ACTIVE'`, or the list query would be correct in production
   // and silently empty here.
   performanceObjective: { status: 'ACTIVE' },
+  // A signal is established once and counted from one, matching @default(1).
+  // firstEvaluatedAt / lastEvaluatedAt default to now() in the schema; the
+  // repository sets lastEvaluatedAt explicitly on reaffirm, so only the create
+  // path needs a default here and `createdAt` already supplies the instant.
+  commercialSignal: { evaluationCount: 1 },
   user: { status: 'ACTIVE', metadata: {} },
   stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
   stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
   stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
+};
+
+/**
+ * Columns declared `@default(now())` in the schema, which this double must fill
+ * for the same reason as COLUMN_DEFAULTS above: a repository that reads one back
+ * would work in production and throw here, and the natural "fix" is to break the
+ * repository until the fake is happy. They take the row's create instant, so
+ * they stay consistent with `createdAt`.
+ */
+const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
+  commercialSignal: ['firstEvaluatedAt', 'lastEvaluatedAt'],
 };
 
 // A delegate may carry more than one unique. Prisma enforces each independently.
@@ -88,6 +115,10 @@ const DELEGATES = [
   // needs a real row to miss on.
   'user',
   'performanceObjective',
+  // Commercial Intelligence Stage 2. `marketplaceCall` is NOT here: the
+  // evaluation service reads calls through MarketplaceCallRepository, and its
+  // tests supply that read directly rather than faking another domain's table.
+  'commercialSignal',
 ] as const;
 
 let idSeq = 0;
@@ -194,6 +225,7 @@ function makeDelegate(name: string) {
         ...(COLUMN_DEFAULTS[name] && 'status' in (COLUMN_DEFAULTS[name] as Row)
           ? { availableAt: now }
           : {}),
+        ...Object.fromEntries((TIMESTAMP_DEFAULTS[name] ?? []).map((k) => [k, now])),
         ...data,
       };
       rows.push(row);
