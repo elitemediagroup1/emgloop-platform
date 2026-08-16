@@ -4,11 +4,21 @@
 // and the people in it are trying to accomplish. It is a form and a list, and it
 // is meant to stay that way.
 //
+// Stage 2 adds one guarded administrative action and one read-only table below
+// it: run the deterministic evaluator over recorded activity, then look at what
+// it concluded and why.
+//
 // THIS IS NOT THE COMMERCIAL INTELLIGENCE EXPERIENCE. There is no headline feed,
 // no investigation workspace, no signal explorer, no score, no chart and no
 // recommendation, because none of those exist yet and a surface that hinted at
 // them would be promising something the platform cannot do. When CI has
 // something to say, it will say it somewhere else.
+//
+// THE SIGNALS TABLE IS AN INSPECTION SURFACE, NOT AN ATTENTION SURFACE. It is
+// ordered by when the observation happened and by nothing else: no ranking, no
+// badge implying confidence, no "needs your attention", no CTA on a row, and
+// nothing to click through to. Deciding what deserves a person's attention is a
+// later stage with its own vocabulary, and it does not begin here.
 //
 // Server components only, same as every other administration page: every control
 // is a <form> posting to a guarded server action, so authoring costs no client
@@ -26,6 +36,7 @@ import {
   createObjectiveAction,
   updateObjectiveAction,
   setObjectiveStatusAction,
+  evaluateActivityAction,
 } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -60,6 +71,13 @@ export default async function AdminObjectivesPage({
   const canCreate = await hasPermission('commercialIntelligence', 'create');
 
   const objectives = await repositories.performanceObjectives.list(session.organizationId);
+  // Commercial Intelligence Stage 2. Read org-scoped, like everything else on
+  // this page — the session organization is the only tenant this reads.
+  const signals = await repositories.commercialSignals.list(session.organizationId, { take: 50 });
+  // Truth, not a bare number: an EMPTY count means no positive determination has
+  // been recorded — never that Loop examined the activity and dismissed it.
+  const signalCount = await repositories.commercialSignals.count(session.organizationId);
+  const totalSignals = signalCount.state === 'success' ? signalCount.value : 0;
   // The roster is needed only to name a person on a USER-scoped objective. It is
   // the org's own members, and it is read only when somebody may actually author.
   const members = canCreate || canManage
@@ -260,6 +278,87 @@ export default async function AdminObjectivesPage({
               </thead>
               <tbody>{active.map((o) => <ObjectiveRow key={o.id} o={o} />)}</tbody>
             </table>
+          </div>
+        )}
+      </section>
+
+      <section className="adm-card">
+        <h2 className="adm-card__title">Commercial signals</h2>
+        <p className="adm-faint">
+          Observations Loop already recorded that share subject matter with an
+          objective above, and the reason each one was considered relevant. A
+          signal says an observation <em>may</em> matter to an objective. It is
+          not a conclusion, a recommendation, or something asking to be actioned.
+        </p>
+
+        {canManage ? (
+          <form action={evaluateActivityAction} className="adm-inline">
+            <button className="adm-btn" type="submit">
+              Evaluate recent activity
+            </button>
+            <span className="adm-faint">
+              {' '}Runs a deterministic term match over the last 30 days of recorded
+              calls. No model is called and nothing is sent anywhere.
+            </span>
+          </form>
+        ) : null}
+
+        {signals.length === 0 ? (
+          // An honest empty state. Nothing has been evaluated, or nothing
+          // matched — and neither is a claim that Loop examined the data and
+          // found it irrelevant. No negative determinations are kept.
+          <p className="adm-faint">
+            No signals recorded yet.
+            {canManage
+              ? ' Run an evaluation above once at least one objective is active.'
+              : ' An administrator runs these.'}
+          </p>
+        ) : (
+          <div className="adm-tablewrap">
+            <table className="adm-table">
+              <thead>
+                <tr>
+                  <th>Observed</th>
+                  <th>What was observed</th>
+                  <th>Objective</th>
+                  <th>Why Loop thinks it may matter</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signals.map((s) => (
+                  <tr key={s.id}>
+                    <td>
+                      {fmtDate(s.observation.observedAt)}
+                      <div className="adm-faint">{s.observation.sourceSystem}</div>
+                    </td>
+                    {/* The source's own statement, labelled as the source's. */}
+                    <td>
+                      {s.observation.summary}
+                      <div className="adm-faint">
+                        Reference {s.observation.sourceReference ?? s.observation.sourceKey}
+                      </div>
+                    </td>
+                    <td>{s.objectiveTitle ?? '—'}</td>
+                    {/* Loop's inference, never presented as the source's fact. */}
+                    <td>
+                      {s.relevance.rationale}
+                      <div className="adm-faint">
+                        Established {fmtDate(s.firstEvaluatedAt)} by{' '}
+                        {s.relevance.evaluatorId} {s.relevance.evaluatorVersion}
+                        {s.evaluationCount > 1
+                          ? ` · seen again ${s.evaluationCount - 1} time${s.evaluationCount === 2 ? '' : 's'}`
+                          : ''}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {totalSignals > signals.length ? (
+              <p className="adm-faint">
+                Showing the {signals.length} most recent of {totalSignals} recorded.
+              </p>
+            ) : null}
           </div>
         )}
       </section>

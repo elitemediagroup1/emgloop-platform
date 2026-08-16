@@ -15,11 +15,16 @@
 // returns null and this file returns early — no audit entry for a write that
 // did not happen, which is the rule that keeps the audit trail worth reading.
 //
-// NOTHING HERE IS INTELLIGENT. These actions persist typed human intent. No
-// scoring, no ranking, no inference, no AI, no measurement of anything.
+// NOTHING HERE IS INTELLIGENT — with one bounded exception. The first four
+// actions persist typed human intent: no scoring, no ranking, no inference, no
+// AI, no measurement of anything. `evaluateActivityAction` (Stage 2) runs a
+// DETERMINISTIC evaluator over calls Loop already recorded and writes Commercial
+// Signals for the observations that share subject matter with an objective. It
+// still scores nothing, ranks nothing, calls no model, and starts nothing
+// downstream.
 
 import { redirect } from 'next/navigation';
-import { repositories } from '@emgloop/database';
+import { repositories, CommercialSignalEvaluationService } from '@emgloop/database';
 import {
   PERFORMANCE_OBJECTIVE_REJECTION_MESSAGES,
   isPerformanceObjectiveScope,
@@ -174,6 +179,101 @@ export async function setObjectiveStatusAction(formData: FormData): Promise<void
       archiving
         ? `Objective “${objective.title}” archived. It stays on record.`
         : `Objective “${objective.title}” is active again.`,
+      'notice',
+    ),
+  );
+}
+
+// --- Commercial Intelligence Stage 2 -----------------------------------------
+
+/**
+ * The window a run looks back over, in days.
+ *
+ * Fixed rather than operator-chosen, because a chooser would be the first
+ * feature of a product surface this deliberately is not. It is stated on screen
+ * so a reader knows exactly what was examined.
+ */
+const EVALUATION_WINDOW_DAYS = 30;
+
+/**
+ * Evaluate recent observable activity against this organization's objectives.
+ *
+ * AN ADMINISTRATIVE VALIDATION ACTION, NOT A PRODUCT FEATURE. It exists so the
+ * Stage 2 path can be exercised end to end against real data: objective →
+ * observation Loop already recorded → deterministic evaluation → Commercial
+ * Signal with inspectable provenance. It is not a "run intelligence" button and
+ * must not become one.
+ *
+ * GUARDED BY `commercialIntelligence:update`, the narrowest existing grant that
+ * fits: this writes tenant rows, so `view` would be wrong, and no new resource,
+ * action or role is invented for it. MANAGER holds `view` only and therefore
+ * cannot run it — a consequence of the Stage 1 matrix, not a statement about who
+ * manages whom.
+ *
+ * NOTHING DOWNSTREAM. No headline, no case, no decision, no work item, no
+ * notification, no outbound message. It writes Commercial Signals and returns.
+ */
+export async function evaluateActivityAction(): Promise<void> {
+  const session = await requirePermission('commercialIntelligence', 'update');
+
+  const until = new Date();
+  const since = new Date(until.getTime() - EVALUATION_WINDOW_DAYS * 86_400_000);
+
+  const service = new CommercialSignalEvaluationService(
+    repositories.performanceObjectives,
+    repositories.marketplaceCalls,
+    repositories.commercialSignals,
+  );
+  // The organization comes from the signed session and is the only tenant this
+  // run can read or write. There is no organization field on the form, because
+  // there is no form.
+  const summary = await service.evaluateRecentActivity(session.organizationId, { since, until });
+
+  // The run happened, so it is recorded — including a run that concluded
+  // nothing, which is a real outcome and not a failed write. What is audited is
+  // the OPERATION and its counts; the determinations themselves live in
+  // commercial_signals with their own provenance.
+  await repositories.audit.record({
+    organizationId: session.organizationId,
+    userId: session.userId,
+    actorName: session.name,
+    action: 'commercial_signal.evaluated',
+    entityType: 'commercial_signal_evaluation',
+    entityId: session.organizationId,
+    metadata: {
+      windowDays: EVALUATION_WINDOW_DAYS,
+      since: since.toISOString(),
+      until: until.toISOString(),
+      objectivesConsidered: summary.objectivesConsidered,
+      observationsExamined: summary.observationsExamined,
+      established: summary.established,
+      reaffirmed: summary.reaffirmed,
+    },
+  });
+
+  if (summary.objectivesConsidered === 0) {
+    redirect(
+      backTo('No active objectives to evaluate against. Add one first.', 'error'),
+    );
+  }
+  if (summary.observationsExamined === 0) {
+    // An honest empty state rather than a zero dressed as a result: Loop had
+    // nothing to look at, which is different from having looked and found
+    // nothing.
+    redirect(
+      backTo(
+        `No recorded activity in the last ${EVALUATION_WINDOW_DAYS} days to evaluate.`,
+        'notice',
+      ),
+    );
+  }
+
+  redirect(
+    backTo(
+      `Evaluated ${summary.observationsExamined} recorded observation${summary.observationsExamined === 1 ? '' : 's'} ` +
+        `against ${summary.objectivesConsidered} active objective${summary.objectivesConsidered === 1 ? '' : 's'}: ` +
+        `${summary.established} new signal${summary.established === 1 ? '' : 's'}, ` +
+        `${summary.reaffirmed} already recorded.`,
       'notice',
     ),
   );
