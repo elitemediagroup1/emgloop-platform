@@ -13,10 +13,55 @@ _Last updated: 2026-08-14._
 Each workstream is either **DONE (merged)**, **IN REVIEW (open PR)**, or **NOT BUILT**.
 "NOT BUILT" surfaces show honest "Not Configured / unavailable" states — never fake data.
 
+**MERGED is not DEPLOYED.** Anything adding a database table is code-complete until somebody
+dispatches the migration workflow by hand, so this file distinguishes **DEPLOYED** (the migration is
+applied in production) and **PRODUCTION VERIFIED** (somebody loaded the surface and confirmed it
+behaves). See *Production migration state* directly below.
+
 ## ⚠️ Cannot be validated in the dev environment
 There is **no database, no runtime, and no email** in the dev sandbox, so anything below
 marked _(needs deploy validation)_ is verified only by typecheck + build + unit tests —
 NOT by seeing it render or run. Those must be checked on the deploy.
+
+---
+
+## Production migration state — ALIGNED THROUGH CI STAGE 2 (verified 2026-08-16)
+
+**Production is, and has been since 2026-07-09, under Prisma Migrate management.** The long-standing
+claim that it has no `_prisma_migrations` ledger and that no migration has ever been applied through
+Prisma was **false**. It originated in `CLAUDE.md`, was repeated in PR #152's commit message, and
+propagated into two later assessments before anyone checked the workflow run history. Both files are
+now corrected.
+
+| | |
+|---|---|
+| Engine | PostgreSQL 18.4 (Neon) |
+| Ledger | `_prisma_migrations` exists · **15 rows** · 0 rolled back · 0 unfinished |
+| Public tables | **74** |
+| Aligned through | `20260816000000_ci_commercial_signals` — Commercial Intelligence Stage 2 |
+| Last deployment | `Deploy Prisma Migrations` **run #6**, 2026-08-16 — applied migrations 8–15 |
+| Restore point | Neon branch `pre-ci-migration-2026-08-15`, taken before the run |
+
+**How it got here.** A one-off baseline recovery on 2026-07-09 marked the two pre-existing migrations
+as applied via `migrate resolve --applied` — recorded, never executed, which is why both still show
+`applied_steps_count = 0` — and created the ledger. Four `Deploy Prisma Migrations` runs then applied
+migrations 3–7, the last on 2026-07-19. **Eight migrations then sat unapplied until 2026-08-16**, not
+because the tooling was broken but because nobody dispatched the workflow.
+
+**Deployment remains manual, deliberately.** Netlify runs `prisma generate` only. Migrations reach
+production solely through the human-dispatched `Deploy Prisma Migrations` workflow. Wiring
+`migrate deploy` into the Netlify build would let any branch — including preview deploys — mutate
+production schema, run migrations concurrently across parallel builds, and couple a schema change to
+a front-end deploy that can roll back independently. **Do not automate it without a separate
+decision.**
+
+**Open follow-up (not implemented, not authorized):** the repository should eventually gain a
+read-only check that signals when `main` carries migrations production has not applied. Comparing the
+migration count on `main` against `migrate status` would have surfaced this gap in a day rather than
+three weeks. Tracked in `CLAUDE.md` §Long-Term Goals item 2.
+
+**Consequence for any branch adding a table:** still code-complete, not live, until the workflow is
+dispatched. The gate is clear, not removed.
 
 ---
 
@@ -99,13 +144,10 @@ deliberately because a button that forgets is worse than no button.
 `turbo build --filter=@emgloop/web` passes · `prisma validate` clean. Migration is additive only
 (0 DROP / 0 rename / 0 column-type change), ASCII header.
 
-**⚠️ GATE — merged, but still not live in production.** The code half is done and merged (#152). The `sprint_11`
-em-dash is fixed on its own branch and the full 11-migration chain is **verified to replay from an
-empty Postgres 16 with no drift** (71 tables). What remains is human-run against production: back
-up + restore-test, `migrate resolve --applied` every existing migration (resolve, never run), then
-`migrate deploy`, then upgrade the Netlify build from `prisma generate` to
-`migrate deploy && generate` as a separate reviewed change. See
-`docs/architecture/migration-remediation-plan.md`.
+**✅ GATE CLEARED 2026-08-16 — now live in production.** The code half merged as #152; the production
+half ran as `Deploy Prisma Migrations` #6. Production holds all 15 migrations, 0 rolled back, 74
+tables. See the *Production migration state* block near the top of this file. The Netlify build step
+was deliberately **not** changed — migration deployment stays manual.
 
 **⚠️ Still open, unchanged by this branch:**
 1. **Phase 1 production reconciliation has never been run.** Every health band, opportunity amount
@@ -384,16 +426,20 @@ omitted the now-expired state and two tests failed. Fixtures now anchor `occurre
 real now — no injected clock reconciles fixture-time TTLs with wall-clock outbox/policy rows.
 Production behavior unchanged.)* **RELEASE BLOCKER
 (tracked, not fixed here):** `docs/architecture/migration-remediation-plan.md` — the
-`sprint_11` migration's leading em-dash blocks `migrate deploy` replay; prod has no
-`_prisma_migrations` table. Cognitive architecture is **NOT production-ready** until
-that plan's exit criteria are met. The remediation plan now lists **all three** cognitive
+`sprint_11` migration's leading em-dash blocked `migrate deploy` replay. **RESOLVED:** the em-dash
+fix merged as #152 and all three cognitive migrations were applied to production by
+`Deploy Prisma Migrations` run #6 on 2026-08-16. The schema is live; whether the cognitive
+*runtime* is production-ready is a separate question this line never answered. The remediation plan now lists **all three** cognitive
 migrations in order (`…000000`/`…000001`/`…000002`) and their role in the future baseline.
 PR #148 is Draft, titled *Increments 1–3*, body reflects 197 tests + three migrations. **Next:**
 Increment 4 (real-time product-click vertical slice + admin-only validation page
 `/app/admin/administration/cognitive-architecture`, simulator disabled in production unless an
 explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 
-## Commercial Intelligence — STAGE 1 MERGED (#158, main `42910b4`) · STAGE 2 IN REVIEW (branch `feat/ci-commercial-signals`, off main `42910b4`)
+## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 NOT AUTHORIZED
+**Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
+**Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
+**Stage 3 — Headlines:** ARCHITECTURE ASSESSMENT COMPLETE · PRODUCT DEFINITION IN PROGRESS (Charlie + Lexi) · **IMPLEMENTATION NOT AUTHORIZED**
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -445,8 +491,11 @@ to be relevant TO. This batch builds that referent (human-authored intent) and s
 `migrate diff` reports no drift, 73 tables.** Migration is additive only — 2 enums, 1 table, 3
 indexes, 3 FKs, 0 DROP / 0 rename / 0 column-type change, no existing table altered, ASCII header.
 
-**⚠️ NOT LIVE — the migration gate.** Adds a table, so it inherits open thread 6: production has no
-`_prisma_migrations` ledger and the Netlify build runs `prisma generate` only. Code-complete, not live.
+**✅ LIVE — deployed and production verified 2026-08-16.** `performance_objectives` exists in
+production. Smoke test: `/app/admin/administration/objectives` loads without error, and a real
+objective — *"Grow roofing lead revenue in Texas"*, ORGANIZATION scope, Elite Media Group, effective
+2026-08-15, open-ended — was created and shows as ACTIVE. The pre-deployment 500 risk on this page
+(no try/catch, no error boundary, nav entry visible to all five roles) is **closed**.
 
 ### Stage 2 — Commercial Signals (IN REVIEW)
 An observed fact evaluated **relative to** a Performance Objective, plus the reason it may matter.
@@ -501,13 +550,53 @@ without duplicating, cross-tenant objective id returned `null`, and 0 rows writt
 only — 1 table, 2 indexes, 1 unique, 2 FKs, 0 enums, 0 DROP / 0 rename / 0 column-type change, no
 existing table altered, ASCII header.
 
-**⚠️ NOT LIVE — the migration gate.** Adds a table, so it inherits open thread 6: production has no
-`_prisma_migrations` ledger and the Netlify build runs `prisma generate` only. **CODE COMPLETE, NOT
-DEPLOYED.**
+**✅ LIVE — deployed and production verified 2026-08-16.** `commercial_signals` exists in production.
+Smoke test: *Evaluate recent activity* was run **once**; signals persisted and rendered with observed
+date, source system (CALLGRID), source reference, objective, rationale, evaluator provenance and
+established date. The rationale read *"Objective and the source's own descriptors share the terms: …"*
+attributed to `term-match v1`, **confirming the Stage 2 defect fix is live**: CI-authored
+`observationSummary` text is not establishing relevance; source-owned descriptors are.
 
-**NEXT: Stage 3 (Headlines) has not begun and must not begin before Stage 2 is reviewed and merged.**
+**⚠️ WHAT THE PRODUCTION SMOKE TEST ACTUALLY DEMONSTRATED — read this before Stage 3.**
+The architecture works: an observation was evaluated *relative to* a human-authored objective and
+produced a signal with inspectable provenance. **Objective-relative relevance is operational.**
+
+The evaluator is also visibly primitive, exactly as designed. Real determinations from the run:
+
+| Objective | Observation | Matched on |
+|---|---|---|
+| Grow roofing lead revenue in Texas | an **SSDI** call in Texas | `texas` |
+| Grow roofing lead revenue in Texas | a **Final Expense** Lead Plateau call in New York | `lead` |
+| Grow roofing lead revenue in Texas | a **Pest Control** Revenue Click call | `revenue` |
+
+Every one is a correct `TERM_MATCH` determination under the frozen Stage 2 implementation. None is
+necessarily commercially meaningful.
+
+**This is not a defect and must not be "fixed."** `TERM_MATCH` was chosen as the smallest deterministic
+mechanism that could prove the architecture without inventing a relevance model nobody has approved,
+and it did its job. The lesson to carry forward is the distinction, not a bug report:
+
+> **Objective-relative relevance is operational. Literal token overlap is not sufficient to define
+> commercial intelligence.**
+
+Stage 3 consumes the Signal layer as it exists. Do not add synonyms, geography normalization,
+stemming, embeddings, LLM relevance, ontology, scoring, confidence, weighting or ranking — in Stage 3
+or as a prerequisite to it. Replacing the evaluator is a separate, separately-approved piece of work,
+and the contract is already shaped for it: a new evaluator supplies a different `relevanceBasis` /
+`evaluatorId` and changes nothing about what a Commercial Signal means.
+
+**Consequence Product should plan around:** the surface will be both sparse and occasionally
+irrelevant until a real relevance model exists. Charlie and Lexi should design the Headlines
+experience against what Loop can honestly say today, marking the richer version as future vision.
+
+### Stage 3 — Headlines (NOT AUTHORIZED)
+**ARCHITECTURE ASSESSMENT COMPLETE · PRODUCT DEFINITION IN PROGRESS · IMPLEMENTATION NOT AUTHORIZED.**
+
 No Headline schema, generation, routing, feed, seven-business-day logic, Investigate, Subject or Case
-exists, and no Stage 3 abstraction was prepared in advance.
+exists, and no Stage 3 abstraction was prepared in advance. The architecture assessment identified
+6 product decisions (H-P1…H-P6) and 10 architecture decisions (H-ADR1…H-ADR10) that must close first;
+Charlie and Lexi own the Headlines experience definition in parallel. **Implementation begins only on
+a separate, explicit authorization.**
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a
@@ -543,8 +632,8 @@ refers to one of those uncommitted artifacts — treat the summary below as the 
 - **Events need no new infrastructure.** `OutboxSubjectType.IDENTITY` already exists; the contract is a
   separate file on the existing outbox. Net cost is one additive enum member on `ActiveStateDomain`.
 - **Recommended foundation is smaller than proposed:** 8 before-code capabilities, 5 proposed items
-  demoted, **4 additive migrations rather than 12** (fewer manual production operations is safer while
-  there is no migration ledger).
+  demoted, **4 additive migrations rather than 12** (fewer manual production operations is safer
+  regardless — each one is a human-dispatched workflow run).
 
 **⚠️ GATE — 19 open approval decisions, none accepted.** Bucketed A (10, before Stage 1 contracts) /
 B (4, before schema) / C (2, before CRM production) / D (3, deferrable). Roots are **Q1** (production
@@ -584,13 +673,12 @@ FORBIDDEN_ASSUMPTIONs. **CRM code may not begin until Business Identity Stage 2 
    **web test harness** (route/render/permission tests can't run without one today).
 5. **CallGrid deploy validation** — still unrun, and still the gate on trusting any figure the
    intelligence layer reports. See the CallGrid block above for the exact per-period checklist.
-6. **Migration remediation — code half DONE (merged #152), production half OUTSTANDING.**
-   The em-dash fix is verified by from-zero replay against real Postgres. The remaining steps are
-   human-run against production data: back up + restore-test, baseline with
-   `migrate resolve --applied`, `migrate deploy`, then upgrade the Netlify build step separately
-   (today it is `prisma generate` only). Until those run, **any branch that adds a table is
-   code-complete but not live** — #148 today, and Business Identity next. This is the single
-   largest blocker on the roadmap and it is not any feature team's to fix.
+6. **Migration gate — CLEARED 2026-08-16.** Production is aligned with `main` through Commercial
+   Intelligence Stage 2: 15 ledger rows, 0 rolled back, 74 tables, PostgreSQL 18.4. See the
+   *Production migration state* block below. **The gate is not gone, only clear:** deployment stays
+   manual by design, so any branch adding a table is still code-complete until somebody dispatches
+   `Deploy Prisma Migrations`. The open follow-up is a read-only signal when `main` carries
+   migrations production has not applied — eight sat unapplied for three weeks and nothing warned.
 7. **Business Identity approval packet — 19 decisions, none accepted.** Blocks CRM v1 code (not CRM
    design). Answer **Q2** first to unblock the most downstream work; **Q1** is the only one where
    "yes in principle, no date" leaves the project worse off than a clear "not yet". See the

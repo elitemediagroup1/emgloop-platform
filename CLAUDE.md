@@ -112,9 +112,25 @@ exists (it does). `EVENT_BUS.md` describes a bus that was never built, and three
 `DATA_MODEL.md` says 28 models; there are 47. Read code, not docs.
 
 ### Database layer
-PostgreSQL (Neon) + Prisma. 47 models, 27 enums, 5 migrations. **Zero raw SQL** — keep it that way.
-Migration history is a reconstruction, not a chronology; production has no `_prisma_migrations` table
-and the build runs only `prisma generate`. Treat migrations as fragile until that's fixed.
+PostgreSQL 18 (Neon) + Prisma. 15 migrations. **Zero raw SQL** — keep it that way.
+
+**Production IS under Prisma Migrate management, and has been since 2026-07-09.** A one-off baseline
+recovery marked the two pre-existing migrations as applied (`resolve --applied`, never run) and
+created `_prisma_migrations`; every migration since has been applied through it. As of
+2026-08-16 the ledger holds all 15 rows, zero rolled back, and production schema is aligned with
+this repository through Commercial Intelligence Stage 2.
+
+⚠️ **This paragraph previously claimed the opposite** — that production had no `_prisma_migrations`
+table and no migration had ever been applied. That was false, and because this file is read at the
+start of every session the error propagated into a PR commit message and two separate assessments
+before anyone checked `gh run list`. If you need production's migration state, **read the workflow
+run history, not this file.**
+
+**The real constraint is deployment, not tooling.** The Netlify build runs `prisma generate` only.
+Migrations reach production solely via the manual `Deploy Prisma Migrations` workflow
+(`workflow_dispatch`, human-run). That is deliberate — see §Long-Term Goals — so a branch adding a
+table is **code-complete but not live until somebody dispatches that workflow.** Nothing warns when
+`main` is ahead of production; eight migrations sat unapplied for three weeks before anyone noticed.
 
 ### Repository pattern
 `packages/database/src/repositories/*` own persistence. `services/*` orchestrate across repositories.
@@ -369,7 +385,13 @@ The order matters. Each unlocks the next.
    Derive knowledge scope from the credential. Fix the `integration_events` unique key. Add the
    missing FKs. **This is the gate on customer #2 — it outranks everything below.**
 2. **A floor.** Commit the lockfile. CI gate on `main`: repo-wide typecheck + tests. A real test
-   suite starting with cross-tenant access attempts.
+   suite starting with cross-tenant access attempts. **Plus a read-only signal when `main` carries
+   migrations production has not applied** — comparing the migration count on `main` against
+   `migrate status` would have surfaced the 2026-07/08 gap in a day instead of three weeks. Keep
+   migration *deployment* manual: Netlify builds on every push including previews, so wiring
+   `migrate deploy` into the build would let any branch mutate production schema, run migrations
+   concurrently across parallel builds, and couple a schema change to a front-end deploy that can
+   roll back independently. The missing piece is the alarm, not the automation.
 3. **Asynchronous processing.** A queue and worker. Webhooks persist raw and return fast; processing
    moves off the request path with retries, a DLQ, and a shared replay store. Fix the
    200-on-failure contract so providers redeliver. Give `LoopEvent` a consumer or delete the gateway.
