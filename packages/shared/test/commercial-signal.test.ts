@@ -86,7 +86,7 @@ test('the rationale names the terms that caused it, in a stable order', () => {
   // Deterministic: two identical evaluations must not differ, or a re-run would
   // read as a change that did not happen.
   assert.equal(a.rationale, b.rationale);
-  assert.equal(a.rationale, 'Objective and observation share the terms: roofing.');
+  assert.equal(a.rationale, "Objective and the source's own descriptors share the terms: roofing.");
 });
 
 test('TERM_MATCH cannot see that Texas and TX are the same place', () => {
@@ -117,6 +117,101 @@ test('the rationale is CI speaking, and never restates the observation as fact',
   assert.ok(!result.rationale.includes('COMPLETED'));
   assert.ok(!('summary' in result));
   assert.ok(!('observedAt' in result));
+});
+
+// --- Source-owned text only (regression) --------------------------------------
+//
+// A mapper composes `summary`, so it contains CI's words alongside the source's.
+// Reading it let template tokens establish relevance and then appear in the
+// rationale as terms the OBSERVATION had shared -- a claim a reviewer could not
+// check, because it was not true. These tests hold the boundary.
+
+/** Exactly what the CallGrid mapper emits for a call carrying no labels. */
+function labelLessCall(): CommercialObservation {
+  return {
+    sourceSystem: 'CALLGRID',
+    sourceKey: 'cg-1',
+    sourceReference: 'cg-1',
+    observedAt: T0,
+    summary: 'Call cg-1 (status unknown): no labels supplied',
+    descriptors: [],
+  };
+}
+
+test('CI template words cannot establish relevance on a label-less observation', () => {
+  const observation = labelLessCall();
+
+  // Every one of these objectives shares a word with the SUMMARY and nothing
+  // with the source. Before the fix each produced a signal; the provider had
+  // told Loop nothing descriptive about this call at all.
+  for (const title of [
+    'Increase inbound call volume',
+    'Improve call handling',
+    'Reduce unknown status calls',
+    'Review calls with no labels supplied',
+  ]) {
+    assert.equal(
+      evaluateTermMatch({ title, description: null }, observation),
+      null,
+      `"${title}" must not match on words Loop wrote into the summary`,
+    );
+  }
+});
+
+test('an observation with no descriptors can never produce a determination', () => {
+  // Absent and empty are both "the source described nothing", and neither may be
+  // matched against. The check is on the observation, not on any one objective.
+  const missing = { ...labelLessCall(), descriptors: undefined };
+  const blank = { ...labelLessCall(), descriptors: ['', '   '] };
+  const title = { title: 'Call status unknown labels supplied cg', description: null };
+
+  assert.equal(evaluateTermMatch(title, labelLessCall()), null);
+  assert.equal(evaluateTermMatch(title, missing), null);
+  assert.equal(evaluateTermMatch(title, blank), null);
+});
+
+test('the summary is ignored even when it is the only place a term appears', () => {
+  // Same descriptors, wildly different summaries: the answer must not move.
+  const base = call({ descriptors: ['Roofing - TX'] });
+  const withNoise = call({
+    descriptors: ['Roofing - TX'],
+    summary: 'Call x (COMPLETED): plumbing hvac ssdi partnerships texas',
+  });
+
+  const a = evaluateTermMatch(ROOFING, base);
+  const b = evaluateTermMatch(ROOFING, withNoise);
+  assert.ok(a && b);
+  assert.equal(a.rationale, b.rationale);
+
+  // And a term present ONLY in the summary buys nothing.
+  assert.equal(evaluateTermMatch(SSDI, withNoise), null);
+});
+
+test('genuine source-owned descriptor overlap still produces a determination', () => {
+  // The other half of the fix: narrowing the input must not have broken matching.
+  const result = evaluateTermMatch(ROOFING, call());
+  assert.ok(result, 'a provider-supplied "Roofing - TX" label must still match');
+  assert.equal(result.basis, 'TERM_MATCH');
+  assert.match(result.rationale, /roofing/);
+});
+
+test('every term in a rationale is traceable to a descriptor', () => {
+  const observation = call({ descriptors: ['Roofing - TX', 'HomeAdvisor'] });
+  const result = evaluateTermMatch(
+    { title: 'Grow roofing revenue with HomeAdvisor', description: null },
+    observation,
+  );
+  assert.ok(result);
+
+  // Pull the claimed terms back out of the sentence and check each one against
+  // the source's own text. A rationale exists to be verified; this is that
+  // verification, executed.
+  const claimed = result.rationale.replace(/^.*terms: /, '').replace(/\.$/, '').split(', ');
+  const fromSource = commercialTerms(...observation.descriptors!);
+  for (const term of claimed) {
+    assert.ok(fromSource.has(term), `"${term}" was claimed but the source never said it`);
+  }
+  assert.deepEqual(claimed, ['homeadvisor', 'roofing']);
 });
 
 // --- Scoring is absent, deliberately ------------------------------------------

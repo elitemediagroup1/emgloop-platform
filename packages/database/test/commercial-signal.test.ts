@@ -586,3 +586,162 @@ test('a run creates nothing outside commercial_signals', async () => {
   assert.equal(prisma.loopEvent.__rows.length, 0);
   assert.equal(prisma.auditLog.__rows.length, 0);
 });
+
+// --- Source-owned text only, through the real mapper (regression) -------------
+//
+// The evaluator reads `descriptors` and never `summary`. These tests go through
+// `callAsObservation`, so they hold the boundary where it actually matters: on
+// real MarketplaceCall shapes, not on hand-written observations.
+
+/** A call the provider supplied no labels for. The mapper's worst case. */
+function aLabelLessCall(over: Record<string, unknown> = {}) {
+  return aCall({
+    buyerLabel: null,
+    vendorLabel: null,
+    sourceLabel: null,
+    campaignLabel: null,
+    callerState: null,
+    status: null,
+    ...over,
+  });
+}
+
+test('a label-less call produces no signal, whatever the objective says', async () => {
+  const { prisma, signals, objectives } = await make();
+  // Every one of these shares a word with the summary the mapper composes —
+  // "Call call-1001 (status unknown): no labels supplied" — and nothing with the
+  // provider, which described this call in no way at all.
+  for (const title of [
+    'Increase inbound call volume',
+    'Improve call handling',
+    'Reduce unknown status calls',
+    'Review calls with no labels supplied',
+  ]) {
+    await anObjective(objectives, ORG, { title });
+  }
+
+  const service = new CommercialSignalEvaluationService(
+    objectives,
+    callsReturning([aLabelLessCall()]) as never,
+    signals,
+  );
+  const summary = await service.evaluateRecentActivity(ORG, { since: day(-7), until: day(1) });
+
+  assert.equal(summary.objectivesConsidered, 4);
+  assert.equal(summary.observationsExamined, 1);
+  // Loop looked, and had nothing of the source's to match on. Nothing is
+  // recorded — which is the selective-persistence rule doing its job, not a
+  // record that the call was examined and dismissed.
+  assert.equal(summary.established, 0);
+  assert.equal(summary.reaffirmed, 0);
+  assert.equal(prisma.commercialSignal.__rows.length, 0);
+});
+
+test('a call the provider DID describe still produces a signal', async () => {
+  const { prisma, signals, objectives } = await make();
+  await anObjective(objectives, ORG, { title: ROOFING_TITLE });
+
+  const service = new CommercialSignalEvaluationService(
+    objectives,
+    // Same call, with the provider's own campaign label restored.
+    callsReturning([aLabelLessCall({ campaignLabel: 'Roofing - TX' })]) as never,
+    signals,
+  );
+  const summary = await service.evaluateRecentActivity(ORG, { since: day(-7), until: day(1) });
+
+  assert.equal(summary.established, 1);
+  assert.equal(prisma.commercialSignal.__rows.length, 1);
+  assert.match(prisma.commercialSignal.__rows[0].relevanceRationale, /roofing/);
+});
+
+test('every term a persisted signal claims came from the provider, not the mapper', async () => {
+  const { signals, objectives } = await make();
+  await anObjective(objectives, ORG, {
+    // Deliberately mixes real subject matter with mapper vocabulary.
+    title: 'Grow roofing revenue on calls with unknown status',
+  });
+
+  const service = new CommercialSignalEvaluationService(
+    objectives,
+    callsReturning([aCall({ campaignLabel: 'Roofing - TX', sourceLabel: null, callerState: null })]) as never,
+    signals,
+  );
+  await service.evaluateRecentActivity(ORG, { since: day(-7), until: day(1) });
+
+  const [signal] = await signals.list(ORG);
+  assert.ok(signal);
+  // 'call', 'calls', 'status' and 'unknown' all appear in the summary the mapper
+  // wrote. None of them may appear as a claimed term.
+  assert.equal(
+    signal.relevance.rationale,
+    "Objective and the source's own descriptors share the terms: roofing.",
+  );
+  for (const mapperWord of ['call', 'status', 'unknown', 'supplied', 'labels']) {
+    assert.ok(
+      !signal.relevance.rationale.includes(`: ${mapperWord}`) &&
+        !signal.relevance.rationale.includes(`, ${mapperWord}`),
+      `"${mapperWord}" is the mapper's word and must never be claimed as the source's`,
+    );
+  }
+  // The summary survives untouched as the human-readable restatement — it was
+  // never removed, only removed from the evaluator's INPUT. The mapper's words
+  // are still in it, and that is fine; they simply cannot establish anything.
+  assert.equal(signal.observation.summary, 'Call call-1001 (COMPLETED): Roofing - TX');
+  assert.ok(signal.observation.summary.includes('Call'));
+});
+
+test('narrowing the input did not change idempotency or reaffirmation', async () => {
+  const { prisma, signals, objectives } = await make();
+  await anObjective(objectives, ORG, { title: ROOFING_TITLE });
+  const service = new CommercialSignalEvaluationService(
+    objectives,
+    callsReturning([aCall()]) as never,
+    signals,
+  );
+
+  await service.evaluateRecentActivity(ORG, { since: day(-7), until: day(1) });
+  const second = await service.evaluateRecentActivity(ORG, { since: day(-7), until: day(1) });
+
+  assert.equal(second.established, 0);
+  assert.equal(second.reaffirmed, 1);
+  assert.equal(prisma.commercialSignal.__rows.length, 1);
+
+  const [signal] = await signals.list(ORG);
+  assert.equal(signal?.evaluationCount, 2);
+  // The determination itself is still written once and never revised.
+  assert.equal(signal?.relevance.evaluatorVersion, 'v1');
+});
+
+test('narrowing the input did not weaken tenant isolation', async () => {
+  const { prisma, signals, objectives } = await make();
+  await anObjective(objectives, OTHER_ORG, { title: ROOFING_TITLE });
+  const service = new CommercialSignalEvaluationService(
+    objectives,
+    callsReturning([aCall()]) as never,
+    signals,
+  );
+
+  // Org A has no objectives; org B's identical one is invisible to the run.
+  const summary = await service.evaluateRecentActivity(ORG, { since: day(-7), until: day(1) });
+  assert.equal(summary.objectivesConsidered, 0);
+  assert.equal(prisma.commercialSignal.__rows.length, 0);
+  assert.deepEqual(await signals.list(OTHER_ORG), []);
+});
+
+test('the accepted Texas/TX blind spot is unchanged by the fix', async () => {
+  const { prisma, signals, objectives } = await make();
+  // NOT A DEFECT, and deliberately still true. The objective says "Texas"; the
+  // provider labelled the call "TX". No synonym, no geography normalization.
+  await anObjective(objectives, ORG, { title: 'Grow revenue in Texas' });
+
+  const service = new CommercialSignalEvaluationService(
+    objectives,
+    callsReturning([aLabelLessCall({ campaignLabel: 'Plumbing - TX', callerState: 'TX' })]) as never,
+    signals,
+  );
+  const summary = await service.evaluateRecentActivity(ORG, { since: day(-7), until: day(1) });
+
+  assert.equal(summary.observationsExamined, 1);
+  assert.equal(summary.established, 0);
+  assert.equal(prisma.commercialSignal.__rows.length, 0);
+});

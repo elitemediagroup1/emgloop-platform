@@ -80,8 +80,18 @@ const DEFAULT_MAX_OBSERVATIONS = 500;
  * knows nothing about calls, buyers, campaigns or providers, so a second source
  * is a second mapper rather than a change to the primitive.
  *
- * The descriptors are the labels THE PROVIDER ALREADY SUPPLIED. Loop invents no
- * vocabulary here, derives nothing, and infers nothing about the call.
+ * TWO OUTPUTS WITH DIFFERENT STANDING, and the split is load-bearing.
+ * `descriptors` are the labels THE PROVIDER ALREADY SUPPLIED, verbatim -- Loop
+ * invents no vocabulary, derives nothing and infers nothing -- and they are the
+ * evaluator's ONLY matching input. `summary` is a sentence THIS FUNCTION
+ * COMPOSES for a human to read, and no evaluator may read it: its template words
+ * ("Call", "status unknown", "no labels supplied") are Loop's, not the
+ * provider's, and matching on them would let a call the provider described in no
+ * way at all still produce relevance. See the note above `evaluateTermMatch`.
+ *
+ * `status` deliberately stays out of `descriptors` even though the provider
+ * supplies it. Moving it in would WIDEN what matches, and this mapper's job here
+ * is only to stop CI's own words from counting.
  */
 function callAsObservation(call: {
   provider: string;

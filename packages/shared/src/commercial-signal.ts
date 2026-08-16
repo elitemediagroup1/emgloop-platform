@@ -77,13 +77,26 @@ export interface CommercialObservation {
    * makes the history unreadable.
    */
   observedAt: Date;
-  /** The fact in one line, in the source's terms. Human-readable, not parsed. */
+  /**
+   * The fact in one line, for a human to read. DISPLAY ONLY.
+   *
+   * NO EVALUATOR MAY READ THIS FIELD, and the reason is specific. A mapper
+   * assembles this sentence, so it contains CI's own words as well as the
+   * source's -- "Call cg-1 (status unknown): no labels supplied" is mostly
+   * scaffolding. An evaluator reading it would establish relevance from text
+   * Loop wrote, then report those words back as terms the OBSERVATION shared,
+   * which is a claim a reviewer cannot check because it is not true. Matching
+   * input is `descriptors` and nothing else.
+   */
   summary: string;
   /**
-   * Additional descriptors the source ALREADY OWNS -- labels, categories,
-   * geography. Supplied separately from `summary` so an evaluator can read the
-   * source's own vocabulary without CI having to re-parse a sentence it
-   * assembled itself.
+   * The source's own descriptive content -- labels, categories, geography, as
+   * the producing domain supplied them. THE ONLY MATCHING INPUT.
+   *
+   * Kept separate from `summary` precisely so that everything an evaluator can
+   * see is text the source actually said. An observation with no descriptors is
+   * one the producer told us nothing descriptive about, and it must therefore
+   * produce no relevance -- absent rather than empty-and-matched.
    */
   descriptors?: readonly string[];
 }
@@ -208,6 +221,14 @@ export interface CommercialSignalView {
 // keyword matching quietly becoming the definition of relevance because it was
 // the first thing that shipped.
 //
+// IT READS SOURCE-OWNED TEXT ONLY. The matching input is `observation
+// .descriptors` -- what the producing domain actually said. `summary` is a
+// restatement a mapper composed, and reading it once let template words ("call",
+// "status", "unknown") establish relevance and then appear in the rationale as
+// terms the observation had supposedly shared. A rationale exists to be checked
+// against the source; one that cites CI's own sentence back to the reader
+// cannot be. Every term this evaluator can report is traceable to a descriptor.
+//
 // THE ENDURING CONCEPT IS OBJECTIVE-RELATIVE RELEVANCE. `TERM_MATCH` is one
 // mechanism for establishing it. A later evaluator is added by producing a
 // different `CommercialRelevance` -- a new basis, a new evaluatorId -- with no
@@ -297,7 +318,14 @@ export function evaluateTermMatch(
   const wanted = commercialTerms(objective.title, objective.description);
   if (wanted.size === 0) return null;
 
-  const observed = commercialTerms(observation.summary, ...(observation.descriptors ?? []));
+  // DESCRIPTORS ONLY. `observation.summary` is deliberately not read: a mapper
+  // composes that sentence, so matching on it would let CI establish relevance
+  // from its own template words -- "call", "status", "unknown" -- and then cite
+  // them as terms the observation shared. Every term this function can return
+  // is therefore text the SOURCE supplied, which is what makes the rationale
+  // below something a reviewer can actually verify against the source record.
+  const observed = commercialTerms(...(observation.descriptors ?? []));
+  if (observed.size === 0) return null;
 
   // Sorted so the rationale is stable across runs: an explanation that reorders
   // itself between two identical evaluations reads as a change that did not
@@ -307,7 +335,10 @@ export function evaluateTermMatch(
 
   return {
     basis: 'TERM_MATCH',
-    rationale: `Objective and observation share the terms: ${matched.join(', ')}.`,
+    // Names WHERE the terms came from, not just what they were. "the source's
+    // own descriptors" is a checkable claim; "the observation" was not, once
+    // the observation included a sentence CI had written.
+    rationale: `Objective and the source's own descriptors share the terms: ${matched.join(', ')}.`,
     evaluatorId: TERM_MATCH_EVALUATOR_ID,
     evaluatorVersion: TERM_MATCH_EVALUATOR_VERSION,
   };
