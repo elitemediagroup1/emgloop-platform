@@ -31,9 +31,15 @@ import {
 } from '../src/commercial-measurement';
 import { CALLGRID_SIGNIFICANCE_RULES } from '../src/callgrid-intelligence';
 import {
+  easternBusinessDatesIn,
   easternTrailingCompleteWindows,
   startOfEasternDay,
 } from '../src/business-time';
+import {
+  assessWindowObservation,
+  type ProviderObservationStatus,
+  type WindowObservation,
+} from '../src/provider-observation';
 import { headlineDetectionKey, headlineRecurrenceKey } from '../src/headline';
 import { describePopulation, validateBindingShape } from '../src/objective-measure-binding';
 
@@ -56,11 +62,29 @@ function agg(over: Partial<PopulationWindowAggregate> = {}): PopulationWindowAgg
 
 const WINDOWS = easternTrailingCompleteWindows(new Date('2026-08-16T14:30:00Z'), COMPARISON_SPAN_DAYS);
 
+const ALL_DATES = [
+  ...easternBusinessDatesIn(WINDOWS.prior),
+  ...easternBusinessDatesIn(WINDOWS.current),
+];
+
+/**
+ * Every day observed. The default for tests about materiality rather than
+ * observation — which is what these were written to be, back when a stored row
+ * was the only evidence there was and completeness was silently assumed.
+ */
+function fullyObserved(): WindowObservation {
+  return assessWindowObservation(
+    ALL_DATES,
+    new Map(ALL_DATES.map((d) => [d, 'SUCCESS' as const])),
+  );
+}
+
 function change(
   metric: Parameters<typeof measureChange>[0]['metric'],
   current: PopulationWindowAggregate,
   prior: PopulationWindowAggregate,
   direction: 'HIGHER_IS_BETTER' | 'LOWER_IS_BETTER' = 'HIGHER_IS_BETTER',
+  observation: WindowObservation = fullyObserved(),
 ) {
   return measureChange({
     metric,
@@ -69,6 +93,7 @@ function change(
     prior,
     currentWindow: WINDOWS.current,
     priorWindow: WINDOWS.prior,
+    observation,
   });
 }
 

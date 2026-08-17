@@ -207,3 +207,75 @@ function shiftBackEasternDays(instant: Date, count: number): Date {
   for (let i = 0; i < count; i += 1) cursor = startOfPreviousEasternDay(cursor);
   return cursor;
 }
+
+// --- Business dates ------------------------------------------------------------
+//
+// A BUSINESS DATE is a calendar day in Eastern, written 'YYYY-MM-DD'. It is the
+// unit an observation ledger certifies and the unit a comparison window is made
+// of, so the two must be derived from the SAME helpers or a window could be
+// measured over instants nobody certified. That is why these live here rather
+// than beside either consumer.
+
+/** A calendar day in the business timezone, 'YYYY-MM-DD'. Never a UTC date. */
+export type BusinessDate = string;
+
+const BUSINESS_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Whether `value` is a syntactically valid business date. Fails closed. */
+export function isBusinessDate(value: unknown): value is BusinessDate {
+  return typeof value === 'string' && BUSINESS_DATE_PATTERN.test(value);
+}
+
+/** The Eastern business date `instant` belongs to. */
+export function easternBusinessDate(instant: Date): BusinessDate {
+  const { year, month, day } = easternYmd(instant);
+  return (
+    String(year).padStart(4, '0') +
+    '-' +
+    String(month).padStart(2, '0') +
+    '-' +
+    String(day).padStart(2, '0')
+  );
+}
+
+/**
+ * The half-open UTC interval [start, end) covering one Eastern business date.
+ *
+ * DST-CORRECT BY CONSTRUCTION. The end is the start of the NEXT Eastern day, not
+ * start + 24h, so the spring-forward day is 23 hours and the fall-back day is 25.
+ * Adding a fixed 86_400_000 would silently drop an hour of calls from one day a
+ * year and double-count an hour on another, and both would present as a real
+ * change in whatever was measured over them.
+ */
+export function easternBusinessDayWindow(date: BusinessDate): DayWindow {
+  if (!isBusinessDate(date)) {
+    throw new Error(`Not a business date: ${String(date)} (expected YYYY-MM-DD)`);
+  }
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+  const start = easternWallTimeToUtc(year, month, day, 0, 0, 0, 0);
+  return { start, end: startOfNextEasternDay(start) };
+}
+
+/**
+ * Every complete Eastern business date inside `window`, in order.
+ *
+ * The window is half-open, so a window ending exactly at an Eastern midnight
+ * yields the day BEFORE that boundary as its last entry and never the boundary
+ * day itself — which is what makes this agree with
+ * `easternTrailingCompleteWindows`, whose windows always end on one.
+ *
+ * Walked one Eastern day at a time for the same DST reason as the windows.
+ */
+export function easternBusinessDatesIn(window: DayWindow): BusinessDate[] {
+  const dates: BusinessDate[] = [];
+  let cursor = startOfEasternDay(window.start);
+  // A hard bound so a malformed window can never spin. 400 days is far beyond
+  // any comparison this platform makes and still terminates immediately.
+  for (let guard = 0; guard < 400 && cursor.getTime() < window.end.getTime(); guard += 1) {
+    dates.push(easternBusinessDate(cursor));
+    cursor = startOfNextEasternDay(cursor);
+  }
+  return dates;
+}
