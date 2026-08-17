@@ -88,17 +88,42 @@ function isRealValue(v: unknown): boolean {
 
 export type SyncRange = 'today' | '24h' | '7d';
 
+/** What a run compared against: a clock-relative preset, or an explicit interval. */
+export type ReconciliationBasis = SyncRange | 'explicit';
+
+/** An explicit bounded interval, half-open [since, until). */
+export interface ExplicitWindow {
+    since: Date;
+    until: Date;
+}
+
 export interface ReconciliationInput {
     organizationId: string;
     apiKey: string;
-    range: SyncRange;
+    /** Clock-relative preset. IGNORED when `window` is supplied. */
+  range: SyncRange;
+    /**
+     * An explicit bounded interval, which takes precedence over `range`.
+     *
+     * WHY THIS EXISTS. Every range was resolved against `new Date()` with an
+     * implicit upper bound of now, so there was no way to ask for one past day --
+     * the closest available was `7d`, which on any busy week is far more records
+     * than the page budget allows and therefore truncates. A caller that needs one
+     * complete Eastern business day derives it from `business-time.ts` and passes
+     * it here; this service does not compute business days itself, because two
+     * places deciding what a day is means two answers across a DST boundary.
+     */
+  window?: ExplicitWindow;
     apiBaseUrl?: string;
     providerConnectionId?: string | null;
     events?: InboundEvent[];
+    /** Adapter page budget. A safety bound, never a completeness claim. */
+  maxPages?: number;
 }
 
 export interface ReconciliationResult {
-    range: SyncRange;
+    /** 'explicit' when an interval was supplied, else the preset that was used. */
+  range: ReconciliationBasis;
     since: string;
     until: string;
     fetched: number;
@@ -109,6 +134,21 @@ export interface ReconciliationResult {
     callers: string[];
     errors: string[];
     at: string;
+    // --- Pagination evidence -------------------------------------------------
+    /** Pages actually requested from the provider. */
+  pagesFetched: number;
+    /** The page budget that applied. */
+  pageCap: number;
+    /**
+     * TRUE WHEN THE PROVIDER STILL HAD PAGES AND WE STOPPED.
+     *
+     * A truncated run has imported real rows, but what it read is a LOWER BOUND on
+     * the window. No caller may report it as a completed sync, and it can never
+     * certify the window as observed. This is the same rule
+     * `marketplace_report_runs.truncated` states for auction reports; before this
+     * field existed, a 6,918-call day came back as a clean 2,500.
+     */
+  truncated: boolean;
 }
 
 /** Resolve the lower bound of a sync range relative to now. */
@@ -135,12 +175,16 @@ export class CallGridReconciliationService {
      */
   async reconcile(input: ReconciliationInput): Promise<ReconciliationResult> {
         const now = new Date();
-        const since = sinceForRange(input.range, now);
+        // An explicit interval wins. Both bounds are then real, which is what makes
+        // a bounded historical read possible at all -- a preset's upper bound is
+        // always "now" and can never name a past day.
+        const since = input.window ? input.window.since : sinceForRange(input.range, now);
+        const until = input.window ? input.window.until : now;
         const at = now.toISOString();
         const result: ReconciliationResult = {
-                range: input.range,
+                range: input.window ? 'explicit' : input.range,
                 since: since.toISOString(),
-                until: at,
+                until: until.toISOString(),
                 fetched: 0,
                 imported: 0,
                 skippedDuplicate: 0,
@@ -149,16 +193,36 @@ export class CallGridReconciliationService {
                 callers: [],
                 errors: [],
                 at,
+                pagesFetched: 0,
+                pageCap: 0,
+                truncated: false,
         };
 
       let events: InboundEvent[];
         try {
-                events = input.events ?? (await this.fetchEvents(input, since));
+                if (input.events) {
+                          events = input.events;
+                } else {
+                          const page = await this.fetchEvents(input, since, until);
+                          events = page.events;
+                          result.pagesFetched = page.pagesFetched;
+                          result.pageCap = page.pageCap;
+                          result.truncated = page.truncated;
+                }
         } catch (err) {
                 result.errors.push(err instanceof Error ? err.message : 'fetch failed');
                 return result;
         }
         result.fetched = events.length;
+        if (result.truncated) {
+                // Recorded as an ERROR, not a note. A caller that reads `errors` to
+          // decide whether a run succeeded must not see a truncated read as clean:
+          // the rows imported are real, but the window is not covered.
+          result.errors.push(
+                    `Truncated: stopped at the ${result.pageCap}-page budget while the provider ` +
+                      'still had pages. What was read is a lower bound over this window.',
+                  );
+        }
         const callerSet = new Set<string>();
 
       for (const ev of events) {
@@ -203,27 +267,38 @@ export class CallGridReconciliationService {
         return result;
   }
 
-  /** Fetch events from CallGrid via the registered provider adapter poll(). */
-  private async fetchEvents(input: ReconciliationInput, since: Date): Promise<InboundEvent[]> {
+  /**
+     * Fetch events from CallGrid via the registered provider adapter poll().
+     *
+     * PAGINATION BELONGS TO THE ADAPTER, AND ONLY THE ADAPTER. This used to wrap
+     * poll() in its own 25-iteration cursor loop, which never ran more than once
+     * because poll() returned a hardcoded `hasMore: false` -- so the loop was dead
+     * code that read like a safeguard, and the real 25-page / 2,500-record ceiling
+     * inside the adapter was invisible from here. Two nested page budgets would
+     * also have multiplied into a limit nobody had chosen. poll() now reports its
+     * own exhaustion truthfully, so this asks once and carries the answer up.
+     */
+  private async fetchEvents(
+        input: ReconciliationInput,
+        since: Date,
+        until: Date,
+      ): Promise<{ events: InboundEvent[]; pagesFetched: number; pageCap: number; truncated: boolean }> {
         const providers = await import('@emgloop/providers');
         const provider = providers.getCallGridProvider();
-        const out: InboundEvent[] = [];
-        let cursor: string | undefined;
-        let guard = 0;
-        do {
-                const page = await provider.poll(
-                  {
-                              organizationId: input.organizationId,
-                              credentials: { apiKey: input.apiKey },
-                              config: input.apiBaseUrl ? { apiBaseUrl: input.apiBaseUrl } : {},
-                  },
-                  { since, cursor },
-                        );
-                out.push(...page.events);
-                cursor = page.nextCursor;
-                guard += 1;
-        } while (cursor && guard < 25);
-        return out;
+        const page = await provider.poll(
+          {
+                      organizationId: input.organizationId,
+                      credentials: { apiKey: input.apiKey },
+                      config: input.apiBaseUrl ? { apiBaseUrl: input.apiBaseUrl } : {},
+          },
+          { since, until, maxPages: input.maxPages },
+                );
+        return {
+                events: page.events,
+                pagesFetched: page.pagesFetched ?? 0,
+                pageCap: page.pageCap ?? 0,
+                truncated: page.truncated === true,
+        };
   }
 
   /**

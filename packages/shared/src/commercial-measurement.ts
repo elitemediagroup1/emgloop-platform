@@ -42,6 +42,7 @@ import {
   type MeasureMetric,
   type MeasureUnit,
 } from './objective-measure-binding';
+import { describeUnobserved, type WindowObservation } from './provider-observation';
 
 export const COMMERCIAL_MEASUREMENT_VERSION = 'commercial-measurement.v1';
 
@@ -105,6 +106,17 @@ export interface MeasurementInput {
   prior: PopulationWindowAggregate;
   currentWindow: MeasurementWindow;
   priorWindow: MeasurementWindow;
+  /**
+   * Whether every business date in both windows was actually observed.
+   *
+   * REQUIRED, DELIBERATELY. An optional field defaulting to "observed" would let
+   * any caller — including one written before this guard existed — measure an
+   * unobserved window by saying nothing, which is the failure mode itself. Making
+   * it required means the type system refuses to compile a caller that has not
+   * answered the question. The verdict is PASSED IN rather than resolved here so
+   * this file stays pure: it reads no ledger, exactly as it reads no clock.
+   */
+  observation: WindowObservation;
 }
 
 // --- What one window measured -------------------------------------------------
@@ -138,6 +150,7 @@ export interface MeasuredValue {
  * that cannot tell them apart is an empty state that reads as an all-clear.
  */
 export const MATERIALITY_WITHHOLDINGS = [
+  'WINDOW_NOT_OBSERVED',
   'NO_BASELINE',
   'INSUFFICIENT_VOLUME',
   'INSUFFICIENT_COVERAGE',
@@ -147,12 +160,17 @@ export const MATERIALITY_WITHHOLDINGS = [
 export type MaterialityWithholding = (typeof MATERIALITY_WITHHOLDINGS)[number];
 
 export const MATERIALITY_WITHHOLDING_LABELS: Record<MaterialityWithholding, string> = {
+  WINDOW_NOT_OBSERVED:
+    'Some days in the compared periods were never observed, so a change cannot be measured.',
   NO_BASELINE: 'There was no non-zero prior value to compare against.',
   INSUFFICIENT_VOLUME: 'Too few calls for the change to mean anything.',
   INSUFFICIENT_COVERAGE: 'Too few calls reported the value, so the totals are lower bounds.',
   BELOW_THRESHOLD: 'The change did not reach the threshold this rule requires.',
   VALUE_UNKNOWN: 'The measure could not be established in one or both periods.',
 };
+
+/** What a reader sees when observation, not materiality, is the reason for silence. */
+export const NOT_MEASURABLE_INCOMPLETE_DATA = 'NOT MEASURABLE — INCOMPLETE DATA';
 
 /** Which way the measure moved. Part of a Headline's identity -- see `headline.ts`. */
 export type MeasureMovement = 'INCREASE' | 'DECREASE';
@@ -372,6 +390,18 @@ export function measureChange(input: MeasurementInput): MeasurementResult {
   const def = MEASURE_METRIC_DEFINITIONS[input.metric];
   const t = THRESHOLDS[input.metric];
 
+  // THE OBSERVATION GATE, BEFORE ANY ARITHMETIC.
+  //
+  // This returns before `measureWindow` is ever called, so no value, change or
+  // percentage is computed at all. That is the point: a measurement over a window
+  // Loop did not fully observe is not a true result that happens to be withheld,
+  // it is not a measurement. Computing it and then declining to show it would
+  // leave a number in the result object for some later caller to read, and Stage
+  // 2 already shipped one defect of exactly that shape.
+  if (!input.observation.fullyObserved) {
+    return unobservedResult(input, def);
+  }
+
   const current = measureWindow(input.metric, input.current);
   const prior = measureWindow(input.metric, input.prior);
 
@@ -422,9 +452,55 @@ export function measureChange(input: MeasurementInput): MeasurementResult {
 }
 
 /**
+ * The result for a comparison whose days were not all observed.
+ *
+ * Every measured field is null and every denominator is zero, because nothing was
+ * measured and nothing was counted. Zero here is not a quantity claimed about the
+ * business — `value` is null, which is what a reader and every downstream rule
+ * actually consult — it is the honest count of rows this refusal looked at, which
+ * is none. The unobserved dates travel in `unknowns` so the reason survives with
+ * the result rather than living only in a log line.
+ */
+function unobservedResult(
+  input: MeasurementInput,
+  def: (typeof MEASURE_METRIC_DEFINITIONS)[MeasureMetric],
+): MeasurementResult {
+  const notMeasured: MeasuredValue = {
+    value: null,
+    denominator: 0,
+    coverage: null,
+    unknownReason: 'The period was not fully observed, so no value was established.',
+  };
+  return {
+    metric: input.metric,
+    unit: def.unit,
+    direction: input.direction,
+    current: notMeasured,
+    prior: { ...notMeasured },
+    absoluteChange: null,
+    percentageChange: null,
+    movement: null,
+    againstObjective: null,
+    currentWindow: input.currentWindow,
+    priorWindow: input.priorWindow,
+    comparisonBasis: COMPARISON_BASIS_LABEL,
+    limitations: [...def.limitations],
+    unknowns: [describeUnobserved(input.observation)],
+    material: false,
+    withheld: 'WINDOW_NOT_OBSERVED',
+    ruleId: CI_MATERIALITY_RULE_ID,
+    ruleVersion: CI_MATERIALITY_RULE_VERSION,
+    formulaVersion: COMMERCIAL_MEASUREMENT_VERSION,
+  };
+}
+
+/**
  * The materiality rule itself. Returns the reason to stay silent, or null to
  * speak. Ordered from "could not look" to "looked and it was small", because the
  * first explanation a reader needs is the most fundamental one that applied.
+ *
+ * Observation is not checked here: it is more fundamental still, and is settled
+ * in `measureChange` before any value is computed.
  */
 function assess(
   input: MeasurementInput,

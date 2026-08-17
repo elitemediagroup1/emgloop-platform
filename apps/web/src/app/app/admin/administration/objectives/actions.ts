@@ -442,6 +442,7 @@ export async function detectHeadlinesAction(): Promise<void> {
     repositories.measureBindings,
     repositories.marketplaceCalls,
     repositories.headlines,
+    repositories.providerObservations,
   );
   // The organization comes from the signed session and is the only tenant this
   // run can read or write. The clock is passed in; the service never reads one.
@@ -468,6 +469,14 @@ export async function detectHeadlinesAction(): Promise<void> {
       resighted: summary.resighted,
       alreadyRecorded: summary.alreadyRecorded,
       withheld: summary.withheld,
+      // What the run could actually see. Recorded on every run, including the ones
+      // that measured normally, so "Loop found nothing" and "Loop could not look"
+      // are distinguishable in the audit trail months later rather than only in
+      // whatever was on screen at the time.
+      observationRuleVersion: summary.observation.ruleVersion,
+      observedDayCount: summary.observation.observedDayCount,
+      comparisonDayCount: summary.observation.dates.length,
+      unobservedDates: summary.observation.uncertified.map((u) => u.businessDate),
     },
   });
 

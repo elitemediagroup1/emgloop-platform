@@ -312,6 +312,9 @@ export * from './commercial-signal';
 //                              confirmed, immutable, versioned. No target, no
 //                              baseline, no formula builder — those are a KPI
 //                              product and a separate approval.
+//   provider-observation       whether a business date was actually looked at.
+//                              The gate that runs BEFORE the arithmetic, so an
+//                              ingestion gap can never present as a decline.
 //   commercial-measurement     the pure arithmetic and the ONE materiality rule.
 //                              Every threshold is inherited from
 //                              CALLGRID_SIGNIFICANCE_RULES, not invented here.
@@ -323,5 +326,6 @@ export * from './commercial-signal';
 // Commercial Signals sit BESIDE this flow. They may be cited as supporting
 // detail; they never define a population, a denominator or an importance.
 export * from './objective-measure-binding';
+export * from './provider-observation';
 export * from './commercial-measurement';
 export * from './headline';

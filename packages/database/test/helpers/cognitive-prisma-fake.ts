@@ -43,6 +43,10 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // development next period must land on the same row, and two concurrent
   // detection runs must converge on one.
   headline: ['organizationId', 'performanceObjectiveId', 'recurrenceKey'],
+  // TENANT-FIRST, unlike integration_events' global (provider, externalId): one
+  // organization certifying a calendar day must never satisfy another's gate, so
+  // organizationId leads the key here and the double enforces it.
+  providerObservationDay: ['organizationId', 'provider', 'stream', 'businessDate'],
 };
 
 /**
@@ -152,6 +156,11 @@ const DELEGATES = [
   // table — the same stance the Stage 2 tests take.
   'objectiveMeasureBinding',
   'headline',
+  // Commercial Intelligence Stage 3 correctness. The observation ledger IS faked
+  // here, unlike marketplaceCall: the detection gate reads it directly and the
+  // property under test is exactly that a missing row withholds a measurement, so
+  // supplying the read from the test would assume away what is being proven.
+  'providerObservationDay',
 ] as const;
 
 let idSeq = 0;
@@ -178,8 +187,23 @@ function cmp(a: any, b: any): number {
   return av < bv ? -1 : 1;
 }
 
+/**
+ * Value equality the way Postgres compares a column, not the way JS compares a
+ * reference.
+ *
+ * Two `Date`s for the same instant are `!==` in JavaScript, so a `where` on a
+ * DATE or TIMESTAMP column matched nothing here while working perfectly in
+ * production. A fake that UNDER-matches is as dangerous as one that over-matches:
+ * it invites someone to rewrite a correct query until the double is happy.
+ */
+function sameValue(a: any, b: any): boolean {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+  return a === b;
+}
+
 function condMatches(value: any, cond: any): boolean {
   if (cond === null) return value === null || value === undefined;
+  if (cond instanceof Date) return sameValue(value, cond);
   if (isPlainObject(cond)) {
     // EVERY operator present must hold, as Prisma ANDs them. This used to return
     // on the FIRST one it recognised, so `{ not: null, lt: cutoff }` silently
@@ -191,8 +215,8 @@ function condMatches(value: any, cond: any): boolean {
     if ('not' in cond) {
       checks.push(cond.not === null ? value !== null && value !== undefined : value !== cond.not);
     }
-    if ('in' in cond) checks.push((cond.in as any[]).includes(value));
-    if ('notIn' in cond) checks.push(!(cond.notIn as any[]).includes(value));
+    if ('in' in cond) checks.push((cond.in as any[]).some((c) => sameValue(value, c)));
+    if ('notIn' in cond) checks.push(!(cond.notIn as any[]).some((c) => sameValue(value, c)));
     if ('gt' in cond) checks.push(value != null && cmp(value, cond.gt) > 0);
     if ('gte' in cond) checks.push(value != null && cmp(value, cond.gte) >= 0);
     if ('lt' in cond) checks.push(value != null && cmp(value, cond.lt) < 0);
@@ -203,6 +227,24 @@ function condMatches(value: any, cond: any): boolean {
     return checks.every(Boolean);
   }
   return value === cond;
+}
+
+/**
+ * Named compound uniques, as Prisma exposes them in a `where`.
+ *
+ * `findUnique({ where: { observation_day_identity: { ... } } })` nests the key
+ * columns under the constraint's name. The double flattens that back to plain
+ * columns so a repository written against the real client works here unchanged.
+ */
+const COMPOUND_UNIQUE_ALIASES: Record<string, string> = {
+  providerObservationDay: 'observation_day_identity',
+};
+
+function flattenCompound(name: string, where: Row | undefined): Row | undefined {
+  const alias = COMPOUND_UNIQUE_ALIASES[name];
+  if (!where || !alias || !isPlainObject(where[alias])) return where;
+  const { [alias]: nested, ...rest } = where;
+  return { ...rest, ...(nested as Row) };
 }
 
 function matches(row: Row, where: Row | undefined): boolean {
@@ -238,7 +280,7 @@ function makeDelegate(name: string) {
         // Postgres treats a row as distinct when ANY indexed column is NULL, so a
         // unique only binds rows whose every key column is non-null.
         const anyNull = uniqueKeys.some((k) => data[k] === null || data[k] === undefined);
-        const dup = anyNull ? undefined : rows.find((r) => uniqueKeys.every((k) => r[k] === data[k]));
+        const dup = anyNull ? undefined : rows.find((r) => uniqueKeys.every((k) => sameValue(r[k], data[k])));
         if (dup) {
           const e = new Error(
             `Unique constraint failed on the fields: (${uniqueKeys.join(',')})`,
@@ -271,7 +313,7 @@ function makeDelegate(name: string) {
       return found.length ? project({ ...found[0] }, select) : null;
     },
     async findUnique({ where }: { where: Row }): Promise<Row | null> {
-      const found = rows.find((r) => matches(r, where));
+      const found = rows.find((r) => matches(r, flattenCompound(name, where)));
       return found ? { ...found } : null;
     },
     async findMany(
@@ -297,10 +339,26 @@ function makeDelegate(name: string) {
       return out.map((r) => project({ ...r }, select)!);
     },
     async update({ where, data }: { where: Row; data: Row }): Promise<Row> {
-      const row = rows.find((r) => matches(r, where));
+      const row = rows.find((r) => matches(r, flattenCompound(name, where)));
       if (!row) throw new Error(`${name}.update: row not found`);
       applyData(row, data);
       return { ...row };
+    },
+    /**
+     * Insert-or-update on a unique. Prisma's semantics: the row is matched on the
+     * `where` unique, `update` is applied when it exists and `create` when it does
+     * not — so a caller re-running the same operation converges on ONE row rather
+     * than accumulating. That convergence is the property tests assert, so the
+     * double has to model it rather than approximate it with create-then-catch.
+     */
+    async upsert({ where, create, update }: { where: Row; create: Row; update: Row }): Promise<Row> {
+      const flat = flattenCompound(name, where);
+      const row = rows.find((r) => matches(r, flat));
+      if (row) {
+        applyData(row, update);
+        return { ...row };
+      }
+      return this.create({ data: create });
     },
     // Conditional bulk update. Returns { count } like Prisma — the basis for the
     // atomic single-claim gate (updateMany where status=PENDING → PROCESSING):

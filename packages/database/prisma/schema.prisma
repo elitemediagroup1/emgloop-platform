@@ -248,6 +248,7 @@ model Organization {
   // --- Commercial Intelligence Stage 3 ---
   measureBindings         ObjectiveMeasureBinding[]
   headlines               Headline[]
+  observationDays         ProviderObservationDay[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -3515,6 +3516,22 @@ model Headline {
   limitations String[] @default([])
   unknowns    String[] @default([])
 
+  // --- Observation provenance ----------------------------------------------
+  /// WHICH completeness rule governed this row. Stored rather than assumed
+  /// because the rule is versioned and will change: without this, a Headline
+  /// written under one definition of "observed" is indistinguishable from one
+  /// written under another, and neither can be re-audited.
+  ///
+  /// The default is the literal string "none", which means THIS ROW PREDATES THE
+  /// GUARD. It is deliberately not a version number: rows written before
+  /// observation was proven were not certified, we cannot know what was observed
+  /// when they were made, and backfilling a version onto them would manufacture
+  /// exactly the certainty this whole mechanism exists to refuse.
+  observationRuleVersion String @default("none")
+  /// How many business dates across BOTH windows the rule verified. 0 alongside
+  /// "none" says plainly that nothing was verified.
+  observedDayCount       Int    @default(0)
+
   // --- Recurrence. The only counters that move. -----------------------------
   firstDetectedAt DateTime @default(now())
   lastDetectedAt  DateTime @default(now())
@@ -3549,4 +3566,84 @@ model Headline {
   @@index([organizationId, lastDetectedAt], map: "headlines_org_lastDetectedAt_idx")
   @@index([organizationId, performanceObjectiveId, dismissedAt], map: "headlines_org_objective_dismissed_idx")
   @@map("headlines")
+}
+
+// ---------------------------------------------------------------------------
+// Provider observation — Commercial Intelligence Stage 3 correctness
+// ---------------------------------------------------------------------------
+
+/// One business date, one data stream, and whether Loop actually looked at it.
+///
+/// WHY THIS TABLE EXISTS. Every other row in this schema is evidence of
+/// PRESENCE. An Interaction proves a call arrived; a MarketplaceCall proves one
+/// was projected; an integration_event proves a delivery was persisted. None of
+/// them is evidence of ABSENCE, so a day with no rows was indistinguishable from
+/// a day nobody queried — and in August 2026 a three-day ingestion gap sat inside
+/// a Stage 3 comparison window where it would have measured as a commercial
+/// collapse. Completeness cannot be derived from what was stored; it has to be
+/// asserted by a bounded read against the provider, and that assertion is this
+/// row.
+///
+/// IT NEVER IMPLIES INGESTION. Certifying a day writes exactly one of these and
+/// nothing else — no Interaction, no MarketplaceCall, no projection. Observing
+/// and recovering are different operations with different authorizations, and
+/// folding them together would make it impossible to prove a day was empty
+/// without also writing to it.
+model ProviderObservationDay {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The sensor that was read, e.g. "callgrid".
+  provider String
+  /// WHICH STREAM from that provider. Observation is per stream, not per
+  /// provider: the calls endpoint being complete says nothing about the auction
+  /// reports, and one row covering both would certify what it never read.
+  stream   String
+
+  /// The calendar day in `timezone` that this row certifies.
+  businessDate DateTime @db.Date
+  /// Named, never assumed. A row that does not state its zone cannot be checked
+  /// against the window a measurement actually used.
+  timezone     String
+  /// The UTC interval actually queried. Stored so the row is self-describing and
+  /// a reader never has to re-derive a DST boundary to audit it.
+  windowStart  DateTime
+  windowEnd    DateTime
+
+  /// The outcome, reusing the enum the auction-report ledger already defines.
+  /// A second enum meaning the same six things would be the parallel-system
+  /// failure mode CLAUDE.md names first. SUCCESS and EMPTY certify; everything
+  /// else does not, and the absence of a row certifies nothing at all.
+  status     MarketplaceReportRunStatus
+  observedAt DateTime
+  /// How the assertion was established. "provider-query" is the only value this
+  /// version accepts — no human attestation, no inference from adjacent days.
+  source     String
+
+  /// What the provider returned. `providerStatedTotal` is the stronger evidence
+  /// when the provider offers one, and stays null rather than echoing our count.
+  recordsObserved     Int
+  providerStatedTotal Int?
+  pagesFetched        Int
+  pageCap             Int
+  /// True when Loop stopped at its own page budget while the provider still had
+  /// pages. A truncated read is a lower bound and MUST NOT certify the day.
+  truncated           Boolean @default(false)
+
+  /// Why the day did not certify, in plain language. Never a credential, never a
+  /// phone number, never a raw payload.
+  reason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Tenant-first identity. `integration_events` is uniquely keyed
+  /// (provider, externalId) GLOBALLY and cannot be fixed in callers; this table
+  /// does not repeat that mistake, so one organization's certification can never
+  /// satisfy another's measurement gate.
+  @@unique([organizationId, provider, stream, businessDate], name: "observation_day_identity")
+  @@index([organizationId, provider, stream, businessDate])
+  @@map("provider_observation_days")
 }

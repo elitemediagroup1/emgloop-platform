@@ -371,19 +371,39 @@ export class CallGridProvider implements IngestionProvider {
         if (!apiKey) {
                 // No key configured: behave like webhook-only (no polling), do not throw
           // so callers can degrade gracefully and surface a diagnostic instead.
-          return { events: [], hasMore: false };
+          return { events: [], hasMore: false, truncated: false };
         }
         const baseUrl =
                 typeof ctx.config?.['apiBaseUrl'] === 'string'
             ? (ctx.config['apiBaseUrl'] as string)
                   : undefined;
-        const { events } = await fetchAllCallGridCalls({
+        const page = await fetchAllCallGridCalls({
                 apiKey,
                 since: options.since,
+                until: options.until,
                 limit: options.limit,
+                maxPages: options.maxPages,
                 cursor: options.cursor,
                 baseUrl,
         });
-        return { events, hasMore: false };
+
+    // THE CONTINUATION STATE IS REPORTED, NOT ASSERTED.
+    //
+    // This used to `return { events, hasMore: false }` unconditionally, which was
+    // a claim the adapter had no basis for: the fetch beneath it stops at a page
+    // budget, and saying "no more" made a budgeted stop indistinguishable from an
+    // exhausted one. Because the caller's own pagination loop terminated on that
+    // false `false`, the 25-page / 2,500-record ceiling was invisible from every
+    // layer above. `hasMore` now means what it says — the provider had further
+    // pages when we stopped — and the evidence for that answer travels with it.
+    return {
+              events: page.events,
+              nextCursor: page.nextCursor,
+              hasMore: page.truncated,
+              pagesFetched: page.pages,
+              pageCap: page.pageCap,
+              recordsFetched: page.records,
+              truncated: page.truncated,
+    };
   }
 }

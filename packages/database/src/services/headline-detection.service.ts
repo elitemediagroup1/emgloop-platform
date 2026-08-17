@@ -36,27 +36,44 @@
 // the defect that made "Today" report an ~85% collapse every morning, and no
 // caller can reintroduce it through this service because no caller chooses the
 // windows.
+//
+// AND OBSERVED PERIODS ONLY. Complete is not the same as observed. A window can
+// consist entirely of finished Eastern days and still contain days Loop never
+// looked at, because zero stored rows and zero actual calls were indistinguishable
+// until provider_observation_days existed. In August 2026 exactly that happened:
+// three consecutive days ingested nothing, and the trailing-7-day window they fell
+// into would have measured the gap as a commercial collapse -- correctly, by every
+// rule then written. So this service now reads the observation ledger for all
+// fourteen business dates FIRST and returns without touching an aggregate when any
+// of them is uncertified. `measureChange` refuses the same case independently and
+// is required by its own type to be told; neither guard trusts the other.
 
 import {
   COMMERCIAL_HEADLINE_PRODUCER_VERSION,
   COMPARISON_SPAN_DAYS,
   MEASURE_METRIC_DEFINITIONS,
+  assessWindowObservation,
   composeStatement,
   describePopulation,
+  easternBusinessDatesIn,
   easternTrailingCompleteWindows,
   headlineDetectionKey,
   headlineRecurrenceKey,
   measureChange,
   membersOf,
+  type BusinessDate,
   type MaterialityWithholding,
   type MeasurementResult,
   type ObjectiveMeasureBindingView,
+  type WindowObservation,
 } from '@emgloop/shared';
 
 import type { PerformanceObjectiveRepository } from '../repositories/performance-objective.repository';
 import type { ObjectiveMeasureBindingRepository } from '../repositories/objective-measure-binding.repository';
 import type { MarketplaceCallRepository } from '../repositories/marketplace-call.repository';
 import type { HeadlineRepository, RecordOutcome } from '../repositories/headline.repository';
+import type { ProviderObservationRepository } from '../repositories/provider-observation.repository';
+import { CALLGRID_PROVIDER, CALLS_STREAM } from './provider-observation.service';
 
 /** What one objective's evaluation concluded. Silence is reported, not hidden. */
 export interface ObjectiveDetectionOutcome {
@@ -88,6 +105,14 @@ export interface DetectionRunSummary {
   currentWindowEnd: Date;
   priorWindowStart: Date;
   priorWindowEnd: Date;
+  /**
+   * Whether the compared periods were actually observed, and which days were not.
+   *
+   * Reported on EVERY run, not only a blocked one, so an operator can see that the
+   * question was asked. A run that measured normally still says which fourteen
+   * days it verified.
+   */
+  observation: WindowObservation;
   outcomes: ObjectiveDetectionOutcome[];
 }
 
@@ -97,6 +122,7 @@ export class HeadlineDetectionService {
     private readonly bindings: ObjectiveMeasureBindingRepository,
     private readonly calls: MarketplaceCallRepository,
     private readonly headlines: HeadlineRepository,
+    private readonly observations: ProviderObservationRepository,
   ) {}
 
   /**
@@ -123,10 +149,68 @@ export class HeadlineDetectionService {
     const windows = easternTrailingCompleteWindows(now, COMPARISON_SPAN_DAYS);
     const detectionKey = headlineDetectionKey(windows.current.start);
 
+    // THE OBSERVATION GATE, BEFORE ANY OBJECTIVE IS READ.
+    //
+    // Both windows are made of complete Eastern business days, and every one of
+    // them must have been observed before any of them may be compared. The dates
+    // come from the SAME helpers that built the windows, so the days certified and
+    // the days measured cannot drift apart across a DST boundary.
+    //
+    // Ordered prior-then-current so a reader scanning the list reads time forwards.
+    const dates: BusinessDate[] = [
+      ...easternBusinessDatesIn(windows.prior),
+      ...easternBusinessDatesIn(windows.current),
+    ];
+    const observation = assessWindowObservation(
+      dates,
+      await this.observations.statusesForDates(organizationId, CALLGRID_PROVIDER, CALLS_STREAM, dates),
+    );
+
     // ACTIVE only. An archived objective records what the organization used to be
     // pursuing, and measuring against it would manufacture present relevance to
     // past intent.
     const objectives = await this.objectives.list(organizationId, { status: 'ACTIVE' });
+
+    // NOT MEASURABLE -- INCOMPLETE DATA. Return before a single aggregate is read.
+    //
+    // The pure `measureChange` refuses an unobserved window too, and that is the
+    // guarantee: it is required by the type system and cannot be bypassed. This
+    // check is the same refusal made earlier, so no aggregate is even queried and
+    // no commercial result is computed and then hidden. An objective still needs a
+    // binding to be reported measurable, so that distinction survives -- a reader
+    // learns both that the objective could be measured and that this period could
+    // not be.
+    if (!observation.fullyObserved) {
+      const blocked: ObjectiveDetectionOutcome[] = [];
+      let blockedMeasurable = 0;
+      for (const objective of objectives) {
+        const binding = await this.bindings.activeFor(organizationId, objective.id);
+        if (binding) blockedMeasurable += 1;
+        blocked.push({
+          performanceObjectiveId: objective.id,
+          objectiveTitle: objective.title,
+          measureBindingId: binding?.id ?? null,
+          measurement: null,
+          recorded: null,
+          headlineId: null,
+          withheld: binding ? 'WINDOW_NOT_OBSERVED' : 'NOT_MEASURABLE',
+        });
+      }
+      return {
+        objectivesConsidered: objectives.length,
+        objectivesMeasurable: blockedMeasurable,
+        established: 0,
+        resighted: 0,
+        alreadyRecorded: 0,
+        withheld: blockedMeasurable,
+        currentWindowStart: windows.current.start,
+        currentWindowEnd: windows.current.end,
+        priorWindowStart: windows.prior.start,
+        priorWindowEnd: windows.prior.end,
+        observation,
+        outcomes: blocked,
+      };
+    }
 
     const outcomes: ObjectiveDetectionOutcome[] = [];
     let measurable = 0;
@@ -185,6 +269,7 @@ export class HeadlineDetectionService {
         prior,
         currentWindow: windows.current,
         priorWindow: windows.prior,
+        observation,
       });
 
       if (!measurement.material || measurement.movement === null) {
@@ -240,6 +325,11 @@ export class HeadlineDetectionService {
         priorWindowEnd: windows.prior.end,
         limitations: measurement.limitations,
         unknowns: measurement.unknowns,
+        // Which completeness rule certified the days behind this measurement, and
+        // how many it verified. Stored so the row stays interpretable when the
+        // rule changes; never inferred later, because by then the evidence is gone.
+        observationRuleVersion: observation.ruleVersion,
+        observedDayCount: observation.observedDayCount,
         detectedAt: now,
       });
 
@@ -285,6 +375,7 @@ export class HeadlineDetectionService {
       currentWindowEnd: windows.current.end,
       priorWindowStart: windows.prior.start,
       priorWindowEnd: windows.prior.end,
+      observation,
       outcomes,
     };
   }
