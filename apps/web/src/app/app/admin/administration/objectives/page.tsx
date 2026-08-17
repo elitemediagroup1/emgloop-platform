@@ -32,7 +32,7 @@
 // JavaScript. Reuses the existing `adm-*` design-system classes — no new CSS.
 
 import { requirePermission, hasPermission } from '../../../../../auth/guard';
-import { repositories } from '@emgloop/database';
+import { repositories, CALLGRID_PROVIDER, CALLS_STREAM } from '@emgloop/database';
 import {
   BINDING_DIMENSION_LABELS,
   COMPARISON_SPAN_DAYS,
@@ -46,7 +46,11 @@ import {
   PERFORMANCE_OBJECTIVE_SCOPE_LABELS,
   PERFORMANCE_OBJECTIVE_STATUS_LABELS,
   PERFORMANCE_OBJECTIVE_TITLE_MAX,
+  NOT_MEASURABLE_INCOMPLETE_DATA,
+  assessWindowObservation,
   describePopulation,
+  easternBusinessDatesIn,
+  easternTrailingCompleteWindows,
   formatValue,
   type HeadlineView,
   type ObjectiveMeasureBindingView,
@@ -119,6 +123,23 @@ export default async function AdminObjectivesPage({
     activeBindings.map((b) => [b.performanceObjectiveId, b]),
   );
   const headlines = await repositories.headlines.list(session.organizationId, { take: 50 });
+  // Whether Loop actually looked at the days it would be comparing. Read here so
+  // the page can say NOT MEASURABLE — INCOMPLETE DATA before somebody presses
+  // Measure now, rather than only explaining afterwards why nothing happened.
+  const comparisonWindows = easternTrailingCompleteWindows(new Date(), COMPARISON_SPAN_DAYS);
+  const comparisonDates = [
+    ...easternBusinessDatesIn(comparisonWindows.prior),
+    ...easternBusinessDatesIn(comparisonWindows.current),
+  ];
+  const observation = assessWindowObservation(
+    comparisonDates,
+    await repositories.providerObservations.statusesForDates(
+      session.organizationId,
+      CALLGRID_PROVIDER,
+      CALLS_STREAM,
+      comparisonDates,
+    ),
+  );
   // Dimension members Loop has ACTUALLY OBSERVED, offered for selection. Only
   // members carrying a stable provider id are returned — a population keyed on a
   // label would change shape the day somebody renames a campaign upstream.
@@ -680,6 +701,31 @@ export default async function AdminObjectivesPage({
           never compared against a whole one.
         </p>
 
+        {!observation.fullyObserved ? (
+          // NOT MEASURABLE — INCOMPLETE DATA.
+          //
+          // Said in the operator's language, not the engine's: the question is
+          // whether these days can be compared, and the answer is no, because some
+          // of them were never seen. The dates are listed because they are what
+          // somebody would act on. Nothing here mentions ledgers, pagination or
+          // certification — that vocabulary belongs to Diagnostics.
+          <p className="adm-faint recon-verdict recon-verdict--crit">
+            <strong>{NOT_MEASURABLE_INCOMPLETE_DATA}</strong>{' '}
+            Loop has call activity for {observation.observedDayCount} of the{' '}
+            {observation.dates.length} days in this comparison. Measuring across the
+            rest would report missing days as a fall in activity, so nothing is
+            measured until they are accounted for.{' '}
+            {observation.uncertified.length <= 8 ? (
+              <>Not accounted for: {observation.uncertified.map((u) => u.businessDate).join(', ')}.</>
+            ) : (
+              <>
+                Not accounted for: {observation.uncertified.slice(0, 8).map((u) => u.businessDate).join(', ')}{' '}
+                and {observation.uncertified.length - 8} more.
+              </>
+            )}
+          </p>
+        ) : null}
+
         {canManage ? (
           <form action={detectHeadlinesAction} className="adm-inline">
             <button className="adm-btn" type="submit">Measure now</button>
@@ -687,6 +733,9 @@ export default async function AdminObjectivesPage({
               {' '}Runs one deterministic rule over the objectives that have a
               confirmed measure. No model is called, nothing is ranked, and nothing
               is sent anywhere. Running it twice in the same period changes nothing.
+              {!observation.fullyObserved
+                ? ' While days are unaccounted for it will measure nothing and say so.'
+                : ''}
             </span>
           </form>
         ) : null}
@@ -699,7 +748,12 @@ export default async function AdminObjectivesPage({
             No headlines recorded yet.{' '}
             {activeBindings.length === 0
               ? 'No objective has a confirmed measure, so Loop has not measured anything.'
-              : 'Loop has a measure to work with; nothing has crossed the threshold, which is a result rather than a gap.'}
+              : !observation.fullyObserved
+                // "Nothing crossed a threshold" would be an all-clear, and Loop has
+                // not checked. Three sentences apart in the source, opposite
+                // meanings on screen.
+                ? 'Loop has a measure to work with but has not been able to compare these periods, for the reason above.'
+                : 'Loop has a measure to work with; nothing has crossed the threshold, which is a result rather than a gap.'}
           </p>
         ) : (
           <div className="adm-tablewrap">
