@@ -107,8 +107,16 @@ export type {
 } from './services/next-best-action.service';
 
 // Sprint 17 - CallGrid API reconciliation / backfill service.
+export {
+  ProviderObservationService,
+  CALLGRID_PROVIDER,
+  CALLS_STREAM,
+  PROVIDER_QUERY_SOURCE,
+  CERTIFICATION_PAGE_CAP,
+} from './services/provider-observation.service';
+export type { CertifyDayInput } from './services/provider-observation.service';
 export { CallGridReconciliationService, sinceForRange, mapReconEventType } from './services/callgrid-reconciliation.service';
-export type { ReconciliationInput, ReconciliationResult, SyncRange } from './services/callgrid-reconciliation.service';
+export type { ReconciliationInput, ReconciliationResult, SyncRange, ReconciliationBasis, ExplicitWindow } from './services/callgrid-reconciliation.service';
 export { IntegrationOsService } from './services/integration-os.service';
 export type {
   ProviderStatus,

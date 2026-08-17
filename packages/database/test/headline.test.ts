@@ -26,10 +26,14 @@ import assert from 'node:assert/strict';
 
 import {
   COMPARISON_SPAN_DAYS,
+  OBSERVATION_RULE_VERSION,
+  easternBusinessDatesIn,
   easternTrailingCompleteWindows,
   headlineDetectionKey,
   headlineRecurrenceKey,
+  type BusinessDate,
   type PopulationWindowAggregate,
+  type ProviderObservationStatus,
 } from '@emgloop/shared';
 
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
@@ -39,6 +43,7 @@ import { HeadlineRepository } from '../src/repositories/headline.repository';
 import { PerformanceObjectiveRepository } from '../src/repositories/performance-objective.repository';
 import { HeadlineDetectionService } from '../src/services/headline-detection.service';
 import type { MarketplaceCallRepository } from '../src/repositories/marketplace-call.repository';
+import type { ProviderObservationRepository } from '../src/repositories/provider-observation.repository';
 
 const ORG = 'org-alpha';
 const OTHER_ORG = 'org-beta';
@@ -132,6 +137,97 @@ function makeCalls(
     },
   } as unknown as MarketplaceCallRepository;
   return { repo, seen };
+}
+
+/**
+ * A stand-in for the observation ledger.
+ *
+ * The default certifies every business date in both comparison windows, because
+ * that is what the pre-existing tests below were implicitly assuming when the
+ * ledger did not exist: they are about materiality and recurrence, not about
+ * whether Loop looked. Making the default explicit keeps them testing what they
+ * were written to test, and every observation-specific test overrides it.
+ *
+ * `overrides` maps a business date to the status the ledger holds for it. Mapping
+ * a date to `null` REMOVES it, which is how "no row at all" is expressed — a
+ * different fact from a row with a failing status, and the tests keep them apart.
+ */
+function makeObservations(
+  now: Date = NOW,
+  overrides: Record<BusinessDate, ProviderObservationStatus | null> = {},
+) {
+  const windows = easternTrailingCompleteWindows(now, COMPARISON_SPAN_DAYS);
+  const all = [...easternBusinessDatesIn(windows.prior), ...easternBusinessDatesIn(windows.current)];
+  const statuses = new Map<BusinessDate, ProviderObservationStatus>();
+  for (const date of all) statuses.set(date, 'SUCCESS');
+  for (const [date, status] of Object.entries(overrides)) {
+    if (status === null) statuses.delete(date);
+    else statuses.set(date, status);
+  }
+  const asked: Array<{ organizationId: string; provider: string; stream: string }> = [];
+  const repo = {
+    async statusesForDates(
+      organizationId: string,
+      provider: string,
+      stream: string,
+      dates: readonly BusinessDate[],
+    ) {
+      asked.push({ organizationId, provider, stream });
+      // Tenant-scoped like the real repository: another organization's rows are
+      // simply not visible here, so a fake can never satisfy a gate the real
+      // repository would refuse.
+      const out = new Map<BusinessDate, ProviderObservationStatus>();
+      if (organizationId !== ORG) return out;
+      for (const date of dates) {
+        const status = statuses.get(date);
+        if (status) out.set(date, status);
+      }
+      return out;
+    },
+  } as unknown as ProviderObservationRepository;
+  return { repo, asked, all };
+}
+
+/** The all-observed ledger, for the tests that are not about observation. */
+function observed(now: Date = NOW): ProviderObservationRepository {
+  return makeObservations(now).repo;
+}
+
+/**
+ * An all-observed ledger spanning several clocks.
+ *
+ * The recurrence tests run the detector twice, a week apart, so between them they
+ * span 21 business dates rather than 14. A ledger built for one clock would leave
+ * the second run's earliest days uncertified and the run would correctly refuse to
+ * measure — failing the test for a reason that has nothing to do with recurrence.
+ */
+function observedAcross(...clocks: Date[]): ProviderObservationRepository {
+  const statuses = new Map<BusinessDate, ProviderObservationStatus>();
+  for (const clock of clocks) {
+    const windows = easternTrailingCompleteWindows(clock, COMPARISON_SPAN_DAYS);
+    for (const date of [
+      ...easternBusinessDatesIn(windows.prior),
+      ...easternBusinessDatesIn(windows.current),
+    ]) {
+      statuses.set(date, 'SUCCESS');
+    }
+  }
+  return {
+    async statusesForDates(
+      organizationId: string,
+      _provider: string,
+      _stream: string,
+      dates: readonly BusinessDate[],
+    ) {
+      const out = new Map<BusinessDate, ProviderObservationStatus>();
+      if (organizationId !== ORG) return out;
+      for (const date of dates) {
+        const status = statuses.get(date);
+        if (status) out.set(date, status);
+      }
+      return out;
+    },
+  } as unknown as ProviderObservationRepository;
 }
 
 // --- 1. Tenancy ----------------------------------------------------------------
@@ -239,7 +335,7 @@ test('the detection run passes the session organization to every read', async ()
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   assert.equal(seen.length, 2);
   assert.ok(seen.every((s) => s.organizationId === ORG));
@@ -252,7 +348,7 @@ test('an objective with no binding produces no headline and no default binding',
   const objective = await anObjective(objectives, ORG);
   const { repo, seen } = makeCalls({ current: agg(), prior: agg() });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   assert.equal(summary.objectivesConsidered, 1);
   assert.equal(summary.objectivesMeasurable, 0);
@@ -270,7 +366,7 @@ test('an unmeasurable objective is a state, not an error, and the run still succ
   await anObjective(objectives, ORG, 'Build stronger relationships with roofing buyers');
   const { repo } = makeCalls({ current: agg(), prior: agg() });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
   assert.equal(summary.objectivesConsidered, 1);
   assert.equal(summary.withheld, 0, 'not measurable is not the same as withheld by the rule');
 });
@@ -288,7 +384,7 @@ test('an archived objective is never measured', async () => {
   await objectives.setStatus(ORG, objective.id, 'ARCHIVED');
 
   const { repo } = makeCalls({ current: agg({ totalCalls: 400 }), prior: agg({ totalCalls: 100 }) });
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   assert.equal(summary.objectivesConsidered, 0);
   assert.equal((await headlines.list(ORG)).length, 0);
@@ -311,7 +407,7 @@ test('only the explicitly confirmed members reach the aggregate query', async ()
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   const asked = seen[0]?.population as Record<string, string[]>;
   assert.deepEqual(asked.campaignExternalIds, ['cmp-roof-texas-dr', 'cmp-roof-tx']);
@@ -352,7 +448,7 @@ test('TERM_MATCH noise cannot enter the population: no signal is ever read', asy
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   const asked = JSON.stringify(seen[0]?.population);
   assert.ok(!asked.includes('ssdi'), 'a signal must never define a measurement population');
@@ -371,7 +467,7 @@ test('caller geography is off unless somebody asked for it', async () => {
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   // EMPTY MEANS NO RESTRICTION. "In Texas" is the campaign selection, not where
   // the caller happened to be, and Loop does not infer one from the other.
@@ -394,7 +490,7 @@ test('a caller-state restriction is applied only when explicitly selected', asyn
   assert.deepEqual(confirmed.binding.callerStates, ['TX']);
 
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
   assert.deepEqual((seen[0]?.population as Record<string, string[]>).callerStates, ['TX']);
 });
 
@@ -426,7 +522,7 @@ test('the detector only ever asks about complete periods', async () => {
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   // Neither window may reach the in-progress day.
   for (const s of seen) assert.ok(s.window.end.getTime() <= NOW.getTime());
@@ -449,7 +545,7 @@ test('insufficient coverage produces no headline', async () => {
     prior: agg({ totalCalls: 100, revenueCents: 1_000_000, revenueReported: 100 }),
   });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
   assert.equal(summary.established, 0);
   assert.equal(summary.withheld, 1);
   assert.equal(summary.outcomes[0]?.withheld, 'INSUFFICIENT_COVERAGE');
@@ -471,7 +567,7 @@ test('a zero denominator withholds rather than reporting 0%', async () => {
     prior: agg({ totalCalls: 100, convertedTrue: 30, convertedReported: 100 }),
   });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
   assert.equal(summary.established, 0);
   assert.equal(summary.outcomes[0]?.withheld, 'VALUE_UNKNOWN');
   assert.equal(summary.outcomes[0]?.measurement?.current.value, null);
@@ -490,7 +586,7 @@ test('twenty ordinary calls produce zero headlines end to end', async () => {
   const ordinary = agg({ totalCalls: 20, revenueCents: 200_000, revenueReported: 20 });
   const { repo } = makeCalls({ current: ordinary, prior: ordinary });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   assert.equal(summary.objectivesMeasurable, 1);
   assert.equal(summary.established, 0);
@@ -510,7 +606,7 @@ test('a material move produces exactly one headline', async () => {
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   assert.equal(summary.established, 1);
   const rows = await headlines.list(ORG);
@@ -540,7 +636,7 @@ test('positive news is recorded exactly like negative news', async () => {
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 160 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
   const h = (await headlines.list(ORG))[0]!;
   assert.equal(h.measurement.movement, 'INCREASE');
   assert.equal(h.measurement.againstObjective, false);
@@ -560,7 +656,7 @@ test('re-running the same completed period changes nothing at all', async () => 
     confirmedByUserId: null,
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
-  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines);
+  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observed());
 
   await service.detect(ORG, NOW);
   const first = (await headlines.list(ORG))[0]!;
@@ -590,7 +686,7 @@ test('the same condition in the next completed period resights the same row', as
     confirmedByUserId: null,
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
-  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines);
+  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observedAcross(NOW, NEXT_WEEK));
 
   await service.detect(ORG, NOW);
   const before = (await headlines.list(ORG))[0]!;
@@ -850,7 +946,7 @@ test('a dismissed headline keeps recording recurrence, and never reopens', async
     confirmedByUserId: null,
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
-  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines);
+  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observedAcross(NOW, NEXT_WEEK));
 
   await service.detect(ORG, NOW);
   const h = (await headlines.list(ORG))[0]!;
@@ -883,7 +979,7 @@ test('recording a headline writes to exactly one table', async () => {
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
 
   assert.equal((await headlines.list(ORG)).length, 1);
   // A Headline is awareness. It is not judgement, not execution, and not an event.

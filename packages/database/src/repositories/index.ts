@@ -33,6 +33,7 @@ import { RevenueIntelligenceRepository } from './revenue-intelligence.repository
 import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
+import { ProviderObservationRepository } from './provider-observation.repository';
 import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 import { PerformanceObjectiveRepository } from './performance-objective.repository';
@@ -190,6 +191,12 @@ export type {
   InteractionForProjection,
 } from './marketplace-call-projection';
 
+// Provider observation — whether a business date was actually looked at. The
+// evidence of ABSENCE this schema had none of, and the reason Stage 3 can tell a
+// proven-quiet day apart from a day nobody queried.
+export { ProviderObservationRepository, businessDateToColumn, columnToBusinessDate } from './provider-observation.repository';
+export type { RecordProviderObservationInput, ObservationDayView } from './provider-observation.repository';
+
 // Auction reporting — verified AGGREGATE bid/ping snapshots. Not event tables.
 export { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 export type { UpsertCounts, ReportRunRecord } from './marketplace-auction.repository';
@@ -296,6 +303,7 @@ export interface Repositories {
   commercialSignals: CommercialSignalRepository;
   measureBindings: ObjectiveMeasureBindingRepository;
   headlines: HeadlineRepository;
+  providerObservations: ProviderObservationRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -332,5 +340,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     commercialSignals: new CommercialSignalRepository(prisma),
     measureBindings: new ObjectiveMeasureBindingRepository(prisma),
     headlines: new HeadlineRepository(prisma),
+    providerObservations: new ProviderObservationRepository(prisma),
   };
 }

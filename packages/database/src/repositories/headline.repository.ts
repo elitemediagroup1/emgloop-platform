@@ -138,6 +138,14 @@ export interface RecordHeadlineInput {
   priorWindowEnd: Date;
   limitations: readonly string[];
   unknowns: readonly string[];
+  /**
+   * Which completeness rule certified the days behind this measurement, and how
+   * many days it verified. Required, not optional: a caller that does not know
+   * whether its window was observed must not be able to write a Headline that
+   * looks certified by staying silent.
+   */
+  observationRuleVersion: string;
+  observedDayCount: number;
   /** Detection time. Injected so the caller owns the clock and a test can pin it. */
   detectedAt: Date;
 }
@@ -246,6 +254,8 @@ export class HeadlineRepository {
           priorWindowEnd: input.priorWindowEnd,
           limitations: [...input.limitations],
           unknowns: [...input.unknowns],
+          observationRuleVersion: input.observationRuleVersion,
+          observedDayCount: input.observedDayCount,
           firstDetectedAt: input.detectedAt,
           lastDetectedAt: input.detectedAt,
           detectionCount: 1,
