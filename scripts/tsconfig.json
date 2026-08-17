@@ -1,0 +1,15 @@
+{
+  // Operations scripts are not a package: they are not built, not published and
+  // not imported by product code. They still get typechecked, because a runner
+  // that points a production write at the wrong thing is exactly the class of
+  // mistake types catch. Extends the same base as every workspace so the strict
+  // settings (strict, noUncheckedIndexedAccess) apply here too.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"]
+  },
+  "include": ["operations/**/*.ts"]
+}

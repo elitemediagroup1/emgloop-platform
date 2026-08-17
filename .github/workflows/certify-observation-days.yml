@@ -1,0 +1,164 @@
+# Certify observation days.
+#
+# Asks CallGrid whether it can prove a given Eastern business day was observed,
+# and records the answer in provider_observation_days. One day at a time, in the
+# order given, stopping the moment a day cannot be certified.
+#
+# WHY A RUNNER AND NOT A ROUTE. A busy day is around seventy sequential provider
+# pages. That does not fit inside a serverless request — the CallGrid sync UI
+# already carries a timeout message for its heavier ranges — and a mechanism that
+# works for the quiet days and fails on the busy ones is the wrong mechanism.
+# This job has hours. It is otherwise the same shape as
+# deploy-prisma-migrations.yml: manual, human-started, holding one production
+# credential, doing one bounded operation.
+#
+# WHAT IT WRITES. Exactly one thing: a ProviderObservationDay row per date, via
+# ProviderObservationService.certifyDay(). It does not ingest calls, does not
+# repair a projection, does not touch Interaction or MarketplaceCall, does not
+# measure and does not produce a Headline. If a sweep discovers that CallGrid
+# holds calls Loop is missing, that is EVIDENCE for a later recovery decision and
+# changes nothing on its own.
+#
+# NO SCHEDULE, DELIBERATELY. Daily certification will be needed — the comparison
+# window moves at midnight Eastern — but not one production day has been
+# certified yet. Credential wiring, pagination, runtime duration, the ledger
+# write and truncation behaviour all get proven by hand first. Automating an
+# unproven production operation is how you get a job that fails quietly every
+# night.
+
+name: Certify Observation Days
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug (e.g. servicesinmycity-demo)'
+        required: true
+        type: string
+      dates:
+        description: 'Eastern business dates, comma-separated (e.g. 2026-08-09 or 2026-08-03,2026-08-04)'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, or schedule: triggers here. This job writes to
+# production and must only ever be started by a human from the Actions tab.
+
+permissions:
+  contents: read
+
+# Two sweeps at once would contend on the same ledger rows and interleave their
+# logs for no benefit. A late run waits rather than overlapping.
+concurrency:
+  group: certify-observation-days
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    name: Certify observation days
+    runs-on: ubuntu-latest
+    # Generous, because a seventy-page day is legitimately slow — but bounded, so
+    # a provider that never stops responding cannot hold a runner indefinitely.
+    timeout-minutes: 60
+
+    steps:
+      - name: Fail closed when a production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Names only. A value is never echoed, never printed and never written
+          # to the step summary.
+          #
+          # `if` blocks rather than `[ ... ] && x=y`: under `set -e` that idiom
+          # exits the step when the test is FALSE, which would fail this check
+          # precisely when both secrets are present.
+          missing=""
+          if [ -z "${DATABASE_URL:-}" ]; then missing="${missing} DIRECT_DATABASE_URL"; fi
+          if [ -z "${CALLGRID_API_KEY:-}" ]; then missing="${missing} CALLGRID_API_KEY"; fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing repository secret(s):${missing}"
+            echo "Add them under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "Both required secrets are present."
+
+      - name: Validate the requested dates
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          DATES: ${{ inputs.dates }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          # Every date must be YYYY-MM-DD before anything connects to anything.
+          # The script validates again with the same predicate certifyDay uses;
+          # this is the earlier, cheaper refusal.
+          count=0
+          IFS=',' read -ra PARTS <<< "${DATES}"
+          for raw in "${PARTS[@]}"; do
+            d="$(printf '%s' "${raw}" | tr -d '[:space:]')"
+            [ -z "${d}" ] && continue
+            if ! printf '%s' "${d}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+              echo "::error::Not a business date: ${d} (expected YYYY-MM-DD)"
+              exit 1
+            fi
+            count=$((count + 1))
+          done
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::No dates supplied."
+            exit 1
+          fi
+          echo "Validated ${count} date(s) for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching deploy-prisma-migrations.yml and drain-outbox's
+        # sibling workflows. A lockfile IS committed now, so `npm ci` would be
+        # possible — but changing how this repository installs in CI is its own
+        # decision with its own blast radius, and is not this branch's objective.
+        #
+        # This step also runs `prisma generate` through the database package's
+        # postinstall, which the script needs before it can reach the client.
+        run: npm install --no-audit --no-fund
+
+      - name: Certify
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml. A long
+          # operation on a pooled endpoint is the wrong shape for this.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          DATES: ${{ inputs.dates }}
+        run: |
+          set -euo pipefail
+          # Arguments are passed as values. The script exits non-zero on the first
+          # day it cannot certify, and `set -e` turns that into a red run rather
+          # than a green one with a bad line buried in the log.
+          npm run certify:observation-days -- \
+            --organization "${ORG_SLUG}" \
+            --dates "${DATES}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Certification stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "A day could not be certified, so the sweep stopped and every later date was left untouched." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read the \`event=DAY_RESULT\` line for the failing date in the log above. A ledger row WAS written recording the failure — that is a successful write and NOT a certified day, and the date remains Unknown to Stage 3." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running the same date after the cause is fixed is safe: certification upserts on (organization, provider, stream, business date)." >> "$GITHUB_STEP_SUMMARY"
