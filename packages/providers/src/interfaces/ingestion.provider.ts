@@ -57,17 +57,44 @@ export interface WebhookVerificationResult {
 export interface PollOptions {
   /** ISO timestamp — fetch events that occurred after this date. */
   since: Date;
+  /**
+   * Exclusive upper bound. Absent means "up to now".
+   *
+   * Required for any BOUNDED read — certifying one business date, or recovering
+   * one historical day — because a window with no end is a window whose contents
+   * change while you are reading it, and nothing may be certified over that.
+   */
+  until?: Date;
   /** Maximum number of events to return per poll. */
   limit?: number;
+  /**
+   * Adapter page budget. A safety bound, never a completeness claim: an adapter
+   * that reaches it while the provider has more MUST report `truncated`.
+   */
+  maxPages?: number;
   /** Pagination cursor from the previous poll response. */
-  cursor?: string;
+  cursor?: unknown;
 }
 
 export interface PollResult {
   events: InboundEvent[];
   /** Cursor for the next poll call. Undefined means no more pages. */
-  nextCursor?: string;
+  nextCursor?: unknown;
   hasMore: boolean;
+  // --- Pagination evidence. Optional, because not every adapter paginates. -----
+  //
+  // An adapter that DOES paginate must populate these truthfully. They exist so a
+  // caller can record WHY a read ended, which is the difference between "the
+  // provider had nothing more" and "we ran out of budget". Reporting a budgeted
+  // stop as a clean finish is what let a 6,918-call day look like 2,500.
+  /** Pages actually requested. */
+  pagesFetched?: number;
+  /** The budget that applied. */
+  pageCap?: number;
+  /** Raw records seen, before mapping dropped any. */
+  recordsFetched?: number;
+  /** True only when the adapter stopped while the provider still had pages. */
+  truncated?: boolean;
 }
 
 // ---- Provider interface ---------------------------------------------------

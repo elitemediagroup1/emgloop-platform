@@ -67,11 +67,32 @@ export function resolveCallGridBaseUrl(override?: string): string {
         );
 }
 
+/**
+ * WHY a CallGrid request failed, as a machine-readable kind.
+ *
+ * Callers used to classify failures by matching on the message text, which meant
+ * a reworded sentence silently changed how an outcome was recorded. The
+ * observation ledger records a status per failure kind, so that classification
+ * has to be stated by the thrower rather than inferred by the reader.
+ */
+export type CallGridApiErrorKind =
+  /** Network-level failure; no HTTP response at all. */
+  | 'request-failed'
+  /** A response arrived with a non-2xx status. */
+  | 'http-status'
+  /** 2xx whose body would not parse as JSON. */
+  | 'non-json'
+  /** 2xx JSON whose shape we do not recognise. NEVER an empty page. */
+  | 'unrecognised-envelope'
+  /** A record carried no usable occurrence timestamp. */
+  | 'no-occurrence';
+
 /** A small typed error so callers can surface API failures as diagnostics. */
 export class CallGridApiError extends Error {
     constructor(
           message: string,
           readonly status?: number,
+          readonly kind: CallGridApiErrorKind = 'request-failed',
         ) {
           super(message);
           this.name = 'CallGridApiError';
@@ -176,6 +197,8 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
         throw new CallGridApiError(
                 'CallGrid record carries no usable occurrence timestamp ' +
                 '(UTCUnixTimeMs / UTCISODate / UTCUnixTime all absent or invalid)',
+                undefined,
+                'no-occurrence',
               );
   }
   const occurredAt = occurrence.at;
@@ -365,16 +388,18 @@ export async function fetchCallGridCallsPage(
     } catch (err) {
           throw new CallGridApiError(
                   'CallGrid API request failed: ' + (err instanceof Error ? err.message : 'network error'),
+                  undefined,
+                  'request-failed',
                 );
     }
     if (!res.ok) {
-          throw new CallGridApiError('CallGrid API returned ' + res.status, res.status);
+          throw new CallGridApiError('CallGrid API returned ' + res.status, res.status, 'http-status');
     }
     let body: unknown;
     try {
           body = await res.json();
     } catch {
-          throw new CallGridApiError('CallGrid API returned non-JSON body', res.status);
+          throw new CallGridApiError('CallGrid API returned non-JSON body', res.status, 'non-json');
     }
     const parsed = extractRecordsOrNull(body);
     if (!parsed) {
@@ -383,6 +408,7 @@ export async function fetchCallGridCallsPage(
           throw new CallGridApiError(
                   'CallGrid API returned an unrecognised response shape: ' + describeShape(body),
                   res.status,
+                  'unrecognised-envelope',
                 );
     }
     const records = parsed.records;
@@ -392,25 +418,75 @@ export async function fetchCallGridCallsPage(
     return { records, nextCursor, hasMore: (apiHasMore || Boolean(nextCursor)) && records.length > 0 };
 }
 
+/** The default page budget. A safety bound, never a statement about completeness. */
+export const CALLGRID_DEFAULT_MAX_PAGES = 25;
+
+/** What a paginated fetch read, and whether it got to the end. */
+export interface CallGridFetchAllResult {
+    events: InboundEvent[];
+    /** Pages actually requested. */
+  pages: number;
+    /** Raw records seen across those pages. */
+  records: number;
+    /** The budget that applied, so a truncated result is explicable. */
+  pageCap: number;
+    /**
+     * TRUE ONLY WHEN *WE* STOPPED AND THE PROVIDER HAD MORE.
+     *
+     * A page budget reached while CallGrid was still offering pages means what we
+     * hold is a lower bound. Nothing may treat such a read as a complete picture
+     * of the window — it is the same rule `marketplace_report_runs.truncated`
+     * already applies to auction reports.
+     */
+  truncated: boolean;
+    /** The cursor we stopped at when truncated, so a caller can resume honestly. */
+  nextCursor?: unknown;
+}
+
 /**
- * Fetch ALL CallGrid calls in a date range, following cursor pagination, and
- * map each into an InboundEvent. Caps total pages to avoid runaway loops.
+ * Fetch ALL CallGrid calls in a date range, following cursor pagination.
+ *
+ * EXHAUSTION IS PROVEN BY THE PROVIDER, NOT ASSUMED BY THE CAP. The loop ends for
+ * one of two genuinely different reasons and reports which: either CallGrid said
+ * it had no more pages, or we hit our own budget while it still did. The previous
+ * version could not tell those apart — it broke out of a `do…while` when the page
+ * count ran out and returned the same shape either way, so a window with 6,918
+ * calls came back as a clean 2,500 and every caller read it as the whole day.
+ *
+ * Raising the cap would not have fixed that. Knowing which of the two happened is
+ * the fix, and the cap stays so a provider that always reports `hasMore` cannot
+ * spin.
  */
 export async function fetchAllCallGridCalls(
     options: CallGridApiFetchOptions & { maxPages?: number },
-  ): Promise<{ events: InboundEvent[]; pages: number; records: number }> {
-    const maxPages = options.maxPages && options.maxPages > 0 ? options.maxPages : 25;
+  ): Promise<CallGridFetchAllResult> {
+    const pageCap =
+          options.maxPages && options.maxPages > 0 ? options.maxPages : CALLGRID_DEFAULT_MAX_PAGES;
     const events: InboundEvent[] = [];
     let cursor = options.cursor;
     let pages = 0;
     let records = 0;
-    do {
-          const page = await fetchCallGridCallsPage({ ...options, cursor });
-          pages += 1;
-          records += page.records.length;
-          for (const record of page.records) events.push(mapCallGridApiRecord(record));
-          cursor = page.nextCursor;
-          if (!page.hasMore) break;
-    } while (cursor && pages < maxPages);
-    return { events, pages, records };
+    let truncated = false;
+
+  for (;;) {
+        const page = await fetchCallGridCallsPage({ ...options, cursor });
+        pages += 1;
+        records += page.records.length;
+        for (const record of page.records) events.push(mapCallGridApiRecord(record));
+        cursor = page.nextCursor;
+
+    // The provider says there is nothing after this page. Exhausted, honestly.
+    if (!page.hasMore || cursor === undefined || cursor === null) {
+              cursor = undefined;
+              break;
+    }
+        // There IS more and we are out of budget. Say so rather than returning a
+    // partial read wearing a complete read's shape.
+    if (pages >= pageCap) {
+              truncated = true;
+              break;
+    }
+  }
+
+  return { events, pages, records, pageCap, truncated, nextCursor: truncated ? cursor : undefined };
 }
