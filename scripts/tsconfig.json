@@ -11,5 +11,5 @@
     "moduleResolution": "Bundler",
     "types": ["node"]
   },
-  "include": ["operations/**/*.ts"]
+  "include": ["operations/**/*.ts", "diagnostics/**/*.ts"]
 }
