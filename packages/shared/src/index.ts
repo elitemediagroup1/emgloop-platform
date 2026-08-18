@@ -329,3 +329,25 @@ export * from './objective-measure-binding';
 export * from './provider-observation';
 export * from './commercial-measurement';
 export * from './headline';
+
+// --- Commercial Intelligence: completeness and source authority (contracts) ---
+// The three questions provider observation does NOT answer, established as pure
+// contracts before anything persists them. Nothing in the production Stage 3 path
+// imports these yet -- see `measurement-readiness.ts`.
+//
+//   member-expectation      whether records from a campaign were EXPECTED to reach
+//                           Loop on a date. Declared by a person, effective-dated,
+//                           never inferred from traffic. Undeclared fails closed.
+//   provider-reconciliation whether the identities the provider held actually
+//                           arrived. The fact `ProviderObservationDay` cannot
+//                           carry, because it persists a count and not a set.
+//   measurement-source      which source is authoritative for THIS measure over
+//                           THIS member on THIS date. A source holding a field is
+//                           not a source that may be believed about it.
+//   measurement-readiness   the three assembled into one verdict, in the shape
+//                           `assessWindowObservation` already proved: resolved by
+//                           an impure caller, judged by a pure function.
+export * from './member-expectation';
+export * from './provider-reconciliation';
+export * from './measurement-source';
+export * from './measurement-readiness';
