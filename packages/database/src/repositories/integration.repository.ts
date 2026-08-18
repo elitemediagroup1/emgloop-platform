@@ -240,6 +240,47 @@ export class IntegrationRepository {
     return rows.map(toEventView);
   }
 
+  /**
+   * Read raw integration events whose DELIVERY time falls inside a window, in
+   * batches, for reconciliation.
+   *
+   * WHY DELIVERY TIME AND NOT OCCURRENCE TIME. `integration_events` has no
+   * occurrence column — the call's own instant survives only inside `payload`.
+   * Filtering it in SQL would mean hand-writing a JSON expression that duplicates
+   * `resolveCallOccurrence`'s field precedence, and the two would drift. The
+   * caller reads a DELIBERATELY WIDER delivery window and applies the canonical
+   * resolver in memory, so local and provider occurrence semantics are identical
+   * by construction rather than by care.
+   *
+   * READ-ONLY, ORGANIZATION-SCOPED, BATCHED. The organization is the first
+   * argument because this is a tenant-owned row (see CLAUDE.md §Multi-Tenant
+   * Rules), and the id cursor keeps a busy window from being loaded at once.
+   */
+  async listEventsReceivedBetween(
+    organizationId: string,
+    options: { provider: string; since: Date; until: Date; batchSize?: number; afterId?: string },
+  ): Promise<Array<{ id: string; externalId: string | null; status: string; receivedAt: Date; payload: unknown }>> {
+    const take = options.batchSize && options.batchSize > 0 ? Math.min(options.batchSize, 1000) : 500;
+    const rows = await this.prisma.integrationEvent.findMany({
+      where: {
+        organizationId,
+        provider: options.provider,
+        receivedAt: { gte: options.since, lt: options.until },
+        ...(options.afterId ? { id: { gt: options.afterId } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take,
+      select: { id: true, externalId: true, status: true, receivedAt: true, payload: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      externalId: r.externalId,
+      status: String(r.status),
+      receivedAt: r.receivedAt,
+      payload: r.payload as unknown,
+    }));
+  }
+
   async countEventsByStatus(
     organizationId: string,
   ): Promise<Record<string, number>> {

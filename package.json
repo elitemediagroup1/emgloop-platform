@@ -18,7 +18,9 @@
     "db:migrate": "npm run -w @emgloop/database migrate",
     "db:studio": "npm run -w @emgloop/database studio",
     "certify:observation-days": "tsx scripts/operations/certify-observation-days.ts",
+    "reconcile:provider-day": "tsx scripts/diagnostics/reconcile-provider-day.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",
+    "test:diagnostics": "node --import tsx --test scripts/diagnostics/*.test.ts",
     "typecheck:operations": "tsc --noEmit -p scripts/tsconfig.json"
   },
   "devDependencies": {

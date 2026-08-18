@@ -1,0 +1,163 @@
+# Reconcile one provider day against Loop's local identities.
+#
+# Answers one question for one bounded Eastern business day: which CallGrid call
+# identities does the provider hold that Loop's IntegrationEvent population does
+# not, and what non-PII characteristics do those records share?
+#
+# THIS JOB WRITES NOTHING. It is the read-only sibling of
+# certify-observation-days.yml and shares its shape — manual, human-started,
+# holding production credentials, doing one bounded operation — but not its
+# consequences. It records no ProviderObservationDay row, ingests no call,
+# projects nothing, and does not touch the CallGrid sync. Running it twice
+# changes nothing and running it once changes nothing.
+#
+# WHY IT EXISTS AT ALL. `provider_observation_days` persists the COUNT the
+# provider returned, never the identity SET. So production SQL can prove "974
+# observed, 867 held" and can never say WHICH 107 are absent — that is a set
+# operation over two populations that have never been in the same process at the
+# same time. This puts them there for the length of one run and prints
+# aggregates.
+#
+# WHY A WORKFLOW AND NOT A ROUTE. Same reason as certification: a busy day is
+# many sequential provider pages plus a full scan of the local delivery window,
+# which does not fit inside a serverless request. This job has time.
+#
+# NO SCHEDULE, DELIBERATELY. This is an investigation, not a monitor. If a
+# standing reconciliation fact is ever wanted, it belongs in the product behind a
+# decision — not in a cron job that quietly accumulates evidence nobody reads.
+
+name: Reconcile Provider Day
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug (e.g. servicesinmycity-demo)'
+        required: true
+        type: string
+      date:
+        description: 'ONE Eastern business date (e.g. 2026-08-05)'
+        required: true
+        type: string
+      id_hashes:
+        description: 'How many truncated SHA-256 id prefixes to print (0 = none). Never prints an id.'
+        required: false
+        default: '0'
+        type: string
+
+# Do NOT add push:, pull_request:, or schedule: triggers here. This job holds a
+# production credential and must only ever be started by a human.
+
+permissions:
+  contents: read
+
+# One reconciliation at a time. Two runs would double the provider load for no
+# operator benefit and interleave their logs.
+concurrency:
+  group: reconcile-provider-day
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile provider day
+    runs-on: ubuntu-latest
+    # Bounded, so a provider that never stops responding cannot hold a runner.
+    timeout-minutes: 45
+
+    steps:
+      - name: Fail closed when a production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Names only. A value is never echoed, printed or written to the summary.
+          missing=""
+          if [ -z "${DATABASE_URL:-}" ]; then missing="${missing} DIRECT_DATABASE_URL"; fi
+          if [ -z "${CALLGRID_API_KEY:-}" ]; then missing="${missing} CALLGRID_API_KEY"; fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing repository secret(s):${missing}"
+            echo "Add them under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "Both required secrets are present."
+
+      - name: Validate the request
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          DATE: ${{ inputs.date }}
+          ID_HASHES: ${{ inputs.id_hashes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          # ONE date. This diagnostic is deliberately incapable of sweeping a
+          # range: a sweep would multiply provider load and produce a pile of
+          # output nobody reads, and the question in front of us is about a
+          # single day.
+          if ! printf '%s' "${DATE}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+            echo "::error::Not a business date: ${DATE} (expected one YYYY-MM-DD)"
+            exit 1
+          fi
+          if ! printf '%s' "${ID_HASHES}" | grep -Eq '^[0-9]{1,2}$'; then
+            echo "::error::id_hashes must be a number from 0 to 25."
+            exit 1
+          fi
+          echo "Validated ${DATE} for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching certify-observation-days.yml and
+        # deploy-prisma-migrations.yml. Also runs `prisma generate` through the
+        # database package's postinstall, which the script needs to read at all.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the diagnostic still cannot write
+        # The constraint tests read the script's own source and fail if it names
+        # any write path. Running them HERE, immediately before pointing the
+        # script at production, is what makes "read-only" a checked property of
+        # this run rather than a claim made once at review time.
+        run: npm run test:diagnostics
+
+      - name: Reconcile
+        env:
+          # DIRECT, non-pooled, matching the sibling workflows. The script opens
+          # a client, runs SELECTs, and disconnects.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          DATE: ${{ inputs.date }}
+          ID_HASHES: ${{ inputs.id_hashes }}
+        run: |
+          set -euo pipefail
+          npm run reconcile:provider-day -- \
+            --organization "${ORG_SLUG}" \
+            --date "${DATE}" \
+            --id-hashes "${ID_HASHES}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Reconciliation did not produce a verdict" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "A red run here means the diagnostic REFUSED to conclude, not that data is missing. Read the \`event=VERDICT\` line:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`INCONCLUSIVE_PROVIDER_TRUNCATED\` — the provider still had pages at the budget. What was read is a lower bound, so a set difference over it would report unread records as absent." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`INCONCLUSIVE_IDENTITY_INCOHERENT\` — the two sides barely overlap, which means they are probably not naming the same identifier. Treat it as a mapping defect, never as a data gap." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`DIAGNOSTIC_DEFECT\` — a set equation failed. The comparison is wrong and nothing may be concluded from it." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`FAILED_PRECONDITION\` — unknown organization, refused status, or a bad date. Nothing was read." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Nothing was written in any case. Re-running after the cause is fixed is safe." >> "$GITHUB_STEP_SUMMARY"
