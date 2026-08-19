@@ -279,3 +279,39 @@ export function easternBusinessDatesIn(window: DayWindow): BusinessDate[] {
   }
   return dates;
 }
+
+/**
+ * A half-open range of business dates: [effectiveFrom, effectiveTo).
+ *
+ * The shape every effective-dated declaration in the platform shares. Half-open
+ * for the same reason `DayWindow` is: two adjacent ranges must meet without
+ * overlapping, and a closed upper bound makes "the day it changed" belong to
+ * both. `effectiveTo === null` means still in force.
+ */
+export interface EffectiveDateRange {
+  effectiveFrom: BusinessDate;
+  /** EXCLUSIVE. Null means open-ended. */
+  effectiveTo: BusinessDate | null;
+}
+
+/**
+ * Whether a range is in force on one business date.
+ *
+ * String comparison is correct and deliberate: a business date is
+ * zero-padded 'YYYY-MM-DD', so lexical order IS calendar order, and comparing
+ * strings avoids constructing a Date — which would drag a timezone into a
+ * question that has none. Fails closed on a malformed date.
+ */
+export function isEffectiveOn(range: EffectiveDateRange, on: BusinessDate): boolean {
+  if (!isBusinessDate(on) || !isBusinessDate(range.effectiveFrom)) return false;
+  if (range.effectiveTo !== null && !isBusinessDate(range.effectiveTo)) return false;
+  if (on < range.effectiveFrom) return false;
+  return range.effectiveTo === null || on < range.effectiveTo;
+}
+
+/** Whether a range is well formed. An empty or inverted range is a defect. */
+export function isEffectiveRangeValid(range: EffectiveDateRange): boolean {
+  if (!isBusinessDate(range.effectiveFrom)) return false;
+  if (range.effectiveTo === null) return true;
+  return isBusinessDate(range.effectiveTo) && range.effectiveTo > range.effectiveFrom;
+}

@@ -150,7 +150,24 @@ export interface MeasuredValue {
  * that cannot tell them apart is an empty state that reads as an all-clear.
  */
 export const MATERIALITY_WITHHOLDINGS = [
+  // Readiness -- the measure could not be computed at all. Every member here is
+  // a gate that runs BEFORE the arithmetic, and each one names a different thing
+  // a person or a job must do. See `measurement-readiness.ts`.
   'WINDOW_NOT_OBSERVED',
+  'RECONCILIATION_MISSING',
+  'RECONCILIATION_INCONCLUSIVE',
+  'CAMPAIGN_EXPECTATION_UNKNOWN',
+  'CAMPAIGN_EXPECTATION_CONTRADICTED',
+  'POPULATION_INCOMPLETE',
+  'SOURCE_AUTHORITY_MISSING',
+  'SOURCE_AUTHORITY_CONFLICT',
+  'MEASURE_NOT_SUPPORTED_BY_SOURCE',
+  'AUTHORITATIVE_DATA_PENDING',
+  'AUTHORITATIVE_DATA_INCOMPLETE',
+  'MIXED_SOURCE_AGGREGATION_UNSUPPORTED',
+  'CALL_UNATTRIBUTED',
+  // Materiality -- the measure WAS computed and is not worth telling anyone about.
+  // These are findings about the data, not gaps in it.
   'NO_BASELINE',
   'INSUFFICIENT_VOLUME',
   'INSUFFICIENT_COVERAGE',
@@ -162,6 +179,28 @@ export type MaterialityWithholding = (typeof MATERIALITY_WITHHOLDINGS)[number];
 export const MATERIALITY_WITHHOLDING_LABELS: Record<MaterialityWithholding, string> = {
   WINDOW_NOT_OBSERVED:
     'Some days in the compared periods were never observed, so a change cannot be measured.',
+  RECONCILIATION_MISSING:
+    'Some days were observed but never reconciled, so what arrived was never checked against what exists.',
+  RECONCILIATION_INCONCLUSIVE:
+    'The comparison between the provider and Loop is not sound, so nothing can be concluded from it.',
+  CAMPAIGN_EXPECTATION_UNKNOWN:
+    'Nobody has said whether records from a campaign in this population were expected.',
+  CAMPAIGN_EXPECTATION_CONTRADICTED:
+    'A campaign declared not to participate has contributed calls to this population.',
+  POPULATION_INCOMPLETE:
+    'Records that were expected to arrive did not, so this population is measured over an incomplete set.',
+  SOURCE_AUTHORITY_MISSING: 'No source has been declared authoritative for this measure.',
+  SOURCE_AUTHORITY_CONFLICT: 'Two sources are declared authoritative for this measure at once.',
+  MEASURE_NOT_SUPPORTED_BY_SOURCE:
+    'The authoritative source does not supply this measure.',
+  AUTHORITATIVE_DATA_PENDING:
+    'The authoritative data for some days has not arrived yet.',
+  AUTHORITATIVE_DATA_INCOMPLETE:
+    'The authoritative data arrived with rows that matched no call, so the totals are unknown rather than lower.',
+  MIXED_SOURCE_AGGREGATION_UNSUPPORTED:
+    'This population spans sources whose definitions of the measure are not declared to be the same.',
+  CALL_UNATTRIBUTED:
+    'Some calls in this population carry no campaign, so no source can be resolved for them.',
   NO_BASELINE: 'There was no non-zero prior value to compare against.',
   INSUFFICIENT_VOLUME: 'Too few calls for the change to mean anything.',
   INSUFFICIENT_COVERAGE: 'Too few calls reported the value, so the totals are lower bounds.',
@@ -169,8 +208,54 @@ export const MATERIALITY_WITHHOLDING_LABELS: Record<MaterialityWithholding, stri
   VALUE_UNKNOWN: 'The measure could not be established in one or both periods.',
 };
 
+/**
+ * What the operator must DO about each withholding.
+ *
+ * A SEPARATE RECORD rather than a second field on the labels above, so no existing
+ * reader of `MATERIALITY_WITHHOLDING_LABELS` changes shape. "Measurement
+ * unavailable" is not an answer a person can act on; every silence Loop produces
+ * should end with the next move, and the materiality members honestly say that
+ * there isn't one -- they are findings, not gaps.
+ */
+export const MATERIALITY_WITHHOLDING_NEXT_ACTIONS: Record<MaterialityWithholding, string> = {
+  WINDOW_NOT_OBSERVED: 'Run provider certification for the named dates.',
+  RECONCILIATION_MISSING: 'Run reconciliation for the named dates.',
+  RECONCILIATION_INCONCLUSIVE:
+    'Investigate: the provider read or the identity comparison itself is unsound.',
+  CAMPAIGN_EXPECTATION_UNKNOWN:
+    'Declare the campaign: expected, not connected to Loop, or deliberately excluded.',
+  CAMPAIGN_EXPECTATION_CONTRADICTED:
+    "Re-declare the campaign, or remove it from this objective's population.",
+  POPULATION_INCOMPLETE:
+    'Check the campaign is connected to Loop, then recover the named days.',
+  SOURCE_AUTHORITY_MISSING: 'Declare which source is authoritative for this campaign and measure.',
+  SOURCE_AUTHORITY_CONFLICT: 'Close one of the two overlapping declarations.',
+  MEASURE_NOT_SUPPORTED_BY_SOURCE:
+    'Measure something this source supplies, or declare a source that supplies this.',
+  AUTHORITATIVE_DATA_PENDING: 'Wait for the report, or import it if it has arrived.',
+  AUTHORITATIVE_DATA_INCOMPLETE: 'Resolve the rows that matched no call.',
+  MIXED_SOURCE_AGGREGATION_UNSUPPORTED:
+    'Split the objective by source, or declare the two definitions to be the same measure.',
+  CALL_UNATTRIBUTED: 'Investigate why calls in this population carry no campaign.',
+  NO_BASELINE: 'Nothing to do — there is no prior period to compare against.',
+  INSUFFICIENT_VOLUME: 'Nothing to do — the sample is too small to mean anything.',
+  INSUFFICIENT_COVERAGE: 'Nothing to do — too few calls reported the value.',
+  BELOW_THRESHOLD: 'Nothing to do — the change did not clear the materiality threshold.',
+  VALUE_UNKNOWN: 'Nothing to do — the measure could not be established from the data.',
+};
+
 /** What a reader sees when observation, not materiality, is the reason for silence. */
 export const NOT_MEASURABLE_INCOMPLETE_DATA = 'NOT MEASURABLE — INCOMPLETE DATA';
+
+/**
+ * What a reader sees when the data is not broken, merely not here yet.
+ *
+ * A SECOND STRING, deliberately. Something that resolves by waiting and something
+ * that resolves by fixing are different situations, and sending an operator to
+ * debug a report that simply has not been sent yet wastes their morning and
+ * teaches them to ignore the banner.
+ */
+export const NOT_MEASURABLE_AWAITING_DATA = 'AWAITING AUTHORITATIVE DATA';
 
 /** Which way the measure moved. Part of a Headline's identity -- see `headline.ts`. */
 export type MeasureMovement = 'INCREASE' | 'DECREASE';
