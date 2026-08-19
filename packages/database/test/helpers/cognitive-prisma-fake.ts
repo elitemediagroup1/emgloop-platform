@@ -106,6 +106,35 @@ const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
   objectiveMeasureBinding: ['confirmedAt'],
 };
 
+/**
+ * Constraints that are NOT key equality: the effective-dated tables.
+ *
+ * `provider_member_expectations` carries a Postgres EXCLUDE constraint over the
+ * member key and daterange(effectiveFrom, effectiveTo, '[)') -- at most one
+ * declaration in force per member per business date. Prisma cannot express it, so
+ * it is hand-written SQL in the migration, and a double that did not model it
+ * would let the suite prove only the repository's own pre-check. The invariant
+ * that actually matters under concurrency is the database's, so it is modelled
+ * here: a direct write that overlaps throws the way Postgres does (23P01), and
+ * the accompanying CHECK on an empty or inverted range throws 23514.
+ *
+ * Enforced on `create` alone. Truncating a range -- the only update this
+ * repository makes -- can shrink an interval but never widen one, so it cannot
+ * manufacture an overlap.
+ */
+const EXCLUSION_RANGES: Record<string, { keys: string[]; from: string; to: string }> = {
+  providerMemberExpectation: {
+    keys: ['organizationId', 'provider', 'stream', 'memberDimension', 'memberExternalId'],
+    from: 'effectiveFrom',
+    to: 'effectiveTo',
+  },
+};
+
+function rangeBound(value: any, fallback: number): number {
+  if (value === null || value === undefined) return fallback;
+  return value instanceof Date ? value.getTime() : Number(value);
+}
+
 // A delegate may carry more than one unique. Prisma enforces each independently.
 const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
   operationalObservation: [
@@ -161,6 +190,12 @@ const DELEGATES = [
   // property under test is exactly that a missing row withholds a measurement, so
   // supplying the read from the test would assume away what is being proven.
   'providerObservationDay',
+  // Stage 3 correctness, second fact: what a human DECLARED about a population
+  // member, effective-dated. Faked here for the same reason as the observation
+  // ledger -- the property under test is that a missing declaration resolves
+  // UNKNOWN and that overlapping ones cannot exist, so supplying the read from
+  // the test would assume away what is being proven.
+  'providerMemberExpectation',
 ] as const;
 
 let idSeq = 0;
@@ -286,6 +321,31 @@ function makeDelegate(name: string) {
             `Unique constraint failed on the fields: (${uniqueKeys.join(',')})`,
           ) as Error & { code: string };
           e.code = 'P2002';
+          throw e;
+        }
+      }
+      const exclusion = EXCLUSION_RANGES[name];
+      if (exclusion) {
+        const from = rangeBound(data[exclusion.from], NaN);
+        const to = rangeBound(data[exclusion.to], Number.POSITIVE_INFINITY);
+        if (Number.isFinite(to) && to <= from) {
+          const e = new Error(
+            `new row for relation "${name}" violates check constraint (empty or inverted range)`,
+          ) as Error & { code: string };
+          e.code = '23514';
+          throw e;
+        }
+        const clash = rows.find((r) => {
+          if (!exclusion.keys.every((k) => sameValue(r[k], data[k]))) return false;
+          const rFrom = rangeBound(r[exclusion.from], NaN);
+          const rTo = rangeBound(r[exclusion.to], Number.POSITIVE_INFINITY);
+          return from < rTo && rFrom < to;
+        });
+        if (clash) {
+          const e = new Error(
+            'conflicting key value violates exclusion constraint "provider_member_expectations_no_overlap"',
+          ) as Error & { code: string };
+          e.code = '23P01';
           throw e;
         }
       }

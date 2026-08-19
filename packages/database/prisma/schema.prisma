@@ -249,6 +249,7 @@ model Organization {
   measureBindings         ObjectiveMeasureBinding[]
   headlines               Headline[]
   observationDays         ProviderObservationDay[]
+  memberExpectations      ProviderMemberExpectation[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -342,6 +343,9 @@ model User {
   // is read as an organizational relationship anywhere.
   confirmedMeasureBindings ObjectiveMeasureBinding[] @relation("ObjectiveMeasureBindingConfirmer")
   dismissedHeadlines       Headline[]                @relation("HeadlineDismisser")
+  /// The expectation declarations this person made about a provider's population
+  /// members. Attribution only.
+  declaredMemberExpectations ProviderMemberExpectation[] @relation("ProviderMemberExpectationDeclarer")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -3646,4 +3650,112 @@ model ProviderObservationDay {
   @@unique([organizationId, provider, stream, businessDate], name: "observation_day_identity")
   @@index([organizationId, provider, stream, businessDate])
   @@map("provider_observation_days")
+}
+
+// ---------------------------------------------------------------------------
+// Provider member expectation — Commercial Intelligence Stage 3 correctness
+// ---------------------------------------------------------------------------
+
+/// What a human declared about one provider population member, in force over a
+/// range of business dates.
+///
+/// WHY THIS TABLE EXISTS. `provider_observation_days` proves Loop LOOKED at a
+/// day, and reconciliation proves what ARRIVED. Neither can say whether a record
+/// that never arrived was supposed to. On 2026-08-05 CallGrid held 974 call
+/// identities and Loop held 867; 9 of the 107 absences came from campaigns whose
+/// webhook was never attached and could not have arrived, and the rest came from
+/// campaigns that do deliver. From inside Loop both look identical — a row that
+/// is not there. This table is where a person says which is which.
+///
+/// EFFECTIVE-DATED, BECAUSE THE ALTERNATIVE REWRITES HISTORY. A current-state
+/// flag saying "this campaign is connected" would retroactively convert every day
+/// before the webhook was attached into a delivery failure nobody could have
+/// prevented. A declaration states what was true FROM a date, and a later
+/// declaration ends it rather than overwriting it. `effectiveFrom` is INCLUSIVE
+/// and `effectiveTo` is EXCLUSIVE, the half-open convention `EffectiveDateRange`
+/// already carries in @emgloop/shared; NULL means still in force.
+///
+/// UNKNOWN IS NOT STORABLE. Three states are declarable — EXPECTED,
+/// NOT_CONFIGURED, EXCLUDED. "Nobody has said" is the ABSENCE of a row covering
+/// the date, exactly as the absence of an observation row certifies nothing, and
+/// it fails closed at the measurement gate. There is no column here that could
+/// hold UNKNOWN and no way to write one.
+///
+/// NEVER INFERRED FROM TRAFFIC. Nothing writes this table because calls appeared,
+/// a webhook was configured, or a reconciliation found records. A campaign that
+/// broke would silently un-expect itself the moment it stopped delivering, and
+/// the alarm would disarm exactly when it was needed. Observed traffic that
+/// contradicts a declaration is reported as CAMPAIGN_EXPECTATION_CONTRADICTED and
+/// waits for a person.
+///
+/// AT MOST ONE DECLARATION IS IN FORCE PER MEMBER PER DATE, and that is enforced
+/// by the database rather than by callers: a Postgres EXCLUDE constraint over the
+/// member key and the half-open date range, added in the migration because Prisma
+/// cannot express it. Two declarations covering one date would mean the
+/// organization has said two things, and there is no tie-break that would not be
+/// invented.
+model ProviderMemberExpectation {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The sensor the member belongs to, e.g. "callgrid".
+  provider String
+  /// WHICH STREAM, following `provider_observation_days`. A campaign attached to
+  /// the calls webhook says nothing about the auction report feed, and one row
+  /// covering both would declare something nobody checked.
+  stream   String
+
+  /// A member of EXPECTATION_DIMENSIONS — 'CAMPAIGN' in v1. Held as a string, not
+  /// an enum, so widening the declarable dimensions is a contract change rather
+  /// than production DDL, the same reasoning `ObjectiveMeasureBinding.metric`
+  /// gives. Validated on the way in AND on the way out; an unrecognised value
+  /// fails closed to UNKNOWN.
+  memberDimension  String
+  /// The provider's own id for the member. IDENTITY IS THE ID, never the label:
+  /// a declaration keyed on a label changes meaning the day somebody renames a
+  /// campaign upstream.
+  memberExternalId String
+
+  /// EXPECTED | NOT_CONFIGURED | EXCLUDED. Held as a string for the same reason
+  /// as `memberDimension`, and validated against MEMBER_EXPECTATION_STATES in
+  /// both directions. UNKNOWN is not a member of that list and cannot be stored.
+  state           String
+  /// A member of MEMBER_EXCLUSION_REASONS. REQUIRED when state is EXCLUDED and
+  /// NULL otherwise — an exclusion nobody has to justify is a place to hide a
+  /// delivery failure.
+  exclusionReason String?
+  /// A member of MEMBER_EXPECTATION_BASES: how the declaration was arrived at.
+  /// PROVIDER_CONFIG_VERIFIED means somebody read the provider's own
+  /// configuration; OPERATOR_DECLARED means somebody stated it from knowledge of
+  /// the business. Stored so a conclusion drawn from a weaker basis carries that
+  /// weakness with it.
+  basis           String
+  /// Why, in plain language, for the person reading this in six months. Never a
+  /// credential, never a phone number, never a raw payload.
+  reason          String
+
+  /// INCLUSIVE. The first business date this declaration speaks for.
+  effectiveFrom DateTime  @db.Date
+  /// EXCLUSIVE, and NULL means open-ended. Written exactly once, by the
+  /// declaration that succeeds this one; the state, basis and reason of a closed
+  /// row are never touched, so what was true then stays readable.
+  effectiveTo   DateTime? @db.Date
+
+  /// Who said it. NULL when no human actor was resolvable — a script, or a
+  /// backfill — and never a fabricated identity. SetNull rather than Cascade: a
+  /// declaration outlives the person who made it, the reasoning audit_logs.userId
+  /// already follows.
+  declaredByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  declaredBy   User?        @relation("ProviderMemberExpectationDeclarer", fields: [declaredByUserId], references: [id], onDelete: SetNull)
+
+  /// Resolution reads one member's declarations in effective order. Tenant-first,
+  /// like every key in this stage: one organization's declaration must never
+  /// resolve another organization's member.
+  @@index([organizationId, provider, stream, memberDimension, memberExternalId, effectiveFrom], map: "provider_member_expectations_member_effective_idx")
+  @@map("provider_member_expectations")
 }

@@ -57,6 +57,20 @@ export const MEMBER_EXPECTATION_STATES = [
 export type MemberExpectationState = (typeof MEMBER_EXPECTATION_STATES)[number];
 
 /**
+ * Whether a stored string is a declarable state.
+ *
+ * FOR THE READ PATH, not the write path. A persistence layer holds these
+ * vocabularies as text so widening one is a contract change rather than
+ * production DDL, which means a row can outlive the vocabulary that wrote it.
+ * An unrecognised value must resolve UNKNOWN rather than be handed onward as if
+ * it meant something, so the guard fails closed. 'UNKNOWN' is not a member here
+ * and never will be.
+ */
+export function isMemberExpectationState(value: unknown): value is MemberExpectationState {
+  return typeof value === 'string' && (MEMBER_EXPECTATION_STATES as readonly string[]).includes(value);
+}
+
+/**
  * What a resolver returns. `UNKNOWN` is not declarable and not storable — it is
  * what "no declaration was in force on that date" resolves to, and it blocks.
  */
@@ -87,6 +101,11 @@ export const MEMBER_EXCLUSION_REASONS = [
 
 export type MemberExclusionReason = (typeof MEMBER_EXCLUSION_REASONS)[number];
 
+/** Whether a stored string names a real exclusion reason. Fails closed. */
+export function isMemberExclusionReason(value: unknown): value is MemberExclusionReason {
+  return typeof value === 'string' && (MEMBER_EXCLUSION_REASONS as readonly string[]).includes(value);
+}
+
 export const MEMBER_EXCLUSION_REASON_LABELS: Record<MemberExclusionReason, string> = {
   TEST_TRAFFIC: 'Test traffic',
   INTERNAL_TRAFFIC: 'Internal or house traffic',
@@ -104,6 +123,11 @@ export const MEMBER_EXPECTATION_BASES = [
 ] as const;
 
 export type MemberExpectationBasis = (typeof MEMBER_EXPECTATION_BASES)[number];
+
+/** Whether a stored string names a real basis. Fails closed. */
+export function isMemberExpectationBasis(value: unknown): value is MemberExpectationBasis {
+  return typeof value === 'string' && (MEMBER_EXPECTATION_BASES as readonly string[]).includes(value);
+}
 
 // --- The declaration ----------------------------------------------------------
 

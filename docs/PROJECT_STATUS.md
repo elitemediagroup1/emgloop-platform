@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-08-14._
+_Last updated: 2026-08-19._
 
 ---
 
@@ -436,10 +436,10 @@ Increment 4 (real-time product-click vertical slice + admin-only validation page
 `/app/admin/administration/cognitive-architecture`, simulator disabled in production unless an
 explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 
-## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 NOT AUTHORIZED
+## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 IN IMPLEMENTATION
 **Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
 **Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
-**Stage 3 — Headlines:** ARCHITECTURE ASSESSMENT COMPLETE · PRODUCT DEFINITION IN PROGRESS (Charlie + Lexi) · **IMPLEMENTATION NOT AUTHORIZED**
+**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161, #162, #163, #164, #165 · **PR #166 (PR 2 of 7) IN REVIEW, NOT MERGED** · PR 3 onward NOT AUTHORIZED
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -589,14 +589,50 @@ and the contract is already shaped for it: a new evaluator supplies a different 
 irrelevant until a real relevance model exists. Charlie and Lexi should design the Headlines
 experience against what Loop can honestly say today, marking the richer version as future vision.
 
-### Stage 3 — Headlines (NOT AUTHORIZED)
-**ARCHITECTURE ASSESSMENT COMPLETE · PRODUCT DEFINITION IN PROGRESS · IMPLEMENTATION NOT AUTHORIZED.**
+### Stage 3 — Headlines (IN IMPLEMENTATION · PR 2 OF 7 IN REVIEW)
+**IMPLEMENTATION IN PROGRESS.** Authorization now extends through **PR 2 of a 7-PR stack**.
+**PR 3 onward is NOT authorized.**
 
-No Headline schema, generation, routing, feed, seven-business-day logic, Investigate, Subject or Case
-exists, and no Stage 3 abstraction was prepared in advance. The architecture assessment identified
-6 product decisions (H-P1…H-P6) and 10 architecture decisions (H-ADR1…H-ADR10) that must close first;
-Charlie and Lexi own the Headlines experience definition in parallel. **Implementation begins only on
-a separate, explicit authorization.**
+Stage 3 makes an objective measurable, measures it only across days Loop can prove it observed, and
+states a material change as a Headline. Five PRs have merged; the current stack builds the
+completeness layer those PRs proved was missing.
+
+| PR | Merged | What it established |
+|---|---|---|
+| **#161** | 2026-08-16 | **Stage 3 v1.** `ObjectiveMeasureBinding` (immutable, versioned, supersede-only), deterministic measurement over two complete Eastern weeks, `Headline`, and human dismissal as attention feedback rather than an outcome. No Headline→Decision promotion, no scoring, no ranking, no LLM. Migration `20260817000000_ci_stage3_headlines`. |
+| **#162** | 2026-08-17 | **A measurement may not be computed over days nobody looked at.** `provider_observation_days` + `ProviderObservationService.certifyDay()` + a fourteen-day gate; `measureChange` now *requires* a `WindowObservation` and returns before any arithmetic when the window was not fully observed. Also: a page-budget exhaustion in `fetchAllCallGridCalls` no longer reports as a clean read. Migration `20260818000000_ci_stage3_observation_completeness`. |
+| **#163** | 2026-08-17 | **Certification runner** — `scripts/operations/certify-observation-days.ts` + a `workflow_dispatch` workflow, the only caller `certifyDay()` has. Source-constraint tests fail if the runner ever names certification internals, recovery, measurement or direct Prisma. |
+| **#164** | 2026-08-18 | **Read-only August 5 identity reconciliation diagnostic** + `workflow_dispatch` workflow. `provider_observation_days` persists a count, never an identity set, so it can say 107 records are absent but not *which*. Three refusal verdicts; PII excluded by allowlist, not by filtering. |
+| **#165** | 2026-08-19 | **PR 1 of 7 — the pure completeness contracts.** `member-expectation.ts`, `provider-reconciliation.ts`, `measurement-source.ts` and `measurement-readiness.ts` (`assessReadiness`), plus `EffectiveDateRange` in `business-time.ts` and 11 readiness reasons extending `MATERIALITY_WITHHOLDINGS` — among them `CAMPAIGN_EXPECTATION_CONTRADICTED`. **Nothing wired, nothing persisted; Stage 3 behaves exactly as it did before.** No migration. |
+
+**Deployed.** `Deploy Prisma Migrations` applied `20260817000000_ci_stage3_headlines` on 2026-08-16
+and `20260818000000_ci_stage3_observation_completeness` on 2026-08-17; that run's `migrate status`
+reported *"Database schema is up to date"* against all 17 migrations then on `main`. #163, #164 and
+#165 carry no migration. **Not yet production-verified** — no Headline has been observed rendering
+against real production data, and the certification runner has not been dispatched.
+
+**IN REVIEW — PR #166, PR 2 of 7: `ProviderMemberExpectation` persistence. DRAFT, base `main`, NOT
+MERGED.** It gives PR 1's vocabulary somewhere to live: one table
+(`provider_member_expectations`), one write method, one resolver, one audit read. Declarations are
+effective-dated and half-open (`effectiveFrom` inclusive, `effectiveTo` exclusive, NULL open-ended),
+because a current-state "is this campaign connected" flag would retroactively convert every day
+before a webhook was attached into a delivery failure nobody could have prevented. `UNKNOWN` remains
+unstorable — it is the absence of a row covering the date, and it fails closed at the gate. Nothing
+here reads traffic: a campaign that broke may not un-expect itself. At most one declaration per
+member per date is enforced by Postgres (`EXCLUDE USING gist` over `btree_gist`, plus a CHECK
+rejecting empty and inverted ranges), because application-level uniqueness is precisely what
+Sprint 29A proved review cannot sustain.
+
+⚠️ **Migration `20260819000000_ci_stage3_member_expectation` is NOT APPLIED, and it is the first
+migration in this repository to require `CREATE EXTENSION`.** `btree_gist` is supported on Neon
+(PostgreSQL 18, version 1.8) and the statement is `IF NOT EXISTS`, but **whether the role behind
+`DIRECT_DATABASE_URL` holds `CREATE` on the database has not been verified** — no prior migration
+has ever exercised that privilege. If it does not, the migration stops at that statement rather than
+creating the table without its invariant. Establish this before dispatching the deploy workflow.
+
+**PR 3 onward is NOT AUTHORIZED.** Reconciliation persistence, source-authority persistence,
+`SourceOutcomeDay`, the SSDI importer, production wiring of `assessReadiness`, and any Stage 3 UI
+all remain out of scope until separately authorized.
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a

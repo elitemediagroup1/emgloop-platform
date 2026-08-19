@@ -34,6 +34,7 @@ import { WorkRepository } from './work.repository';
 import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
 import { ProviderObservationRepository } from './provider-observation.repository';
+import { ProviderMemberExpectationRepository } from './provider-member-expectation.repository';
 import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 import { PerformanceObjectiveRepository } from './performance-objective.repository';
@@ -197,6 +198,18 @@ export type {
 export { ProviderObservationRepository, businessDateToColumn, columnToBusinessDate } from './provider-observation.repository';
 export type { RecordProviderObservationInput, ObservationDayView } from './provider-observation.repository';
 
+// Provider member expectation -- whether records from one population member were
+// SUPPOSED to reach Loop on a business date. Effective-dated human declarations,
+// never inferred from traffic, and the fact that separates a correct absence from
+// a delivery failure.
+export { ProviderMemberExpectationRepository } from './provider-member-expectation.repository';
+export type {
+  DeclareExpectationInput,
+  DeclareRejection,
+  DeclareResult,
+  ExpectationDeclarationView,
+} from './provider-member-expectation.repository';
+
 // Auction reporting — verified AGGREGATE bid/ping snapshots. Not event tables.
 export { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 export type { UpsertCounts, ReportRunRecord } from './marketplace-auction.repository';
@@ -304,6 +317,7 @@ export interface Repositories {
   measureBindings: ObjectiveMeasureBindingRepository;
   headlines: HeadlineRepository;
   providerObservations: ProviderObservationRepository;
+  memberExpectations: ProviderMemberExpectationRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): Repositories {
@@ -341,5 +355,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     measureBindings: new ObjectiveMeasureBindingRepository(prisma),
     headlines: new HeadlineRepository(prisma),
     providerObservations: new ProviderObservationRepository(prisma),
+    memberExpectations: new ProviderMemberExpectationRepository(prisma),
   };
 }
