@@ -580,6 +580,8 @@ test('the write surface takes no call, no value, no configuration and no verdict
     'previewSourceRegistration',
     'previewAuthorityDeclaration',
     'prepareDeclaration',
+    'previewMeasureDefinitionCorrection',
+    'readCorrectionState',
     // Private helpers. Both are selects.
     'metricsFor',
     'sourceKeysById',
@@ -589,7 +591,13 @@ test('the write surface takes no call, no value, no configuration and no verdict
   const writes = Object.getOwnPropertyNames(MeasurementSourceRepository.prototype).filter(
     (name) => name !== 'constructor' && !READ_ONLY.includes(name),
   );
-  assert.deepEqual(writes.sort(), ['declareAuthority', 'registerSource']);
+  // THREE WRITES, AND THE THIRD EARNED ITS PLACE. `correctMeasureDefinition`
+  // exists because registration refuses to overwrite a definition id -- correctly
+  // -- which left a mistyped one unfixable forever. It changes ONE column on one
+  // metric row, never source identity, and refuses outright once any authority
+  // names that source for that measure. It still takes no call, no value, no
+  // configuration and no verdict, which is what this test is really about.
+  assert.deepEqual(writes.sort(), ['correctMeasureDefinition', 'declareAuthority', 'registerSource']);
 
   for (const shape of [Object.keys(authority()), Object.keys(reportSource())]) {
     for (const forbidden of ['revenue', 'calls', 'observed', 'reconciliation', 'webhook', 'imported', 'value']) {
@@ -745,6 +753,206 @@ test('nothing in the authority layer knows which program it is', async () => {
         false,
         `no line of business may appear: ${forbidden}`,
       );
+    }
+  }
+});
+
+// --- Correcting a mistyped definition -------------------------------------------------
+//
+// THE SAFETY CONDITION IS APPLICATION-ONLY, WHICH IS WHY IT NEEDS THIS MANY
+// TESTS. Nothing in the database references a metric ROW -- an authority names
+// the SOURCE through a composite foreign key and carries `metric` as a plain
+// string -- so Postgres would accept this update at any time and report nothing
+// wrong. Every guard below is the repository's own.
+
+test('a mistyped definition is corrected while no authority names the source', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  const result = await h.sources.correctMeasureDefinition(ORG, {
+    sourceKey: STREAM_SOURCE,
+    metric: 'CALL_VOLUME',
+    measureDefinitionId: 'objective-measure-binding.v1:CALL_VOLUME',
+    reason: 'The first registration recorded the metric name in the definition field.',
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.from, 'calls.observed.v1');
+  assert.equal(result.to, 'objective-measure-binding.v1:CALL_VOLUME');
+
+  const stored = await h.sources.findSource(ORG, STREAM_SOURCE);
+  assert.equal(stored?.measureDefinitionIds.CALL_VOLUME, 'objective-measure-binding.v1:CALL_VOLUME');
+});
+
+test('correcting one metric leaves the source identity and every other metric alone', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  const before = await h.sources.findSource(ORG, STREAM_SOURCE);
+  await h.sources.correctMeasureDefinition(ORG, {
+    sourceKey: STREAM_SOURCE,
+    metric: 'CALL_VOLUME',
+    measureDefinitionId: 'corrected.v1',
+    reason: 'typo',
+  });
+  const after = await h.sources.findSource(ORG, STREAM_SOURCE);
+  assert.equal(after?.key, before?.key);
+  assert.equal(after?.kind, before?.kind);
+  assert.equal(after?.provider, before?.provider);
+  assert.equal(after?.stream, before?.stream);
+  assert.equal(after?.displayName, before?.displayName);
+  // The untouched metric keeps exactly what it said.
+  assert.equal(after?.measureDefinitionIds.REVENUE, before?.measureDefinitionIds.REVENUE);
+  assert.deepEqual(after?.supportedMetrics.slice().sort(), before?.supportedMetrics.slice().sort());
+  // One row per metric still, and the same rows.
+  assert.equal(h.prisma.measurementSourceMetric.__rows.length, 2);
+});
+
+test('an authority naming the source for that measure BLOCKS the correction', async () => {
+  const h = await seeded();
+  await h.sources.declareAuthority(ORG, authority({ metric: 'REVENUE', sourceKey: REPORT_SOURCE }));
+  const result = await h.sources.correctMeasureDefinition(ORG, {
+    sourceKey: REPORT_SOURCE,
+    metric: 'REVENUE',
+    measureDefinitionId: 'too.late.v1',
+    reason: 'attempting to redefine a measure something may already rest on',
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, 'BLOCKED_AUTHORITY_EXISTS');
+  assert.equal(result.authorityCount, 1);
+  const stored = await h.sources.findSource(ORG, REPORT_SOURCE);
+  assert.equal(stored?.measureDefinitionIds.REVENUE, 'counterparty.settled-revenue.v1');
+});
+
+test('an authority for a DIFFERENT measure on the same source does not block', async () => {
+  // The guard is per source AND measure. Blocking the whole source would refuse
+  // a correction that nothing could possibly depend on.
+  const h = await seeded();
+  await h.sources.declareAuthority(ORG, authority({ metric: 'REVENUE', sourceKey: STREAM_SOURCE }));
+  const result = await h.sources.correctMeasureDefinition(ORG, {
+    sourceKey: STREAM_SOURCE,
+    metric: 'CALL_VOLUME',
+    measureDefinitionId: 'corrected.v1',
+    reason: 'no authority names this source for call volume',
+  });
+  assert.equal(result.ok, true);
+});
+
+test("an authority on ANOTHER organization's source does not block this one", async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  await h.sources.registerSource(OTHER_ORG, streamSource());
+  await h.sources.declareAuthority(OTHER_ORG, authority({ metric: 'CALL_VOLUME', sourceKey: STREAM_SOURCE }));
+  const result = await h.sources.correctMeasureDefinition(ORG, {
+    sourceKey: STREAM_SOURCE,
+    metric: 'CALL_VOLUME',
+    measureDefinitionId: 'corrected.v1',
+    reason: 'the blocking authority belongs to a different tenant',
+  });
+  assert.equal(result.ok, true);
+});
+
+test('an unregistered source, an undeclared metric and an identical definition each refuse', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  const cases: Array<[Partial<{ sourceKey: string; metric: 'NO_ROUTE_RATE' | 'CALL_VOLUME'; measureDefinitionId: string }>, string]> = [
+    [{ sourceKey: 'never-registered' }, 'SOURCE_NOT_FOUND'],
+    [{ metric: 'NO_ROUTE_RATE' }, 'METRIC_NOT_FOUND'],
+    [{ measureDefinitionId: 'calls.observed.v1' }, 'ALREADY_EQUIVALENT'],
+  ];
+  for (const [over, expected] of cases) {
+    const result = await h.sources.correctMeasureDefinition(ORG, {
+      sourceKey: STREAM_SOURCE,
+      metric: 'CALL_VOLUME',
+      measureDefinitionId: 'corrected.v1',
+      reason: 'r',
+      ...over,
+    });
+    assert.equal(result.ok, false, `${expected} must refuse`);
+    if (!result.ok) assert.equal(result.reason, expected);
+  }
+});
+
+test('a blank definition and a blank reason are refused before anything is read', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  for (const over of [{ measureDefinitionId: '   ' }, { reason: '  ' }]) {
+    const result = await h.sources.correctMeasureDefinition(ORG, {
+      sourceKey: STREAM_SOURCE,
+      metric: 'CALL_VOLUME',
+      measureDefinitionId: 'corrected.v1',
+      reason: 'r',
+      ...over,
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, 'INVALID_REQUEST');
+  }
+  const stored = await h.sources.findSource(ORG, STREAM_SOURCE);
+  assert.equal(stored?.measureDefinitionIds.CALL_VOLUME, 'calls.observed.v1');
+});
+
+test('a correction cannot reach another organization\'s source', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  const result = await h.sources.correctMeasureDefinition(OTHER_ORG, {
+    sourceKey: STREAM_SOURCE,
+    metric: 'CALL_VOLUME',
+    measureDefinitionId: 'corrected.v1',
+    reason: 'cross tenant',
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, 'SOURCE_NOT_FOUND');
+  const stored = await h.sources.findSource(ORG, STREAM_SOURCE);
+  assert.equal(stored?.measureDefinitionIds.CALL_VOLUME, 'calls.observed.v1');
+});
+
+test('the preview reports every outcome and writes nothing', async () => {
+  const h = await seeded();
+  await h.sources.declareAuthority(ORG, authority({ metric: 'REVENUE', sourceKey: REPORT_SOURCE }));
+
+  const would = await h.sources.previewMeasureDefinitionCorrection(ORG, {
+    sourceKey: STREAM_SOURCE, metric: 'CALL_VOLUME', measureDefinitionId: 'corrected.v1', reason: 'r',
+  });
+  assert.equal(would.outcome, 'WOULD_CORRECT');
+  assert.equal(would.currentDefinitionId, 'calls.observed.v1');
+  assert.equal(would.requestedDefinitionId, 'corrected.v1');
+  assert.equal(would.authorityCount, 0);
+
+  const blocked = await h.sources.previewMeasureDefinitionCorrection(ORG, {
+    sourceKey: REPORT_SOURCE, metric: 'REVENUE', measureDefinitionId: 'corrected.v1', reason: 'r',
+  });
+  assert.equal(blocked.outcome, 'BLOCKED_AUTHORITY_EXISTS');
+  assert.equal(blocked.authorityCount, 1);
+  // The blocked preview still names what is in there, which is the operator's
+  // next question.
+  assert.equal(blocked.currentDefinitionId, 'counterparty.settled-revenue.v1');
+
+  const same = await h.sources.previewMeasureDefinitionCorrection(ORG, {
+    sourceKey: STREAM_SOURCE, metric: 'CALL_VOLUME', measureDefinitionId: 'calls.observed.v1', reason: 'r',
+  });
+  assert.equal(same.outcome, 'ALREADY_EQUIVALENT');
+
+  // Nothing moved.
+  const stored = await h.sources.findSource(ORG, STREAM_SOURCE);
+  assert.equal(stored?.measureDefinitionIds.CALL_VOLUME, 'calls.observed.v1');
+});
+
+test('the preview and the correction agree on every outcome', async () => {
+  const h = await seeded();
+  await h.sources.declareAuthority(ORG, authority({ metric: 'REVENUE', sourceKey: REPORT_SOURCE }));
+  const cases = [
+    { sourceKey: STREAM_SOURCE, metric: 'CALL_VOLUME' as const, measureDefinitionId: 'corrected.v1', reason: 'r' },
+    { sourceKey: STREAM_SOURCE, metric: 'CALL_VOLUME' as const, measureDefinitionId: 'corrected.v1', reason: 'r' },
+    { sourceKey: REPORT_SOURCE, metric: 'REVENUE' as const, measureDefinitionId: 'x.v1', reason: 'r' },
+    { sourceKey: 'nope', metric: 'CALL_VOLUME' as const, measureDefinitionId: 'x.v1', reason: 'r' },
+  ];
+  for (const c of cases) {
+    const preview = await h.sources.previewMeasureDefinitionCorrection(ORG, c);
+    const write = await h.sources.correctMeasureDefinition(ORG, c);
+    if (preview.outcome === 'WOULD_CORRECT') {
+      assert.equal(write.ok, true);
+    } else {
+      assert.equal(write.ok, false);
+      if (!write.ok) assert.equal(write.reason, preview.outcome);
     }
   }
 });

@@ -172,6 +172,130 @@ export interface AuthorityDeclarationView extends MeasureSourceAuthorityDeclarat
   updatedAt: string;
 }
 
+// --- Correcting a mistyped definition ---------------------------------------------
+
+export interface CorrectDefinitionInput {
+  /** The key of a source THIS organization has registered. */
+  sourceKey: string;
+  /** The measure whose definition is being corrected. Never changed itself. */
+  metric: MeasureMetric;
+  /** The definition id the source should have declared. */
+  measureDefinitionId: string;
+  /** Why, in plain language. Required, and recorded in the run log. */
+  reason: string;
+}
+
+/** Why a correction did not happen. Each is a state, not a failure of nerve. */
+export type CorrectDefinitionRejection =
+  | 'INVALID_REQUEST'
+  | 'SOURCE_NOT_FOUND'
+  | 'METRIC_NOT_FOUND'
+  | 'ALREADY_EQUIVALENT'
+  /** An authority names this source for this measure. See `correctMeasureDefinition`. */
+  | 'BLOCKED_AUTHORITY_EXISTS';
+
+export type CorrectDefinitionResult =
+  | {
+      ok: true;
+      sourceKey: string;
+      metric: MeasureMetric;
+      /** What the row said before. Kept so the run log can show both. */
+      from: string;
+      to: string;
+      authorityCount: 0;
+    }
+  | {
+      ok: false;
+      reason: CorrectDefinitionRejection;
+      problems: readonly string[];
+      currentDefinitionId: string | null;
+      authorityCount: number;
+    };
+
+export interface CorrectDefinitionPreview {
+  outcome: 'WOULD_CORRECT' | CorrectDefinitionRejection;
+  currentDefinitionId: string | null;
+  requestedDefinitionId: string;
+  /** How many authorities name this source for this measure. Non-zero blocks. */
+  authorityCount: number;
+  problems: readonly string[];
+}
+
+/** The three facts a correction turns on. */
+export interface CorrectionState {
+  sourceId: string | null;
+  metricRowId: string | null;
+  currentDefinitionId: string | null;
+  authorityCount: number;
+}
+
+export type CorrectDefinitionDecision =
+  | { kind: 'CORRECT'; from: string; to: string }
+  | { kind: CorrectDefinitionRejection; problems: string[] };
+
+/**
+ * Whether a definition may be corrected, decided in ONE place.
+ *
+ * ORDER IS DELIBERATE. Existence first, because an operator who mistyped the
+ * source key needs to hear that rather than a guess about authority. Then the
+ * no-op, because restating what the row already says is not a correction and
+ * must not consume the one-time window. Then the authority guard LAST, so the
+ * blocked message can name what the row currently says -- the operator's next
+ * question is always "then what is in there?"
+ */
+export function decideMeasureDefinitionCorrection(
+  state: CorrectionState,
+  requestedDefinitionId: string,
+): CorrectDefinitionDecision {
+  if (state.sourceId === null) {
+    return { kind: 'SOURCE_NOT_FOUND', problems: ['no source is registered under that key for this organization'] };
+  }
+  if (state.metricRowId === null || state.currentDefinitionId === null) {
+    return { kind: 'METRIC_NOT_FOUND', problems: ['that source does not declare this measure'] };
+  }
+  if (state.currentDefinitionId === requestedDefinitionId) {
+    return { kind: 'ALREADY_EQUIVALENT', problems: ['the source already declares exactly this definition'] };
+  }
+  if (state.authorityCount > 0) {
+    return {
+      kind: 'BLOCKED_AUTHORITY_EXISTS',
+      problems: [
+        `${state.authorityCount} authority declaration(s) name this source for this measure, so it may already have been measured from`,
+        `the definition stays "${state.currentDefinitionId}"; register a NEW source rather than redefining a measure a published number may rest on`,
+      ],
+    };
+  }
+  return { kind: 'CORRECT', from: state.currentDefinitionId, to: requestedDefinitionId };
+}
+
+function correctionProblems(
+  input: CorrectDefinitionInput,
+): { reason: 'INVALID_REQUEST'; problems: string[] } | null {
+  const problems: string[] = [];
+  if (typeof input.sourceKey !== 'string' || input.sourceKey.trim() === '') {
+    problems.push('sourceKey is required');
+  }
+  if (!isMeasureMetric(input.metric)) {
+    problems.push(`${String(input.metric)} is not a measure`);
+  }
+  if (typeof input.measureDefinitionId !== 'string' || input.measureDefinitionId.trim() === '') {
+    // The same refusal the database CHECK makes, reached before a write is
+    // attempted: blanking a definition would leave the metric supported and
+    // unusable, which `sourceSupports` treats as not supported at all.
+    problems.push('measureDefinitionId is required and cannot be blank');
+  }
+  if (typeof input.reason !== 'string' || input.reason.trim() === '') {
+    problems.push('a correction must say why, in plain language');
+  }
+  return problems.length > 0 ? { reason: 'INVALID_REQUEST', problems } : null;
+}
+
+/** What `$transaction` hands a callback. Narrowed to what corrections use. */
+type TransactionClient = Pick<
+  PrismaClient,
+  'measurementSource' | 'measurementSourceMetric' | 'measureSourceAuthority'
+>;
+
 /** What declaring WOULD do, decided by the same functions the write uses. */
 export interface AuthorityDeclarationPreview {
   outcome: 'WOULD_CREATE' | 'WOULD_SUPERSEDE' | 'ALREADY_EQUIVALENT' | 'BLOCKED';
@@ -593,6 +717,176 @@ export class MeasurementSourceRepository {
     if (!row) return null;
     const metrics = await this.metricsFor(organizationId, [row.id]);
     return toSourceDefinition({ ...row, metrics: metrics.get(row.id) ?? [] });
+  }
+
+  // --- Correcting a definition that was mistyped -----------------------------------
+
+  /**
+   * Correct the definition id on a metric a source already declares.
+   *
+   * WHY THIS EXISTS AT ALL, GIVEN REGISTRATION REFUSES TO OVERWRITE. Registration
+   * refuses a differing definition id because overwriting one silently redefines
+   * what a stored measurement measured. That refusal is right, and it has one
+   * consequence nobody wanted: a definition id typed wrongly on the first
+   * registration is unfixable through the registration path forever. This is the
+   * narrow, guarded exception, and it is a CORRECTION -- one column, one row --
+   * never a second way to register.
+   *
+   * THE SAFETY CONDITION IS NOT REFERENTIAL, WHICH IS EXACTLY WHY IT NEEDS A
+   * GUARD. Nothing in the database references a metric ROW: `MeasureSourceAuthority`
+   * names the SOURCE through a composite foreign key and carries `metric` as a
+   * plain string column, and `measureDefinitionId` is stored in exactly one place
+   * and copied nowhere. So Postgres would accept this update at any time, under
+   * any circumstances, and report nothing wrong. The danger is entirely semantic,
+   * and a semantic danger the database cannot see is one the repository must
+   * refuse itself.
+   *
+   * SO: CORRECTION IS SAFE ONLY WHILE NO AUTHORITY NAMES THIS SOURCE FOR THIS
+   * MEASURE.
+   *
+   * Before any authority exists, no measurement can have been computed from this
+   * source at all -- the gate resolves MISSING and withholds -- so no published
+   * number depends on the old string, and correcting it changes the meaning of
+   * nothing.
+   *
+   * Once an authority exists, the source can be measured from, and the definition
+   * id becomes load-bearing in two directions at once: it says what a stored
+   * measurement measured, and it decides whether this source may ever be combined
+   * with another. Changing it then would retroactively redefine a published
+   * number and silently start or stop two sources agreeing -- with no write to
+   * the authority, no write to the Headline, and nothing in either to show it
+   * happened. That is refused, and the operator declares a NEW source instead.
+   */
+  async correctMeasureDefinition(
+    organizationId: string,
+    input: CorrectDefinitionInput,
+  ): Promise<CorrectDefinitionResult> {
+    const shape = correctionProblems(input);
+    if (shape) {
+      return {
+        ok: false,
+        reason: shape.reason,
+        problems: shape.problems,
+        currentDefinitionId: null,
+        authorityCount: 0,
+      };
+    }
+
+    const sourceKey = input.sourceKey.trim();
+    const newDefinitionId = input.measureDefinitionId.trim();
+
+    return this.prisma.$transaction(async (tx) => {
+      // THE AUTHORITY CHECK IS RE-ASKED INSIDE THE TRANSACTION, not carried over
+      // from the preview. There is no database constraint behind this invariant,
+      // so the narrowest possible window between deciding and writing is the only
+      // protection there is. See the note on the residual race below.
+      const state = await this.readCorrectionState(tx, organizationId, sourceKey, input.metric);
+      const decision = decideMeasureDefinitionCorrection(state, newDefinitionId);
+
+      if (decision.kind !== 'CORRECT') {
+        return {
+          ok: false as const,
+          reason: decision.kind,
+          problems: decision.problems,
+          currentDefinitionId: decision.kind === 'ALREADY_EQUIVALENT' ? newDefinitionId : (state.currentDefinitionId ?? null),
+          authorityCount: state.authorityCount,
+        };
+      }
+
+      // ONE COLUMN, ON ONE ROW, RESOLVED WITHIN THE ORGANIZATION. The row is
+      // addressed by its own id -- already proven to belong to this tenant's
+      // source by the scoped read above -- and nothing else about it is touched:
+      // not the metric, not the source it belongs to, not the source's key, kind,
+      // provider or stream.
+      await tx.measurementSourceMetric.update({
+        where: { id: state.metricRowId! },
+        data: { measureDefinitionId: newDefinitionId },
+      });
+
+      return {
+        ok: true as const,
+        sourceKey,
+        metric: input.metric,
+        from: decision.from,
+        to: decision.to,
+        authorityCount: 0,
+      };
+    });
+  }
+
+  /**
+   * What correcting a definition WOULD do, without doing it.
+   *
+   * It reads the same three things the write reads and asks the SAME decision
+   * function, so a preview reporting WOULD_CORRECT cannot be followed by a write
+   * that refuses -- except in the one case that matters and cannot be designed
+   * away: an authority declared between the two calls. The write re-asks inside
+   * its transaction precisely so that case is caught there rather than assumed
+   * away here.
+   */
+  async previewMeasureDefinitionCorrection(
+    organizationId: string,
+    input: CorrectDefinitionInput,
+  ): Promise<CorrectDefinitionPreview> {
+    const shape = correctionProblems(input);
+    if (shape) {
+      return {
+        outcome: shape.reason,
+        currentDefinitionId: null,
+        requestedDefinitionId: input.measureDefinitionId?.trim() ?? '',
+        authorityCount: 0,
+        problems: shape.problems,
+      };
+    }
+    const sourceKey = input.sourceKey.trim();
+    const requested = input.measureDefinitionId.trim();
+    const state = await this.readCorrectionState(this.prisma, organizationId, sourceKey, input.metric);
+    const decision = decideMeasureDefinitionCorrection(state, requested);
+
+    return {
+      outcome: decision.kind === 'CORRECT' ? 'WOULD_CORRECT' : decision.kind,
+      currentDefinitionId: state.currentDefinitionId ?? null,
+      requestedDefinitionId: requested,
+      authorityCount: state.authorityCount,
+      problems: decision.kind === 'CORRECT' ? [] : decision.problems,
+    };
+  }
+
+  /**
+   * The three facts a correction turns on, read within the organization.
+   *
+   * Takes the client so the write can ask it inside its transaction and the
+   * preview outside one, without two versions of the query existing.
+   */
+  private async readCorrectionState(
+    client: PrismaClient | TransactionClient,
+    organizationId: string,
+    sourceKey: string,
+    metric: MeasureMetric,
+  ): Promise<CorrectionState> {
+    const source = await client.measurementSource.findFirst({
+      where: { organizationId, key: sourceKey },
+      select: { id: true },
+    });
+    if (!source) {
+      return { sourceId: null, metricRowId: null, currentDefinitionId: null, authorityCount: 0 };
+    }
+    const row = await client.measurementSourceMetric.findFirst({
+      where: { organizationId, measurementSourceId: source.id, metric },
+      select: { id: true, measureDefinitionId: true },
+    });
+    // COUNTED EVEN WHEN THE METRIC ROW IS ABSENT. An authority naming a source
+    // for a measure the source no longer declares is a state worth reporting
+    // rather than hiding behind METRIC_NOT_FOUND.
+    const authorityCount = await client.measureSourceAuthority.count({
+      where: { organizationId, measurementSourceId: source.id, metric },
+    });
+    return {
+      sourceId: source.id,
+      metricRowId: row?.id ?? null,
+      currentDefinitionId: row?.measureDefinitionId ?? null,
+      authorityCount,
+    };
   }
 
   /**

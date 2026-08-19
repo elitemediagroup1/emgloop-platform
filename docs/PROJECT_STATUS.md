@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-08-19 (source-authority operations bridge in review)._
+_Last updated: 2026-08-19 (metric-definition correction in review)._
 
 ---
 
@@ -797,6 +797,40 @@ only. Two PR 4 tests asserting the replace behaviour were updated and six were a
 
 **No migration.** **No source has been registered and no authority declared in production.** The
 first real use is: dry-run a registration, review, write; then dry-run an authority, review, write.
+
+### Metric definition correction — IN REVIEW, NOT MERGED
+**Not PR 5.** The first production source registration recorded the METRIC NAME in the definition
+field. Registration deliberately refuses to overwrite a definition id, which is right and left that
+value unfixable through the registration path forever. This is the narrow, guarded exception — one
+column on one metric row.
+
+**THE SAFETY CONDITION IS APPLICATION-ONLY, AND THAT IS THE POINT.** Nothing in the database
+references a metric ROW: an authority names the SOURCE through a composite foreign key and carries
+`metric` as a plain string column, and `measureDefinitionId` is stored in exactly one place and
+copied nowhere. Postgres would accept this update at any moment and report nothing wrong. The danger
+is entirely semantic, so the repository refuses it itself:
+
+**Correction is safe ONLY while no authority names that source for that measure.** Before an
+authority exists nothing can have been measured from the source — the gate resolves MISSING and
+withholds — so no published number depends on the old string. Once one exists, changing the
+definition would retroactively redefine a published number and silently start or stop two sources
+agreeing, with nothing in either to show it happened. It **fails closed**, and the operator registers
+a NEW source instead — which the run summary says explicitly, so the pressure is never to find a way
+around the guard.
+
+- The guard is **per source AND measure**, not per source: an authority on a different metric of the
+  same source does not block.
+- The guard is **re-asked inside the write's transaction**, not carried over from the preview. There
+  is no database constraint behind it, so the narrowest window between deciding and writing is the
+  only protection; a residual race with a concurrent declaration remains and is documented rather
+  than hidden.
+- **Identity cannot be changed through it.** No input for kind, provider, stream, a source id or a
+  row id, and no code path that writes one — asserted structurally.
+- **Provenance is the run record.** The metric row has no reason column and adding one would be a
+  migration this fix deliberately does not carry. The required plain-language reason, the
+  dispatcher, and BOTH the old and new definition ids are printed and preserved in the Actions log.
+
+**No migration. No production change — the workflow has not been dispatched.**
 
 **PR 5 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the buyer-report importer,
 production wiring of `assessReadiness`, and any Stage 3 UI all remain out of scope until separately
