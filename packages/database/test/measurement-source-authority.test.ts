@@ -355,22 +355,117 @@ test('a source registers with exactly the metrics it declares a definition for',
   assert.equal(result.source.kind, 'BUYER_REPORT');
   assert.equal(result.source.provider, null);
   assert.equal(result.source.stream, null);
-  assert.equal(result.created, true);
+  assert.equal(result.outcome, 'CREATED');
 });
 
-test('re-registering the same key REPLACES its metric set rather than merging', async () => {
+test('re-registering a metric a source already declares identically writes nothing', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  const again = await h.sources.registerSource(ORG, streamSource());
+  assert.equal(again.ok, true);
+  if (!again.ok) return;
+  assert.equal(again.outcome, 'ALREADY_EQUIVALENT');
+  assert.deepEqual(again.addedMetrics, []);
+  assert.equal(h.prisma.measurementSource.__rows.length, 1);
+});
+
+test('registering ONE metric ADDS it and leaves the others alone', async () => {
+  // THE REPLACE SEMANTICS THIS REPLACED WERE A HAZARD. The operations bridge
+  // registers one metric per dispatch, so a wholesale replace would have
+  // silently deleted every other metric the source declared -- and a metric row
+  // is not protected by the ON DELETE RESTRICT that guards the source, so
+  // authorities naming it would have started failing the gate with no write
+  // anybody performed on them.
   const h = make();
   await h.sources.registerSource(ORG, streamSource());
   const again = await h.sources.registerSource(
     ORG,
-    streamSource({ metrics: [{ metric: 'CALL_VOLUME', measureDefinitionId: 'calls.observed.v1' }] }),
+    streamSource({ metrics: [{ metric: 'NO_ROUTE_RATE', measureDefinitionId: 'stream.no-route.v1' }] }),
   );
   assert.equal(again.ok, true);
   if (!again.ok) return;
-  // A metric withdrawn from a source must stop being supported, not linger.
-  assert.deepEqual(again.source.supportedMetrics, ['CALL_VOLUME']);
-  assert.equal(again.created, false);
+  assert.equal(again.outcome, 'ADDED_METRIC');
+  assert.deepEqual(again.addedMetrics, ['NO_ROUTE_RATE']);
+  assert.deepEqual(again.source.supportedMetrics.slice().sort(), ['CALL_VOLUME', 'NO_ROUTE_RATE', 'REVENUE']);
   assert.equal(h.prisma.measurementSource.__rows.length, 1);
+});
+
+test('re-pointing a registered key at a different stream is REFUSED, never applied', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  const again = await h.sources.registerSource(ORG, streamSource({ stream: 'something-else' }));
+  assert.equal(again.ok, false);
+  if (again.ok) return;
+  assert.equal(again.reason, 'SOURCE_IDENTITY_CONFLICT');
+  const stored = await h.sources.findSource(ORG, STREAM_SOURCE);
+  assert.equal(stored?.stream, 'calls');
+});
+
+test('redefining a metric a source already declares is REFUSED, never overwritten', async () => {
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  const again = await h.sources.registerSource(
+    ORG,
+    streamSource({ metrics: [{ metric: 'CALL_VOLUME', measureDefinitionId: 'something.else.v1' }] }),
+  );
+  assert.equal(again.ok, false);
+  if (again.ok) return;
+  assert.equal(again.reason, 'METRIC_DEFINITION_CONFLICT');
+  const stored = await h.sources.findSource(ORG, STREAM_SOURCE);
+  assert.equal(stored?.measureDefinitionIds.CALL_VOLUME, 'calls.observed.v1');
+});
+
+test('a preview reports what registering would do and writes nothing', async () => {
+  const h = make();
+  const fresh = await h.sources.previewSourceRegistration(ORG, streamSource());
+  assert.equal(fresh.outcome, 'CREATED');
+  assert.equal(fresh.existing, null);
+  assert.deepEqual(fresh.wouldAddMetrics, ['CALL_VOLUME', 'REVENUE']);
+  assert.equal(h.prisma.measurementSource.__rows.length, 0);
+  assert.equal(h.prisma.measurementSourceMetric.__rows.length, 0);
+
+  await h.sources.registerSource(ORG, streamSource());
+  const same = await h.sources.previewSourceRegistration(ORG, streamSource());
+  assert.equal(same.outcome, 'ALREADY_EQUIVALENT');
+  assert.deepEqual(same.wouldAddMetrics, []);
+
+  const added = await h.sources.previewSourceRegistration(
+    ORG,
+    streamSource({ metrics: [{ metric: 'NO_ROUTE_RATE', measureDefinitionId: 'stream.no-route.v1' }] }),
+  );
+  assert.equal(added.outcome, 'ADDED_METRIC');
+  assert.deepEqual(added.wouldAddMetrics, ['NO_ROUTE_RATE']);
+  // Still exactly what the write left behind.
+  assert.equal(h.prisma.measurementSourceMetric.__rows.length, 2);
+
+  const conflict = await h.sources.previewSourceRegistration(ORG, streamSource({ stream: 'other' }));
+  assert.equal(conflict.outcome, 'BLOCKED');
+  assert.equal(conflict.reason, 'SOURCE_IDENTITY_CONFLICT');
+});
+
+test('the preview and the write agree on every registration outcome', async () => {
+  // The property that makes a dry run worth running: preview cannot say one
+  // thing and the write then do another, because both ask one function.
+  const cases: Array<Parameters<typeof streamSource>[0]> = [
+    undefined,
+    { metrics: [{ metric: 'NO_ROUTE_RATE', measureDefinitionId: 'stream.no-route.v1' }] },
+    { metrics: [{ metric: 'CALL_VOLUME', measureDefinitionId: 'divergent.v1' }] },
+    { stream: 'other' },
+  ];
+  const h = make();
+  await h.sources.registerSource(ORG, streamSource());
+  for (const over of cases) {
+    const input = streamSource(over);
+    const preview = await h.sources.previewSourceRegistration(ORG, input);
+    const write = await h.sources.registerSource(ORG, input);
+    if (preview.outcome === 'BLOCKED') {
+      assert.equal(write.ok, false);
+      if (!write.ok) assert.equal(write.reason, preview.reason);
+    } else {
+      assert.equal(write.ok, true);
+      if (write.ok) assert.equal(write.outcome, preview.outcome);
+    }
+  }
 });
 
 test('PROVIDER_STREAM requires a provider and a stream; BUYER_REPORT forbids them', async () => {
@@ -478,6 +573,13 @@ test('the write surface takes no call, no value, no configuration and no verdict
     'resolveAuthorityOn',
     'authoritiesFor',
     'readinessFacts',
+    // Both previews. Each reads the rows its write would read and asks the SAME
+    // decision function, and neither opens a transaction or calls the write --
+    // a dry run that invoked a mutating method would be a write with a comment
+    // on it. Tests above assert preview and write agree on every outcome.
+    'previewSourceRegistration',
+    'previewAuthorityDeclaration',
+    'prepareDeclaration',
     // Private helpers. Both are selects.
     'metricsFor',
     'sourceKeysById',
