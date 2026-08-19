@@ -1,0 +1,193 @@
+# Stage 3 Production Bootstrap.
+#
+# Applies an EXPLICITLY WRITTEN configuration plan -- several member expectations
+# and several source authorities -- in one human-dispatched run, for the INITIAL
+# production configuration of a tenant.
+#
+# WHY THIS EXISTS. The individual mechanisms are proven in production: an
+# expectation can be declared, a source registered, a mistyped definition
+# corrected, and one real source authority has been created and read back. What
+# remains is the first full configuration of a tenant, which through the
+# one-declaration workflows is dozens of hand-filled forms -- each one an
+# opportunity to mistype a campaign id, and none of them reviewable as a whole
+# before any of it is live.
+#
+# THIS DOES NOT REPLACE THE ONE-AT-A-TIME WORKFLOWS. `Declare Member
+# Expectations` and `Declare Measure Source Authority` remain the long-term
+# correction and maintenance tools, and every later change goes through them.
+# This is bootstrap tooling, and it is deletable the day a real operator surface
+# ships.
+#
+# WHY MULTI-MEMBER IS ALLOWED HERE. The single-declaration workflows refuse batch
+# mode because a declaration is a human statement and a batch would collapse
+# several statements into one act. That objection is about INFERENCE, not arity.
+# Here every statement is separately and explicitly present in the plan the human
+# wrote: nothing is derived from traffic, nothing is derived from a sibling
+# entry, every entry gets its own preview line, its own result line and its own
+# index in the run record, and processing is sequential.
+#
+# THE RUNNER CLASSIFIES NOTHING. It never decides whether a campaign is EXPECTED,
+# NOT_CONFIGURED or EXCLUDED, which source is authoritative, which measure a
+# source owns, or which date anything takes effect from. It reads no calls, no
+# revenue, no webhook configuration, no reconciliation verdict and no import, and
+# holds no provider credential. A value not written in the plan does not exist to
+# it.
+#
+# FULL-PLAN PREFLIGHT. Before ANY write, every entry is previewed through the
+# repository that owns it and the entire intended result set is printed. One
+# blocked entry stops the whole run with zero writes -- there is no
+# half-bootstrap where entry 8 was malformed and entries 1-7 are already live.
+#
+# WHAT IT CANNOT DO. It registers no measurement source, registers no source
+# metric, corrects no definition id, reconciles nothing, certifies no observation
+# day, contacts no provider, ingests nothing, measures nothing and produces no
+# Headline. Every source and metric it names must already be registered. The
+# safety suite that proves this by reading the runner's own source runs BEFORE
+# the production credential is used.
+#
+# THE PLAN IS AN INPUT, NEVER A FILE IN THIS REPOSITORY. No campaign id,
+# organization slug, source key or date is committed here or in the runner. A
+# plan checked in would be a production configuration that drifts silently from
+# production.
+#
+# DRY RUN FIRST. `dry_run: true` performs the identical full-plan preflight
+# against production and writes nothing -- neither mutating method is called at
+# all. Run it, read every line, then dispatch again with `dry_run: false`.
+#
+# NO SCHEDULE, DELIBERATELY, AND NEVER ONE. This is a human act performed once.
+# There is no version of this job that should fire on a timer, on a push, or from
+# another workflow.
+
+name: Stage 3 Production Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan_json:
+        description: 'The bootstrap plan, as one line of JSON. See the workflow header and the runner for the schema.'
+        required: true
+        type: string
+      declarer_email:
+        description: 'Optional. EMG account email of the person declaring this; resolved within the organization. Blank records no actor.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Preview every entry and write nothing'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+# This job writes to production and must only ever be started by a human from the
+# Actions tab.
+
+permissions:
+  contents: read
+
+# Two runs of this job at once would race on the effective ranges they write. The
+# database's EXCLUDE constraints are the real guarantee -- and note that the
+# single-declaration workflows carry their own concurrency groups, so a bootstrap
+# run and a declaration run are NOT serialised against each other. The runner
+# stops on the first write-time conflict and reports exactly what was already
+# written rather than pretending the run succeeded.
+concurrency:
+  group: bootstrap-stage3-production
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Apply the Stage 3 bootstrap plan
+    runs-on: ubuntu-latest
+    # Bounded by database round trips, not by a provider.
+    timeout-minutes: 30
+
+    steps:
+      - name: Fail closed when the production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, never printed and never written
+          # to the step summary. No provider credential is requested: this run
+          # never reads traffic.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            echo "Add it under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Stage the plan
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Written to a file rather than
+          # passed as an argument so no shell ever parses its contents.
+          PLAN_JSON: ${{ inputs.plan_json }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$(printf '%s' "${PLAN_JSON}" | tr -d '[:space:]')" ]; then
+            echo "::error::plan_json is required."
+            exit 1
+          fi
+          printf '%s' "${PLAN_JSON}" > "${RUNNER_TEMP}/bootstrap-plan.json"
+          # The plan is NOT echoed here. Every entry is printed by the runner in
+          # a structured, indexed form; dumping the raw input as well would add
+          # nothing and is one more place for a paste to land in a log.
+          echo "Staged a plan of $(wc -c < "${RUNNER_TEMP}/bootstrap-plan.json") bytes."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching deploy-prisma-migrations.yml and its sibling
+        # operations workflows. This step also runs `prisma generate` through the
+        # database package's postinstall, which the runner needs.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These
+        # suites read the runner's own source and fail if it names source
+        # registration, definition correction, reconciliation, certification,
+        # ingestion, recovery, a provider adapter, measurement, Headlines or a
+        # Prisma delegate. A red step here means the write boundary moved, and no
+        # production connection is opened.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Apply the plan
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          DECLARER_EMAIL: ${{ inputs.declarer_email }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(--plan-file "${RUNNER_TEMP}/bootstrap-plan.json")
+          if [ -n "${DECLARER_EMAIL:-}" ]; then args+=(--declarer-email "${DECLARER_EMAIL}"); fi
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); fi
+          npm run bootstrap:stage3 -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Bootstrap stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read the log above:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRECONDITION_FAILED\` - the plan, the organization or the declarer email could not be resolved. **Nothing was written.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`OVERALL_RESULT=BLOCKED\` - at least one entry failed the preflight, so **no entry was written**. \`BLOCKED_ENTRIES\` names them and each carries its own \`reason=\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=SOURCE_NOT_REGISTERED\` - no source is registered under that key for this organization. Run **Register Measurement Source** first; this job deliberately cannot create one." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=SOURCE_DOES_NOT_SUPPORT_METRIC\` - that source declares no definition for this measure. Register the metric on the source first." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=OVERLAPS_EXISTING\` - a declaration already in force would have to be deleted or re-dated to make room. That is not this job's decision; supersede it from a LATER date through the single-declaration workflow." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`OVERALL_RESULT=PARTIALLY_APPLIED\` - **some entries are live.** A concurrent change landed between the preflight and a write, or a write could not be read back. \`FAILED_INDEX\` names where it stopped; every entry before it carries its own \`event=ENTRY_RESULT\` line saying what happened. Re-running is safe: entries already applied report ALREADY_EQUIVALENT and write nothing." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"
