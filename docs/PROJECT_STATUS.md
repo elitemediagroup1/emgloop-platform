@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-08-19 (PR 4 in review)._
+_Last updated: 2026-08-19 (source-authority operations bridge in review)._
 
 ---
 
@@ -439,7 +439,7 @@ explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 ## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 IN IMPLEMENTATION
 **Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
 **Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
-**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#168 · **PR 4 of 7 IN REVIEW, NOT MERGED** · PR 5 onward NOT AUTHORIZED
+**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#169 · PR 4 **DEPLOYED** · **operations bridge IN REVIEW** · PR 5 onward NOT AUTHORIZED
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -747,9 +747,60 @@ where a person has declared it authoritative. **The join identity from the buyer
 is UNRESOLVED** and must be settled before an importer is designed — it is an input contract, not an
 implementation detail.
 
-**PR 5 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the SSDI buyer-report importer,
-the source-authority operations bridge, production wiring of `assessReadiness`, and any Stage 3 UI
-all remain out of scope until separately authorized.
+**PR 4 IS MERGED (#169) AND DEPLOYED.** Migration `20260821000000_ci_stage3_source_authority` is
+applied in production and verified: all three tables exist, along with the effective-range CHECK, the
+no-overlap GiST exclusion constraint, the tenant-safe composite source foreign keys, the
+PROVIDER_STREAM pairing CHECK, the required identifier/reason/definition CHECKs, and the
+`ON DELETE RESTRICT` protecting sources named by authorities. The persistence layer is live.
+
+### Source authority operations bridge — IN REVIEW, NOT MERGED
+**Not PR 5.** PR 4 shipped with **zero production callers**, so the three tables could not be written
+to at all. This is the bridge, and it is deletable the day a real operator surface ships. It follows
+the #163/#168 precedent exactly.
+
+**TWO workflows, because they are two different human acts.** `Register Measurement Source` says
+"this organization is willing to believe this thing, about this measure". `Declare Measure Source
+Authority` says "for this member and this measure, believe it INSTEAD of anything else". A single
+dispatch that silently created a source while declaring authority over it would collapse two
+statements into one act, and the run record would no longer show who decided what. An authority
+declaration must name a source somebody already registered; the authority runner **cannot create
+one**, and a test asserts it names no registration method at all.
+
+- **`workflow_dispatch` only** on both — no schedule, push, pull_request or workflow_call. Authority
+  is a human decision, and a job that changed it automatically would be the inference this whole
+  layer exists to prevent.
+- **`dry_run` defaults to true** and is the pre-write check. It resolves the organization, the
+  declarer, the source and what is already in force, and **does not call the mutating method at
+  all**. The preview and the write ask the SAME repository decision function, and a test drives every
+  case through both to prove a dry run cannot say one thing and the write then do another.
+- **One metric per registration dispatch; one member + metric + source per authority dispatch.** No
+  batch mode in either.
+- **No user id is ever accepted from outside.** An optional declarer email resolves through the
+  organization-scoped `iam.listUsers` roster and fails closed on no match or an ambiguous one; blank
+  records no actor, which the repository documents as the honest value. The email is never echoed
+  into the run log.
+- **No provider credential.** Neither runner reads traffic — a provider having a field is exactly
+  what must NOT make it believable — so both hold only `DIRECT_DATABASE_URL`.
+- **The safety suite runs before the credential is used**, so "it cannot register what it must not,
+  declare what it must not, reconcile, certify, ingest, recover or measure" is a checked property of
+  each run rather than a comment.
+
+⚠️ **ONE SHIPPED CONTRACT CHANGED, deliberately: `registerSource` is now ADDITIVE.** As merged it
+REPLACED a source's metric set on every call, which was sound for a whole-set declaration and became
+a hazard the moment a caller existed — a one-metric dispatch would have silently deleted every other
+metric the source declared, and a metric row is **not** protected by the `ON DELETE RESTRICT` that
+guards the source, so authorities naming it would have started failing the gate with no write anybody
+performed on them. Now: metrics not named are left alone, an identical metric is a no-op, and a
+**conflicting definition id or a changed kind/provider/stream is REFUSED rather than overwritten**.
+Withdrawing a metric became a separate deliberate act. **No schema change** — TypeScript contract
+only. Two PR 4 tests asserting the replace behaviour were updated and six were added.
+
+**No migration.** **No source has been registered and no authority declared in production.** The
+first real use is: dry-run a registration, review, write; then dry-run an authority, review, write.
+
+**PR 5 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the buyer-report importer,
+production wiring of `assessReadiness`, and any Stage 3 UI all remain out of scope until separately
+authorized. The buyer-report join identity is still **UNRESOLVED**.
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a

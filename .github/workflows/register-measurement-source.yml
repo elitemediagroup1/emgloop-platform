@@ -1,0 +1,252 @@
+# Register a measurement source.
+#
+# Records what a person says this organization is WILLING TO BELIEVE: a source,
+# and one measure that source may be believed about, with the definition it uses
+# for that measure.
+#
+# WHY THIS EXISTS. PR #169 shipped source-authority persistence with zero callers
+# -- no route, no server action, no page, no script and no workflow reached it --
+# so the three tables could not be written to at all. This is half the operations
+# bridge, and it is deletable the day a real operator surface ships.
+#
+# WHY IT IS SEPARATE FROM DECLARING AUTHORITY. Registering a source says "we are
+# willing to believe this thing". Declaring authority says "for this campaign and
+# this measure, believe it INSTEAD of anything else". Those are different human
+# statements with different consequences, so they are different dispatches. A run
+# that silently created a source while declaring authority over it would collapse
+# two acts into one, and the run record would no longer show who decided what.
+#
+# WHAT IT WRITES. A measurement_sources row and at most ONE
+# measurement_source_metrics row, through MeasurementSourceRepository. It does
+# not declare authority, does not ingest calls, does not reconcile, does not
+# certify a day, does not contact any provider, does not measure and does not
+# produce a Headline. It holds no provider credential, because whether a source
+# is believable is a commercial decision and never an observation.
+#
+# ONE METRIC PER DISPATCH, DELIBERATELY. A measure definition id is an agreement
+# between two parties; each one deserves its own dispatcher and its own chance to
+# be refused. This is safe because registration is ADDITIVE -- metrics this
+# dispatch does not name are left exactly as they were.
+#
+# NOTHING IS OVERWRITTEN. Re-pointing a registered key at a different kind,
+# provider or stream is REFUSED, and so is redefining a measure the source
+# already declares. Both would silently change what every authority naming that
+# source means, including ones already used to publish a number.
+#
+# DRY RUN FIRST. `dry_run: true` performs the full pre-write check against
+# production and writes nothing. It does not call the mutating method at all.
+#
+# NO SCHEDULE, DELIBERATELY, AND NEVER ONE. There is no version of this job that
+# should fire on a timer, on a push, or from another workflow.
+
+name: Register Measurement Source
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      source_key:
+        description: 'Stable handle an authority declaration will name (e.g. a-provider-calls)'
+        required: true
+        type: string
+      display_name:
+        description: 'For a person reading a screen. Never identity.'
+        required: true
+        type: string
+      kind:
+        description: 'What this source IS. PROVIDER_STREAM is polled; BUYER_REPORT arrives after the activity.'
+        required: true
+        type: choice
+        options:
+          - PROVIDER_STREAM
+          - BUYER_REPORT
+      provider:
+        description: 'PROVIDER_STREAM only. Leave blank for BUYER_REPORT.'
+        required: false
+        type: string
+      stream:
+        description: 'PROVIDER_STREAM only. Leave blank for BUYER_REPORT.'
+        required: false
+        type: string
+      metric:
+        description: 'The ONE measure this dispatch registers'
+        required: true
+        type: choice
+        options:
+          - CALL_VOLUME
+          - REVENUE
+          - MONETIZED_RATE
+          - CONVERSION_RATE
+          - NO_ROUTE_RATE
+      measure_definition_id:
+        description: 'What this source MEANS by that measure. The exact agreed identifier — never invented here.'
+        required: true
+        type: string
+      dry_run:
+        description: 'Check what this would do and write nothing'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+# This job writes to production and must only ever be started by a human from the
+# Actions tab.
+
+permissions:
+  contents: read
+
+# Two registrations of the same key at once would race. The database's unique
+# index is the real guarantee; this stops two runners reaching it at the same
+# moment and one of them failing confusingly.
+concurrency:
+  group: register-measurement-source
+  cancel-in-progress: false
+
+jobs:
+  register:
+    name: Register measurement source
+    runs-on: ubuntu-latest
+    # Two rows. This is bounded by a database round trip, not by a provider.
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, never printed and never written
+          # to the step summary. No provider credential is requested: registering
+          # a source never reads traffic.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            echo "Add it under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SOURCE_KEY: ${{ inputs.source_key }}
+          DISPLAY_NAME: ${{ inputs.display_name }}
+          KIND: ${{ inputs.kind }}
+          PROVIDER: ${{ inputs.provider }}
+          STREAM: ${{ inputs.stream }}
+          DEFINITION_ID: ${{ inputs.measure_definition_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${SOURCE_KEY}" | tr -d '[:space:]')" ]; then
+            echo "::error::source_key is required. It is the handle an authority declaration names."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${DISPLAY_NAME}" | tr -d '[:space:]')" ]; then
+            echo "::error::display_name is required."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${DEFINITION_ID}" | tr -d '[:space:]')" ]; then
+            echo "::error::measure_definition_id is required. A supported metric without one is not usable, and it must be the exact identifier the two parties agreed on."
+            exit 1
+          fi
+          # THE PAIRING MIRRORS THE DATABASE CHECK. The kind selects how
+          # availability is proven: a polled stream proves it by having been
+          # observed, which requires naming the stream; a report that arrives has
+          # no stream to observe. Refused here so bad input never reaches
+          # production.
+          if [ "${KIND}" = "PROVIDER_STREAM" ]; then
+            if [ -z "$(printf '%s' "${PROVIDER:-}" | tr -d '[:space:]')" ]; then
+              echo "::error::PROVIDER_STREAM requires provider."
+              exit 1
+            fi
+            if [ -z "$(printf '%s' "${STREAM:-}" | tr -d '[:space:]')" ]; then
+              echo "::error::PROVIDER_STREAM requires stream."
+              exit 1
+            fi
+          else
+            if [ -n "$(printf '%s' "${PROVIDER:-}" | tr -d '[:space:]')" ] || [ -n "$(printf '%s' "${STREAM:-}" | tr -d '[:space:]')" ]; then
+              echo "::error::provider and stream are only meaningful on PROVIDER_STREAM. A report that arrives has no stream to observe."
+              exit 1
+            fi
+          fi
+          echo "Validated a ${KIND} source for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching deploy-prisma-migrations.yml and its sibling
+        # operations workflows. This step also runs `prisma generate` through the
+        # database package's postinstall, which the runner needs.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These
+        # suites read the runner's own source and fail if it names authority
+        # declaration, reconciliation, certification, ingestion, recovery, a
+        # provider adapter or a Prisma delegate. A red step here means the write
+        # boundary moved, and no production connection is opened.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Register
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SOURCE_KEY: ${{ inputs.source_key }}
+          DISPLAY_NAME: ${{ inputs.display_name }}
+          KIND: ${{ inputs.kind }}
+          PROVIDER: ${{ inputs.provider }}
+          STREAM: ${{ inputs.stream }}
+          METRIC: ${{ inputs.metric }}
+          DEFINITION_ID: ${{ inputs.measure_definition_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # Arguments are passed as values. Optional flags are appended only when
+          # a value was supplied, so a blank input never becomes an empty
+          # argument the parser would read as the next flag's value.
+          args=(
+            --organization "${ORG_SLUG}"
+            --key "${SOURCE_KEY}"
+            --display-name "${DISPLAY_NAME}"
+            --kind "${KIND}"
+            --metric "${METRIC}"
+            --measure-definition-id "${DEFINITION_ID}"
+          )
+          if [ -n "${PROVIDER:-}" ]; then args+=(--provider "${PROVIDER}"); fi
+          if [ -n "${STREAM:-}" ]; then args+=(--stream "${STREAM}"); fi
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); fi
+          npm run register:measurement-source -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Registration stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** Read the log above:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRECONDITION_FAILED\` - the input or the organization could not be resolved. Nothing reached the source tables." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=SOURCE_IDENTITY_CONFLICT\` - a source is already registered under this key and IS something else: a different kind, provider or stream. Re-pointing it would silently change what every authority naming it means. Register a NEW key instead." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=METRIC_DEFINITION_CONFLICT\` - this source already declares that measure with a different definition id. Overwriting it would silently redefine what a stored measurement measured." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRE_WRITE_CHECK\` shows what the record already said about this source, whether or not the write proceeded." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"

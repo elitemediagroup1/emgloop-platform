@@ -235,17 +235,25 @@ export type {
 // organization is willing to believe, which measures each may be believed about,
 // and which one is authoritative for a member and measure over a period.
 // Declared by a person; never inferred from a value being present.
-export { MeasurementSourceRepository, isMeasurementSourceKind } from './measurement-source.repository';
+export {
+  MeasurementSourceRepository,
+  decideSourceRegistration,
+  isMeasurementSourceKind,
+} from './measurement-source.repository';
 export type {
+  AuthorityDeclarationPreview,
   AuthorityDeclarationView,
   AuthorityReadinessFacts,
   DeclareAuthorityInput,
   DeclareAuthorityRejection,
   DeclareAuthorityResult,
   RegisterSourceInput,
+  RegisterSourceOutcome,
+  RegisterSourcePreview,
   RegisterSourceRejection,
   RegisterSourceResult,
   SourceMetricInput,
+  SourceRegistrationDecision,
 } from './measurement-source.repository';
 
 // Auction reporting — verified AGGREGATE bid/ping snapshots. Not event tables.

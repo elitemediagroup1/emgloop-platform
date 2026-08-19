@@ -1,0 +1,268 @@
+# Declare measure source authority.
+#
+# Records what a person says about WHOSE NUMBER a measure is:
+#
+#   For this organization, this member, this measure, over this effective range,
+#   THIS REGISTERED SOURCE IS AUTHORITATIVE.
+#
+# WHY THIS EXISTS. PR #169 shipped source-authority persistence with zero callers,
+# so nothing could state which source owns a measure. This is the other half of
+# the operations bridge, and it is deletable the day a real operator surface
+# ships.
+#
+# WHY IT MATTERS. A source CONTAINING a field does not make it authoritative for
+# that field. On 2026-08-05 every one of the 974 records the provider held
+# carried `converted=false` -- present, not absent -- so a conversion rate
+# computed from them would have returned 0% at full coverage, cleared every
+# completeness guard Stage 3 had, and stated a business falsehood as a measured
+# fact. This is where a person says whose number it is, and if nobody does, the
+# gate refuses the measurement rather than guessing.
+#
+# WHAT THIS DECLARATION DOES NOT SAY. Not that the source is available, has data
+# for any date, is reconciled, or is fresh; not that a measurement is ready.
+# Those are separate facts with separate machinery, and collapsing any of them
+# into this one is how a number gets published because a field happened to be
+# non-null.
+#
+# THE SOURCE MUST ALREADY BE REGISTERED. There is deliberately no way to create
+# one from here -- `Register Measurement Source` is a separate dispatch, because
+# "we are willing to believe this thing" and "believe it INSTEAD of anything
+# else" are different statements. Naming an unregistered key is refused, and so
+# is naming a source that declares no definition for the measure.
+#
+# WHAT IT WRITES. Exactly one measure_source_authorities row, through
+# MeasurementSourceRepository.declareAuthority(). It registers no source, does
+# not ingest calls, does not reconcile, does not certify a day, does not contact
+# any provider, does not measure and does not produce a Headline. It holds no
+# provider credential: authority is DECLARED, never inferred from traffic.
+#
+# ONE MEMBER, ONE MEASURE, ONE SOURCE PER DISPATCH. There is no batch mode. Each
+# declaration gets its own dispatcher, its own reason and its own line in the
+# audit trail.
+#
+# HISTORY IS NEVER REWRITTEN. A declaration from a later date SUPERSEDES the one
+# in force by moving a single column on it; everything the earlier row said about
+# the dates it covered stays exactly as it was. A declaration that would swallow
+# a LATER one is refused instead.
+#
+# DRY RUN FIRST. `dry_run: true` performs the full pre-write check against
+# production -- resolving the organization, the declarer, the source, and what is
+# already in force -- and writes nothing. It does not call the mutating method at
+# all.
+#
+# NO SCHEDULE, DELIBERATELY, AND NEVER ONE. Authority is a human decision. There
+# is no version of this job that should fire on a timer, on a push, or from
+# another workflow. A job that changed authority automatically would be the
+# inference this whole layer exists to prevent.
+
+name: Declare Measure Source Authority
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      member_dimension:
+        description: 'What kind of population member this is about'
+        required: true
+        default: CAMPAIGN
+        type: choice
+        options:
+          - CAMPAIGN
+          - SOURCE
+          - BUYER
+          - VENDOR
+      member_external_id:
+        description: "The provider's own id for the member. Identity is the id, never the label."
+        required: true
+        type: string
+      metric:
+        description: 'The ONE measure this authority speaks for'
+        required: true
+        type: choice
+        options:
+          - CALL_VOLUME
+          - REVENUE
+          - MONETIZED_RATE
+          - CONVERSION_RATE
+          - NO_ROUTE_RATE
+      source_key:
+        description: 'Key of a source THIS organization has already registered'
+        required: true
+        type: string
+      reason:
+        description: 'Why, in plain language, for the person reading this in six months'
+        required: true
+        type: string
+      effective_from:
+        description: 'INCLUSIVE first business date this authority speaks for (YYYY-MM-DD)'
+        required: true
+        type: string
+      effective_to:
+        description: 'EXCLUSIVE end date (YYYY-MM-DD). Leave blank for open-ended.'
+        required: false
+        type: string
+      declarer_email:
+        description: 'Optional. EMG account email of the person declaring this; resolved within the organization. Blank records no actor.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Check what this would do and write nothing'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+# This job writes to production and must only ever be started by a human from the
+# Actions tab.
+
+permissions:
+  contents: read
+
+# Two declarations about the same member and measure at once would race on the
+# effective range. The database's EXCLUDE constraint is the real guarantee; this
+# stops two runners reaching it at the same moment and one of them failing
+# confusingly.
+concurrency:
+  group: declare-measure-source-authority
+  cancel-in-progress: false
+
+jobs:
+  declare:
+    name: Declare measure source authority
+    runs-on: ubuntu-latest
+    # One row. This is bounded by a database round trip, not by a provider.
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, never printed and never written
+          # to the step summary. No provider credential is requested: a
+          # declaration never reads traffic.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            echo "Add it under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          MEMBER_ID: ${{ inputs.member_external_id }}
+          SOURCE_KEY: ${{ inputs.source_key }}
+          REASON: ${{ inputs.reason }}
+          EFFECTIVE_FROM: ${{ inputs.effective_from }}
+          EFFECTIVE_TO: ${{ inputs.effective_to }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${MEMBER_ID}" | tr -d '[:space:]')" ]; then
+            echo "::error::member_external_id is required. It is the provider's own id, never a label."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${SOURCE_KEY}" | tr -d '[:space:]')" ]; then
+            echo "::error::source_key is required, and must name a source this organization already registered."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${REASON}" | tr -d '[:space:]')" ]; then
+            echo "::error::reason is required. An unexplained authority is a place to hide a revenue decision."
+            exit 1
+          fi
+          if ! printf '%s' "${EFFECTIVE_FROM}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+            echo "::error::effective_from must be YYYY-MM-DD."
+            exit 1
+          fi
+          if [ -n "${EFFECTIVE_TO:-}" ]; then
+            if ! printf '%s' "${EFFECTIVE_TO}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+              echo "::error::effective_to must be YYYY-MM-DD when supplied, or blank for open-ended."
+              exit 1
+            fi
+            # EXCLUSIVE: equal bounds describe no date at all, and the database
+            # refuses it. Refused here so it never reaches production.
+            if [ ! "${EFFECTIVE_TO}" \> "${EFFECTIVE_FROM}" ]; then
+              echo "::error::effective_to is EXCLUSIVE and must be strictly after effective_from."
+              exit 1
+            fi
+          fi
+          echo "Validated an authority declaration for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These
+        # suites read the runner's own source and fail if it names source
+        # registration, reconciliation, certification, ingestion, recovery,
+        # readiness, a provider adapter or a Prisma delegate. A red step here
+        # means the write boundary moved, and no production connection is opened.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Declare
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          DIMENSION: ${{ inputs.member_dimension }}
+          MEMBER_ID: ${{ inputs.member_external_id }}
+          METRIC: ${{ inputs.metric }}
+          SOURCE_KEY: ${{ inputs.source_key }}
+          REASON: ${{ inputs.reason }}
+          EFFECTIVE_FROM: ${{ inputs.effective_from }}
+          EFFECTIVE_TO: ${{ inputs.effective_to }}
+          DECLARER_EMAIL: ${{ inputs.declarer_email }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(
+            --organization "${ORG_SLUG}"
+            --dimension "${DIMENSION}"
+            --member "${MEMBER_ID}"
+            --metric "${METRIC}"
+            --source-key "${SOURCE_KEY}"
+            --reason "${REASON}"
+            --effective-from "${EFFECTIVE_FROM}"
+          )
+          if [ -n "${EFFECTIVE_TO:-}" ]; then args+=(--effective-to "${EFFECTIVE_TO}"); fi
+          if [ -n "${DECLARER_EMAIL:-}" ]; then args+=(--declarer-email "${DECLARER_EMAIL}"); fi
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); fi
+          npm run declare:source-authority -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Declaration stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** Read the log above:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRECONDITION_FAILED\` - the input, the organization or the declarer email could not be resolved. Nothing reached the authority table." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=SOURCE_NOT_REGISTERED\` - no source is registered under that key for this organization. Run **Register Measurement Source** first; this job deliberately cannot create one." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=SOURCE_DOES_NOT_SUPPORT_METRIC\` - that source declares no definition for this measure, so it cannot be believed about it. Register the metric on the source first." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=OVERLAPS_EXISTING\` - an authority already in force would have to be deleted or re-dated to make room. That is not this job's decision. Supersede it with a declaration from a LATER date instead." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRE_WRITE_CHECK\` shows which source was already authoritative for that member and measure on that date, whether or not the write proceeded." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"

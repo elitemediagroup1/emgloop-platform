@@ -91,11 +91,45 @@ export type RegisterSourceRejection =
   /** Unknown kind, blank key or display name, or a stream pairing the kind forbids. */
   | 'INVALID_SOURCE'
   /** A metric outside MEASURE_METRICS, a blank definition id, or the same metric twice. */
-  | 'INVALID_METRIC';
+  | 'INVALID_METRIC'
+  /** A source is already registered under this key and IS something else -- a
+      different kind, provider or stream. Re-pointing an existing key would
+      silently change what every authority naming it means. */
+  | 'SOURCE_IDENTITY_CONFLICT'
+  /** The source already declares this metric with a DIFFERENT definition id.
+      Overwriting it would silently redefine what a stored measurement measured. */
+  | 'METRIC_DEFINITION_CONFLICT';
+
+/** What registering did, or what it would do. */
+export type RegisterSourceOutcome =
+  /** The source did not exist. It and its metrics were written. */
+  | 'CREATED'
+  /** The source existed and gained at least one metric it did not have. */
+  | 'ADDED_METRIC'
+  /** Everything asked for is already recorded, identically. Nothing written. */
+  | 'ALREADY_EQUIVALENT';
 
 export type RegisterSourceResult =
-  | { ok: true; source: MeasurementSourceDefinition; created: boolean }
+  | {
+      ok: true;
+      source: MeasurementSourceDefinition;
+      outcome: RegisterSourceOutcome;
+      /** The metrics this call added, in input order. Empty on ALREADY_EQUIVALENT. */
+      addedMetrics: readonly MeasureMetric[];
+    }
   | { ok: false; reason: RegisterSourceRejection; problems: readonly string[] };
+
+/** What registering WOULD do, decided by the same function the write uses. */
+export interface RegisterSourcePreview {
+  outcome: RegisterSourceOutcome | 'BLOCKED';
+  /** The source as it stands today, or null when this key is unregistered. */
+  existing: MeasurementSourceDefinition | null;
+  /** The metrics the write would add. Empty when it would add none. */
+  wouldAddMetrics: readonly MeasureMetric[];
+  /** Set only when BLOCKED, from the same closed list `registerSource` uses. */
+  reason: RegisterSourceRejection | null;
+  problems: readonly string[];
+}
 
 // --- Declaring authority ----------------------------------------------------------
 
@@ -136,6 +170,20 @@ export interface AuthorityDeclarationView extends MeasureSourceAuthorityDeclarat
   declaredByUserId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** What declaring WOULD do, decided by the same functions the write uses. */
+export interface AuthorityDeclarationPreview {
+  outcome: 'WOULD_CREATE' | 'WOULD_SUPERSEDE' | 'ALREADY_EQUIVALENT' | 'BLOCKED';
+  /** The authority in force on `effectiveFrom` today, or null when none is. */
+  effectiveNow: AuthorityDeclarationView | null;
+  /** The authority the write would END at the new start date, when there is one. */
+  supersedes: AuthorityDeclarationView | null;
+  /** Set only when BLOCKED, from the same closed list `declareAuthority` uses. */
+  reason: DeclareAuthorityRejection | null;
+  problems: readonly string[];
+  /** The source key that would be recorded. Absent when BLOCKED. */
+  sourceKey?: string;
 }
 
 export type DeclareAuthorityResult =
@@ -222,6 +270,78 @@ function toAuthorityView(
   };
 }
 
+/**
+ * What registering this source would do, given what is already stored.
+ *
+ * THE DECISION IS MADE HERE AND NOWHERE ELSE. `registerSource` asks it inside a
+ * transaction and `previewSourceRegistration` asks it without one, so an
+ * operator asking "what would this do" and the write that follows can never
+ * disagree. Working it out twice is how a dry run eventually reassures somebody
+ * about a write that then does something else -- and it is the parallel system
+ * CLAUDE.md names first.
+ *
+ * ADDITIVE, AND REFUSES RATHER THAN OVERWRITES. Both refusals exist because this
+ * table is named by authority declarations that outlive it:
+ *
+ * A source's KIND, PROVIDER and STREAM are what it IS. Re-pointing an existing
+ * key at a different stream would silently change the meaning of every authority
+ * naming that key, including ones already used to publish a number. `displayName`
+ * is deliberately NOT part of that test -- it is for a person reading a screen,
+ * never identity, so renaming stays free.
+ *
+ * A metric's DEFINITION ID is what the source means by that measure. Overwriting
+ * it would silently redefine what a stored measurement measured, and would break
+ * the one rule that lets two sources ever be combined: that they declare the SAME
+ * definition. So a conflicting definition is refused and a person resolves it.
+ *
+ * METRICS NOT NAMED ARE LEFT ALONE. Withdrawing one is a separate, deliberate act
+ * -- never a side effect of registering a different metric.
+ */
+export type SourceRegistrationDecision =
+  | { kind: 'CREATE' }
+  | { kind: 'ADD_METRIC'; add: MeasureMetric[] }
+  | { kind: 'EQUIVALENT' }
+  | { kind: 'BLOCKED'; reason: RegisterSourceRejection; problems: string[] };
+
+export function decideSourceRegistration(
+  existing: { kind: string; provider: string | null; stream: string | null } | null,
+  existingMetrics: ReadonlyMap<string, string>,
+  input: { kind: MeasurementSourceKind; provider: string | null; stream: string | null; metrics: readonly SourceMetricInput[] },
+): SourceRegistrationDecision {
+  if (existing === null) return { kind: 'CREATE' };
+
+  const problems: string[] = [];
+  if (existing.kind !== input.kind) {
+    problems.push(`the registered source is ${existing.kind}, not ${input.kind}`);
+  }
+  if ((existing.provider ?? null) !== input.provider) {
+    problems.push('the registered source names a different provider');
+  }
+  if ((existing.stream ?? null) !== input.stream) {
+    problems.push('the registered source names a different stream');
+  }
+  if (problems.length > 0) return { kind: 'BLOCKED', reason: 'SOURCE_IDENTITY_CONFLICT', problems };
+
+  const add: MeasureMetric[] = [];
+  const conflicts: string[] = [];
+  for (const m of input.metrics) {
+    const stored = existingMetrics.get(m.metric);
+    const wanted = m.measureDefinitionId.trim();
+    if (stored === undefined) {
+      add.push(m.metric);
+      continue;
+    }
+    if (stored !== wanted) {
+      conflicts.push(`${m.metric} is already defined as "${stored}" on this source`);
+    }
+  }
+  if (conflicts.length > 0) {
+    return { kind: 'BLOCKED', reason: 'METRIC_DEFINITION_CONFLICT', problems: conflicts };
+  }
+  if (add.length > 0) return { kind: 'ADD_METRIC', add };
+  return { kind: 'EQUIVALENT' };
+}
+
 function sourceProblems(input: RegisterSourceInput): { reason: RegisterSourceRejection; problems: string[] } | null {
   const problems: string[] = [];
   if (!isMeasurementSourceKind(input.kind)) {
@@ -270,17 +390,28 @@ export class MeasurementSourceRepository {
   // --- Sources --------------------------------------------------------------------
 
   /**
-   * Register a source this organization is willing to believe, or restate one.
+   * Register a source this organization is willing to believe, or add a measure
+   * to one already registered.
    *
-   * IDEMPOTENT ON THE SOURCE'S IDENTITY. Re-registering the same key updates its
-   * descriptive fields and REPLACES its metric set, so a metric withdrawn from a
-   * source stops being supported rather than lingering. That is a write about
-   * capability, not about history: which measures a source CAN supply is a
-   * present-tense fact, unlike which source is authoritative, which is dated.
+   * ADDITIVE AND REFUSING, NEVER OVERWRITING. This method originally REPLACED a
+   * source's metric set on every call, on the reasoning that a withdrawn metric
+   * must stop being supported rather than linger. That reasoning was sound for a
+   * whole-set declaration and became a hazard the moment a caller existed: the
+   * operations bridge registers ONE metric per dispatch, deliberately, so a
+   * replace would have silently deleted every OTHER metric the source declared —
+   * and a metric row is not protected by the ON DELETE RESTRICT that guards the
+   * source itself, so authorities naming it would have started failing the gate
+   * with no write anybody performed on them.
+   *
+   * So: metrics not named are left alone, a metric already declared identically
+   * is a no-op, and a metric already declared DIFFERENTLY is refused rather than
+   * redefined. Withdrawing a metric is now a separate deliberate act, which is
+   * what it always should have been. See `decideSourceRegistration` for why each
+   * refusal exists.
    *
    * Withdrawing a metric does NOT retract any authority that named it. The gate
    * refuses such a measure with MEASURE_NOT_SUPPORTED_BY_SOURCE, visibly, rather
-   * than this method silently deleting somebody's declaration.
+   * than this method silently invalidating somebody's declaration.
    */
   async registerSource(
     organizationId: string,
@@ -293,16 +424,31 @@ export class MeasurementSourceRepository {
     const provider = input.kind === 'PROVIDER_STREAM' ? (input.provider?.trim() ?? null) : null;
     const stream = input.kind === 'PROVIDER_STREAM' ? (input.stream?.trim() ?? null) : null;
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.measurementSource.findFirst({
-        where: { organizationId, key },
-        select: { id: true },
-      });
+    const written = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.measurementSource.findFirst({ where: { organizationId, key } });
+      const stored = existing
+        ? await tx.measurementSourceMetric.findMany({
+            where: { organizationId, measurementSourceId: existing.id },
+          })
+        : [];
+      const decision = decideSourceRegistration(
+        existing,
+        new Map(stored.map((m) => [m.metric, m.measureDefinitionId])),
+        { kind: input.kind, provider, stream, metrics: input.metrics },
+      );
+      // Returned with the same shape as the success path so the caller reads one
+      // union rather than narrowing two.
+      if (decision.kind === 'BLOCKED') {
+        return { decision, id: '', added: [] as MeasureMetric[] } as const;
+      }
+
+      // A RENAME IS NOT A CONFLICT, so it is applied on any non-blocked write.
+      // Identity was already proven equal above; only the label can differ.
       const id = existing
         ? (
             await tx.measurementSource.update({
               where: { id: existing.id },
-              data: { kind: input.kind, displayName: input.displayName.trim(), provider, stream },
+              data: { displayName: input.displayName.trim() },
             })
           ).id
         : (
@@ -318,10 +464,17 @@ export class MeasurementSourceRepository {
             })
           ).id;
 
-      // REPLACE, DO NOT MERGE. A metric withdrawn from a source must stop being
-      // supported; merging would leave it looking current forever.
-      await tx.measurementSourceMetric.deleteMany({ where: { organizationId, measurementSourceId: id } });
-      for (const m of input.metrics) {
+      // ADDITIVE. Only metrics the source does not already declare are written,
+      // and a metric it declares identically is left exactly as it was -- so
+      // re-running a registration cannot move an existing row's `updatedAt` and
+      // make an untouched definition look freshly decided.
+      const toAdd =
+        decision.kind === 'CREATE'
+          ? input.metrics
+          : decision.kind === 'ADD_METRIC'
+            ? input.metrics.filter((m) => decision.add.includes(m.metric))
+            : [];
+      for (const m of toAdd) {
         await tx.measurementSourceMetric.create({
           data: {
             measurementSourceId: id,
@@ -331,18 +484,107 @@ export class MeasurementSourceRepository {
           },
         });
       }
-      return { id, created: !existing };
+      return { decision, id, added: toAdd.map((m) => m.metric) } as const;
     });
+
+    if (written.decision.kind === 'BLOCKED') {
+      return {
+        ok: false,
+        reason: written.decision.reason,
+        problems: written.decision.problems,
+      };
+    }
 
     const stored = await this.findSource(organizationId, key);
     if (!stored) {
       return {
         ok: false,
         reason: 'INVALID_SOURCE',
-        problems: [`the source ${created.id} could not be read back within its organization`],
+        problems: [`the source ${written.id} could not be read back within its organization`],
       };
     }
-    return { ok: true, source: stored, created: created.created };
+    const outcome: RegisterSourceOutcome =
+      written.decision.kind === 'CREATE'
+        ? 'CREATED'
+        : written.decision.kind === 'ADD_METRIC'
+          ? 'ADDED_METRIC'
+          : 'ALREADY_EQUIVALENT';
+    return { ok: true, source: stored, outcome, addedMetrics: written.added };
+  }
+
+  /**
+   * What `registerSource` would do, without doing it.
+   *
+   * IT DOES NOT CALL THE WRITE. A dry run that invoked a mutating method would
+   * be a write with a comment on it. It reads the same two rows the write reads
+   * and asks the same decision function, so a preview reporting ADDED_METRIC
+   * cannot be followed by a write that refuses.
+   */
+  async previewSourceRegistration(
+    organizationId: string,
+    input: RegisterSourceInput,
+  ): Promise<RegisterSourcePreview> {
+    const shape = sourceProblems(input);
+    if (shape) {
+      return {
+        outcome: 'BLOCKED',
+        existing: null,
+        wouldAddMetrics: [],
+        reason: shape.reason,
+        problems: shape.problems,
+      };
+    }
+    const key = input.key.trim();
+    const provider = input.kind === 'PROVIDER_STREAM' ? (input.provider?.trim() ?? null) : null;
+    const stream = input.kind === 'PROVIDER_STREAM' ? (input.stream?.trim() ?? null) : null;
+
+    const row = await this.prisma.measurementSource.findFirst({ where: { organizationId, key } });
+    const storedMetrics = row
+      ? await this.prisma.measurementSourceMetric.findMany({
+          where: { organizationId, measurementSourceId: row.id },
+        })
+      : [];
+    const existing = row
+      ? toSourceDefinition({
+          ...row,
+          metrics: storedMetrics.map((m) => ({
+            metric: m.metric,
+            measureDefinitionId: m.measureDefinitionId,
+          })),
+        })
+      : null;
+
+    const decision = decideSourceRegistration(
+      row,
+      new Map(storedMetrics.map((m) => [m.metric, m.measureDefinitionId])),
+      { kind: input.kind, provider, stream, metrics: input.metrics },
+    );
+    if (decision.kind === 'BLOCKED') {
+      return {
+        outcome: 'BLOCKED',
+        existing,
+        wouldAddMetrics: [],
+        reason: decision.reason,
+        problems: decision.problems,
+      };
+    }
+    return {
+      outcome:
+        decision.kind === 'CREATE'
+          ? 'CREATED'
+          : decision.kind === 'ADD_METRIC'
+            ? 'ADDED_METRIC'
+            : 'ALREADY_EQUIVALENT',
+      existing,
+      wouldAddMetrics:
+        decision.kind === 'CREATE'
+          ? input.metrics.map((m) => m.metric)
+          : decision.kind === 'ADD_METRIC'
+            ? decision.add
+            : [],
+      reason: null,
+      problems: [],
+    };
   }
 
   /** One registered source in the contract's shape, or null when absent/unreadable. */
@@ -391,10 +633,30 @@ export class MeasurementSourceRepository {
    * it at the gate anyway; refusing here means the operator learns at declaration
    * time rather than the next time a measurement silently withholds.
    */
-  async declareAuthority(
+  /**
+   * Everything that must be true before an authority may be written, resolved
+   * once and shared by the write and the preview.
+   *
+   * IT EXISTS SO A DRY RUN CANNOT DISAGREE WITH THE WRITE. Every refusal an
+   * operator can hit before the effective-dating decision — a malformed
+   * declaration, a missing reason, a source this organization has not
+   * registered, a source that declares no definition for the measure — is
+   * decided here, in one place, and both paths get the same answer.
+   */
+  private async prepareDeclaration(
     organizationId: string,
     input: DeclareAuthorityInput,
-  ): Promise<DeclareAuthorityResult> {
+  ): Promise<
+    | {
+        ok: true;
+        candidate: MeasureSourceAuthorityDeclaration;
+        source: MeasurementSource;
+        sourceKey: string;
+        memberExternalId: string;
+        reason: string;
+      }
+    | { ok: false; reason: DeclareAuthorityRejection; problems: readonly string[] }
+  > {
     const memberExternalId = input.memberExternalId?.trim() ?? '';
     const reason = input.reason?.trim() ?? '';
     const sourceKey = input.sourceKey?.trim() ?? '';
@@ -445,6 +707,106 @@ export class MeasurementSourceRepository {
         problems: [`${sourceKey} declares no definition for ${input.metric}`],
       };
     }
+    return { ok: true, candidate, source, sourceKey, memberExternalId, reason };
+  }
+
+  /**
+   * What `declareAuthority` would do, without doing it.
+   *
+   * IT DOES NOT CALL THE WRITE, and it does not open a transaction. It asks
+   * `prepareDeclaration` for every precondition and `decideEffectiveDatedWrite`
+   * for the effective-dating decision — the same two the write asks — so a
+   * preview reporting WOULD_SUPERSEDE cannot be followed by a write that
+   * refuses. The one case where they legitimately differ is a declaration that
+   * lands between the two calls, which is why the database's EXCLUDE constraint
+   * is the decision and this is advice.
+   */
+  async previewAuthorityDeclaration(
+    organizationId: string,
+    input: DeclareAuthorityInput,
+  ): Promise<AuthorityDeclarationPreview> {
+    const prepared = await this.prepareDeclaration(organizationId, input);
+    if (!prepared.ok) {
+      return {
+        outcome: 'BLOCKED',
+        effectiveNow: null,
+        supersedes: null,
+        reason: prepared.reason,
+        problems: prepared.problems,
+      };
+    }
+    const { candidate, source, sourceKey } = prepared;
+
+    const rows = await this.loadRows(
+      organizationId,
+      candidate.dimension,
+      candidate.memberExternalId,
+      candidate.metric,
+    );
+    const keys = await this.sourceKeysById(organizationId);
+    const view = (row: MeasureSourceAuthority): AuthorityDeclarationView | null => {
+      const key = keys.get(row.measurementSourceId);
+      if (!key) return null;
+      const declaration = toAuthorityDeclaration(row, key);
+      return declaration ? toAuthorityView(row, declaration) : null;
+    };
+
+    const decision = decideEffectiveDatedWrite(
+      rows,
+      candidate,
+      (row) => ({
+        effectiveFrom: columnToBusinessDate(row.effectiveFrom),
+        effectiveTo: row.effectiveTo === null ? null : columnToBusinessDate(row.effectiveTo),
+      }),
+      (row) => row.measurementSourceId === source.id,
+    );
+
+    // What is in force ON the requested start date, whatever the decision was.
+    // An operator deciding whether to write needs to see what the record already
+    // says, not only what would change.
+    const inForce =
+      rows.find((row) => {
+        const from = columnToBusinessDate(row.effectiveFrom);
+        const to = row.effectiveTo === null ? null : columnToBusinessDate(row.effectiveTo);
+        return candidate.effectiveFrom >= from && (to === null || candidate.effectiveFrom < to);
+      }) ?? null;
+
+    if (decision.kind === 'BLOCKED') {
+      return {
+        outcome: 'BLOCKED',
+        effectiveNow: inForce ? view(inForce) : null,
+        supersedes: null,
+        reason: 'OVERLAPS_EXISTING',
+        problems: decision.problems.map((p) => `${p} for this member and measure`),
+      };
+    }
+    if (decision.kind === 'EQUIVALENT') {
+      return {
+        outcome: 'ALREADY_EQUIVALENT',
+        effectiveNow: view(decision.row),
+        supersedes: null,
+        reason: null,
+        problems: [],
+        sourceKey,
+      };
+    }
+    return {
+      outcome: decision.predecessor ? 'WOULD_SUPERSEDE' : 'WOULD_CREATE',
+      effectiveNow: inForce ? view(inForce) : null,
+      supersedes: decision.predecessor ? view(decision.predecessor) : null,
+      reason: null,
+      problems: [],
+      sourceKey,
+    };
+  }
+
+  async declareAuthority(
+    organizationId: string,
+    input: DeclareAuthorityInput,
+  ): Promise<DeclareAuthorityResult> {
+    const prepared = await this.prepareDeclaration(organizationId, input);
+    if (!prepared.ok) return prepared;
+    const { candidate, source, sourceKey, memberExternalId, reason } = prepared;
 
     try {
       return await this.prisma.$transaction(async (tx) => {
