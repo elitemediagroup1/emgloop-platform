@@ -36,6 +36,7 @@
 
 import type { PrismaClient, ProviderMemberExpectation } from '@prisma/client';
 import {
+  decideEffectiveDatedWrite,
   declarationProblems,
   dimensionSupported,
   isEffectiveOn,
@@ -181,25 +182,6 @@ function rawRangeCovers(row: ProviderMemberExpectation, on: BusinessDate): boole
   );
 }
 
-/**
- * Whether two half-open business-date ranges share at least one date.
- *
- * String comparison, deliberately: a business date is zero-padded 'YYYY-MM-DD',
- * so lexical order IS calendar order, and comparing strings keeps a timezone out
- * of a question that has none. A null upper bound is unbounded. THE SAME RULE THE
- * DATABASE'S EXCLUDE CONSTRAINT APPLIES over daterange(from, to, '[)'), so the
- * pre-check and the backstop cannot disagree about what an overlap is.
- */
-function rangesOverlap(
-  aFrom: BusinessDate,
-  aTo: BusinessDate | null,
-  bFrom: BusinessDate,
-  bTo: BusinessDate | null,
-): boolean {
-  const aBeforeB = aTo !== null && aTo <= bFrom;
-  const bBeforeA = bTo !== null && bTo <= aFrom;
-  return !aBeforeB && !bBeforeA;
-}
 
 /**
  * Whether a database error is the overlap invariant firing.
@@ -289,60 +271,37 @@ function decideDeclaration(
   rows: readonly ProviderMemberExpectation[],
   candidate: MemberExpectationDeclaration,
 ): DeclarationDecision {
-  const overlapping = rows.filter((row) =>
-    rangesOverlap(
-      columnToBusinessDate(row.effectiveFrom),
-      row.effectiveTo === null ? null : columnToBusinessDate(row.effectiveTo),
-      candidate.effectiveFrom,
-      candidate.effectiveTo,
-    ),
+  // THE OVERLAP REASONING IS THE PLATFORM'S, NOT THIS TABLE'S. Two effective-dated
+  // tables now share it; a second copy would eventually disagree with the first
+  // about the boundary date, which is the one case that matters because closing a
+  // declaration and opening its successor produces exactly that adjacency.
+  //
+  // What "already says the same thing" MEANS stays here, because only this table
+  // knows which of its columns constitute the statement.
+  const decision = decideEffectiveDatedWrite(
+    rows,
+    candidate,
+    (row) => ({
+      effectiveFrom: columnToBusinessDate(row.effectiveFrom),
+      effectiveTo: row.effectiveTo === null ? null : columnToBusinessDate(row.effectiveTo),
+    }),
+    (row) => {
+      const declaration = toDeclaration(row);
+      if (!declaration) return false;
+      return (
+        declaration.state === candidate.state &&
+        declaration.exclusionReason === candidate.exclusionReason &&
+        declaration.basis === candidate.basis
+      );
+    },
   );
-
-  // NOTHING TO SAY THAT IS NOT ALREADY SAID. An existing declaration that
-  // covers the whole new range and states the same thing makes this a no-op.
-  // Writing anyway would split one interval into two identical rows and put a
-  // second author on half of a statement one person made.
-  const equivalent = overlapping.find((row) => {
-    const declaration = toDeclaration(row);
-    if (!declaration) return false;
-    if (
-      declaration.state !== candidate.state ||
-      declaration.exclusionReason !== candidate.exclusionReason ||
-      declaration.basis !== candidate.basis
-    ) {
-      return false;
-    }
-    if (declaration.effectiveFrom > candidate.effectiveFrom) return false;
-    if (declaration.effectiveTo === null) return true;
-    return candidate.effectiveTo !== null && declaration.effectiveTo >= candidate.effectiveTo;
-  });
-  if (equivalent) return { kind: 'EQUIVALENT', row: equivalent };
-
-  // A declaration starting ON OR AFTER the new one would have to be deleted or
-  // re-dated to make room. Neither is this method's decision.
-  const laterOrSameStart = overlapping.filter(
-    (row) => columnToBusinessDate(row.effectiveFrom) >= candidate.effectiveFrom,
-  );
-  if (laterOrSameStart.length > 0) {
+  if (decision.kind === 'BLOCKED') {
     return {
       kind: 'BLOCKED',
-      problems: laterOrSameStart.map(
-        (row) => `a declaration already starts on ${columnToBusinessDate(row.effectiveFrom)} for this member`,
-      ),
+      problems: decision.problems.map((p) => `${p} for this member`),
     };
   }
-
-  // Under the database invariant at most one earlier declaration can still be in
-  // force. More than one means the table has been written around, and truncating
-  // several rows on a guess is not a repair.
-  if (overlapping.length > 1) {
-    return {
-      kind: 'BLOCKED',
-      problems: [`${overlapping.length} declarations are already in force for this member`],
-    };
-  }
-
-  return { kind: 'CREATE', predecessor: overlapping[0] ?? null };
+  return decision;
 }
 
 export class ProviderMemberExpectationRepository {

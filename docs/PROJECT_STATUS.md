@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-08-19 (PR 3 in review)._
+_Last updated: 2026-08-19 (PR 4 in review)._
 
 ---
 
@@ -439,7 +439,7 @@ explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 ## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 IN IMPLEMENTATION
 **Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
 **Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
-**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#166 · **PR 3 of 7 IN REVIEW, NOT MERGED** · PR 4 onward NOT AUTHORIZED
+**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#168 · **PR 4 of 7 IN REVIEW, NOT MERGED** · PR 5 onward NOT AUTHORIZED
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -688,9 +688,68 @@ real operator surface ships.
 **No migration.** **No declaration has been made in production.** The four August 5 campaign
 declarations are authorized but unwritten: the sequence is dry-run all four, review, then write.
 
-**PR 4 onward is NOT AUTHORIZED.** Source-authority persistence (`MeasurementSource` /
-`MeasureSourceAuthority`), `SourceOutcomeDay`, the SSDI buyer-report importer, production wiring of
-`assessReadiness`, and any Stage 3 UI all remain out of scope until separately authorized.
+### Measurement source authority — PR 4 of 7 (IN REVIEW, NOT MERGED)
+**WHOSE NUMBER is this measure?** The fourth Stage 3 fact, and the one that stops a false zero. On
+2026-08-05 every one of the 974 records the provider held carried `converted=false` — present, not
+absent — so a conversion rate computed from them would have returned 0% at full coverage, cleared
+every guard Stage 3 had, and stated a business falsehood as a measured fact. **A source containing a
+field does not make it authoritative for that field.**
+
+Three tables persist what PR 1's pure contract already defined: `measurement_sources` (what this
+organization is willing to believe), `measurement_source_metrics` (which measures each may be
+believed about, and the definition id it uses for each), and `measure_source_authorities` (which one
+is authoritative for a member and measure over a period).
+
+- **Authority is DECLARED, never inferred.** The repository has exactly two write methods —
+  `registerSource` and `declareAuthority` — and a test asserts the list by name. Neither accepts a
+  call, a revenue figure, a webhook, an import result or a reconciliation verdict, so authority
+  cannot be derived from any of them. Recording a reconciliation or an expectation provably does not
+  change a resolution.
+- **The grain is (member, metric, date)**, taken from the PR 1 contract rather than chosen here. It
+  buys the case this exists for at no extra cost: **the provider for call volume and a counterparty
+  for revenue, on the same campaign on the same day**, without either being a contradiction.
+- **Fails closed in both directions, with no fallback.** Zero declarations is MISSING — never "assume
+  the provider", which is precisely the assumption that made the false zero computable. Two is
+  CONFLICT, never a precedence puzzle: any tie-break would settle a disagreement the organization has
+  not actually settled. A row whose stored vocabulary cannot be read is counted, not dropped —
+  dropping one could turn a two-way conflict into a confident answer.
+- **Effective-dated, and history is never rewritten.** A successor moves ONE column (`effectiveTo`)
+  on its predecessor and keeps its source, reason and author. Re-running last month's comparison
+  resolves the authority that was in force LAST MONTH.
+- **Postgres holds the invariants.** An EXCLUDE USING gist over `daterange(..., '[)')` makes two
+  authorities for one member+measure+date impossible; a **composite** foreign key over
+  `(id, organizationId)` makes a declaration naming another tenant's source impossible. Both were
+  exercised against real PostgreSQL 18.6, not only asserted in a fake.
+- **One readiness truth.** `readinessFacts()` returns `MeasurementSourceDefinition[]` and
+  `MeasureSourceAuthorityDeclaration[]` — the exact arrays `ReadinessInput` already declares — so
+  persisted authority reaches `assessReadiness` as DATA. **No second readiness engine, and
+  `measurement-readiness.ts` is untouched.**
+- **The overlap reasoning was promoted, not copied.** `decideEffectiveDatedWrite` now lives in
+  `@emgloop/shared` and PR 2's expectation repository was refactored onto it, so the platform has one
+  definition of what an overlap is. Two copies would eventually disagree about the boundary date —
+  the one case that matters, because closing a declaration and opening its successor produces
+  exactly that adjacency.
+
+⚠️ **Migration `20260821000000_ci_stage3_source_authority` is NOT APPLIED.** Additive: three tables,
+four indexes, six foreign keys, five CHECK constraints and one EXCLUDE. Zero DROP, zero rename, zero
+column-type change, no existing table altered, **nothing seeded**, no `CREATE EXTENSION` (btree_gist
+was installed by `20260819000000` and applied on 2026-08-19).
+
+**Zero callers, deliberately.** Nothing outside `packages/database` imports the repository — no
+route, no action, no page, no script, no workflow. **No source has been registered and no authority
+has been declared in production.** Following the #163/#168 precedent, the operations bridge is its
+own PR rather than being folded into the persistence one.
+
+**The SSDI buyer-report importer is DEFERRED, on repository evidence** — this plan already listed it
+as an item separate from source-authority persistence. PR 4 builds the layer that makes it safe: an
+importer will write a `BUYER_REPORT` source's facts, and that source is only believed for a measure
+where a person has declared it authoritative. **The join identity from the buyer sheet to a Loop call
+is UNRESOLVED** and must be settled before an importer is designed — it is an input contract, not an
+implementation detail.
+
+**PR 5 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the SSDI buyer-report importer,
+the source-authority operations bridge, production wiring of `assessReadiness`, and any Stage 3 UI
+all remain out of scope until separately authorized.
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a
