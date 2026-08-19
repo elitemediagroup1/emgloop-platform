@@ -548,8 +548,12 @@ test('nothing here can change an expectation from observed traffic', async () =>
   // no second path that could infer a state. A campaign that broke must not
   // un-expect itself the moment it stopped delivering.
   const { expectations } = make();
+  // Named explicitly rather than by prefix. A prefix rule quietly absorbs the
+  // next method somebody adds, which is the opposite of what this assertion is
+  // for: a new method must force a decision here about whether it writes.
+  const READ_ONLY = ['resolveOn', 'resolveSourceOn', 'declarationsFor', 'previewDeclaration'];
   const writes = Object.getOwnPropertyNames(ProviderMemberExpectationRepository.prototype).filter(
-    (name) => name !== 'constructor' && !name.startsWith('resolve') && !name.startsWith('declarationsFor'),
+    (name) => name !== 'constructor' && !READ_ONLY.includes(name),
   );
   assert.deepEqual(writes, ['declare']);
 
@@ -559,4 +563,128 @@ test('nothing here can change an expectation from observed traffic', async () =>
   }
   await expectations.declare(ORG, input());
   assert.equal((await resolve(expectations, TRANSITIONING, AUG_05)).state, 'EXPECTED');
+});
+
+
+// --- Previewing a declaration (the dry-run path) --------------------------------
+//
+// THE PROPERTY: a preview must tell the truth about the write that would follow
+// it. An operator pointing a production write at a live tenant reads this to
+// decide whether to proceed, so a preview that says CREATED and a write that then
+// refuses would be worse than having no preview at all.
+//
+// The guarantee is structural rather than tested case by case: `previewDeclaration`
+// and `declare` call the SAME shape check and the SAME decision function. These
+// pin that they agree, and that the preview writes nothing while doing it.
+
+test('a preview of a fresh member reports CREATED and writes nothing', async () => {
+  const { prisma, expectations } = make();
+  const result = await expectations.previewDeclaration(ORG, input());
+  assert.equal(result.outcome, 'CREATED');
+  assert.equal(result.effectiveNow, null);
+  assert.equal(result.supersedes, null);
+  assert.equal(prisma.providerMemberExpectation.__rows.length, 0);
+});
+
+test('a preview reports the declaration in force on the date it asks about', async () => {
+  const { expectations } = make();
+  await expectations.declare(ORG, input({ state: 'NOT_CONFIGURED', effectiveFrom: AUG_01 }));
+  const result = await expectations.previewDeclaration(
+    ORG,
+    input({ state: 'EXPECTED', effectiveFrom: AUG_19 }),
+  );
+  assert.equal(result.outcome, 'CREATED');
+  assert.equal(result.effectiveNow?.state, 'NOT_CONFIGURED');
+  // And names what the write would END, which is the thing an operator most
+  // needs to see before agreeing to it.
+  assert.equal(result.supersedes?.state, 'NOT_CONFIGURED');
+});
+
+test('a preview of an identical declaration reports ALREADY_EQUIVALENT', async () => {
+  const { prisma, expectations } = make();
+  await expectations.declare(ORG, input());
+  const before = prisma.providerMemberExpectation.__rows.length;
+  const result = await expectations.previewDeclaration(ORG, input());
+  assert.equal(result.outcome, 'ALREADY_EQUIVALENT');
+  assert.equal(prisma.providerMemberExpectation.__rows.length, before);
+});
+
+test('a preview of an overlap reports BLOCKED and names the reason declare would give', async () => {
+  const { expectations } = make();
+  await expectations.declare(ORG, input({ effectiveFrom: AUG_19 }));
+  const result = await expectations.previewDeclaration(
+    ORG,
+    input({ state: 'NOT_CONFIGURED', effectiveFrom: AUG_19 }),
+  );
+  assert.equal(result.outcome, 'BLOCKED');
+  assert.equal(result.reason, 'OVERLAPS_EXISTING');
+  assert.match(result.problems.join(' '), /already starts on/);
+});
+
+test('a preview of a malformed declaration reports BLOCKED with the same rejection declare uses', async () => {
+  const { expectations } = make();
+  const invalid = await expectations.previewDeclaration(
+    ORG,
+    input({ state: 'EXCLUDED', exclusionReason: null }),
+  );
+  assert.equal(invalid.outcome, 'BLOCKED');
+  assert.equal(invalid.reason, 'INVALID_DECLARATION');
+
+  const unexplained = await expectations.previewDeclaration(ORG, input({ reason: '   ' }));
+  assert.equal(unexplained.outcome, 'BLOCKED');
+  assert.equal(unexplained.reason, 'REASON_REQUIRED');
+});
+
+test('the preview and the write always agree — the same decision, asked twice', async () => {
+  // Driven over every shape that matters rather than asserted once: a fresh
+  // member, an identical restatement, a legitimate successor, and an overlap.
+  const cases: Array<{ name: string; setup: DeclareExpectationInput[]; candidate: DeclareExpectationInput }> = [
+    { name: 'fresh', setup: [], candidate: input() },
+    { name: 'identical', setup: [input()], candidate: input() },
+    {
+      name: 'successor',
+      setup: [input({ state: 'NOT_CONFIGURED', effectiveFrom: AUG_01 })],
+      candidate: input({ state: 'EXPECTED', effectiveFrom: AUG_19 }),
+    },
+    {
+      name: 'overlap',
+      setup: [input({ effectiveFrom: AUG_19 })],
+      candidate: input({ state: 'NOT_CONFIGURED', effectiveFrom: AUG_19 }),
+    },
+  ];
+
+  for (const testCase of cases) {
+    const { expectations } = make();
+    for (const seed of testCase.setup) await expectations.declare(ORG, seed);
+    const preview = await expectations.previewDeclaration(ORG, testCase.candidate);
+    const write = await expectations.declare(ORG, testCase.candidate);
+
+    if (preview.outcome === 'BLOCKED') {
+      assert.equal(write.ok, false, `${testCase.name}: preview said BLOCKED so the write must refuse`);
+      if (!write.ok) assert.equal(write.reason, preview.reason);
+    } else if (preview.outcome === 'ALREADY_EQUIVALENT') {
+      assert.equal(write.ok, true);
+      if (write.ok) assert.equal(write.unchanged, true, `${testCase.name}: preview said nothing would change`);
+    } else {
+      assert.equal(write.ok, true);
+      if (write.ok) {
+        assert.equal(write.unchanged, false, `${testCase.name}: preview said CREATED`);
+        assert.equal(
+          write.supersededId,
+          preview.supersedes?.id ?? null,
+          `${testCase.name}: the preview named the wrong predecessor`,
+        );
+      }
+    }
+  }
+});
+
+test('a preview cannot see another organization\'s declarations', async () => {
+  const { expectations } = make();
+  await expectations.declare(OTHER_ORG, input());
+  const result = await expectations.previewDeclaration(ORG, input());
+  // The other tenant's identical declaration is invisible, so this reads as a
+  // fresh member rather than as an equivalent restatement.
+  assert.equal(result.outcome, 'CREATED');
+  assert.equal(result.effectiveNow, null);
 });

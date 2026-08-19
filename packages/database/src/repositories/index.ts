@@ -205,6 +205,8 @@ export type { RecordProviderObservationInput, ObservationDayView } from './provi
 // a delivery failure.
 export { ProviderMemberExpectationRepository } from './provider-member-expectation.repository';
 export type {
+  DeclarationDecision,
+  DeclarationPreview,
   DeclareExpectationInput,
   DeclareRejection,
   DeclareResult,
