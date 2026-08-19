@@ -102,6 +102,24 @@ export interface ExpectationDeclarationView extends MemberExpectationDeclaration
   updatedAt: string;
 }
 
+/**
+ * What `declare` WOULD do, without doing it.
+ *
+ * Exists because an operator pointing a production write at a live tenant should
+ * be able to see the answer before committing to it, and because the only honest
+ * way to offer that is to ask the same question the write asks.
+ */
+export interface DeclarationPreview {
+  outcome: 'CREATED' | 'ALREADY_EQUIVALENT' | 'BLOCKED';
+  /** The declaration in force on `effectiveFrom` today, or null when none is. */
+  effectiveNow: ExpectationDeclarationView | null;
+  /** The declaration the write would END at the new start date, when there is one. */
+  supersedes: ExpectationDeclarationView | null;
+  /** Set only when BLOCKED, and drawn from the same closed list `declare` uses. */
+  reason: DeclareRejection | null;
+  problems: readonly string[];
+}
+
 export type DeclareResult =
   | {
       ok: true;
@@ -199,6 +217,134 @@ function isOverlapViolation(error: unknown): boolean {
   return /exclusion constraint|23P01|provider_member_expectations_no_overlap/i.test(message);
 }
 
+/**
+ * What a declaration WOULD do, worked out from the rows that already exist.
+ *
+ * PURE, AND THE ONLY PLACE THIS IS DECIDED. `declare` acts on it inside a
+ * transaction and `previewDeclaration` reports it without one, so an operator
+ * asking "what would this do" and the write that follows can never disagree.
+ * Reimplementing the same reasoning in a dry-run path would be the parallel
+ * system CLAUDE.md names first, and the one place it would eventually diverge is
+ * the place where somebody is deciding whether to write to production.
+ */
+export type DeclarationDecision =
+  /** An existing declaration already covers this range and says the same thing. */
+  | { kind: 'EQUIVALENT'; row: ProviderMemberExpectation }
+  /** Writing would have to delete or re-date somebody else's statement. */
+  | { kind: 'BLOCKED'; problems: string[] }
+  /** Write it, ending `predecessor` at the new start date when there is one. */
+  | { kind: 'CREATE'; predecessor: ProviderMemberExpectation | null };
+
+/** Shape validation, judged by the pure contract. Null when well formed. */
+function candidateProblems(
+  candidate: MemberExpectationDeclaration,
+  input: DeclareExpectationInput,
+  reason: string,
+): { reason: DeclareRejection; problems: string[] } | null {
+  // SHAPE FIRST, and the rule is the pure one. Dimension support, member
+  // identity, the EXCLUDED-needs-a-reason pairing and the effective range are
+  // all judged by @emgloop/shared, so the persisted rows and the contract that
+  // reads them can never drift into disagreeing about what is well formed.
+  const problems = declarationProblems(candidate);
+  if (!isMemberExpectationState(input.state)) problems.push(`state ${String(input.state)} is not declarable`);
+  if (!isMemberExpectationBasis(input.basis)) problems.push(`basis ${String(input.basis)} is not a known basis`);
+  if (problems.length > 0) return { reason: 'INVALID_DECLARATION', problems };
+  if (reason === '') {
+    return {
+      reason: 'REASON_REQUIRED',
+      problems: ['a declaration must say why, in plain language'],
+    };
+  }
+  return null;
+}
+
+/** Build the candidate a caller's input describes, with the trimming applied. */
+function candidateFrom(input: DeclareExpectationInput): {
+  candidate: MemberExpectationDeclaration;
+  reason: string;
+} {
+  return {
+    candidate: {
+      dimension: input.dimension,
+      memberExternalId: input.memberExternalId?.trim() ?? '',
+      state: input.state,
+      exclusionReason: input.exclusionReason ?? null,
+      basis: input.basis,
+      effectiveFrom: input.effectiveFrom,
+      effectiveTo: input.effectiveTo ?? null,
+    },
+    reason: input.reason?.trim() ?? '',
+  };
+}
+
+/**
+ * Decide what a well-formed candidate would do against the member's existing rows.
+ *
+ * Pure: no clock, no I/O, no transaction. `rows` must already be scoped to the
+ * organization, provider, stream, dimension and member -- this function does not
+ * re-check tenancy, because a caller who reached it with the wrong rows has
+ * already made a mistake no arithmetic here could catch.
+ */
+function decideDeclaration(
+  rows: readonly ProviderMemberExpectation[],
+  candidate: MemberExpectationDeclaration,
+): DeclarationDecision {
+  const overlapping = rows.filter((row) =>
+    rangesOverlap(
+      columnToBusinessDate(row.effectiveFrom),
+      row.effectiveTo === null ? null : columnToBusinessDate(row.effectiveTo),
+      candidate.effectiveFrom,
+      candidate.effectiveTo,
+    ),
+  );
+
+  // NOTHING TO SAY THAT IS NOT ALREADY SAID. An existing declaration that
+  // covers the whole new range and states the same thing makes this a no-op.
+  // Writing anyway would split one interval into two identical rows and put a
+  // second author on half of a statement one person made.
+  const equivalent = overlapping.find((row) => {
+    const declaration = toDeclaration(row);
+    if (!declaration) return false;
+    if (
+      declaration.state !== candidate.state ||
+      declaration.exclusionReason !== candidate.exclusionReason ||
+      declaration.basis !== candidate.basis
+    ) {
+      return false;
+    }
+    if (declaration.effectiveFrom > candidate.effectiveFrom) return false;
+    if (declaration.effectiveTo === null) return true;
+    return candidate.effectiveTo !== null && declaration.effectiveTo >= candidate.effectiveTo;
+  });
+  if (equivalent) return { kind: 'EQUIVALENT', row: equivalent };
+
+  // A declaration starting ON OR AFTER the new one would have to be deleted or
+  // re-dated to make room. Neither is this method's decision.
+  const laterOrSameStart = overlapping.filter(
+    (row) => columnToBusinessDate(row.effectiveFrom) >= candidate.effectiveFrom,
+  );
+  if (laterOrSameStart.length > 0) {
+    return {
+      kind: 'BLOCKED',
+      problems: laterOrSameStart.map(
+        (row) => `a declaration already starts on ${columnToBusinessDate(row.effectiveFrom)} for this member`,
+      ),
+    };
+  }
+
+  // Under the database invariant at most one earlier declaration can still be in
+  // force. More than one means the table has been written around, and truncating
+  // several rows on a guess is not a repair.
+  if (overlapping.length > 1) {
+    return {
+      kind: 'BLOCKED',
+      problems: [`${overlapping.length} declarations are already in force for this member`],
+    };
+  }
+
+  return { kind: 'CREATE', predecessor: overlapping[0] ?? null };
+}
+
 export class ProviderMemberExpectationRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -218,36 +364,11 @@ export class ProviderMemberExpectationRepository {
    * interval into two rows that mean the same thing.
    */
   async declare(organizationId: string, input: DeclareExpectationInput): Promise<DeclareResult> {
-    const memberExternalId = input.memberExternalId?.trim() ?? '';
-    const reason = input.reason?.trim() ?? '';
-    const effectiveTo = input.effectiveTo ?? null;
-    const exclusionReason = input.exclusionReason ?? null;
+    const { candidate, reason } = candidateFrom(input);
+    const memberExternalId = candidate.memberExternalId;
 
-    const candidate: MemberExpectationDeclaration = {
-      dimension: input.dimension,
-      memberExternalId,
-      state: input.state,
-      exclusionReason,
-      basis: input.basis,
-      effectiveFrom: input.effectiveFrom,
-      effectiveTo,
-    };
-
-    // SHAPE FIRST, and the rule is the pure one. Dimension support, member
-    // identity, the EXCLUDED-needs-a-reason pairing and the effective range are
-    // all judged by @emgloop/shared, so the persisted rows and the contract that
-    // reads them can never drift into disagreeing about what is well formed.
-    const problems = declarationProblems(candidate);
-    if (!isMemberExpectationState(input.state)) problems.push(`state ${String(input.state)} is not declarable`);
-    if (!isMemberExpectationBasis(input.basis)) problems.push(`basis ${String(input.basis)} is not a known basis`);
-    if (problems.length > 0) return { ok: false, reason: 'INVALID_DECLARATION', problems };
-    if (reason === '') {
-      return {
-        ok: false,
-        reason: 'REASON_REQUIRED',
-        problems: ['a declaration must say why, in plain language'],
-      };
-    }
+    const shape = candidateProblems(candidate, input, reason);
+    if (shape) return { ok: false, reason: shape.reason, problems: shape.problems };
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -262,71 +383,30 @@ export class ProviderMemberExpectationRepository {
           orderBy: { effectiveFrom: 'asc' },
         });
 
-        const overlapping = rows.filter((row) =>
-          rangesOverlap(
-            columnToBusinessDate(row.effectiveFrom),
-            row.effectiveTo === null ? null : columnToBusinessDate(row.effectiveTo),
-            candidate.effectiveFrom,
-            candidate.effectiveTo,
-          ),
-        );
+        // THE DECISION IS MADE IN ONE PLACE, and `previewDeclaration` asks the
+        // same function without a transaction. Working it out twice is how a
+        // dry run eventually reassures somebody about a write that then does
+        // something else.
+        const decision = decideDeclaration(rows, candidate);
 
-        // NOTHING TO SAY THAT IS NOT ALREADY SAID. An existing declaration that
-        // covers the whole new range and states the same thing makes this a
-        // no-op. Writing anyway would split one interval into two identical rows
-        // and put a second author on half of a statement one person made.
-        const equivalent = overlapping.find((row) => {
-          const declaration = toDeclaration(row);
-          if (!declaration) return false;
-          if (
-            declaration.state !== candidate.state ||
-            declaration.exclusionReason !== candidate.exclusionReason ||
-            declaration.basis !== candidate.basis
-          ) {
-            return false;
-          }
-          if (declaration.effectiveFrom > candidate.effectiveFrom) return false;
-          if (declaration.effectiveTo === null) return true;
-          return candidate.effectiveTo !== null && declaration.effectiveTo >= candidate.effectiveTo;
-        });
-        if (equivalent) {
-          const declaration = toDeclaration(equivalent)!;
+        if (decision.kind === 'EQUIVALENT') {
+          const declaration = toDeclaration(decision.row)!;
           return {
             ok: true as const,
-            declaration: toView(equivalent, declaration),
+            declaration: toView(decision.row, declaration),
             supersededId: null,
             unchanged: true,
           };
         }
-
-        // A declaration starting ON OR AFTER the new one would have to be deleted
-        // or re-dated to make room. Neither is this method's decision.
-        const laterOrSameStart = overlapping.filter(
-          (row) => columnToBusinessDate(row.effectiveFrom) >= candidate.effectiveFrom,
-        );
-        if (laterOrSameStart.length > 0) {
+        if (decision.kind === 'BLOCKED') {
           return {
             ok: false as const,
             reason: 'OVERLAPS_EXISTING' as const,
-            problems: laterOrSameStart.map(
-              (row) =>
-                `a declaration already starts on ${columnToBusinessDate(row.effectiveFrom)} for this member`,
-            ),
+            problems: decision.problems,
           };
         }
 
-        // Under the database invariant at most one earlier declaration can still
-        // be in force. More than one means the table has been written around, and
-        // truncating several rows on a guess is not a repair.
-        if (overlapping.length > 1) {
-          return {
-            ok: false as const,
-            reason: 'OVERLAPS_EXISTING' as const,
-            problems: [`${overlapping.length} declarations are already in force for this member`],
-          };
-        }
-
-        const predecessor = overlapping[0];
+        const predecessor = decision.predecessor;
         if (predecessor) {
           // ONE COLUMN. The state, basis, reason and author of what was true
           // before this date are never touched.
@@ -373,6 +453,93 @@ export class ProviderMemberExpectationRepository {
       }
       throw error;
     }
+  }
+
+  /**
+   * What `declare` would do with this input, WITHOUT writing anything.
+   *
+   * THE SAME DECISION, ASKED WITHOUT A TRANSACTION. Shape is judged by
+   * `candidateProblems` and the outcome by `decideDeclaration` -- the two
+   * functions `declare` itself calls -- so a preview cannot say CREATED and then
+   * have the write refuse, or say ALREADY_EQUIVALENT and then have the write
+   * split an interval. There is no second copy of this reasoning anywhere.
+   *
+   * READ-ONLY BY CONSTRUCTION: one `findMany` and pure functions. It opens no
+   * transaction, and the only Prisma call it can make is a select.
+   */
+  async previewDeclaration(
+    organizationId: string,
+    input: DeclareExpectationInput,
+  ): Promise<DeclarationPreview> {
+    const { candidate, reason } = candidateFrom(input);
+
+    const shape = candidateProblems(candidate, input, reason);
+    if (shape) {
+      return {
+        outcome: 'BLOCKED',
+        effectiveNow: null,
+        supersedes: null,
+        reason: shape.reason,
+        problems: shape.problems,
+      };
+    }
+
+    const rows = await this.prisma.providerMemberExpectation.findMany({
+      where: {
+        organizationId,
+        provider: input.provider,
+        stream: input.stream,
+        memberDimension: input.dimension,
+        memberExternalId: candidate.memberExternalId,
+      },
+      orderBy: { effectiveFrom: 'asc' },
+    });
+
+    // What an operator most wants to see: what the record says TODAY about the
+    // date they are declaring for. Rows whose stored vocabulary cannot be read
+    // are not rendered as declarations -- they cannot be shown without inventing
+    // what they meant -- but they are still counted by `decideDeclaration`, so a
+    // preview can legitimately report BLOCKED with nothing to display.
+    let effectiveNow: ExpectationDeclarationView | null = null;
+    for (const row of rows) {
+      const declaration = toDeclaration(row);
+      if (declaration && isEffectiveOn(declaration, candidate.effectiveFrom)) {
+        effectiveNow = toView(row, declaration);
+        break;
+      }
+    }
+
+    const decision = decideDeclaration(rows, candidate);
+    if (decision.kind === 'EQUIVALENT') {
+      const declaration = toDeclaration(decision.row)!;
+      return {
+        outcome: 'ALREADY_EQUIVALENT',
+        effectiveNow: toView(decision.row, declaration),
+        supersedes: null,
+        reason: null,
+        problems: [],
+      };
+    }
+    if (decision.kind === 'BLOCKED') {
+      return {
+        outcome: 'BLOCKED',
+        effectiveNow,
+        supersedes: null,
+        reason: 'OVERLAPS_EXISTING',
+        problems: decision.problems,
+      };
+    }
+
+    const predecessor = decision.predecessor;
+    const predecessorDeclaration = predecessor ? toDeclaration(predecessor) : null;
+    return {
+      outcome: 'CREATED',
+      effectiveNow,
+      supersedes:
+        predecessor && predecessorDeclaration ? toView(predecessor, predecessorDeclaration) : null,
+      reason: null,
+      problems: [],
+    };
   }
 
   /**

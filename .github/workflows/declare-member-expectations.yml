@@ -1,0 +1,253 @@
+# Declare member expectations.
+#
+# Records what a person says about ONE CallGrid campaign: whether records from it
+# were supposed to reach Loop, from a given business date onward.
+#
+# WHY THIS EXISTS. `ProviderMemberExpectationRepository.declare()` shipped in
+# PR #166 as an additive step with nothing reading it yet -- the right sequencing
+# -- and the consequence was that the expectation table could not be written to
+# at all: no route, no server action, no page, no script and no workflow reached
+# it. This is the operations bridge, and it is deletable the day a real operator
+# surface ships.
+#
+# WHY IT MATTERS. Stage 3 can tell a correct absence from a delivery failure only
+# if a person has said which one it is. On 2026-08-05 CallGrid held 974 call
+# identities and Loop held 867; some of those 107 came from campaigns whose
+# webhook was never attached and COULD NOT have arrived, and the rest came from
+# campaigns that do deliver. From inside Loop both look identical. This is where
+# somebody says which.
+#
+# WHAT IT WRITES. Exactly one thing: a ProviderMemberExpectation row, through
+# ProviderMemberExpectationRepository.declare(). It does not ingest calls, does
+# not reconcile, does not certify a day, does not contact CallGrid, does not
+# measure and does not produce a Headline. It holds no provider credential,
+# because a declaration is a human statement and never reads traffic -- a
+# campaign that BROKE must not un-expect itself the moment it stops delivering.
+#
+# ONE CAMPAIGN PER DISPATCH, DELIBERATELY. There is no batch mode. Four campaigns
+# is four runs, each with its own dispatcher, its own reason and its own line in
+# the audit trail. A batch would collapse four human statements into one act.
+#
+# DRY RUN FIRST. `dry_run: true` performs the full pre-write check against
+# production -- resolving the organization, the declarer and the declaration
+# currently in force for that campaign on that date -- and writes nothing. It
+# does not call declare() at all. Run it before every real declaration.
+#
+# NO SCHEDULE, DELIBERATELY, AND NEVER ONE. A declaration is a statement a person
+# makes. There is no version of this job that should fire on a timer, on a push,
+# or from another workflow.
+
+name: Declare Member Expectations
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug (e.g. servicesinmycity-demo)'
+        required: true
+        type: string
+      campaign_id:
+        description: 'CallGrid campaignId. The provider''s own id, never a campaign name.'
+        required: true
+        type: string
+      state:
+        description: 'What is being declared about this campaign'
+        required: true
+        type: choice
+        options:
+          - NOT_CONFIGURED
+          - EXPECTED
+          - EXCLUDED
+      exclusion_reason:
+        description: 'Required for EXCLUDED only. Leave blank otherwise.'
+        required: false
+        type: choice
+        options:
+          - ''
+          - TEST_TRAFFIC
+          - INTERNAL_TRAFFIC
+      basis:
+        description: 'How this was established'
+        required: true
+        default: PROVIDER_CONFIG_VERIFIED
+        type: choice
+        options:
+          - PROVIDER_CONFIG_VERIFIED
+          - OPERATOR_DECLARED
+      reason:
+        description: 'Why, in plain language, for the person reading this in six months'
+        required: true
+        type: string
+      effective_from:
+        description: 'INCLUSIVE first business date this speaks for (YYYY-MM-DD)'
+        required: true
+        type: string
+      effective_to:
+        description: 'EXCLUSIVE end date (YYYY-MM-DD). Leave blank for open-ended.'
+        required: false
+        type: string
+      declarer_email:
+        description: 'Optional. EMG account email of the person declaring this; resolved within the organization. Blank records no actor.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Check what this would do and write nothing'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+# This job writes to production and must only ever be started by a human from the
+# Actions tab.
+
+permissions:
+  contents: read
+
+# Two declarations about the same campaign at once would race on the effective
+# range. The database's EXCLUDE constraint is the real guarantee; this stops two
+# runners reaching it at the same moment and one of them failing confusingly.
+concurrency:
+  group: declare-member-expectations
+  cancel-in-progress: false
+
+jobs:
+  declare:
+    name: Declare member expectation
+    runs-on: ubuntu-latest
+    # One row. This is bounded by a database round trip, not by a provider.
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, never printed and never written
+          # to the step summary. No CallGrid credential is requested: a
+          # declaration never reads traffic.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            echo "Add it under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          STATE: ${{ inputs.state }}
+          EXCLUSION_REASON: ${{ inputs.exclusion_reason }}
+          EFFECTIVE_FROM: ${{ inputs.effective_from }}
+          EFFECTIVE_TO: ${{ inputs.effective_to }}
+          REASON: ${{ inputs.reason }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${CAMPAIGN_ID}" | tr -d '[:space:]')" ]; then
+            echo "::error::campaign_id is required. It is the provider's own id, never a campaign name."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${REASON}" | tr -d '[:space:]')" ]; then
+            echo "::error::reason is required. An unexplained declaration is a place to hide."
+            exit 1
+          fi
+          if ! printf '%s' "${EFFECTIVE_FROM}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+            echo "::error::effective_from must be YYYY-MM-DD."
+            exit 1
+          fi
+          if [ -n "${EFFECTIVE_TO:-}" ] && ! printf '%s' "${EFFECTIVE_TO}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+            echo "::error::effective_to must be YYYY-MM-DD when supplied, or blank for open-ended."
+            exit 1
+          fi
+          # EXCLUDED requires a named reason and the others forbid one. The
+          # runner and the repository both check this again with the shared
+          # predicate; this is the earlier, cheaper refusal.
+          if [ "${STATE}" = "EXCLUDED" ] && [ -z "${EXCLUSION_REASON:-}" ]; then
+            echo "::error::EXCLUDED requires exclusion_reason."
+            exit 1
+          fi
+          if [ "${STATE}" != "EXCLUDED" ] && [ -n "${EXCLUSION_REASON:-}" ]; then
+            echo "::error::exclusion_reason is only meaningful on EXCLUDED. NOT_CONFIGURED is not a synonym for it."
+            exit 1
+          fi
+          echo "Validated a ${STATE} declaration for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching deploy-prisma-migrations.yml and its sibling
+        # operations workflows. This step also runs `prisma generate` through the
+        # database package's postinstall, which the runner needs.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These
+        # suites read the runner's own source and fail if it names reconciliation,
+        # certification, ingestion, recovery, a provider adapter or a Prisma
+        # delegate. A red step here means the write boundary moved, and no
+        # production connection is opened.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Declare
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          STATE: ${{ inputs.state }}
+          EXCLUSION_REASON: ${{ inputs.exclusion_reason }}
+          BASIS: ${{ inputs.basis }}
+          REASON: ${{ inputs.reason }}
+          EFFECTIVE_FROM: ${{ inputs.effective_from }}
+          EFFECTIVE_TO: ${{ inputs.effective_to }}
+          DECLARER_EMAIL: ${{ inputs.declarer_email }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # Arguments are passed as values. Optional flags are appended only when
+          # a value was supplied, so a blank input never becomes an empty
+          # argument the parser would read as the next flag's value.
+          args=(
+            --organization "${ORG_SLUG}"
+            --campaign "${CAMPAIGN_ID}"
+            --state "${STATE}"
+            --basis "${BASIS}"
+            --reason "${REASON}"
+            --effective-from "${EFFECTIVE_FROM}"
+          )
+          if [ -n "${EXCLUSION_REASON:-}" ]; then args+=(--exclusion-reason "${EXCLUSION_REASON}"); fi
+          if [ -n "${EFFECTIVE_TO:-}" ]; then args+=(--effective-to "${EFFECTIVE_TO}"); fi
+          if [ -n "${DECLARER_EMAIL:-}" ]; then args+=(--declarer-email "${DECLARER_EMAIL}"); fi
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); fi
+          npm run declare:member-expectations -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Declaration stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** Read the log above:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRECONDITION_FAILED\` - the input, the organization or the declarer email could not be resolved. Nothing reached the expectation table." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=DECLARATION_BLOCKED\` with \`reason=OVERLAPS_EXISTING\` - a declaration already in force would have to be deleted or re-dated to make room. That is not this job's decision. Close the existing declaration through a successor declaration instead." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRE_WRITE_CHECK\` shows what the record already said about that campaign on that date, whether or not the write proceeded." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"

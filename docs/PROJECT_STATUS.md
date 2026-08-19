@@ -658,6 +658,36 @@ column-type change, no existing table altered, nothing seeded, no `CREATE EXTENS
 gate remains unwired; PR 3's persistence is inert until PR 5. **No production reconciliation has been
 run** — the capability exists and has never been pointed at production.
 
+### Operations bridge — declaring expectations (IN REVIEW, NOT MERGED)
+**Not PR 4.** `ProviderMemberExpectationRepository.declare()` shipped in #166 with **zero callers** —
+no route, no server action, no page, no script, no workflow — so the expectation table could not be
+written to at all. The same shape `certifyDay()` shipped in, and #163 had to unblock it the same way.
+
+`Declare Member Expectations` (`workflow_dispatch` only) plus
+`scripts/operations/declare-member-expectations.ts` are the bridge, and both are deletable the day a
+real operator surface ships.
+
+- **One campaign per dispatch, no batch mode.** A declaration is a human statement; four campaigns is
+  four runs, each with its own dispatcher, reason and line in the audit trail.
+- **`dry_run` defaults to true** and is the pre-write check: it resolves the organization, the
+  declarer and the declaration currently in force for that campaign on that date, and writes nothing.
+  **It does not call `declare()` at all.**
+- **The preview and the write ask the same question.** `previewDeclaration` and `declare` share one
+  shape check and one decision function inside the repository, so a dry run cannot say CREATED and be
+  followed by a write that refuses. A test drives every shape through both.
+- **Provider, stream and dimension are constants, not inputs** — this bridge exists for the Stage 3
+  CallGrid campaign operation, and `EXPECTATION_DIMENSIONS` is CAMPAIGN only in v1.
+- **No user id is ever accepted from outside.** An optional declarer email resolves through the
+  existing organization-scoped `iam.listUsers` roster and fails closed on no match or an ambiguous
+  one; blank records no actor, which the repository documents as the honest value.
+- **No provider credential.** A declaration never reads traffic — a campaign that broke must not
+  un-expect itself the moment it stops delivering — so the runner holds only `DIRECT_DATABASE_URL`.
+- **The safety suite runs before the credential is used**, so "it cannot reconcile, certify, ingest,
+  recover or measure" is a checked property of each run.
+
+**No migration.** **No declaration has been made in production.** The four August 5 campaign
+declarations are authorized but unwritten: the sequence is dry-run all four, review, then write.
+
 **PR 4 onward is NOT AUTHORIZED.** Source-authority persistence (`MeasurementSource` /
 `MeasureSourceAuthority`), `SourceOutcomeDay`, the SSDI buyer-report importer, production wiring of
 `assessReadiness`, and any Stage 3 UI all remain out of scope until separately authorized.
