@@ -439,7 +439,7 @@ explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 ## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 IN IMPLEMENTATION
 **Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
 **Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
-**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#169 · PR 4 **DEPLOYED** · **operations bridge IN REVIEW** · PR 5 onward NOT AUTHORIZED
+**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#171 · PR 4 **DEPLOYED** · every single-declaration operations bridge **PROVEN IN PRODUCTION** · **production bootstrap bridge IN REVIEW** · PR 5 onward NOT AUTHORIZED
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -658,7 +658,7 @@ column-type change, no existing table altered, nothing seeded, no `CREATE EXTENS
 gate remains unwired; PR 3's persistence is inert until PR 5. **No production reconciliation has been
 run** — the capability exists and has never been pointed at production.
 
-### Operations bridge — declaring expectations (IN REVIEW, NOT MERGED)
+### Operations bridge — declaring expectations (MERGED #168 · PROVEN IN PRODUCTION)
 **Not PR 4.** `ProviderMemberExpectationRepository.declare()` shipped in #166 with **zero callers** —
 no route, no server action, no page, no script, no workflow — so the expectation table could not be
 written to at all. The same shape `certifyDay()` shipped in, and #163 had to unblock it the same way.
@@ -685,10 +685,13 @@ real operator surface ships.
 - **The safety suite runs before the credential is used**, so "it cannot reconcile, certify, ingest,
   recover or measure" is a checked property of each run.
 
-**No migration.** **No declaration has been made in production.** The four August 5 campaign
-declarations are authorized but unwritten: the sequence is dry-run all four, review, then write.
+**No migration.** **The bridge is merged and deployed, and is the proven path to the expectation
+table** — it is the only caller `declare()` has. Whether a given campaign has been declared is a
+question for the workflow's run history, not for this file. The remaining campaign declarations are a
+configuration act, not an engineering one, and the bootstrap bridge below is how the first batch of
+them is dispatched.
 
-### Measurement source authority — PR 4 of 7 (IN REVIEW, NOT MERGED)
+### Measurement source authority — PR 4 of 7 (MERGED #169 · DEPLOYED)
 **WHOSE NUMBER is this measure?** The fourth Stage 3 fact, and the one that stops a false zero. On
 2026-08-05 every one of the 974 records the provider held carried `converted=false` — present, not
 absent — so a conversion rate computed from them would have returned 0% at full coverage, cleared
@@ -753,7 +756,7 @@ no-overlap GiST exclusion constraint, the tenant-safe composite source foreign k
 PROVIDER_STREAM pairing CHECK, the required identifier/reason/definition CHECKs, and the
 `ON DELETE RESTRICT` protecting sources named by authorities. The persistence layer is live.
 
-### Source authority operations bridge — IN REVIEW, NOT MERGED
+### Source authority operations bridge — MERGED #170 · PROVEN IN PRODUCTION
 **Not PR 5.** PR 4 shipped with **zero production callers**, so the three tables could not be written
 to at all. This is the bridge, and it is deletable the day a real operator surface ships. It follows
 the #163/#168 precedent exactly.
@@ -795,10 +798,12 @@ performed on them. Now: metrics not named are left alone, an identical metric is
 Withdrawing a metric became a separate deliberate act. **No schema change** — TypeScript contract
 only. Two PR 4 tests asserting the replace behaviour were updated and six were added.
 
-**No migration.** **No source has been registered and no authority declared in production.** The
-first real use is: dry-run a registration, review, write; then dry-run an authority, review, write.
+**No migration.** **Both mechanisms are proven in production.** `callgrid-calls` is registered
+against the live tenant, and one real `CAMPAIGN` / `CALL_VOLUME` authority over it has been created
+and read back. Registering the remaining sources and declaring the remaining authorities is a
+configuration act, not an engineering one.
 
-### Metric definition correction — IN REVIEW, NOT MERGED
+### Metric definition correction — MERGED #171 · PROVEN IN PRODUCTION
 **Not PR 5.** The first production source registration recorded the METRIC NAME in the definition
 field. Registration deliberately refuses to overwrite a definition id, which is right and left that
 value unfixable through the registration path forever. This is the narrow, guarded exception — one
@@ -830,7 +835,48 @@ around the guard.
   migration this fix deliberately does not carry. The required plain-language reason, the
   dispatcher, and BOTH the old and new definition ids are printed and preserved in the Actions log.
 
-**No migration. No production change — the workflow has not been dispatched.**
+**No migration.** **Proven in production:** the first registration recorded the metric NAME in the
+definition field, and this bridge corrected it. `callgrid-calls` now stores
+`objective-measure-binding.v1:CALL_VOLUME` for `CALL_VOLUME`.
+
+### Stage 3 production bootstrap — IN REVIEW, NOT MERGED
+**Not PR 5.** Every individual mechanism above is now proven against production, and what remains is
+the FIRST FULL CONFIGURATION of a tenant — which through the one-declaration workflows is dozens of
+hand-filled forms, each an opportunity to mistype a campaign id, and none of them reviewable as a
+whole before any of it is live. `Stage 3 Production Bootstrap` (`workflow_dispatch` only) plus
+`scripts/operations/bootstrap-stage3-production.ts` apply one explicitly written plan — several
+member expectations and several source authorities — in one human-dispatched run.
+
+- **It does NOT replace the one-at-a-time workflows.** `Declare Member Expectations` and `Declare
+  Measure Source Authority` remain the long-term correction and maintenance tools. This is bootstrap
+  tooling, deletable the day a real operator surface ships.
+- **Why multi-member is allowed here.** The single-declaration workflows refuse batch mode because a
+  declaration is a human statement. That objection is about INFERENCE, not arity: here every
+  statement is separately and explicitly present in the plan the human wrote, nothing is derived from
+  traffic or from a sibling entry, every entry gets its own preview line, result line and stable
+  index (`EXPECTATION[1]`, `AUTHORITY[2]`), and processing is sequential.
+- **The runner classifies nothing.** It never decides whether a campaign is expected, excluded or
+  unconfigured, which source is authoritative, which measure a source owns, or which date anything
+  takes effect from. It reads no calls, no revenue, no webhook configuration, no reconciliation
+  verdict and no import, and holds no provider credential.
+- **It decides nothing the repositories already decide.** Per-entry validation IS the two shipped
+  runners' own `validateRequest` functions and their `resolveDeclarer`, imported rather than
+  re-typed. The only reasoning that is new is about the plan AS A WHOLE.
+- **Full-plan preflight, then sequential guarded writes.** Every entry is previewed through the
+  repository that owns it before any entry is written; one blocked preview ends the run with **zero
+  writes**. It is deliberately **not** a transaction across two repositories — inventing one would be
+  a redesign — so a concurrent change landing between the preflight and a write stops the run at that
+  entry and the summary reports `OVERALL_RESULT=PARTIALLY_APPLIED` with `FAILED_INDEX`, never
+  success. Re-running converges: applied entries report ALREADY_EQUIVALENT and write nothing.
+- **Two entries about the same subject are refused, whatever their dates.** A preview is asked
+  against the record as it stands and cannot see a sibling entry that has not been written yet, so a
+  plan carrying a declaration and its successor would preview as though neither superseded the other.
+  The successor goes through the single-declaration workflow afterwards.
+- **The plan is an input, never a file in this repository.** No campaign id, organization slug,
+  source key or date is committed in the runner or the workflow, and a test asserts it.
+
+**No migration. No production change — the workflow has not been dispatched.** `SourceOutcomeDay`
+persistence and the buyer-report importer are **not started**.
 
 **PR 5 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the buyer-report importer,
 production wiring of `assessReadiness`, and any Stage 3 UI all remain out of scope until separately
