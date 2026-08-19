@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-08-19._
+_Last updated: 2026-08-19 (PR 3 in review)._
 
 ---
 
@@ -439,7 +439,7 @@ explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 ## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 IN IMPLEMENTATION
 **Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
 **Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
-**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161, #162, #163, #164, #165 · **PR #166 (PR 2 of 7) IN REVIEW, NOT MERGED** · PR 3 onward NOT AUTHORIZED
+**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#166 · **PR 3 of 7 IN REVIEW, NOT MERGED** · PR 4 onward NOT AUTHORIZED
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -604,35 +604,63 @@ completeness layer those PRs proved was missing.
 | **#163** | 2026-08-17 | **Certification runner** — `scripts/operations/certify-observation-days.ts` + a `workflow_dispatch` workflow, the only caller `certifyDay()` has. Source-constraint tests fail if the runner ever names certification internals, recovery, measurement or direct Prisma. |
 | **#164** | 2026-08-18 | **Read-only August 5 identity reconciliation diagnostic** + `workflow_dispatch` workflow. `provider_observation_days` persists a count, never an identity set, so it can say 107 records are absent but not *which*. Three refusal verdicts; PII excluded by allowlist, not by filtering. |
 | **#165** | 2026-08-19 | **PR 1 of 7 — the pure completeness contracts.** `member-expectation.ts`, `provider-reconciliation.ts`, `measurement-source.ts` and `measurement-readiness.ts` (`assessReadiness`), plus `EffectiveDateRange` in `business-time.ts` and 11 readiness reasons extending `MATERIALITY_WITHHOLDINGS` — among them `CAMPAIGN_EXPECTATION_CONTRADICTED`. **Nothing wired, nothing persisted; Stage 3 behaves exactly as it did before.** No migration. |
+| **#166** | 2026-08-19 | **PR 2 of 7 — member expectation persistence.** `provider_member_expectations`: effective-dated half-open declarations (`declare` / `resolveOn` / `declarationsFor`), at most one in force per member per date enforced by a Postgres `EXCLUDE USING gist` over `btree_gist`. `UNKNOWN` stays unstorable. Nothing reads traffic. Migration `20260819000000_ci_stage3_member_expectation`, **applied to production 2026-08-19** (`btree_gist` 1.8, schema `public`). |
 
-**Deployed.** `Deploy Prisma Migrations` applied `20260817000000_ci_stage3_headlines` on 2026-08-16
-and `20260818000000_ci_stage3_observation_completeness` on 2026-08-17; that run's `migrate status`
-reported *"Database schema is up to date"* against all 17 migrations then on `main`. #163, #164 and
-#165 carry no migration. **Not yet production-verified** — no Headline has been observed rendering
-against real production data, and the certification runner has not been dispatched.
+**Deployed.** `Deploy Prisma Migrations` applied `20260817000000_ci_stage3_headlines` on 2026-08-16,
+`20260818000000_ci_stage3_observation_completeness` on 2026-08-17 and
+`20260819000000_ci_stage3_member_expectation` on 2026-08-19; the last run reported *"Database schema
+is up to date"* against all 18 migrations then on `main`. #163, #164 and #165 carry no migration.
+**Not yet production-verified** — no Headline has been observed rendering against real production
+data, the certification runner has not been dispatched, and no expectation has been declared.
 
-**IN REVIEW — PR #166, PR 2 of 7: `ProviderMemberExpectation` persistence. DRAFT, base `main`, NOT
-MERGED.** It gives PR 1's vocabulary somewhere to live: one table
-(`provider_member_expectations`), one write method, one resolver, one audit read. Declarations are
-effective-dated and half-open (`effectiveFrom` inclusive, `effectiveTo` exclusive, NULL open-ended),
-because a current-state "is this campaign connected" flag would retroactively convert every day
-before a webhook was attached into a delivery failure nobody could have prevented. `UNKNOWN` remains
-unstorable — it is the absence of a row covering the date, and it fails closed at the gate. Nothing
-here reads traffic: a campaign that broke may not un-expect itself. At most one declaration per
-member per date is enforced by Postgres (`EXCLUDE USING gist` over `btree_gist`, plus a CHECK
-rejecting empty and inverted ranges), because application-level uniqueness is precisely what
-Sprint 29A proved review cannot sustain.
+**IN REVIEW — PR 3 of 7: provider reconciliation persistence. NOT MERGED.** The third fact, beside
+the other two rather than folded into either:
 
-⚠️ **Migration `20260819000000_ci_stage3_member_expectation` is NOT APPLIED, and it is the first
-migration in this repository to require `CREATE EXTENSION`.** `btree_gist` is supported on Neon
-(PostgreSQL 18, version 1.8) and the statement is `IF NOT EXISTS`, but **whether the role behind
-`DIRECT_DATABASE_URL` holds `CREATE` on the database has not been verified** — no prior migration
-has ever exercised that privilege. If it does not, the migration stops at that statement rather than
-creating the table without its invariant. Establish this before dispatching the deploy workflow.
+| | |
+|---|---|
+| `provider_observation_days` | did Loop **look** at this business date? |
+| `provider_reconciliation_days` | did what it saw **arrive**? ← PR 3 |
+| `provider_member_expectations` | was it **supposed** to arrive? |
 
-**PR 3 onward is NOT AUTHORIZED.** Reconciliation persistence, source-authority persistence,
-`SourceOutcomeDay`, the SSDI importer, production wiring of `assessReadiness`, and any Stage 3 UI
-all remain out of scope until separately authorized.
+- **`ProviderReconciliationDay` + `ProviderReconciliationMember`.** The verdict lives at the day
+  because measurement gates on a day; the difference lives in campaigns, because 106 of August 5's
+  107 absences belonged to three of them and a day-level gate alone would let one broken campaign
+  block every objective in the organization.
+- **The comparison boundary is `integration_events`,** where receipt is proven and before
+  normalization or projection semantics apply. Reconciling at `MarketplaceCall` would conflate a
+  delivery failure with a projection rule permanently.
+- **Selected by delivery time, judged by occurrence.** The local scan reaches two days either side
+  of the Eastern window and filters by the canonical `resolveCallOccurrence`, so a webhook retried
+  the next morning still counts toward the day it occurred on.
+- **Evidence is weighed before the verdict.** A truncated provider read, a record carrying no member
+  attribution, a local row whose occurrence will not resolve, a local row with no identity, and two
+  identity sets that barely overlap each produce INCONCLUSIVE without the counts ever being read for
+  a finding. `localOnly > 0` is INCONCLUSIVE, not UNRECONCILED — it impeaches the comparison rather
+  than reporting a gap in it.
+- **The three set equations are enforced by Postgres,** not only by the service. A comparison whose
+  own arithmetic disagrees with itself is REFUSED and nothing is written, because an INCONCLUSIVE
+  row would still assert that a comparison happened.
+- **Expectation is resolved through PR 2 and recorded by id.** The member row names the declaration
+  it used, so a declaration recorded tomorrow cannot silently rewrite what a historical
+  reconciliation concluded. Re-running is the deliberate act that applies a new answer.
+- **One current answer per day, rewritten in place** — the same upsert-on-identity shape
+  `certifyDay` uses. Member rows are replaced inside the same transaction, so a campaign that
+  stopped appearing cannot linger looking current.
+- **`Reconcile Provider Days`** — `workflow_dispatch` only, no schedule, one date per dispatch
+  intended. It runs the source-constraint suite **before** the production credential is used, so
+  "it cannot ingest, recover, certify or declare" is a checked property of the run.
+
+⚠️ **Migration `20260820000000_ci_stage3_provider_reconciliation` is NOT APPLIED.** Additive: two
+tables, three indexes, four foreign keys, seven CHECK constraints. Zero DROP, zero rename, zero
+column-type change, no existing table altered, nothing seeded, no `CREATE EXTENSION`.
+
+**Nothing is wired to measurement.** `headline-detection.service.ts` is untouched and the readiness
+gate remains unwired; PR 3's persistence is inert until PR 5. **No production reconciliation has been
+run** — the capability exists and has never been pointed at production.
+
+**PR 4 onward is NOT AUTHORIZED.** Source-authority persistence (`MeasurementSource` /
+`MeasureSourceAuthority`), `SourceOutcomeDay`, the SSDI buyer-report importer, production wiring of
+`assessReadiness`, and any Stage 3 UI all remain out of scope until separately authorized.
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a

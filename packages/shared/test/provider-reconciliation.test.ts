@@ -9,15 +9,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  IDENTITY_COHERENCE_FLOOR,
   RECONCILIATION_SEVERITY,
   RECONCILIATION_STATES,
+  assessReconciliation,
   countProblems,
   countsCoherent,
   deriveReconciliationState,
+  identitiesCoherent,
   memberFact,
   mostSevereReconciliationState,
+  normalizeExternalIdentity,
   providerOnlySplitTotal,
   reconciliationCertifies,
+  type ComparisonIntegrity,
   type ReconciliationCounts,
   type ReconciliationMemberFact,
 } from '../src/index';
@@ -216,4 +221,143 @@ test('a member is found by dimension and id, and never by label', () => {
   assert.equal(memberFact(day, 'CAMPAIGN', 'camp-b')?.memberExternalId, 'camp-b');
   assert.equal(memberFact(day, 'CAMPAIGN', 'camp-z'), undefined);
   assert.equal(memberFact(day, 'BUYER', 'camp-b'), undefined);
+});
+
+// --- Comparison integrity (PR 3) ------------------------------------------------
+//
+// THE PROPERTY: evidence is weighed before the verdict is read. Every case below
+// is a way a comparison could look conclusive while being worthless, and each one
+// must produce INCONCLUSIVE without the counts ever being consulted for a finding.
+
+function soundCounts(over: Partial<ReconciliationCounts> = {}): ReconciliationCounts {
+  return {
+    providerUnique: 10,
+    providerDuplicateIds: 0,
+    localUnique: 10,
+    localDuplicateIds: 0,
+    intersection: 10,
+    providerOnly: 0,
+    localOnly: 0,
+    providerOnlyExpected: 0,
+    providerOnlyNotConfigured: 0,
+    providerOnlyExcluded: 0,
+    providerOnlyUnknownMember: 0,
+    ...over,
+  };
+}
+
+function soundIntegrity(over: Partial<ComparisonIntegrity> = {}): ComparisonIntegrity {
+  return {
+    providerTruncated: false,
+    providerUnattributed: 0,
+    localUnresolvedOccurrence: 0,
+    localMissingIdentity: 0,
+    ...over,
+  };
+}
+
+test('sound evidence over matched sets reconciles, and names no problem', () => {
+  const result = assessReconciliation(soundIntegrity(), soundCounts(), []);
+  assert.equal(result.state, 'RECONCILED');
+  assert.deepEqual(result.problems, []);
+});
+
+test('a truncated provider read is INCONCLUSIVE even when everything else is perfect', () => {
+  const result = assessReconciliation(soundIntegrity({ providerTruncated: true }), soundCounts(), []);
+  assert.equal(result.state, 'INCONCLUSIVE');
+  assert.match(result.problems.join(' '), /lower bound/);
+});
+
+test('an unattributed provider record is INCONCLUSIVE — it cannot be judged against a declaration', () => {
+  const result = assessReconciliation(soundIntegrity({ providerUnattributed: 3 }), soundCounts(), []);
+  assert.equal(result.state, 'INCONCLUSIVE');
+  assert.match(result.problems.join(' '), /no member attribution/);
+});
+
+test('a local record with no resolvable occurrence is INCONCLUSIVE — it cannot be ruled OUT of the date', () => {
+  const result = assessReconciliation(soundIntegrity({ localUnresolvedOccurrence: 1 }), soundCounts(), []);
+  assert.equal(result.state, 'INCONCLUSIVE');
+  assert.match(result.problems.join(' '), /cannot be ruled out/);
+});
+
+test('a local record with no identity is INCONCLUSIVE — a row that cannot be named cannot be matched', () => {
+  const result = assessReconciliation(soundIntegrity({ localMissingIdentity: 2 }), soundCounts(), []);
+  assert.equal(result.state, 'INCONCLUSIVE');
+  assert.match(result.problems.join(' '), /no identity/);
+});
+
+test('the integrity assessment reports the EARLIEST break first, not its symptom', () => {
+  const result = assessReconciliation(
+    soundIntegrity({ providerTruncated: true, localMissingIdentity: 1 }),
+    soundCounts(),
+    [],
+  );
+  assert.match(String(result.problems[0]), /page budget/);
+});
+
+test('incoherent arithmetic is INCONCLUSIVE, and says which equation failed', () => {
+  const result = assessReconciliation(
+    soundIntegrity(),
+    soundCounts({ intersection: 9 }),
+    [],
+  );
+  assert.equal(result.state, 'INCONCLUSIVE');
+  assert.match(result.problems.join(' '), /intersection \+ providerOnly/);
+});
+
+test('two identity sets that barely overlap are incoherent rather than "everything is missing"', () => {
+  // 10 each side, 1 shared: reporting nine absences here would be a false alarm
+  // about a mapping defect, and the most expensive kind.
+  const counts = soundCounts({ intersection: 1, providerOnly: 9, localOnly: 9, providerOnlyUnknownMember: 9 });
+  assert.equal(identitiesCoherent(counts), false);
+  assert.equal(assessReconciliation(soundIntegrity(), counts, []).state, 'INCONCLUSIVE');
+});
+
+test('coherence is vacuously true when either side is empty — a proven zero is not a defect', () => {
+  assert.equal(identitiesCoherent(soundCounts({ providerUnique: 0, intersection: 0, localUnique: 0, localOnly: 0 })), true);
+  assert.equal(identitiesCoherent(soundCounts({ localUnique: 0, intersection: 0, providerOnly: 10, providerOnlyUnknownMember: 10 })), true);
+});
+
+test('exactly at the coherence floor is coherent — the floor is inclusive', () => {
+  const counts = soundCounts({ intersection: 5, providerOnly: 5, localOnly: 5, localUnique: 10, providerOnlyUnknownMember: 5 });
+  assert.equal(IDENTITY_COHERENCE_FLOOR, 0.5);
+  assert.equal(identitiesCoherent(counts), true);
+});
+
+test('integrity outranks a finding — INCONCLUSIVE is reached without reading the split', () => {
+  // These counts would otherwise be UNRECONCILED. They must not be.
+  const counts = soundCounts({ intersection: 8, localUnique: 8, providerOnly: 2, providerOnlyExpected: 2 });
+  assert.equal(deriveReconciliationState(counts, []), 'UNRECONCILED');
+  assert.equal(assessReconciliation(soundIntegrity({ providerTruncated: true }), counts, []).state, 'INCONCLUSIVE');
+});
+
+// --- Identity normalisation -----------------------------------------------------
+
+test('an identity is compared as a trimmed string, whatever JSON type it arrived as', () => {
+  // The webhook template sends every value as a quoted string while the REST
+  // client may return a native one. The same id must not compare unequal because
+  // two systems disagreed about JSON.
+  assert.equal(normalizeExternalIdentity('abc'), 'abc');
+  assert.equal(normalizeExternalIdentity(123), '123');
+  assert.equal(normalizeExternalIdentity('123'), '123');
+  assert.equal(normalizeExternalIdentity('  abc  '), 'abc');
+});
+
+test('case is preserved — CallGrid ids are cuids, and a merge is silent where a mismatch is loud', () => {
+  assert.equal(normalizeExternalIdentity('AbC'), 'AbC');
+  assert.notEqual(normalizeExternalIdentity('AbC'), normalizeExternalIdentity('abc'));
+});
+
+test('an empty or absent value is NOT an identity', () => {
+  // The empty string would otherwise match every other empty one and collapse
+  // unrelated records into a single phantom identity.
+  assert.equal(normalizeExternalIdentity(''), null);
+  assert.equal(normalizeExternalIdentity('   '), null);
+  assert.equal(normalizeExternalIdentity(null), null);
+  assert.equal(normalizeExternalIdentity(undefined), null);
+  assert.equal(normalizeExternalIdentity({}), null);
+  assert.equal(normalizeExternalIdentity([]), null);
+  assert.equal(normalizeExternalIdentity(Number.NaN), null);
+  assert.equal(normalizeExternalIdentity(Number.POSITIVE_INFINITY), null);
+  assert.equal(normalizeExternalIdentity(true), null);
 });

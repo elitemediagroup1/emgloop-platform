@@ -115,6 +115,28 @@ export {
   CERTIFICATION_PAGE_CAP,
 } from './services/provider-observation.service';
 export type { CertifyDayInput } from './services/provider-observation.service';
+export {
+  ProviderReconciliationService,
+  RECONCILIATION_PAGE_CAP,
+  LOCAL_SCAN_MARGIN_MS,
+  LOCAL_SCAN_BATCH_SIZE,
+  RECONCILIATION_DIMENSION,
+  MEMBER_ID_FIELD,
+  MEMBER_LABEL_FIELDS,
+  memberIdFrom,
+  memberLabelFrom,
+  callGridPopulationReader,
+  integrationEventReader,
+} from './services/provider-reconciliation.service';
+export type {
+  ReconcileDayInput,
+  ReconcileDayResult,
+  ProviderPopulation,
+  ProviderPopulationReader,
+  ProviderPopulationRecord,
+  LocalDeliveryReader,
+  LocalDeliveryRecord,
+} from './services/provider-reconciliation.service';
 export { CallGridReconciliationService, sinceForRange, mapReconEventType } from './services/callgrid-reconciliation.service';
 export type { ReconciliationInput, ReconciliationResult, SyncRange, ReconciliationBasis, ExplicitWindow } from './services/callgrid-reconciliation.service';
 export { IntegrationOsService } from './services/integration-os.service';
