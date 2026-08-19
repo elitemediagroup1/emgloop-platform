@@ -23,6 +23,7 @@
     "declare:member-expectations": "tsx scripts/operations/declare-member-expectations.ts",
     "register:measurement-source": "tsx scripts/operations/register-measurement-source.ts",
     "declare:source-authority": "tsx scripts/operations/declare-measure-source-authority.ts",
+    "correct:source-metric-definition": "tsx scripts/operations/correct-measurement-source-metric-definition.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",
     "test:diagnostics": "node --import tsx --test scripts/diagnostics/*.test.ts",
     "typecheck:operations": "tsc --noEmit -p scripts/tsconfig.json"

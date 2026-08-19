@@ -1,0 +1,216 @@
+# Correct a measurement source metric definition.
+#
+# Fixes a `measureDefinitionId` typed wrongly during the FIRST registration of a
+# source. It changes one column on one metric row and nothing else, ever.
+#
+# WHY THIS EXISTS. Registering a source refuses a differing definition id rather
+# than overwriting one, because overwriting silently redefines what a stored
+# measurement measured. That refusal is right, and its consequence is that a
+# definition mistyped on the first registration is unfixable through the
+# registration path forever. This is the narrow, guarded exception -- a
+# CORRECTION, never a second way to register.
+#
+# THE SAFETY CONDITION, AND WHY IT IS NOT THE DATABASE'S
+#
+# Nothing in the database references a metric ROW. An authority names the SOURCE
+# through a composite foreign key and carries `metric` as a plain string column,
+# and `measureDefinitionId` is stored in exactly one place and copied nowhere. So
+# Postgres would accept this update at any moment and report nothing wrong. The
+# danger is entirely semantic, and a semantic danger the database cannot see is
+# one the application must refuse itself.
+#
+# SO: CORRECTION IS SAFE ONLY WHILE NO AUTHORITY NAMES THAT SOURCE FOR THAT
+# MEASURE. Before an authority exists nothing can have been measured from the
+# source -- the readiness gate resolves MISSING and withholds -- so no published
+# number depends on the old string. Once one exists, changing the definition would
+# retroactively redefine a published number and silently start or stop two sources
+# agreeing, with nothing in either to show it happened. The job FAILS CLOSED and
+# the operator registers a NEW source instead.
+#
+# WHAT IT CANNOT DO. There is no input for source kind, provider, stream or a row
+# id, and no code path that writes one -- identity is resolved from the persisted
+# source. It declares no authority, ingests nothing, reconciles nothing, certifies
+# nothing, contacts no provider, measures nothing and produces no Headline. It
+# holds no provider credential.
+#
+# PROVENANCE IS THIS RUN RECORD. The metric row has no reason column and adding
+# one would be a migration, which this fix deliberately does not carry. The
+# required plain-language `reason`, the dispatcher's name, and BOTH the old and
+# new definition ids are printed by the run and preserved in the Actions log.
+# That is the whole audit trail for a correction, and it is why `reason` is
+# required rather than optional.
+#
+# DRY RUN FIRST. `dry_run: true` performs the full pre-write check against
+# production -- resolving the organization, the source, the metric, the current
+# definition and any authority that would block -- and writes nothing. It does not
+# call the mutating method at all.
+#
+# NO SCHEDULE, DELIBERATELY, AND NEVER ONE. A correction is a human statement that
+# a record is wrong.
+
+name: Correct Measurement Source Metric Definition
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      source_key:
+        description: 'Key of the already-registered source whose definition is wrong'
+        required: true
+        type: string
+      metric:
+        description: 'The measure whose definition id is being corrected. The metric itself never changes.'
+        required: true
+        type: choice
+        options:
+          - CALL_VOLUME
+          - REVENUE
+          - MONETIZED_RATE
+          - CONVERSION_RATE
+          - NO_ROUTE_RATE
+      new_measure_definition_id:
+        description: 'The definition id the source should have declared'
+        required: true
+        type: string
+      reason:
+        description: 'Why the stored value is wrong. This run log is the only record of the change.'
+        required: true
+        type: string
+      dry_run:
+        description: 'Check what this would do and write nothing'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+# This job writes to production and must only ever be started by a human from the
+# Actions tab.
+
+permissions:
+  contents: read
+
+# Serialised against itself. The authority guard has no database constraint
+# behind it, so the repository re-checks inside its transaction; this removes the
+# other obvious way two runs could interleave.
+concurrency:
+  group: correct-measurement-source-metric-definition
+  cancel-in-progress: false
+
+jobs:
+  correct:
+    name: Correct metric definition
+    runs-on: ubuntu-latest
+    # One column on one row. Bounded by a database round trip.
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, never printed and never written
+          # to the step summary. No provider credential is requested.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            echo "Add it under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SOURCE_KEY: ${{ inputs.source_key }}
+          DEFINITION_ID: ${{ inputs.new_measure_definition_id }}
+          REASON: ${{ inputs.reason }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${SOURCE_KEY}" | tr -d '[:space:]')" ]; then
+            echo "::error::source_key is required, and must name a source this organization already registered."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${DEFINITION_ID}" | tr -d '[:space:]')" ]; then
+            echo "::error::new_measure_definition_id is required and cannot be blank. Blanking a definition would leave the metric supported and unusable."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "${REASON}" | tr -d '[:space:]')" ]; then
+            echo "::error::reason is required. This run log is the only record of why the value changed."
+            exit 1
+          fi
+          echo "Validated a definition correction for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching deploy-prisma-migrations.yml and its sibling
+        # operations workflows. This step also runs `prisma generate` through the
+        # database package's postinstall, which the runner needs.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These
+        # suites read the runner's own source and fail if it names authority
+        # declaration, source registration, reconciliation, certification,
+        # ingestion, recovery, a provider adapter or a Prisma delegate. They also
+        # assert the authority guard itself. A red step here means the write
+        # boundary moved, and no production connection is opened.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Correct
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SOURCE_KEY: ${{ inputs.source_key }}
+          METRIC: ${{ inputs.metric }}
+          DEFINITION_ID: ${{ inputs.new_measure_definition_id }}
+          REASON: ${{ inputs.reason }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(
+            --organization "${ORG_SLUG}"
+            --source-key "${SOURCE_KEY}"
+            --metric "${METRIC}"
+            --measure-definition-id "${DEFINITION_ID}"
+            --reason "${REASON}"
+          )
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); fi
+          npm run correct:source-metric-definition -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Correction stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** Read the log above:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=BLOCKED_AUTHORITY_EXISTS\` - an authority already names this source for this measure, so a measurement may already rest on the current definition. Changing it now would retroactively redefine a published number. **Register a NEW source instead**; this is not a case to force." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=SOURCE_NOT_FOUND\` - no source is registered under that key for this organization. Check the key; this job cannot create one." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`reason=METRIC_NOT_FOUND\` - that source does not declare this measure, so there is no definition to correct. Register the metric on the source instead." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PRECONDITION_FAILED\` - the input or the organization could not be resolved. Nothing reached the source tables." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`event=PRE_WRITE_CHECK\` always shows the definition currently stored and how many authorities name this source for this measure." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"

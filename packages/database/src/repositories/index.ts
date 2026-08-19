@@ -237,6 +237,7 @@ export type {
 // Declared by a person; never inferred from a value being present.
 export {
   MeasurementSourceRepository,
+  decideMeasureDefinitionCorrection,
   decideSourceRegistration,
   isMeasurementSourceKind,
 } from './measurement-source.repository';
@@ -244,6 +245,12 @@ export type {
   AuthorityDeclarationPreview,
   AuthorityDeclarationView,
   AuthorityReadinessFacts,
+  CorrectDefinitionDecision,
+  CorrectDefinitionInput,
+  CorrectDefinitionPreview,
+  CorrectDefinitionRejection,
+  CorrectDefinitionResult,
+  CorrectionState,
   DeclareAuthorityInput,
   DeclareAuthorityRejection,
   DeclareAuthorityResult,
