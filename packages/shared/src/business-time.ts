@@ -315,3 +315,98 @@ export function isEffectiveRangeValid(range: EffectiveDateRange): boolean {
   if (range.effectiveTo === null) return true;
   return isBusinessDate(range.effectiveTo) && range.effectiveTo > range.effectiveFrom;
 }
+
+/**
+ * Whether two half-open business-date ranges cover any date in common.
+ *
+ * PROMOTED FROM THE EXPECTATION REPOSITORY so the platform has ONE definition of
+ * overlap. Two effective-dated tables now depend on it, and a second copy would
+ * eventually disagree with the first about the boundary date -- which is the one
+ * case that matters, because closing a declaration and opening its successor
+ * produces exactly that adjacency. Half-open means [Aug 1, Sep 1) and
+ * [Sep 1, NULL) touch at Sep 1 and overlap on NO date.
+ *
+ * A null upper bound is an unbounded future, so two open-ended ranges for the
+ * same subject always overlap. Lexical comparison is calendar comparison for
+ * zero-padded business dates; see `isEffectiveOn`.
+ */
+export function effectiveRangesOverlap(a: EffectiveDateRange, b: EffectiveDateRange): boolean {
+  const aEndsAfterBStarts = a.effectiveTo === null || a.effectiveTo > b.effectiveFrom;
+  const bEndsAfterAStarts = b.effectiveTo === null || b.effectiveTo > a.effectiveFrom;
+  return aEndsAfterBStarts && bEndsAfterAStarts;
+}
+
+/**
+ * What writing one effective-dated declaration would do to the ones already there.
+ *
+ * PURE, AND THE ONLY PLACE THIS IS DECIDED for any effective-dated table in the
+ * platform. Provider member expectation and measurement source authority both use
+ * it, and a third will: the reasoning is identical every time, and the failure
+ * mode of copying it is that the copies disagree about the boundary date long
+ * after anybody remembers there were two.
+ *
+ * The rules, and why each one:
+ *
+ * EQUIVALENT — an existing declaration already covers the whole new range and
+ * says the same thing, so writing would split one interval into two identical
+ * rows and put a second author on half of a statement one person made. What
+ * "the same thing" means is the CALLER'S, because only the caller knows which of
+ * its columns constitute the statement.
+ *
+ * BLOCKED on a declaration that starts ON OR AFTER the new one — making room
+ * would mean deleting or re-dating somebody else's statement, and that is not a
+ * write's decision to make.
+ *
+ * BLOCKED on more than one overlapping predecessor — under the database's
+ * exclusion constraint that is impossible, so seeing it means the table has been
+ * written around, and truncating several rows on a guess is not a repair.
+ *
+ * CREATE otherwise, ending the single earlier declaration at the new start date:
+ * one column, written once, and everything it said about the dates it covered
+ * stays exactly as it was.
+ */
+export type EffectiveDatedDecision<TRow> =
+  | { kind: 'EQUIVALENT'; row: TRow }
+  | { kind: 'BLOCKED'; problems: string[] }
+  | { kind: 'CREATE'; predecessor: TRow | null };
+
+export function decideEffectiveDatedWrite<TRow>(
+  rows: readonly TRow[],
+  candidate: EffectiveDateRange,
+  rangeOf: (row: TRow) => EffectiveDateRange,
+  /** Whether this row already says what the candidate says. Caller-defined. */
+  saysTheSameThing: (row: TRow) => boolean,
+): EffectiveDatedDecision<TRow> {
+  const overlapping = rows.filter((row) => effectiveRangesOverlap(rangeOf(row), candidate));
+
+  const equivalent = overlapping.find((row) => {
+    if (!saysTheSameThing(row)) return false;
+    const range = rangeOf(row);
+    // It must also COVER the whole candidate range, not merely intersect it:
+    // a shorter agreeing declaration leaves dates the candidate speaks for and
+    // it does not.
+    if (range.effectiveFrom > candidate.effectiveFrom) return false;
+    if (range.effectiveTo === null) return true;
+    return candidate.effectiveTo !== null && range.effectiveTo >= candidate.effectiveTo;
+  });
+  if (equivalent) return { kind: 'EQUIVALENT', row: equivalent };
+
+  const laterOrSameStart = overlapping.filter(
+    (row) => rangeOf(row).effectiveFrom >= candidate.effectiveFrom,
+  );
+  if (laterOrSameStart.length > 0) {
+    return {
+      kind: 'BLOCKED',
+      problems: laterOrSameStart.map(
+        (row) => `a declaration already starts on ${rangeOf(row).effectiveFrom}`,
+      ),
+    };
+  }
+  if (overlapping.length > 1) {
+    return {
+      kind: 'BLOCKED',
+      problems: [`${overlapping.length} declarations are already in force`],
+    };
+  }
+  return { kind: 'CREATE', predecessor: overlapping[0] ?? null };
+}
