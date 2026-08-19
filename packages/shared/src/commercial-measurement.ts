@@ -157,6 +157,7 @@ export const MATERIALITY_WITHHOLDINGS = [
   'RECONCILIATION_MISSING',
   'RECONCILIATION_INCONCLUSIVE',
   'CAMPAIGN_EXPECTATION_UNKNOWN',
+  'CAMPAIGN_EXPECTATION_CONTRADICTED',
   'POPULATION_INCOMPLETE',
   'SOURCE_AUTHORITY_MISSING',
   'SOURCE_AUTHORITY_CONFLICT',
@@ -184,6 +185,8 @@ export const MATERIALITY_WITHHOLDING_LABELS: Record<MaterialityWithholding, stri
     'The comparison between the provider and Loop is not sound, so nothing can be concluded from it.',
   CAMPAIGN_EXPECTATION_UNKNOWN:
     'Nobody has said whether records from a campaign in this population were expected.',
+  CAMPAIGN_EXPECTATION_CONTRADICTED:
+    'A campaign declared not to participate has contributed calls to this population.',
   POPULATION_INCOMPLETE:
     'Records that were expected to arrive did not, so this population is measured over an incomplete set.',
   SOURCE_AUTHORITY_MISSING: 'No source has been declared authoritative for this measure.',
@@ -221,6 +224,8 @@ export const MATERIALITY_WITHHOLDING_NEXT_ACTIONS: Record<MaterialityWithholding
     'Investigate: the provider read or the identity comparison itself is unsound.',
   CAMPAIGN_EXPECTATION_UNKNOWN:
     'Declare the campaign: expected, not connected to Loop, or deliberately excluded.',
+  CAMPAIGN_EXPECTATION_CONTRADICTED:
+    "Re-declare the campaign, or remove it from this objective's population.",
   POPULATION_INCOMPLETE:
     'Check the campaign is connected to Loop, then recover the named days.',
   SOURCE_AUTHORITY_MISSING: 'Declare which source is authoritative for this campaign and measure.',

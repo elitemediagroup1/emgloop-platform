@@ -6,7 +6,9 @@
 // population member whose expectation is KNOWN, whose day was OBSERVED and
 // RECONCILED for that member, and whose authoritative source FOR THAT SPECIFIC
 // MEASURE is uniquely resolved and has delivered its data — for every business
-// date in the compared periods. Anything short of that returns a reason, never a
+// date in the compared periods. And no member may contribute calls it was
+// declared not to contribute: a declaration the population contradicts is a
+// refusal, not a rounding error. Anything short of that returns a reason, never a
 // number.
 //
 // WHY THIS IS A SEPARATE PURE FUNCTION AND NOT A SERVICE
@@ -19,9 +21,10 @@
 //
 // EVERY REFUSAL NAMES A DIFFERENT NEXT MOVE. That is the test of whether a reason
 // code earns its place: "run certification", "run reconciliation", "declare the
-// campaign", "recover the day", "declare an authority", "close one of two", "wait
-// for the report". A gate that returns one boolean teaches operators that Loop is
-// broken; a gate that returns a work item teaches them what it knows.
+// campaign", "re-declare the campaign", "recover the day", "declare an authority",
+// "close one of two", "wait for the report". A gate that returns one boolean
+// teaches operators that Loop is broken; a gate that returns a work item teaches
+// them what it knows.
 //
 // WHAT IT DOES NOT DO. It does not compute anything, rank anything, or decide
 // whether a number is interesting -- `measureChange` owns materiality and keeps
@@ -68,6 +71,7 @@ export const READINESS_WITHHOLDINGS = [
   'RECONCILIATION_MISSING',
   'RECONCILIATION_INCONCLUSIVE',
   'CAMPAIGN_EXPECTATION_UNKNOWN',
+  'CAMPAIGN_EXPECTATION_CONTRADICTED',
   'POPULATION_INCOMPLETE',
   'SOURCE_AUTHORITY_MISSING',
   'SOURCE_AUTHORITY_CONFLICT',
@@ -118,6 +122,7 @@ export const READINESS_OUTCOME_BY_REASON: Record<ReadinessWithholding, Readiness
   RECONCILIATION_MISSING: 'NOT_READY',
   RECONCILIATION_INCONCLUSIVE: 'INCONCLUSIVE',
   CAMPAIGN_EXPECTATION_UNKNOWN: 'CONFIG_ERROR',
+  CAMPAIGN_EXPECTATION_CONTRADICTED: 'CONFIG_ERROR',
   POPULATION_INCOMPLETE: 'NOT_READY',
   SOURCE_AUTHORITY_MISSING: 'CONFIG_ERROR',
   SOURCE_AUTHORITY_CONFLICT: 'CONFIG_ERROR',
@@ -144,7 +149,15 @@ export const READINESS_OUTCOME_BY_REASON: Record<ReadinessWithholding, Readiness
 export interface ReadinessPartition {
   dimension: BindingDimension;
   memberExternalId: string;
-  /** Calls this member contributed to the bound population across both windows. */
+  /**
+   * Calls this member contributed to the bound population across both windows.
+   *
+   * A WINDOW-WIDE TOTAL, AND NEVER THE PARTICIPATION TEST. Whether a member
+   * contributed calls ON A GIVEN DATE is read from that date's reconciliation
+   * member fact (`localCount`), because a campaign can be connected on one date
+   * of a window and disconnected on the next, and one summed number cannot say
+   * which.
+   */
   localCalls: number;
 }
 
@@ -311,18 +324,50 @@ export function assessReadiness(input: ReadinessInput): MeasurementReadiness {
           memberExternalId: partition.memberExternalId,
           detail: 'Nobody has declared whether this campaign was expected on this date.',
         });
-      } else if (expectation === 'EXPECTED' && (member?.providerOnly ?? 0) > 0) {
-        findings.push({
-          reason: 'POPULATION_INCOMPLETE',
-          businessDate: date,
-          memberExternalId: partition.memberExternalId,
-          detail: `${member?.providerOnly ?? 0} records the provider holds for this campaign did not reach Loop.`,
-        });
+      } else if (expectation === 'EXPECTED') {
+        if ((member?.providerOnly ?? 0) > 0) {
+          findings.push({
+            reason: 'POPULATION_INCOMPLETE',
+            businessDate: date,
+            memberExternalId: partition.memberExternalId,
+            detail: `${member?.providerOnly ?? 0} records the provider holds for this campaign did not reach Loop.`,
+          });
+        }
+      } else {
+        // 4b · A MEMBER DECLARED NOT TO PARTICIPATE, ON THIS DATE.
+        //
+        // Participation is asked PER BUSINESS DATE, from the member fact the day
+        // already resolved. A window-wide total cannot answer it: a campaign
+        // disconnected on the 5th and delivering on the 4th carries one
+        // `localCalls` number and two different answers.
+        //
+        // IT DID NOT PARTICIPATE. Nothing about it is a defect -- a campaign that
+        // was never connected cannot have failed to deliver -- and nothing about
+        // it is measured either. No authority is required for a member that
+        // contributed no call: demanding one would send an operator to declare a
+        // source for a measure that will never read it.
+        //
+        // IT DID PARTICIPATE. The declaration and the observed population
+        // disagree, and neither may be quietly preferred. Counting the calls
+        // overrides a human declaration with observed traffic; discarding them
+        // measures a population that is not the bound one; asking for an
+        // authority answers a question nobody asked. The contradiction stays
+        // visible until a person re-declares the campaign or removes it from the
+        // population -- and it is reported INSTEAD OF, not alongside, the
+        // authority findings, because those are not what is wrong here.
+        const participated = member?.localCount ?? 0;
+        if (participated > 0) {
+          const declared =
+            expectation === 'EXCLUDED' ? 'deliberately excluded' : 'not connected to Loop';
+          findings.push({
+            reason: 'CAMPAIGN_EXPECTATION_CONTRADICTED',
+            businessDate: date,
+            memberExternalId: partition.memberExternalId,
+            detail: `${participated} calls in this population came from a campaign declared ${declared} on this date.`,
+          });
+        }
+        continue;
       }
-      // NOT_CONFIGURED and EXCLUDED members contribute no absence and no block.
-      // Their provider-only records are counted on the day's fact and are not
-      // defects -- a campaign that was never connected cannot have failed to
-      // deliver.
 
       // 5 · AUTHORITY, resolved AS OF THIS DATE. Never current-state.
       const authority = resolveAuthority(

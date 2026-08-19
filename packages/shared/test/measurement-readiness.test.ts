@@ -234,18 +234,200 @@ test('6 · a NOT_CONFIGURED campaign contributes absences and no objection', () 
       counts: counts({ providerUnique: 106, providerOnly: 6, providerOnlyNotConfigured: 6 }),
       members: [member({ providerCount: 6, localCount: 0, providerOnly: 6, expectation: 'NOT_CONFIGURED' })],
     });
-  const r = assessReadiness(input({ reconciliation: DATES.map(notConfigured) }));
+  // AND NO AUTHORITY IS REQUIRED OF IT. A member that contributed no call has no
+  // number for a source to be authoritative over; demanding a declaration would
+  // send an operator to answer a question no measurement will ever read.
+  const r = assessReadiness(input({ reconciliation: DATES.map(notConfigured), authorities: [] }));
   assert.equal(r.ready, true, 'a campaign that was never connected cannot have failed to deliver');
+  assert.deepEqual(r.findings, []);
 });
 
-test('7 · an EXCLUDED campaign is likewise no objection', () => {
+test('7 · an EXCLUDED campaign is likewise no objection, and likewise needs no authority', () => {
   const excluded = (d: BusinessDate) =>
     day(d, {
       counts: counts({ providerUnique: 103, providerOnly: 3, providerOnlyExcluded: 3 }),
       members: [member({ providerCount: 3, localCount: 0, providerOnly: 3, expectation: 'EXCLUDED' })],
     });
-  const r = assessReadiness(input({ reconciliation: DATES.map(excluded) }));
+  const r = assessReadiness(input({ reconciliation: DATES.map(excluded), authorities: [] }));
   assert.equal(r.ready, true);
+  assert.deepEqual(r.findings, []);
+});
+
+// --- 7a–7h. When the declaration and the population disagree ----------------------------
+//
+// A campaign declared not to participate that nevertheless contributed calls is
+// not a gap in the data — it is two sources of truth contradicting each other,
+// and every way of resolving it silently is a lie. Counting the calls lets
+// observed traffic overrule a human declaration. Discarding them measures a
+// population that is not the bound one. Asking for an authority sends the
+// operator to answer the wrong question. It fails closed and stays visible.
+
+function participating(expectation: 'NOT_CONFIGURED' | 'EXCLUDED', localCount = 100) {
+  return (d: BusinessDate) =>
+    day(d, { members: [member({ localCount, providerCount: localCount, expectation })] });
+}
+
+test('7a · a NOT_CONFIGURED campaign that DID contribute calls contradicts its own declaration', () => {
+  // Note the authority is present and valid. It is not the problem, and it must
+  // not be allowed to resolve one.
+  const r = assessReadiness(input({ reconciliation: DATES.map(participating('NOT_CONFIGURED')) }));
+  assert.deepEqual(reasons(r), ['CAMPAIGN_EXPECTATION_CONTRADICTED', 'CAMPAIGN_EXPECTATION_CONTRADICTED']);
+  assert.equal(r.outcome, 'CONFIG_ERROR');
+  assert.equal(r.ready, false);
+  assert.equal(r.findings[0]?.memberExternalId, CAMPAIGN);
+  assert.ok(r.findings[0]?.detail.includes('100 calls'), 'it says how many, per date');
+});
+
+test('7b · an EXCLUDED campaign that contributed calls contradicts it the same way', () => {
+  const r = assessReadiness(input({ reconciliation: DATES.map(participating('EXCLUDED')) }));
+  assert.deepEqual(reasons(r), ['CAMPAIGN_EXPECTATION_CONTRADICTED', 'CAMPAIGN_EXPECTATION_CONTRADICTED']);
+  assert.equal(r.outcome, 'CONFIG_ERROR');
+  assert.equal(r.ready, false);
+});
+
+test('7c · a contradiction is reported INSTEAD OF the authority findings, not alongside them', () => {
+  // Two complaints about one member on one date would teach an operator to fix
+  // the wrong thing first: declaring a source does not make the contradiction go
+  // away, and would look like progress.
+  const r = assessReadiness(
+    input({ reconciliation: DATES.map(participating('NOT_CONFIGURED')), authorities: [] }),
+  );
+  assert.equal(reasons(r).includes('SOURCE_AUTHORITY_MISSING'), false);
+  assert.deepEqual(reasons(r), ['CAMPAIGN_EXPECTATION_CONTRADICTED', 'CAMPAIGN_EXPECTATION_CONTRADICTED']);
+  assert.deepEqual(r.resolvedSourceKeys, [], 'no source is resolved for a member that may not be measured');
+});
+
+test('7d · THE UNSAFE PROBE: declared-away calls with a valid authority can NEVER be READY', () => {
+  // The regression this amendment exists to make impossible. Before it, a
+  // NOT_CONFIGURED campaign whose calls were sitting in the population sailed
+  // through on the strength of an authority row and got measured.
+  for (const expectation of ['NOT_CONFIGURED', 'EXCLUDED'] as const) {
+    const r = assessReadiness(input({ reconciliation: DATES.map(participating(expectation, 1)) }));
+    assert.equal(r.ready, false, `${expectation} + calls + authority must not measure`);
+    assert.equal(r.outcome, 'CONFIG_ERROR');
+  }
+});
+
+test('7e · an EXPECTED member that participates still needs an authority', () => {
+  // The relaxation is scoped to non-participation. It must not have loosened the
+  // gate for the members a measure actually reads.
+  const r = assessReadiness(input({ authorities: [] }));
+  assert.deepEqual(reasons(r), ['SOURCE_AUTHORITY_MISSING', 'SOURCE_AUTHORITY_MISSING']);
+  assert.equal(r.outcome, 'CONFIG_ERROR');
+});
+
+test('7f · an UNDECLARED member fails closed whether or not it contributed calls', () => {
+  for (const localCount of [0, 100]) {
+    const r = assessReadiness(
+      input({
+        reconciliation: DATES.map((d) =>
+          day(d, { members: [member({ localCount, expectation: 'UNKNOWN' })] }),
+        ),
+      }),
+    );
+    assert.ok(reasons(r).includes('CAMPAIGN_EXPECTATION_UNKNOWN'), `${localCount} calls`);
+    assert.equal(r.ready, false);
+    assert.equal(r.outcome, 'CONFIG_ERROR');
+  }
+});
+
+test('7g · a zero-call NOT_CONFIGURED member does not block an otherwise READY population', () => {
+  // And no authority is declared for it — which is the point. One disconnected
+  // campaign bound to an objective must not stop the campaigns that do deliver.
+  const quiet = 'camp-not-connected';
+  const r = assessReadiness(
+    input({
+      partitions: [PARTITION, { dimension: 'CAMPAIGN', memberExternalId: quiet, localCalls: 0 }],
+      reconciliation: DATES.map((d) =>
+        day(d, {
+          counts: counts({ providerUnique: 106, providerOnly: 6, providerOnlyNotConfigured: 6 }),
+          members: [
+            member(),
+            member({ memberExternalId: quiet, providerCount: 6, localCount: 0, providerOnly: 6, expectation: 'NOT_CONFIGURED' }),
+          ],
+        }),
+      ),
+    }),
+  );
+  assert.equal(r.ready, true);
+  assert.deepEqual(r.resolvedSourceKeys, ['provider-calls'], 'and a silent member resolves no source');
+});
+
+test('7h · a zero-call EXCLUDED member does not block one either', () => {
+  const quiet = 'camp-excluded';
+  const r = assessReadiness(
+    input({
+      partitions: [PARTITION, { dimension: 'CAMPAIGN', memberExternalId: quiet, localCalls: 0 }],
+      reconciliation: DATES.map((d) =>
+        day(d, {
+          counts: counts({ providerUnique: 103, providerOnly: 3, providerOnlyExcluded: 3 }),
+          members: [
+            member(),
+            member({ memberExternalId: quiet, providerCount: 3, localCount: 0, providerOnly: 3, expectation: 'EXCLUDED' }),
+          ],
+        }),
+      ),
+    }),
+  );
+  assert.equal(r.ready, true);
+});
+
+test('7i · participation is judged per business date, not over the window', () => {
+  // The same campaign, connected on the 4th and declared away on the 5th while
+  // still delivering. A window-wide localCalls total cannot express this: one
+  // number, two answers. The per-date member fact can.
+  const r = assessReadiness(
+    input({
+      reconciliation: [
+        day('2026-08-04'),
+        day('2026-08-05', { members: [member({ localCount: 40, providerCount: 40, expectation: 'EXCLUDED' })] }),
+      ],
+    }),
+  );
+  assert.equal(r.ready, false);
+  assert.equal(r.findings.length, 1, 'the 4th is fine and says nothing');
+  assert.equal(r.findings[0]?.reason, 'CAMPAIGN_EXPECTATION_CONTRADICTED');
+  assert.equal(r.findings[0]?.businessDate, '2026-08-05', 'and it names the date');
+  assert.ok(r.findings[0]?.detail.includes('40 calls'));
+});
+
+test('7j · THE AUGUST 5 SHAPE still reads the way it did', () => {
+  // 974 provider identities, 867 local, 107 absent: 1 from the campaign that
+  // delivers, 9 from two campaigns that were never connected, 97 from one nobody
+  // declared. Binding the delivering campaign and the two disconnected ones must
+  // report exactly one defect — the single expected absence — and must not
+  // invent an authority complaint about the two that contributed nothing.
+  const august = (d: BusinessDate) =>
+    day(d, {
+      state: 'UNRECONCILED',
+      counts: counts({
+        providerUnique: 974,
+        localUnique: 867,
+        intersection: 867,
+        providerOnly: 107,
+        providerOnlyExpected: 1,
+        providerOnlyNotConfigured: 9,
+        providerOnlyUnknownMember: 97,
+      }),
+      members: [
+        member({ providerCount: 622, localCount: 621, providerOnly: 1 }),
+        member({ memberExternalId: 'camp-silent-a', providerCount: 6, localCount: 0, providerOnly: 6, expectation: 'NOT_CONFIGURED' }),
+        member({ memberExternalId: 'camp-silent-b', providerCount: 3, localCount: 0, providerOnly: 3, expectation: 'NOT_CONFIGURED' }),
+      ],
+    });
+  const r = assessReadiness(
+    input({
+      partitions: [
+        PARTITION,
+        { dimension: 'CAMPAIGN', memberExternalId: 'camp-silent-a', localCalls: 0 },
+        { dimension: 'CAMPAIGN', memberExternalId: 'camp-silent-b', localCalls: 0 },
+      ],
+      reconciliation: DATES.map(august),
+    }),
+  );
+  assert.deepEqual(reasons(r), ['POPULATION_INCOMPLETE', 'POPULATION_INCOMPLETE']);
+  assert.equal(r.outcome, 'NOT_READY');
+  assert.ok(r.findings[0]?.detail.includes('1 records'));
 });
 
 test('NOT_CONFIGURED is a classification and never a failure reason', () => {
@@ -496,6 +678,17 @@ test('every withholding has a label and a next action', () => {
     assert.ok(MATERIALITY_WITHHOLDING_LABELS[w]?.length > 0, `${w} has no label`);
     assert.ok(MATERIALITY_WITHHOLDING_NEXT_ACTIONS[w]?.length > 0, `${w} has no next action`);
   }
+});
+
+test('a contradicted declaration is a CONFIG_ERROR — only a person can resolve it', () => {
+  // Not NOT_READY: no job Loop can run reconciles a declaration with the traffic
+  // that contradicts it. Somebody has to say which one is wrong.
+  assert.equal(READINESS_OUTCOME_BY_REASON.CAMPAIGN_EXPECTATION_CONTRADICTED, 'CONFIG_ERROR');
+  assert.ok(READINESS_WITHHOLDINGS.includes('CAMPAIGN_EXPECTATION_CONTRADICTED'));
+  assert.ok(MATERIALITY_WITHHOLDINGS.includes('CAMPAIGN_EXPECTATION_CONTRADICTED'), 'one vocabulary');
+  assert.ok(
+    MATERIALITY_WITHHOLDING_NEXT_ACTIONS.CAMPAIGN_EXPECTATION_CONTRADICTED.includes('Re-declare'),
+  );
 });
 
 test('every readiness reason maps to exactly one outcome', () => {
