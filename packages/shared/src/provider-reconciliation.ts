@@ -238,3 +238,150 @@ export function memberFact(
     (m) => m.dimension === dimension && m.memberExternalId === memberExternalId,
   );
 }
+
+// --- Comparison integrity -------------------------------------------------------
+//
+// EVERYTHING BELOW ASSESSES THE EVIDENCE, NOT THE DATA. `deriveReconciliationState`
+// above answers "what does this comparison say"; these answer the prior question
+// "is this comparison worth reading at all", and they exist because the answer
+// cannot be expressed in `ReconciliationCounts`. A truncated provider read has no
+// count. Neither does a local row whose occurrence cannot be resolved. Folding
+// them into the counts would have meant inventing numbers for absences, so the
+// caller establishes integrity FIRST and only then reads the verdict.
+//
+// Added by PR 3. No existing member, signature or semantic above this line
+// changed: PR 1's four states, their severity, the three equations and the
+// derivation are exactly as they shipped.
+
+/**
+ * Every provider identity comparison used, and every reason it might not mean
+ * anything.
+ *
+ * These are counts of EVIDENCE DEFECTS, and each one is a different way the two
+ * populations stop describing the same thing. They are deliberately separate
+ * from `ReconciliationCounts`: a count in there is a fact about calls, a count
+ * in here is a fact about the comparison.
+ */
+export interface ComparisonIntegrity {
+  /** Loop stopped at its own page budget while the provider still had pages.
+      What was read is a LOWER BOUND, so a set difference over it reports unread
+      records as absent. */
+  providerTruncated: boolean;
+  /** Provider identities carrying no member attribution. They cannot be resolved
+      against a declaration, and the four-way split could only sum by inventing a
+      member id for them. */
+  providerUnattributed: number;
+  /** Local rows inside the delivery scan whose occurrence could not be resolved.
+      They CANNOT BE RULED OUT of this business date -- that is precisely what
+      "unresolved" means -- so they impeach it. */
+  localUnresolvedOccurrence: number;
+  /** Local rows inside the window carrying no external identity. A row that
+      cannot be named cannot be matched, and dropping it silently would make the
+      local set look cleaner than it is. */
+  localMissingIdentity: number;
+}
+
+/**
+ * Below this share of the smaller set, an intersection is evidence that the two
+ * sides are not naming the same thing.
+ *
+ * PROMOTED FROM THE AUGUST 2026 DIAGNOSTIC UNCHANGED. Two id spaces that
+ * genuinely describe the same calls overlap almost completely; a near-empty
+ * intersection means the comparison itself is wrong, and reporting it as
+ * "everything is missing" would be the most expensive kind of false alarm.
+ */
+export const IDENTITY_COHERENCE_FLOOR = 0.5;
+
+/**
+ * Whether the two identity spaces plausibly describe the same population.
+ *
+ * Vacuously true when either side is empty: a genuinely quiet day has nothing to
+ * be incoherent about, and refusing it would re-teach the platform that zero
+ * means broken.
+ */
+export function identitiesCoherent(counts: ReconciliationCounts): boolean {
+  const smaller = Math.min(counts.providerUnique, counts.localUnique);
+  if (smaller === 0) return true;
+  return counts.intersection >= smaller * IDENTITY_COHERENCE_FLOOR;
+}
+
+/**
+ * Why this comparison cannot be trusted. EMPTY MEANS IT CAN.
+ *
+ * Ordered by how early the evidence broke, so the first entry names the earliest
+ * thing that went wrong rather than its downstream symptom. A caller turns any
+ * non-empty result into INCONCLUSIVE and persists the list as the row's reason --
+ * it must never become a finding about completeness, because a comparison that
+ * is not sound cannot report a gap OR the absence of one.
+ */
+export function integrityProblems(
+  integrity: ComparisonIntegrity,
+  counts: ReconciliationCounts,
+): string[] {
+  const problems: string[] = [];
+  if (integrity.providerTruncated) {
+    problems.push('the provider read stopped at its page budget, so what was read is a lower bound');
+  }
+  if (integrity.providerUnattributed > 0) {
+    problems.push(
+      `${integrity.providerUnattributed} provider records carry no member attribution and cannot be resolved against a declaration`,
+    );
+  }
+  if (integrity.localUnresolvedOccurrence > 0) {
+    problems.push(
+      `${integrity.localUnresolvedOccurrence} local records have no resolvable occurrence and cannot be ruled out of this date`,
+    );
+  }
+  if (integrity.localMissingIdentity > 0) {
+    problems.push(`${integrity.localMissingIdentity} local records in the window carry no identity`);
+  }
+  problems.push(...countProblems(counts));
+  if (!identitiesCoherent(counts)) {
+    problems.push('the two identity sets overlap too little to be describing the same population');
+  }
+  return problems;
+}
+
+/**
+ * The day's state, evidence first.
+ *
+ * ONE ENTRY POINT for a caller that has both. Integrity is assessed before the
+ * verdict is read, and a failure short-circuits to INCONCLUSIVE without ever
+ * consulting the counts -- the same ordering `certifyDay` uses when it checks
+ * truncation before emptiness, and for the same reason: testing the data first
+ * would confidently classify the most dangerous case of all.
+ */
+export function assessReconciliation(
+  integrity: ComparisonIntegrity,
+  counts: ReconciliationCounts,
+  members: readonly ReconciliationMemberFact[],
+): { state: ReconciliationState; problems: string[] } {
+  const problems = integrityProblems(integrity, counts);
+  if (problems.length > 0) return { state: 'INCONCLUSIVE', problems };
+  return { state: deriveReconciliationState(counts, members), problems: [] };
+}
+
+/**
+ * Normalise a raw external identity for comparison, or null when it is not one.
+ *
+ * PROMOTED FROM THE AUGUST 2026 DIAGNOSTIC, which is the only place these rules
+ * were ever established against real payloads. Coerced from number because the
+ * webhook template sends every value as a quoted string while the REST client may
+ * return a native type -- the same id would otherwise arrive as `"123"` on one
+ * side and `123` on the other and compare unequal, reporting a record as missing
+ * because two systems disagreed about JSON. Trimmed for the same reason.
+ *
+ * CASE IS DELIBERATELY PRESERVED. CallGrid ids are cuids, whose case is
+ * significant; lowercasing would merge two distinct records the day a provider
+ * issues ids differing only in case, and a merge is silent where a mismatch is
+ * loud. An empty or absent value is NOT an identity and resolves null rather than
+ * to the empty string, which would otherwise match every other empty one.
+ */
+export function normalizeExternalIdentity(raw: unknown): string | null {
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    return trimmed === '' ? null : trimmed;
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw);
+  return null;
+}

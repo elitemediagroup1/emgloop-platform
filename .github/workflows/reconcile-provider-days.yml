@@ -1,0 +1,199 @@
+# Reconcile provider days.
+#
+# Asks whether the call identities CallGrid held for a given Eastern business day
+# actually reached Loop, and records the answer in provider_reconciliation_days
+# plus its member facts. One day per dispatch by default, stopping the moment a
+# day does not reconcile.
+#
+# WHAT THIS ANSWERS THAT CERTIFICATION DOES NOT. `provider_observation_days`
+# proves Loop LOOKED at a date. On 2026-08-05 it said SUCCESS across 11 unbroken
+# pages while Loop held 867 of the 974 records CallGrid returned -- both true at
+# once, because that row stores a COUNT and never the identity SET. This job
+# produces the second fact.
+#
+# WHAT IT WRITES. Exactly two things: one ProviderReconciliationDay row per date
+# and its ProviderReconciliationMember rows, through
+# ProviderReconciliationService.reconcileDay(). It does not ingest calls, does not
+# recover a missing one, does not repair a projection, does not certify a day,
+# does not declare an expectation, does not measure and does not produce a
+# Headline. If a run discovers CallGrid holds calls Loop is missing, that is
+# EVIDENCE for a later recovery decision and changes nothing on its own.
+#
+# THE SAFETY TESTS RUN BEFORE PRODUCTION IS TOUCHED. The step below executes the
+# runner's source-constraint suite immediately before pointing the runner at the
+# production database, so "it cannot ingest, recover or declare" is a CHECKED
+# property of this run rather than a claim made once at review time.
+#
+# ONE DATE PER DISPATCH, DELIBERATELY. Several are accepted, but this is a
+# correctness operation and not yet a historical sweep: nothing has been
+# reconciled in production, and the shape of the answer should be inspected
+# before a range is run through it.
+#
+# NO SCHEDULE, DELIBERATELY. Daily reconciliation will be needed -- the comparison
+# window moves at midnight Eastern -- but not one production day has been
+# reconciled yet. Credential wiring, provider pagination, the local scan's
+# runtime, the member split and the verdict all get proven by hand first.
+# Automating an unproven production operation is how you get a job that fails
+# quietly every night.
+
+name: Reconcile Provider Days
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug (e.g. servicesinmycity-demo)'
+        required: true
+        type: string
+      dates:
+        description: 'Eastern business dates, comma-separated. ONE date is the intended use (e.g. 2026-08-05).'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, or schedule: triggers here. This job writes to
+# production and must only ever be started by a human from the Actions tab.
+
+permissions:
+  contents: read
+
+# Two runs at once would contend on the same day row and interleave their logs
+# for no benefit. A late run waits rather than overlapping. The database's unique
+# key on (organization, provider, stream, businessDate) is the real guarantee;
+# this only stops two runners wasting provider quota on the same question.
+concurrency:
+  group: reconcile-provider-days
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile provider days
+    runs-on: ubuntu-latest
+    # Generous, because a busy day is a seventy-page provider read plus a batched
+    # local scan -- but bounded, so a provider that never stops responding cannot
+    # hold a runner indefinitely.
+    timeout-minutes: 60
+
+    steps:
+      - name: Fail closed when a production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Names only. A value is never echoed, never printed and never written
+          # to the step summary.
+          #
+          # `if` blocks rather than `[ ... ] && x=y`: under `set -e` that idiom
+          # exits the step when the test is FALSE, which would fail this check
+          # precisely when both secrets are present.
+          missing=""
+          if [ -z "${DATABASE_URL:-}" ]; then missing="${missing} DIRECT_DATABASE_URL"; fi
+          if [ -z "${CALLGRID_API_KEY:-}" ]; then missing="${missing} CALLGRID_API_KEY"; fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing repository secret(s):${missing}"
+            echo "Add them under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "Both required secrets are present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          DATES: ${{ inputs.dates }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          # Every date must be YYYY-MM-DD before anything connects to anything.
+          # The runner validates again with the same predicate reconcileDay uses;
+          # this is the earlier, cheaper refusal.
+          count=0
+          IFS=',' read -ra PARTS <<< "${DATES}"
+          for raw in "${PARTS[@]}"; do
+            d="$(printf '%s' "${raw}" | tr -d '[:space:]')"
+            [ -z "${d}" ] && continue
+            if ! printf '%s' "${d}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+              echo "::error::Not a business date: ${d} (expected YYYY-MM-DD)"
+              exit 1
+            fi
+            count=$((count + 1))
+          done
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::No dates supplied."
+            exit 1
+          fi
+          if [ "${count}" -gt 1 ]; then
+            echo "::warning::${count} dates supplied. One per dispatch is the intended use until a production run has been inspected."
+          fi
+          echo "Validated ${count} date(s) for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching deploy-prisma-migrations.yml and
+        # certify-observation-days.yml. Changing how this repository installs in
+        # CI is its own decision with its own blast radius, and is not this
+        # branch's objective.
+        #
+        # This step also runs `prisma generate` through the database package's
+        # postinstall, which the runner needs before it can reach the client.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These
+        # suites read the runner's own source and fail if it names ingestion,
+        # recovery, certification, declaration, a provider adapter or a Prisma
+        # delegate -- and drive the reconciliation service through injected seams
+        # over the in-memory double. A red step here means the write boundary
+        # moved, and no production request is made.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Reconcile
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml. A long
+          # operation on a pooled endpoint is the wrong shape for this.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          DATES: ${{ inputs.dates }}
+        run: |
+          set -euo pipefail
+          # Arguments are passed as values. The runner exits non-zero on the
+          # first day that does not reconcile, and `set -e` turns that into a red
+          # run rather than a green one with a bad line buried in the log.
+          npm run reconcile:provider-days -- \
+            --organization "${ORG_SLUG}" \
+            --dates "${DATES}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Reconciliation stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read the \`event=DAY_RESULT\` line for the failing date in the log above." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**\`written=true\`** means a row WAS recorded and the day simply did not reconcile. Check \`state\`:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`UNRECONCILED\` - records from a campaign declared EXPECTED did not arrive. A real, bounded gap." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`UNKNOWN_EXPECTATION\` - a campaign carrying absences has no declaration in force for that date. Somebody has to say whether it was supposed to deliver." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`INCONCLUSIVE\` - the comparison itself is not sound. Read \`reason\`. Nothing may be concluded from it in either direction." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**\`written=false\`** with \`state=REFUSED\` means the comparison's own arithmetic disagreed with itself and **nothing was stored**. That is a defect in Loop, not a finding about the data." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running the same date after the cause is fixed is safe: reconciliation upserts on (organization, provider, stream, business date) and replaces its member rows in the same transaction." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This job never recovers data. A missing call stays missing until somebody decides to import it." >> "$GITHUB_STEP_SUMMARY"

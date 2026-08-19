@@ -250,6 +250,8 @@ model Organization {
   headlines               Headline[]
   observationDays         ProviderObservationDay[]
   memberExpectations      ProviderMemberExpectation[]
+  reconciliationDays      ProviderReconciliationDay[]
+  reconciliationMembers   ProviderReconciliationMember[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -3752,10 +3754,275 @@ model ProviderMemberExpectation {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   declaredBy   User?        @relation("ProviderMemberExpectationDeclarer", fields: [declaredByUserId], references: [id], onDelete: SetNull)
+  /// Reconciliation member facts that RESOLVED to this declaration. The link is
+  /// what makes a historical verdict auditable: it names the statement the
+  /// comparison actually used, and that statement is itself never rewritten.
+  reconciliationMembers ProviderReconciliationMember[]
 
   /// Resolution reads one member's declarations in effective order. Tenant-first,
   /// like every key in this stage: one organization's declaration must never
   /// resolve another organization's member.
   @@index([organizationId, provider, stream, memberDimension, memberExternalId, effectiveFrom], map: "provider_member_expectations_member_effective_idx")
   @@map("provider_member_expectations")
+}
+
+// ---------------------------------------------------------------------------
+// Provider reconciliation — Commercial Intelligence Stage 3 correctness
+// ---------------------------------------------------------------------------
+
+/// Whether the provider identities observed for one business date actually
+/// reached Loop.
+///
+/// WHY THIS TABLE EXISTS, AND WHY IT IS NOT A COLUMN ON THE OBSERVATION LEDGER.
+/// `provider_observation_days` answers "did Loop exhaustively LOOK at this day".
+/// On 2026-08-05 it answered yes — SUCCESS, 974 records across 11 unbroken pages
+/// — while Loop held 867 of them. Both statements were true at once, because that
+/// row persists a COUNT and never the identity SET. Redefining SUCCESS to mean
+/// "and the data is here" would destroy the only completeness claim Loop
+/// currently gets right and re-merge two questions it took three investigations
+/// to separate. This is the SECOND fact, deliberately beside the first.
+///
+/// THE VERDICT LIVES AT THE DAY; THE DIFFERENCE LIVES IN CAMPAIGNS. Measurement
+/// gates on a day, so the state is here. But 106 of those 107 absences belonged
+/// to three campaigns, and a day-level verdict alone would let one broken
+/// campaign block every objective in the organization including the ones that
+/// never measured it. `provider_reconciliation_members` carries the per-member
+/// detail a later readiness gate evaluates per binding.
+///
+/// IT OBSERVES AND RECORDS; IT NEVER REPAIRS. Nothing that writes this table
+/// creates an IntegrationEvent, an Interaction or a MarketplaceCall, and nothing
+/// here triggers recovery. Discovering that the provider holds records Loop is
+/// missing is EVIDENCE for a later decision and changes nothing on its own — the
+/// same stance certification takes.
+///
+/// EVERY COUNT IS EVIDENCE, AND THE ARITHMETIC IS CHECKED RATHER THAN TRUSTED.
+/// intersection + providerOnly = providerUnique, intersection + localOnly =
+/// localUnique, and the four-way provider-only split sums to providerOnly. A
+/// violation means the COMPARISON is wrong rather than the data is bad, and the
+/// row is written INCONCLUSIVE with its reason instead of a verdict nobody should
+/// read.
+model ProviderReconciliationDay {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The sensor that was compared, e.g. "callgrid".
+  provider String
+  /// WHICH STREAM, following `provider_observation_days`. Reconciling the calls
+  /// endpoint says nothing about the auction report feed.
+  stream   String
+
+  /// The calendar day in `timezone` this row reconciles.
+  businessDate DateTime @db.Date
+  /// Named, never assumed — a row that does not state its zone cannot be checked
+  /// against the window a measurement actually used.
+  timezone     String
+  /// The UTC interval a record must have OCCURRED in to belong to this day.
+  windowStart  DateTime
+  windowEnd    DateTime
+
+  /// The widened interval the LOCAL delivery scan actually covered. Deliberately
+  /// wider than the occurrence window: `integration_events` has no occurrence
+  /// column, so rows are selected by `receivedAt` and filtered by resolved
+  /// occurrence in memory. A webhook retried the next morning still belongs to
+  /// the day it occurred on, and a scan bounded to the day itself would classify
+  /// it as absent. Stored so the row states the bound it was produced under.
+  scanStart DateTime
+  scanEnd   DateTime
+
+  /// RECONCILED | UNRECONCILED | UNKNOWN_EXPECTATION | INCONCLUSIVE. Held as a
+  /// string rather than an enum, following `ProviderMemberExpectation.state`, so
+  /// widening the vocabulary is a contract change rather than production DDL
+  /// against a table whose migrations are human-dispatched. Validated against
+  /// RECONCILIATION_STATES in both directions; an unreadable value fails closed.
+  state       String
+  /// Which build of the rule produced it. A verdict outlives the code that
+  /// reached it, and a rule change must not silently reinterpret a stored one.
+  ruleVersion String
+
+  /// The local boundary the comparison was made at: "integration_event". It
+  /// proves RECEIPT and precedes normalization and projection semantics, and
+  /// August 2026 proved the chain below it identity-lossless for every record
+  /// Loop received. Reconciling at MarketplaceCall would conflate a delivery
+  /// failure with a projection rule.
+  localStage String
+
+  /// What the provider returned. `providerRecords` counts rows and
+  /// `providerUnique` counts identities; they differ exactly when the provider
+  /// repeated one, which is why both are kept.
+  providerRecords     Int
+  providerUnique      Int
+  providerDuplicateIds Int
+  /// Provider records carrying no member attribution. They cannot be resolved
+  /// against a declaration, and the four-way split could only sum by inventing a
+  /// member id — so a non-zero value here makes the day INCONCLUSIVE.
+  providerUnattributed Int @default(0)
+
+  /// Rows the widened delivery scan read, before any filtering. The denominator
+  /// `localUnresolvedOccurrence` is otherwise unauditable.
+  localRowsScanned Int
+  /// Of those, the ones whose resolved occurrence fell inside the window.
+  localInWindow    Int
+  localUnique      Int
+  localDuplicateIds Int
+  /// Scanned rows whose occurrence could not be resolved at all. They CANNOT BE
+  /// RULED OUT of this date — that is what unresolved means — so they impeach it.
+  localUnresolvedOccurrence Int @default(0)
+  /// In-window rows carrying no external identity. A row that cannot be named
+  /// cannot be matched, and dropping it silently would make the local set look
+  /// cleaner than it is.
+  localMissingIdentity      Int @default(0)
+
+  /// The comparison itself.
+  intersection Int
+  providerOnly Int
+  /// Identities Loop holds that the provider's bounded read did not return. A
+  /// non-zero value means the two populations are not describing the same thing,
+  /// which IMPEACHES the comparison rather than reporting a gap in it.
+  localOnly    Int
+
+  /// How every provider-only identity is accounted for. "107 missing" is an
+  /// alarm; this split is a work list.
+  providerOnlyExpected      Int
+  providerOnlyNotConfigured Int
+  providerOnlyExcluded      Int
+  providerOnlyUnknownMember Int
+
+  /// The provider read's own bounds, mirroring the observation ledger. A
+  /// truncated read is a LOWER BOUND and can never produce a verdict.
+  pagesFetched Int
+  pageCap      Int
+  truncated    Boolean @default(false)
+
+  /// Why the comparison is not sound, in plain language, joined from the pure
+  /// integrity assessment. NULL when it is. Never a credential, never a phone
+  /// number, never a raw identity.
+  reason String?
+
+  /// When the provider population was read, and when the verdict was reached.
+  /// Separate because a long read and its conclusion are not the same instant.
+  observedAt   DateTime
+  reconciledAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      ProviderReconciliationMember[]
+
+  /// Tenant-first identity, and the reason re-running is safe: one row per day
+  /// per stream per tenant, updated in place exactly as `certifyDay` upserts its
+  /// ledger row. A day may legitimately be reconciled again — a late delivery, a
+  /// newly recorded declaration, a previously inconclusive run — and each run
+  /// must leave ONE current answer rather than a pile a reader has to reconcile.
+  /// `map:` is given EXPLICITLY alongside `name:`, and that is a lesson rather
+  /// than a style. `name:` renames the constraint only in the Prisma client's
+  /// `where`; the database index keeps Prisma's generated default. The
+  /// observation ledger set `name:` alone, so `migrate diff` has reported a
+  /// phantom index rename against production ever since. Setting both makes the
+  /// client alias and the database object the same string, and there is nothing
+  /// left to drift.
+  @@unique([organizationId, provider, stream, businessDate], name: "reconciliation_day_identity", map: "reconciliation_day_identity")
+  @@map("provider_reconciliation_days")
+}
+
+/// One day's reconciliation, explained for one provider population member.
+///
+/// WHY MEMBER ROWS ARE NOT OPTIONAL. A day can be UNRECONCILED because one
+/// campaign is short while an objective bound to a different, fully reconciled
+/// campaign remains perfectly measurable. Without this table the only available
+/// gate is the day, and a day-level gate makes every objective in the
+/// organization hostage to the worst campaign in it.
+///
+/// THE EXPECTATION IS RECORDED AS RESOLVED, NOT AS A POINTER TO BE RE-READ.
+/// `expectationState` is what was in force ON THIS BUSINESS DATE at the moment
+/// the comparison ran, and `expectationId` names the declaration that said so.
+/// A declaration recorded later must never silently change what a historical
+/// reconciliation concluded — re-running is a deliberate act that rewrites the
+/// row and moves `reconciledAt`, not a side effect of somebody typing.
+///
+/// IDENTITY IS THE ID. `labelAtObservation` is display-only and may be null; a
+/// member keyed on a label changes meaning the day somebody renames a campaign
+/// upstream.
+model ProviderReconciliationMember {
+  id                    String @id @default(cuid())
+  reconciliationDayId   String
+  /// Denormalised from the day so a member read is tenant-scoped in its own
+  /// right rather than only through its parent. Sprint 29A's lesson was that a
+  /// query which CAN be written without a tenant eventually is.
+  organizationId        String
+
+  /// A member of EXPECTATION_DIMENSIONS — 'CAMPAIGN' in v1, the only dimension
+  /// proven to gate delivery and the only attribution id present on every record
+  /// of the 2026-08-05 provider population.
+  memberDimension  String
+  /// The provider's own id for the member.
+  memberExternalId String
+
+  /// Identities the provider returned for this member on this day.
+  providerCount Int
+  /// Provider identities for this member with no local counterpart.
+  providerOnly  Int
+  /// Identities Loop holds for this member, attributed from the LOCAL payload
+  /// rather than from the provider — an independent measure, so the two can be
+  /// seen to disagree instead of one being derived from the other.
+  localCount    Int
+  /// Of those, the ones the provider's read did not return. Kept so the member
+  /// row states its own arithmetic: providerCount - providerOnly is the matched
+  /// set, and localCount - localOnly must equal it when both sides agree about
+  /// which member a call belongs to.
+  localOnly     Int
+
+  /// EXPECTED | NOT_CONFIGURED | EXCLUDED | UNKNOWN, resolved for this business
+  /// date. UNKNOWN is not storable in `provider_member_expectations` and IS
+  /// storable here, because here it is a resolved answer — "nobody had said" —
+  /// rather than a declaration.
+  expectationState   String
+  /// The declaration that produced it. NULL EXACTLY WHEN the state is UNKNOWN,
+  /// which is what "nobody had said" and "two people said different things" both
+  /// resolve to.
+  ///
+  /// The migration enforces this as a BICONDITIONAL, not an implication. A
+  /// declarable state with no declaration behind it records a classification
+  /// nobody can later justify — the exact situation the expectation table was
+  /// built to end — and an UNKNOWN carrying an id would point at a declaration it
+  /// did not use.
+  ///
+  /// The foreign key proves the declaration EXISTS; it does not prove it is about
+  /// this member. That is enforced in
+  /// `ProviderReconciliationRepository.recordDay`, which resolves every named
+  /// declaration within the organization and refuses the write when its provider,
+  /// stream, dimension or member id disagrees. The migration records what
+  /// database-level enforcement would cost.
+  expectationId      String?
+  /// How many declarations matched. More than one is a configuration defect the
+  /// resolver reports rather than resolves, and recording it means a later reader
+  /// can tell "nobody said" from "two people disagreed".
+  expectationMatches Int @default(0)
+
+  /// The member's provider-side label at the time of the comparison. DISPLAY
+  /// ONLY, never identity, and NULL when the provider did not supply one.
+  labelAtObservation String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  day          ProviderReconciliationDay  @relation(fields: [reconciliationDayId], references: [id], onDelete: Cascade)
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// SetNull rather than Cascade: the fact that a declaration WAS used outlives
+  /// the declaration, the reasoning `audit_logs.userId` already follows. In
+  /// practice unreachable — nothing deletes a declaration, and deleting the
+  /// organization cascades this row away first — but a fact that quietly lost
+  /// its subject would be worse than one that says the link is gone.
+  expectation  ProviderMemberExpectation? @relation(fields: [expectationId], references: [id], onDelete: SetNull)
+
+  /// One row per member per day. A re-run replaces the set inside the same
+  /// transaction that rewrites the day, so a member can never appear twice and a
+  /// member that stopped existing cannot linger from a previous run.
+  @@unique([reconciliationDayId, memberDimension, memberExternalId], name: "reconciliation_member_identity", map: "reconciliation_member_identity")
+  /// A DIFFERENT access path, not a duplicate of the unique above: "how has this
+  /// campaign reconciled over time" reads across days, and the unique key starts
+  /// with the day. The day table carries no second index for exactly the opposite
+  /// reason — its unique already covers the only way it is read.
+  @@index([organizationId, memberDimension, memberExternalId], map: "reconciliation_member_lookup")
+  @@map("provider_reconciliation_members")
 }

@@ -47,6 +47,13 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // organization certifying a calendar day must never satisfy another's gate, so
   // organizationId leads the key here and the double enforces it.
   providerObservationDay: ['organizationId', 'provider', 'stream', 'businessDate'],
+  // TENANT-FIRST for the same reason, and the reason re-running is safe: one
+  // reconciliation answer per day per stream per tenant, rewritten in place.
+  providerReconciliationDay: ['organizationId', 'provider', 'stream', 'businessDate'],
+  // One member row per member per day. A re-run deletes the set and rewrites it
+  // inside one transaction, so this only ever fires on a computation that
+  // produced the same member twice.
+  providerReconciliationMember: ['reconciliationDayId', 'memberDimension', 'memberExternalId'],
 };
 
 /**
@@ -196,6 +203,12 @@ const DELEGATES = [
   // UNKNOWN and that overlapping ones cannot exist, so supplying the read from
   // the test would assume away what is being proven.
   'providerMemberExpectation',
+  // Stage 3 correctness, third fact: whether what the provider held actually
+  // ARRIVED. Both tables are faked because the property under test is exactly
+  // that a re-run leaves one current answer and replaces its member set --
+  // supplying either read from the test would assume away what is being proven.
+  'providerReconciliationDay',
+  'providerReconciliationMember',
 ] as const;
 
 let idSeq = 0;
@@ -273,6 +286,7 @@ function condMatches(value: any, cond: any): boolean {
  */
 const COMPOUND_UNIQUE_ALIASES: Record<string, string> = {
   providerObservationDay: 'observation_day_identity',
+  providerReconciliationDay: 'reconciliation_day_identity',
 };
 
 function flattenCompound(name: string, where: Row | undefined): Row | undefined {
@@ -427,6 +441,17 @@ function makeDelegate(name: string) {
       const targets = rows.filter((r) => matches(r, where));
       for (const row of targets) applyData(row, data);
       return { count: targets.length };
+    },
+    // Conditional bulk delete. Returns { count } like Prisma. Used where a set of
+    // child rows is REPLACED rather than merged, so a row that stopped being
+    // produced cannot linger from a previous run looking like a current fact.
+    async deleteMany({ where }: { where?: Row } = {}): Promise<{ count: number }> {
+      const doomed = rows.filter((r) => matches(r, where));
+      for (const row of doomed) {
+        const at = rows.indexOf(row);
+        if (at >= 0) rows.splice(at, 1);
+      }
+      return { count: doomed.length };
     },
     async count({ where }: { where?: Row } = {}): Promise<number> {
       return rows.filter((r) => matches(r, where)).length;

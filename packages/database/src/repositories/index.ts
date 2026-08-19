@@ -35,6 +35,7 @@ import { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 import { MarketplaceCallRepository } from './marketplace-call.repository';
 import { ProviderObservationRepository } from './provider-observation.repository';
 import { ProviderMemberExpectationRepository } from './provider-member-expectation.repository';
+import { ProviderReconciliationRepository } from './provider-reconciliation.repository';
 import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 import { PerformanceObjectiveRepository } from './performance-objective.repository';
@@ -210,6 +211,23 @@ export type {
   ExpectationDeclarationView,
 } from './provider-member-expectation.repository';
 
+// Provider reconciliation -- whether the identities the provider held for a
+// business date actually reached Loop, at the integration_event boundary.
+// Observes and records; never repairs, and never infers what was expected.
+export {
+  ProviderReconciliationRepository,
+  INTEGRATION_EVENT_STAGE,
+} from './provider-reconciliation.repository';
+export type {
+  RecordReconciliationInput,
+  RecordReconciliationRejection,
+  RecordReconciliationResult,
+  ReconciliationDayView,
+  ReconciliationEvidenceCounts,
+  ReconciliationMemberInput,
+  ReconciliationMemberView,
+} from './provider-reconciliation.repository';
+
 // Auction reporting — verified AGGREGATE bid/ping snapshots. Not event tables.
 export { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 export type { UpsertCounts, ReportRunRecord } from './marketplace-auction.repository';
@@ -317,6 +335,7 @@ export interface Repositories {
   measureBindings: ObjectiveMeasureBindingRepository;
   headlines: HeadlineRepository;
   providerObservations: ProviderObservationRepository;
+  providerReconciliations: ProviderReconciliationRepository;
   memberExpectations: ProviderMemberExpectationRepository;
 }
 
@@ -355,6 +374,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     measureBindings: new ObjectiveMeasureBindingRepository(prisma),
     headlines: new HeadlineRepository(prisma),
     providerObservations: new ProviderObservationRepository(prisma),
+    providerReconciliations: new ProviderReconciliationRepository(prisma),
     memberExpectations: new ProviderMemberExpectationRepository(prisma),
   };
 }

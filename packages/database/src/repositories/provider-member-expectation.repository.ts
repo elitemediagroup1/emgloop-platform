@@ -393,6 +393,40 @@ export class ProviderMemberExpectationRepository {
     memberExternalId: string,
     on: BusinessDate,
   ): Promise<ExpectationResolution> {
+    const { resolution } = await this.resolveSourceOn(
+      organizationId,
+      provider,
+      stream,
+      dimension,
+      memberExternalId,
+      on,
+    );
+    return resolution;
+  }
+
+  /**
+   * The same resolution, plus the id of the ROW that produced it.
+   *
+   * ADDED FOR RECONCILIATION, which must record not merely what was expected on a
+   * date but WHICH STATEMENT said so. A reconciliation fact that stored only the
+   * state would silently change meaning the moment somebody recorded a different
+   * declaration -- the historical verdict would keep its number while losing the
+   * reason it reached it, which is the exact defect PR #153 found in the Decision
+   * Center's evidence.
+   *
+   * `resolveOn` delegates here rather than querying separately, so there remains
+   * exactly ONE semantic path for deciding what was in force on a date. The id is
+   * null whenever the state is UNKNOWN, because UNKNOWN is precisely the case
+   * where no single declaration applied.
+   */
+  async resolveSourceOn(
+    organizationId: string,
+    provider: string,
+    stream: string,
+    dimension: BindingDimension,
+    memberExternalId: string,
+    on: BusinessDate,
+  ): Promise<{ resolution: ExpectationResolution; declarationId: string | null }> {
     const rows = await this.prisma.providerMemberExpectation.findMany({
       where: {
         organizationId,
@@ -405,25 +439,41 @@ export class ProviderMemberExpectationRepository {
     });
 
     const declarations: MemberExpectationDeclaration[] = [];
+    // Parallel to `declarations`, index for index: which row each parsed
+    // declaration came from. Kept as a second array rather than folded into the
+    // declaration, because the pure contract's shape has no id and must not gain
+    // one -- persistence is this layer's concern, not the rule's.
+    const sourceIds: string[] = [];
     // Rows whose stored vocabulary cannot be read AND which cover the date asked
     // about. They are not interpreted, and they are not ignored either: dropping
     // one could turn a two-way conflict into a confident answer.
     let unreadableOnDate = 0;
     for (const row of rows) {
       const declaration = toDeclaration(row);
-      if (declaration) declarations.push(declaration);
-      else if (rawRangeCovers(row, on)) unreadableOnDate += 1;
+      if (declaration) {
+        declarations.push(declaration);
+        sourceIds.push(row.id);
+      } else if (rawRangeCovers(row, on)) unreadableOnDate += 1;
     }
 
     const resolution = resolveExpectation(declarations, dimension, memberExternalId, on);
     if (unreadableOnDate > 0) {
       return {
-        state: 'UNKNOWN',
-        declaration: null,
-        matches: resolution.matches + unreadableOnDate,
+        resolution: {
+          state: 'UNKNOWN',
+          declaration: null,
+          matches: resolution.matches + unreadableOnDate,
+        },
+        declarationId: null,
       };
     }
-    return resolution;
+    // The resolver returns the declaration OBJECT; the row it came from is the
+    // one whose parsed form is that object. Identity comparison is exact -- the
+    // objects in `declarations` are the same references the resolver filtered --
+    // so no re-matching by value is needed and none is attempted.
+    const index = resolution.declaration ? declarations.indexOf(resolution.declaration) : -1;
+    const source = index >= 0 ? sourceIds[index] : undefined;
+    return { resolution, declarationId: source ?? null };
   }
 
   /**
