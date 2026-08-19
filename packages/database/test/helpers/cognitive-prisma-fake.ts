@@ -54,6 +54,10 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // inside one transaction, so this only ever fires on a computation that
   // produced the same member twice.
   providerReconciliationMember: ['reconciliationDayId', 'memberDimension', 'memberExternalId'],
+  // One source per key per tenant, and one row per metric per source -- so a
+  // metric cannot be supported twice with two different definitions.
+  measurementSource: ['organizationId', 'key'],
+  measurementSourceMetric: ['measurementSourceId', 'metric'],
 };
 
 /**
@@ -135,6 +139,15 @@ const EXCLUSION_RANGES: Record<string, { keys: string[]; from: string; to: strin
     from: 'effectiveFrom',
     to: 'effectiveTo',
   },
+  // At most one authority per member per MEASURE per date. The metric is part of
+  // the key: one campaign taking call volume from a provider and revenue from a
+  // counterparty on the same day is the case this whole layer exists for, and a
+  // key without the metric would refuse it as an overlap.
+  measureSourceAuthority: {
+    keys: ['organizationId', 'memberDimension', 'memberExternalId', 'metric'],
+    from: 'effectiveFrom',
+    to: 'effectiveTo',
+  },
 };
 
 function rangeBound(value: any, fallback: number): number {
@@ -209,6 +222,14 @@ const DELEGATES = [
   // supplying either read from the test would assume away what is being proven.
   'providerReconciliationDay',
   'providerReconciliationMember',
+  // Stage 3 correctness, fourth fact: WHOSE NUMBER a measure is. All three are
+  // faked because the properties under test are that a missing authority fails
+  // closed, that two cannot overlap, and that a source registered by one
+  // organization cannot be named by another -- supplying any of those reads from
+  // the test would assume away exactly what is being proven.
+  'measurementSource',
+  'measurementSourceMetric',
+  'measureSourceAuthority',
 ] as const;
 
 let idSeq = 0;

@@ -36,6 +36,7 @@ import { MarketplaceCallRepository } from './marketplace-call.repository';
 import { ProviderObservationRepository } from './provider-observation.repository';
 import { ProviderMemberExpectationRepository } from './provider-member-expectation.repository';
 import { ProviderReconciliationRepository } from './provider-reconciliation.repository';
+import { MeasurementSourceRepository } from './measurement-source.repository';
 import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 import { PerformanceObjectiveRepository } from './performance-objective.repository';
@@ -230,6 +231,23 @@ export type {
   ReconciliationMemberView,
 } from './provider-reconciliation.repository';
 
+// Measurement source authority -- WHOSE NUMBER a measure is. Which sources this
+// organization is willing to believe, which measures each may be believed about,
+// and which one is authoritative for a member and measure over a period.
+// Declared by a person; never inferred from a value being present.
+export { MeasurementSourceRepository, isMeasurementSourceKind } from './measurement-source.repository';
+export type {
+  AuthorityDeclarationView,
+  AuthorityReadinessFacts,
+  DeclareAuthorityInput,
+  DeclareAuthorityRejection,
+  DeclareAuthorityResult,
+  RegisterSourceInput,
+  RegisterSourceRejection,
+  RegisterSourceResult,
+  SourceMetricInput,
+} from './measurement-source.repository';
+
 // Auction reporting — verified AGGREGATE bid/ping snapshots. Not event tables.
 export { MarketplaceAuctionRepository } from './marketplace-auction.repository';
 export type { UpsertCounts, ReportRunRecord } from './marketplace-auction.repository';
@@ -338,6 +356,7 @@ export interface Repositories {
   headlines: HeadlineRepository;
   providerObservations: ProviderObservationRepository;
   providerReconciliations: ProviderReconciliationRepository;
+  measurementSources: MeasurementSourceRepository;
   memberExpectations: ProviderMemberExpectationRepository;
 }
 
@@ -377,6 +396,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     headlines: new HeadlineRepository(prisma),
     providerObservations: new ProviderObservationRepository(prisma),
     providerReconciliations: new ProviderReconciliationRepository(prisma),
+    measurementSources: new MeasurementSourceRepository(prisma),
     memberExpectations: new ProviderMemberExpectationRepository(prisma),
   };
 }

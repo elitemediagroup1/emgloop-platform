@@ -252,6 +252,9 @@ model Organization {
   memberExpectations      ProviderMemberExpectation[]
   reconciliationDays      ProviderReconciliationDay[]
   reconciliationMembers   ProviderReconciliationMember[]
+  measurementSources      MeasurementSource[]
+  measurementSourceMetrics MeasurementSourceMetric[]
+  sourceAuthorities       MeasureSourceAuthority[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -348,6 +351,7 @@ model User {
   /// The expectation declarations this person made about a provider's population
   /// members. Attribution only.
   declaredMemberExpectations ProviderMemberExpectation[] @relation("ProviderMemberExpectationDeclarer")
+  declaredSourceAuthorities  MeasureSourceAuthority[]    @relation("MeasureSourceAuthorityDeclarer")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -4025,4 +4029,194 @@ model ProviderReconciliationMember {
   /// reason — its unique already covers the only way it is read.
   @@index([organizationId, memberDimension, memberExternalId], map: "reconciliation_member_lookup")
   @@map("provider_reconciliation_members")
+}
+
+// ---------------------------------------------------------------------------
+// Measurement source authority — Commercial Intelligence Stage 3 correctness
+// ---------------------------------------------------------------------------
+
+/// One thing this organization is willing to believe a number from.
+///
+/// WHY A REGISTRY AND NOT A CONSTANT. A call-tracking platform is a platform
+/// fact and could have been a constant. A counterparty who settles the following
+/// day and reports outcomes in a document is a BUSINESS fact, specific to one
+/// organization and one commercial relationship, and hard-coding it would put a
+/// line of business into a shared layer — which Stage 3 forbids everywhere else
+/// and would have to forbid here too. So both are rows, and neither is special.
+///
+/// NOTHING IS SEEDED. A source exists because a person registered it. The
+/// absence of one is not "assume the provider": it resolves
+/// MEASURE_NOT_SUPPORTED_BY_SOURCE at the gate and refuses the measurement.
+///
+/// THE KIND IS WHAT IT IS, NOT HOW IT TRAVELS. `BUYER_REPORT` describes an
+/// outcome report supplied by a counterparty after the activity it describes;
+/// naming the kind after today's file format would put a vendor in the domain
+/// model and need renaming the first time the same buyer sent something else.
+/// The kind selects how availability is proven — a polled stream proves it by
+/// being observed and reconciled, an arriving report by having arrived.
+model MeasurementSource {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The stable handle an authority declaration names. Identity is this key, and
+  /// it is DATA rather than a vocabulary member: a closed enum of source keys
+  /// would have to gain a member for every commercial relationship, which is the
+  /// line-of-business-in-a-shared-contract failure by another route.
+  key String
+
+  /// A member of MEASUREMENT_SOURCE_KINDS. Held as a string, following
+  /// `ProviderMemberExpectation.state`, so widening the vocabulary is a contract
+  /// change rather than production DDL against a human-dispatched migration.
+  /// Validated on the way in and on the way out; an unreadable value fails closed.
+  kind        String
+  /// For a person reading a screen. Never identity.
+  displayName String
+
+  /// Set for PROVIDER_STREAM and NULL otherwise, enforced by CHECK. They tie the
+  /// source to the exact stream whose observation and reconciliation prove its
+  /// availability; a report that arrives has no stream to observe.
+  provider String?
+  stream   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  metrics      MeasurementSourceMetric[]
+  authorities  MeasureSourceAuthority[]
+
+  /// Tenant-first identity: one organization's source key must never resolve
+  /// another organization's source.
+  @@unique([organizationId, key], name: "measurement_source_identity", map: "measurement_source_identity")
+  /// NOT REDUNDANT WITH THE PRIMARY KEY. It exists to be a composite foreign-key
+  /// TARGET, so a child row must name a source id AND the organization it
+  /// belongs to. PR 3 could not do this for its expectation link — that column is
+  /// nullable, and a composite SET NULL is syntax Prisma cannot express — and had
+  /// to enforce ownership in the repository instead. Here both columns are
+  /// required, so the database can hold it.
+  @@unique([id, organizationId], name: "measurement_source_tenant_ref", map: "measurement_source_tenant_ref")
+  @@map("measurement_sources")
+}
+
+/// One measure this source may be believed about, and the definition it uses.
+///
+/// WHY THIS IS A TABLE AND NOT TWO COLUMNS ON THE SOURCE. The pure contract
+/// carries `supportedMetrics` and `measureDefinitionIds` separately and
+/// `sourceSupports()` guards the gap between them — a metric listed as supported
+/// with no definition id is not usable. Persisted as one row per metric, that gap
+/// cannot exist: a metric IS supported because there is a row, and the row
+/// carries the definition. The contract's shape is rebuilt from these rows on
+/// read, unchanged.
+///
+/// `measureDefinitionId` IS THE LOAD-BEARING FIELD. Two sources may only be
+/// combined in one measurement when they declare the SAME definition for a
+/// metric, because a provider's flag and a counterparty's own record of a
+/// completed sale are not the same statement, and nothing except a declaration
+/// can establish that they are.
+model MeasurementSourceMetric {
+  id                  String @id @default(cuid())
+  measurementSourceId String
+  /// Denormalised so this row is tenant-scoped in its own right AND so the
+  /// composite foreign key below can prove the source belongs to the same
+  /// organization rather than merely existing.
+  organizationId      String
+
+  /// A member of MEASURE_METRICS. Held as a string for the same reason as
+  /// `MeasurementSource.kind`, and validated in both directions.
+  metric String
+  /// What this source means by the metric. Free-form by necessity — it names a
+  /// definition two parties agreed on, not a member of any vocabulary Loop owns.
+  measureDefinitionId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  source       MeasurementSource @relation(fields: [measurementSourceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([measurementSourceId, metric], name: "measurement_source_metric_identity", map: "measurement_source_metric_identity")
+  @@map("measurement_source_metrics")
+}
+
+/// One statement: for this member and this measure, over this period, believe
+/// this source.
+///
+/// AUTHORITY IS DECLARED, NEVER INFERRED. Nothing writes this table because a
+/// field was non-null, a webhook existed, a reconciliation succeeded, an import
+/// landed, or one source reported a larger number. A source CONTAINING a value
+/// does not make it authoritative for that value — on 2026-08-05 every one of the
+/// 974 records the provider held carried `converted=false`, present and not
+/// absent, so a conversion rate computed from them would have returned 0% at full
+/// coverage, cleared every guard, and stated a business falsehood as a measured
+/// fact. Loop was one confirmed binding away from publishing it.
+///
+/// THE GRAIN IS (member, metric, date), and it is the contract's, not a choice
+/// made here. It buys the case this exists for at no extra cost: the provider for
+/// call volume and a counterparty for revenue, on the SAME campaign, on the same
+/// day, without either being a contradiction. Provider and stream are
+/// deliberately NOT part of this key — the member is the subject and the source
+/// is the answer, so keying on the provider would ask which source is
+/// authoritative for one provider's version of a campaign, which is not a
+/// question anyone has.
+///
+/// EFFECTIVE-DATED, because a program can change buyer. Re-running last month's
+/// comparison must resolve the authority that was in force LAST MONTH; otherwise
+/// a stored Headline silently changes meaning when a configuration changes, which
+/// is the defect immutable bindings exist to prevent. `effectiveFrom` is
+/// INCLUSIVE, `effectiveTo` EXCLUSIVE, NULL open-ended.
+///
+/// NO BASIS FIELD, DELIBERATELY. `ProviderMemberExpectation` records one because
+/// "somebody read the provider's configuration" and "somebody remembered" are
+/// different evidentiary strengths for a factual claim about the world. Authority
+/// is not a claim about the world; it is a DECISION about which source to
+/// believe, and a decision has a reason rather than a basis. Inventing a second
+/// vocabulary to say that would be a vocabulary with one real member.
+///
+/// AT MOST ONE AUTHORITY PER MEMBER PER MEASURE PER DATE, enforced by Postgres.
+/// Two would mean the organization has said two things, and the pure resolver
+/// refuses to tie-break rather than inventing a precedence the organization has
+/// not actually settled.
+model MeasureSourceAuthority {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// A member of BINDING_DIMENSIONS. CAMPAIGN in practice today; held as a string
+  /// and validated, like every other Stage 3 vocabulary column.
+  memberDimension  String
+  /// The provider's own id for the member. IDENTITY IS THE ID, never the label.
+  memberExternalId String
+  /// A member of MEASURE_METRICS. Authority is per MEASURE: one campaign can take
+  /// call volume from the provider and revenue from a counterparty.
+  metric           String
+
+  /// The source to believe. A composite foreign key rather than a loose key
+  /// string: the declaration must name a source THIS organization registered, and
+  /// the database proves it rather than a caller remembering to check.
+  measurementSourceId String
+
+  /// Why, in plain language, for the person reading this in six months. Required:
+  /// an unexplained authority is a place to hide a revenue decision.
+  reason String
+
+  /// INCLUSIVE first business date this speaks for.
+  effectiveFrom DateTime  @db.Date
+  /// EXCLUSIVE, NULL open-ended. Written exactly once, by the declaration that
+  /// succeeds this one; everything the closed row said stays readable.
+  effectiveTo   DateTime? @db.Date
+
+  /// Who decided. NULL when no human actor was resolvable — never a fabricated
+  /// identity. SetNull rather than Cascade: a decision outlives the person who
+  /// made it, the reasoning `audit_logs.userId` already follows.
+  declaredByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  source       MeasurementSource @relation(fields: [measurementSourceId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  declaredBy   User?             @relation("MeasureSourceAuthorityDeclarer", fields: [declaredByUserId], references: [id], onDelete: SetNull)
+
+  /// Resolution reads one member+metric's declarations in effective order.
+  @@index([organizationId, memberDimension, memberExternalId, metric, effectiveFrom], map: "measure_source_authority_lookup")
+  @@map("measure_source_authorities")
 }
