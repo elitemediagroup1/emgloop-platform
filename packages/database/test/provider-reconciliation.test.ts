@@ -35,7 +35,9 @@ import { ProviderMemberExpectationRepository } from '../src/repositories/provide
 import {
   INTEGRATION_EVENT_STAGE,
   ProviderReconciliationRepository,
+  type RecordReconciliationInput,
 } from '../src/repositories/provider-reconciliation.repository';
+import { businessDateToColumn } from '../src/repositories/provider-observation.repository';
 import {
   LOCAL_SCAN_MARGIN_MS,
   ProviderReconciliationService,
@@ -167,6 +169,42 @@ function run(h: Harness, over: Partial<{ businessDate: BusinessDate; pageCap: nu
     now: NOW,
     ...(over.pageCap ? { pageCap: over.pageCap } : {}),
   });
+}
+
+/**
+ * A well-formed, entirely empty day, so a test asserting ONE invariant does not
+ * have to restate thirty counts that are not the point of it.
+ */
+function emptyDayInput(over: Partial<RecordReconciliationInput> = {}): RecordReconciliationInput {
+  return {
+    provider: CALLGRID_PROVIDER,
+    stream: CALLS_STREAM,
+    businessDate: DAY,
+    timezone: 'America/New_York',
+    windowStart: WINDOW.start,
+    windowEnd: WINDOW.end,
+    scanStart: WINDOW.start,
+    scanEnd: WINDOW.end,
+    state: 'RECONCILED',
+    ruleVersion: RECONCILIATION_RULE_VERSION,
+    localStage: INTEGRATION_EVENT_STAGE,
+    counts: {
+      providerUnique: 0, providerDuplicateIds: 0, localUnique: 0, localDuplicateIds: 0,
+      intersection: 0, providerOnly: 0, localOnly: 0,
+      providerOnlyExpected: 0, providerOnlyNotConfigured: 0, providerOnlyExcluded: 0,
+      providerOnlyUnknownMember: 0,
+    },
+    evidence: {
+      providerRecords: 0, providerUnattributed: 0, localRowsScanned: 0, localInWindow: 0,
+      localUnresolvedOccurrence: 0, localMissingIdentity: 0, pagesFetched: 1, pageCap: 100,
+      truncated: false,
+    },
+    members: [],
+    reason: null,
+    observedAt: NOW,
+    reconciledAt: NOW,
+    ...over,
+  };
 }
 
 // --- State derivation ---------------------------------------------------------
@@ -1019,4 +1057,270 @@ test('AUGUST 5: declaring the silent campaign turns the same evidence into a bou
   assert.equal(result.day.state, 'UNRECONCILED');
   assert.equal(result.day.counts.providerOnlyNotConfigured, 97);
   assert.equal(result.day.counts.providerOnlyExpected, 1);
+});
+
+// --- Expectation provenance ----------------------------------------------------
+//
+// THE PROPERTY: a member row's classification must always be traceable to the
+// exact declaration that produced it, and must never point at one it did not use.
+//
+// This is what the whole persistence choice rests on. PR 3 stores ONE current
+// answer per day rather than an append-only history, and the reason that is safe
+// is that the member row names its declaration and PR 2 never rewrites a
+// declaration. A row saying NOT_CONFIGURED with nothing behind it would record a
+// classification nobody can later justify -- exactly the situation the
+// expectation table was built to end.
+
+test('every declarable state names its declaration; UNKNOWN names none', async () => {
+  const h = harness({
+    provider: [
+      providerRecord('a', M_DELIVERING),
+      providerRecord('b', M_SPANISH),
+      providerRecord('c', M_INTERNAL),
+      providerRecord('d', M_SILENT),
+    ],
+    local: [],
+  });
+  const expected = await declare(h.expectations, ORG, M_DELIVERING, 'EXPECTED');
+  const notConfigured = await declare(h.expectations, ORG, M_SPANISH, 'NOT_CONFIGURED');
+  const excluded = await declare(h.expectations, ORG, M_INTERNAL, 'EXCLUDED');
+  // M_SILENT is deliberately never declared.
+
+  const result = await run(h);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const by = (id: string) => result.day.members.find((m) => m.memberExternalId === id);
+  assert.equal(by(M_DELIVERING)?.expectationState, 'EXPECTED');
+  assert.equal(by(M_DELIVERING)?.expectationId, expected);
+  assert.equal(by(M_SPANISH)?.expectationState, 'NOT_CONFIGURED');
+  assert.equal(by(M_SPANISH)?.expectationId, notConfigured);
+  assert.equal(by(M_INTERNAL)?.expectationState, 'EXCLUDED');
+  assert.equal(by(M_INTERNAL)?.expectationId, excluded);
+  assert.equal(by(M_SILENT)?.expectationState, 'UNKNOWN');
+  assert.equal(by(M_SILENT)?.expectationId, null);
+
+  // Stated as the invariant rather than as four assertions, so a fifth state
+  // added later is covered on the day it is added.
+  for (const member of result.day.members) {
+    assert.equal(
+      member.expectationId === null,
+      member.expectationState === 'UNKNOWN',
+      `${member.memberExternalId} must name a declaration exactly when its state is not UNKNOWN`,
+    );
+  }
+});
+
+test('the named declaration is the one in force ON THE DATE, not the newest one', async () => {
+  const h = harness({
+    provider: [providerRecord('a', M_SPANISH)],
+    local: [],
+  });
+  const onTheDay = await declare(h.expectations, ORG, M_SPANISH, 'NOT_CONFIGURED', { effectiveTo: '2026-08-19' });
+  const later = await declare(h.expectations, ORG, M_SPANISH, 'EXPECTED', { effectiveFrom: '2026-08-19' });
+  const result = await run(h);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const member = result.day.members.find((m) => m.memberExternalId === M_SPANISH);
+  assert.equal(member?.expectationId, onTheDay);
+  assert.notEqual(member?.expectationId, later);
+});
+
+test('two overlapping declarations resolve UNKNOWN and name NEITHER of them', async () => {
+  // The resolver refuses to choose between two statements about one date, and
+  // the member row must not quietly pick one -- naming a declaration the
+  // comparison did not rely on is a false provenance trail.
+  const h = harness({ provider: [providerRecord('a', M_SPANISH)], local: [] });
+  await declare(h.expectations, ORG, M_SPANISH, 'NOT_CONFIGURED');
+  // Written around the repository, exactly as a direct database write would be.
+  h.prisma.providerMemberExpectation.__rows.push({
+    id: 'rogue',
+    organizationId: ORG,
+    provider: CALLGRID_PROVIDER,
+    stream: CALLS_STREAM,
+    memberDimension: 'CAMPAIGN',
+    memberExternalId: M_SPANISH,
+    state: 'EXPECTED',
+    exclusionReason: null,
+    basis: 'OPERATOR_DECLARED',
+    reason: 'conflicting',
+    effectiveFrom: businessDateToColumn('2026-01-01'),
+    effectiveTo: null,
+    declaredByUserId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const result = await run(h);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const member = result.day.members.find((m) => m.memberExternalId === M_SPANISH);
+  assert.equal(member?.expectationState, 'UNKNOWN');
+  assert.equal(member?.expectationId, null);
+  assert.equal(member?.expectationMatches, 2);
+});
+
+test('UNKNOWN naming a declaration is refused — it would point at one it did not use', async () => {
+  const prisma = makeCognitivePrisma();
+  const repo = new ProviderReconciliationRepository(prisma as never);
+  const result = await repo.recordDay(ORG, emptyDayInput({
+    members: [{
+      dimension: 'CAMPAIGN', memberExternalId: M_CLEAN,
+      providerCount: 0, providerOnly: 0, localCount: 0, localOnly: 0,
+      expectationState: 'UNKNOWN', expectationId: 'decl-1', expectationMatches: 0,
+      labelAtObservation: null,
+    }],
+  }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.reason, 'INVALID_MEMBER');
+    assert.match(result.problems.join(' '), /UNKNOWN cannot name a declaration/);
+  }
+  assert.equal(prisma.providerReconciliationDay.__rows.length, 0);
+});
+
+test('each declarable state without a declaration is refused', async () => {
+  for (const state of ['EXPECTED', 'NOT_CONFIGURED', 'EXCLUDED'] as const) {
+    const prisma = makeCognitivePrisma();
+    const repo = new ProviderReconciliationRepository(prisma as never);
+    const result = await repo.recordDay(ORG, emptyDayInput({
+      members: [{
+        dimension: 'CAMPAIGN', memberExternalId: M_CLEAN,
+        providerCount: 0, providerOnly: 0, localCount: 0, localOnly: 0,
+        expectationState: state, expectationId: null, expectationMatches: 1,
+        labelAtObservation: null,
+      }],
+    }));
+    assert.equal(result.ok, false, `${state} with no declaration must be refused`);
+    if (!result.ok) assert.equal(result.reason, 'INVALID_MEMBER');
+    assert.equal(prisma.providerReconciliationDay.__rows.length, 0);
+  }
+});
+
+// --- Cross-member ownership ----------------------------------------------------
+//
+// The foreign key proves a declaration EXISTS. It does not prove it is about this
+// member, and Postgres would accept a row for campaign A naming a declaration
+// about campaign B. The write layer is where that is refused.
+
+async function ownershipHarness(): Promise<{
+  prisma: ReturnType<typeof makeCognitivePrisma>;
+  repo: ProviderReconciliationRepository;
+  mine: string;
+  foreign: string;
+  otherMember: string;
+  otherStream: string;
+}> {
+  const prisma = makeCognitivePrisma();
+  const repo = new ProviderReconciliationRepository(prisma as never);
+  const expectations = new ProviderMemberExpectationRepository(prisma as never);
+  const mine = await declare(expectations, ORG, M_CLEAN, 'NOT_CONFIGURED');
+  const otherMember = await declare(expectations, ORG, M_SILENT, 'EXCLUDED');
+  const foreign = await declare(expectations, OTHER_ORG, M_CLEAN, 'EXPECTED');
+  const other = await expectations.declare(ORG, {
+    provider: CALLGRID_PROVIDER, stream: 'leads', dimension: 'CAMPAIGN',
+    memberExternalId: M_CLEAN, state: 'EXPECTED', exclusionReason: null,
+    basis: 'OPERATOR_DECLARED', reason: 'a different stream', effectiveFrom: '2026-01-01',
+  });
+  assert.equal(other.ok, true);
+  return {
+    prisma, repo, mine, foreign, otherMember,
+    otherStream: other.ok ? other.declaration.id : '',
+  };
+}
+
+function ownershipMember(memberExternalId: string, expectationId: string) {
+  return {
+    dimension: 'CAMPAIGN' as const,
+    memberExternalId,
+    providerCount: 0, providerOnly: 0, localCount: 0, localOnly: 0,
+    expectationState: 'NOT_CONFIGURED' as const,
+    expectationId,
+    expectationMatches: 1,
+    labelAtObservation: null,
+  };
+}
+
+test("a declaration about this member IS accepted", async () => {
+  const o = await ownershipHarness();
+  const result = await o.repo.recordDay(ORG, emptyDayInput({
+    members: [ownershipMember(M_CLEAN, o.mine)],
+  }));
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.day.members[0]?.expectationId, o.mine);
+});
+
+test("a declaration about a DIFFERENT MEMBER is refused", async () => {
+  const o = await ownershipHarness();
+  const result = await o.repo.recordDay(ORG, emptyDayInput({
+    members: [ownershipMember(M_CLEAN, o.otherMember)],
+  }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.reason, 'EXPECTATION_NOT_OWNED');
+    assert.match(result.problems.join(' '), /different member, stream or provider/);
+  }
+  assert.equal(o.prisma.providerReconciliationDay.__rows.length, 0);
+});
+
+test("a declaration belonging to ANOTHER ORGANIZATION is refused, and reads as absent", async () => {
+  const o = await ownershipHarness();
+  const result = await o.repo.recordDay(ORG, emptyDayInput({
+    members: [ownershipMember(M_CLEAN, o.foreign)],
+  }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.reason, 'EXPECTATION_NOT_OWNED');
+    // NOT-FOUND, never forbidden: the scoped resolve simply does not see it, so
+    // the message cannot leak that another tenant holds that id.
+    assert.match(result.problems.join(' '), /this organization does not have/);
+  }
+  assert.equal(o.prisma.providerReconciliationDay.__rows.length, 0);
+});
+
+test("a declaration about the same member on a DIFFERENT STREAM is refused", async () => {
+  const o = await ownershipHarness();
+  const result = await o.repo.recordDay(ORG, emptyDayInput({
+    members: [ownershipMember(M_CLEAN, o.otherStream)],
+  }));
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, 'EXPECTATION_NOT_OWNED');
+});
+
+test("a declaration id that does not exist at all is refused before the foreign key sees it", async () => {
+  const o = await ownershipHarness();
+  const result = await o.repo.recordDay(ORG, emptyDayInput({
+    members: [ownershipMember(M_CLEAN, 'decl-does-not-exist')],
+  }));
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, 'EXPECTATION_NOT_OWNED');
+});
+
+test('the ownership check costs one scoped read no matter how many members name declarations', async () => {
+  const o = await ownershipHarness();
+  let reads = 0;
+  const findMany = o.prisma.providerMemberExpectation.findMany.bind(o.prisma.providerMemberExpectation);
+  o.prisma.providerMemberExpectation.findMany = async (args: unknown) => {
+    reads += 1;
+    return findMany(args);
+  };
+  await o.repo.recordDay(ORG, emptyDayInput({
+    members: [
+      ownershipMember(M_CLEAN, o.mine),
+      { ...ownershipMember(M_SILENT, o.otherMember), expectationState: 'EXCLUDED' as const },
+    ],
+  }));
+  assert.equal(reads, 1);
+});
+
+test('a run that names no declaration at all does not read the expectation table', async () => {
+  const o = await ownershipHarness();
+  let reads = 0;
+  const findMany = o.prisma.providerMemberExpectation.findMany.bind(o.prisma.providerMemberExpectation);
+  o.prisma.providerMemberExpectation.findMany = async (args: unknown) => {
+    reads += 1;
+    return findMany(args);
+  };
+  const result = await o.repo.recordDay(ORG, emptyDayInput({ members: [] }));
+  assert.equal(result.ok, true);
+  assert.equal(reads, 0);
 });

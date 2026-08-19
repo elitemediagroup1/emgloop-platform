@@ -199,10 +199,41 @@ ALTER TABLE "provider_reconciliation_members"
         "localOnly" <= "localCount"
     );
 
--- An expectation that resolved to a declaration must NAME it, and one that
--- resolved to no declaration must not pretend to. UNKNOWN is the only state that
--- can legitimately carry a null id -- it is what "nobody had said", and what "two
--- people said different things", both resolve to.
+-- PROVENANCE, IN BOTH DIRECTIONS.
+--
+-- The whole reason this table stores one current answer per day rather than an
+-- append-only history is that a member row NAMES the declaration it resolved to,
+-- and PR 2 never rewrites a declaration. That argument only holds if the naming
+-- is total: a row saying NOT_CONFIGURED with no declaration behind it records a
+-- classification nobody can later justify, which is precisely the situation the
+-- expectation table was built to end.
+--
+-- So the rule is a BICONDITIONAL, not an implication. Every declarable state
+-- must name its source, and UNKNOWN must name none -- UNKNOWN is what "nobody
+-- had said" and what "two people said different things" both resolve to, and
+-- attaching a declaration id to it would contradict the state it is recording.
+-- An implication would have permitted UNKNOWN + an id, leaving a row that points
+-- at a declaration it did not use.
 ALTER TABLE "provider_reconciliation_members"
     ADD CONSTRAINT "provider_reconciliation_members_expectation_source"
-    CHECK ("expectationId" IS NOT NULL OR "expectationState" = 'UNKNOWN');
+    CHECK (
+        ("expectationState" = 'UNKNOWN' AND "expectationId" IS NULL)
+        OR ("expectationState" <> 'UNKNOWN' AND "expectationId" IS NOT NULL)
+    );
+
+-- WHAT THIS CONSTRAINT DOES NOT PROVE, STATED HERE SO NOBODY READS MORE INTO IT.
+--
+-- The foreign key above proves the declaration EXISTS. Neither it nor this CHECK
+-- proves it belongs to the SAME member: a row for campaign A could name a
+-- declaration made about campaign B, or about another organization entirely, and
+-- Postgres would accept it. That invariant is enforced in
+-- ProviderReconciliationRepository.recordDay, which resolves every named
+-- declaration WITHIN the organization and refuses the write when its provider,
+-- stream, dimension or member id disagrees with the row naming it.
+--
+-- Enforcing it in the database would need `provider` and `stream` columns added
+-- to this table, a redundant six-column unique on provider_member_expectations
+-- to serve as the target, and a composite foreign key with
+-- `ON DELETE SET NULL ("expectationId")` -- syntax Prisma cannot express, which
+-- would leave `migrate diff` reporting permanent drift against this schema. That
+-- is a deliberate open item, not an oversight.

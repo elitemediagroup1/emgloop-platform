@@ -30,6 +30,14 @@
 // CHECK constraints, because an application-level invariant is exactly what
 // Sprint 29A proved review cannot sustain.
 //
+// EVERY NAMED DECLARATION IS PROVEN TO BELONG TO THE ROW THAT NAMES IT. The
+// foreign key proves a declaration exists; it does not prove it is about this
+// member. `recordDay` resolves each named declaration WITHIN the organization
+// and refuses the write when its provider, stream, dimension or member id
+// disagrees -- because the auditability argument for storing one current answer
+// per day rests entirely on the member row naming the right declaration, and an
+// invariant held only by the caller is held only until the next caller.
+//
 // TENANT-FIRST. `organizationId` is the first argument of every method, leads the
 // day's unique key, and is denormalised onto the member row so a member read is
 // scoped in its own right rather than only through its parent.
@@ -154,7 +162,11 @@ export type RecordReconciliationRejection =
       cannot declare against. */
   | 'INVALID_MEMBER'
   /** The state is not a member of RECONCILIATION_STATES. */
-  | 'INVALID_STATE';
+  | 'INVALID_STATE'
+  /** A member row names a declaration that does not belong to it: another
+      organization's, another stream's, or another member's. The comparison
+      resolved something, but not the thing this row claims it resolved. */
+  | 'EXPECTATION_NOT_OWNED';
 
 export type RecordReconciliationResult =
   | { ok: true; day: ReconciliationDayView }
@@ -195,9 +207,17 @@ function memberProblems(m: ReconciliationMemberInput): string[] {
       problems.push(`${m.memberExternalId}: localOnly exceeds localCount`);
     }
   }
-  // The same invariant the migration's CHECK enforces: a resolved declaration
-  // must be named, and only UNKNOWN may legitimately name none.
-  if (m.expectationId === null && m.expectationState !== 'UNKNOWN') {
+  // The same invariant the migration's CHECK enforces, and in BOTH directions.
+  // A declarable state must name the declaration that produced it, or the
+  // classification is one nobody can later justify -- and UNKNOWN must name
+  // none, because UNKNOWN is what "nobody had said" and what "two people said
+  // different things" both resolve to. A row pointing at a declaration it did
+  // not use is a false provenance trail, which is worse than an absent one.
+  if (m.expectationState === 'UNKNOWN') {
+    if (m.expectationId !== null) {
+      problems.push(`${m.memberExternalId}: UNKNOWN cannot name a declaration -- no single declaration resolved`);
+    }
+  } else if (m.expectationId === null) {
     problems.push(`${m.memberExternalId}: ${m.expectationState} without naming the declaration that said so`);
   }
   return problems;
@@ -242,6 +262,58 @@ export class ProviderReconciliationRepository {
         };
       }
       seen.add(key);
+    }
+
+    // EVERY NAMED DECLARATION MUST BELONG TO THE ROW THAT NAMES IT.
+    //
+    // The foreign key proves the declaration exists. It does NOT prove it is
+    // about this member: a row for campaign A could name a declaration made
+    // about campaign B, or about another organization entirely, and Postgres
+    // would accept it. The service resolves through a fully-scoped query and so
+    // cannot produce that, but this is the layer that gets to be sure -- Sprint
+    // 29A's lesson was that an invariant held only by the caller is held only
+    // until the next caller, and the safe call and the unsafe call look
+    // identical at the call site.
+    //
+    // Resolved WITHIN the organization, so a cross-tenant id is simply absent
+    // rather than forbidden, and one scoped read covers every member at once.
+    const namedIds = [...new Set(input.members.map((m) => m.expectationId).filter((id): id is string => id !== null))];
+    if (namedIds.length > 0) {
+      const declarations = await this.prisma.providerMemberExpectation.findMany({
+        where: { organizationId, id: { in: namedIds } },
+        select: {
+          id: true,
+          provider: true,
+          stream: true,
+          memberDimension: true,
+          memberExternalId: true,
+        },
+      });
+      const byId = new Map(declarations.map((d) => [d.id, d]));
+      const ownership: string[] = [];
+      for (const m of input.members) {
+        if (m.expectationId === null) continue;
+        const declaration = byId.get(m.expectationId);
+        if (!declaration) {
+          ownership.push(
+            `${m.memberExternalId}: names a declaration this organization does not have`,
+          );
+          continue;
+        }
+        if (
+          declaration.provider !== input.provider ||
+          declaration.stream !== input.stream ||
+          declaration.memberDimension !== m.dimension ||
+          declaration.memberExternalId !== m.memberExternalId
+        ) {
+          ownership.push(
+            `${m.memberExternalId}: names a declaration about a different member, stream or provider`,
+          );
+        }
+      }
+      if (ownership.length > 0) {
+        return { ok: false, reason: 'EXPECTATION_NOT_OWNED', problems: ownership };
+      }
     }
 
     const businessDate = businessDateToColumn(input.businessDate);

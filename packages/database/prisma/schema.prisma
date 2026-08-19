@@ -3977,8 +3977,22 @@ model ProviderReconciliationMember {
   /// storable here, because here it is a resolved answer — "nobody had said" —
   /// rather than a declaration.
   expectationState   String
-  /// The declaration that produced it, or NULL when none did, or when more than
-  /// one did and the resolver refused to choose.
+  /// The declaration that produced it. NULL EXACTLY WHEN the state is UNKNOWN,
+  /// which is what "nobody had said" and "two people said different things" both
+  /// resolve to.
+  ///
+  /// The migration enforces this as a BICONDITIONAL, not an implication. A
+  /// declarable state with no declaration behind it records a classification
+  /// nobody can later justify — the exact situation the expectation table was
+  /// built to end — and an UNKNOWN carrying an id would point at a declaration it
+  /// did not use.
+  ///
+  /// The foreign key proves the declaration EXISTS; it does not prove it is about
+  /// this member. That is enforced in
+  /// `ProviderReconciliationRepository.recordDay`, which resolves every named
+  /// declaration within the organization and refuses the write when its provider,
+  /// stream, dimension or member id disagrees. The migration records what
+  /// database-level enforcement would cost.
   expectationId      String?
   /// How many declarations matched. More than one is a configuration defect the
   /// resolver reports rather than resolves, and recording it means a later reader
