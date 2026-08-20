@@ -459,6 +459,61 @@ export function assessReadiness(input: ReadinessInput): MeasurementReadiness {
  * already follows: a reader needs to know what to go and fix, not how many things
  * are wrong. Long lists are capped and the cap says so.
  */
+/**
+ * The single reason a caller with room for one is told.
+ *
+ * THE MOST SEVERE FINDING WINS, and ties break on the order `assessReadiness`
+ * produced -- dates in the order given, members in the order given, checks in a
+ * fixed order within each pair. So the same input always names the same reason,
+ * and it can never disagree with the verdict's own outcome.
+ *
+ * ONE DEFINITION, TWO CALLERS. `measureChange` reports it as `withheld` and the
+ * detection service reports it on an objective it never measured. Working it out
+ * twice would let a run summary and the measurement it describes name different
+ * reasons for the same refusal.
+ *
+ * Nothing is discarded: every finding survives in `readiness.findings`.
+ */
+export function principalReadinessReason(readiness: MeasurementReadiness): ReadinessWithholding {
+  const atVerdict = readiness.findings.find(
+    (f) => READINESS_OUTCOME_BY_REASON[f.reason] === readiness.outcome,
+  );
+  // `ready` is false only when a finding exists, so the fallback is unreachable
+  // by construction -- and it fails toward "could not look" rather than toward a
+  // number, because a caller that somehow got here has not earned one.
+  return atVerdict?.reason ?? readiness.findings[0]?.reason ?? 'WINDOW_NOT_OBSERVED';
+}
+
+/**
+ * One line per obstruction, naming the date and the member it belongs to.
+ *
+ * WHY THIS EXISTS BESIDE `describeNotReady` AND NOT INSIDE IT. That function
+ * answers "what kind of problem is this" in one sentence, which is what a banner
+ * has room for. This answers "where", which is what somebody about to fix it
+ * needs — and `describeUnobserved` already proved the difference is worth the two
+ * functions: an operator told three days were unobserved still has to ask WHICH
+ * three before they can do anything.
+ *
+ * DEDUPED ON THE WHOLE LINE, so one reason firing across fourteen days and four
+ * campaigns does not produce fifty-six identical sentences. Order is the order
+ * `assessReadiness` produced, which is deterministic, and the cap says how much
+ * it hid rather than trailing off.
+ */
+export function describeReadinessFindings(
+  readiness: MeasurementReadiness,
+  limit = 8,
+): readonly string[] {
+  const lines: string[] = [];
+  for (const f of readiness.findings) {
+    const where = [f.businessDate, f.memberExternalId].filter((x) => x !== null).join(' · ');
+    const line = where === '' ? f.detail : `${where} — ${f.detail}`;
+    if (!lines.includes(line)) lines.push(line);
+  }
+  if (lines.length <= limit) return lines;
+  const remainder = lines.length - limit;
+  return [...lines.slice(0, limit), `and ${remainder} more.`];
+}
+
 export function describeNotReady(readiness: MeasurementReadiness, limit = 6): string {
   if (readiness.ready) return '';
   const seen: ReadinessWithholding[] = [];

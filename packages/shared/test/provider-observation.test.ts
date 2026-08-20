@@ -24,6 +24,7 @@ import {
   MATERIALITY_WITHHOLDINGS,
   OBSERVATION_RULE_VERSION,
   PROVIDER_OBSERVATION_STATUSES,
+  assessReadiness,
   assessWindowObservation,
   certifiesObservation,
   describeUnobserved,
@@ -86,6 +87,11 @@ function measure(
   prior: PopulationWindowAggregate,
   metric: Parameters<typeof measureChange>[0]['metric'] = 'CALL_VOLUME',
 ) {
+  // The observation verdict now reaches `measureChange` INSIDE the readiness
+  // verdict rather than beside it. `assessReadiness` evaluates observation first
+  // and returns on it, so an unobserved window still withholds for exactly the
+  // reason this file has always asserted -- and these tests keep pinning the
+  // August regression through the path production actually uses.
   return measureChange({
     metric,
     direction: 'HIGHER_IS_BETTER',
@@ -93,7 +99,17 @@ function measure(
     prior,
     currentWindow: WINDOWS.current,
     priorWindow: WINDOWS.prior,
-    observation,
+    readiness: assessReadiness({
+      metric,
+      dates: [],
+      observation,
+      partitions: [],
+      unattributedCalls: 0,
+      reconciliation: [],
+      authorities: [],
+      sources: [],
+      outcomeDays: [],
+    }),
   });
 }
 

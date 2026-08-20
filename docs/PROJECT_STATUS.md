@@ -439,7 +439,7 @@ explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 ## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 IN IMPLEMENTATION
 **Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
 **Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
-**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#171 · PR 4 **DEPLOYED** · every single-declaration operations bridge **PROVEN IN PRODUCTION** · **production bootstrap bridge IN REVIEW** · PR 5 onward NOT AUTHORIZED
+**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#172 · PR 4 **DEPLOYED** · every operations bridge **PROVEN IN PRODUCTION** · production configured · **PR 5 (readiness gate wired) IN REVIEW** · PR 6 onward NOT AUTHORIZED
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -839,7 +839,7 @@ around the guard.
 definition field, and this bridge corrected it. `callgrid-calls` now stores
 `objective-measure-binding.v1:CALL_VOLUME` for `CALL_VOLUME`.
 
-### Stage 3 production bootstrap — IN REVIEW, NOT MERGED
+### Stage 3 production bootstrap — MERGED #172 · APPLIED IN PRODUCTION
 **Not PR 5.** Every individual mechanism above is now proven against production, and what remains is
 the FIRST FULL CONFIGURATION of a tenant — which through the one-declaration workflows is dozens of
 hand-filled forms, each an opportunity to mistype a campaign id, and none of them reviewable as a
@@ -875,12 +875,75 @@ member expectations and several source authorities — in one human-dispatched r
 - **The plan is an input, never a file in this repository.** No campaign id, organization slug,
   source key or date is committed in the runner or the workflow, and a test asserts it.
 
-**No migration. No production change — the workflow has not been dispatched.** `SourceOutcomeDay`
-persistence and the buyer-report importer are **not started**.
+**No migration.** **APPLIED IN PRODUCTION 2026-08-20**, dry-run first, on a plan carrying only what
+repository evidence could support: `WRITTEN_COUNT=2 EQUIVALENT_COUNT=1 SUPERSEDED_COUNT=0
+FAILED_INDEX= OVERALL_RESULT=APPLIED`, every entry read back through its repository.
 
-**PR 5 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the buyer-report importer,
-production wiring of `assessReadiness`, and any Stage 3 UI all remain out of scope until separately
-authorized. The buyer-report join identity is still **UNRESOLVED**.
+| Entry | Result |
+|---|---|
+| SSDI 1696 `EXPECTED` from 2026-08-05 | CREATED · `cmt0sj3o8000291lo6gxyfrfj` |
+| Spanish FE `CALL_VOLUME` → `callgrid-calls` from 2026-08-05 | ALREADY_EQUIVALENT · `cmt0pq33z00021044ld34tish` — **idempotency verified against real production state** |
+| SSDI 1696 `CALL_VOLUME` → `callgrid-calls` from 2026-08-05 | CREATED · `cmt0sj3qn000691lou3d0exvf` |
+
+⚠️ **THREE CAMPAIGNS ARE DELIBERATELY UNDECLARED, AND MUST STAY THAT WAY UNTIL A DATE CAN BE
+SUPPORTED.** Spanish FE `cmo93ju7606k306k1of3tttac`, Home Security Internal
+`cmphdtnu504eh07ii5aul38mz` and SSDI Retainer `cmo1siqoq033t07jngw973suv` are each settled as
+`NOT_CONFIGURED` / `PROVIDER_CONFIG_VERIFIED` — **the STATE is decided; the `effectiveFrom` is not.**
+"No webhook" is a statement about today. The 2026-08-05 reconciliation names three campaigns with
+zero Loop representation but never their identities, and zero representation proves records did not
+arrive, never that no webhook was the reason. Declaring `NOT_CONFIGURED` from 2026-08-05 would file a
+possible delivery failure as a correct absence, permanently.
+
+**And do not date them today as a workaround.** An effective-dated write refuses a predecessor
+starting on or after an existing row's start date, so a row dated now makes the 2026-08-05
+declaration unwritable through the normal path — the same trap as the mistyped definition id in #171.
+Undeclared resolves `UNKNOWN`, which withholds and stays cheap to correct. What would settle it is
+CallGrid's own webhook-attachment history for those three campaigns covering 2026-08-05; #165's
+commit message records that **two** of the three zero-representation campaigns were once verified in
+the provider's interface as never attached, without naming which two.
+
+### PR 5 of 7 — the readiness gate, wired (IN REVIEW, NOT MERGED)
+`assessReadiness` has been pure, tested and **unwired** since #165, and PR 3's reconciliation
+persistence was inert without it. This connects it: a measure may now be computed only when, for
+EVERY date in both windows, the day was observed **and** reconciled, every bound member's expectation
+is known and uncontradicted, and exactly one authoritative source is resolved for that member and
+that measure.
+
+- **One gate, not two.** `MeasurementInput.observation` became `MeasurementInput.readiness`, still
+  REQUIRED, so the type system still refuses to compile a caller that never asked.
+  `assessReadiness` evaluates observation first and returns on it, so a second `observation` field
+  would be one question asked twice with nothing forcing the answers to agree.
+- **Refused before any aggregate is read.** The service returns without querying a single aggregate
+  when the gate objects, so no value is computed and then hidden — the difference between a guard and
+  a curtain, and the shape of a defect Stage 2 already shipped once.
+- **Two additive repository reads.** `ProviderReconciliationRepository.factsForDates` (the read
+  `memberFactsForDates` was documented as anticipating) and
+  `MarketplaceCallRepository.partitionPopulationWindows`. The second returns EVERY bound member
+  including ones that contributed nothing — a `groupBy` alone would let a campaign that went silent
+  vanish from the population, which is exactly the August 2026 shape.
+- **Day facts are resolved once per run**, not once per objective: a day's reconciliation is a fact
+  about the stream and the date, so two objectives can never disagree about the 11th.
+- **`unattributedCalls` is computed, not assumed zero.** It is structurally zero under today's
+  selection; asserting that instead of asking would be true only until selection widens.
+- **`outcomeDays` is empty, and that fails closed.** `SourceOutcomeDay` is not persisted, so a
+  BUYER_REPORT authority resolves `AUTHORITATIVE_DATA_PENDING` rather than being computed from
+  whatever sits in the call rows. No BUYER_REPORT source is registered, so the branch is unreached —
+  and a test pins the refusal anyway.
+- **The measurement path cannot write the facts it gates on.** A source-inspection test fails if the
+  service ever names `declare`, `declareAuthority`, `registerSource`, `recordDay`, `certifyDay` or a
+  Prisma delegate: a gate that could unblock itself is decoration.
+
+⚠️ **DEPLOYING THIS MAKES STAGE 3 SILENT UNTIL RECONCILIATION RUNS.** `provider_reconciliation_days`
+is live and **empty** — no production reconciliation has ever been run — so every objective will
+withhold `RECONCILIATION_MISSING`. That is the gate working, not a regression, and it means
+dispatching `Reconcile Provider Days` across the fourteen-day window is now the prerequisite for any
+Headline. **PR 5 itself changes no production data.**
+
+**No migration.** **No production run.**
+
+**PR 6 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the buyer-report importer and any
+Stage 3 UI remain out of scope until separately authorized. The buyer-report join identity is still
+**UNRESOLVED**.
 
 ## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
 The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a

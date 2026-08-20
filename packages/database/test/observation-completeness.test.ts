@@ -28,6 +28,12 @@ import { ProviderObservationRepository } from '../src/repositories/provider-obse
 import { ObjectiveMeasureBindingRepository } from '../src/repositories/objective-measure-binding.repository';
 import { HeadlineRepository } from '../src/repositories/headline.repository';
 import { PerformanceObjectiveRepository } from '../src/repositories/performance-objective.repository';
+import {
+  fixturePartitions,
+  fixtureReconciliation,
+  fixtureSources,
+  type FixtureMember,
+} from './stage3-readiness-fixtures';
 import { HeadlineDetectionService } from '../src/services/headline-detection.service';
 import { CALLGRID_PROVIDER, CALLS_STREAM } from '../src/services/provider-observation.service';
 import type { MarketplaceCallRepository } from '../src/repositories/marketplace-call.repository';
@@ -112,9 +118,19 @@ function makeCalls(answers: { current: PopulationWindowAggregate; prior: Populat
       seen.push(window);
       return isCurrent ? answers.current : answers.prior;
     },
+    ...fixturePartitions(),
   } as unknown as MarketplaceCallRepository;
   return { repo, seen };
 }
+
+// Reconciled, expected and authoritative for the one campaign these tests bind.
+// This file is about OBSERVATION -- whether Loop looked -- and the other two
+// ledgers are held constant so a refusal here can only be the observation one.
+const FIXTURE_MEMBERS: FixtureMember[] = [
+  { dimension: 'CAMPAIGN', memberExternalId: 'cmp-roof-tx' },
+];
+const reconciled = () => fixtureReconciliation(FIXTURE_MEMBERS);
+const authoritative = () => fixtureSources();
 
 async function boundObjective(
   objectives: PerformanceObjectiveRepository,
@@ -161,7 +177,7 @@ test('three unobserved days withhold every objective, and no aggregate is read',
 
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 3_400 }), prior: agg({ totalCalls: 9_100 }) });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   assert.equal(summary.established, 0, 'no headline from an ingestion gap');
@@ -191,7 +207,7 @@ test('an objective with no binding stays NOT_MEASURABLE even when the window is 
 
   const { repo } = makeCalls({ current: agg(), prior: agg() });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   // Two different silences, kept apart: "we have no definition for this" is not
@@ -208,7 +224,7 @@ test('a truncated day blocks the window exactly as a missing one does', async ()
 
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 40 }), prior: agg() });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   assert.equal(summary.outcomes[0]!.withheld, 'WINDOW_NOT_OBSERVED');
@@ -224,7 +240,7 @@ test('a failed provider read blocks the window and records which failure it was'
 
   const { repo } = makeCalls({ current: agg(), prior: agg() });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   assert.equal(summary.outcomes[0]!.withheld, 'WINDOW_NOT_OBSERVED');
@@ -237,7 +253,7 @@ test('an entirely empty ledger blocks measurement — the state on the day this 
 
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   // Every day before certification exists is UNKNOWN, including the ones that
@@ -256,7 +272,7 @@ test('with all fourteen certified, a material move records a Headline as before'
 
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   assert.equal(summary.established, 1);
@@ -277,7 +293,7 @@ test('a proven-empty day certifies, so a genuinely quiet week is still measurabl
 
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   assert.equal(summary.observation.fullyObserved, true);
@@ -292,7 +308,7 @@ test('a recorded Headline carries the observation rule that governed it', async 
   await certify(observations, ORG, ALL_DATES);
 
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observations).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observations, reconciled(), authoritative()).detect(ORG, NOW);
 
   const row = (prisma as unknown as { headline: { __rows: Array<Record<string, unknown>> } }).headline.__rows[0]!;
   // Stored, not inferred: by the time the rule changes, the evidence for what was
@@ -312,7 +328,7 @@ test("another organization's certification cannot satisfy this one's gate", asyn
 
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
   const summary = await new HeadlineDetectionService(
-    objectives, bindings, repo, headlines, observations,
+    objectives, bindings, repo, headlines, observations, reconciled(), authoritative(),
   ).detect(ORG, NOW);
 
   assert.equal(summary.observation.observedDayCount, 0);
