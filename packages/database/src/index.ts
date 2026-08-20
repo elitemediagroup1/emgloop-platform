@@ -188,3 +188,10 @@ export type {
   ReconcileOptions,
   FieldCheck,
 } from './services/callgrid-reconciliation.harness';
+
+export {
+  ProviderFactRevisionRepository,
+  renderFactValue,
+  type FactRevisionView,
+  type RecordFactRevisionInput,
+} from './repositories/provider-fact-revision.repository';

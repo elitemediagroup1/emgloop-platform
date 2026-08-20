@@ -137,6 +137,55 @@ export class MarketplaceCallRepository {
     });
   }
 
+  /**
+   * The canonical facts a later observation is allowed to strengthen.
+   *
+   * A NARROW WRITE, NOT AN UPSERT. `upsertProjection` replaces the whole row
+   * from a freshly built projection, which is right on the path that BUILDS a
+   * call and catastrophic on the path that RE-OBSERVES one: a postback-pending
+   * zero would overwrite a settled amount. This writes only the columns the pure
+   * convergence rule approved and touches nothing else -- not occurrence, not
+   * attribution, not status, not the columns nobody asserted anything about.
+   *
+   * The decision itself is NOT made here. It is made once, purely, by
+   * `convergeFact`, and this method persists an answer it is handed.
+   */
+  async strengthenFacts(
+    organizationId: string,
+    provider: string,
+    externalId: string,
+    facts: { revenueCents?: number; payoutCents?: number; billable?: true; paid?: true; converted?: true },
+  ): Promise<boolean> {
+    if (Object.keys(facts).length === 0) return false;
+    // SCOPED BY ORGANIZATION, and resolved within it before anything is written.
+    // The unique key is global today (known tenancy debt); this read is not.
+    const existing = await this.prisma.marketplaceCall.findFirst({
+      where: { organizationId, provider, externalId },
+      select: { id: true },
+    });
+    if (!existing) return false;
+    await this.prisma.marketplaceCall.update({ where: { id: existing.id }, data: facts });
+    return true;
+  }
+
+  /** The canonical facts as currently stored, for a convergence decision. */
+  async factsFor(
+    organizationId: string,
+    provider: string,
+    externalId: string,
+  ): Promise<{
+    revenueCents: number | null;
+    payoutCents: number | null;
+    billable: boolean | null;
+    paid: boolean | null;
+    converted: boolean | null;
+  } | null> {
+    return this.prisma.marketplaceCall.findFirst({
+      where: { organizationId, provider, externalId },
+      select: { revenueCents: true, payoutCents: true, billable: true, paid: true, converted: true },
+    });
+  }
+
   /** Project one raw Interaction (write-through from the ingestion path). Returns
    * true when a projection was written, false when the row was not projectable. */
   async projectInteraction(interaction: Parameters<typeof projectInteractionToMarketplaceCall>[0]): Promise<boolean> {

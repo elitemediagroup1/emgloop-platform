@@ -180,6 +180,7 @@ export * from './truth';
 // service, provider, or query may choose its own timezone for reporting.
 export * from './business-time';
 export * from './observation-source';
+export * from './provider-fact-convergence';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---

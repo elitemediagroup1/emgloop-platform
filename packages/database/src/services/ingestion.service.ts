@@ -32,7 +32,16 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
 import type { InboundEvent } from '@emgloop/providers';
-import { withObservation, type ObservationSource } from '@emgloop/shared';
+import {
+  CALLGRID_FACT_KINDS,
+  convergeFact,
+  withObservation,
+  type ObservationSource,
+} from '@emgloop/shared';
+import {
+  ProviderFactRevisionRepository,
+  renderFactValue,
+} from '../repositories/provider-fact-revision.repository';
 import { NormalizationEngine } from '../repositories/normalization.repository';
 import { MarketplaceCallRepository } from '../repositories/marketplace-call.repository';
 import { WorkflowsRepository } from '../repositories/workflows.repository';
@@ -104,11 +113,13 @@ export class IngestionService {
   private readonly normalizer: NormalizationEngine;
   private readonly marketplaceCalls: MarketplaceCallRepository;
   private readonly nextBestAction: NextBestActionService;
+  private readonly factRevisions: ProviderFactRevisionRepository;
 
   constructor(private readonly prisma: PrismaClient) {
     this.normalizer = new NormalizationEngine(prisma, new WorkflowsRepository(prisma));
     this.marketplaceCalls = new MarketplaceCallRepository(prisma);
     this.nextBestAction = new NextBestActionService(prisma);
+    this.factRevisions = new ProviderFactRevisionRepository(prisma);
   }
 
   /** Process a batch of inbound events. Each event is isolated: one failure
@@ -119,6 +130,133 @@ export class IngestionService {
       results.push(await this.ingestOne(input, ev));
     }
     return results;
+  }
+
+  /**
+   * Let a later observation strengthen the canonical call, and never weaken it.
+   *
+   * THE DECISION IS NOT MADE HERE. `convergeFact` in @emgloop/shared decides,
+   * purely, one fact at a time, from a classification backed by provider
+   * evidence. This method reads what is stored, hands each pair to the rule, and
+   * persists only what the rule approved. There is no field-specific branching
+   * in this file and there must never be: the moment "revenue is special" is
+   * written in two places, the two will disagree about a postback.
+   *
+   * A CONFLICT WRITES NOTHING TO THE CALL. Two settled amounts that disagree are
+   * a question for a person, not a race between observations. The disagreement is
+   * recorded with appliedAt NULL so the record says the canonical value did not
+   * move.
+   *
+   * BEST-EFFORT AT THE EDGE. A failure here must not turn a successful
+   * observation into a failed ingestion: the delivery was real and is already
+   * recorded. The error is reported and the run continues.
+   */
+  private async convergeProviderFacts(
+    input: IngestInput,
+    ev: InboundEvent,
+    integrationEventId: string,
+    observedAt: Date,
+  ): Promise<void> {
+    try {
+      const stored = await this.marketplaceCalls.factsFor(
+        input.organizationId,
+        input.provider,
+        ev.externalId,
+      );
+      // No projected call means there is nothing to strengthen. Building one
+      // from a re-observation would be a different operation with different
+      // risks, and it is not this one.
+      if (!stored) return;
+
+      const incoming = ev.payload as Record<string, unknown>;
+      const approved: {
+        revenueCents?: number;
+        payoutCents?: number;
+        billable?: true;
+        paid?: true;
+        converted?: true;
+      } = {};
+
+      const money: Array<['revenue' | 'payout', 'revenueCents' | 'payoutCents']> = [
+        ['revenue', 'revenueCents'],
+        ['payout', 'payoutCents'],
+      ];
+      for (const [fact, column] of money) {
+        const raw = incoming[fact];
+        const converged = convergeFact<number>({
+          kind: CALLGRID_FACT_KINDS[fact],
+          existing: stored[column],
+          // Cents, so the comparison happens in the unit the column stores.
+          incoming: typeof raw === 'number' && Number.isFinite(raw) ? Math.round(raw * 100) : null,
+        });
+        if (converged.decision === 'UPDATE' && converged.value !== undefined) {
+          approved[column] = converged.value;
+        }
+        await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, stored[column]);
+      }
+
+      const flags: Array<['billable' | 'paid' | 'converted', 'billable' | 'paid' | 'converted']> = [
+        ['billable', 'billable'],
+        ['paid', 'paid'],
+        ['converted', 'converted'],
+      ];
+      for (const [fact, column] of flags) {
+        const raw = incoming[fact];
+        const converged = convergeFact<boolean>({
+          kind: CALLGRID_FACT_KINDS[fact],
+          existing: stored[column],
+          incoming: typeof raw === 'boolean' ? raw : null,
+        });
+        if (converged.decision === 'UPDATE' && converged.value === true) approved[column] = true;
+        await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, stored[column]);
+      }
+
+      if (Object.keys(approved).length > 0) {
+        await this.marketplaceCalls.strengthenFacts(
+          input.organizationId,
+          input.provider,
+          ev.externalId,
+          approved,
+        );
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        JSON.stringify({
+          evt: 'provider_fact_convergence_failed',
+          provider: input.provider,
+          reason: error instanceof Error ? error.message : 'unknown',
+        }),
+      );
+    }
+  }
+
+  /** A revision row exists only for a change or a disagreement. Never for silence. */
+  private async recordIfNotable(
+    input: IngestInput,
+    ev: InboundEvent,
+    integrationEventId: string,
+    observedAt: Date,
+    fact: string,
+    converged: { decision: string; value?: unknown; reason: string },
+    existing: unknown,
+  ): Promise<void> {
+    if (converged.decision !== 'UPDATE' && converged.decision !== 'CONFLICT') return;
+    await this.factRevisions.record(input.organizationId, {
+      provider: input.provider,
+      externalId: ev.externalId,
+      fact,
+      decision: converged.decision,
+      fromValue: renderFactValue(existing),
+      toValue: renderFactValue(
+        converged.decision === 'UPDATE' ? converged.value : (ev.payload as Record<string, unknown>)[fact],
+      ),
+      observationSource: input.observationSource,
+      observedAt,
+      integrationEventId,
+      applied: converged.decision === 'UPDATE',
+      reason: converged.reason,
+    });
   }
 
   private async ingestOne(input: IngestInput, ev: InboundEvent): Promise<IngestResult> {
@@ -154,13 +292,22 @@ export class IngestionService {
       // occurredAt, firstIngestionSource and status are all untouched. Whether a
       // later provider answer should REPLACE an earlier fact is a merge policy,
       // and it deliberately does not live here.
+      const observedAt = new Date();
       await this.prisma.integrationEvent.update({
         where: { id: existing.id },
         data: {
-          lastObservedAt: new Date(),
+          lastObservedAt: observedAt,
           observedSources: withObservation(existing.observedSources ?? [], input.observationSource),
         },
       });
+
+      // AND THEN, SEPARATELY, WHETHER THIS OBSERVATION STRENGTHENS ANYTHING.
+      //
+      // The payload is still not replaced -- see above -- so the raw evidence
+      // that produced this row is intact. What may move is a small, explicitly
+      // classified set of canonical facts on the projected call, and only in the
+      // one direction the provider's semantics support.
+      await this.convergeProviderFacts(input, ev, existing.id, observedAt);
       return { ...base, status: 'duplicate', integrationEventId: existing.id };
     }
 
