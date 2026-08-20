@@ -5,7 +5,11 @@
 //
 //   READ   performance_objectives       (Stage 1 -- what we are trying to do)
 //   READ   objective_measure_bindings   (Stage 3 -- what that means, measurably)
-//   READ   marketplace_calls            (CallGrid -- aggregates only)
+//   READ   marketplace_calls            (CallGrid -- aggregates and member splits)
+//   READ   provider_observation_days    (did Loop LOOK at this date?)
+//   READ   provider_reconciliation_*    (did what it saw ARRIVE?)
+//   READ   measurement_sources / _metrics / measure_source_authorities
+//                                       (WHOSE number is this measure?)
 //   WRITE  headlines                    (material developments only)
 //
 // IT DOES NOTHING DOWNSTREAM. Detecting a development creates no decision, no
@@ -43,15 +47,34 @@
 // until provider_observation_days existed. In August 2026 exactly that happened:
 // three consecutive days ingested nothing, and the trailing-7-day window they fell
 // into would have measured the gap as a commercial collapse -- correctly, by every
-// rule then written. So this service now reads the observation ledger for all
-// fourteen business dates FIRST and returns without touching an aggregate when any
-// of them is uncertified. `measureChange` refuses the same case independently and
-// is required by its own type to be told; neither guard trusts the other.
+// rule then written. So this service reads the observation ledger for all fourteen
+// business dates FIRST and returns without touching an aggregate when any of them
+// is uncertified.
+//
+// AND READY PERIODS ONLY -- WHICH IS MORE THAN OBSERVED. Observation answers "did
+// Loop look". It does not answer "did what it saw arrive", "was this campaign
+// supposed to deliver", or "whose number is this measure" -- and on 2026-08-05 all
+// three mattered at once: 974 provider records against 867 local, 106 of the 107
+// absences belonging to campaigns that could not have delivered, and every record
+// carrying `converted=false` because one buyer settles the next day and never
+// tells the provider. A window can be perfectly observed and still make a
+// conversion rate of 0% computable at full coverage. So before any aggregate is
+// read, this service resolves the day facts, splits the bound population by
+// member, resolves each member's authority for THIS measure, and asks
+// `assessReadiness`. `measureChange` takes that verdict as a REQUIRED input and
+// refuses independently; neither guard trusts the other.
+//
+// IT RESOLVES, IT DOES NOT DECIDE. Every rule above lives in @emgloop/shared as a
+// pure function. This service reads ledgers and passes what it found. It never
+// declares an expectation, never declares an authority, never reconciles a day and
+// never certifies one -- a measurement path that could write the facts it gates on
+// would be able to unblock itself.
 
 import {
   COMMERCIAL_HEADLINE_PRODUCER_VERSION,
   COMPARISON_SPAN_DAYS,
   MEASURE_METRIC_DEFINITIONS,
+  assessReadiness,
   assessWindowObservation,
   composeStatement,
   describePopulation,
@@ -61,8 +84,10 @@ import {
   headlineRecurrenceKey,
   measureChange,
   membersOf,
+  principalReadinessReason,
   type BusinessDate,
   type MaterialityWithholding,
+  type MeasurementReadiness,
   type MeasurementResult,
   type ObjectiveMeasureBindingView,
   type WindowObservation,
@@ -73,6 +98,8 @@ import type { ObjectiveMeasureBindingRepository } from '../repositories/objectiv
 import type { MarketplaceCallRepository } from '../repositories/marketplace-call.repository';
 import type { HeadlineRepository, RecordOutcome } from '../repositories/headline.repository';
 import type { ProviderObservationRepository } from '../repositories/provider-observation.repository';
+import type { ProviderReconciliationRepository } from '../repositories/provider-reconciliation.repository';
+import type { MeasurementSourceRepository } from '../repositories/measurement-source.repository';
 import { CALLGRID_PROVIDER, CALLS_STREAM } from './provider-observation.service';
 
 /** What one objective's evaluation concluded. Silence is reported, not hidden. */
@@ -83,6 +110,16 @@ export interface ObjectiveDetectionOutcome {
   measureBindingId: string | null;
   /** Null when there was no binding to measure with. */
   measurement: MeasurementResult | null;
+  /**
+   * What stood between this objective and a number, in full.
+   *
+   * `withheld` names ONE reason because a table cell holds one. This holds every
+   * finding, with the date and member each belongs to, so an operator reading a
+   * run can see all four problems at once rather than fixing one and re-running to
+   * discover the next. Null when the objective had no binding, or when the window
+   * was refused before any population was resolved.
+   */
+  readiness: MeasurementReadiness | null;
   /** Set when a material development was recorded. */
   recorded: RecordOutcome | null;
   headlineId: string | null;
@@ -123,6 +160,14 @@ export class HeadlineDetectionService {
     private readonly calls: MarketplaceCallRepository,
     private readonly headlines: HeadlineRepository,
     private readonly observations: ProviderObservationRepository,
+    // REQUIRED, NOT OPTIONAL, for the reason `MeasurementInput.readiness` is
+    // required: a service constructed without these could not ask whether a
+    // measure may be computed, and the only two things it could then do are
+    // assume yes -- the failure this layer exists to stop -- or withhold
+    // everything while looking like it was working. Both are worse than a
+    // compile error at the one place a caller wires it up.
+    private readonly reconciliation: ProviderReconciliationRepository,
+    private readonly measurementSources: MeasurementSourceRepository,
   ) {}
 
   /**
@@ -191,6 +236,9 @@ export class HeadlineDetectionService {
           objectiveTitle: objective.title,
           measureBindingId: binding?.id ?? null,
           measurement: null,
+          // No population was resolved, so there is no per-member verdict to give.
+          // `observation` on the run summary already names every unobserved day.
+          readiness: null,
           recorded: null,
           headlineId: null,
           withheld: binding ? 'WINDOW_NOT_OBSERVED' : 'NOT_MEASURABLE',
@@ -212,6 +260,17 @@ export class HeadlineDetectionService {
       };
     }
 
+    // ONCE PER RUN, NOT ONCE PER OBJECTIVE. A day's reconciliation is a fact about
+    // the provider stream and the date, not about any binding, so every objective
+    // in this run is judged against the same fourteen answers -- and two objectives
+    // can never disagree about whether the 11th was reconciled.
+    const reconciliation = await this.reconciliation.factsForDates(
+      organizationId,
+      CALLGRID_PROVIDER,
+      CALLS_STREAM,
+      dates,
+    );
+
     const outcomes: ObjectiveDetectionOutcome[] = [];
     let measurable = 0;
     let established = 0;
@@ -231,6 +290,7 @@ export class HeadlineDetectionService {
           objectiveTitle: objective.title,
           measureBindingId: null,
           measurement: null,
+          readiness: null,
           recorded: null,
           headlineId: null,
           withheld: 'NOT_MEASURABLE',
@@ -240,20 +300,92 @@ export class HeadlineDetectionService {
       measurable += 1;
 
       const population = populationOf(binding);
-      const [current, prior] = await Promise.all([
-        this.calls.aggregatePopulationWindow(organizationId, population, windows.current),
-        this.calls.aggregatePopulationWindow(organizationId, population, windows.prior),
-      ]);
+
+      // THE POPULATION IS SPLIT BEFORE IT IS SUMMED. Every bound member is
+      // returned, including one that contributed nothing, because a campaign that
+      // went silent must still be assessed -- it is the silent ones that carry the
+      // absences.
+      const partitioned = await this.calls.partitionPopulationWindows(
+        organizationId,
+        population,
+        [windows.prior, windows.current],
+      );
 
       // A binding with no members cannot produce a population. The repository
       // rejects that at confirmation, so this is only reachable through a row
       // written by an older build -- and the honest answer is still silence.
+      if (!partitioned) {
+        outcomes.push({
+          performanceObjectiveId: objective.id,
+          objectiveTitle: objective.title,
+          measureBindingId: binding.id,
+          measurement: null,
+          readiness: null,
+          recorded: null,
+          headlineId: null,
+          withheld: 'VALUE_UNKNOWN',
+        });
+        withheldCount += 1;
+        continue;
+      }
+
+      const { sources, authorities } = await this.measurementSources.readinessFacts(
+        organizationId,
+        partitioned.partitions.map((p) => ({
+          dimension: p.dimension,
+          memberExternalId: p.memberExternalId,
+        })),
+        binding.metric,
+      );
+
+      const readiness = assessReadiness({
+        metric: binding.metric,
+        dates,
+        observation,
+        partitions: partitioned.partitions,
+        unattributedCalls: partitioned.unattributedCalls,
+        reconciliation,
+        authorities,
+        sources,
+        // NO OUTCOME DAYS, AND THAT FAILS CLOSED. `SourceOutcomeDay` is not
+        // persisted yet, and the gate treats a missing outcome day for a
+        // BUYER_REPORT source as AUTHORITATIVE_DATA_PENDING -- so a measure whose
+        // authority names a report source withholds until the importer exists,
+        // rather than being computed from whatever happens to be in the call rows.
+        // Today no BUYER_REPORT source is registered, so the branch is unreached.
+        outcomeDays: [],
+      });
+
+      // REFUSED BEFORE ANY AGGREGATE IS READ. `measureChange` would refuse the
+      // same input -- it takes this verdict and cannot be called without one --
+      // but returning here means no value is computed and then hidden, which is
+      // the difference between a guard and a curtain.
+      if (!readiness.ready) {
+        outcomes.push({
+          performanceObjectiveId: objective.id,
+          objectiveTitle: objective.title,
+          measureBindingId: binding.id,
+          measurement: null,
+          readiness,
+          recorded: null,
+          headlineId: null,
+          withheld: principalReadinessReason(readiness),
+        });
+        withheldCount += 1;
+        continue;
+      }
+
+      const [current, prior] = await Promise.all([
+        this.calls.aggregatePopulationWindow(organizationId, population, windows.current),
+        this.calls.aggregatePopulationWindow(organizationId, population, windows.prior),
+      ]);
       if (!current || !prior) {
         outcomes.push({
           performanceObjectiveId: objective.id,
           objectiveTitle: objective.title,
           measureBindingId: binding.id,
           measurement: null,
+          readiness,
           recorded: null,
           headlineId: null,
           withheld: 'VALUE_UNKNOWN',
@@ -269,7 +401,7 @@ export class HeadlineDetectionService {
         prior,
         currentWindow: windows.current,
         priorWindow: windows.prior,
-        observation,
+        readiness,
       });
 
       if (!measurement.material || measurement.movement === null) {
@@ -279,6 +411,7 @@ export class HeadlineDetectionService {
           objectiveTitle: objective.title,
           measureBindingId: binding.id,
           measurement,
+          readiness,
           recorded: null,
           headlineId: null,
           withheld: measurement.withheld ?? 'BELOW_THRESHOLD',
@@ -342,6 +475,7 @@ export class HeadlineDetectionService {
           objectiveTitle: objective.title,
           measureBindingId: binding.id,
           measurement,
+          readiness,
           recorded: null,
           headlineId: null,
           withheld: 'VALUE_UNKNOWN',
@@ -358,6 +492,7 @@ export class HeadlineDetectionService {
         objectiveTitle: objective.title,
         measureBindingId: binding.id,
         measurement,
+        readiness,
         recorded: result.outcome,
         headlineId: result.headline.id,
         withheld: null,

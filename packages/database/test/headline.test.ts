@@ -41,6 +41,12 @@ import { matrixAllows } from '../src/repositories/iam.repository';
 import { ObjectiveMeasureBindingRepository } from '../src/repositories/objective-measure-binding.repository';
 import { HeadlineRepository } from '../src/repositories/headline.repository';
 import { PerformanceObjectiveRepository } from '../src/repositories/performance-objective.repository';
+import {
+  fixturePartitions,
+  fixtureReconciliation,
+  fixtureSources,
+  type FixtureMember,
+} from './stage3-readiness-fixtures';
 import { HeadlineDetectionService } from '../src/services/headline-detection.service';
 import type { MarketplaceCallRepository } from '../src/repositories/marketplace-call.repository';
 import type { ProviderObservationRepository } from '../src/repositories/provider-observation.repository';
@@ -135,9 +141,32 @@ function makeCalls(
       seen.push({ organizationId, population, window });
       return isCurrent ? answers.current : answers.prior;
     },
+    // The readiness gate splits the population before anything is summed. It is
+    // asked FIRST, so it is deliberately not recorded in `seen` -- the tenant and
+    // population assertions below are about the aggregate reads they were written
+    // for, and folding a third call into that sequence would rewrite what they
+    // mean rather than extend it.
+    ...fixturePartitions(),
   } as unknown as MarketplaceCallRepository;
   return { repo, seen };
 }
+
+/**
+ * Every member id these tests bind, so the reconciliation stand-in can answer for
+ * all of them. A member with no fact resolves UNKNOWN and the gate refuses --
+ * correct behaviour, and a confusing way for a recurrence test to fail.
+ */
+const ALL_FIXTURE_MEMBERS: FixtureMember[] = [
+  { dimension: 'CAMPAIGN', memberExternalId: 'cmp-roof-tx' },
+  { dimension: 'CAMPAIGN', memberExternalId: 'cmp-roof-texas-dr' },
+  { dimension: 'CAMPAIGN', memberExternalId: 'cmp-1' },
+  { dimension: 'SOURCE', memberExternalId: 'src-1' },
+  { dimension: 'BUYER', memberExternalId: 'buy-9' },
+];
+
+/** Reconciled, expected and authoritative -- the assumption these tests predate. */
+const reconciled = () => fixtureReconciliation(ALL_FIXTURE_MEMBERS);
+const authoritative = () => fixtureSources();
 
 /**
  * A stand-in for the observation ledger.
@@ -335,7 +364,7 @@ test('the detection run passes the session organization to every read', async ()
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   assert.equal(seen.length, 2);
   assert.ok(seen.every((s) => s.organizationId === ORG));
@@ -348,7 +377,7 @@ test('an objective with no binding produces no headline and no default binding',
   const objective = await anObjective(objectives, ORG);
   const { repo, seen } = makeCalls({ current: agg(), prior: agg() });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   assert.equal(summary.objectivesConsidered, 1);
   assert.equal(summary.objectivesMeasurable, 0);
@@ -366,7 +395,7 @@ test('an unmeasurable objective is a state, not an error, and the run still succ
   await anObjective(objectives, ORG, 'Build stronger relationships with roofing buyers');
   const { repo } = makeCalls({ current: agg(), prior: agg() });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
   assert.equal(summary.objectivesConsidered, 1);
   assert.equal(summary.withheld, 0, 'not measurable is not the same as withheld by the rule');
 });
@@ -384,7 +413,7 @@ test('an archived objective is never measured', async () => {
   await objectives.setStatus(ORG, objective.id, 'ARCHIVED');
 
   const { repo } = makeCalls({ current: agg({ totalCalls: 400 }), prior: agg({ totalCalls: 100 }) });
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   assert.equal(summary.objectivesConsidered, 0);
   assert.equal((await headlines.list(ORG)).length, 0);
@@ -407,7 +436,7 @@ test('only the explicitly confirmed members reach the aggregate query', async ()
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   const asked = seen[0]?.population as Record<string, string[]>;
   assert.deepEqual(asked.campaignExternalIds, ['cmp-roof-texas-dr', 'cmp-roof-tx']);
@@ -448,7 +477,7 @@ test('TERM_MATCH noise cannot enter the population: no signal is ever read', asy
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   const asked = JSON.stringify(seen[0]?.population);
   assert.ok(!asked.includes('ssdi'), 'a signal must never define a measurement population');
@@ -467,7 +496,7 @@ test('caller geography is off unless somebody asked for it', async () => {
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   // EMPTY MEANS NO RESTRICTION. "In Texas" is the campaign selection, not where
   // the caller happened to be, and Loop does not infer one from the other.
@@ -490,7 +519,7 @@ test('a caller-state restriction is applied only when explicitly selected', asyn
   assert.deepEqual(confirmed.binding.callerStates, ['TX']);
 
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
   assert.deepEqual((seen[0]?.population as Record<string, string[]>).callerStates, ['TX']);
 });
 
@@ -522,7 +551,7 @@ test('the detector only ever asks about complete periods', async () => {
   });
   const { repo, seen } = makeCalls({ current: agg({ totalCalls: 200 }), prior: agg({ totalCalls: 100 }) });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   // Neither window may reach the in-progress day.
   for (const s of seen) assert.ok(s.window.end.getTime() <= NOW.getTime());
@@ -545,7 +574,7 @@ test('insufficient coverage produces no headline', async () => {
     prior: agg({ totalCalls: 100, revenueCents: 1_000_000, revenueReported: 100 }),
   });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
   assert.equal(summary.established, 0);
   assert.equal(summary.withheld, 1);
   assert.equal(summary.outcomes[0]?.withheld, 'INSUFFICIENT_COVERAGE');
@@ -567,7 +596,7 @@ test('a zero denominator withholds rather than reporting 0%', async () => {
     prior: agg({ totalCalls: 100, convertedTrue: 30, convertedReported: 100 }),
   });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
   assert.equal(summary.established, 0);
   assert.equal(summary.outcomes[0]?.withheld, 'VALUE_UNKNOWN');
   assert.equal(summary.outcomes[0]?.measurement?.current.value, null);
@@ -586,7 +615,7 @@ test('twenty ordinary calls produce zero headlines end to end', async () => {
   const ordinary = agg({ totalCalls: 20, revenueCents: 200_000, revenueReported: 20 });
   const { repo } = makeCalls({ current: ordinary, prior: ordinary });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   assert.equal(summary.objectivesMeasurable, 1);
   assert.equal(summary.established, 0);
@@ -606,7 +635,7 @@ test('a material move produces exactly one headline', async () => {
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
 
-  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  const summary = await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   assert.equal(summary.established, 1);
   const rows = await headlines.list(ORG);
@@ -636,7 +665,7 @@ test('positive news is recorded exactly like negative news', async () => {
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 160 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
   const h = (await headlines.list(ORG))[0]!;
   assert.equal(h.measurement.movement, 'INCREASE');
   assert.equal(h.measurement.againstObjective, false);
@@ -656,7 +685,7 @@ test('re-running the same completed period changes nothing at all', async () => 
     confirmedByUserId: null,
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
-  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observed());
+  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative());
 
   await service.detect(ORG, NOW);
   const first = (await headlines.list(ORG))[0]!;
@@ -686,7 +715,7 @@ test('the same condition in the next completed period resights the same row', as
     confirmedByUserId: null,
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
-  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observedAcross(NOW, NEXT_WEEK));
+  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observedAcross(NOW, NEXT_WEEK), reconciled(), authoritative());
 
   await service.detect(ORG, NOW);
   const before = (await headlines.list(ORG))[0]!;
@@ -946,7 +975,7 @@ test('a dismissed headline keeps recording recurrence, and never reopens', async
     confirmedByUserId: null,
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
-  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observedAcross(NOW, NEXT_WEEK));
+  const service = new HeadlineDetectionService(objectives, bindings, repo, headlines, observedAcross(NOW, NEXT_WEEK), reconciled(), authoritative());
 
   await service.detect(ORG, NOW);
   const h = (await headlines.list(ORG))[0]!;
@@ -979,7 +1008,7 @@ test('recording a headline writes to exactly one table', async () => {
   });
   const { repo } = makeCalls({ current: agg({ totalCalls: 60 }), prior: agg({ totalCalls: 100 }) });
 
-  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed()).detect(ORG, NOW);
+  await new HeadlineDetectionService(objectives, bindings, repo, headlines, observed(), reconciled(), authoritative()).detect(ORG, NOW);
 
   assert.equal((await headlines.list(ORG)).length, 1);
   // A Headline is awareness. It is not judgement, not execution, and not an event.

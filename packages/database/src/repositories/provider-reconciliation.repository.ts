@@ -50,6 +50,8 @@ import {
   type BindingDimension,
   type BusinessDate,
   type ReconciliationCounts,
+  type ReconciliationDayFact,
+  type ReconciliationMemberFact,
   type ReconciliationState,
   type ResolvedExpectation,
 } from '@emgloop/shared';
@@ -470,6 +472,89 @@ export class ProviderReconciliationRepository {
       }
     }
     return out;
+  }
+
+  /**
+   * Every requested date's reconciliation, in the shape the pure gate judges.
+   *
+   * THE READ `assessReadiness` TAKES, AND THE REASON THE MEMBER TABLE EXISTS. The
+   * gate needs the whole day -- its state, its counts and EVERY member -- because
+   * a day may be UNRECONCILED overall and still measurable for a population it
+   * does not touch. `memberFactsForDates` answers about one member and cannot
+   * serve that; `statesForDates` answers about the day and cannot either.
+   *
+   * ABSENCE AND UNREADABILITY ARE THE SAME ANSWER, DELIBERATELY. A date with no
+   * row and a date whose stored state this build cannot interpret both come back
+   * missing, so the gate reports RECONCILIATION_MISSING for each. The alternative
+   * -- guessing which state an unrecognised string meant -- is how a vocabulary
+   * widened in a later build silently unblocks a measurement in an earlier one.
+   *
+   * A MEMBER WHOSE DIMENSION CANNOT BE READ IS DROPPED, and that also fails
+   * closed: the gate finds no fact for it, resolves its expectation UNKNOWN and
+   * refuses. It is never counted as a member that agreed.
+   *
+   * TWO SCOPED READS, following `memberFactsForDates` exactly. The day ids are
+   * resolved WITHIN the organization first and the member read is scoped by both
+   * those ids and the organization again, so a member row can only be reached
+   * through a day this tenant owns.
+   */
+  async factsForDates(
+    organizationId: string,
+    provider: string,
+    stream: string,
+    businessDates: readonly BusinessDate[],
+  ): Promise<ReconciliationDayFact[]> {
+    if (businessDates.length === 0) return [];
+    const days = await this.prisma.providerReconciliationDay.findMany({
+      where: {
+        organizationId,
+        provider,
+        stream,
+        businessDate: { in: businessDates.map(businessDateToColumn) },
+      },
+      orderBy: { businessDate: 'asc' },
+    });
+    if (days.length === 0) return [];
+
+    const members = await this.prisma.providerReconciliationMember.findMany({
+      where: {
+        organizationId,
+        reconciliationDayId: { in: days.map((d) => d.id) },
+      },
+      orderBy: { memberExternalId: 'asc' },
+    });
+    const byDay = new Map<string, typeof members>();
+    for (const m of members) {
+      const bucket = byDay.get(m.reconciliationDayId);
+      if (bucket) bucket.push(m);
+      else byDay.set(m.reconciliationDayId, [m]);
+    }
+
+    const facts: ReconciliationDayFact[] = [];
+    for (const day of days) {
+      if (!isReconciliationState(day.state)) continue;
+      const view = toDayView(day, byDay.get(day.id) ?? []);
+      const readable: ReconciliationMemberFact[] = [];
+      for (const m of view.members) {
+        if (m.dimension === null) continue;
+        readable.push({
+          dimension: m.dimension,
+          memberExternalId: m.memberExternalId,
+          providerCount: m.providerCount,
+          localCount: m.localCount,
+          providerOnly: m.providerOnly,
+          expectation: m.expectationState,
+        });
+      }
+      facts.push({
+        businessDate: view.businessDate,
+        state: day.state,
+        counts: view.counts,
+        members: readable,
+        ruleVersion: view.ruleVersion,
+      });
+    }
+    return facts;
   }
 
   /**

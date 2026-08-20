@@ -46,6 +46,21 @@ export interface PopulationCandidateRow {
   observedCalls: number;
 }
 
+/** One bound member and how many calls it contributed across the compared windows. */
+export interface PopulationPartitionRow {
+  dimension: BindingDimension;
+  memberExternalId: string;
+  /** A WINDOW-WIDE TOTAL. Whether a member participated ON A GIVEN DATE is read
+      from that date's reconciliation member fact, never from this number. */
+  localCalls: number;
+}
+
+/** The bound population, split by member, with what belonged to no member. */
+export interface PopulationPartitionFacts {
+  partitions: PopulationPartitionRow[];
+  unattributedCalls: number;
+}
+
 /** One participant's aggregated economics for a window (matches the Intelligence
  * CallGridDimensionWindow shape structurally). */
 export interface CallDimensionAggregate {
@@ -391,6 +406,145 @@ export class MarketplaceCallRepository {
       noRouteTrue,
       noRouteReported,
     };
+  }
+
+  /**
+   * Every bound member's call count across the compared windows, plus the calls
+   * that belong to no bound member at all.
+   *
+   * WHAT THE READINESS GATE NEEDS AND `aggregatePopulationWindow` CANNOT GIVE IT.
+   * That method returns one total for the whole population, and the gate reasons
+   * per member: a campaign's expectation, its reconciliation and its authoritative
+   * source are all resolved individually. One summed number cannot be partitioned
+   * back into the members it came from.
+   *
+   * EVERY REQUESTED MEMBER IS RETURNED, INCLUDING ONES THAT CONTRIBUTED NOTHING,
+   * and that is the whole reason this lives here rather than in the caller. A
+   * `groupBy` returns only members that appear, so a campaign that went completely
+   * silent would simply vanish -- and the gate would then find nothing wrong with
+   * measuring the survivors. That is precisely the August 2026 shape, where three
+   * campaigns accounted for 106 absences and zero rows. Seeding the full member
+   * set here means a caller cannot reintroduce that hole by forgetting to.
+   *
+   * `unattributedCalls` IS COMPUTED, NOT ASSUMED ZERO. Under today's selection
+   * every call in the population matched at least one bound id by construction, so
+   * this is structurally zero. Asserting that instead of asking would be true only
+   * until the day selection widens, and the failure would be silent: calls with no
+   * resolvable member being measured as though they had one.
+   *
+   * FAILS CLOSED exactly as `aggregatePopulationWindow` does: no selection means
+   * no population, and null rather than "everything".
+   */
+  async partitionPopulationWindows(
+    organizationId: string,
+    population: {
+      campaignExternalIds?: readonly string[];
+      sourceExternalIds?: readonly string[];
+      buyerExternalIds?: readonly string[];
+      vendorExternalIds?: readonly string[];
+      callerStates?: readonly string[];
+    },
+    windows: readonly { start: Date; end: Date }[],
+  ): Promise<PopulationPartitionFacts | null> {
+    const any: Prisma.MarketplaceCallWhereInput[] = [];
+    if (population.campaignExternalIds?.length) {
+      any.push({ campaignExternalId: { in: [...population.campaignExternalIds] } });
+    }
+    if (population.sourceExternalIds?.length) {
+      any.push({ sourceExternalId: { in: [...population.sourceExternalIds] } });
+    }
+    if (population.buyerExternalIds?.length) {
+      any.push({ buyerExternalId: { in: [...population.buyerExternalIds] } });
+    }
+    if (population.vendorExternalIds?.length) {
+      any.push({ vendorExternalId: { in: [...population.vendorExternalIds] } });
+    }
+    if (any.length === 0 || windows.length === 0) return null;
+
+    // The SAME predicate `aggregatePopulationWindow` builds, over both windows at
+    // once. Written from the one population argument rather than passed in
+    // separately, so the calls the gate reasons about and the calls the
+    // measurement counts cannot describe different sets.
+    const where: Prisma.MarketplaceCallWhereInput = {
+      organizationId,
+      OR: windows.map((w) => ({
+        sourceOccurredAt: { gte: w.start, lt: w.end },
+        OR: any,
+      })),
+    };
+    if (population.callerStates?.length) {
+      where.callerState = { in: population.callerStates.map((s) => s.trim().toUpperCase()) };
+    }
+
+    // Four explicit groupBy calls rather than one loop over field names, for the
+    // reason `listPopulationCandidates` already documents: Prisma's generated
+    // groupBy types are keyed on the literal `by` fields and a dynamic key
+    // degrades them to an error string.
+    const [campaigns, sources, buyers, vendors, unattributedCalls] = await Promise.all([
+      population.campaignExternalIds?.length
+        ? this.prisma.marketplaceCall.groupBy({
+            by: ['campaignExternalId'],
+            where: { ...where, campaignExternalId: { in: [...population.campaignExternalIds] } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      population.sourceExternalIds?.length
+        ? this.prisma.marketplaceCall.groupBy({
+            by: ['sourceExternalId'],
+            where: { ...where, sourceExternalId: { in: [...population.sourceExternalIds] } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      population.buyerExternalIds?.length
+        ? this.prisma.marketplaceCall.groupBy({
+            by: ['buyerExternalId'],
+            where: { ...where, buyerExternalId: { in: [...population.buyerExternalIds] } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      population.vendorExternalIds?.length
+        ? this.prisma.marketplaceCall.groupBy({
+            by: ['vendorExternalId'],
+            where: { ...where, vendorExternalId: { in: [...population.vendorExternalIds] } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.marketplaceCall.count({ where: { ...where, NOT: { OR: any } } }),
+    ]);
+
+    const counted = new Map<string, number>();
+    const key = (dimension: BindingDimension, id: string) => `${dimension}\u0000${id}`;
+    for (const r of campaigns) {
+      if (r.campaignExternalId) counted.set(key('CAMPAIGN', r.campaignExternalId), r._count._all);
+    }
+    for (const r of sources) {
+      if (r.sourceExternalId) counted.set(key('SOURCE', r.sourceExternalId), r._count._all);
+    }
+    for (const r of buyers) {
+      if (r.buyerExternalId) counted.set(key('BUYER', r.buyerExternalId), r._count._all);
+    }
+    for (const r of vendors) {
+      if (r.vendorExternalId) counted.set(key('VENDOR', r.vendorExternalId), r._count._all);
+    }
+
+    // Seeded from the BOUND set, in a fixed dimension order and the order each
+    // was supplied. Deterministic, and complete whether or not a member appeared.
+    const partitions: PopulationPartitionRow[] = [];
+    const seed = (dimension: BindingDimension, ids: readonly string[] | undefined) => {
+      for (const id of ids ?? []) {
+        partitions.push({
+          dimension,
+          memberExternalId: id,
+          localCalls: counted.get(key(dimension, id)) ?? 0,
+        });
+      }
+    };
+    seed('CAMPAIGN', population.campaignExternalIds);
+    seed('SOURCE', population.sourceExternalIds);
+    seed('BUYER', population.buyerExternalIds);
+    seed('VENDOR', population.vendorExternalIds);
+
+    return { partitions, unattributedCalls };
   }
 
   /**

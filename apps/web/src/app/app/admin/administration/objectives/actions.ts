@@ -443,6 +443,8 @@ export async function detectHeadlinesAction(): Promise<void> {
     repositories.marketplaceCalls,
     repositories.headlines,
     repositories.providerObservations,
+    repositories.providerReconciliations,
+    repositories.measurementSources,
   );
   // The organization comes from the signed session and is the only tenant this
   // run can read or write. The clock is passed in; the service never reads one.

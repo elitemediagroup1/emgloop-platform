@@ -40,6 +40,7 @@ import {
   type ProviderObservationStatus,
   type WindowObservation,
 } from '../src/provider-observation';
+import { assessReadiness, type MeasurementReadiness } from '../src/measurement-readiness';
 import { headlineDetectionKey, headlineRecurrenceKey } from '../src/headline';
 import { describePopulation, validateBindingShape } from '../src/objective-measure-binding';
 
@@ -79,6 +80,34 @@ function fullyObserved(): WindowObservation {
   );
 }
 
+/**
+ * The readiness verdict these tests need, built from an observation alone.
+ *
+ * EMPTY DATES AND NO PARTITIONS, DELIBERATELY. This file tests the materiality
+ * arithmetic and the observation refusal, which is the FIRST thing
+ * `assessReadiness` evaluates and the only one that can fire with nothing else
+ * supplied. Handing it a population would test the gate here as well as in
+ * `measurement-readiness.test.ts`, and two files asserting one rule is how they
+ * eventually assert different things. The gate's own cases live there; the
+ * wiring's live in `measurement-readiness-gate.test.ts`.
+ */
+function readinessFrom(
+  observation: WindowObservation,
+  metric: Parameters<typeof measureChange>[0]['metric'] = 'CALL_VOLUME',
+): MeasurementReadiness {
+  return assessReadiness({
+    metric,
+    dates: [],
+    observation,
+    partitions: [],
+    unattributedCalls: 0,
+    reconciliation: [],
+    authorities: [],
+    sources: [],
+    outcomeDays: [],
+  });
+}
+
 function change(
   metric: Parameters<typeof measureChange>[0]['metric'],
   current: PopulationWindowAggregate,
@@ -93,7 +122,7 @@ function change(
     prior,
     currentWindow: WINDOWS.current,
     priorWindow: WINDOWS.prior,
-    observation,
+    readiness: readinessFrom(observation, metric),
   });
 }
 

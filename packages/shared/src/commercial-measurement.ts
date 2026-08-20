@@ -42,7 +42,16 @@ import {
   type MeasureMetric,
   type MeasureUnit,
 } from './objective-measure-binding';
-import { describeUnobserved, type WindowObservation } from './provider-observation';
+// THE GATE IS IMPORTED, NOT RESTATED. `measurement-readiness.ts` imports only
+// TYPES from this file, so this edge creates no runtime cycle -- and a second
+// copy of "may this be computed" living here is precisely the parallel system
+// that would eventually disagree with the one operators are shown.
+import {
+  describeNotReady,
+  describeReadinessFindings,
+  principalReadinessReason,
+  type MeasurementReadiness,
+} from './measurement-readiness';
 
 export const COMMERCIAL_MEASUREMENT_VERSION = 'commercial-measurement.v1';
 
@@ -107,16 +116,22 @@ export interface MeasurementInput {
   currentWindow: MeasurementWindow;
   priorWindow: MeasurementWindow;
   /**
-   * Whether every business date in both windows was actually observed.
+   * Whether this measure may be computed over these windows AT ALL.
    *
-   * REQUIRED, DELIBERATELY. An optional field defaulting to "observed" would let
-   * any caller — including one written before this guard existed — measure an
-   * unobserved window by saying nothing, which is the failure mode itself. Making
-   * it required means the type system refuses to compile a caller that has not
-   * answered the question. The verdict is PASSED IN rather than resolved here so
-   * this file stays pure: it reads no ledger, exactly as it reads no clock.
+   * REQUIRED, DELIBERATELY, and this field is why. An optional field defaulting
+   * to "ready" would let any caller — including one written before the gate
+   * existed — measure an unobserved, unreconciled or unattributed window by
+   * saying nothing, which is the failure mode itself. Making it required means
+   * the type system refuses to compile a caller that has not asked. The verdict
+   * is PASSED IN rather than resolved here so this file stays pure: it reads no
+   * ledger, exactly as it reads no clock.
+   *
+   * IT SUBSUMES THE OBSERVATION VERDICT rather than sitting beside it.
+   * `assessReadiness` evaluates observation first and returns on it, so a second
+   * `observation` field here would be the same question asked twice, in two
+   * places, with nothing forcing the answers to agree.
    */
-  observation: WindowObservation;
+  readiness: MeasurementReadiness;
 }
 
 // --- What one window measured -------------------------------------------------
@@ -475,16 +490,22 @@ export function measureChange(input: MeasurementInput): MeasurementResult {
   const def = MEASURE_METRIC_DEFINITIONS[input.metric];
   const t = THRESHOLDS[input.metric];
 
-  // THE OBSERVATION GATE, BEFORE ANY ARITHMETIC.
+  // THE READINESS GATE, BEFORE ANY ARITHMETIC.
   //
   // This returns before `measureWindow` is ever called, so no value, change or
   // percentage is computed at all. That is the point: a measurement over a window
-  // Loop did not fully observe is not a true result that happens to be withheld,
-  // it is not a measurement. Computing it and then declining to show it would
-  // leave a number in the result object for some later caller to read, and Stage
-  // 2 already shipped one defect of exactly that shape.
-  if (!input.observation.fullyObserved) {
-    return unobservedResult(input, def);
+  // Loop did not fully observe, did not reconcile, cannot attribute, or has no
+  // declared source for is not a true result that happens to be withheld -- it is
+  // not a measurement. Computing it and then declining to show it would leave a
+  // number in the result object for some later caller to read, and Stage 2 already
+  // shipped one defect of exactly that shape.
+  //
+  // ONE GATE, NOT TWO. Observation used to be checked here on its own; it is now
+  // the first thing `assessReadiness` checks, and the verdict arrives already
+  // made. Keeping a separate observation branch would mean two answers to one
+  // question with nothing forcing them to agree.
+  if (!input.readiness.ready) {
+    return notReadyResult(input, def);
   }
 
   const current = measureWindow(input.metric, input.current);
@@ -546,7 +567,7 @@ export function measureChange(input: MeasurementInput): MeasurementResult {
  * is none. The unobserved dates travel in `unknowns` so the reason survives with
  * the result rather than living only in a log line.
  */
-function unobservedResult(
+function notReadyResult(
   input: MeasurementInput,
   def: (typeof MEASURE_METRIC_DEFINITIONS)[MeasureMetric],
 ): MeasurementResult {
@@ -554,7 +575,7 @@ function unobservedResult(
     value: null,
     denominator: 0,
     coverage: null,
-    unknownReason: 'The period was not fully observed, so no value was established.',
+    unknownReason: 'This measure could not be computed over the compared periods, so no value was established.',
   };
   return {
     metric: input.metric,
@@ -570,9 +591,12 @@ function unobservedResult(
     priorWindow: input.priorWindow,
     comparisonBasis: COMPARISON_BASIS_LABEL,
     limitations: [...def.limitations],
-    unknowns: [describeUnobserved(input.observation)],
+    // THE KIND OF PROBLEM, THEN WHERE IT IS. A reader told only "reconciliation
+    // is missing" still has to go and find out which of fourteen days and which
+    // of four campaigns -- and the finding already knows.
+    unknowns: [describeNotReady(input.readiness), ...describeReadinessFindings(input.readiness)],
     material: false,
-    withheld: 'WINDOW_NOT_OBSERVED',
+    withheld: principalReadinessReason(input.readiness),
     ruleId: CI_MATERIALITY_RULE_ID,
     ruleVersion: CI_MATERIALITY_RULE_VERSION,
     formulaVersion: COMMERCIAL_MEASUREMENT_VERSION,
@@ -584,8 +608,8 @@ function unobservedResult(
  * speak. Ordered from "could not look" to "looked and it was small", because the
  * first explanation a reader needs is the most fundamental one that applied.
  *
- * Observation is not checked here: it is more fundamental still, and is settled
- * in `measureChange` before any value is computed.
+ * Readiness is not checked here: it is more fundamental still, and is settled in
+ * `measureChange` before any value is computed.
  */
 function assess(
   input: MeasurementInput,
