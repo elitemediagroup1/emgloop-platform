@@ -1,0 +1,59 @@
+-- Commercial Intelligence Stage 3: when the call actually happened.
+--
+-- ADDITIVE ONLY. One nullable column and one index on integration_events.
+-- Zero DROP. Zero rename. Zero column-type change. Zero backfill of any
+-- existing row. Nothing is seeded. No existing column is touched, and in
+-- particular receivedAt is not read, written or reinterpreted.
+--
+-- ASCII ONLY. A leading em-dash in the sprint_11 migration blocked replay of
+-- the entire ledger once (see PR #152); this header is deliberately plain ASCII.
+--
+-- WHY THIS COLUMN EXISTS
+--
+-- integration_events records WHEN LOOP RECEIVED a delivery. It has never
+-- recorded when the call it describes actually happened. That instant survives
+-- only inside the payload JSON, and every reader that needs it resolves it in
+-- memory, on every pass, through the canonical CallGrid occurrence resolver.
+--
+-- Reconciliation therefore selects candidate local rows by DELIVERY time --
+-- receivedAt within two days of the business date -- and then filters them by
+-- occurrence in memory. That is correct for live traffic and has one blind
+-- spot: a call that occurred on the 11th and was first received on the 25th
+-- sits outside every band the 11th will ever scan. It is invisible to
+-- reconciliation whether or not the row exists.
+--
+-- The August 2026 window makes that concrete. 9,984 provider records for
+-- 2026-08-11 to 2026-08-13 have no local row at all. Any eventual recovery
+-- would create rows whose receivedAt is the recovery date, and those days would
+-- keep reconciling as 100 per cent missing forever -- while the CRM showed the
+-- calls. The alternative, rewriting receivedAt to the historical instant, would
+-- make the outage retroactively invisible: the ledger would show the rows
+-- sitting there all along.
+--
+-- Both facts are true at once and the schema could only hold one of them. Now
+-- it holds both:
+--
+--   receivedAt  when Loop first durably received this delivery. Unchanged,
+--               immutable, and still the honest record of what Loop had.
+--   occurredAt  when the provider says the call happened. Provider time.
+--
+-- NULLABLE, DELIBERATELY. Every row written before this migration predates the
+-- column, and there is no honest value to give them at DDL time. Defaulting
+-- them to receivedAt would fabricate a provider fact out of a Loop fact -- for
+-- the August rows, off by up to two weeks -- so they stay NULL and a reader
+-- treats NULL as "not known here, resolve from the payload". A bounded,
+-- deterministic backfill through the canonical resolver is a separate,
+-- dispatched operation, not a side effect of a schema change.
+--
+-- NOT A DEFAULT. New rows are populated by the application from the occurrence
+-- the provider adapter already resolved, so persistence never re-resolves it
+-- and the two can never disagree. A DDL default would have to be now(), which
+-- is the exact fabrication this column exists to prevent.
+
+ALTER TABLE "integration_events" ADD COLUMN "occurredAt" TIMESTAMP(3);
+
+-- The read the later reconciliation selector needs: one organization, one
+-- provider, ordered by when the calls happened. Organization leads because
+-- every tenant-owned read is scoped by it first.
+CREATE INDEX "integration_events_organizationId_provider_occurredAt_idx"
+  ON "integration_events"("organizationId", "provider", "occurredAt");

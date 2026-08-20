@@ -785,7 +785,24 @@ model IntegrationEvent {
   status               IntegrationEventStatus @default(RECEIVED)
   payload              Json                   @default("{}")
   error                String?
+
+  /// When LOOP first durably received this delivery. Loop time, immutable, and
+  /// never rewritten -- re-observing the same provider identity reuses the row
+  /// and leaves this alone. It is the honest record of what Loop had and when,
+  /// which is what makes "Loop received nothing between 2026-08-10 and 08-14" a
+  /// checkable statement rather than a story.
   receivedAt           DateTime               @default(now())
+
+  /// When the PROVIDER says the call happened. Provider time, nullable.
+  ///
+  /// Populated on write from the occurrence the adapter already resolved, so
+  /// persistence never re-resolves it and the two cannot disagree. NULL means
+  /// the row predates this column -- resolve from the payload -- and never that
+  /// the call has no occurrence. It is deliberately NOT defaulted: the only
+  /// value DDL could supply is now(), which would fabricate a provider fact out
+  /// of a Loop one.
+  occurredAt           DateTime?
+
   processedAt          DateTime?
   createdAt            DateTime               @default(now())
 
@@ -795,6 +812,7 @@ model IntegrationEvent {
   @@unique([provider, externalId])
   @@index([organizationId, status])
   @@index([providerConnectionId])
+  @@index([organizationId, provider, occurredAt])
   @@map("integration_events")
 }
 
