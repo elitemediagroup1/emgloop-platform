@@ -219,12 +219,20 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
       ]);
     const destinationNumber = pickField(record, ['to', 'DestinationNumber', 'destination_number']);
 
-  // Attribution: the raw CallGrid Call object exposes ONLY ids (buyerId,
-  // sourceId, campaignId, destinationId) - there is no vendor field and no
-  // name field at all on this endpoint. We preserve the real ids under
-  // distinct *Id keys and deliberately do NOT fabricate a human-readable name
-  // out of a cuid. Legacy PascalCase Name fields are still read for older
-  // mocks/tests that may still send them.
+  // Attribution. The raw Call object carries the ids (buyerId, sourceId,
+  // campaignId, destinationId) AND the PascalCase display names -- VendorName,
+  // BuyerName, CampaignName, SourceName and DestinationName were all VERIFIED
+  // on the list endpoint (19 records, 2026-08-20).
+  //
+  // CORRECTED 2026-08-20. This comment previously asserted the endpoint exposes
+  // "ONLY ids ... no vendor field and no name field at all", and dismissed the
+  // PascalCase readers as legacy compatibility for old mocks. That was wrong,
+  // and it is the reason the economics below were looked for under the wrong
+  // spellings: the record is a MIX of camelCase ids and PascalCase Call-prefixed
+  // attributes, not camelCase throughout.
+  //
+  // Identity is still the id. A name is display only and is never fabricated
+  // from a cuid.
   const buyerId = pickField(record, ['buyerId']);
     const sourceId = pickField(record, ['sourceId']);
     const campaignId = pickField(record, ['campaignId']);
@@ -235,24 +243,111 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
     const buyer = pickField(record, ['BuyerName', 'Buyer', 'buyer']);
     const destination = pickField(record, ['DestinationName', 'Destination', 'destination']);
     const callerState = pickField(record, ['InboundState', 'State', 'inboundState', 'callerState']);
-    const callerZip = pickField(record, ['InboundZip', 'Zip', 'ZipCode', 'inboundZip', 'callerZip']);
+    // `InboundZipCode` is DEFENSIVE -- not observed on the compact list endpoint,
+  // which carries no geography at all. Kept because the single-call detail
+  // contract has not been inspected and an absent alias drops a fact silently.
+  const callerZip = pickField(record, [
+        'InboundZipCode', 'InboundZip', 'Zip', 'ZipCode', 'inboundZip', 'callerZip',
+      ]);
 
   // 'BillableDuration' removed — see the note in callgrid.provider.ts. Billable
   // duration is a distinct business quantity and must not populate total duration.
   const durationSeconds = parseDurationSeconds(
         pickField(record, ['callDuration', 'Duration', 'CallDuration', 'duration']),
       );
-    const revenue = toNumber(pickField(record, ['revenue', 'Revenue', 'RevenueAmount']));
-    const payout = toNumber(pickField(record, ['payout', 'Payout', 'PayoutAmount']));
+    // ECONOMICS AND OUTCOME FLAGS.
+  //
+  // TWO TIERS, AND THE DIFFERENCE IS EVIDENCE. A `get-calls` sample of 19 call
+  // objects across 6 campaigns and 3 statuses (2026-08-20) established the
+  // list-endpoint response key union exactly. Everything below is labelled by
+  // what that sample actually showed, because "we read the wrong spelling" is
+  // the defect this block exists to fix and guessing again would repeat it.
+  //
+  //   VERIFIED on the list endpoint : CallRevenue, CallPayout, CallProfit,
+  //                                   converted (lowercase), callStatus,
+  //                                   callDuration, CallerId, DestinationNumber,
+  //                                   DestinationName, CampaignName, SourceName,
+  //                                   BuyerName, VendorName, Duplicate, outcome
+  //   NOT OBSERVED there           : CallCost, CallBillable, CallPaid,
+  //                                   CallCompleted, CallNoRoute, InboundZipCode
+  //
+  // NOT OBSERVED IS NOT DISPROVED. `get-calls` returns COMPACT SUMMARY records,
+  // so a field missing from it may still exist on the single-call detail
+  // contract or on the webhook template. Those aliases are therefore kept as
+  // DEFENSIVE, not asserted as provider contract. An alias for a field the
+  // provider never sends costs nothing -- pickField moves on -- while a missing
+  // one silently drops a fact, which is precisely how this block came to read
+  // none of the economics at all.
+  //
+  // Note also that FILTERABILITY IS NOT PRESENCE: `CallBillable` is accepted as
+  // a get-calls filter tagName and filters correctly, and is still not emitted
+  // as a response key. A filter name is not a mapping contract.
+  //
+  // Verified name first, then legacy and defensive spellings, matching the
+  // convention the callStatus / from / to fields above already follow.
+  const revenue = toNumber(pickField(record, ['CallRevenue', 'revenue', 'Revenue', 'RevenueAmount']));
+    const payout = toNumber(pickField(record, ['CallPayout', 'payout', 'Payout', 'PayoutAmount']));
     // cost is CallGrid's telco-cost field; rate is preserved separately in case
   // it is useful for validation, but cost/telco is the primary figure.
-  const cost = toNumber(pickField(record, ['cost', 'Cost']));
+  // `CallCost` is DEFENSIVE -- not observed on the list endpoint.
+  const cost = toNumber(pickField(record, ['CallCost', 'cost', 'Cost']));
     const rate = toNumber(pickField(record, ['rate', 'Rate']));
-    const billable = toBool(pickField(record, ['billable', 'Billable', 'IsBillable']));
-    const paid = toBool(pickField(record, ['paid', 'Paid', 'IsPaid']));
-    const converted = toBool(pickField(record, ['converted', 'Converted', 'IsConverted', 'Conversion']));
-    const completed = toBool(pickField(record, ['completed', 'Completed']));
-    const noRoute = toBool(pickField(record, ['noRoute', 'NoRoute', 'no_route']));
+    const billable = toBool(pickField(record, ['CallBillable', 'billable', 'Billable', 'IsBillable']));
+    const paid = toBool(pickField(record, ['CallPaid', 'paid', 'Paid', 'IsPaid']));
+    // CONVERSION IS TRI-STATE ON THIS PATH, AND ZERO IS NOT A NEGATIVE.
+  //
+  // The field is `converted`, lowercase -- VERIFIED, present on every sampled
+  // record, as an INTEGER. There is no `CallConverted` here: the sample looked
+  // for it and six other spellings and found none.
+  //
+  // What is NOT established is that 0 means "did not convert". Every sampled
+  // value was 0, no 1 was ever observed, `outcome` was null on every record, the
+  // webhook template's [[tag:CallConverted]] resolved to "" across the captured
+  // Aug 10-14 payloads, and CallGrid's own campaign logs say for many campaigns:
+  // "BillableType is POSTBACK. Revenue and billable will be set when the
+  // postback is received." Conversion is therefore a LATER, out-of-band fact,
+  // and 0 at list-read time reads as the unset default rather than a decision.
+  //
+  // WHY THE DIFFERENCE IS NOT ACADEMIC. `convertedReported` counts rows where
+  // the column is NOT NULL, and CONVERSION_RATE is "calls flagged converted,
+  // divided by calls that carried the flag at all". A stored `false` therefore
+  // ENTERS the denominator as a negative; a null is excluded. Mapping 0 to false
+  // would make a population of not-yet-postbacked calls compute 0% at FULL
+  // coverage -- which is the exact business falsehood the 2026-08-05 population
+  // demonstrated, where all 974 records carried converted=false.
+  //
+  // AND IT WOULD BE PERMANENT. `IngestionService` short-circuits an event that
+  // already reached PROCESSED, so a later poll cannot replace a stored false
+  // with a true. A premature negative is not a value that gets corrected; it is
+  // a value nothing can correct.
+  //
+  // So: a positive asserts a conversion, anything else stays UNKNOWN. Note that
+  // "1 means true" is the safe DEFAULT rather than an observed fact -- no
+  // converted=1 record has been seen -- but it errs toward silence, and this
+  // also makes the two ingress paths converge: the webhook's blank tag already
+  // resolves to unknown.
+  const convertedRaw = pickField(record, ['converted', 'Converted', 'IsConverted', 'Conversion']);
+    // EXPLICIT NULL, NOT AN OMISSION. The payload spreads the raw record first,
+  // and the provider's key is `converted` too -- so simply leaving the canonical
+  // value out would let the raw literal stand in its place. A raw 0 happens to
+  // read as null downstream, but a raw "false" would read as a decided negative,
+  // and a rule that only works for the value we happened to sample is not a rule.
+  // The provider's literal is kept beside it, so nothing is lost.
+  const converted = toBool(convertedRaw) === true ? true : null;
+    // DEFENSIVE. Neither field was observed on the list endpoint. `callStatus`
+    // DOES carry the values COMPLETED and NO_ROUTE, so these facts look
+    // derivable from it -- deliberately NOT done here. On the webhook path
+    // `completed` and `noRoute` are PROVIDER-ASSERTED booleans read straight off
+    // the payload; deriving them from a status string on this path only would
+    // make one canonical fact mean two different things depending on how the
+    // call arrived. That is a contract decision, not a spelling fix.
+  const completed = toBool(pickField(record, ['CallCompleted', 'completed', 'Completed']));
+    const noRoute = toBool(pickField(record, ['CallNoRoute', 'noRoute', 'NoRoute', 'no_route']));
+    // `outcome` is VERIFIED PRESENT and null in every sampled record, and is
+    // deliberately NOT mapped to anything. Its populated representation has
+    // never been observed, and the get-calls request accepting
+    // converted/not-converted as an outcomes FILTER says nothing about what the
+    // response field contains. It survives raw in the payload spread below.
     // Qualified: a call the buyer/business considers a real, valuable lead.
   // Derive deterministically from CallGrid's own economic outcome flags so
   // Live Calls / Traffic Intelligence show qualification instead of blank.
@@ -289,6 +384,7 @@ export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEv
                 billable,
                 paid,
                 converted,
+                providerConverted: convertedRaw,
                 completed,
                 noRoute,
                 qualified,
