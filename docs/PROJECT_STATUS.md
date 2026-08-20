@@ -439,7 +439,7 @@ explicit safe flag is set) — not yet started; all Increment-3 gates pass.
 ## Commercial Intelligence — STAGES 1 + 2 PRODUCTION VERIFIED · STAGE 3 IN IMPLEMENTATION
 **Stage 1 — Performance Objectives:** BUILT · MERGED (#158) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
 **Stage 2 — Commercial Signals:** BUILT · MERGED (#159, main `ae3fc4e`) · DEPLOYED · **PRODUCTION VERIFIED** 2026-08-16
-**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#172 · PR 4 **DEPLOYED** · every operations bridge **PROVEN IN PRODUCTION** · production configured · **PR 5 (readiness gate wired) IN REVIEW** · PR 6 onward NOT AUTHORIZED
+**Stage 3 — Headlines:** IN IMPLEMENTATION · MERGED #161–#174 · **PR 5 (readiness gate) MERGED AND DEPLOYED** · window certified · first production reconciliation done, **2026-08-06 is NOT ready** · **evidence-sweep mode IN REVIEW** · PR 6 onward NOT AUTHORIZED
 The first Commercial Intelligence concept to reach the schema, and deliberately the only one.
 CI defines a **CI Signal as a data point tied to a performance objective**, and Loop had no such
 concept anywhere — not a model, not a type, not a field — so "commercially relevant" had nothing
@@ -902,7 +902,7 @@ CallGrid's own webhook-attachment history for those three campaigns covering 202
 commit message records that **two** of the three zero-representation campaigns were once verified in
 the provider's interface as never attached, without naming which two.
 
-### PR 5 of 7 — the readiness gate, wired (IN REVIEW, NOT MERGED)
+### PR 5 of 7 — the readiness gate, wired (MERGED #173 · DEPLOYED)
 `assessReadiness` has been pure, tested and **unwired** since #165, and PR 3's reconciliation
 persistence was inert without it. This connects it: a measure may now be computed only when, for
 EVERY date in both windows, the day was observed **and** reconciled, every bound member's expectation
@@ -933,13 +933,63 @@ that measure.
   service ever names `declare`, `declareAuthority`, `registerSource`, `recordDay`, `certifyDay` or a
   Prisma delegate: a gate that could unblock itself is decoration.
 
-⚠️ **DEPLOYING THIS MAKES STAGE 3 SILENT UNTIL RECONCILIATION RUNS.** `provider_reconciliation_days`
-is live and **empty** — no production reconciliation has ever been run — so every objective will
-withhold `RECONCILIATION_MISSING`. That is the gate working, not a regression, and it means
-dispatching `Reconcile Provider Days` across the fourteen-day window is now the prerequisite for any
-Headline. **PR 5 itself changes no production data.**
+**No migration.** Merged as #173 on top of #174, which removed two raw NUL bytes that made
+`provider-reconciliation.repository.ts` classify as binary and vanish from `grep`.
 
-**No migration.** **No production run.**
+### What production actually says now
+**Observation is complete** for the fourteen-day window. **The first reconciliation has been run**,
+and it is the reason the gate exists.
+
+**2026-08-06 — `state=UNKNOWN_EXPECTATION`, written, `reconciled=false`.** 1220 provider identities,
+1129 local, `intersection=1129`, `providerOnly=91`, **`localOnly=0`**. All three set equations hold,
+so the comparison is sound and the finding is real:
+
+| Member | Expectation | provider | local | providerOnly |
+|---|---|---|---|---|
+| SSDI 1696 `cmng68vp2001d06inikyf6zqh` | **EXPECTED** | 884 | 880 | **4** |
+| SSDI Retainer `cmo1siqoq033t07jngw973suv` | UNKNOWN | 83 | 0 | 83 |
+| Spanish FE `cmo93ju7606k306k1of3tttac` | UNKNOWN | 2 | 0 | 2 |
+| `cmjpxdd2o05mg07l5hieyhrge` | UNKNOWN | 2 | 0 | 2 |
+
+- **A fourth undeclared campaign exists** (`cmjpxdd2o05mg07l5hieyhrge`). The configuration set is
+  larger than the four campaigns discussed so far.
+- **249 of the 1129 local calls come from campaigns that deliver perfectly and are still undeclared**
+  (`providerOnly = 0`, so they do not trigger the day-level state). They will still withhold
+  `CAMPAIGN_EXPECTATION_UNKNOWN` for any binding that contains them — the day state understates how
+  much configuration is missing.
+- ⚠️ **`UNKNOWN_EXPECTATION` MASKS the expected gap at the day level.**
+  `deriveReconciliationState` tests unknown expectation BEFORE `providerOnlyExpected > 0`, so
+  resolving the three declarations would move 2026-08-06 to `UNRECONCILED`, **not** to `RECONCILED`.
+  The four SSDI 1696 calls are a genuine delivery defect, and Aug 5 was 621/622 — two of two
+  reconciled days show the same small persistent leak. **The masking is only in the day summary;**
+  `assessReadiness` reasons per member and reports `POPULATION_INCOMPLETE` regardless.
+- **Nothing was recovered, no expectation was altered, no historical date was manufactured.**
+
+**There is therefore no honest READY population today.** SSDI 1696 is the only campaign that is both
+declared and authoritative, and it is short 4 calls on a date inside the window.
+
+### Reconciliation evidence sweep — IN REVIEW, NOT MERGED
+The gate stopped at 2026-08-06, correctly, which left thirteen dates needing thirteen hand-filled
+dispatches. `Reconcile Provider Days` gains an explicit **`mode`** input: `gate` (default, unchanged)
+and `evidence`.
+
+- **Evidence mode changes exactly one branch** — what happens after a day whose row was WRITTEN. It
+  alters no verdict: the same day yields the same state either way, because the state is decided by
+  the service and the pure contract, neither of which knows the input exists.
+- **Every stop that protects correctness is unchanged in both modes.** A comparison that contradicts
+  itself writes nothing and ends the run; a provider or persistence error aborts it (no `try/catch`
+  was added); and a stored state this build cannot read stops the run rather than being filed under a
+  guess. `reconciliationCertifies` is untouched and `RECONCILED` is still the only certifying state.
+- **SUCCESS is reserved for a window where every requested date reconciled.** Anything else is
+  `COMPLETE_WITH_FINDINGS`, which exits 0 — collecting evidence is the job and it succeeded — with a
+  GitHub warning naming the finding dates so nobody has to open the log to learn there were any.
+- **The summary buckets every requested date**: `RECONCILED_DATES`, `UNRECONCILED_DATES`,
+  `UNKNOWN_EXPECTATION_DATES`, `INCONCLUSIVE_DATES`, `FAILED_DATE`, `OVERALL_RESULT`. Disjoint,
+  ordered as supplied, and the 2026-08-06 shape is pinned as a regression fixture.
+- **No second runner and no second reconciliation engine** — one operations surface, one
+  `reconcileDay()`.
+
+**No migration. No production run — the workflow has not been dispatched in either mode.**
 
 **PR 6 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the buyer-report importer and any
 Stage 3 UI remain out of scope until separately authorized. The buyer-report join identity is still
