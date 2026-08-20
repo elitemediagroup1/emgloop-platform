@@ -28,6 +28,7 @@
 
 import type { InboundEvent } from '../interfaces/ingestion.provider';
 import { resolveCallOccurrence } from './callgrid-occurrence';
+import { NO_IDENTITY_MESSAGE, resolveCallGridIdentity } from './callgrid-identity';
 
 export const CALLGRID_API_DEFAULT_BASE_URL = 'https://api.callgrid.com';
 export const CALLGRID_CALLS_PATH = '/api/call';
@@ -85,7 +86,9 @@ export type CallGridApiErrorKind =
   /** 2xx JSON whose shape we do not recognise. NEVER an empty page. */
   | 'unrecognised-envelope'
   /** A record carried no usable occurrence timestamp. */
-  | 'no-occurrence';
+  | 'no-occurrence'
+  /** A record carried no usable provider call id. */
+  | 'no-identity';
 
 /** A small typed error so callers can surface API failures as diagnostics. */
 export class CallGridApiError extends Error {
@@ -176,9 +179,16 @@ function defined(obj: Record<string, unknown>): Record<string, unknown> {
  * lost. apiSource marks the origin.
  */
 export function mapCallGridApiRecord(record: Record<string, unknown>): InboundEvent {
-    const externalId =
-          pickField(record, ['id', 'CallId', 'Id', 'call_id', 'callId', 'Uuid', 'uuid', 'Sid', 'sid']) ||
-          'callgrid-api-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    // CANONICAL IDENTITY, OR NOTHING. Shared with the webhook parser, and
+    // refused the same way an unusable occurrence is refused below. The
+    // fallback this replaces was the worse of the two in the codebase: it mixed
+    // Date.now() with Math.random(), so re-reading one malformed record minted a
+    // brand-new canonical call on every poll -- and re-reading is exactly what a
+    // poller does.
+    const externalId = resolveCallGridIdentity(record);
+    if (externalId === null) {
+          throw new CallGridApiError(NO_IDENTITY_MESSAGE, undefined, 'no-identity');
+    }
 
   // Real field is 'callStatus'. Default is the honest 'unknown' - NEVER
   // 'completed' - so an unrecognized/unmatched status cannot silently inflate

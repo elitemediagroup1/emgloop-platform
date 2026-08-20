@@ -30,6 +30,7 @@
 
 import type { ProviderContext } from '../types';
 import { resolveCallOccurrence } from './callgrid-occurrence';
+import { NO_IDENTITY_MESSAGE, resolveCallGridIdentity } from './callgrid-identity';
 import type {
     IngestionProvider,
     IngestionCapabilities,
@@ -204,9 +205,15 @@ export class CallGridProvider implements IngestionProvider {
             ? (payload['call'] as Record<string, unknown>)
                   : payload;
 
-      const externalId =
-              pick(data, ['id', 'call_id', 'callId', 'uuid', 'sid']) ??
-              'callgrid-' + Date.now();
+      // CANONICAL IDENTITY, OR NOTHING. The rule is shared with the REST mapper
+      // so a call arriving by webhook and the same call arriving by API are the
+      // same call. A record with no provider id is REFUSED here, exactly as one
+      // with no occurrence timestamp is refused below: both are unusable
+      // provider data, and both must fail before anything is persisted.
+      const externalId = resolveCallGridIdentity(data);
+      if (externalId === null) {
+              throw new Error(NO_IDENTITY_MESSAGE);
+      }
 
       // Real CallGrid webhook/API status field is 'callStatus'. Checked FIRST;
       // legacy senders are still read via the fallback keys. Default is the
