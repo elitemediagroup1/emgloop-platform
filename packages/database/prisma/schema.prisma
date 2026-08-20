@@ -793,6 +793,30 @@ model IntegrationEvent {
   /// checkable statement rather than a story.
   receivedAt           DateTime               @default(now())
 
+  /// How this event FIRST reached Loop: WEBHOOK, API_POLL or API_RECOVERY.
+  /// Written once on create and NEVER rewritten -- a webhook call later seen by
+  /// the poller must keep saying WEBHOOK. NULL means the row predates the
+  /// column, which is not the same as an unknown transport. Stored as text so
+  /// the vocabulary can widen without production DDL; readers fail closed.
+  firstIngestionSource String?
+
+  /// Every path that has EVER observed this event, ordered first-seen.
+  ///
+  /// A SET, NOT A LOG. The question is "which paths have seen this call", which
+  /// has at most three answers, so a child observation table would record ~192
+  /// rows per call for a poller re-reading a 48-hour overlap every fifteen
+  /// minutes -- storage spent on repetition.
+  observedSources      String[]
+
+  /// When the provider most recently CONFIRMED this event. Advances on every
+  /// observation, including one that changed nothing.
+  ///
+  /// NOT A MODIFICATION TIME. CallGrid exposes no per-call updatedAt and its
+  /// records mutate after postback, so "we looked again and it was there" is the
+  /// only honest claim available. Whether a later answer REPLACES an earlier one
+  /// is a fact-merge policy and does not live here.
+  lastObservedAt       DateTime?
+
   /// When the PROVIDER says the call happened. Provider time, nullable.
   ///
   /// Populated on write from the occurrence the adapter already resolved, so

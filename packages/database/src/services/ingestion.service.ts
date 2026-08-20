@@ -32,6 +32,7 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
 import type { InboundEvent } from '@emgloop/providers';
+import { withObservation, type ObservationSource } from '@emgloop/shared';
 import { NormalizationEngine } from '../repositories/normalization.repository';
 import { MarketplaceCallRepository } from '../repositories/marketplace-call.repository';
 import { WorkflowsRepository } from '../repositories/workflows.repository';
@@ -76,6 +77,16 @@ export interface IngestInput {
   mapEventType: (rawEventType: string) => string;
   events: InboundEvent[];
   providerConnectionId?: string | null;
+  /**
+   * How this batch reached Loop.
+   *
+   * REQUIRED, DELIBERATELY. An optional field would default to something, and
+   * every default is wrong for somebody: defaulting to WEBHOOK would relabel a
+   * recovery as live traffic, and defaulting to API_POLL would relabel the live
+   * webhook. Making it required means each caller states its own transport at
+   * the one place it knows the answer, and a new caller cannot forget.
+   */
+  observationSource: ObservationSource;
 }
 
 function digits(s?: string): string | undefined {
@@ -131,6 +142,25 @@ export class IngestionService {
       where: { provider, externalId: ev.externalId },
     });
     if (existing && existing.status === 'PROCESSED') {
+      // AN OBSERVATION IS RECORDED EVEN WHEN NOTHING IS INGESTED.
+      //
+      // This branch used to return without writing anything, so asking the
+      // provider again -- and being answered -- left no trace. That is the fact
+      // a poller exists to produce, and it was being discarded.
+      //
+      // ONLY the observation is written. The payload is NOT replaced: it is the
+      // evidence that produced this row's Interaction and MarketplaceCall, and
+      // overwriting it would orphan a projection from its source. receivedAt,
+      // occurredAt, firstIngestionSource and status are all untouched. Whether a
+      // later provider answer should REPLACE an earlier fact is a merge policy,
+      // and it deliberately does not live here.
+      await this.prisma.integrationEvent.update({
+        where: { id: existing.id },
+        data: {
+          lastObservedAt: new Date(),
+          observedSources: withObservation(existing.observedSources ?? [], input.observationSource),
+        },
+      });
       return { ...base, status: 'duplicate', integrationEventId: existing.id };
     }
 
@@ -153,6 +183,11 @@ export class IngestionService {
             // receivedAt is NOT in this object and must never be. Re-observing a
             // call Loop already holds does not change when Loop first held it.
             occurredAt: ev.occurredAt,
+            // The observation is recorded here too. firstIngestionSource is
+            // absent from this object and must stay absent: this row already
+            // exists, so something already observed it first.
+            lastObservedAt: new Date(),
+            observedSources: withObservation(existing.observedSources ?? [], input.observationSource),
           },
         })
       : await this.prisma.integrationEvent.create({
@@ -176,6 +211,12 @@ export class IngestionService {
             // received this -- and a historical recovery must be able to say
             // occurredAt = August 11 and receivedAt = today at the same time.
             occurredAt: ev.occurredAt,
+            // WRITTEN ONCE AND NEVER AGAIN. A webhook call the poller later
+            // re-reads must keep saying WEBHOOK; the poller's visit is recorded
+            // in observedSources beside it, not on top of it.
+            firstIngestionSource: input.observationSource,
+            observedSources: [input.observationSource],
+            lastObservedAt: new Date(),
           },
         });
     base.integrationEventId = record.id;
