@@ -163,6 +163,11 @@ export { MockEmailProvider } from './mocks/mock-email.provider';
 
 // CallGrid canonical occurrence-timestamp resolver.
 export { resolveCallOccurrence, NON_OCCURRENCE_TIMESTAMP_FIELDS } from './adapters/callgrid-occurrence';
+export {
+  CALLGRID_IDENTITY_FIELDS,
+  NO_IDENTITY_MESSAGE,
+  resolveCallGridIdentity,
+} from './adapters/callgrid-identity';
 export type { ResolvedOccurrence } from './adapters/callgrid-occurrence';
 
 // CallGrid aggregate report contract + Phase 1 live verification probe.
