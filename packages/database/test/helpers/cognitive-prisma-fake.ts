@@ -424,7 +424,7 @@ function makeDelegate(name: string) {
       if (distinct?.length) {
         const seen = new Set<string>();
         out = out.filter((r) => {
-          const key = distinct.map((k) => String(r[k])).join(' ');
+          const key = distinct.map((k) => String(r[k])).join('\u0000');
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
