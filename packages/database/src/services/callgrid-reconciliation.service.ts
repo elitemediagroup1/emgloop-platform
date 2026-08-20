@@ -27,6 +27,7 @@
 
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { InboundEvent } from '@emgloop/providers';
+import type { ObservationSource } from '@emgloop/shared';
 import { IngestionService } from './ingestion.service';
 
 /** Canonical attribution keys the reconciliation enriches (string-valued). */
@@ -119,6 +120,14 @@ export interface ReconciliationInput {
     events?: InboundEvent[];
     /** Adapter page budget. A safety bound, never a completeness claim. */
   maxPages?: number;
+  /**
+   * How rows written by this run should be labelled. Defaults to API_POLL.
+   *
+   * The seam a later recovery uses. Recovery is the SAME read through the SAME
+   * ingestion path -- what differs is that a person went looking, and that is
+   * provenance rather than a different engine.
+   */
+  observationSource?: ObservationSource;
 }
 
 export interface ReconciliationResult {
@@ -245,6 +254,12 @@ export class CallGridReconciliationService {
                             providerConnectionId: input.providerConnectionId ?? null,
                             mapEventType: mapReconEventType,
                             events: [ev],
+                            // Routine polling by default. A recovery operation
+                            // passes API_RECOVERY instead, so the rows it writes
+                            // are distinguishable from traffic that arrived the
+                            // ordinary way -- without a second ingestion engine
+                            // and without this PR performing any recovery.
+                            observationSource: input.observationSource ?? 'API_POLL',
                 });
                         const res = ingestResults[0];
                         if (!res) {

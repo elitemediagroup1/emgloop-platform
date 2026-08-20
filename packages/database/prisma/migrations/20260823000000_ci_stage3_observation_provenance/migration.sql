@@ -1,0 +1,53 @@
+-- Commercial Intelligence Stage 3: how Loop observed a provider event.
+--
+-- ADDITIVE ONLY. Three columns on integration_events. Zero DROP. Zero rename.
+-- Zero column-type change. Zero backfill. Nothing seeded. No existing column is
+-- read, written or reinterpreted -- receivedAt and occurredAt are untouched.
+--
+-- ASCII ONLY. A leading em-dash in the sprint_11 migration blocked replay of the
+-- entire ledger once (see PR #152); this header is deliberately plain ASCII.
+--
+-- WHY
+--
+-- One CallGrid call has one identity and one row. It may be observed several
+-- times: the webhook delivers it live, a poller re-reads the window it falls in,
+-- and a recovery operation may fetch it deliberately weeks later. Those are
+-- three OBSERVATIONS of one fact, not three calls.
+--
+-- Today the row cannot say any of that. Worse, a repeated observation of an
+-- already-PROCESSED event writes NOTHING AT ALL: ingest short-circuits on
+-- status and returns "duplicate", so the fact that the provider was asked again,
+-- and answered, leaves no trace anywhere. After the 2026-08-10 to 08-14 outage
+-- that gap matters twice over -- the recovered rows will be indistinguishable
+-- from rows that arrived normally unless the difference is recorded when they
+-- are written.
+--
+--   firstIngestionSource  how this event FIRST reached Loop. Written once, on
+--                         create, and never rewritten. WEBHOOK first followed by
+--                         API_POLL later must keep saying WEBHOOK.
+--   observedSources       every path that has EVER observed it. A set, ordered
+--                         first-seen. At most three values, so a child
+--                         observation table would be storage spent on
+--                         repetition: a poller re-reading a 48-hour overlap
+--                         every fifteen minutes appends ~192 rows per call to
+--                         record a fact that never grows past three.
+--   lastObservedAt        when the provider most recently confirmed this event.
+--                         Advances on every observation; says nothing about
+--                         whether the provider's answer CHANGED.
+--
+-- WHAT THESE COLUMNS DO NOT MEAN. lastObservedAt is not a modification time. The
+-- provider exposes no per-call updatedAt, and CallGrid records mutate after
+-- postback, so "we looked again on the 25th" is the only honest claim available
+-- and is exactly what this column makes. Deciding whether a later answer
+-- REPLACES an earlier one is a fact-merge policy and is deliberately not here.
+--
+-- NULLABLE, AND THE SET DEFAULTS TO EMPTY. Every existing row predates all three
+-- columns. There is no honest value for firstIngestionSource on a row written
+-- before the distinction existed -- assuming WEBHOOK would be a guess about
+-- history, and every row in production today could equally have come through the
+-- REST sync. They stay NULL, which reads as "not recorded", never as "unknown
+-- transport". An empty observedSources says the same thing.
+
+ALTER TABLE "integration_events" ADD COLUMN "firstIngestionSource" TEXT;
+ALTER TABLE "integration_events" ADD COLUMN "observedSources" TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE "integration_events" ADD COLUMN "lastObservedAt" TIMESTAMP(3);

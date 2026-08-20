@@ -111,6 +111,7 @@ async function ingestOnce(
     providerConnectionId: null,
     mapEventType: (raw: string) => `call.${raw}`,
     events: [event],
+    observationSource: 'WEBHOOK',
   } as never);
 }
 
@@ -226,6 +227,11 @@ test('9. a non-CallGrid provider ingests unchanged, and its occurrence persists 
 // --- 10-14: nothing else moved -------------------------------------------------------
 
 test('10-14. no measurement, recovery, poller, schedule or provider write is introduced', () => {
+  // `lastObservedAt` and the observation-source vocabulary WERE forbidden here
+  // when this file shipped and are now expected: PR 4 introduced them
+  // deliberately, as the deferral this test recorded said it would. `recoveredAt`
+  // is still deferred and still forbidden — provenance answers "was this
+  // recovered" and receivedAt already answers "when".
   for (const symbol of [
     'measureChange',
     'assessReadiness',
@@ -239,9 +245,6 @@ test('10-14. no measurement, recovery, poller, schedule or provider write is int
     'checkpoint',
     'setInterval',
     'cron',
-    'API_RECOVERY',
-    'ingestionSource',
-    'lastObservedAt',
     'recoveredAt',
     'fetchAllCallGridCalls',
     'getCallGridProvider',

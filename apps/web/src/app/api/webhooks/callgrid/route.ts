@@ -107,6 +107,9 @@ export async function POST(req: Request) {
   // 5. Ingest through the full pipeline.
   const service = new IngestionService(prisma);
   const results = await service.ingest({
+    // The live push path. A poller re-reading this same call later records
+    // its own observation beside this one; it never relabels this one.
+    observationSource: 'WEBHOOK' as const,
     organizationId: org.id,
     provider: 'callgrid',
     providerConnectionId: connection.id,
