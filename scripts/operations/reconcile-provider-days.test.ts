@@ -18,11 +18,18 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { RECONCILIATION_STATES, reconciliationCertifies, type BusinessDate } from '@emgloop/shared';
+import {
+  RECONCILIATION_STATES,
+  reconciliationCertifies,
+  type BusinessDate,
+  type ReconciliationState,
+} from '@emgloop/shared';
 import type { ReconciliationDayView } from '@emgloop/database';
 
 import {
+  DEFAULT_SWEEP_MODE,
   REFUSED_ORGANIZATION_STATUSES,
+  isSweepMode,
   parseArgs,
   parseDates,
   readEnvironment,
@@ -277,16 +284,286 @@ test('missing credentials are reported BY NAME, never by value', () => {
   assert.equal(present.ok, true);
 });
 
-test('flags parse in either spelling', () => {
+test('flags parse in either spelling, and no mode means no mode', () => {
   assert.deepEqual(parseArgs(['--organization', 'a', '--dates', '2026-08-05']), {
     organization: 'a',
     dates: '2026-08-05',
+    mode: null,
   });
   assert.deepEqual(parseArgs(['--org', 'a', '--date', '2026-08-05']), {
     organization: 'a',
     dates: '2026-08-05',
+    mode: null,
   });
 });
+
+test('the mode is parsed raw and never coerced', () => {
+  // `null` is "not supplied", which resolves to GATE. A MISSPELLING is not
+  // absence and must not resolve to anything -- `main` refuses it. Returning a
+  // coerced 'GATE' here would make the two indistinguishable.
+  assert.equal(parseArgs(['--evidence']).mode, 'EVIDENCE');
+  assert.equal(parseArgs(['--mode', 'evidence']).mode, 'EVIDENCE');
+  assert.equal(parseArgs(['--mode', 'GATE']).mode, 'GATE');
+  assert.equal(parseArgs(['--mode', 'sweep']).mode, 'SWEEP');
+  assert.equal(isSweepMode('SWEEP'), false);
+  assert.equal(isSweepMode('EVIDENCE'), true);
+  assert.equal(isSweepMode('GATE'), true);
+  assert.equal(DEFAULT_SWEEP_MODE, 'GATE');
+});
+
+// --- Evidence mode ---------------------------------------------------------------
+//
+// The one branch that differs is what happens after a day whose row was WRITTEN.
+// Everything below either proves that branch, or proves that nothing else moved.
+
+/** The three states a written day can carry that are not RECONCILED. */
+const FINDING_STATES = ['UNRECONCILED', 'UNKNOWN_EXPECTATION', 'INCONCLUSIVE'] as const;
+
+const evidence = (dates: BusinessDate[]) => ({ ...request(dates), mode: 'EVIDENCE' as const });
+
+test('GATE is what a request without a mode gets', async () => {
+  const r = recorder((d) => ({ ok: true, day: dayView({ businessDate: d, state: 'UNRECONCILED' }) }));
+  const result = await runSweep(request(['2026-08-06', '2026-08-07']), r.deps);
+  assert.equal(result.mode, 'GATE');
+  assert.equal(result.overall, 'STOPPED_NOT_RECONCILED');
+  assert.deepEqual(r.asked, ['2026-08-06'], 'the second date was never asked');
+});
+
+test('GATE still stops on every finding state, token for token', async () => {
+  for (const state of FINDING_STATES) {
+    const r = recorder((d) => ({ ok: true, day: dayView({ businessDate: d, state }) }));
+    const result = await runSweep(request(['2026-08-06', '2026-08-07']), r.deps);
+    assert.equal(result.overall, 'STOPPED_NOT_RECONCILED', `${state} must still stop a gate run`);
+    assert.equal(result.failedDate, '2026-08-06');
+    assert.deepEqual(r.asked, ['2026-08-06']);
+  }
+});
+
+for (const state of FINDING_STATES) {
+  test(`EVIDENCE continues through ${state} and reaches every requested date`, async () => {
+    const dates: BusinessDate[] = ['2026-08-06', '2026-08-07', '2026-08-08'];
+    const r = recorder((d) => ({
+      ok: true,
+      day: dayView({ businessDate: d, state: d === '2026-08-07' ? 'RECONCILED' : state }),
+    }));
+    const result = await runSweep(evidence(dates), r.deps);
+    assert.deepEqual(r.asked, dates, 'no date was skipped');
+    assert.equal(result.mode, 'EVIDENCE');
+    assert.equal(result.overall, 'COMPLETE_WITH_FINDINGS');
+    assert.deepEqual(result.reconciled, ['2026-08-07']);
+    assert.equal(result.failedDate, null, 'a finding is not a failure');
+  });
+}
+
+test('every processed date lands in exactly one bucket, and the buckets partition the request', async () => {
+  const dates: BusinessDate[] = ['2026-08-06', '2026-08-07', '2026-08-08', '2026-08-09'];
+  const states: Record<string, ReconciliationState> = {
+    '2026-08-06': 'UNKNOWN_EXPECTATION',
+    '2026-08-07': 'RECONCILED',
+    '2026-08-08': 'INCONCLUSIVE',
+    '2026-08-09': 'UNRECONCILED',
+  };
+  const r = recorder((d) => ({ ok: true, day: dayView({ businessDate: d, state: states[d] }) }));
+  const result = await runSweep(evidence(dates), r.deps);
+
+  assert.deepEqual(result.reconciled, ['2026-08-07']);
+  assert.deepEqual(result.unknownExpectation, ['2026-08-06']);
+  assert.deepEqual(result.inconclusive, ['2026-08-08']);
+  assert.deepEqual(result.unreconciled, ['2026-08-09']);
+
+  const all = [
+    ...result.reconciled,
+    ...result.unreconciled,
+    ...result.unknownExpectation,
+    ...result.inconclusive,
+  ];
+  assert.equal(all.length, dates.length, 'no date was counted twice or dropped');
+  assert.equal(new Set(all).size, dates.length);
+  for (const d of dates) assert.ok(all.includes(d), `${d} must be bucketed`);
+});
+
+test('all reconciled is SUCCESS, in either mode', async () => {
+  for (const req of [request(['2026-08-06', '2026-08-07']), evidence(['2026-08-06', '2026-08-07'])]) {
+    const r = recorder((d) => ({ ok: true, day: dayView({ businessDate: d }) }));
+    const result = await runSweep(req, r.deps);
+    assert.equal(result.overall, 'SUCCESS');
+    assert.equal(result.reconciled.length, 2);
+    assert.equal(result.unreconciled.length + result.unknownExpectation.length + result.inconclusive.length, 0);
+  }
+});
+
+test('one finding among many is never SUCCESS', async () => {
+  const dates: BusinessDate[] = ['2026-08-06', '2026-08-07', '2026-08-08'];
+  const r = recorder((d) => ({
+    ok: true,
+    day: dayView({ businessDate: d, state: d === '2026-08-08' ? 'UNRECONCILED' : 'RECONCILED' }),
+  }));
+  const result = await runSweep(evidence(dates), r.deps);
+  assert.equal(result.overall, 'COMPLETE_WITH_FINDINGS');
+  assert.notEqual(result.overall, 'SUCCESS');
+  assert.equal(result.reconciled.length, 2);
+});
+
+test('EVIDENCE still stops when the comparison contradicted itself and nothing was written', async () => {
+  const r = recorder((d) =>
+    d === '2026-08-07'
+      ? { ok: false, reason: 'DIAGNOSTIC_DEFECT', problems: ['intersection + providerOnly !== providerUnique'] }
+      : { ok: true, day: dayView({ businessDate: d }) },
+  );
+  const result = await runSweep(evidence(['2026-08-06', '2026-08-07', '2026-08-08']), r.deps);
+  assert.equal(result.overall, 'DIAGNOSTIC_DEFECT');
+  assert.equal(result.failedDate, '2026-08-07');
+  assert.deepEqual(r.asked, ['2026-08-06', '2026-08-07'], 'the run stopped; 08-08 was never asked');
+});
+
+test('EVIDENCE aborts when the provider read or the write throws — nothing is swallowed', async () => {
+  const r = recorder((d) => {
+    if (d === '2026-08-07') throw new Error('provider read failed');
+    return { ok: true, day: dayView({ businessDate: d }) };
+  });
+  await assert.rejects(
+    () => runSweep(evidence(['2026-08-06', '2026-08-07', '2026-08-08']), r.deps),
+    /provider read failed/,
+  );
+  assert.deepEqual(r.asked, ['2026-08-06', '2026-08-07'], '08-08 was never attempted');
+});
+
+test('EVIDENCE stops on a stored state this build cannot read', async () => {
+  // `toDayView` returns null when the stored vocabulary is unrecognisable. It is
+  // not a finding of a known kind, so it may be neither bucketed nor dropped.
+  const r = recorder((d) => ({
+    ok: true,
+    day: dayView({ businessDate: d, state: d === '2026-08-07' ? null : 'RECONCILED' }),
+  }));
+  const result = await runSweep(evidence(['2026-08-06', '2026-08-07', '2026-08-08']), r.deps);
+  assert.equal(result.overall, 'STOPPED_UNREADABLE_STATE');
+  assert.equal(result.failedDate, '2026-08-07');
+  assert.deepEqual(r.asked, ['2026-08-06', '2026-08-07']);
+  assert.deepEqual(result.reconciled, ['2026-08-06']);
+});
+
+test('the summary emits every required token, naming dates rather than counting them', async () => {
+  const dates: BusinessDate[] = ['2026-08-06', '2026-08-07', '2026-08-08', '2026-08-09'];
+  const states: Record<string, ReconciliationState> = {
+    '2026-08-06': 'UNKNOWN_EXPECTATION',
+    '2026-08-07': 'RECONCILED',
+    '2026-08-08': 'INCONCLUSIVE',
+    '2026-08-09': 'UNRECONCILED',
+  };
+  const r = recorder((d) => ({ ok: true, day: dayView({ businessDate: d, state: states[d] }) }));
+  await runSweep(evidence(dates), r.deps);
+  const summary = r.lines.find((l) => l.includes('event=SWEEP_COMPLETE')) ?? '';
+  for (const token of [
+    'RECONCILED_DATES=2026-08-07',
+    'UNRECONCILED_DATES=2026-08-09',
+    'UNKNOWN_EXPECTATION_DATES=2026-08-06',
+    'INCONCLUSIVE_DATES=2026-08-08',
+    'FAILED_DATE=',
+    'OVERALL_RESULT=COMPLETE_WITH_FINDINGS',
+  ]) {
+    assert.ok(summary.includes(token), `the summary must carry ${token}`);
+  }
+  assert.ok(summary.includes('mode=EVIDENCE'));
+});
+
+test('the sweep announces which mode it is running before it touches a provider', async () => {
+  const r = recorder((d) => ({ ok: true, day: dayView({ businessDate: d }) }));
+  await runSweep(evidence(['2026-08-06']), r.deps);
+  const start = r.lines.find((l) => l.includes('event=SWEEP_START')) ?? '';
+  assert.ok(start.includes('mode=EVIDENCE'));
+  assert.ok(r.lines.indexOf(start) < r.lines.findIndex((l) => l.includes('event=DAY_RESULT')));
+});
+
+test('bucket order follows the order supplied, and a re-run gives the same answer', async () => {
+  const dates: BusinessDate[] = ['2026-08-09', '2026-08-06', '2026-08-08', '2026-08-07'];
+  const answer = (d: BusinessDate) => ({
+    ok: true as const,
+    day: dayView({ businessDate: d, state: 'UNRECONCILED' as ReconciliationState }),
+  });
+  const first = await runSweep(evidence(dates), recorder(answer).deps);
+  const second = await runSweep(evidence(dates), recorder(answer).deps);
+  assert.deepEqual(first.unreconciled, dates, 'supplied order, not sorted');
+  assert.deepEqual(first.unreconciled, second.unreconciled);
+  assert.equal(first.overall, second.overall);
+});
+
+test('THE AUGUST 6 SHAPE: 91 provider-only across four members, one of them EXPECTED', async () => {
+  // The first production reconciliation of the Stage 3 window, pinned. The day
+  // is UNKNOWN_EXPECTATION because three members carrying absences have no
+  // declaration -- which MASKS, at the day level, the four calls a campaign
+  // declared EXPECTED never delivered. `deriveReconciliationState` tests unknown
+  // expectation before providerOnlyExpected, so resolving those three
+  // declarations would move this day to UNRECONCILED and not to RECONCILED.
+  //
+  // A gate run stops here and reports one date. An evidence run records it and
+  // carries on, which is the whole reason this mode exists.
+  const augustSix = dayView({
+    businessDate: '2026-08-06',
+    state: 'UNKNOWN_EXPECTATION',
+    counts: {
+      providerUnique: 1220,
+      providerDuplicateIds: 0,
+      localUnique: 1129,
+      localDuplicateIds: 0,
+      intersection: 1129,
+      providerOnly: 91,
+      localOnly: 0,
+      providerOnlyExpected: 4,
+      providerOnlyNotConfigured: 0,
+      providerOnlyExcluded: 0,
+      providerOnlyUnknownMember: 87,
+    },
+  });
+  // The three set equations the database enforces, checked on the fixture so a
+  // typo here cannot pin a shape production could never produce.
+  const c = augustSix.counts;
+  assert.equal(c.intersection + c.providerOnly, c.providerUnique);
+  assert.equal(c.intersection + c.localOnly, c.localUnique);
+  assert.equal(
+    c.providerOnlyExpected + c.providerOnlyNotConfigured + c.providerOnlyExcluded + c.providerOnlyUnknownMember,
+    c.providerOnly,
+  );
+
+  const dates: BusinessDate[] = ['2026-08-06', '2026-08-07'];
+  const answer = (d: BusinessDate) =>
+    d === '2026-08-06'
+      ? { ok: true as const, day: augustSix }
+      : { ok: true as const, day: dayView({ businessDate: d }) };
+
+  const gate = recorder(answer);
+  const gateResult = await runSweep(request(dates), gate.deps);
+  assert.equal(gateResult.overall, 'STOPPED_NOT_RECONCILED');
+  assert.deepEqual(gate.asked, ['2026-08-06'], 'the gate stops, as it did in production');
+
+  const sweep = recorder(answer);
+  const sweepResult = await runSweep(evidence(dates), sweep.deps);
+  assert.deepEqual(sweep.asked, dates);
+  assert.deepEqual(sweepResult.unknownExpectation, ['2026-08-06']);
+  assert.deepEqual(sweepResult.reconciled, ['2026-08-07']);
+  assert.equal(sweepResult.overall, 'COMPLETE_WITH_FINDINGS');
+});
+
+test('evidence mode changes no verdict — the same day yields the same state either way', async () => {
+  for (const state of FINDING_STATES) {
+    const answer = (d: BusinessDate) => ({ ok: true as const, day: dayView({ businessDate: d, state }) });
+    const gate = await runSweep(request(['2026-08-06']), recorder(answer).deps);
+    const sweep = await runSweep(evidence(['2026-08-06']), recorder(answer).deps);
+    assert.equal(gate.outcomes[0]!.state, state);
+    assert.equal(sweep.outcomes[0]!.state, state);
+    assert.equal(gate.outcomes[0]!.reconciled, false);
+    assert.equal(sweep.outcomes[0]!.reconciled, false);
+  }
+});
+
+test('the runner still decides nothing about which findings matter', () => {
+  // The bucket map is keyed on the shipped vocabulary and carries no judgement:
+  // no severity, no threshold, no "ignore this one". A mode that skipped some
+  // findings would be this file overruling the pure state rule.
+  assert.ok(!/severity|ignorable|tolerate|acceptable/i.test(RUNNER_SOURCE));
+  assert.ok(RUNNER_SOURCE.includes('reconciliationCertifies'), 'the certifying test is still asked');
+  assert.ok(!/reconciled\s*=\s*true/.test(RUNNER_SOURCE), 'nothing is declared reconciled locally');
+});
+
 
 // --- Source constraints -------------------------------------------------------
 
@@ -428,6 +705,39 @@ test('the workflow requires both production secrets and names them without print
   assert.match(WORKFLOW_SOURCE, /Missing repository secret/);
   // The secret VALUES must only ever reach `env:`, never an `echo`.
   assert.equal(/echo[^\n]*\$\{\{\s*secrets\./.test(WORKFLOW_SOURCE), false);
+});
+
+test('the workflow offers both modes and defaults to the stopping one', () => {
+  assert.ok(/mode:[\s\S]{0,400}default:\s*gate/.test(WORKFLOW_SOURCE));
+  assert.ok(/options:[\s\S]{0,80}- gate[\s\S]{0,40}- evidence/.test(WORKFLOW_SOURCE));
+  // The default must be the RESTRICTIVE one. A workflow defaulting to evidence
+  // would turn every ordinary dispatch into a sweep without anybody choosing it.
+  assert.ok(!/mode:[\s\S]{0,400}default:\s*evidence/.test(WORKFLOW_SOURCE));
+});
+
+test('the workflow passes the mode as a value, never interpolated into the script', () => {
+  assert.ok(WORKFLOW_SOURCE.includes('MODE: ${{ inputs.mode }}'));
+  assert.ok(WORKFLOW_SOURCE.includes('--mode "${MODE}"'));
+  // A `${{ }}` expansion inside `run:` is pasted as literal shell text, which is
+  // how an input becomes a command.
+  const runBodies = WORKFLOW_SOURCE.split(/\n\s+run: \|/).slice(1);
+  for (const body of runBodies) {
+    const step = body.split(/\n\s+- name:/)[0] ?? '';
+    assert.ok(!/\$\{\{\s*inputs\./.test(step), 'no input may be interpolated into a run body');
+  }
+});
+
+test('the workflow still cannot reach any other operation', () => {
+  for (const other of [
+    'certify:observation-days',
+    'declare:member-expectations',
+    'declare:source-authority',
+    'register:measurement-source',
+    'bootstrap:stage3',
+    'migrate deploy',
+  ]) {
+    assert.ok(!WORKFLOW_SOURCE.includes(other), `the workflow must not invoke ${other}`);
+  }
 });
 
 test('the workflow serialises runs against itself', () => {

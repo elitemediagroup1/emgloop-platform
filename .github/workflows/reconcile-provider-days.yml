@@ -24,17 +24,46 @@
 # production database, so "it cannot ingest, recover or declare" is a CHECKED
 # property of this run rather than a claim made once at review time.
 #
-# ONE DATE PER DISPATCH, DELIBERATELY. Several are accepted, but this is a
-# correctness operation and not yet a historical sweep: nothing has been
-# reconciled in production, and the shape of the answer should be inspected
-# before a range is run through it.
+# TWO MODES, AND GATE IS THE DEFAULT.
+#
+#   gate      One date per dispatch, stopping the moment a day does not
+#             reconcile. What an unqualified dispatch has always done, and what
+#             it still does.
+#   evidence  Keeps going past a day that was validly evaluated AND validly
+#             written but did not reconcile, and reports every requested date
+#             under the state it actually got. For collecting a window of facts
+#             once the shape of the answer is understood.
+#
+# WHY EVIDENCE MODE EXISTS. On 2026-08-06 the first production reconciliation of
+# the Stage 3 window returned UNKNOWN_EXPECTATION: 91 provider identities absent,
+# 87 of them belonging to campaigns nobody has declared anything about, and 4 to
+# a campaign explicitly declared EXPECTED. The gate stopped, correctly -- and
+# collecting the remaining thirteen days then meant thirteen hand-filled
+# dispatches. That is ceremony, not safety.
+#
+# WHAT EVIDENCE MODE DOES NOT CHANGE. It does not alter a single verdict: the
+# same day yields the same state in either mode, because the state is decided by
+# the service and the pure contract and neither knows this input exists. It does
+# not weaken any stop that protects correctness -- a comparison that contradicts
+# itself still writes nothing and still ends the run, a provider or persistence
+# error still aborts it, and a stored state this build cannot read still stops it
+# rather than being filed under a guess. RECONCILED remains the only certifying
+# state.
+#
+# AND IT CANNOT REPORT SUCCESS OVER A WINDOW WITH FINDINGS. That was the original
+# objection to sweeping -- "a table full of rows and a false sense that the window
+# was worked through" -- and the answer is that SUCCESS is reserved for a run
+# where every requested date RECONCILED. Anything else is COMPLETE_WITH_FINDINGS,
+# which exits 0, because collecting the evidence is the job and it succeeded,
+# while a warning naming the finding dates is attached to the run so nobody has
+# to open the log to learn there were any.
 #
 # NO SCHEDULE, DELIBERATELY. Daily reconciliation will be needed -- the comparison
-# window moves at midnight Eastern -- but not one production day has been
-# reconciled yet. Credential wiring, provider pagination, the local scan's
-# runtime, the member split and the verdict all get proven by hand first.
-# Automating an unproven production operation is how you get a job that fails
-# quietly every night.
+# window moves at midnight Eastern -- and evidence mode does not change that
+# argument. Credential wiring, provider pagination, the local scan's runtime, the
+# member split and the verdict get proven by hand first. Automating an unproven
+# production operation is how you get a job that fails quietly every night, and a
+# sweep that runs itself is a larger version of the same mistake.
 
 name: Reconcile Provider Days
 
@@ -45,6 +74,14 @@ on:
         description: 'Organization slug (e.g. servicesinmycity-demo)'
         required: true
         type: string
+      mode:
+        description: 'gate stops at the first day that does not reconcile. evidence records every date and reports what each one got.'
+        required: true
+        default: gate
+        type: choice
+        options:
+          - gate
+          - evidence
       dates:
         description: 'Eastern business dates, comma-separated. ONE date is the intended use (e.g. 2026-08-05).'
         required: true
@@ -103,6 +140,7 @@ jobs:
           # is how an input becomes a command. Quoted expansion keeps it a value.
           DATES: ${{ inputs.dates }}
           ORG_SLUG: ${{ inputs.organization_slug }}
+          MODE: ${{ inputs.mode }}
         shell: bash
         run: |
           set -euo pipefail
@@ -128,10 +166,12 @@ jobs:
             echo "::error::No dates supplied."
             exit 1
           fi
-          if [ "${count}" -gt 1 ]; then
-            echo "::warning::${count} dates supplied. One per dispatch is the intended use until a production run has been inspected."
+          if [ "${count}" -gt 1 ] && [ "${MODE}" != "evidence" ]; then
+            echo "::warning::${count} dates supplied in gate mode. The run stops at the first date that does not reconcile; the rest are never asked. Use evidence mode to collect a window."
           fi
-          echo "Validated ${count} date(s) for organization ${ORG_SLUG}."
+          # A choice input cannot carry a value outside its options, and the
+          # runner refuses an unrecognised mode anyway rather than falling back.
+          echo "Validated ${count} date(s) for organization ${ORG_SLUG} in ${MODE} mode."
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -171,14 +211,19 @@ jobs:
           CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
           ORG_SLUG: ${{ inputs.organization_slug }}
           DATES: ${{ inputs.dates }}
+          MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
-          # Arguments are passed as values. The runner exits non-zero on the
-          # first day that does not reconcile, and `set -e` turns that into a red
-          # run rather than a green one with a bad line buried in the log.
+          # Arguments are passed as values. In gate mode the runner exits
+          # non-zero on the first day that does not reconcile, and `set -e` turns
+          # that into a red run rather than a green one with a bad line buried in
+          # the log. In evidence mode a finding is not an execution failure, so
+          # the run is green and carries a warning naming the dates -- but a
+          # refusal, a provider error or an unreadable state is still non-zero.
           npm run reconcile:provider-days -- \
             --organization "${ORG_SLUG}" \
-            --dates "${DATES}"
+            --dates "${DATES}" \
+            --mode "${MODE}"
 
       - name: Note what a red run means
         if: failure()
@@ -197,3 +242,5 @@ jobs:
           echo "Re-running the same date after the cause is fixed is safe: reconciliation upserts on (organization, provider, stream, business date) and replaces its member rows in the same transaction." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "This job never recovers data. A missing call stays missing until somebody decides to import it." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "In **evidence** mode a day that did not reconcile does NOT stop the run and does NOT make it red - it is recorded and the sweep continues, and the run ends green with \`OVERALL_RESULT=COMPLETE_WITH_FINDINGS\` plus a warning naming the dates. A red evidence run therefore means something else: a refusal with nothing written, a provider or persistence error, or a stored state this build cannot read." >> "$GITHUB_STEP_SUMMARY"
