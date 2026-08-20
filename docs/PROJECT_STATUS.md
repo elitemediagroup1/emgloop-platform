@@ -991,6 +991,62 @@ and `evidence`.
 
 **No migration. No production run — the workflow has not been dispatched in either mode.**
 
+### Production ingestion gap — 2026-08-06 to 2026-08-19 (INVESTIGATION, no fix)
+The full fourteen-day evidence pass is complete: all fourteen days certified, all fourteen
+reconciled. **10,561 of 31,744 provider identities never reached Loop — 33% of the window. 9,052 of
+the missing are on a campaign declared EXPECTED.**
+
+| | |
+|---|---|
+| 08-06 | 7.5% lost · 4 EXPECTED |
+| 08-07 | 4.6% lost · 0 EXPECTED |
+| 08-08, 08-09, 08-15, 08-16 | RECONCILED (weekend/low volume) |
+| **08-10** | 4.6% lost · **167 EXPECTED** · 2.5× the volume of any other weekday |
+| **08-11, 08-12, 08-13** | **100% lost.** 9,984 identities, **zero** local rows |
+| 08-14 | 0.9% lost · 0 EXPECTED — immediate, near-complete recovery |
+| 08-17, 08-18, 08-19 | 0.5–0.9% lost · 1, 13, 2 EXPECTED |
+
+**What the code proves.** `IngestionService` writes the `IntegrationEvent` **first, in RECEIVED
+state, before any processing**, and reconciliation's local population is that table unfiltered by
+status. So `localUnique = 0` cannot be a normalization, projection, enrichment or workflow failure —
+every one leaves a row that would still be counted. **The loss is at or before the webhook route's
+verification gate, or the deliveries never arrived.** The route has exactly four pre-ingest exits and
+none writes a row: 404 org-not-found, 400 invalid-json, 401 verification-failed, or an uncaught throw.
+
+**Ruled out:** a code change (`main` had **no commit, and so no deploy, between 2026-07-30 23:34 and
+2026-08-14 15:24** — the outage sits entirely inside that gap); a schema or identity change (no
+migration applied 08-05 → 08-16); occurrence, window or timezone logic (the ±2-day local scan margin
+dwarfs any DST error, and adjacent days reconciled cleanly on the same code).
+
+⚠️ **`IntegrationEvent.receivedAt` is `@default(now())` and `ingest()` never sets it, while
+reconciliation selects local rows by `receivedAt` ±2 days.** Importing the missing calls through the
+existing sync would recover the DATA and leave 08-11 → 08-13 reconciling as 100% missing **forever**.
+The import path exists; a recovery that reconciles does not. **That is a contract decision to settle
+before anyone imports anything**, not an implementation detail.
+
+**Nothing has been recovered, no expectation altered, no webhook configuration touched.**
+
+### Reconciliation evidence reader — IN REVIEW, NOT MERGED
+`reconcileDay` stores a `localRowsScanned` / `localInWindow` / `localUnresolvedOccurrence` /
+`localMissingIdentity` / `truncated` block on every row. Nothing printed it, so it has been in
+production since the first run and has never been read. `Read Reconciliation Evidence`
+(`workflow_dispatch` only) prints it.
+
+It separates the two faults that produce the same zero: `localRowsScanned = 0` means nothing was ever
+received; `localRowsScanned > 0` with `localInWindow = 0` means rows arrived and something kept them
+out of the day. One is an ingestion outage, the other a data defect, and they need opposite responses.
+
+- **READ-ONLY by construction.** Two seams — one organization lookup, one scoped `findDay` — and
+  neither has a write method. No provider credential, no `fetch`, no adapter, no raw SQL, no Prisma
+  delegate; asserted by source inspection, run **before** the database credential is used.
+- **A missing row is a result, printed as MISSING, never skipped.** A finding never makes the run red;
+  only a precondition failure does. An inspection tool that went red on findings is a gate wearing an
+  inspector's name.
+- **No PII and no call identity.** Member ids and declarations are printed; the stored display label
+  deliberately is not.
+
+**No migration. No production run — the workflow has not been dispatched.**
+
 **PR 6 onward is NOT AUTHORIZED.** `SourceOutcomeDay` persistence, the buyer-report importer and any
 Stage 3 UI remain out of scope until separately authorized. The buyer-report join identity is still
 **UNRESOLVED**.
