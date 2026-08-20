@@ -25,6 +25,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  EXPECTATION_DIMENSIONS,
   RECONCILIATION_RULE_VERSION,
   easternBusinessDayWindow,
   type BusinessDate,
@@ -1194,6 +1195,114 @@ test('each declarable state without a declaration is refused', async () => {
     if (!result.ok) assert.equal(result.reason, 'INVALID_MEMBER');
     assert.equal(prisma.providerReconciliationDay.__rows.length, 0);
   }
+});
+
+// --- The composite member key ---------------------------------------------------
+//
+// `recordDay` detects two rows for one member before it opens a transaction, by
+// building a key from the dimension and the member id. The separator between them
+// is the whole correctness question: a key built with a separator that could occur
+// inside either field would report two DIFFERENT members as a duplicate and refuse
+// a sound comparison, and a key built with no separator at all would depend on no
+// dimension being a prefix of another -- true today, and true only by accident.
+//
+// U+0000 is the separator because it cannot occur in either field: Postgres `text`
+// cannot store it, so no provider id can ever contain one. It is written as the
+// ESCAPE `\u0000` and never as a raw byte -- a raw NUL makes the whole file
+// classify as binary, and `grep` then omits it from every search unless somebody
+// remembers `-a`. The last test below is the regression guard for that.
+
+test('two rows for one member are refused before anything is written', async () => {
+  const prisma = makeCognitivePrisma();
+  const repo = new ProviderReconciliationRepository(prisma as never);
+  const one = {
+    dimension: 'CAMPAIGN' as const, memberExternalId: M_CLEAN,
+    providerCount: 0, providerOnly: 0, localCount: 0, localOnly: 0,
+    expectationState: 'UNKNOWN' as const, expectationId: null, expectationMatches: 0,
+    labelAtObservation: null,
+  };
+  const result = await repo.recordDay(ORG, emptyDayInput({ members: [one, { ...one }] }));
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.reason, 'INVALID_MEMBER');
+    assert.match(result.problems.join(' '), /appears more than once/);
+  }
+  assert.equal(prisma.providerReconciliationDay.__rows.length, 0);
+});
+
+test('only CAMPAIGN is declarable in v1, so the key never spans two dimensions yet', async () => {
+  // WHY THIS IS ASSERTED RATHER THAN EXERCISED. The composite key exists so a
+  // campaign and a source sharing an external id stay two members -- and today
+  // that case is unreachable, because `dimensionSupported` admits CAMPAIGN alone.
+  // Pinning it here means the day the vocabulary widens, this test fails and
+  // somebody re-reads the separator argument instead of inheriting it.
+  assert.deepEqual([...EXPECTATION_DIMENSIONS], ['CAMPAIGN']);
+
+  const prisma = makeCognitivePrisma();
+  const repo = new ProviderReconciliationRepository(prisma as never);
+  const result = await repo.recordDay(ORG, emptyDayInput({
+    members: [{
+      dimension: 'SOURCE' as never, memberExternalId: 'shared-id',
+      providerCount: 0, providerOnly: 0, localCount: 0, localOnly: 0,
+      expectationState: 'UNKNOWN' as const, expectationId: null, expectationMatches: 0,
+      labelAtObservation: null,
+    }],
+  }));
+  assert.equal(result.ok, false, 'a SOURCE member is not declarable in this version');
+  if (!result.ok) assert.equal(result.reason, 'INVALID_MEMBER');
+  assert.equal(prisma.providerReconciliationDay.__rows.length, 0);
+});
+
+test('ids that only a separator tells apart stay apart', async () => {
+  // Ids whose concatenation with a neighbouring dimension name would be ambiguous
+  // under a printable separator. None of these may collapse into one another.
+  const prisma = makeCognitivePrisma();
+  const repo = new ProviderReconciliationRepository(prisma as never);
+  const base = {
+    providerCount: 0, providerOnly: 0, localCount: 0, localOnly: 0,
+    expectationState: 'UNKNOWN' as const, expectationId: null, expectationMatches: 0,
+    labelAtObservation: null,
+  };
+  const awkward = ['SOURCE', 'SOURCE-x', '-x', 'CAMPAIGN-SOURCE', 'x:y', 'x|y'];
+  const result = await repo.recordDay(ORG, emptyDayInput({
+    members: awkward.map((memberExternalId) => ({
+      ...base, dimension: 'CAMPAIGN' as const, memberExternalId,
+    })),
+  }));
+  assert.equal(result.ok, true, 'every one of these is a distinct member');
+  assert.equal(prisma.providerReconciliationMember.__rows.length, awkward.length);
+});
+
+test('no source file in this package carries a raw control byte', async () => {
+  // THE REGRESSION GUARD, and it is about reviewability rather than behaviour. A
+  // raw NUL in a source file makes `file` report "data" and makes `grep` skip the
+  // file silently -- so code inside it stops appearing in searches, which is how
+  // something gets missed in a review that looked thorough. Tab, newline and
+  // carriage return are the only control characters a source file may contain.
+  const { readFileSync, readdirSync, statSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+
+  const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const offenders: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry === 'dist' || entry === '.turbo') continue;
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.(ts|tsx|js|mjs)$/.test(entry)) continue;
+      const text = readFileSync(full, 'utf8');
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text)) offenders.push(full);
+    }
+  };
+  walk(join(packageRoot, 'src'));
+  walk(join(packageRoot, 'test'));
+
+  assert.deepEqual(offenders, [], 'write the escape (\\u0000), never the byte');
 });
 
 // --- Cross-member ownership ----------------------------------------------------

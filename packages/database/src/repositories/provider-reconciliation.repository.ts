@@ -253,7 +253,7 @@ export class ProviderReconciliationRepository {
     // here so it reads as the computation defect it is.
     const seen = new Set<string>();
     for (const m of input.members) {
-      const key = `${m.dimension} ${m.memberExternalId}`;
+      const key = `${m.dimension}\u0000${m.memberExternalId}`;
       if (seen.has(key)) {
         return {
           ok: false,
