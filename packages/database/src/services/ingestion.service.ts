@@ -140,7 +140,20 @@ export class IngestionService {
     const record = existing
       ? await this.prisma.integrationEvent.update({
           where: { id: existing.id },
-          data: { status: 'RECEIVED', error: null, payload: ev.payload as object },
+          data: {
+            status: 'RECEIVED',
+            error: null,
+            payload: ev.payload as object,
+            // The payload is being rewritten in this same statement, so the
+            // occurrence derived from it is written with it -- a row whose
+            // payload says August 11 while its occurredAt says nothing would be
+            // internally inconsistent. This is not a backfill: it touches only
+            // rows the provider is re-delivering right now.
+            //
+            // receivedAt is NOT in this object and must never be. Re-observing a
+            // call Loop already holds does not change when Loop first held it.
+            occurredAt: ev.occurredAt,
+          },
         })
       : await this.prisma.integrationEvent.create({
           data: {
@@ -152,6 +165,17 @@ export class IngestionService {
             externalId: ev.externalId,
             status: 'RECEIVED',
             payload: ev.payload as object,
+            // WHEN THE CALL HAPPENED, taken from the occurrence the ADAPTER
+            // already resolved. Persistence does not re-resolve it: the
+            // canonical resolver runs once, in the provider layer, and its
+            // answer is carried here. A second resolution would eventually
+            // disagree with the first about the same row.
+            //
+            // `receivedAt` is deliberately not set and never will be. It
+            // defaults to now(), which is exactly right -- it means when LOOP
+            // received this -- and a historical recovery must be able to say
+            // occurredAt = August 11 and receivedAt = today at the same time.
+            occurredAt: ev.occurredAt,
           },
         });
     base.integrationEventId = record.id;
