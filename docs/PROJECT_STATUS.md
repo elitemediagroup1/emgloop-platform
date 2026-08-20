@@ -1026,7 +1026,7 @@ before anyone imports anything**, not an implementation detail.
 
 **Nothing has been recovered, no expectation altered, no webhook configuration touched.**
 
-### Reconciliation evidence reader — IN REVIEW, NOT MERGED
+### Reconciliation evidence reader — MERGED #176
 `reconcileDay` stores a `localRowsScanned` / `localInWindow` / `localUnresolvedOccurrence` /
 `localMissingIdentity` / `truncated` block on every row. Nothing printed it, so it has been in
 production since the first run and has never been read. `Read Reconciliation Evidence`
@@ -1044,6 +1044,64 @@ out of the day. One is an ingestion outage, the other a data defect, and they ne
   inspector's name.
 - **No PII and no call identity.** Member ids and declarations are printed; the stored display label
   deliberately is not.
+
+**No migration. No production run — the workflow has not been dispatched.**
+
+### The Aug 11-13 evidence, read (2026-08-20)
+`Read Reconciliation Evidence` was dispatched for 2026-08-10 to 2026-08-14. All five rows found.
+
+| Date | providerUnique | localUnique | localInWindow | localRowsScanned |
+|---|---|---|---|---|
+| 08-10 | 7,298 | 6,963 | 6,963 | — |
+| **08-11** | 4,239 | **0** | **0** | **6,970** |
+| **08-12** | 2,943 | **0** | **0** | **9,389** |
+| **08-13** | 2,802 | **0** | **0** | **2,498** |
+| 08-14 | 2,449 | 2,426 | 2,426 | — |
+
+`localUnresolvedOccurrence=0`, `localMissingIdentity=0`, `truncated=false` on all three.
+
+**`localRowsScanned` counts every callgrid `IntegrationEvent` received within ±2 days of the business
+date, regardless of status and regardless of which day it occurred on.** For date *D* the band covers
+Eastern days *D−2 … D+2*, and the observed totals are exactly the neighbours' known populations:
+7+6,963 = **6,970**; 6,963+2,426 = **9,389**; 2,426+72 = **2,498**. Three independent windows, exact
+to the unit, **no residue** — not one row that could be a misfiled Aug 11-13 call.
+
+⚠️ **`localMissingIdentity` is computed AFTER the in-window filter, so its zero here is vacuous.** It
+says nothing about identities. Do not read it as "identities were fine."
+
+**Ruled out:** timestamps outside the window (would appear as scanned rows beyond the neighbour
+totals); occurrence misfiling (`localUnresolvedOccurrence=0`, and occurrence comes from the payload,
+never `receivedAt`); a status or stage filter (**there is none** — `RECEIVED`, `PROCESSING`,
+`PROCESSED` and `FAILED` all count, so a pipeline failure leaves a counted row).
+
+**Not ruled out, because the ±2-day band cannot see it:** rows arriving more than two days late; rows
+under a different `provider` string; rows under a different `organizationId`.
+
+⚠️ **RECOVERY THROUGH THE EXISTING SYNC WOULD MAKE THIS WORSE, NOT BETTER.** `ingest` never sets
+`receivedAt`, so a `create` stamps today and reconciliation — which selects by `receivedAt` ±2 days —
+would never scan those rows. The calls would appear in `MarketplaceCall`, the CRM and analytics while
+the completeness ledger kept asserting they never arrived. And the outcome is not even uniform:
+`ingest`'s idempotency lookup is `{provider, externalId}` with **no organization scope**, so a call
+that already has a row anywhere takes the `update` branch and keeps its ORIGINAL `receivedAt`. Which
+calls fall in which bucket is exactly what the coverage read answers.
+
+### Integration event coverage reader — IN REVIEW, NOT MERGED
+`Read Integration Event Coverage` (`workflow_dispatch` only) reads callgrid `IntegrationEvent` rows
+over an explicit **inclusive** range of delivery dates and prints aggregates only: per receivedAt day
+with the status split, per occurrence day, and the **cross-timing** pair that names both at once.
+
+It exists for one line: `occurrenceDate=2026-08-11 receivedDate=2026-08-20` would mean the calls
+arrived late and reconciliation could never have counted them. Its absence, with the occurrence
+buckets empty over a wide range, would mean Loop never persisted them at all.
+
+- **Reuses `listEventsReceivedBetween` and the canonical `resolveCallOccurrence`.** No second query
+  path, and explicitly **no second occurrence resolver** — two would eventually disagree about
+  exactly the rows under investigation.
+- **Counts only, enforced by shape.** Every row is reduced to a delivery date, an occurrence date and
+  a status the instant it is read; no payload, id or label survives the loop.
+- **`missingIdentity` is counted over EVERY scanned row here**, unlike reconciliation's counter, so a
+  zero is a fact rather than an artefact of an empty window.
+- Three read-only seams, `DATABASE_URL` only, safety suite before the credential.
 
 **No migration. No production run — the workflow has not been dispatched.**
 
