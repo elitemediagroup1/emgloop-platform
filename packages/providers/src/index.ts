@@ -65,7 +65,6 @@ export {
   fetchCallGridCallsPage,
   extractRecordsOrNull,
   describeShape,
-  fetchAllCallGridCalls,
   mapCallGridApiRecord,
   resolveCallGridBaseUrl,
   parseDurationSeconds,
