@@ -185,7 +185,11 @@ test('2b. the runner reaches no planner, no checkpoint, no ingestion and no prov
     'planPollInterval',
     'ProviderPollCheckpointRepository',
     'providerPollCheckpoint',
-    'completedThrough',
+    'pollCheckpoints',
+    // `completedThrough` is NOT forbidden: it is the input field name of the pure
+    // coverage-health assessor, which the runner feeds a boundary the coordinator
+    // already returned to it. What it must not have is a checkpoint READ or WRITE,
+    // and the repository names above are what that would look like.
     'CallGridPollService',
     'IngestionService',
     '.ingest(',
@@ -457,6 +461,39 @@ test('every pass prints the coverage lag, because a red run is not an alert here
   assert.ok(lag > 0 && lag < 60 * 60 * 1000, 'a healthy pass reports a small lag');
 });
 
+test('the coverage STATUS is judged by the shared rule, and printed beside the lag', async () => {
+  // The endpoint an external watcher polls applies the identical assessor. A run
+  // and a watcher disagreeing about whether coverage is late would mean whichever
+  // one somebody happened to look at decided the answer.
+  const h = harness();
+  await run(h);
+  const line = coverage(h.lines);
+  assert.ok(line.includes('COVERAGE_STATUS=HEALTHY'));
+  assert.ok(RUNNER_CODE.includes('assessCoverageHealth('), 'the shared rule decides');
+  assert.ok(!/lagMs\s*>\s*\d/.test(RUNNER_CODE), 'the runner holds no threshold of its own');
+});
+
+test('a stale checkpoint is reported as STALE, not merely as a large number', async () => {
+  const h = harness({
+    result: routine({
+      execution: execution({ outcome: 'FETCH_INCOMPLETE' }),
+      advancement: 'NOT_PROVEN',
+      checkpointAfter: new Date('2026-08-18T00:00:00.000Z'),
+    }),
+  });
+  await run(h);
+  assert.ok(coverage(h.lines).includes('COVERAGE_STATUS=STALE'));
+});
+
+test('a run that has never proven coverage says NEVER_PROVEN rather than a zero lag', async () => {
+  const h = harness({
+    result: routine({ checkpointBefore: null, checkpointAfter: null, advancement: 'NOT_PROVEN', execution: execution({ outcome: 'REFUSED' }) }),
+  });
+  await run(h);
+  assert.ok(coverage(h.lines).includes('COVERAGE_STATUS=NEVER_PROVEN'));
+  assert.ok(coverage(h.lines).includes('COVERAGE_LAG_MS='));
+});
+
 test('a stalled checkpoint is visible in the lag even while the pass itself failed', async () => {
   const stale = new Date('2026-08-18T00:00:00.000Z');
   const h = harness({
@@ -623,4 +660,40 @@ test('the workflow passes no interval and holds no recovery affordance', () => {
   for (const flag of ['--since', '--until', '--apply', '--date']) {
     assert.ok(!pollStep.includes(flag), `the workflow must not pass ${flag}`);
   }
+});
+
+// --- The health endpoint an external watcher polls ------------------------------------
+
+test('a poller that STOPS RUNNING is visible without any run printing anything', () => {
+  // The hole this closes. COVERAGE_LAG_MS only exists while the poller runs, and
+  // the failure mode that matters most is the poller not running at all —
+  // exactly what happened to drain-outbox for a hundred consecutive runs.
+  const route = codeOf(
+    readFileSync(
+      join(HERE, '..', '..', 'apps', 'web', 'src', 'app', 'api', 'internal', 'coverage-health', 'route.ts'),
+      'utf8',
+    ),
+  );
+  // It reads the DURABLE row, not a run's output.
+  assert.ok(route.includes('listForPlatformHealth('), 'it reads the stored checkpoints');
+  assert.ok(route.includes('assessCoverageHealth('), 'and applies the SAME rule the runner does');
+
+  // Non-2xx is the alert, so an uptime checker that knows nothing but status
+  // codes is a sufficient monitor.
+  assert.ok(route.includes('status: healthy ? 200 : 503'));
+
+  // GET only, and it cannot change what it measures.
+  assert.ok(route.includes('export async function GET('));
+  for (const verb of ['export async function POST', 'export async function PATCH', 'export async function DELETE']) {
+    assert.ok(!route.includes(verb), `the health endpoint must not expose ${verb}`);
+  }
+  for (const symbol of ['advance(', 'IngestionService', '.ingest(', 'executeRecovery', 'planPollInterval']) {
+    assert.ok(!route.includes(symbol), `the health endpoint must not reference ${symbol}`);
+  }
+
+  // Fails closed on a missing secret, and takes no organization from the caller.
+  assert.ok(route.includes("process.env.COVERAGE_HEALTH_SECRET"));
+  assert.ok(route.includes('timingSafeEqual'), 'constant-time comparison, like the outbox trigger');
+  assert.ok(!route.includes('searchParams'), 'no caller-supplied parameter at all');
+  assert.ok(!route.includes('organizationId'), 'and never a tenant id');
 });

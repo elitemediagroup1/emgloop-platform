@@ -49,6 +49,10 @@
 //   CALLGRID_API_KEY   the provider credential
 
 import {
+  DEFAULT_COVERAGE_HEALTH_POLICY,
+  assessCoverageHealth,
+} from '@emgloop/shared';
+import {
   CALLGRID_POLL_POLICY,
   CALLGRID_POLL_PROVIDER,
   CALLGRID_POLL_STREAM,
@@ -304,18 +308,27 @@ async function onePass(slug: string, apiKey: string, deps: RoutineDeps): Promise
   );
 
   const result = classify(outcome);
-  const coverageLagMs = outcome.checkpointAfter
-    ? now.getTime() - outcome.checkpointAfter.getTime()
-    : null;
+  // THE SAME RULE THE HEALTH ENDPOINT APPLIES. A run and an external watcher
+  // disagreeing about whether coverage is late would mean whichever one somebody
+  // happened to look at decided the answer.
+  const health = assessCoverageHealth({
+    completedThrough: outcome.checkpointAfter,
+    now,
+    policy: DEFAULT_COVERAGE_HEALTH_POLICY,
+  });
+  const coverageLagMs = health.lagMs;
 
   deps.log(
     line({
       event: 'COVERAGE',
       organization: organization.slug,
+      COVERAGE_STATUS: health.status,
       // THE NUMBER AN ALERT SHOULD WATCH. It comes from a durable row rather than
       // from this run's exit status, so it stays true when nobody is looking at
       // the colour of a scheduled job -- which is the failure mode that left the
-      // outbox drain red for a hundred consecutive runs.
+      // outbox drain red for a hundred consecutive runs. It is also what
+      // /api/internal/coverage/health serves to an external watcher, so a poller
+      // that STOPS RUNNING is visible without this line ever being printed.
       COVERAGE_LAG_MS: coverageLagMs,
       coverageProvenThrough: outcome.checkpointAfter?.toISOString() ?? '',
       result,

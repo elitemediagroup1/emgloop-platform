@@ -187,6 +187,10 @@ export * from './poll-interval-planning';
 // Splitting an explicit recovery interval into deterministic Eastern-day chunks.
 // Pure; the operation that runs them lives in scripts/operations.
 export * from './recovery-chunking';
+// Whether proven coverage is keeping up. Pure; read by an operational health
+// endpoint so an external watcher can see a poller that STOPPED, not only one
+// that failed.
+export * from './coverage-health';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---
