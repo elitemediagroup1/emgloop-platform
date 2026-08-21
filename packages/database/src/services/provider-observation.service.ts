@@ -80,6 +80,13 @@ function statusForErrorKind(kind: string | undefined): ProviderObservationStatus
       // A record with no usable timestamp means the page could not be interpreted,
       // so the window was not observed. It is a malformed payload, not a zero.
       return 'MALFORMED_RESPONSE';
+    case 'no-identity':
+      // Same argument, the other half of the contract. A record with no provider
+      // id cannot enter an identity comparison, so a window containing one was
+      // not interpretable either. Certifying or not is unchanged -- both were
+      // already non-certifying -- this only stops the ledger recording an
+      // endpoint failure for a payload defect.
+      return 'MALFORMED_RESPONSE';
     default:
       return 'ENDPOINT_FAILURE';
   }

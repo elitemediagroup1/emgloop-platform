@@ -40,7 +40,21 @@ import type {
     WebhookVerificationResult,
 } from '../interfaces/ingestion.provider';
 import { verifyCallGridAuth, parseTimestamp } from '../webhook-security';
-import { fetchAllCallGridCalls } from './callgrid-api';
+import { CallGridApiError, type CallGridApiErrorKind } from './callgrid-api';
+import { readCallGridInterval, type IntervalReadOutcome } from './callgrid-interval';
+
+/**
+ * How a non-complete interval read surfaces to a caller that only understands
+ * the adapter's error kinds.
+ *
+ * Each maps to the closest EXISTING member of the shipped vocabulary rather than
+ * widening it: certification already turns an unrecognised kind into
+ * ENDPOINT_FAILURE, which is the correct non-certifying answer for a read that
+ * did not finish.
+ */
+function outcomeErrorKind(outcome: IntervalReadOutcome): CallGridApiErrorKind {
+  return outcome === 'PROVIDER_ERROR' ? 'http-status' : 'request-failed';
+}
 
 // ---- CallGrid raw event vocabulary ----------------------------------------
 // CallGrid sends a 'callStatus' string (the real API/webhook enum: QUEUED,
@@ -384,15 +398,69 @@ export class CallGridProvider implements IngestionProvider {
                 typeof ctx.config?.['apiBaseUrl'] === 'string'
             ? (ctx.config['apiBaseUrl'] as string)
                   : undefined;
-        const page = await fetchAllCallGridCalls({
+        // THE CONVENIENCE LIVES HERE; THE PAGINATION DOES NOT.
+    //
+    // `until` is optional on PollOptions and its doc has always called it
+    // EXCLUSIVE. Resolving "absent means up to now" is a wrapper's job, and it
+    // is done HERE precisely so it is not done inside the canonical reader --
+    // a clock in there would make the same bounded request return different
+    // populations depending on when it ran.
+    //
+    // AND IT IS NOW GENUINELY EXCLUSIVE. The loop this replaces put `until` on
+    // the wire inclusively, against CallGrid's inclusive filter, so a call
+    // landing exactly on the boundary was returned for a window that the LOCAL
+    // side -- which filters `occurredAt < window.end` -- excludes. The two sides
+    // disagreed about one instant, and the provider-only column was where that
+    // showed up. The bounded reader expresses the exclusive bound correctly.
+    const result = await readCallGridInterval({
                 apiKey,
                 since: options.since,
-                until: options.until,
-                limit: options.limit,
-                maxPages: options.maxPages,
-                cursor: options.cursor,
-                baseUrl,
+                until: options.until ?? new Date(),
+                ...(options.limit ? { pageSize: options.limit } : {}),
+                ...(options.maxPages ? { maxPages: options.maxPages } : {}),
+                ...(baseUrl ? { baseUrl } : {}),
         });
+
+    // A REFUSED RECORD FAILS THIS ADAPTER CLOSED, and that is deliberate rather
+    // than inherited. The reader stays NEUTRAL -- it partitions and reports,
+    // because a future poller can legitimately ingest 4,238 records and flag one
+    // -- but every caller of `poll()` today is a COMPLETENESS gate. Certification
+    // counts the provider population and reconciliation compares its identities,
+    // and a record with no id cannot enter an identity comparison at all. Letting
+    // one through would shrink the compared population from 4,239 to 4,238 with
+    // nothing saying so, which is precisely the silent shrink this migration must
+    // not cause.
+    if (result.refused.length > 0) {
+              const first = result.refused[0]!;
+              throw new CallGridApiError(
+                      `CallGrid returned ${result.records} records and ${result.refused.length} could not be mapped: ${first.reason}`,
+                      undefined,
+                      (first.kind as CallGridApiErrorKind | undefined) ?? 'no-identity',
+                    );
+    }
+
+    // TRUNCATION IS REPORTED, EVERYTHING ELSE THROWS. A budget reached while the
+    // provider still had pages is a lower bound the callers already know how to
+    // record -- certification stores PARTIAL_PAGINATION, reconciliation stores
+    // INCONCLUSIVE. The other non-complete outcomes have no such representation
+    // and must not be flattened into one: a throttled read and a cursor loop are
+    // not partial days, they are failures to read.
+    if (result.outcome !== 'COMPLETE' && result.outcome !== 'TRUNCATED') {
+              throw new CallGridApiError(
+                      `CallGrid interval read ended ${result.outcome}: ${result.reason ?? 'no detail'}`,
+                      undefined,
+                      outcomeErrorKind(result.outcome),
+                    );
+    }
+
+    const page = {
+              events: result.events,
+              nextCursor: result.nextCursor,
+              pages: result.pages,
+              pageCap: result.pageCap,
+              records: result.records,
+              truncated: result.outcome === 'TRUNCATED',
+    };
 
     // THE CONTINUATION STATE IS REPORTED, NOT ASSERTED.
     //

@@ -558,75 +558,19 @@ export async function fetchCallGridCallsPage(
     };
 }
 
-/** The default page budget. A safety bound, never a statement about completeness. */
-export const CALLGRID_DEFAULT_MAX_PAGES = 25;
+// THE MULTI-PAGE LOOP LIVES IN `callgrid-interval.ts`, AND ONLY THERE.
+//
+// `fetchAllCallGridCalls` used to own a second one. It was the loop that learned,
+// the hard way, that a page budget reached and a provider exhausted are different
+// endings -- a 6,918-call window once came back as a clean 2,500 because they
+// were not. `readCallGridInterval` carries that lesson and four more it could not
+// express: a repeated cursor, more-pages-with-no-cursor, a throttled page and an
+// oversized request are each a named outcome rather than an exception or a
+// boolean.
+//
+// Two loops over one page primitive was an intentional temporary state while the
+// callers moved. It is not one any more: `poll()` is the only multi-page caller
+// and it delegates. What stays here is the page request, the envelope parse and
+// the cursor extraction -- shared by construction, and asserted to be the only
+// copies by test.
 
-/** What a paginated fetch read, and whether it got to the end. */
-export interface CallGridFetchAllResult {
-    events: InboundEvent[];
-    /** Pages actually requested. */
-  pages: number;
-    /** Raw records seen across those pages. */
-  records: number;
-    /** The budget that applied, so a truncated result is explicable. */
-  pageCap: number;
-    /**
-     * TRUE ONLY WHEN *WE* STOPPED AND THE PROVIDER HAD MORE.
-     *
-     * A page budget reached while CallGrid was still offering pages means what we
-     * hold is a lower bound. Nothing may treat such a read as a complete picture
-     * of the window — it is the same rule `marketplace_report_runs.truncated`
-     * already applies to auction reports.
-     */
-  truncated: boolean;
-    /** The cursor we stopped at when truncated, so a caller can resume honestly. */
-  nextCursor?: unknown;
-}
-
-/**
- * Fetch ALL CallGrid calls in a date range, following cursor pagination.
- *
- * EXHAUSTION IS PROVEN BY THE PROVIDER, NOT ASSUMED BY THE CAP. The loop ends for
- * one of two genuinely different reasons and reports which: either CallGrid said
- * it had no more pages, or we hit our own budget while it still did. The previous
- * version could not tell those apart — it broke out of a `do…while` when the page
- * count ran out and returned the same shape either way, so a window with 6,918
- * calls came back as a clean 2,500 and every caller read it as the whole day.
- *
- * Raising the cap would not have fixed that. Knowing which of the two happened is
- * the fix, and the cap stays so a provider that always reports `hasMore` cannot
- * spin.
- */
-export async function fetchAllCallGridCalls(
-    options: CallGridApiFetchOptions & { maxPages?: number },
-  ): Promise<CallGridFetchAllResult> {
-    const pageCap =
-          options.maxPages && options.maxPages > 0 ? options.maxPages : CALLGRID_DEFAULT_MAX_PAGES;
-    const events: InboundEvent[] = [];
-    let cursor = options.cursor;
-    let pages = 0;
-    let records = 0;
-    let truncated = false;
-
-  for (;;) {
-        const page = await fetchCallGridCallsPage({ ...options, cursor });
-        pages += 1;
-        records += page.records.length;
-        for (const record of page.records) events.push(mapCallGridApiRecord(record));
-        cursor = page.nextCursor;
-
-    // The provider says there is nothing after this page. Exhausted, honestly.
-    if (!page.hasMore || cursor === undefined || cursor === null) {
-              cursor = undefined;
-              break;
-    }
-        // There IS more and we are out of budget. Say so rather than returning a
-    // partial read wearing a complete read's shape.
-    if (pages >= pageCap) {
-              truncated = true;
-              break;
-    }
-  }
-
-  return { events, pages, records, pageCap, truncated, nextCursor: truncated ? cursor : undefined };
-}

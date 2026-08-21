@@ -62,8 +62,10 @@ test('an EMPTY page is distinguishable from an unrecognised shape', () => {
 
 // --- The live failure, pinned ---------------------------------------------
 
-test('the object returned by fetchAllCallGridCalls is NOT a records array', () => {
+test('the object returned by the interval reader is NOT a records array', () => {
   // `{ events, pages, records }` was cast to an array and reached `.slice()`.
+  // The reader that produced it was `fetchAllCallGridCalls` at the time; it is
+  // `readCallGridInterval` now, and the confusion the shape invites is the same.
   const wrong = { events: [], pages: 1, records: 3 };
   assert.equal(Array.isArray(wrong), false);
   // `records` here is a COUNT, not the rows — the shape is doubly wrong.
