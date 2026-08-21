@@ -219,11 +219,46 @@ function shiftBackEasternDays(instant: Date, count: number): Date {
 /** A calendar day in the business timezone, 'YYYY-MM-DD'. Never a UTC date. */
 export type BusinessDate = string;
 
-const BUSINESS_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const BUSINESS_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** Whether `value` is a syntactically valid business date. Fails closed. */
+/**
+ * Whether `value` is a real business date.
+ *
+ * THE SHAPE IS NOT ENOUGH, and this used to only check the shape. `2026-13-99`
+ * matched, and so did `2026-02-31` and `2026-00-00` -- which meant every
+ * date-taking operation in this repository accepted them: certification, which
+ * writes a ledger row per date; reconciliation, which writes a verdict;
+ * expectation and authority declarations, which write effective-dated rows a
+ * measurement later resolves through; and the admin sync route. An operator typo
+ * would have been carried all the way to a production write and turned into a
+ * window derived from a month that does not exist.
+ *
+ * FAILS CLOSED, which is the whole point of the predicate. The check is done by
+ * ROUND-TRIPPING through UTC rather than by a table of month lengths: a real date
+ * survives `Date.UTC` unchanged, and 2026-02-31 comes back as 2026-03-03, which
+ * is exactly the silent coercion that makes a typo dangerous. February 29 is
+ * therefore correct in a leap year and refused in an ordinary one without anybody
+ * writing that rule down.
+ *
+ * DELIBERATELY NOT TIMEZONE-AWARE. This asks whether a string names a day on the
+ * calendar, not whether that day exists in Eastern -- every calendar day does.
+ * Which instants a day spans is `easternBusinessDayWindow`'s question and stays
+ * there.
+ */
 export function isBusinessDate(value: unknown): value is BusinessDate {
-  return typeof value === 'string' && BUSINESS_DATE_PATTERN.test(value);
+  if (typeof value !== 'string') return false;
+  const match = BUSINESS_DATE_PATTERN.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const roundTrip = new Date(Date.UTC(year, month - 1, day));
+  return (
+    roundTrip.getUTCFullYear() === year &&
+    roundTrip.getUTCMonth() === month - 1 &&
+    roundTrip.getUTCDate() === day
+  );
 }
 
 /** The Eastern business date `instant` belongs to. */
