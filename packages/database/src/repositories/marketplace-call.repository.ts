@@ -242,6 +242,39 @@ export class MarketplaceCallRepository {
   }
 
   /**
+   * The PROJECTED identity set for a window, batched, and nothing else.
+   *
+   * WHY IDENTITIES AND NOT ROWS. The question this serves is "was this captured
+   * call also projected" -- a set membership test. Loading the row would pull
+   * money, labels and attribution a verification report has no business holding,
+   * and `listWindowForReconciliation` already exists for callers that legitimately
+   * compare values. This one cannot leak what it never selected.
+   *
+   * Keyed on `sourceOccurredAt`, which is the projection's copy of provider
+   * occurrence -- so a recovered call sits in the window it happened in, exactly
+   * as it does on the integration_events side.
+   */
+  async listIdentitiesInWindow(
+    organizationId: string,
+    since: Date,
+    until: Date,
+    options: { batchSize?: number; afterId?: string } = {},
+  ): Promise<Array<{ id: string; externalId: string }>> {
+    const take = options.batchSize && options.batchSize > 0 ? Math.min(options.batchSize, 1000) : 500;
+    const rows = await this.prisma.marketplaceCall.findMany({
+      where: {
+        organizationId,
+        sourceOccurredAt: { gte: since, lt: until },
+        ...(options.afterId ? { id: { gt: options.afterId } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take,
+      select: { id: true, externalId: true },
+    });
+    return rows.map((r) => ({ id: r.id, externalId: r.externalId }));
+  }
+
+  /**
    * Read-only window listing for live reconciliation against CallGrid.
    *
    * Selects only the columns the comparison needs — no caller phone, no raw
