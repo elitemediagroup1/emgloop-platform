@@ -55,36 +55,31 @@
 //   DATABASE_URL       the DIRECT (non-pooled) production endpoint
 //   CALLGRID_API_KEY   the provider credential
 
-import { createHash } from 'node:crypto';
+import { INTERVAL_MAX_SPAN_DAYS, validateInterval } from '@emgloop/providers';
 import {
-  INTERVAL_MAX_SPAN_DAYS,
-  intervalWasComplete,
-  validateInterval,
-  type IntervalReadResult,
-} from '@emgloop/providers';
-import { isDuplicateObservation, type IngestInput, type IngestResult } from '@emgloop/database';
+  CALLGRID_POLL_OUTCOMES,
+  CALLGRID_POLL_PROVIDER,
+  CALLGRID_POLL_STREAM,
+  POLL_OBSERVATION_SOURCE,
+  pollSucceeded,
+  type CallGridPollExecution,
+  type CallGridPollInput,
+  type CallGridPollObserver,
+  type CallGridPollOutcome,
+} from '@emgloop/database';
 
 // --- The seams this file is tested through -----------------------------------
 //
-// Four capabilities, each the narrowest thing that does the job. The runner can
-// read an interval, ingest a batch, ask whether it already holds a delivery, and
-// look an organization up. It cannot reach a Prisma model, a repository, a
-// service or a provider client, which is what makes "it cannot certify, measure
-// or recover" a property of the type rather than of somebody's care at review.
+// TWO capabilities, each the narrowest thing that does the job: run one bounded
+// poll, and look an organization up. There were four until PR 9, when the read,
+// the completeness gate, the refusal policy and the apply loop moved into
+// `CallGridPollService` so the admin sync route could reach the SAME primitive
+// rather than keeping its own unsafe one. What is left here is a command-line
+// front end: parse, resolve a slug, invoke, print.
 
-/** The one provider read this runner may perform. Completeness lives inside it. */
-export interface IntervalReader {
-  read(request: { apiKey: string; since: Date; until: Date }): Promise<IntervalReadResult>;
-}
-
-/** The one write path. This runner never touches a row any other way. */
-export interface Ingestor {
-  ingest(input: IngestInput): Promise<IngestResult[]>;
-}
-
-/** A read used only by the dry run, to say what ingestion WOULD do. */
-export interface EventStatusLookup {
-  statusOfEvent(organizationId: string, provider: string, externalId: string): Promise<string | null>;
+/** The one write-capable operation this runner may perform. */
+export interface PollExecutor {
+  execute(input: CallGridPollInput, observer?: CallGridPollObserver): Promise<CallGridPollExecution>;
 }
 
 /** Read-only organization lookup. This runner may never provision one. */
@@ -93,9 +88,7 @@ export interface OrganizationLookup {
 }
 
 export interface PollDeps {
-  reader: IntervalReader;
-  ingestor: Ingestor;
-  events: EventStatusLookup;
+  executor: PollExecutor;
   organizations: OrganizationLookup;
   /** Injected so tests can read every line, and so nothing writes to stdout directly. */
   log: (line: string) => void;
@@ -112,100 +105,28 @@ export interface PollRequest {
   apiKey: string;
   /** TRUE performs zero mutations. The default everywhere, including main(). */
   dryRun: boolean;
-  /**
-   * The canonical REST event-type mapper, supplied rather than written here.
-   *
-   * `mapReconEventType` already translates a CallGrid `callStatus` into a Loop
-   * event type and already refuses to guess at an unrecognised one. A second
-   * mapper in a runner would disagree with it on the first status CallGrid adds.
-   */
-  mapEventType: (rawEventType: string) => string;
 }
 
 /**
- * What a run did, in the only seven ways it can end.
+ * The outcome vocabulary, re-exported rather than restated.
  *
- * FOUR OF THESE MEAN NOTHING WAS WRITTEN, and they are separate names rather
- * than one failure because the operator's next move differs: REFUSED is
- * something to fix in the request, FETCH_INCOMPLETE is something to retry,
- * PROCESSING_FAILED is a bug, and DRY_RUN_READY is a success.
+ * It belongs to the primitive that produces it. A copy here would be a second
+ * list of what a poll can do, and the two would disagree the first time one of
+ * them gained a member.
  */
-export const POLL_RESULTS = [
-  /** Read completed, nothing written, this is what would happen. */
-  'DRY_RUN_READY',
-  /** Read completed and every accepted record was processed. */
-  'APPLIED',
-  /** As APPLIED, and at least one provider fact DISAGREED with what Loop holds. */
-  'APPLIED_WITH_CONFLICTS',
-  /** Processing stopped part-way. Some rows are live. NEVER a success. */
-  'PARTIALLY_APPLIED',
-  /** Processing failed on the first record. Nothing is live. */
-  'PROCESSING_FAILED',
-  /** The provider read did not complete. Nothing was written. */
-  'FETCH_INCOMPLETE',
-  /** The run refused before writing anything: bad request, or a refused record. */
-  'REFUSED',
-] as const;
+export const POLL_RESULTS = CALLGRID_POLL_OUTCOMES;
+export type PollOutcome = CallGridPollOutcome;
 
-export type PollOutcome = (typeof POLL_RESULTS)[number];
-
-export interface PollResult {
-  overall: PollOutcome;
+/** The primitive's own result, plus the two things only a runner knows. */
+export type PollResult = CallGridPollExecution & {
   organizationSlug: string;
-  since: string;
-  until: string;
-  dryRun: boolean;
-  /** Set on REFUSED and FETCH_INCOMPLETE. One sentence, never a credential. */
-  reason: string | null;
-  /** The retrieval outcome verbatim, when a read was attempted. */
-  fetchOutcome: string | null;
-  /** Raw provider records seen, including ones the mapper refused. */
-  providerRecordsFetched: number;
-  /** Records that mapped to a canonical event. */
-  acceptedRecords: number;
-  /** Records the provider returned and the mapper would not map. */
-  refusedRecords: number;
-  /** Deliveries Loop had never held. */
-  newEvents: number;
-  /** Deliveries Loop already held, re-observed. */
-  duplicateObservations: number;
-  /** CALLS whose canonical facts moved. Not a count of facts. */
-  strengthenedCalls: number;
-  /** FACTS that disagreed. Not a count of calls. Nothing moved for any of them. */
-  conflicts: number;
-  /** Records that raised during processing. At most one: the run stops. */
-  failedProcessing: number;
-  /** Accepted records never handed to ingestion, for any reason. */
-  notAttempted: number;
-  pages: number;
-  pageCap: number;
-  rateLimitRetries: number;
-  /** Provider-reported total for the interval when it supplies one. Advisory. */
-  providerTotal: number | null;
-  /** Where processing stopped, when it stopped. Never a raw provider identity. */
-  failedAtIndex: number | null;
-  failedIdentityDigest: string | null;
   elapsedMs: number;
-}
+};
 
 // --- Input validation ---------------------------------------------------------
 
 /** Organization statuses this tool refuses to operate against. */
 export const REFUSED_ORGANIZATION_STATUSES = ['SUSPENDED', 'CANCELED'] as const;
-
-/** The provider and stream this operation is for. Fixed, not a parameter. */
-export const POLL_PROVIDER = 'callgrid';
-export const POLL_STREAM = 'calls';
-
-/**
- * How rows written by this run are labelled. A constant, not an input.
- *
- * The operator cannot choose this. API_RECOVERY means a person went looking for
- * a known gap, and letting a routine poll claim that label — or letting a
- * recovery hide as routine traffic — would make the provenance field answer a
- * different question than the one it was added to answer.
- */
-export const POLL_OBSERVATION_SOURCE = 'API_POLL' as const;
 
 /**
  * An instant, or nothing.
@@ -307,23 +228,9 @@ function line(fields: Record<string, string | number | boolean | null>): string 
     .join(' ');
 }
 
-/**
- * A stable, non-reversible handle for one provider record.
- *
- * The raw CallGrid identity is deliberately not printed. An operator does not
- * need it: re-running the same interval converges, and the durable evidence for
- * a conflict is a `provider_fact_revisions` row that carries the real identity
- * inside the database where it is already scoped to a tenant. What a log line
- * needs is enough to correlate two mentions of the same record, and that is all
- * this gives.
- */
-export function identityDigest(externalId: string): string {
-  return createHash('sha256').update(externalId).digest('hex').slice(0, 12);
-}
-
 function emptyResult(request: PollRequest): PollResult {
   return {
-    overall: 'REFUSED',
+    outcome: 'REFUSED',
     organizationSlug: request.organizationSlug,
     since: request.since.toISOString(),
     until: request.until.toISOString(),
@@ -333,6 +240,7 @@ function emptyResult(request: PollRequest): PollResult {
     providerRecordsFetched: 0,
     acceptedRecords: 0,
     refusedRecords: 0,
+    refusals: [],
     newEvents: 0,
     duplicateObservations: 0,
     strengthenedCalls: 0,
@@ -349,19 +257,18 @@ function emptyResult(request: PollRequest): PollResult {
   };
 }
 
-/** How often a long apply reports progress. Not a batch size: writes are one at a time. */
-export const PROGRESS_EVERY = 250;
-
 // --- The run ------------------------------------------------------------------
 
 /**
- * Read one bounded interval, and write it only if the read completed.
+ * Resolve an organization, invoke the canonical poll, and print what happened.
  *
- * SEQUENTIAL BY CONSTRUCTION. There is no `Promise.all` here and there must never
- * be one. Two records for the same call processed concurrently would race on the
- * same `(provider, externalId)` row and on the same canonical facts, and — the
- * reason that actually matters — a parallel apply cannot stop at the first
- * failure, because by then it has already written the others.
+ * EVERY DECISION THAT MATTERS IS SOMEWHERE ELSE. Whether the read completed,
+ * whether a refused record aborts the interval, whether a mid-batch failure is
+ * partial or total, what the counts mean — all of that lives in
+ * `CallGridPollService.execute`, which the admin sync route calls too. This
+ * function computes none of it and must never begin to: the moment a runner and
+ * a route each decide what "complete" means, one of them is wrong and nobody
+ * knows which.
  */
 export async function runPoll(request: PollRequest, deps: PollDeps): Promise<PollResult> {
   const startedAt = deps.now().getTime();
@@ -390,13 +297,13 @@ export async function runPoll(request: PollRequest, deps: PollDeps): Promise<Pol
         FAILED_AT_INDEX: result.failedAtIndex,
         FAILED_IDENTITY: result.failedIdentityDigest ?? '',
         ELAPSED_MS: result.elapsedMs,
-        OVERALL_RESULT: result.overall,
+        OVERALL_RESULT: result.outcome,
       }),
     );
     return result;
   };
   const refuse = (reason: string): PollResult => {
-    result.overall = 'REFUSED';
+    result.outcome = 'REFUSED';
     result.reason = reason;
     deps.log(line({ event: 'PRECONDITION_FAILED', reason }));
     return finish();
@@ -405,10 +312,11 @@ export async function runPoll(request: PollRequest, deps: PollDeps): Promise<Pol
   if (!request.organizationSlug) return refuse('--organization <slug> is required.');
   if (!request.apiKey) return refuse('No provider credential was supplied.');
 
-  // THE BOUNDS ARE JUDGED BY THE READER'S OWN RULE, not by a second opinion
-  // written here. `validateInterval` is what `readCallGridInterval` applies, so a
-  // span limit or an ordering rule that changes there changes here on the same
-  // day rather than drifting into disagreement.
+  // THE SAME RULE THE PRIMITIVE APPLIES, applied earlier. `validateInterval` is
+  // what `readCallGridInterval` uses and what `execute` uses, so this is not a
+  // second opinion — it is the same opinion, reached before a database client or
+  // a provider request is constructed for an interval that was never going to be
+  // read.
   const bounds = validateInterval(request.since, request.until);
   if (!bounds.ok) return refuse(bounds.reason);
 
@@ -427,8 +335,8 @@ export async function runPoll(request: PollRequest, deps: PollDeps): Promise<Pol
       event: 'RUN_START',
       organization: organization.slug,
       organizationName: organization.name,
-      provider: POLL_PROVIDER,
-      stream: POLL_STREAM,
+      provider: CALLGRID_POLL_PROVIDER,
+      stream: CALLGRID_POLL_STREAM,
       since: result.since,
       until: result.until,
       maxSpanDays: INTERVAL_MAX_SPAN_DAYS,
@@ -437,114 +345,105 @@ export async function runPoll(request: PollRequest, deps: PollDeps): Promise<Pol
     }),
   );
 
-  // --- 1. Read the whole interval, before anything is written ------------------
-  let read: IntervalReadResult;
-  try {
-    read = await deps.reader.read({ apiKey: request.apiKey, since: request.since, until: request.until });
-  } catch (error) {
-    // The reader classifies provider failures into outcomes and does not throw
-    // for them, so reaching here is structural. Nothing was written either way.
-    const detail = error instanceof Error ? error.message : 'unknown error';
-    result.overall = 'FETCH_INCOMPLETE';
-    result.reason = detail;
-    result.fetchOutcome = 'THREW';
-    deps.log(line({ event: 'FETCH_ERROR', detail }));
-    return finish();
-  }
-
-  result.fetchOutcome = read.outcome;
-  result.providerRecordsFetched = read.records;
-  result.acceptedRecords = read.events.length;
-  result.refusedRecords = read.refused.length;
-  result.pages = read.pages;
-  result.pageCap = read.pageCap;
-  result.rateLimitRetries = read.rateLimitRetries;
-  result.providerTotal = typeof read.providerTotal === 'number' ? read.providerTotal : null;
-
-  deps.log(
-    line({
-      event: 'FETCH_RESULT',
-      outcome: read.outcome,
-      complete: intervalWasComplete(read) ? 'YES' : 'NO',
-      records: read.records,
-      accepted: read.events.length,
-      refused: read.refused.length,
-      pages: read.pages,
-      pageCap: read.pageCap,
-      rateLimitRetries: read.rateLimitRetries,
-      providerTotal: result.providerTotal,
-      reason: read.reason ?? '',
-    }),
-  );
-
-  // THE LOAD-BEARING LINE. `intervalWasComplete` is the shared predicate, so an
-  // outcome added to the reader later is treated as incomplete here on the day it
-  // is added rather than falling through a hard-coded list of today's failures.
-  if (!intervalWasComplete(read)) {
-    result.overall = 'FETCH_INCOMPLETE';
-    result.reason =
-      read.reason ?? `The provider read ended ${read.outcome} rather than COMPLETE.`;
-    result.notAttempted = read.events.length;
-    deps.log(
-      line({
-        event: 'WRITES_SKIPPED',
-        reason: 'retrieval incomplete',
-        outcome: read.outcome,
-        notAttempted: result.notAttempted,
-        note: 'What came back is a LOWER BOUND on this interval. Nothing was written.',
-      }),
-    );
-    return finish();
-  }
-
-  // --- 2. A complete read may still hold records the mapper refused ------------
-  //
-  // FAIL CLOSED, ALL OR NOTHING. The alternative — write the accepted records and
-  // report the interval as covered-with-exceptions — is the option that a future
-  // checkpoint would eventually advance past, taking the refused records with it
-  // permanently. There is no resumable contract in this repository that could
-  // carry "this interval is done except for these three", so the honest answer is
-  // that the interval is not done. A refused record means the provider returned
-  // something the shipped mapper does not recognise, which is a contract change
-  // worth a person's attention rather than a rounding error.
-  if (read.refused.length > 0) {
-    result.overall = 'REFUSED';
-    result.reason =
-      `${read.refused.length} provider record(s) in a COMPLETE read could not be mapped. ` +
-      'No records were written: an interval containing an unmapped record is not a polled interval.';
-    result.notAttempted = read.events.length;
-    for (const refusedRecord of read.refused) {
+  // Streamed while the apply is running, because a four-thousand-record interval
+  // that prints nothing for twenty minutes looks identical to a hung one.
+  const observer: CallGridPollObserver = {
+    onStrengthened: (info) =>
       deps.log(
         line({
-          event: 'RECORD_REFUSED',
-          page: refusedRecord.page,
-          kind: refusedRecord.kind ?? '',
-          reason: refusedRecord.reason,
+          event: 'CALL_STRENGTHENED',
+          index: info.index,
+          identity: info.identityDigest,
+          facts: info.facts.join(','),
         }),
-      );
-    }
+      ),
+    onConflict: (info) =>
+      deps.log(
+        line({
+          event: 'FACT_CONFLICT',
+          index: info.index,
+          identity: info.identityDigest,
+          facts: info.facts.join(','),
+          note: 'The canonical value did NOT move. A revision row records the disagreement.',
+        }),
+      ),
+    onProgress: (info) =>
+      deps.log(
+        line({
+          event: 'PROGRESS',
+          done: info.done,
+          of: info.of,
+          created: info.created,
+          reObserved: info.reObserved,
+        }),
+      ),
+    onFailure: (info) =>
+      deps.log(
+        line({
+          event: 'RECORD_FAILED',
+          index: info.index,
+          identity: info.identityDigest,
+          applied: info.applied,
+          notAttempted: info.notAttempted,
+          detail: info.detail,
+        }),
+      ),
+  };
+
+  const execution = await deps.executor.execute(
+    {
+      organizationId: organization.id,
+      apiKey: request.apiKey,
+      since: request.since,
+      until: request.until,
+      dryRun: request.dryRun,
+    },
+    observer,
+  );
+  Object.assign(result, execution);
+
+  if (result.fetchOutcome !== null) {
+    deps.log(
+      line({
+        event: 'FETCH_RESULT',
+        outcome: result.fetchOutcome,
+        complete: result.fetchOutcome === 'COMPLETE' ? 'YES' : 'NO',
+        records: result.providerRecordsFetched,
+        accepted: result.acceptedRecords,
+        refused: result.refusedRecords,
+        pages: result.pages,
+        pageCap: result.pageCap,
+        rateLimitRetries: result.rateLimitRetries,
+        providerTotal: result.providerTotal,
+      }),
+    );
+  }
+
+  // Each refusal is named, so it cannot vanish into a count.
+  for (const refusal of result.refusals) {
+    deps.log(
+      line({
+        event: 'RECORD_REFUSED',
+        page: refusal.page,
+        kind: refusal.kind ?? '',
+        reason: refusal.reason,
+      }),
+    );
+  }
+
+  if (result.outcome === 'FETCH_INCOMPLETE' || (result.outcome === 'REFUSED' && result.refusals.length > 0)) {
     deps.log(
       line({
         event: 'WRITES_SKIPPED',
-        reason: 'refused records',
-        refused: read.refused.length,
+        reason: result.outcome === 'FETCH_INCOMPLETE' ? 'retrieval incomplete' : 'refused records',
+        outcome: result.fetchOutcome ?? '',
         notAttempted: result.notAttempted,
+        note: 'Nothing was written.',
       }),
     );
-    return finish();
   }
 
-  // --- 3. Dry run: say what would happen, mutate nothing -----------------------
-  if (request.dryRun) {
-    for (const ev of read.events) {
-      const status = await deps.events.statusOfEvent(organization.id, POLL_PROVIDER, ev.externalId);
-      // The SAME predicate ingestion branches on. Re-spelling the status literal
-      // here is how a dry run starts describing a run that no longer exists.
-      if (status !== null && isDuplicateObservation(status)) result.duplicateObservations += 1;
-      else result.newEvents += 1;
-    }
-    result.notAttempted = read.events.length;
-    result.overall = 'DRY_RUN_READY';
+  if (result.outcome === 'DRY_RUN_READY') {
     deps.log(
       line({
         event: 'DRY_RUN_PLAN',
@@ -555,119 +454,20 @@ export async function runPoll(request: PollRequest, deps: PollDeps): Promise<Pol
     );
     deps.log(
       line({
-        event: 'DRY_RUN_CAVEAT',
         // Said out loud rather than implied by a zero. A dry run that reported
         // strengthened=0 would be read as "nothing will change", which is a claim
         // it cannot make.
+        event: 'DRY_RUN_CAVEAT',
         convergencePredicted: 'NO',
-        note:
-          'Whether a re-observation strengthens or conflicts with a canonical fact is decided ' +
-          'by convergeFact against the stored value at write time and is NOT predicted here. ' +
-          'Duplicate classification is organization-scoped; ingestion matches (provider, externalId) ' +
-          'globally, so a delivery held by another tenant is counted as new above and would be ' +
-          'recognised as existing on apply.',
+        note: result.reason ?? '',
       }),
     );
-    return finish();
   }
 
-  // --- 4. Apply, one record at a time, stopping on an unexpected failure -------
-  //
-  // FETCHING IS ALL-OR-NOTHING; PROCESSING IS NOT, and cannot be. Thousands of
-  // records through the full pipeline is not one database transaction and pretending
-  // otherwise would mean holding a transaction open for the length of a provider
-  // day. So the guarantee here is different and is stated rather than implied: a
-  // run that stops part-way reports PARTIALLY_APPLIED, names where it stopped, and
-  // is never a success. Re-running the identical interval converges, because every
-  // row already written is recognised by `(provider, externalId)` and re-observed
-  // rather than duplicated.
-  //
-  // A PROVIDER FACT CONFLICT IS NOT A FAILURE. It is a business outcome PR #182
-  // exists to produce: two settled values disagree, the canonical value did not
-  // move, and a revision row records the disagreement. The run continues and
-  // reports APPLIED_WITH_CONFLICTS, because stopping would leave the rest of a
-  // real interval unwritten over a question about one call's revenue.
-  for (let index = 0; index < read.events.length; index += 1) {
-    const ev = read.events[index];
-    if (!ev) continue;
-    let outcome: IngestResult | undefined;
-    try {
-      const results = await deps.ingestor.ingest({
-        organizationId: organization.id,
-        provider: POLL_PROVIDER,
-        mapEventType: request.mapEventType,
-        events: [ev],
-        observationSource: POLL_OBSERVATION_SOURCE,
-      });
-      outcome = results[0];
-    } catch (error) {
-      outcome = undefined;
-      result.reason = error instanceof Error ? error.message : 'unknown error';
-    }
-
-    if (!outcome || outcome.status === 'failed') {
-      result.failedProcessing += 1;
-      result.failedAtIndex = index;
-      result.failedIdentityDigest = identityDigest(ev.externalId);
-      result.notAttempted = read.events.length - index - 1;
-      result.reason = outcome?.error ?? result.reason ?? 'Ingestion reported no result.';
-      const applied = result.newEvents + result.duplicateObservations;
-      result.overall = applied > 0 ? 'PARTIALLY_APPLIED' : 'PROCESSING_FAILED';
-      deps.log(
-        line({
-          event: 'RECORD_FAILED',
-          index,
-          identity: result.failedIdentityDigest,
-          applied,
-          notAttempted: result.notAttempted,
-          detail: result.reason,
-        }),
-      );
-      return finish();
-    }
-
-    if (outcome.status === 'duplicate') result.duplicateObservations += 1;
-    else result.newEvents += 1;
-
-    if (outcome.strengthenedFacts.length > 0) {
-      result.strengthenedCalls += 1;
-      deps.log(
-        line({
-          event: 'CALL_STRENGTHENED',
-          index,
-          identity: identityDigest(ev.externalId),
-          facts: outcome.strengthenedFacts.join(','),
-        }),
-      );
-    }
-    if (outcome.conflictedFacts.length > 0) {
-      result.conflicts += outcome.conflictedFacts.length;
-      deps.log(
-        line({
-          event: 'FACT_CONFLICT',
-          index,
-          identity: identityDigest(ev.externalId),
-          facts: outcome.conflictedFacts.join(','),
-          note: 'The canonical value did NOT move. A revision row records the disagreement.',
-        }),
-      );
-    }
-
-    const done = index + 1;
-    if (done % PROGRESS_EVERY === 0) {
-      deps.log(
-        line({
-          event: 'PROGRESS',
-          done,
-          of: read.events.length,
-          created: result.newEvents,
-          reObserved: result.duplicateObservations,
-        }),
-      );
-    }
+  if (result.reason && result.outcome !== 'DRY_RUN_READY') {
+    deps.log(line({ event: 'RUN_NOTE', outcome: result.outcome, reason: result.reason }));
   }
 
-  result.overall = result.conflicts > 0 ? 'APPLIED_WITH_CONFLICTS' : 'APPLIED';
   return finish();
 }
 
@@ -712,9 +512,7 @@ async function main(): Promise<number> {
 
   // Imported here rather than at module scope so the pure orchestration above can
   // be tested without a database client being constructed as a side effect.
-  const providers = await import('@emgloop/providers');
-  const { prisma, repositories, IngestionService, mapReconEventType } = await import('@emgloop/database');
-  const ingestion = new IngestionService(prisma);
+  const { prisma, repositories, CallGridPollService } = await import('@emgloop/database');
 
   try {
     const result = await runPoll(
@@ -724,14 +522,11 @@ async function main(): Promise<number> {
         until,
         apiKey: env.value.apiKey,
         dryRun: args.dryRun,
-        mapEventType: mapReconEventType,
       },
       {
-        reader: {
-          read: (r) => providers.readCallGridInterval({ apiKey: r.apiKey, since: r.since, until: r.until }),
-        },
-        ingestor: ingestion,
-        events: repositories.integrations,
+        // THE SAME PRIMITIVE THE ADMIN SYNC ROUTE CALLS. Not a copy of it, not a
+        // variant of it, and not a CLI the route shells out to.
+        executor: new CallGridPollService(prisma),
         organizations: repositories.organizations,
         log,
         // The ONLY clock in this operation, and it measures elapsed time. Neither
@@ -740,11 +535,9 @@ async function main(): Promise<number> {
         now: () => new Date(),
       },
     );
-    return result.overall === 'DRY_RUN_READY' ||
-      result.overall === 'APPLIED' ||
-      result.overall === 'APPLIED_WITH_CONFLICTS'
-      ? 0
-      : 1;
+    // Whether an outcome counts as a success belongs to the vocabulary, not to a
+    // list of names retyped here.
+    return pollSucceeded(result.outcome) ? 0 : 1;
   } finally {
     await prisma.$disconnect();
   }

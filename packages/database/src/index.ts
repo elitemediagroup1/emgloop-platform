@@ -137,8 +137,34 @@ export type {
   LocalDeliveryReader,
   LocalDeliveryRecord,
 } from './services/provider-reconciliation.service';
-export { CallGridReconciliationService, sinceForRange, mapReconEventType } from './services/callgrid-reconciliation.service';
-export type { ReconciliationInput, ReconciliationResult, SyncRange, ReconciliationBasis, ExplicitWindow } from './services/callgrid-reconciliation.service';
+// The ONE write-capable CallGrid REST path. `CallGridReconciliationService` stood
+// here until PR 9 and was a second one: it ingested whatever it had fetched
+// before knowing the interval was complete, and routed already-PROCESSED rows
+// into a direct metadata merge that never reached IngestionService.
+export {
+  CallGridPollService,
+  CALLGRID_POLL_OUTCOMES,
+  CALLGRID_POLL_PROVIDER,
+  CALLGRID_POLL_STREAM,
+  POLL_OBSERVATION_SOURCE,
+  POLL_PROGRESS_EVERY,
+  callGridIntervalReader,
+  identityDigest,
+  mapCallGridEventType,
+  pollSucceeded,
+  sinceForRange,
+} from './services/callgrid-poll.service';
+export type {
+  CallGridIngestor,
+  CallGridIntervalReader,
+  CallGridPollDeps,
+  CallGridPollInput,
+  CallGridPollExecution,
+  CallGridPollObserver,
+  CallGridPollOutcome,
+  PollRefusal,
+  SyncRange,
+} from './services/callgrid-poll.service';
 export { IntegrationOsService } from './services/integration-os.service';
 export type {
   ProviderStatus,

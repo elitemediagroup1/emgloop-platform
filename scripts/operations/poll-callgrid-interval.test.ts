@@ -1,42 +1,31 @@
-// Tests for the manual bounded CallGrid poll.
+// Tests for the manual bounded CallGrid poll runner.
 //
-// WHAT THESE PROVE
+// WHAT THESE PROVE, AFTER PR 9
 //
-// One property carries the weight: NOTHING IS WRITTEN UNLESS THE PROVIDER READ
-// FOR THE INTERVAL COMPLETED. Every way a read can end short — truncation, an
-// exhausted 429 budget, a pagination fault, a provider error, a refused request,
-// a record the mapper would not map — is asserted to reach ingestion zero times.
-// A poll that wrote most of a day and called it a day is the failure this
-// operation exists to make impossible.
+// This runner is a command-line front end and these tests hold it to that. It
+// parses, resolves a slug, invokes ONE primitive, and prints. The properties that
+// matter — an incomplete read writes nothing, a refused record aborts the
+// interval, a partial apply can never report success — moved into
+// `CallGridPollService` when the admin sync route was migrated onto it, and they
+// are proved there, once, in packages/database/test/callgrid-poll-execution.test.ts.
+// Asserting them again here against a stand-in executor would prove the stand-in
+// and would quietly permit a runner that judged completeness for itself.
 //
-// The second property is that a run which stops part-way SAYS SO. There is no
-// path from a mid-batch failure to a success outcome, and a rerun of the same
-// interval converges rather than duplicating.
-//
-// WHAT THESE DELIBERATELY DO NOT PROVE
-//
-// The canonical ingestion semantics — receivedAt, occurredAt,
-// firstIngestionSource, observedSources, lastObservedAt, strengthening,
-// ambiguity, conflict — are proved where they live, against the real
-// IngestionService, in packages/database/test/{ingestion-time-semantics,
-// observation-provenance,provider-fact-convergence-wiring}.test.ts. Restating
-// them here against a stand-in ingestor would prove the stand-in.
+// So what is proved here is the boundary: that the runner refuses before invoking,
+// that it invokes with exactly what it was given, that it reports what it was
+// told without softening it, and that it can reach nothing else.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { InboundEvent } from '@emgloop/providers';
-import type { IngestInput, IngestResult } from '@emgloop/database';
+import { identityDigest, type CallGridPollExecution, type CallGridPollInput } from '@emgloop/database';
 
 import {
-  POLL_OBSERVATION_SOURCE,
-  POLL_PROVIDER,
   POLL_RESULTS,
   REFUSED_ORGANIZATION_STATUSES,
-  identityDigest,
   parseArgs,
   parseInstant,
   readEnvironment,
@@ -53,14 +42,18 @@ const WORKFLOW_SOURCE = readFileSync(
 );
 
 // Prose removed — line comments AND block-comment bodies. The "must not name"
-// checks are about CODE: a header sentence saying this runner holds no
-// checkpoint must not read as the code holding one.
-const RUNNER_CODE = RUNNER_SOURCE.split('\n')
-  .filter((l) => {
-    const t = l.trimStart();
-    return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
-  })
-  .join('\n');
+// checks are about CODE: a header sentence saying this runner holds no checkpoint
+// must not read as the code holding one.
+const codeOf = (source: string): string =>
+  source
+    .split('\n')
+    .filter((l) => {
+      const t = l.trimStart();
+      return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*');
+    })
+    .join('\n');
+
+const RUNNER_CODE = codeOf(RUNNER_SOURCE);
 
 /** The workflow with its `#` prose removed, for the same reason. */
 const WORKFLOW_STEPS = WORKFLOW_SOURCE.split('\n')
@@ -71,9 +64,8 @@ const WORKFLOW_STEPS = WORKFLOW_SOURCE.split('\n')
  * Only the SHELL BODIES of `run: |` blocks, by indentation.
  *
  * Splitting the file on `run: |` and keeping the tail was the first version, and
- * it swept up every later step's `env:` block -- which is exactly where an input
- * is SUPPOSED to appear. The assertion then failed on the safe pattern it exists
- * to require. A run body is the indented region under the key, and nothing else.
+ * it swept up every later step's `env:` block — which is exactly where an input
+ * is SUPPOSED to appear. A run body is the indented region under the key.
  */
 const WORKFLOW_RUN_BODIES = (() => {
   const out: string[] = [];
@@ -95,97 +87,57 @@ const ORG = { id: 'org_1', slug: 'fixture-org', name: 'Fixture Org', status: 'AC
 const KEY = 'cg_live_fixture';
 const SINCE = new Date('2026-08-19T04:00:00.000Z');
 const UNTIL = new Date('2026-08-20T04:00:00.000Z');
+const CALL_ID = 'cmsns65v8be2d07k368ox69s1';
 
-/** A real-shaped CallGrid identity, so a leak test has something to catch. */
-function callId(n: number): string {
-  return `cmsns65v8be2d07k368ox69s${n}`;
-}
-
-function event(n: number): InboundEvent {
+function execution(over: Partial<CallGridPollExecution> = {}): CallGridPollExecution {
   return {
-    externalId: callId(n),
-    rawEventType: 'COMPLETED',
-    occurredAt: new Date(SINCE.getTime() + n * 60_000),
-    payload: { id: callId(n), revenue: 17.5 },
-    customerPhone: '+15125550000',
-  };
-}
-
-type ReadResult = Parameters<PollDeps['reader']['read']> extends never ? never : Awaited<ReturnType<PollDeps['reader']['read']>>;
-
-function readResult(over: Partial<ReadResult> = {}): ReadResult {
-  const events = over.events ?? [event(1), event(2)];
-  return {
-    outcome: 'COMPLETE',
-    since: SINCE,
-    until: UNTIL,
-    events,
-    refused: [],
+    outcome: 'APPLIED',
+    since: SINCE.toISOString(),
+    until: UNTIL.toISOString(),
+    dryRun: false,
+    reason: null,
+    fetchOutcome: 'COMPLETE',
+    providerRecordsFetched: 2,
+    acceptedRecords: 2,
+    refusedRecords: 0,
+    refusals: [],
+    newEvents: 2,
+    duplicateObservations: 0,
+    strengthenedCalls: 0,
+    conflicts: 0,
+    failedProcessing: 0,
+    notAttempted: 0,
     pages: 1,
-    records: events.length,
     pageCap: 500,
     rateLimitRetries: 0,
+    providerTotal: null,
+    failedAtIndex: null,
+    failedIdentityDigest: null,
     ...over,
-  } as ReadResult;
+  };
 }
 
 interface Harness {
   deps: PollDeps;
   lines: string[];
-  ingested: string[];
-  inputs: IngestInput[];
-  readCalls: number;
-}
-
-function ingestResult(over: Partial<IngestResult> & { externalId: string }): IngestResult {
-  return {
-    status: 'processed',
-    integrationEventId: 'evt_1',
-    customerId: null,
-    interactionId: null,
-    signalIds: [],
-    domainEventId: null,
-    nextBestActions: [],
-    strengthenedFacts: [],
-    conflictedFacts: [],
-    ...over,
-  };
+  calls: CallGridPollInput[];
 }
 
 function harness(options: {
-  read?: ReadResult;
-  /** Per-externalId ingestion answer. Anything absent processes cleanly. */
-  answers?: Record<string, Partial<IngestResult> | 'throw'>;
-  /** Statuses the organization already holds, for the dry run's classification. */
-  stored?: Record<string, string>;
+  result?: CallGridPollExecution;
   org?: { id: string; slug: string; name: string; status: string } | null;
+  /** Fired inside execute, so observer-driven lines can be asserted. */
+  emit?: (observer: NonNullable<Parameters<PollDeps['executor']['execute']>[1]>) => void;
 } = {}): Harness {
   const lines: string[] = [];
-  const ingested: string[] = [];
-  const inputs: IngestInput[] = [];
-  const state = { readCalls: 0 };
+  const calls: CallGridPollInput[] = [];
   let tick = 0;
   const deps: PollDeps = {
-    reader: {
-      async read() {
-        state.readCalls += 1;
-        return options.read ?? readResult();
-      },
-    },
-    ingestor: {
-      async ingest(input: IngestInput): Promise<IngestResult[]> {
-        inputs.push(input);
-        const ev = input.events[0];
-        if (!ev) return [];
-        const answer = options.answers?.[ev.externalId];
-        if (answer === 'throw') throw new Error('database is unreachable');
-        ingested.push(ev.externalId);
-        return [ingestResult({ externalId: ev.externalId, ...(answer ?? {}) })];
-      },
-    },
-    events: {
-      async statusOfEvent(_org: string, _provider: string, externalId: string) {
-        return options.stored?.[externalId] ?? null;
+    executor: {
+      async execute(input, observer) {
+        calls.push(input);
+        if (observer && options.emit) options.emit(observer);
+        return options.result ?? execution();
       },
     },
     organizations: {
@@ -198,341 +150,350 @@ function harness(options: {
     log: (l) => lines.push(l),
     now: () => new Date(1_700_000_000_000 + (tick += 1000)),
   };
-  return {
-    deps,
-    lines,
-    ingested,
-    inputs,
-    get readCalls() {
-      return state.readCalls;
-    },
-  };
+  return { deps, lines, calls };
 }
 
-function request(over: Partial<Parameters<typeof runPoll>[0]> = {}) {
-  return {
-    organizationSlug: ORG.slug,
-    since: SINCE,
-    until: UNTIL,
-    apiKey: KEY,
-    dryRun: false,
-    mapEventType: (raw: string) => (raw === 'COMPLETED' ? 'call.completed' : 'call.inbound'),
-    ...over,
-  };
-}
+const request = (over: Partial<Parameters<typeof runPoll>[0]> = {}) => ({
+  organizationSlug: ORG.slug,
+  since: SINCE,
+  until: UNTIL,
+  apiKey: KEY,
+  dryRun: false,
+  ...over,
+});
 
-function summary(lines: string[]): string {
-  return lines.find((l) => l.startsWith('event=SUMMARY'))!;
-}
+const summary = (lines: string[]): string => lines.find((l) => l.startsWith('event=SUMMARY'))!;
 
-// --- 1. A complete interval can be planned and applied ------------------------
+// --- 22. One primitive, invoked with exactly what it was given -------------------
 
-test('1. a valid bounded COMPLETE interval applies every accepted record', async () => {
+test('22. the runner delegates to the poll primitive with the resolved organization and both bounds', async () => {
   const h = harness();
   const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'APPLIED');
-  assert.deepEqual(h.ingested, [callId(1), callId(2)]);
-  assert.equal(out.newEvents, 2);
-  assert.equal(out.acceptedRecords, 2);
-  assert.equal(out.notAttempted, 0);
-  assert.ok(summary(h.lines).includes('OVERALL_RESULT=APPLIED'));
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.calls[0], {
+    organizationId: ORG.id,
+    apiKey: KEY,
+    since: SINCE,
+    until: UNTIL,
+    dryRun: false,
+  });
+  assert.equal(out.outcome, 'APPLIED');
+  assert.equal(out.organizationSlug, ORG.slug);
+  assert.ok(out.elapsedMs >= 0);
 });
 
-test('1b. every record is labelled API_POLL, and the label is not an input', async () => {
-  const h = harness();
-  await runPoll(request(), h.deps);
-  for (const input of h.inputs) {
-    assert.equal(input.observationSource, 'API_POLL');
-    assert.equal(input.provider, POLL_PROVIDER);
-    assert.equal(input.organizationId, ORG.id);
+test('22b. the runner and the admin sync route construct the SAME service', () => {
+  assert.ok(RUNNER_CODE.includes('new CallGridPollService(prisma)'), 'the runner constructs it');
+  // Comment-stripped, for the same reason RUNNER_CODE is: the route's header
+  // explains at length what it no longer reaches, and a sentence saying so must
+  // not read as the code doing it.
+  const routeSource = codeOf(
+    readFileSync(
+      join(HERE, '..', '..', 'apps', 'web', 'src', 'app', 'api', 'integrations', 'callgrid', 'sync', 'route.ts'),
+      'utf8',
+    ),
+  );
+  assert.ok(routeSource.includes('new CallGridPollService(prisma)'), 'and so does the route');
+  // Neither may hold its own read, gate or apply loop.
+  for (const symbol of ['readCallGridInterval', 'intervalWasComplete', 'IngestionService']) {
+    assert.ok(!RUNNER_CODE.includes(symbol), `the runner must not reach ${symbol} itself`);
+    assert.ok(!routeSource.includes(symbol), `the route must not reach ${symbol} itself`);
   }
-  assert.equal(POLL_OBSERVATION_SOURCE, 'API_POLL');
-  // A recovery labels its rows differently on purpose, and this operation cannot
-  // claim that label however it is invoked.
-  assert.ok(!RUNNER_CODE.includes('API_RECOVERY'), 'the runner cannot label a row as a recovery');
+  // And neither may shell out to the other.
+  assert.ok(!routeSource.includes('poll:callgrid'), 'the route does not invoke a CLI');
+  assert.ok(!routeSource.includes('child_process'));
 });
 
-test('1c. the organization comes from the slug lookup, never from a caller-supplied id', () => {
-  assert.ok(!RUNNER_CODE.includes('organizationId:') || RUNNER_CODE.includes('organization.id'));
-  assert.ok(!/organizationId\s*:\s*request\./.test(RUNNER_CODE), 'no caller-supplied organization id');
+test('20/8. the admin route resolves its convenience range BEFORE the primitive, and cannot recover', () => {
+  const routeSource = codeOf(
+    readFileSync(
+      join(HERE, '..', '..', 'apps', 'web', 'src', 'app', 'api', 'integrations', 'callgrid', 'sync', 'route.ts'),
+      'utf8',
+    ),
+  );
+  // `today` / `24h` / `7d` still exist for the person looking at the button, and
+  // they become two instants at this edge. The primitive is handed since/until.
+  assert.ok(routeSource.includes('sinceForRange(range, now)'), 'the preset resolves here');
+  assert.ok(/since:\s*window\.since/.test(routeSource), 'and an explicit bound goes in');
+  assert.ok(/until:\s*window\.until/.test(routeSource));
+  // Provenance is not the caller's to choose, and this route is not a recovery.
+  assert.ok(!routeSource.includes('observationSource'), 'the route cannot label its own rows');
+  assert.ok(!routeSource.includes('API_RECOVERY'));
+  for (const incident of ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14']) {
+    assert.ok(!routeSource.includes(incident), 'no incident-specific date is baked in');
+  }
+  // Success is the vocabulary's judgement, not a list of names retyped in a route.
+  assert.ok(routeSource.includes('pollSucceeded(result.outcome)'));
+  assert.ok(!/ok:\s*!result\.truncated/.test(routeSource), 'the old truncation contract is gone');
 });
 
-// --- 2. Invalid bounds write nothing ------------------------------------------
+test('22c. the outcome vocabulary is the primitive\'s, not a copy', () => {
+  assert.deepEqual([...POLL_RESULTS].sort(), [
+    'APPLIED',
+    'APPLIED_WITH_CONFLICTS',
+    'DRY_RUN_READY',
+    'FETCH_INCOMPLETE',
+    'PARTIALLY_APPLIED',
+    'PROCESSING_FAILED',
+    'REFUSED',
+  ]);
+  assert.ok(RUNNER_CODE.includes('POLL_RESULTS = CALLGRID_POLL_OUTCOMES'), 're-exported, not restated');
+});
 
-test('2. reversed and equal bounds are refused before a provider request', async () => {
+// --- Refusals happen before the primitive is invoked at all ----------------------
+
+test('reversed, equal and over-wide bounds are refused without invoking the primitive', async () => {
   for (const [since, until] of [
     [UNTIL, SINCE],
     [SINCE, SINCE],
+    [SINCE, new Date(SINCE.getTime() + 60 * 24 * 3600_000)],
   ] as const) {
     const h = harness();
     const out = await runPoll(request({ since, until }), h.deps);
-    assert.equal(out.overall, 'REFUSED');
-    assert.equal(h.readCalls, 0, 'no provider request was made');
-    assert.equal(h.ingested.length, 0, 'nothing was written');
+    assert.equal(out.outcome, 'REFUSED');
+    assert.equal(h.calls.length, 0, 'nothing was invoked');
   }
 });
 
-test('2b. an interval wider than the reader accepts is refused, not truncated', async () => {
-  const h = harness();
-  const out = await runPoll(
-    request({ since: SINCE, until: new Date(SINCE.getTime() + 60 * 24 * 3600_000) }),
-    h.deps,
-  );
-  assert.equal(out.overall, 'REFUSED');
-  assert.equal(h.readCalls, 0);
-  assert.equal(h.ingested.length, 0);
-});
-
-test('2c. an unknown or suspended organization writes nothing', async () => {
+test('an unknown or suspended organization refuses without invoking the primitive', async () => {
   const missing = harness({ org: null });
-  assert.equal((await runPoll(request(), missing.deps)).overall, 'REFUSED');
-  assert.equal(missing.readCalls, 0);
+  assert.equal((await runPoll(request(), missing.deps)).outcome, 'REFUSED');
+  assert.equal(missing.calls.length, 0);
 
   for (const status of REFUSED_ORGANIZATION_STATUSES) {
     const h = harness({ org: { ...ORG, status } });
     const out = await runPoll(request(), h.deps);
-    assert.equal(out.overall, 'REFUSED');
-    assert.equal(h.readCalls, 0);
-    assert.equal(h.ingested.length, 0);
+    assert.equal(out.outcome, 'REFUSED');
+    assert.equal(h.calls.length, 0);
   }
 });
 
-// --- 3/4/5. Every incomplete retrieval writes nothing -------------------------
-
-test('3/4/5. TRUNCATED, RATE_LIMIT_EXHAUSTED, INVALID_PAGINATION and PROVIDER_ERROR write nothing', async () => {
-  for (const outcome of ['TRUNCATED', 'RATE_LIMIT_EXHAUSTED', 'INVALID_PAGINATION', 'PROVIDER_ERROR', 'REFUSED'] as const) {
-    const h = harness({
-      read: readResult({ outcome, reason: `ended ${outcome}`, events: [event(1), event(2), event(3)] }),
-    });
-    const out = await runPoll(request(), h.deps);
-    assert.equal(out.overall, 'FETCH_INCOMPLETE', `${outcome} must not apply`);
-    assert.equal(out.fetchOutcome, outcome);
-    assert.equal(h.ingested.length, 0, `${outcome} wrote something`);
-    assert.equal(out.newEvents, 0);
-    assert.equal(out.notAttempted, 3, 'the records that DID come back are reported, not written');
-    assert.ok(h.lines.some((l) => l.startsWith('event=WRITES_SKIPPED')));
-    assert.ok(summary(h.lines).includes('OVERALL_RESULT=FETCH_INCOMPLETE'));
+test('a missing slug or credential refuses without invoking the primitive', async () => {
+  for (const over of [{ organizationSlug: '' }, { apiKey: '' }]) {
+    const h = harness();
+    const out = await runPoll(request(over), h.deps);
+    assert.equal(out.outcome, 'REFUSED');
+    assert.equal(h.calls.length, 0);
   }
 });
 
-test('3b. a partial read is never reported as a success, whatever came back', async () => {
-  const h = harness({ read: readResult({ outcome: 'TRUNCATED', events: [event(1)] }) });
-  const out = await runPoll(request(), h.deps);
-  assert.ok(!['APPLIED', 'APPLIED_WITH_CONFLICTS', 'DRY_RUN_READY'].includes(out.overall));
-});
+// --- Reporting: what the primitive said is what gets printed ---------------------
 
-test('3c. a reader that throws is an incomplete fetch, not a failed write', async () => {
-  const h = harness();
-  h.deps.reader.read = async () => {
-    throw new Error('socket hang up');
-  };
-  const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'FETCH_INCOMPLETE');
-  assert.equal(h.ingested.length, 0);
-});
-
-test('3d. completeness is judged by the shared predicate, not a local list of outcomes', () => {
-  assert.ok(RUNNER_CODE.includes('intervalWasComplete('), 'the shared rule decides');
-  assert.ok(
-    !/outcome\s*===\s*'COMPLETE'/.test(RUNNER_CODE),
-    'the runner must not re-spell the completeness rule',
-  );
-});
-
-// --- 6. A refused record cannot silently disappear ----------------------------
-
-test('6. one unmappable record in a COMPLETE read aborts every write', async () => {
+test('an incomplete fetch is reported as such, and never softened', async () => {
   const h = harness({
-    read: readResult({
-      events: [event(1), event(2)],
-      records: 3,
-      refused: [{ page: 1, reason: 'no usable identity field', kind: 'no-identity' }],
+    result: execution({
+      outcome: 'FETCH_INCOMPLETE',
+      fetchOutcome: 'TRUNCATED',
+      reason: 'the page budget ran out',
+      newEvents: 0,
+      acceptedRecords: 3,
+      notAttempted: 3,
     }),
   });
   const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'REFUSED');
-  assert.equal(h.ingested.length, 0, 'accepted records were NOT written alongside a refusal');
-  assert.equal(out.refusedRecords, 1);
-  assert.equal(out.acceptedRecords, 2);
-  assert.equal(out.notAttempted, 2);
-  assert.equal(out.providerRecordsFetched, 3);
-  // Each refusal is named, so it cannot vanish into a count.
-  assert.equal(h.lines.filter((l) => l.startsWith('event=RECORD_REFUSED')).length, 1);
-  assert.ok(h.lines.some((l) => l.includes('kind=no-identity')));
+  assert.equal(out.outcome, 'FETCH_INCOMPLETE');
+  assert.ok(h.lines.some((l) => l.startsWith('event=FETCH_RESULT') && l.includes('complete=NO')));
+  assert.ok(h.lines.some((l) => l.startsWith('event=WRITES_SKIPPED') && l.includes('notAttempted=3')));
+  assert.ok(summary(h.lines).includes('OVERALL_RESULT=FETCH_INCOMPLETE'));
+  assert.ok(h.lines.some((l) => l.includes('the page budget ran out')));
 });
 
-test('6b. accepted and refused are reported separately from the raw record count', async () => {
+test('every refused record is named, so it cannot vanish into a count', async () => {
   const h = harness({
-    read: readResult({ events: [event(1)], records: 2, refused: [{ page: 2, reason: 'no occurrence' }] }),
+    result: execution({
+      outcome: 'REFUSED',
+      reason: '1 provider record(s) could not be mapped',
+      refusedRecords: 1,
+      refusals: [{ page: 4, reason: 'no usable identity field', kind: 'no-identity' }],
+      newEvents: 0,
+      notAttempted: 2,
+    }),
+  });
+  await runPoll(request(), h.deps);
+  const refused = h.lines.filter((l) => l.startsWith('event=RECORD_REFUSED'));
+  assert.equal(refused.length, 1);
+  assert.ok(refused[0]!.includes('page=4'));
+  assert.ok(refused[0]!.includes('kind=no-identity'));
+  assert.ok(h.lines.some((l) => l.startsWith('event=WRITES_SKIPPED') && l.includes('refused records')));
+});
+
+test('a partial apply reports where it stopped and is never a success line', async () => {
+  const h = harness({
+    result: execution({
+      outcome: 'PARTIALLY_APPLIED',
+      newEvents: 1,
+      failedProcessing: 1,
+      failedAtIndex: 1,
+      failedIdentityDigest: identityDigest(CALL_ID),
+      notAttempted: 1,
+      reason: 'database is unreachable',
+    }),
   });
   const out = await runPoll(request(), h.deps);
-  assert.equal(out.providerRecordsFetched, 2);
-  assert.equal(out.acceptedRecords, 1);
-  assert.equal(out.refusedRecords, 1);
-  assert.ok(summary(h.lines).includes('REFUSED_RECORDS=1'));
+  const s = summary(h.lines);
+  assert.ok(s.includes('OVERALL_RESULT=PARTIALLY_APPLIED'));
+  assert.ok(s.includes('FAILED_AT_INDEX=1'));
+  assert.ok(s.includes(`FAILED_IDENTITY=${identityDigest(CALL_ID)}`));
+  assert.equal(out.failedIdentityDigest, identityDigest(CALL_ID));
 });
 
-// --- Conflicts are a business outcome, not a failure --------------------------
-
-test('a provider fact conflict is surfaced and does not stop the run', async () => {
+test('a conflict outcome is reported as a conflict, not flattened into APPLIED', async () => {
   const h = harness({
-    answers: {
-      [callId(1)]: { status: 'duplicate', conflictedFacts: ['revenue'] },
-      [callId(2)]: { status: 'duplicate', strengthenedFacts: ['paid'] },
+    result: execution({
+      outcome: 'APPLIED_WITH_CONFLICTS',
+      conflicts: 2,
+      strengthenedCalls: 1,
+      duplicateObservations: 2,
+      reason: '2 provider fact(s) disagreed',
+    }),
+  });
+  const out = await runPoll(request(), h.deps);
+  assert.equal(out.outcome, 'APPLIED_WITH_CONFLICTS');
+  assert.ok(summary(h.lines).includes('CONFLICTS=2'));
+  assert.ok(h.lines.some((l) => l.startsWith('event=RUN_NOTE') && l.includes('disagreed')));
+});
+
+test('the observer\'s progress reaches the log as it happens', async () => {
+  const h = harness({
+    emit: (observer) => {
+      observer.onStrengthened?.({ index: 0, identityDigest: 'abc123abc123', facts: ['revenue', 'paid'] });
+      observer.onConflict?.({ index: 1, identityDigest: 'def456def456', facts: ['payout'] });
+      observer.onProgress?.({ done: 250, of: 4000, created: 200, reObserved: 50 });
+      observer.onFailure?.({ index: 9, identityDigest: 'aaa111aaa111', applied: 9, notAttempted: 3, detail: 'boom' });
     },
   });
-  const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'APPLIED_WITH_CONFLICTS');
-  assert.equal(out.conflicts, 1);
-  assert.equal(out.strengthenedCalls, 1);
-  assert.equal(out.duplicateObservations, 2, 'the run continued past the conflict');
-  assert.ok(h.lines.some((l) => l.startsWith('event=FACT_CONFLICT') && l.includes('facts=revenue')));
-  assert.ok(h.lines.some((l) => l.startsWith('event=CALL_STRENGTHENED')));
-});
-
-test('a run with conflicts is never reported as a plain APPLIED', async () => {
-  const h = harness({ answers: { [callId(2)]: { status: 'duplicate', conflictedFacts: ['payout'] } } });
-  const out = await runPoll(request(), h.deps);
-  assert.notEqual(out.overall, 'APPLIED');
-  assert.ok(summary(h.lines).includes('CONFLICTS=1'));
-});
-
-// --- 18. A mid-batch failure is never a success -------------------------------
-
-test('18. an unexpected failure part-way through reports PARTIALLY_APPLIED', async () => {
-  const h = harness({
-    read: readResult({ events: [event(1), event(2), event(3)] }),
-    answers: { [callId(2)]: 'throw' },
-  });
-  const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'PARTIALLY_APPLIED');
-  assert.equal(out.newEvents, 1, 'the first record is live');
-  assert.equal(out.failedProcessing, 1);
-  assert.equal(out.failedAtIndex, 1);
-  assert.equal(out.notAttempted, 1, 'the third record was never attempted');
-  assert.deepEqual(h.ingested, [callId(1)], 'processing STOPPED rather than continuing');
-  assert.ok(summary(h.lines).includes('OVERALL_RESULT=PARTIALLY_APPLIED'));
-});
-
-test('18b. a failure on the FIRST record is PROCESSING_FAILED, with nothing live', async () => {
-  const h = harness({ answers: { [callId(1)]: 'throw' } });
-  const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'PROCESSING_FAILED');
-  assert.equal(out.newEvents + out.duplicateObservations, 0);
-  assert.equal(out.notAttempted, 1);
-});
-
-test('18c. an ingestion result of `failed` stops the run exactly as a throw does', async () => {
-  const h = harness({
-    read: readResult({ events: [event(1), event(2), event(3)] }),
-    answers: { [callId(2)]: { status: 'failed', error: 'normalization blew up' } },
-  });
-  const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'PARTIALLY_APPLIED');
-  assert.equal(out.failedAtIndex, 1);
-  assert.ok(h.lines.some((l) => l.includes('detail=normalization blew up')));
-});
-
-test('18d. the failing record is identified without printing a provider identity', async () => {
-  const h = harness({ answers: { [callId(1)]: 'throw' } });
-  const out = await runPoll(request(), h.deps);
-  assert.equal(out.failedIdentityDigest, identityDigest(callId(1)));
-  for (const l of h.lines) assert.ok(!l.includes(callId(1)), `a raw identity leaked: ${l}`);
-});
-
-// --- 19/20. Rerun ---------------------------------------------------------------
-
-test('19. rerunning after a partial apply converges: the applied rows come back as duplicates', async () => {
-  const first = harness({
-    read: readResult({ events: [event(1), event(2), event(3)] }),
-    answers: { [callId(2)]: 'throw' },
-  });
-  const before = await runPoll(request(), first.deps);
-  assert.equal(before.overall, 'PARTIALLY_APPLIED');
-
-  // The identical interval, asked again. Nothing about the request changes: this
-  // runner holds no memory of the first attempt, deliberately.
-  const second = harness({
-    read: readResult({ events: [event(1), event(2), event(3)] }),
-    answers: { [callId(1)]: { status: 'duplicate' } },
-  });
-  const after = await runPoll(request(), second.deps);
-  assert.equal(after.overall, 'APPLIED');
-  assert.equal(after.duplicateObservations, 1, 'the already-written row was re-observed, not duplicated');
-  assert.equal(after.newEvents, 2);
-  assert.deepEqual(second.ingested, [callId(1), callId(2), callId(3)]);
-});
-
-test('20. an identical full rerun creates nothing new and produces no revision noise', async () => {
-  const answers = {
-    [callId(1)]: { status: 'duplicate' as const },
-    [callId(2)]: { status: 'duplicate' as const },
-  };
-  const h = harness({ answers });
-  const out = await runPoll(request(), h.deps);
-  assert.equal(out.overall, 'APPLIED');
-  assert.equal(out.newEvents, 0);
-  assert.equal(out.duplicateObservations, 2);
-  // CANONICAL DATA IDEMPOTENCY vs OBSERVATION TIME ADVANCEMENT: an unchanged
-  // rerun moves no fact and records no revision, while lastObservedAt advancing
-  // is expected and is IngestionService's business, not this runner's.
-  assert.equal(out.strengthenedCalls, 0);
-  assert.equal(out.conflicts, 0);
-  assert.ok(!h.lines.some((l) => l.startsWith('event=CALL_STRENGTHENED')));
-  assert.ok(!h.lines.some((l) => l.startsWith('event=FACT_CONFLICT')));
-  assert.ok(!RUNNER_CODE.includes('lastObservedAt'), 'observation time is not this runner"s to write');
-});
-
-test('20b. the runner asks ingestion once per record and never batches identities together', async () => {
-  const h = harness({ read: readResult({ events: [event(1), event(2), event(3)] }) });
   await runPoll(request(), h.deps);
-  assert.equal(h.inputs.length, 3);
-  for (const input of h.inputs) assert.equal(input.events.length, 1);
+  assert.ok(h.lines.some((l) => l.startsWith('event=CALL_STRENGTHENED') && l.includes('facts=revenue,paid')));
+  assert.ok(h.lines.some((l) => l.startsWith('event=FACT_CONFLICT') && l.includes('facts=payout')));
+  assert.ok(h.lines.some((l) => l.startsWith('event=PROGRESS') && l.includes('done=250')));
+  assert.ok(h.lines.some((l) => l.startsWith('event=RECORD_FAILED') && l.includes('detail=boom')));
 });
 
-// --- 21. Dry run ----------------------------------------------------------------
-
-test('21. a dry run reads the provider, classifies, and writes nothing', async () => {
-  const h = harness({ stored: { [callId(1)]: 'PROCESSED' } });
+test('a dry run says what it would do and states what it cannot know', async () => {
+  const h = harness({
+    result: execution({
+      outcome: 'DRY_RUN_READY',
+      dryRun: true,
+      newEvents: 1,
+      duplicateObservations: 1,
+      notAttempted: 2,
+      reason: 'Nothing was written. Fact convergence is NOT predicted.',
+    }),
+  });
   const out = await runPoll(request({ dryRun: true }), h.deps);
-  assert.equal(out.overall, 'DRY_RUN_READY');
-  assert.equal(h.readCalls, 1, 'the provider WAS read');
-  assert.equal(h.ingested.length, 0, 'ingestion was never called');
-  assert.equal(h.inputs.length, 0);
-  assert.equal(out.duplicateObservations, 1, 'an existing PROCESSED delivery would be re-observed');
-  assert.equal(out.newEvents, 1);
-  assert.equal(out.notAttempted, 2);
-  assert.ok(h.lines.some((l) => l.startsWith('event=DRY_RUN_PLAN')));
-});
-
-test('21b. a dry run refuses to predict what it cannot know, out loud', async () => {
-  const h = harness();
-  await runPoll(request({ dryRun: true }), h.deps);
+  assert.equal(out.outcome, 'DRY_RUN_READY');
+  assert.equal(h.calls[0]!.dryRun, true, 'the intent reached the primitive');
+  assert.ok(h.lines.some((l) => l.startsWith('event=DRY_RUN_PLAN') && l.includes('wouldCreate=1')));
   const caveat = h.lines.find((l) => l.startsWith('event=DRY_RUN_CAVEAT'));
-  assert.ok(caveat, 'the dry run states its own limits');
-  assert.ok(caveat.includes('convergencePredicted=NO'));
+  assert.ok(caveat?.includes('convergencePredicted=NO'));
 });
 
-test('21c. a dry run classifies with the SAME predicate ingestion branches on', async () => {
-  // RECEIVED and FAILED rows are retryable and are NOT duplicates. A dry run that
-  // spelled `status !== null` would call them duplicates and describe a run that
-  // does not exist.
-  const h = harness({ stored: { [callId(1)]: 'FAILED', [callId(2)]: 'RECEIVED' } });
-  const out = await runPoll(request({ dryRun: true }), h.deps);
-  assert.equal(out.newEvents, 2);
-  assert.equal(out.duplicateObservations, 0);
-  assert.ok(RUNNER_CODE.includes('isDuplicateObservation('), 'the shared predicate is used');
-  assert.ok(!/===\s*'PROCESSED'/.test(RUNNER_CODE), 'the status literal is not re-spelled here');
+test('the summary states every count a reader needs to judge the run', async () => {
+  const h = harness();
+  const out: PollResult = await runPoll(request(), h.deps);
+  const s = summary(h.lines);
+  for (const field of [
+    'PROVIDER_RECORDS_FETCHED=',
+    'ACCEPTED_RECORDS=',
+    'REFUSED_RECORDS=',
+    'NEW_EVENTS=',
+    'DUPLICATE_OBSERVATIONS=',
+    'STRENGTHENED_CALLS=',
+    'CONFLICTS=',
+    'FAILED_PROCESSING=',
+    'NOT_ATTEMPTED=',
+    'OVERALL_RESULT=',
+  ]) {
+    assert.ok(s.includes(field), `the summary must state ${field}`);
+  }
+  assert.equal(out.dryRun, false);
 });
 
-test('21d. a dry run over an incomplete read still writes nothing and still says so', async () => {
-  const h = harness({ read: readResult({ outcome: 'TRUNCATED' }) });
-  const out = await runPoll(request({ dryRun: true }), h.deps);
-  assert.equal(out.overall, 'FETCH_INCOMPLETE');
-  assert.equal(h.ingested.length, 0);
+// --- 12/23. Repository-wide: no second CallGrid REST WRITE path ------------------
+
+/** Every .ts file under the given roots, with its prose stripped. */
+function repositoryCode(): Array<{ path: string; code: string }> {
+  const ROOT = join(HERE, '..', '..');
+  const roots = [
+    join(ROOT, 'apps', 'web', 'src'),
+    join(ROOT, 'packages'),
+    join(ROOT, 'scripts'),
+  ];
+  const out: Array<{ path: string; code: string }> = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
+        out.push({ path: full.slice(ROOT.length + 1), code: codeOf(readFileSync(full, 'utf8')) });
+      }
+    }
+  };
+  for (const root of roots) walk(root);
+  return out;
+}
+
+test('23. every CallGrid multi-page loop outside the canonical reader is READ-ONLY', () => {
+  // PR #184 asserted "exactly one multi-page loop" across three adapter files and
+  // was right about those three. Repository-wide there is a SECOND cursor loop:
+  // apps/web/.../integrations/callgrid/reconcile/route.ts, the forensic audit
+  // route that settled the money unit. It is GET-only and writes nothing, so it
+  // is not a parallel convergence path — but "nobody has made it one yet" is a
+  // memory, and this is the assertion that replaces it.
+  const loops = repositoryCode().filter(
+    (f) => !f.path.includes('test') && /cursor = page\.nextCursor/.test(f.code),
+  );
+  assert.ok(loops.length >= 1, 'the canonical reader is one of them');
+  for (const file of loops) {
+    if (file.path.endsWith('callgrid-interval.ts')) continue;
+    assert.ok(!file.code.includes('.ingest('), `${file.path} paginates AND ingests`);
+    assert.ok(!file.code.includes('IngestionService'), `${file.path} paginates AND ingests`);
+    assert.equal(
+      /\.(?:create|update|upsert|delete|createMany|updateMany|deleteMany)\(\s*\{/.test(file.code),
+      false,
+      `${file.path} paginates AND writes`,
+    );
+  }
 });
 
-// --- Instants, arguments, environment -----------------------------------------
+test('12/23. exactly one place ingests CallGrid REST records, and the old one is deleted', () => {
+  const files = repositoryCode().filter((f) => !f.path.includes('test'));
+  const ingestors = files.filter(
+    (f) => f.code.includes('.ingest(') && f.code.toLowerCase().includes('callgrid'),
+  );
+  // TWO CallGrid ingestion entry points, and that is the intended architecture:
+  // the webhook is the low-latency delivery path, and the poll is the
+  // completeness path. What must never exist is a THIRD, or a second one that
+  // RETRIEVES — the webhook is handed its record and does not go looking.
+  assert.deepEqual(
+    ingestors.map((f) => f.path).sort(),
+    [
+      'apps/web/src/app/api/webhooks/callgrid/route.ts',
+      'packages/database/src/services/callgrid-poll.service.ts',
+    ],
+    'exactly two CallGrid ingestion entry points: one delivered, one retrieved',
+  );
+  const retrievingIngestors = ingestors.filter(
+    (f) => f.code.includes('readCallGridInterval') || /cursor = page\.nextCursor/.test(f.code),
+  );
+  assert.deepEqual(
+    retrievingIngestors.map((f) => f.path),
+    ['packages/database/src/services/callgrid-poll.service.ts'],
+    'one CallGrid REST write execution primitive',
+  );
+  // The parallel path is gone from the repository, not deprecated inside it.
+  for (const file of files) {
+    assert.ok(!file.code.includes('enrichExisting'), `${file.path} still references enrichExisting`);
+    assert.ok(
+      !file.code.includes('CallGridReconciliationService'),
+      `${file.path} still references CallGridReconciliationService`,
+    );
+    assert.ok(!file.code.includes('mapReconEventType'), `${file.path} still names the old mapper`);
+  }
+});
+
+// --- Instants, arguments, environment, leakage -----------------------------------
 
 test('an interval bound must be an explicit instant — no bare date, no implicit zone', () => {
   assert.ok(parseInstant('2026-08-19T04:00:00Z'));
@@ -555,35 +516,25 @@ test('missing credentials are reported by NAME and never by value', () => {
   const out = readEnvironment({ DATABASE_URL: '', CALLGRID_API_KEY: '' } as NodeJS.ProcessEnv);
   assert.equal(out.ok, false);
   assert.deepEqual(out.ok === false ? out.missing : [], ['DATABASE_URL', 'CALLGRID_API_KEY']);
-  const ok = readEnvironment({ DATABASE_URL: 'postgres://x', CALLGRID_API_KEY: 'k' } as NodeJS.ProcessEnv);
-  assert.equal(ok.ok, true);
+  assert.equal(readEnvironment({ DATABASE_URL: 'postgres://x', CALLGRID_API_KEY: 'k' } as NodeJS.ProcessEnv).ok, true);
 });
 
-test('no log line ever carries the credential or a caller phone number', async () => {
-  const h = harness();
+test('no log line ever carries the credential, a provider identity or a caller number', async () => {
+  const h = harness({
+    result: execution({ failedIdentityDigest: identityDigest(CALL_ID), failedAtIndex: 3 }),
+    emit: (observer) => observer.onConflict?.({ index: 0, identityDigest: identityDigest(CALL_ID), facts: ['revenue'] }),
+  });
   await runPoll(request(), h.deps);
   for (const l of h.lines) {
     assert.ok(!l.includes(KEY), 'a credential leaked');
     assert.ok(!l.includes('5125550000'), 'a caller number leaked');
-    assert.ok(!l.includes(callId(1)), 'a provider identity leaked');
+    assert.ok(!l.includes(CALL_ID), 'a provider identity leaked');
   }
 });
 
-test('the outcome vocabulary is closed and every member is reachable', () => {
-  assert.deepEqual([...POLL_RESULTS].sort(), [
-    'APPLIED',
-    'APPLIED_WITH_CONFLICTS',
-    'DRY_RUN_READY',
-    'FETCH_INCOMPLETE',
-    'PARTIALLY_APPLIED',
-    'PROCESSING_FAILED',
-    'REFUSED',
-  ]);
-});
+// --- 27/28/29. No checkpoint, no schedule, no recovery ---------------------------
 
-// --- 22/23/24. No checkpoint, no schedule, no recovery ------------------------
-
-test('22/23/24. the runner holds no checkpoint, no watermark and no schedule', () => {
+test('27/28. the runner holds no checkpoint, no watermark and no schedule', () => {
   for (const symbol of [
     'checkpoint',
     'Checkpoint',
@@ -601,19 +552,16 @@ test('22/23/24. the runner holds no checkpoint, no watermark and no schedule', (
   }
 });
 
-test('22b. both interval bounds are supplied, never derived from the clock', () => {
+test('both interval bounds are supplied, never derived from the clock', () => {
   // An ARGUMENTLESS `new Date()` appears exactly once: in main(), as the injected
   // elapsed-time clock. A second one would be a bound this operation invented.
-  // `new Date(ms)` is deliberately not counted -- parsing an instant the operator
-  // typed is the opposite of inventing one.
-  const occurrences = RUNNER_CODE.split('new Date()').length - 1;
-  assert.equal(occurrences, 1, 'exactly one clock, and it is not a bound');
+  assert.equal(RUNNER_CODE.split('new Date()').length - 1, 1, 'exactly one clock, and it is not a bound');
   for (const symbol of ['Date.now(', 'sinceForRange', 'easternBusinessDayWindow', "'7d'", "'24h'"]) {
     assert.ok(!RUNNER_CODE.includes(symbol), `the runner must not derive a bound from ${symbol}`);
   }
 });
 
-test('24. the runner cannot recover, certify, reconcile, measure or declare', () => {
+test('29. the runner cannot recover, certify, reconcile, measure or declare', () => {
   for (const symbol of [
     'API_RECOVERY',
     'ProviderObservationService',
@@ -621,6 +569,7 @@ test('24. the runner cannot recover, certify, reconcile, measure or declare', ()
     'ProviderReconciliationService',
     'reconcileDay',
     'CallGridReconciliationService',
+    'enrichExisting',
     'assessReadiness',
     'MeasurementService',
     'measureObjective',
@@ -640,43 +589,26 @@ test('24. the runner cannot recover, certify, reconcile, measure or declare', ()
   }
 });
 
-test('25. the runner has exactly one write path, and it is IngestionService', () => {
-  // No model delegate is reachable from here: everything that touches a row goes
-  // through an injected seam. `prisma.$disconnect()` is deliberately allowed —
-  // closing the connection this script opened is hygiene, not data access.
+test('the runner touches no row of its own, by any route', () => {
   assert.equal(/prisma\.[a-z]/.test(RUNNER_CODE), false, 'no Prisma model delegate');
-  // Persistence-SHAPED calls: a Prisma write takes an object literal, which is
-  // what separates `update({ where })` from `createHash(...).update(externalId)`.
-  // The first version of this assertion matched the bare verb and failed on the
-  // hash, which is the same class of mistake as a query matching more rows than
-  // it names.
   assert.equal(
-    /\.(?:create|update|upsert|delete|createMany|updateMany|deleteMany|upsertMany)\(\s*\{/.test(RUNNER_CODE),
+    /\.(?:create|update|upsert|delete|createMany|updateMany|deleteMany)\(\s*\{/.test(RUNNER_CODE),
     false,
-    'the runner must not call a persistence method directly',
+    'no direct persistence call',
   );
-  for (const verb of ['$executeRaw', '$queryRaw', '$transaction', '$queryRawUnsafe']) {
+  for (const verb of ['$executeRaw', '$queryRaw', '$transaction', 'marketplaceCall', 'interaction.']) {
     assert.ok(!RUNNER_CODE.includes(verb), `the runner must not call ${verb} directly`);
   }
-  assert.ok(RUNNER_CODE.includes('.ingest('), 'ingestion is invoked, not reimplemented');
-  // Retrieval is invoked, not reimplemented either.
-  assert.ok(RUNNER_CODE.includes('readCallGridInterval('), 'the canonical reader is used');
-  for (const symbol of ['fetchCallGridCallsPage', 'fetchAllCallGridCalls', 'nextCursor', 'maxPages']) {
-    assert.ok(!RUNNER_CODE.includes(symbol), `pagination belongs to the reader, not ${symbol} here`);
-  }
+  assert.ok(RUNNER_CODE.includes('.execute('), 'the primitive is invoked, not reimplemented');
 });
 
-test('25b. the runner fabricates no identity and rewrites no receipt', () => {
+test('the runner fabricates no identity and rewrites no receipt', () => {
   for (const symbol of ['receivedAt', 'firstIngestionSource', 'observedSources', 'occurredAt:']) {
     assert.ok(!RUNNER_CODE.includes(symbol), `the runner must not touch ${symbol}`);
   }
-  // The fabrication PR #178 deleted was `'callgrid-' + Date.now()`. Matching the
-  // bare prefix caught this file's own entry-point guard, which names the script;
-  // the shape is what matters, and `Date.now(` is separately forbidden above.
+  // The fabrication PR #178 deleted was `'callgrid-' + Date.now()`. The shape is
+  // what matters; the bare prefix appears in this script's own entry-point guard.
   assert.equal(/['"]callgrid-['"]\s*\+/.test(RUNNER_CODE), false, 'no fabricated identity');
-  // Every `externalId:` in this file is a TYPE POSITION -- a parameter the runner
-  // is handed. An identity it assigned would be an identity it invented, and the
-  // adapter is the only place allowed to decide what a call is called.
   const assignments = RUNNER_CODE.match(/externalId:(?!\s*(?:string|unknown)\b)/g) ?? [];
   assert.deepEqual(assignments, [], 'the runner never constructs an identity');
 });
@@ -711,32 +643,9 @@ test('the safety suite runs BEFORE the production credential is used', () => {
 });
 
 test('workflow inputs reach the shell through the environment, never by interpolation', () => {
-  // A ${{ }} expansion inside `run:` is pasted as literal shell text, which is how
-  // an input becomes a command.
   assert.ok(WORKFLOW_RUN_BODIES.length > 0, 'there are run bodies to inspect');
   assert.ok(!WORKFLOW_RUN_BODIES.includes('${{ inputs.'), 'no input is interpolated into a run body');
   assert.ok(!WORKFLOW_RUN_BODIES.includes('${{ secrets.'), 'no secret is interpolated into a run body');
   assert.ok(WORKFLOW_STEPS.includes('CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}'));
   assert.ok(!/echo[^\n]*CALLGRID_API_KEY[^\n]*\}/.test(WORKFLOW_STEPS), 'the key is never echoed');
-});
-
-test('the run result vocabulary is what the summary prints', async () => {
-  const h = harness();
-  const out: PollResult = await runPoll(request(), h.deps);
-  const s = summary(h.lines);
-  for (const field of [
-    'PROVIDER_RECORDS_FETCHED=',
-    'ACCEPTED_RECORDS=',
-    'REFUSED_RECORDS=',
-    'NEW_EVENTS=',
-    'DUPLICATE_OBSERVATIONS=',
-    'STRENGTHENED_CALLS=',
-    'CONFLICTS=',
-    'FAILED_PROCESSING=',
-    'NOT_ATTEMPTED=',
-    'OVERALL_RESULT=',
-  ]) {
-    assert.ok(s.includes(field), `the summary must state ${field}`);
-  }
-  assert.equal(out.dryRun, false);
 });

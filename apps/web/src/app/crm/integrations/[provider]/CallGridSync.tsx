@@ -2,24 +2,44 @@
 
 import { useState } from 'react';
 
-// CallGridSync - Sprint 17 (admin-only reconciliation control).
+// CallGridSync - Sprint 17 (admin-only), rebuilt on the canonical poll in PR 9.
 //
-// Calls POST /api/integrations/callgrid/sync to pull recent calls from the
-// CallGrid REST API (source of truth) and backfill/enrich the Loop. Shows the
-// fetched / imported / enriched / skipped-duplicate / failed breakdown. No data
-// is fabricated; the route is admin-gated server-side (integrations:manage).
+// Calls POST /api/integrations/callgrid/sync to pull calls from the CallGrid REST
+// API and bring the Loop in sync. Admin-gated server-side (integrations:manage).
+//
+// WHAT THE NUMBERS MEAN NOW. `Enriched` is gone, and it is not a rename. It
+// counted calls whose Interaction.metadata had been merged by a short-cut that
+// never reached IngestionService -- no observation, no provenance, no fact
+// convergence. That path was deleted. `Re-observed` counts calls Loop already
+// held that the provider answered for again, and `Strengthened` counts the ones
+// where a canonical fact actually moved. `Conflicts` counts facts the provider
+// stated that DISAGREE with what Loop holds; nothing was overwritten for any of
+// them, and each is recorded as a revision for a person to judge.
+//
+// AN INCOMPLETE READ NOW WRITES NOTHING, so a run can legitimately report zero of
+// everything with an outcome explaining why. That is the honest answer, not a
+// failure to display.
+//
+// Caller phone numbers are no longer listed here. They were decoration on an
+// admin panel and there is no reason for a sync report to carry them.
 
 type SyncRange = 'today' | '24h' | '7d';
 
 interface SyncResult {
   range: string;
+  outcome: string;
+  dryRun: boolean;
+  reason: string | null;
+  fetchOutcome: string | null;
   fetched: number;
+  accepted: number;
+  refused: number;
   imported: number;
-  enriched: number;
-  skippedDuplicate: number;
+  reObserved: number;
+  strengthened: number;
+  conflicts: number;
   failed: number;
-  callers: string[];
-  errors: string[];
+  notAttempted: number;
   at: string;
 }
 
@@ -49,7 +69,7 @@ export function CallGridSync() {
       // Read the body as text first so a non-JSON response (e.g. a gateway
       // timeout HTML page on the heavier ranges) never blows up JSON.parse.
       const raw = await res.text();
-      let data: { ok?: boolean; error?: string; result?: SyncResult } | null = null;
+      let data: { ok?: boolean; error?: string; outcome?: string; result?: SyncResult } | null = null;
       try {
         data = raw ? JSON.parse(raw) : null;
       } catch {
@@ -68,7 +88,16 @@ export function CallGridSync() {
           setError('Sync failed (' + res.status + '). Please try again.');
         }
       } else if (!res.ok || !data.ok) {
-        setError(data.error || ('Sync failed (' + res.status + ')'));
+        // A 200 with ok:false is the normal shape for "the read did not complete,
+        // so nothing was written". Show the outcome and its reason rather than a
+        // bare error code, and still show the counts underneath.
+        const detail = data.result?.reason;
+        setError(
+          [data.outcome ?? data.error ?? 'Sync failed (' + res.status + ')', detail]
+            .filter(Boolean)
+            .join(' — '),
+        );
+        if (data.result) setResult(data.result);
       } else {
         setResult(data.result as SyncResult);
       }
@@ -83,8 +112,10 @@ export function CallGridSync() {
     <div className="cg-sync" style={{ marginTop: 16, padding: 16, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }}>
       <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Sync recent CallGrid calls</h3>
       <p style={{ margin: '4px 0 12px', fontSize: 12, opacity: 0.7 }}>
-        Pull recent calls from the CallGrid REST API (source of truth) to backfill
-        missing calls and enrich attribution. Webhooks remain the real-time layer.
+        Pull calls from the CallGrid REST API to backfill what the webhook missed
+        and let the provider strengthen what Loop already holds. Webhooks remain
+        the real-time layer. If the provider read does not complete, nothing is
+        written at all.
       </p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {RANGES.map((r) => (
@@ -130,24 +161,25 @@ export function CallGridSync() {
 
       {result ? (
         <div style={{ marginTop: 12, fontSize: 12 }}>
+          <p style={{ margin: '0 0 8px', opacity: 0.8 }}>
+            Outcome: <b>{result.outcome}</b>
+            {result.fetchOutcome ? ' · provider read ' + result.fetchOutcome : ''}
+          </p>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             <span>Fetched: <b>{result.fetched}</b></span>
             <span>Imported: <b>{result.imported}</b></span>
-            <span>Enriched: <b>{result.enriched}</b></span>
-            <span>Skipped duplicate: <b>{result.skippedDuplicate}</b></span>
+            <span>Re-observed: <b>{result.reObserved}</b></span>
+            <span>Strengthened: <b>{result.strengthened}</b></span>
+            <span>Conflicts: <b>{result.conflicts}</b></span>
             <span>Failed: <b>{result.failed}</b></span>
           </div>
-          {result.callers.length > 0 ? (
+          {result.notAttempted > 0 ? (
             <p style={{ marginTop: 8, opacity: 0.8 }}>
-              Callers seen: {result.callers.slice(0, 12).join(', ')}
+              {result.notAttempted} record(s) were fetched but not written.
             </p>
           ) : null}
-          {result.errors.length > 0 ? (
-            <ul style={{ marginTop: 8, color: 'rgb(248,113,113)' }}>
-              {result.errors.slice(0, 5).map((e, i) => (
-                <li key={i}>{e}</li>
-              ))}
-            </ul>
+          {result.reason ? (
+            <p style={{ marginTop: 8, opacity: 0.8 }}>{result.reason}</p>
           ) : null}
         </div>
       ) : null}
