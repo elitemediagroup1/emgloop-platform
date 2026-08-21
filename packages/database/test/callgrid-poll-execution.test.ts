@@ -212,12 +212,17 @@ test('10. every record is labelled API_POLL, and the label is not an input', asy
     assert.equal(input.mapEventType, mapCallGridEventType, 'the canonical REST mapper');
   }
   assert.equal(POLL_OBSERVATION_SOURCE, 'API_POLL');
-  // A recovery labels its rows differently on purpose. This service cannot claim
-  // that label however it is called: the constant is not reachable from the input.
-  assert.ok(!SERVICE_CODE.includes('API_RECOVERY'));
+  // A recovery labels its rows differently on purpose, and that label is now a
+  // second constant in this file. What must remain true is that NEITHER label is
+  // reachable from an argument: provenance is a property of which entry point ran.
   assert.ok(
     !/observationSource\s*:\s*input\./.test(SERVICE_CODE),
     'provenance is never taken from the caller',
+  );
+  assert.ok(!/CallGridPollInput\s*&/.test(SERVICE_CODE), 'the input type is not widened');
+  assert.ok(
+    !SERVICE_CODE.includes('observationSource?') && !/input\.observationSource/.test(SERVICE_CODE),
+    'no public input carries an observation source',
   );
 });
 
@@ -585,10 +590,90 @@ test('24-29. no verdict, readiness, measurement, checkpoint, schedule or recover
     'cron',
     'schedule',
     'setInterval',
-    'API_RECOVERY',
     'LIVE_ORG_SLUG',
   ]) {
     assert.ok(!SERVICE_CODE.includes(symbol), `the service must not reference ${symbol}`);
+  }
+});
+
+// --- Two entry points, two labels, one engine -----------------------------------------
+
+test('execute() labels API_POLL and executeRecovery() labels API_RECOVERY', async () => {
+  const poll = harness();
+  await poll.service.execute({ organizationId: ORG, apiKey: KEY, since: SINCE, until: UNTIL });
+  for (const input of poll.inputs) assert.equal(input.observationSource, 'API_POLL');
+
+  const recovery = harness();
+  await recovery.service.executeRecovery({ organizationId: ORG, apiKey: KEY, since: SINCE, until: UNTIL });
+  for (const input of recovery.inputs) assert.equal(input.observationSource, 'API_RECOVERY');
+  assert.equal(recovery.inputs.length, 2, 'and it really did ingest');
+});
+
+test('the two entry points share ONE engine, not two copies of it', () => {
+  // The only thing that differs between routine polling and recovery is why
+  // somebody asked. A recovery running through a second loop would be a second
+  // engine, whatever the loops happened to say today.
+  assert.equal(
+    (SERVICE_CODE.match(/this\.ingestion\.ingest\(/g) ?? []).length,
+    1,
+    'exactly one place ingests',
+  );
+  assert.equal(
+    (SERVICE_CODE.match(/this\.reader\.read\(/g) ?? []).length,
+    1,
+    'exactly one place reads',
+  );
+  assert.ok(SERVICE_CODE.includes('return this.run(POLL_OBSERVATION_SOURCE'));
+  assert.ok(SERVICE_CODE.includes('return this.run(RECOVERY_OBSERVATION_SOURCE'));
+});
+
+test('a recovery is subject to every rule a routine poll is', async () => {
+  // Completeness, refusal, partial-apply. Proving one of each is enough to show
+  // the shared engine is genuinely shared rather than bypassed.
+  const truncated = harness({ read: readResult({ outcome: 'TRUNCATED', events: [event(1)], records: 1 }) });
+  const t = await truncated.service.executeRecovery({ organizationId: ORG, apiKey: KEY, since: SINCE, until: UNTIL });
+  assert.equal(t.outcome, 'FETCH_INCOMPLETE');
+  assert.equal(truncated.ingested.length, 0, 'an incomplete recovery writes nothing');
+
+  const refused = harness({
+    read: readResult({ events: [event(1)], records: 2, refused: [{ page: 1, reason: 'no identity' }] }),
+  });
+  const r = await refused.service.executeRecovery({ organizationId: ORG, apiKey: KEY, since: SINCE, until: UNTIL });
+  assert.equal(r.outcome, 'REFUSED');
+  assert.equal(refused.ingested.length, 0, 'a refused record fails a recovery closed too');
+
+  const partial = harness({
+    read: readResult({ events: [event(1), event(2), event(3)], records: 3 }),
+    answers: { [callId(2)]: 'throw' },
+  });
+  const p = await partial.service.executeRecovery({ organizationId: ORG, apiKey: KEY, since: SINCE, until: UNTIL });
+  assert.equal(p.outcome, 'PARTIALLY_APPLIED');
+  assert.ok(!pollSucceeded(p.outcome), 'a partial recovery is never a success');
+});
+
+test('a recovery dry run writes nothing and predicts nothing it cannot know', async () => {
+  const h = harness({ stored: { [callId(1)]: 'PROCESSED' } });
+  const out = await h.service.executeRecovery({
+    organizationId: ORG,
+    apiKey: KEY,
+    since: SINCE,
+    until: UNTIL,
+    dryRun: true,
+  });
+  assert.equal(out.outcome, 'DRY_RUN_READY');
+  assert.equal(h.ingested.length, 0);
+  assert.match(String(out.reason), /NOT predicted/);
+});
+
+test('neither entry point can reach a checkpoint, so recovery cannot move routine coverage', () => {
+  for (const symbol of [
+    'ProviderPollCheckpointRepository',
+    'providerPollCheckpoint',
+    'completedThrough',
+    'planPollInterval',
+    'CallGridRoutinePollService',
+  ]) {
+    assert.ok(!SERVICE_CODE.includes(symbol), `the primitive must not reference ${symbol}`);
   }
 });
 

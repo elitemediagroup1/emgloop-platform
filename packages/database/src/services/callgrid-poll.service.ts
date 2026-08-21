@@ -74,6 +74,17 @@ import { IntegrationRepository } from '../repositories/integration.repository';
  */
 export const POLL_OBSERVATION_SOURCE: ObservationSource = 'API_POLL';
 
+/**
+ * How rows written by a HISTORICAL RECOVERY are labelled.
+ *
+ * ALSO A CONSTANT, AND ALSO NOT A PARAMETER. The distinction between routine
+ * polling and recovery is that a person went looking for a known gap, and that is
+ * a property of WHICH OPERATION RAN -- not of an argument one of them was handed.
+ * So there are two entry points and each owns its label; there is no public method
+ * on this service that accepts an observation source, and a test asserts it.
+ */
+export const RECOVERY_OBSERVATION_SOURCE: ObservationSource = 'API_RECOVERY';
+
 export const CALLGRID_POLL_PROVIDER = 'callgrid';
 export const CALLGRID_POLL_STREAM = 'calls';
 
@@ -382,6 +393,37 @@ export class CallGridPollService {
     input: CallGridPollInput,
     observer: CallGridPollObserver = {},
   ): Promise<CallGridPollExecution> {
+    return this.run(POLL_OBSERVATION_SOURCE, input, observer);
+  }
+
+  /**
+   * The same operation, labelled as a recovery.
+   *
+   * IDENTICAL IN EVERY OTHER RESPECT, and deliberately so: same bounded reader,
+   * same completeness gate, same fail-closed refusal policy, same ingestion path,
+   * same identity, same occurrence, same fact convergence, same partial-apply
+   * semantics. A recovery that ran through a different engine would be a second
+   * engine, and the only thing that actually differs between routine polling and
+   * recovery is WHY somebody asked -- which is provenance, and is recorded as
+   * provenance.
+   *
+   * IT TOUCHES NO CHECKPOINT. Neither entry point can: this service has never had
+   * access to one, and routine coverage is advanced by a different service
+   * entirely. A recovery therefore cannot move the routine boundary in either
+   * direction, and there is nothing to remember to avoid.
+   */
+  async executeRecovery(
+    input: CallGridPollInput,
+    observer: CallGridPollObserver = {},
+  ): Promise<CallGridPollExecution> {
+    return this.run(RECOVERY_OBSERVATION_SOURCE, input, observer);
+  }
+
+  private async run(
+    observationSource: ObservationSource,
+    input: CallGridPollInput,
+    observer: CallGridPollObserver,
+  ): Promise<CallGridPollExecution> {
     const result = emptyExecution(input);
 
     if (!input.apiKey) {
@@ -518,7 +560,7 @@ export class CallGridPollService {
           providerConnectionId: input.providerConnectionId ?? null,
           mapEventType: mapCallGridEventType,
           events: [ev],
-          observationSource: POLL_OBSERVATION_SOURCE,
+          observationSource,
         });
         outcome = results[0];
       } catch (error) {
