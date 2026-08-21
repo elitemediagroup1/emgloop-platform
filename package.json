@@ -30,6 +30,7 @@
     "poll:callgrid": "tsx scripts/operations/poll-callgrid-interval.ts",
     "poll:callgrid-routine": "tsx scripts/operations/poll-callgrid-routine.ts",
     "verify:callgrid": "tsx scripts/operations/verify-callgrid-recovery.ts",
+    "drain:failed-events": "tsx scripts/operations/drain-failed-events.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",
     "test:diagnostics": "node --import tsx --test scripts/diagnostics/*.test.ts",
     "typecheck:operations": "tsc --noEmit -p scripts/tsconfig.json"

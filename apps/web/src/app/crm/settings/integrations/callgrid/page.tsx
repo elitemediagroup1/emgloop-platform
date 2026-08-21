@@ -8,7 +8,7 @@ import { requirePermission } from '../../../../../auth/guard';
 //
 // CRM > Settings > Integrations > CallGrid. Operational visibility into the live
 // CallGrid connection: connection + webhook status, last event, processed/failed
-// counts, and the retry queue (events stuck in RECEIVED/PROCESSING/FAILED). NO
+// counts, and the events needing attention (stuck in RECEIVED/PROCESSING/FAILED). NO
 // credentials are ever shown — this is monitoring only. All data comes from the
 // IntegrationEvent / ProviderConnection tables via the repository layer.
 
@@ -55,7 +55,7 @@ export default async function CallGridAdminPage() {
   const failed = counts['FAILED'] ?? 0;
   const received = counts['RECEIVED'] ?? 0;
   const processing = counts['PROCESSING'] ?? 0;
-  const retryQueue = recent.filter((e) => e.status === 'FAILED' || e.status === 'RECEIVED' || e.status === 'PROCESSING');
+  const needsAttention = recent.filter((e) => e.status === 'FAILED' || e.status === 'RECEIVED' || e.status === 'PROCESSING');
   const lastEvent = recent[0] ?? null;
   const connectionStatus = connection?.status ?? 'NOT_CONNECTED';
   const webhookStatus = connection && connection.status === 'CONNECTED' ? 'Active' : 'Awaiting first event';
@@ -104,7 +104,7 @@ export default async function CallGridAdminPage() {
           <div className="crm-kpi-value" style={{ color: 'var(--crm-red, #f87171)' }}>{failed}</div>
         </div>
         <div className="crm-integration-card">
-          <span className="crm-kpi-label">In Retry Queue</span>
+          <span className="crm-kpi-label">Needing Attention</span>
           <div className="crm-kpi-value">{received + processing + failed}</div>
         </div>
       </div>
@@ -119,11 +119,22 @@ export default async function CallGridAdminPage() {
         <code className="crm-code-inline">POST {WEBHOOK_PATH}</code>
       </div>
 
-      {/* Retry queue */}
+      {/* Events needing attention.
+          NOT a queue, and no longer called one. Nothing on this page retries
+          anything: it lists rows the pipeline did not finish, and a person clears
+          them with the Drain Failed Events operation. Calling a list a queue
+          implies something is working through it, which was not true for the whole
+          time this panel has existed. */}
       <div style={{ marginBottom: '1.5rem' }}>
-        <h2 className="crm-h2" style={{ marginBottom: '1rem' }}>Retry Queue</h2>
-        {retryQueue.length === 0 ? (
-          <p className="crm-empty">Retry queue is empty — all events processed cleanly.</p>
+        <h2 className="crm-h2" style={{ marginBottom: '0.5rem' }}>Events Needing Attention</h2>
+        <p className="crm-sub" style={{ marginBottom: '1rem' }}>
+          Deliveries the pipeline did not finish. Nothing retries these automatically.
+          A FAILED row can be re-offered by hand with the <code>Drain Failed Events</code>{' '}
+          operation; RECEIVED and PROCESSING rows are either in flight right now or were
+          left behind by a crash, and the drain deliberately does not touch them.
+        </p>
+        {needsAttention.length === 0 ? (
+          <p className="crm-empty">Nothing needs attention — all events processed cleanly.</p>
         ) : (
           <table className="crm-table">
             <thead>
@@ -135,7 +146,7 @@ export default async function CallGridAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {retryQueue.map((e) => (
+              {needsAttention.map((e) => (
                 <tr key={e.id}>
                   <td>{e.eventType ?? '—'}</td>
                   <td><span className={'crm-integration-status ' + e.status}>{e.status}</span></td>
