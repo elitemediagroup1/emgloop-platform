@@ -250,6 +250,7 @@ model Organization {
   measureBindings         ObjectiveMeasureBinding[]
   headlines               Headline[]
   observationDays         ProviderObservationDay[]
+  pollCheckpoints         ProviderPollCheckpoint[]
   memberExpectations      ProviderMemberExpectation[]
   reconciliationDays      ProviderReconciliationDay[]
   reconciliationMembers   ProviderReconciliationMember[]
@@ -4302,4 +4303,81 @@ model MeasureSourceAuthority {
   /// Resolution reads one member+metric's declarations in effective order.
   @@index([organizationId, memberDimension, memberExternalId, metric, effectiveFrom], map: "measure_source_authority_lookup")
   @@map("measure_source_authorities")
+}
+
+// ---------------------------------------------------------------------------
+// Provider poll checkpoint — Commercial Intelligence Stage 3 (routine polling)
+// ---------------------------------------------------------------------------
+
+/// The provider time through which routine polling has PROVEN coverage.
+///
+/// WHAT THIS IS NOT, AND THE DISTINCTION IS THE WHOLE POINT.
+///
+/// It is NOT the newest provider record Loop has seen. A provider interval can
+/// legitimately contain zero calls, and a quiet night would leave a max() with
+/// nothing to return — the checkpoint would stop moving while coverage was in
+/// fact complete, and the re-read window would grow without bound. Even on a
+/// busy interval the newest call may sit hours behind the boundary, so the
+/// newest occurrence understates what the read actually proved.
+///
+/// It is NOT when the poller last ran. A run that failed still ran. A run that
+/// deliberately lags its upper bound behind the clock covered less than the
+/// moment it executed. Recording execution time claims instants nobody read.
+///
+/// It IS the EXCLUSIVE UPPER BOUND of the most recent half-open interval whose
+/// provider read completed AND whose records were fully applied locally. That is
+/// the strongest statement the architecture supports: `readCallGridInterval`
+/// returning COMPLETE proves the provider held nothing else in `[since, until)`,
+/// and the poll service reports APPLIED only once every accepted record has been
+/// through IngestionService.
+///
+/// MONOTONIC. Advancement is a conditional update guarded on
+/// `completedThrough < :candidate`, so a slower concurrent run carrying an older
+/// boundary matches zero rows and changes nothing. Two workers may overlap
+/// harmlessly — ingestion is idempotent on (provider, externalId) — but the
+/// proven boundary can only ever move forward.
+///
+/// SUCCESSES ONLY. There is no `lastOutcome`, no `lastAttemptAt` and no failure
+/// state here, deliberately. A table whose every row means "this was proven"
+/// cannot be misread; a table carrying attempt state invites a reader to treat a
+/// recorded failure as a coverage fact. What a run did is reported by the run.
+///
+/// NO ROW MEANS NO COVERAGE HAS BEEN PROVEN. Not "since the beginning of time",
+/// not zero — absent. The first poll uses a bounded bootstrap lookback, and this
+/// row appears only after that poll succeeds.
+///
+/// INDEPENDENT OF THE WEBHOOK. Nothing about webhook delivery reaches this row.
+/// The webhook is the low-latency path and the poll is the completeness path;
+/// tying the second's proof to the first's success would make an outage in the
+/// webhook look like covered provider time.
+model ProviderPollCheckpoint {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The sensor being polled, e.g. "callgrid".
+  provider String
+  /// WHICH STREAM from that provider. Coverage is per stream for the same reason
+  /// observation is: the calls endpoint being complete says nothing about the
+  /// auction reports, and one row covering both would claim what it never read.
+  stream   String
+
+  /// The exclusive upper bound of the latest proven interval. A UTC instant.
+  completedThrough DateTime
+
+  /// The inclusive lower bound of the interval that last advanced this row.
+  ///
+  /// Evidence, not state: nothing reads it to make a decision. It is here so an
+  /// operator looking at a checkpoint that seems wrong can see the span that set
+  /// it without reconstructing it from a log.
+  lastIntervalSince DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Tenant-first identity, matching provider_observation_days. One organization's
+  /// proven coverage can never satisfy another organization's poll.
+  @@unique([organizationId, provider, stream], name: "poll_checkpoint_identity")
+  @@map("provider_poll_checkpoints")
 }

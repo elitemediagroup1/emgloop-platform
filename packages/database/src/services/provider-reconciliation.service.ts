@@ -72,9 +72,10 @@ export const RECONCILIATION_PAGE_CAP = 100;
 /**
  * How far either side of the day's UTC interval the LOCAL delivery scan reaches.
  *
- * `integration_events` has no occurrence column -- the call's own instant lives
- * inside `payload` -- so rows are selected by `receivedAt` and then filtered by
- * RESOLVED OCCURRENCE in memory. A webhook that arrived late, was retried the
+ * `integration_events.occurredAt` exists as of PR #180 -- this comment claimed it
+ * did not, and went on saying so after the column shipped -- but it is populated
+ * only for rows written since, so rows are still selected by `receivedAt` and
+ * then filtered by RESOLVED OCCURRENCE in memory. A webhook that arrived late, was retried the
  * next morning, or was imported by a sync days afterwards still belongs to the
  * day it OCCURRED on, and a scan bounded to the day itself would silently
  * classify it as absent. Two days covers retry and same-week reconciliation; it

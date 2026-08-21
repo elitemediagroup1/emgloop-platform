@@ -37,6 +37,7 @@ import { ProviderObservationRepository } from './provider-observation.repository
 import { ProviderMemberExpectationRepository } from './provider-member-expectation.repository';
 import { ProviderReconciliationRepository } from './provider-reconciliation.repository';
 import { ProviderFactRevisionRepository } from './provider-fact-revision.repository';
+import { ProviderPollCheckpointRepository } from './provider-poll-checkpoint.repository';
 import { MeasurementSourceRepository } from './measurement-source.repository';
 import { OperationalPriorityRepository } from './operational-priority.repository';
 import { MarketplaceAuctionRepository } from './marketplace-auction.repository';
@@ -373,6 +374,7 @@ export interface Repositories {
   providerObservations: ProviderObservationRepository;
   providerReconciliations: ProviderReconciliationRepository;
   providerFactRevisions: ProviderFactRevisionRepository;
+  pollCheckpoints: ProviderPollCheckpointRepository;
   measurementSources: MeasurementSourceRepository;
   memberExpectations: ProviderMemberExpectationRepository;
 }
@@ -414,6 +416,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     providerObservations: new ProviderObservationRepository(prisma),
     providerReconciliations: new ProviderReconciliationRepository(prisma),
     providerFactRevisions: new ProviderFactRevisionRepository(prisma),
+    pollCheckpoints: new ProviderPollCheckpointRepository(prisma),
     measurementSources: new MeasurementSourceRepository(prisma),
     memberExpectations: new ProviderMemberExpectationRepository(prisma),
   };

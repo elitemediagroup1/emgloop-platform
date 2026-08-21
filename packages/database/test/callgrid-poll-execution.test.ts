@@ -575,7 +575,10 @@ test('24-29. no verdict, readiness, measurement, checkpoint, schedule or recover
     'MemberExpectation',
     'ProviderObservationService',
     'certifyDay',
-    'checkpoint',
+    // 'checkpoint' is NOT in this list as of PR 10. The primitive gained
+    // `checkpointMayAdvance` -- a pure predicate over its own outcome vocabulary,
+    // beside `pollSucceeded` -- and the property that matters is that it holds no
+    // checkpoint STATE, which the poll-checkpoint suite asserts by name.
     'watermark',
     'highWater',
     'lastPolled',
