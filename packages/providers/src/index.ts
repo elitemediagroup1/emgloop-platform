@@ -78,6 +78,24 @@ export {
 } from './adapters/callgrid-api';
 export type { CallGridApiFetchOptions, CallGridApiPage } from './adapters/callgrid-api';
 export {
+  INTERVAL_DEFAULT_MAX_PAGES,
+  INTERVAL_MAX_SPAN_DAYS,
+  INTERVAL_PAGE_SIZE,
+  INTERVAL_READ_OUTCOMES,
+  RATE_LIMIT_BASE_DELAY_MS,
+  RATE_LIMIT_MAX_RETRIES,
+  intervalWasComplete,
+  readCallGridInterval,
+  retryAfterMs,
+  validateInterval,
+} from './adapters/callgrid-interval';
+export type {
+  IntervalReadOutcome,
+  IntervalReadRequest,
+  IntervalReadResult,
+  RefusedRecord,
+} from './adapters/callgrid-interval';
+export {
   WebsiteProvider,
   mapWebsiteEventType,
   WEBSITE_EVENT_MAP,
