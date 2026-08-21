@@ -475,7 +475,15 @@ test('it enumerates the provider through the SAME reader the poll and recovery u
 
 test('the verdict vocabulary is closed and the observation vocabulary is the shipped one', () => {
   assert.deepEqual([...DAY_VERDICTS].sort(), ['AGREED', 'DIFFERS', 'FAILED', 'INCONCLUSIVE']);
-  assert.deepEqual([...OBSERVATION_SOURCE_VOCABULARY], ['WEBHOOK', 'API_POLL', 'API_RECOVERY']);
+  // Widened by the FAILED-event drain: a reprocess asks no provider anything, so
+  // recording it as WEBHOOK or API_POLL would say CallGrid was asked when it was
+  // not. The verifier buckets by whatever string a row carries, so a widened
+  // vocabulary shows up as its own bucket rather than as UNRECORDED -- which is
+  // what makes a re-offered row distinguishable from a re-read one in a report.
+  assert.deepEqual(
+    [...OBSERVATION_SOURCE_VOCABULARY],
+    ['WEBHOOK', 'API_POLL', 'API_RECOVERY', 'LOCAL_REPROCESS'],
+  );
 });
 
 test('importing the module does not start a verification', () => {

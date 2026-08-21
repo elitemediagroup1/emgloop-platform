@@ -253,6 +253,74 @@ export class IntegrationRepository {
     return row ? String(row.status) : null;
   }
 
+  /**
+   * FAILED deliveries, oldest first, bounded.
+   *
+   * FAILED ONLY, AND DELIBERATELY NOT RECEIVED OR PROCESSING. The CallGrid
+   * settings panel calls all three a "retry queue", but they are not the same
+   * thing: a PROCESSING row is either being worked on right now or was orphaned by
+   * a crash, and nothing stored distinguishes those two. Re-offering an in-flight
+   * row would race the run that is already handling it, and deciding it is
+   * orphaned needs an age threshold nobody has chosen. FAILED is unambiguous --
+   * the pipeline finished and said no -- so that is what this returns.
+   *
+   * OLDEST FIRST, so a bounded drain works through a backlog in the order it
+   * accumulated rather than repeatedly re-attempting whatever failed most
+   * recently.
+   *
+   * READ-ONLY, ORGANIZATION-SCOPED, BATCHED. The error message comes back so a
+   * caller can report WHY a row failed without going and looking it up.
+   */
+  async listFailedEvents(
+    organizationId: string,
+    options: { provider?: string; limit: number; afterId?: string },
+  ): Promise<
+    Array<{
+      id: string;
+      externalId: string | null;
+      /** The row's OWN provider. A drain re-offers each row as what it is. */
+      provider: string | null;
+      eventType: string;
+      receivedAt: Date;
+      occurredAt: Date | null;
+      error: string | null;
+      payload: unknown;
+    }>
+  > {
+    const take = options.limit > 0 ? Math.min(options.limit, 1000) : 0;
+    if (take === 0) return [];
+    const rows = await this.prisma.integrationEvent.findMany({
+      where: {
+        organizationId,
+        status: 'FAILED',
+        ...(options.provider ? { provider: options.provider } : {}),
+        ...(options.afterId ? { id: { gt: options.afterId } } : {}),
+      },
+      orderBy: [{ receivedAt: 'asc' }, { id: 'asc' }],
+      take,
+      select: {
+        id: true,
+        externalId: true,
+        provider: true,
+        eventType: true,
+        receivedAt: true,
+        occurredAt: true,
+        error: true,
+        payload: true,
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      externalId: r.externalId,
+      provider: r.provider,
+      eventType: r.eventType,
+      receivedAt: r.receivedAt,
+      occurredAt: r.occurredAt,
+      error: r.error,
+      payload: r.payload,
+    }));
+  }
+
   async listRecentEvents(
     organizationId: string,
     options: { provider?: string; limit?: number } = {},

@@ -109,10 +109,17 @@ const processedFromWebhook = (over: Row = {}): Row => ({
 // --- The vocabulary ------------------------------------------------------------------
 
 test('the observation vocabulary is closed, and fails closed', () => {
-  assert.deepEqual([...OBSERVATION_SOURCES], ['WEBHOOK', 'API_POLL', 'API_RECOVERY']);
+  // Widened by the FAILED-event drain: a reprocess asks no provider anything, so
+  // recording it as WEBHOOK or API_POLL would say CallGrid was asked when it was
+  // not. The vocabulary was always stored as text precisely so it could widen
+  // without production DDL; what "closed" means is that an unrecognised value is
+  // refused, not that the list can never grow.
+  assert.deepEqual([...OBSERVATION_SOURCES], ['WEBHOOK', 'API_POLL', 'API_RECOVERY', 'LOCAL_REPROCESS']);
   assert.equal(isObservationSource('API_RECOVERY'), true);
+  assert.equal(isObservationSource('LOCAL_REPROCESS'), true);
   assert.equal(isObservationSource('api_recovery'), false, 'no case coercion');
   assert.equal(isObservationSource('SYNC'), false);
+  assert.equal(isObservationSource('REPROCESS'), false, 'near misses fail closed too');
   assert.equal(isObservationSource(undefined), false);
 });
 

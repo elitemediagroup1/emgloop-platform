@@ -1,0 +1,150 @@
+# Re-offer FAILED integration events through the canonical pipeline.
+#
+# The CallGrid settings panel has rendered a "Retry Queue" since Sprint 17 and
+# nothing has ever drained it. This is the drain. It hands each FAILED row back to
+# IngestionService -- the same call the webhook and the poller make -- exactly
+# once per run.
+#
+# NOT A RETRY LOOP, AND NO SCHEDULE. A row that fails again stays FAILED and is
+# named in the report. Repetition that hides a permanent failure is how a broken
+# row becomes invisible, so a second attempt is a person deciding to make one.
+#
+# DRY RUN FIRST, AND BY DEFAULT. `dry_run: true` reads the queue and reports what
+# it would re-offer and which rows it could not rebuild at all. It writes nothing.
+#
+# NO PROVIDER CREDENTIAL. This operation asks no provider anything -- it reprocesses
+# evidence Loop already holds -- so CALLGRID_API_KEY is not needed and is not
+# passed. Rows it writes are labelled LOCAL_REPROCESS for exactly that reason.
+#
+# CREDENTIALS. One secret, named here and never printed:
+#   DIRECT_DATABASE_URL   the direct (non-pooled) production endpoint
+
+name: Drain Failed Events
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug (e.g. servicesinmycity-demo)'
+        required: true
+        type: string
+      provider:
+        description: 'Optional provider filter (e.g. callgrid). Blank drains every provider.'
+        required: false
+        default: ''
+        type: string
+      limit:
+        description: 'Maximum rows to attempt in this run (1-500).'
+        required: true
+        default: '50'
+        type: string
+      dry_run:
+        description: 'Read and report only. Leave true until you have read a dry run.'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add schedule:, push: or pull_request: triggers here.
+
+permissions:
+  contents: read
+
+# Two drains at once would offer the same rows to the pipeline twice and race each
+# other's status transitions. A second run waits.
+concurrency:
+  group: drain-failed-events
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    name: Re-offer failed integration events
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Fail closed when the production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the inputs
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          PROVIDER: ${{ inputs.provider }}
+          LIMIT: ${{ inputs.limit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if [ -n "${PROVIDER}" ] && ! printf '%s' "${PROVIDER}" | grep -Eq '^[a-z0-9-]{1,40}$'; then
+            echo "::error::provider must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if ! printf '%s' "${LIMIT}" | grep -Eq '^[1-9][0-9]{0,2}$'; then
+            echo "::error::limit must be a whole number between 1 and 500."
+            exit 1
+          fi
+          if [ "${LIMIT}" -gt 500 ]; then
+            echo "::error::limit must be 500 or fewer."
+            exit 1
+          fi
+          echo "Validated inputs for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These suites
+        # read the runner's own source and fail if it rewrites a receipt, invents an
+        # identity or an occurrence, retries in a loop, reaches a checkpoint, or
+        # bypasses IngestionService.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+          npm test --workspace=@emgloop/shared
+
+      - name: Drain
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          PROVIDER: ${{ inputs.provider }}
+          LIMIT: ${{ inputs.limit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(--organization "${ORG_SLUG}" --limit "${LIMIT}")
+          if [ -n "${PROVIDER}" ]; then args+=(--provider "${PROVIDER}"); fi
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); else args+=(--apply); fi
+          npm run drain:failed-events -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Drain did not clear the queue" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read \`OVERALL_RESULT=\` on the \`event=SUMMARY\` line:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`PARTIALLY_DRAINED\` - some rows processed and some did not. Each \`event=ROW_RESULT\` with \`status=failed\` carries the new error and the one the row already had." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`NOT_DRAINED\` - every attempted row failed again, or no row could be rebuilt. **These rows need a code fix, not another run.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=ROW_REFUSED\` - the stored row could not be rebuilt: \`NO_IDENTITY\`, \`NO_PROVIDER\`, \`NO_OCCURRENCE\` or \`NO_PAYLOAD\`. Nothing was invented to make it offerable, and re-running will refuse it again." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This operation attempts each row ONCE. Re-running is safe and idempotent, but a row that failed for a reason in the code will keep failing until that reason is fixed." >> "$GITHUB_STEP_SUMMARY"
