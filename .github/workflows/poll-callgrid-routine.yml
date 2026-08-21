@@ -51,11 +51,17 @@
 # last hundred runs all failed because two secrets were never set. Nobody noticed
 # for months. Exiting non-zero is necessary and is not sufficient here.
 #
-# So every pass prints COVERAGE_LAG_MS: how far behind the clock proven coverage
-# now sits, read from a durable row rather than inferred from a run's colour. That
-# is the number an external alert should watch, and it stays true when nobody is
-# looking at this page. Attaching that alert is a prerequisite for enabling, not a
-# follow-up.
+# So every pass prints COVERAGE_LAG_MS and COVERAGE_STATUS: how far behind the
+# clock proven coverage now sits, read from a durable row rather than inferred
+# from a run's colour.
+#
+# AND THAT IS STILL NOT ENOUGH ON ITS OWN, because those lines only exist while
+# this job runs. A job that FAILS is visible; a job that STOPS RUNNING is silent.
+# The same durable row is therefore served by GET /api/internal/coverage-health,
+# which answers 503 for anything other than HEALTHY — so an uptime checker that
+# knows nothing but status codes can watch a poller that never fired at all.
+# Pointing a monitor at that endpoint is a prerequisite for enabling this
+# workflow, not a follow-up.
 #
 # CREDENTIALS. Two secrets, named here and never printed:
 #   DIRECT_DATABASE_URL   the direct (non-pooled) production endpoint

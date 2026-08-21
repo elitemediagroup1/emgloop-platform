@@ -73,6 +73,53 @@ export class ProviderPollCheckpointRepository {
   }
 
   /**
+   * Every checkpoint on the platform, for an operational health read.
+   *
+   * CROSS-ORGANIZATION, WHICH NEEDS SAYING OUT LOUD. CLAUDE.md allows exactly one
+   * cross-tenant repository (`AuthRepository`), and this is a second read that
+   * ignores tenancy — so it is worth being precise about why that is not the
+   * vulnerability that rule exists to prevent.
+   *
+   * It returns OPERATIONAL METADATA, not tenant-owned business data: an
+   * organization's slug, a provider, a stream and two instants. No call, no
+   * customer, no money, no payload, no identity. The question it serves --
+   * "is any stream's coverage stale" -- is a platform question and is answered the
+   * same way `OutboxDrainRunner` asks which organizations have queued work.
+   *
+   * There is no filter, no id argument and no way for a caller to name a tenant,
+   * so it cannot be turned into a lookup of one organization's data by someone
+   * holding a shared secret. That is the distinction: a platform operation over
+   * every tenant, never a tenant-scoped read authorised by a class credential.
+   */
+  async listForPlatformHealth(): Promise<
+    Array<{
+      organizationSlug: string;
+      provider: string;
+      stream: string;
+      completedThrough: Date;
+      updatedAt: Date;
+    }>
+  > {
+    const rows = await this.prisma.providerPollCheckpoint.findMany({
+      orderBy: [{ provider: 'asc' }, { stream: 'asc' }],
+      select: {
+        provider: true,
+        stream: true,
+        completedThrough: true,
+        updatedAt: true,
+        organization: { select: { slug: true } },
+      },
+    });
+    return rows.map((r) => ({
+      organizationSlug: r.organization.slug,
+      provider: r.provider,
+      stream: r.stream,
+      completedThrough: r.completedThrough,
+      updatedAt: r.updatedAt,
+    }));
+  }
+
+  /**
    * Record that coverage is proven through `completedThrough`, if that is news.
    *
    * THE CALLER HAS ALREADY DECIDED. This method does not look at a poll outcome
