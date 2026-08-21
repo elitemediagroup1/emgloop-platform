@@ -1,0 +1,227 @@
+# Routine CallGrid completeness polling.
+#
+# Asks the durable checkpoint what has been proven, asks the planner what to read
+# next, runs the canonical bounded poll, and records coverage only if the poll
+# proved it. Every decision named in that sentence lives somewhere else; this file
+# is a trigger and a credential.
+#
+# THIS IS THE FIRST AUTOMATIC CALLGRID REST WRITE PATH IN THE PLATFORM, and it is
+# shipped OFF. The job exits immediately unless the repository variable
+# ROUTINE_POLL_ORGANIZATIONS is set. Merging this changes nothing; enabling it is
+# one deliberate configuration action with no code change, and disabling it again
+# is the same action in reverse.
+#
+# ------------------------------------------------------------------------------
+# CADENCE: HOURLY. OPERATING POLICY, NOT PROVIDER TRUTH.
+# ------------------------------------------------------------------------------
+#
+# Fifteen minutes was the number under discussion. The arithmetic argues against
+# it, because the cost of a routine pass is dominated by the 48-hour overlap and
+# not by the cadence:
+#
+#   busiest day on record         7,298 calls
+#   records read per pass         ~14,600  (48h of overlap, whatever the cadence)
+#   provider pages per pass       ~146     (100 records per page)
+#   re-observations per pass      ~14,600  (each one a lookup, an observation
+#                                           write and a fact-convergence read)
+#
+# At four passes an hour that is roughly 14,000 provider page requests and 1.4
+# million re-observations per day, against an API this repository has already
+# recorded returning 429 in production. At one pass an hour it is roughly 3,500
+# and 350,000. The pass itself is also not short: 146 sequential pages followed by
+# ~14,600 sequential ingestion passes does not reliably finish inside fifteen
+# minutes, so a quarter-hourly schedule would spend much of its life queued behind
+# itself for no gain.
+#
+# What the extra frequency would buy is 45 minutes of latency on the COMPLETENESS
+# path -- and latency is the webhook's job. The longest webhook gap this platform
+# has recorded lasted about three days; hourly polling closes a gap of that shape
+# within the hour. The honest trade is
+# to spend the budget on the overlap, which heals mutated provider facts, rather
+# than on re-reading the same 48 hours four times as often.
+#
+# If a faster heal is wanted later, the change that buys it is a SHORT frontier
+# pass plus an occasional DEEP overlap pass -- not a smaller number here.
+#
+# ------------------------------------------------------------------------------
+# WHY A RED RUN IS NOT AN ALERT, AND WHAT TO WATCH INSTEAD
+# ------------------------------------------------------------------------------
+#
+# drain-outbox.yml is this repository's only other scheduled workflow, and its
+# last hundred runs all failed because two secrets were never set. Nobody noticed
+# for months. Exiting non-zero is necessary and is not sufficient here.
+#
+# So every pass prints COVERAGE_LAG_MS: how far behind the clock proven coverage
+# now sits, read from a durable row rather than inferred from a run's colour. That
+# is the number an external alert should watch, and it stays true when nobody is
+# looking at this page. Attaching that alert is a prerequisite for enabling, not a
+# follow-up.
+#
+# CREDENTIALS. Two secrets, named here and never printed:
+#   DIRECT_DATABASE_URL   the direct (non-pooled) production endpoint
+#   CALLGRID_API_KEY      the provider credential for Loop calling CallGrid
+# CALLGRID_API_KEY is NOT CALLGRID_WEBHOOK_SECRET. They authenticate different
+# parties in different directions and this job never falls back between them.
+
+name: Poll CallGrid Routine
+
+on:
+  schedule:
+    # Hourly, on the hour. GitHub does not guarantee this cadence under load; a
+    # late pass simply reads a slightly wider interval, because the lower bound
+    # comes from the checkpoint rather than from when the job happened to fire.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    # Manual retry of the ROUTINE pass, after a failure or a deploy. It takes no
+    # inputs, deliberately: there is no since, no until and no date, so there is
+    # no way to turn this into a historical recovery. Recovery is a separate
+    # operation with a different provenance label and a person behind it.
+
+# Do NOT add push: or pull_request: triggers here.
+
+permissions:
+  contents: read
+
+# One routine pass at a time. Checkpoint advancement is monotonic and overlapping
+# passes are safe, but simultaneous ones duplicate provider traffic, raise the 429
+# risk on an API already observed throttling, and race each other's fact
+# convergence for nothing. A late run waits rather than piling on.
+concurrency:
+  group: poll-callgrid-routine
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    name: Routine CallGrid poll
+    runs-on: ubuntu-latest
+    # Under the cadence on purpose: a hung pass can never still be running when
+    # the next one fires.
+    timeout-minutes: 50
+
+    steps:
+      - name: Stop unless routine polling has been switched on
+        env:
+          ORGANIZATIONS: ${{ vars.ROUTINE_POLL_ORGANIZATIONS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ORGANIZATIONS:-}" ]; then
+            echo "ROUTINE_POLL_ORGANIZATIONS is not set. Routine polling is OFF and nothing was read."
+            {
+              echo "### Routine CallGrid polling is not enabled"
+              echo ""
+              echo "No provider request was made and no row was written."
+              echo ""
+              echo "To enable: set the repository variable \`ROUTINE_POLL_ORGANIZATIONS\` to the"
+              echo "organization slug (or a comma-separated list). To disable again: clear it."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+        id: gate
+
+      - name: Fail closed when a production credential is missing
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Names only. A value is never echoed, never printed and never written
+          # to the step summary.
+          missing=""
+          if [ -z "${DATABASE_URL:-}" ]; then missing="${missing} DIRECT_DATABASE_URL"; fi
+          if [ -z "${CALLGRID_API_KEY:-}" ]; then missing="${missing} CALLGRID_API_KEY"; fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing repository secret(s):${missing}"
+            echo "Routine polling cannot run. Add them under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          echo "Both required secrets are present."
+
+      - name: Validate the configured organizations
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how a configured value becomes a command.
+          ORGANIZATIONS: ${{ vars.ROUTINE_POLL_ORGANIZATIONS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          IFS=',' read -ra PARTS <<< "${ORGANIZATIONS}"
+          for raw in "${PARTS[@]}"; do
+            slug="$(printf '%s' "${raw}" | tr -d '[:space:]')"
+            [ -z "${slug}" ] && continue
+            if ! printf '%s' "${slug}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+              echo "::error::Not an organization slug: ${slug}"
+              exit 1
+            fi
+            count=$((count + 1))
+          done
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::ROUTINE_POLL_ORGANIZATIONS is set but names no organization."
+            exit 1
+          fi
+          echo "Validated ${count} organization(s)."
+
+      - name: Checkout repository
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        # `npm install`, matching every other operations workflow. This step also
+        # runs `prisma generate` through the database package's postinstall.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        if: steps.gate.outputs.enabled == 'true'
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These suites
+        # read the runner's own source and fail if it names a historical date, a
+        # recovery label, an arbitrary interval, a Prisma delegate, raw SQL,
+        # reconciliation, readiness or measurement. They also assert that no
+        # unproven poll outcome can advance coverage. A red step here means the
+        # boundary moved, and no production connection is opened.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+          npm test --workspace=@emgloop/shared
+
+      - name: Poll
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          # DIRECT, non-pooled, matching every other operations workflow. A pass
+          # that holds a connection through 146 provider pages and thousands of
+          # sequential writes is an operation, not a request, and the pooled
+          # endpoint is the wrong shape for it.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          ORGANIZATIONS: ${{ vars.ROUTINE_POLL_ORGANIZATIONS }}
+        run: |
+          set -euo pipefail
+          # No since, no until, no date. The interval comes from the checkpoint.
+          npm run poll:callgrid-routine -- --organizations "${ORGANIZATIONS}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Routine poll did not prove coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read the \`OVERALL_RESULT=\` field on the \`event=SUMMARY\` line:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`COVERAGE_NOT_ADVANCED\` - the poll ran and did not prove the interval. The \`event=PASS_RESULT\` line names the poll outcome: \`FETCH_INCOMPLETE\` (truncated, throttled, pagination fault or provider error), \`REFUSED\` (a provider record the mapper does not recognise), \`PARTIALLY_APPLIED\` (**some rows are live**) or \`PROCESSING_FAILED\`. **The checkpoint was not moved**, so the next pass reads the same interval and converges." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`CHECKPOINT_BEHIND_POLL\` - the poll proved the interval and the stored boundary did not reach it. That should not happen; do not re-run blindly." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`NOTHING_PLANNED\` - the planner declined to propose an interval. With a positive overlap that means the stored boundary is ahead of the clock: suspect clock skew, not the poller." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`PRECONDITION_FAILED\` - an organization could not be resolved, or is suspended." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running is safe: nothing here selects a historical range, ingestion is idempotent on \`(provider, externalId)\`, and checkpoint advancement is monotonic." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Do not** delete the checkpoint or any canonical call to recover from a failed pass. To stop routine polling, clear \`ROUTINE_POLL_ORGANIZATIONS\`." >> "$GITHUB_STEP_SUMMARY"
