@@ -642,7 +642,7 @@ test('the diagnostic performs no Prisma mutation of any kind', () => {
   // The repository seam is read-only by name too: only the windowed reader and
   // the organization lookup may appear.
   const REPO_CALLS = [...CODE.matchAll(/repositories\.[A-Za-z]+\.([A-Za-z]+)/g)].map((m) => m[1]);
-  const ALLOWED_REPO_CALLS = ['listEventsReceivedBetween', 'findBySlug'];
+  const ALLOWED_REPO_CALLS = ['listEventsForOccurrenceWindow', 'findBySlug'];
   for (const call of REPO_CALLS) {
     assert.ok(
       ALLOWED_REPO_CALLS.includes(String(call)),

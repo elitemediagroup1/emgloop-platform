@@ -629,7 +629,7 @@ test('the runner computes no window, pagination, occurrence or verdict of its ow
     'getCallGridProvider',        // the provider read belongs to the adapter
     'fetchAllCallGridCalls',
     'maxPages',
-    'listEventsReceivedBetween',  // the local read belongs to the service's seam
+    'listEventsForOccurrenceWindow',  // the local read belongs to the service's seam
     'normalizeExternalIdentity',  // identity normalisation belongs to shared
     'deriveReconciliationState',  // the verdict belongs to the pure contract
     'assessReconciliation',

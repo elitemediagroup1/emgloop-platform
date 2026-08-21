@@ -286,6 +286,83 @@ export class IntegrationRepository {
    * argument because this is a tenant-owned row (see CLAUDE.md §Multi-Tenant
    * Rules), and the id cursor keeps a busy window from being loaded at once.
    */
+  /**
+   * Read raw integration events whose PROVIDER OCCURRENCE falls inside a window,
+   * plus the legacy rows that cannot answer that question.
+   *
+   * WHY THIS EXISTS, AND WHY THE SIBLING BELOW IS NOT ENOUGH. Selecting by
+   * `receivedAt` and filtering by occurrence in memory works for live traffic,
+   * where a call is delivered seconds after it happens. It breaks completely for
+   * a RECOVERED call: one ingested today for an interval in August has
+   * `receivedAt` today and `occurredAt` in August, so a delivery-bounded scan
+   * around the August day never fetches it. Reconciliation would keep reporting
+   * it missing after it had been recovered -- which would make recovery
+   * unprovable, and would leave a stored verdict that is now false.
+   *
+   * TWO WINDOWS, DELIBERATELY. `since/until` bound the OCCURRENCE and are the
+   * real question. `legacySince/legacyUntil` bound the DELIVERY of rows written
+   * before PR #180 added the column, whose occurrence lives only inside `payload`
+   * and cannot be filtered in SQL without hand-writing a JSON expression that
+   * duplicates `resolveCallOccurrence`'s field precedence. Those rows stay
+   * discoverable through the delivery window they were always found by, and the
+   * caller resolves their occurrence in memory exactly as before.
+   *
+   * A NULL-OCCURRENCE ROW IS NEVER EXCLUDED BY THIS QUERY. It is fetched and
+   * handed up, so the caller can count it and let it impeach a day rather than
+   * having it silently vanish from both sides of a comparison.
+   *
+   * READ-ONLY, ORGANIZATION-SCOPED, BATCHED, and served by the
+   * `(organizationId, provider, occurredAt)` index PR #180 already created.
+   */
+  async listEventsForOccurrenceWindow(
+    organizationId: string,
+    options: {
+      provider: string;
+      since: Date;
+      until: Date;
+      legacySince: Date;
+      legacyUntil: Date;
+      batchSize?: number;
+      afterId?: string;
+    },
+  ): Promise<
+    Array<{
+      id: string;
+      externalId: string | null;
+      status: string;
+      receivedAt: Date;
+      occurredAt: Date | null;
+      payload: unknown;
+    }>
+  > {
+    const take = options.batchSize && options.batchSize > 0 ? Math.min(options.batchSize, 1000) : 500;
+    const rows = await this.prisma.integrationEvent.findMany({
+      where: {
+        organizationId,
+        provider: options.provider,
+        OR: [
+          { occurredAt: { gte: options.since, lt: options.until } },
+          {
+            occurredAt: null,
+            receivedAt: { gte: options.legacySince, lt: options.legacyUntil },
+          },
+        ],
+        ...(options.afterId ? { id: { gt: options.afterId } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take,
+      select: { id: true, externalId: true, status: true, receivedAt: true, occurredAt: true, payload: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      externalId: r.externalId,
+      status: String(r.status),
+      receivedAt: r.receivedAt,
+      occurredAt: r.occurredAt,
+      payload: r.payload,
+    }));
+  }
+
   async listEventsReceivedBetween(
     organizationId: string,
     options: { provider: string; since: Date; until: Date; batchSize?: number; afterId?: string },
