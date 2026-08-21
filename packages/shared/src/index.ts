@@ -191,6 +191,9 @@ export * from './recovery-chunking';
 // endpoint so an external watcher can see a poller that STOPPED, not only one
 // that failed.
 export * from './coverage-health';
+// Representative product states for building and reviewing surfaces. Typed as the
+// real contracts, so a contract change breaks the fixtures rather than the design.
+export * from './product-states.fixture';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---
