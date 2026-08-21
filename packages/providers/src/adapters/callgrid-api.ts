@@ -57,6 +57,10 @@ export interface CallGridApiPage {
     /** Cursor for the next page, or undefined when exhausted. */
   nextCursor?: unknown;
     hasMore: boolean;
+    /** The provider's own count for the filter, when the envelope carries one.
+        ADVISORY: it is reported so a discrepancy is visible, and it never
+        certifies completeness on its own. */
+  totalCount?: number;
 }
 
 /** Resolve the API base URL (option > env > documented default). */
@@ -96,6 +100,10 @@ export class CallGridApiError extends Error {
           message: string,
           readonly status?: number,
           readonly kind: CallGridApiErrorKind = 'request-failed',
+          /** The provider's Retry-After header, verbatim, when it sent one.
+              Carried rather than parsed here: how long to wait is the caller's
+              policy, and this class does not have one. */
+          readonly retryAfter?: string | null,
         ) {
           super(message);
           this.name = 'CallGridApiError';
@@ -499,7 +507,15 @@ export async function fetchCallGridCallsPage(
                 );
     }
     if (!res.ok) {
-          throw new CallGridApiError('CallGrid API returned ' + res.status, res.status, 'http-status');
+          // Retry-After is read for EVERY non-2xx, not only 429: a provider may
+          // advise a wait on a 503 too, and discarding it here would force the
+          // caller to guess.
+          throw new CallGridApiError(
+                  'CallGrid API returned ' + res.status,
+                  res.status,
+                  'http-status',
+                  res.headers?.get?.('retry-after') ?? null,
+                );
     }
     let body: unknown;
     try {
@@ -518,10 +534,28 @@ export async function fetchCallGridCallsPage(
                 );
     }
     const records = parsed.records;
-    const envelope = (body && typeof body === 'object' ? body : {}) as { hasMore?: unknown; nextCursor?: unknown };
+    const envelope = (body && typeof body === 'object' ? body : {}) as {
+          hasMore?: unknown;
+          nextCursor?: unknown;
+          totalCount?: unknown;
+    };
     const apiHasMore = envelope.hasMore === true;
     const nextCursor: unknown = envelope.nextCursor != null ? envelope.nextCursor : extractCursor(body);
-    return { records, nextCursor, hasMore: (apiHasMore || Boolean(nextCursor)) && records.length > 0 };
+    // ADVISORY ONLY, AND SURFACED RATHER THAN TRUSTED. A provider total is worth
+  // reporting beside a fetched count so a discrepancy is visible, but it cannot
+  // certify completeness on its own: it is computed by the provider over its own
+  // view of the filter, and nothing here has verified it means the same
+  // population this reader asked for.
+  const totalCount =
+          typeof envelope.totalCount === 'number' && Number.isFinite(envelope.totalCount)
+                ? envelope.totalCount
+                : undefined;
+    return {
+          records,
+          nextCursor,
+          hasMore: (apiHasMore || Boolean(nextCursor)) && records.length > 0,
+          ...(totalCount === undefined ? {} : { totalCount }),
+    };
 }
 
 /** The default page budget. A safety bound, never a statement about completeness. */
