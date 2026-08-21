@@ -27,6 +27,7 @@
     "bootstrap:stage3": "tsx scripts/operations/bootstrap-stage3-production.ts",
     "read:reconciliation-evidence": "tsx scripts/operations/read-reconciliation-evidence.ts",
     "read:event-coverage": "tsx scripts/operations/read-integration-event-coverage.ts",
+    "poll:callgrid": "tsx scripts/operations/poll-callgrid-interval.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",
     "test:diagnostics": "node --import tsx --test scripts/diagnostics/*.test.ts",
     "typecheck:operations": "tsc --noEmit -p scripts/tsconfig.json"

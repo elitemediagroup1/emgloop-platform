@@ -204,6 +204,61 @@ test('9. TWO SETTLED AMOUNTS THAT DISAGREE ARE A CONFLICT — neither silently w
   assert.equal(conflict.appliedAt, null, 'NULL means the canonical value did not move');
 });
 
+// --- What the CALLER learns, added by PR 8 ------------------------------------------------
+//
+// A convergence that only writes rows is invisible to whoever asked for the
+// observation. A batch runner processing thousands of records cannot find a
+// disagreement in a log line, and a run that reports plain success while two
+// revenue figures disagree is the silence PR #182 existed to end.
+
+test('a strengthened fact is NAMED in the result, not just written', async () => {
+  const { prisma } = harness({ ...UNKNOWN_FACTS });
+  const [result] = await observe(prisma, { id: CALL_ID, revenue: 17, billable: true });
+  assert.equal(result!.status, 'duplicate', 'a re-observation, not a second ingestion');
+  assert.deepEqual(result!.strengthenedFacts, ['revenue', 'billable']);
+  assert.deepEqual(result!.conflictedFacts, []);
+});
+
+test('a CONFLICT is named in the result, so a caller can refuse to report success', async () => {
+  const { prisma } = harness({ ...UNKNOWN_FACTS, revenueCents: 1700 });
+  const [result] = await observe(prisma, { id: CALL_ID, revenue: 15 });
+  assert.deepEqual(result!.conflictedFacts, ['revenue']);
+  assert.deepEqual(result!.strengthenedFacts, [], 'nothing moved');
+});
+
+test('silence is reported as silence: an identical observation names no fact at all', async () => {
+  const { prisma } = harness({ ...UNKNOWN_FACTS, revenueCents: 1700, billable: true });
+  const [result] = await observe(prisma, { id: CALL_ID, revenue: 17, billable: true });
+  assert.deepEqual(result!.strengthenedFacts, []);
+  assert.deepEqual(result!.conflictedFacts, []);
+});
+
+test('a first ingestion names no strengthened fact, because there was nothing to strengthen', async () => {
+  const { prisma, state } = harness({ ...UNKNOWN_FACTS });
+  state.event = { ...state.event, status: 'RECEIVED' };
+  const [result] = await observe(prisma, { id: CALL_ID, revenue: 17 });
+  assert.notEqual(result!.status, 'duplicate');
+  assert.deepEqual(result!.strengthenedFacts, []);
+  assert.deepEqual(result!.conflictedFacts, []);
+});
+
+test('the duplicate branch is chosen by ONE shared predicate, not a status literal', () => {
+  // The dry run of the manual poll asks the same question of the same column. Two
+  // spellings of "PROCESSED" is how a dry run starts describing a run that no
+  // longer exists.
+  assert.ok(SERVICE_SOURCE.includes('isDuplicateObservation(existing.status)'));
+  assert.equal(
+    (SERVICE_SOURCE.match(/===\s*'PROCESSED'/g) ?? []).length,
+    1,
+    'the status literal appears exactly once, and it is the predicate itself',
+  );
+  assert.match(
+    SERVICE_SOURCE,
+    /export function isDuplicateObservation\(status: string\): boolean \{\s*\n\s*return status === 'PROCESSED';/,
+    'and that one occurrence is inside isDuplicateObservation',
+  );
+});
+
 // --- 10-15: everything PRs #178-#181 established still holds --------------------------------
 
 test('10-15. identity, receipt, occurrence and provenance all survive convergence', async () => {
