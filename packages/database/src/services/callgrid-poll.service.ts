@@ -109,6 +109,34 @@ export function pollSucceeded(outcome: CallGridPollOutcome): boolean {
   return outcome === 'DRY_RUN_READY' || outcome === 'APPLIED' || outcome === 'APPLIED_WITH_CONFLICTS';
 }
 
+/**
+ * Whether this outcome PROVES an interval was covered, and may therefore move a
+ * durable checkpoint forward.
+ *
+ * A STRICTER QUESTION THAN `pollSucceeded`, and deliberately a separate one. A
+ * dry run is a successful operation and proves nothing: it read the provider and
+ * wrote no record, so an interval it described is not an interval Loop holds.
+ * That single difference is why these are two functions rather than one.
+ *
+ * DENY BY DEFAULT. The list names what advances, not what does not, so an outcome
+ * added to the vocabulary later is refused until somebody decides it counts.
+ *
+ * APPLIED covers the empty interval. A COMPLETE read that returned zero records
+ * proves the provider held nothing in that span, which is coverage -- treating it
+ * as unproven would leave a quiet night permanently unclaimed and grow the
+ * re-read window without bound.
+ *
+ * APPLIED_WITH_CONFLICTS advances too, and that is a decision rather than an
+ * oversight. A conflict means two settled provider values disagree about one
+ * call's money; nothing was overwritten, a revision records the disagreement, and
+ * every record in the interval was still read and applied. Withholding coverage
+ * would stall the poller behind a question no re-read can answer -- the same
+ * conflict would recur on every pass, forever.
+ */
+export function checkpointMayAdvance(outcome: CallGridPollOutcome): boolean {
+  return outcome === 'APPLIED' || outcome === 'APPLIED_WITH_CONFLICTS';
+}
+
 export interface CallGridPollInput {
   organizationId: string;
   apiKey: string;

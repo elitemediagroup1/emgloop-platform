@@ -151,6 +151,7 @@ export {
   callGridIntervalReader,
   identityDigest,
   mapCallGridEventType,
+  checkpointMayAdvance,
   pollSucceeded,
   sinceForRange,
 } from './services/callgrid-poll.service';
@@ -214,6 +215,20 @@ export type {
   ReconcileOptions,
   FieldCheck,
 } from './services/callgrid-reconciliation.harness';
+
+export {
+  ProviderPollCheckpointRepository,
+  type AdvanceOutcome,
+  type AdvanceResult,
+  type PollCheckpointView,
+} from './repositories/provider-poll-checkpoint.repository';
+export {
+  CallGridRoutinePollService,
+  CALLGRID_POLL_POLICY,
+  type CallGridRoutinePollDeps,
+  type RoutinePollInput,
+  type RoutinePollResult,
+} from './services/callgrid-routine-poll.service';
 
 export {
   ProviderFactRevisionRepository,

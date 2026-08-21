@@ -181,6 +181,9 @@ export * from './truth';
 export * from './business-time';
 export * from './observation-source';
 export * from './provider-fact-convergence';
+// Which interval the next routine poll should read. Pure; the checkpoint it
+// reasons from is persisted in @emgloop/database, and nothing here advances it.
+export * from './poll-interval-planning';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---
