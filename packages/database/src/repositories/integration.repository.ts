@@ -332,6 +332,10 @@ export class IntegrationRepository {
       status: string;
       receivedAt: Date;
       occurredAt: Date | null;
+      /** How this delivery FIRST reached Loop. Written once, never rewritten. */
+      firstIngestionSource: string | null;
+      /** Every transport that has since confirmed it. A set, not a history. */
+      observedSources: string[];
       payload: unknown;
     }>
   > {
@@ -351,7 +355,19 @@ export class IntegrationRepository {
       },
       orderBy: { id: 'asc' },
       take,
-      select: { id: true, externalId: true, status: true, receivedAt: true, occurredAt: true, payload: true },
+      select: {
+        id: true,
+        externalId: true,
+        status: true,
+        receivedAt: true,
+        occurredAt: true,
+        // Provenance travels with the row because the question "did the recovery
+        // land" is answered by WHICH transport observed a call, not only by
+        // whether some row exists. Two extra columns on a read that already runs.
+        firstIngestionSource: true,
+        observedSources: true,
+        payload: true,
+      },
     });
     return rows.map((r) => ({
       id: r.id,
@@ -359,6 +375,8 @@ export class IntegrationRepository {
       status: String(r.status),
       receivedAt: r.receivedAt,
       occurredAt: r.occurredAt,
+      firstIngestionSource: r.firstIngestionSource ?? null,
+      observedSources: r.observedSources ?? [],
       payload: r.payload,
     }));
   }
