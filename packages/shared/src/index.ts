@@ -184,6 +184,9 @@ export * from './provider-fact-convergence';
 // Which interval the next routine poll should read. Pure; the checkpoint it
 // reasons from is persisted in @emgloop/database, and nothing here advances it.
 export * from './poll-interval-planning';
+// Splitting an explicit recovery interval into deterministic Eastern-day chunks.
+// Pure; the operation that runs them lives in scripts/operations.
+export * from './recovery-chunking';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---

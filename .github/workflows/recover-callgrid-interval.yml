@@ -1,0 +1,168 @@
+# Recover an explicit historical CallGrid interval.
+#
+# Reads an interval a person names, splits it into Eastern business-day chunks,
+# and applies each one through the SAME canonical write path routine polling uses
+# -- labelled API_RECOVERY, because a person went looking for a known gap and that
+# fact is worth keeping forever.
+#
+# DRY RUN FIRST, AND BY DEFAULT. `dry_run: true` reads the provider and reports,
+# per business day, what it would create and re-observe. It writes nothing at all.
+# Run it, read every CHUNK_RESULT line, then dispatch again with `dry_run: false`.
+#
+# WHAT IT CANNOT DO. It cannot move the routine polling checkpoint -- the runner
+# calls an entry point that has never had access to one, and routine coverage is
+# advanced by a different service the runner does not import. It cannot select an
+# interval on its own: both bounds are typed by the operator every time, and there
+# is no default, no remembered window and no date in the workflow or the runner.
+#
+# IT STOPS AT THE FIRST DAY IT CANNOT RECOVER. A recovery that kept going past a
+# chunk it could not read completely would produce a range that looks worked
+# through and has a hole in it -- which is the shape of the incident being
+# recovered. Later chunks are left untouched and reported as not attempted.
+#
+# NO SCHEDULE, EVER. Recovery is a decision, not a cadence.
+#
+# CREDENTIALS. Two secrets, named here and never printed:
+#   DIRECT_DATABASE_URL   the direct (non-pooled) production endpoint
+#   CALLGRID_API_KEY      the provider credential for Loop calling CallGrid
+
+name: Recover CallGrid Interval
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug (e.g. servicesinmycity-demo)'
+        required: true
+        type: string
+      since:
+        description: 'INCLUSIVE lower bound, an explicit instant (e.g. 2026-01-15T05:00:00Z)'
+        required: true
+        type: string
+      until:
+        description: 'EXCLUSIVE upper bound, an explicit instant (e.g. 2026-01-16T05:00:00Z)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Read and report only. Leave true until you have read a dry run.'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add schedule:, push:, pull_request: or workflow_call: triggers here. This
+# job writes to production and must only ever be started by a human.
+
+permissions:
+  contents: read
+
+# Two recoveries at once would contend on the same (provider, externalId) rows and
+# on the same canonical facts. A second run waits.
+concurrency:
+  group: recover-callgrid-interval
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: Recover a bounded CallGrid interval
+    runs-on: ubuntu-latest
+    # Generous, because several busy business days is legitimately slow -- but
+    # bounded. A run that times out part-way has written whole chunks and none of
+    # a partial one; re-running the identical interval converges.
+    timeout-minutes: 300
+
+    steps:
+      - name: Fail closed when a production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Names only. A value is never echoed, never printed and never written
+          # to the step summary.
+          missing=""
+          if [ -z "${DATABASE_URL:-}" ]; then missing="${missing} DIRECT_DATABASE_URL"; fi
+          if [ -z "${CALLGRID_API_KEY:-}" ]; then missing="${missing} CALLGRID_API_KEY"; fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing repository secret(s):${missing}"
+            exit 1
+          fi
+          echo "Both required secrets are present."
+
+      - name: Validate the requested interval
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SINCE: ${{ inputs.since }}
+          UNTIL: ${{ inputs.until }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          for pair in "since:${SINCE}" "until:${UNTIL}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if ! printf '%s' "${value}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|[+-][0-9]{2}:[0-9]{2})$'; then
+              echo "::error::${name} must be an explicit instant, e.g. 2026-08-19T04:00:00Z (got: ${value})"
+              exit 1
+            fi
+          done
+          echo "Validated the interval for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These suites
+        # read the runner's own source and fail if it can reach a checkpoint, label
+        # a row API_POLL, select an interval of its own, bypass the canonical write
+        # path, or report a stopped run as a success.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+          npm test --workspace=@emgloop/shared
+
+      - name: Recover
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SINCE: ${{ inputs.since }}
+          UNTIL: ${{ inputs.until }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # Writing is opt-in: the runner dry-runs unless it is handed --apply, so a
+          # lost or mistyped input reads the provider and writes nothing rather than
+          # the other way round.
+          args=(--organization "${ORG_SLUG}" --since "${SINCE}" --until "${UNTIL}")
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); else args+=(--apply); fi
+          npm run recover:callgrid -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Recovery stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read \`OVERALL_RESULT=\` on the \`event=SUMMARY\` line:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`REFUSED\` - the bounds, the organization or the credential were rejected. **Nothing was read.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`NOT_RECOVERED\` - the FIRST business-day chunk could not be recovered. **Nothing is live.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`PARTIALLY_RECOVERED\` - **earlier chunks are live.** \`event=RECOVERY_STOPPED\` names the day it stopped on and how many were never attempted. Re-running the identical interval is safe: recovered chunks re-observe rather than duplicate." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read the failing \`event=CHUNK_RESULT\` line for the outcome: \`FETCH_INCOMPLETE\` (truncated, throttled, pagination fault or provider error), \`REFUSED\` (a provider record the mapper does not recognise -- see \`event=RECORD_REFUSED\`), \`PARTIALLY_APPLIED\` or \`PROCESSING_FAILED\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Do not** delete recovered rows to \"clean up\". Re-run the same interval instead." >> "$GITHUB_STEP_SUMMARY"

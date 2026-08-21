@@ -148,6 +148,7 @@ export {
   CALLGRID_POLL_STREAM,
   POLL_OBSERVATION_SOURCE,
   POLL_PROGRESS_EVERY,
+  RECOVERY_OBSERVATION_SOURCE,
   callGridIntervalReader,
   identityDigest,
   mapCallGridEventType,
