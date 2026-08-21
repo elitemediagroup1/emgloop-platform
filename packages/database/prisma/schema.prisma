@@ -230,6 +230,7 @@ model Organization {
   voiceProfiles           VoiceProfile[]
   providerConnections     ProviderConnection[]
   integrationEvents       IntegrationEvent[]
+  providerFactRevisions   ProviderFactRevision[]
   auditLogs               AuditLog[]
   domainEvents            DomainEvent[]
   // --- Sprint 2: identity & OS core ---
@@ -774,6 +775,45 @@ model ProviderConnection {
 }
 
 // Inbound/outbound events from providers (webhooks, syncs) — generic envelope.
+/// Why a canonical provider fact changed, or why two answers disagreed.
+///
+/// BOUNDED BY CHANGES, NOT BY OBSERVATIONS. A poller re-reading a 48-hour
+/// overlap every fifteen minutes produces ~192 observations per call and almost
+/// always zero revisions: a row exists only when a fact moved, or when two
+/// settled values disagreed. A postback settles once.
+model ProviderFactRevision {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  provider           String
+  /// The provider's own call id. Deliberately not a relation to MarketplaceCall:
+  /// a revision explains an observation and must survive a projection rebuild.
+  externalId         String
+  /// From the closed CALLGRID_FACT_KINDS vocabulary. Text so it can widen
+  /// without DDL; readers fail closed on a value they do not recognise.
+  fact               String
+  /// UPDATE or CONFLICT only. KEEP_EXISTING and REMAIN_UNKNOWN are not recorded
+  /// -- a row per non-event is how a table becomes a log.
+  decision           String
+  /// Rendered, not typed: one table holds money and booleans, and a reader needs
+  /// to see what was there. NULL means unknown on that side of the change.
+  fromValue          String?
+  toValue            String?
+  observationSource  String
+  observedAt         DateTime
+  integrationEventId String?
+  /// Set only when the canonical value actually moved. NULL on a CONFLICT.
+  appliedAt          DateTime?
+  reason             String
+  createdAt          DateTime @default(now())
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integrationEvent IntegrationEvent? @relation(fields: [integrationEventId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, provider, externalId])
+  @@index([organizationId, decision, observedAt])
+  @@map("provider_fact_revisions")
+}
+
 model IntegrationEvent {
   id                   String                 @id @default(cuid())
   organizationId       String
@@ -830,8 +870,9 @@ model IntegrationEvent {
   processedAt          DateTime?
   createdAt            DateTime               @default(now())
 
-  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  providerConnection ProviderConnection? @relation(fields: [providerConnectionId], references: [id], onDelete: SetNull)
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  providerConnection ProviderConnection?    @relation(fields: [providerConnectionId], references: [id], onDelete: SetNull)
+  factRevisions      ProviderFactRevision[]
 
   @@unique([provider, externalId])
   @@index([organizationId, status])
