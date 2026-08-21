@@ -225,6 +225,34 @@ export class IntegrationRepository {
     return toEventView(row);
   }
 
+  /**
+   * The stored status of one provider delivery, or null if this organization has
+   * never held it.
+   *
+   * EXISTS FOR A DRY RUN, AND FOR NOTHING ELSE. A caller that wants to say what
+   * ingestion WOULD do without ingesting needs the one column ingestion branches
+   * on. It is a read: there is no sibling that writes, and the answer is fed to
+   * `isDuplicateObservation` rather than compared against a status literal here.
+   *
+   * ORGANIZATION-SCOPED, and that has a consequence worth knowing. Ingestion's
+   * own duplicate lookup is not scoped -- `(provider, externalId)` is unique
+   * GLOBALLY rather than per organization (CLAUDE.md, known tenancy debt), so a
+   * delivery held by a DIFFERENT tenant answers null here and is still recognised
+   * as an existing row by ingestion. The scoped read is the correct one to write;
+   * the divergence belongs to the unique key and is the caller's to disclose.
+   */
+  async statusOfEvent(
+    organizationId: string,
+    provider: string,
+    externalId: string,
+  ): Promise<string | null> {
+    const row = await this.prisma.integrationEvent.findFirst({
+      where: { organizationId, provider, externalId },
+      select: { status: true },
+    });
+    return row ? String(row.status) : null;
+  }
+
   async listRecentEvents(
     organizationId: string,
     options: { provider?: string; limit?: number } = {},
@@ -244,13 +272,15 @@ export class IntegrationRepository {
    * Read raw integration events whose DELIVERY time falls inside a window, in
    * batches, for reconciliation.
    *
-   * WHY DELIVERY TIME AND NOT OCCURRENCE TIME. `integration_events` has no
-   * occurrence column — the call's own instant survives only inside `payload`.
-   * Filtering it in SQL would mean hand-writing a JSON expression that duplicates
-   * `resolveCallOccurrence`'s field precedence, and the two would drift. The
-   * caller reads a DELIBERATELY WIDER delivery window and applies the canonical
-   * resolver in memory, so local and provider occurrence semantics are identical
-   * by construction rather than by care.
+   * WHY DELIVERY TIME AND NOT OCCURRENCE TIME. `integration_events.occurredAt`
+   * exists as of PR #180 -- this comment claimed it did not, and said so for as
+   * long as it took someone to read the schema -- but it is populated only for
+   * rows written since, so a window filtered on it would silently omit every
+   * earlier row. Delivery time is the column every row has. The caller reads a
+   * DELIBERATELY WIDER delivery window and applies the canonical resolver in
+   * memory, so local and provider occurrence semantics are identical by
+   * construction rather than by care. Narrowing this to `occurredAt` is a
+   * decision that waits on a backfill, not a one-line change.
    *
    * READ-ONLY, ORGANIZATION-SCOPED, BATCHED. The organization is the first
    * argument because this is a tenant-owned row (see CLAUDE.md §Multi-Tenant

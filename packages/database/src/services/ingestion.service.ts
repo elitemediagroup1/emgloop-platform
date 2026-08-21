@@ -77,6 +77,28 @@ export interface IngestResult {
   domainEventId: string | null;
   nextBestActions: string[];
   error?: string;
+  /**
+   * Canonical facts this observation MOVED, by name. Empty for a first ingestion
+   * -- there is nothing to strengthen about a call being created.
+   */
+  strengthenedFacts: string[];
+  /**
+   * Canonical facts this observation DISAGREED with. Nothing was moved for any
+   * of them.
+   *
+   * SURFACED RATHER THAN LOGGED. A conflict is a settled amount disagreeing with
+   * another settled amount, which is a question for a person; a caller that runs
+   * thousands of observations in one batch cannot find that in a log line, and a
+   * run that reports plain success while two revenue figures disagree is exactly
+   * the silence PR #182 existed to end.
+   */
+  conflictedFacts: string[];
+}
+
+/** What one re-observation moved, and what it disagreed with. */
+interface FactConvergenceSummary {
+  strengthened: string[];
+  conflicted: string[];
 }
 
 export interface IngestInput {
@@ -107,6 +129,22 @@ function digits(s?: string): string | undefined {
 function asString(payload: Record<string, unknown>, key: string): string | undefined {
   const v = payload[key];
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+}
+
+/**
+ * Whether an already-stored delivery short-circuits as a duplicate.
+ *
+ * ONE RULE, TWO READERS. `ingestOne` applies it to decide whether to re-observe
+ * or reprocess; a caller that wants to say what a batch WOULD do without writing
+ * anything applies the identical predicate to the identical column. Writing
+ * `status === 'PROCESSED'` a second time somewhere else is how a dry run starts
+ * disagreeing with the run it is supposed to describe.
+ *
+ * RECEIVED and FAILED are deliberately NOT duplicates: those rows are retryable
+ * and re-delivering one reprocesses it.
+ */
+export function isDuplicateObservation(status: string): boolean {
+  return status === 'PROCESSED';
 }
 
 export class IngestionService {
@@ -156,7 +194,8 @@ export class IngestionService {
     ev: InboundEvent,
     integrationEventId: string,
     observedAt: Date,
-  ): Promise<void> {
+  ): Promise<FactConvergenceSummary> {
+    const summary: FactConvergenceSummary = { strengthened: [], conflicted: [] };
     try {
       const stored = await this.marketplaceCalls.factsFor(
         input.organizationId,
@@ -166,7 +205,7 @@ export class IngestionService {
       // No projected call means there is nothing to strengthen. Building one
       // from a re-observation would be a different operation with different
       // risks, and it is not this one.
-      if (!stored) return;
+      if (!stored) return summary;
 
       const incoming = ev.payload as Record<string, unknown>;
       const approved: {
@@ -191,7 +230,9 @@ export class IngestionService {
         });
         if (converged.decision === 'UPDATE' && converged.value !== undefined) {
           approved[column] = converged.value;
+          summary.strengthened.push(fact);
         }
+        if (converged.decision === 'CONFLICT') summary.conflicted.push(fact);
         await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, stored[column]);
       }
 
@@ -207,7 +248,11 @@ export class IngestionService {
           existing: stored[column],
           incoming: typeof raw === 'boolean' ? raw : null,
         });
-        if (converged.decision === 'UPDATE' && converged.value === true) approved[column] = true;
+        if (converged.decision === 'UPDATE' && converged.value === true) {
+          approved[column] = true;
+          summary.strengthened.push(fact);
+        }
+        if (converged.decision === 'CONFLICT') summary.conflicted.push(fact);
         await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, stored[column]);
       }
 
@@ -229,6 +274,7 @@ export class IngestionService {
         }),
       );
     }
+    return summary;
   }
 
   /** A revision row exists only for a change or a disagreement. Never for silence. */
@@ -272,6 +318,8 @@ export class IngestionService {
       signalIds: [],
       domainEventId: null,
       nextBestActions: [],
+      strengthenedFacts: [],
+      conflictedFacts: [],
     };
 
     // 1. Idempotency: provider + externalId is unique in the schema. If we have
@@ -279,7 +327,7 @@ export class IngestionService {
     const existing = await this.prisma.integrationEvent.findFirst({
       where: { provider, externalId: ev.externalId },
     });
-    if (existing && existing.status === 'PROCESSED') {
+    if (existing && isDuplicateObservation(existing.status)) {
       // AN OBSERVATION IS RECORDED EVEN WHEN NOTHING IS INGESTED.
       //
       // This branch used to return without writing anything, so asking the
@@ -307,8 +355,14 @@ export class IngestionService {
       // that produced this row is intact. What may move is a small, explicitly
       // classified set of canonical facts on the projected call, and only in the
       // one direction the provider's semantics support.
-      await this.convergeProviderFacts(input, ev, existing.id, observedAt);
-      return { ...base, status: 'duplicate', integrationEventId: existing.id };
+      const converged = await this.convergeProviderFacts(input, ev, existing.id, observedAt);
+      return {
+        ...base,
+        status: 'duplicate',
+        integrationEventId: existing.id,
+        strengthenedFacts: converged.strengthened,
+        conflictedFacts: converged.conflicted,
+      };
     }
 
     // 2. Persist the raw event FIRST in RECEIVED state (or reuse a prior

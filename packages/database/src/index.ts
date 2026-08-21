@@ -94,7 +94,7 @@ export {
 } from './services/auction-reconciliation';
 export type { DiffClassification, FieldDiff, GrainReconciliation, ReconcileGrainInput } from './services/auction-reconciliation';
 
-export { IngestionService } from './services/ingestion.service';
+export { IngestionService, isDuplicateObservation } from './services/ingestion.service';
 export type { IngestInput, IngestResult } from './services/ingestion.service';
 export { deriveSignals, SIGNAL_REGISTRY } from './services/signal-registry';
 export type { SignalDefinition, DerivedSignal } from './services/signal-registry';

@@ -1,0 +1,186 @@
+# Poll one bounded CallGrid interval.
+#
+# Reads an explicit half-open interval [since, until) from the CallGrid REST API
+# and, ONLY IF that read completed, hands every record to the same ingestion
+# pipeline a webhook uses. Manual, human-started, one interval at a time.
+#
+# WHY A RUNNER AND NOT A ROUTE. A busy day is several thousand records across
+# tens of sequential provider pages, then the full Loop pipeline per record. That
+# does not fit inside a serverless request, and a mechanism that works on the
+# quiet days and fails on the busy ones is the wrong mechanism.
+#
+# WHAT IT WRITES. Whatever ingestion writes for a call that arrived by webhook:
+# an IntegrationEvent, a Customer, an Interaction, signals, and the MarketplaceCall
+# projection — plus, for a call Loop already holds, an observation and any
+# canonical fact the provider has since settled. It does not certify a day, does
+# not reconcile, does not measure and produces no Headline. A run that ingests
+# four thousand calls changes no verdict anywhere.
+#
+# DRY RUN FIRST, AND BY DEFAULT. `dry_run: true` reads the provider, reports what
+# it would create and re-observe, and writes nothing at all. Run it, read every
+# line, then dispatch again with `dry_run: false`.
+#
+# NO SCHEDULE, DELIBERATELY. Not one production interval has been polled yet:
+# credential wiring, runtime duration, page counts and convergence behaviour all
+# get proven by hand first. And a schedule needs something this job deliberately
+# does not have — a durable record of where the last run finished. Automating a
+# poll that always reads the same operator-typed interval would either re-read one
+# window forever or skip whatever fell between two runs. That is the next piece of
+# work, not this one.
+#
+# CREDENTIALS. Two secrets, named here and never printed:
+#   DIRECT_DATABASE_URL   the direct (non-pooled) production endpoint
+#   CALLGRID_API_KEY      the provider credential
+# CALLGRID_API_KEY is NOT configured in this repository yet. Dispatching before it
+# is added fails on the first step, by name, without opening a connection.
+
+name: Poll CallGrid Interval
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug (e.g. servicesinmycity-demo)'
+        required: true
+        type: string
+      since:
+        description: 'INCLUSIVE lower bound, an explicit instant (e.g. 2026-08-19T04:00:00Z)'
+        required: true
+        type: string
+      until:
+        description: 'EXCLUSIVE upper bound, an explicit instant (e.g. 2026-08-20T04:00:00Z)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Read and report only. Leave true until you have read a dry run.'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here. This
+# job writes to production and must only ever be started by a human from the
+# Actions tab.
+
+permissions:
+  contents: read
+
+# Two polls at once would contend on the same (provider, externalId) rows and on
+# the same canonical facts. A late run waits rather than overlapping.
+concurrency:
+  group: poll-callgrid-interval
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    name: Poll one bounded CallGrid interval
+    runs-on: ubuntu-latest
+    # Generous, because a busy day is legitimately slow — but bounded, so a
+    # provider that never stops responding cannot hold a runner indefinitely.
+    timeout-minutes: 120
+
+    steps:
+      - name: Fail closed when a production credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Names only. A value is never echoed, never printed and never written
+          # to the step summary.
+          missing=""
+          if [ -z "${DATABASE_URL:-}" ]; then missing="${missing} DIRECT_DATABASE_URL"; fi
+          if [ -z "${CALLGRID_API_KEY:-}" ]; then missing="${missing} CALLGRID_API_KEY"; fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing repository secret(s):${missing}"
+            echo "Add them under Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+          echo "Both required secrets are present."
+
+      - name: Validate the requested interval
+        env:
+          # Through the environment, never interpolated into the script body: a
+          # ${{ }} expansion inside `run` is pasted as literal shell text, which
+          # is how an input becomes a command. Quoted expansion keeps it a value.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SINCE: ${{ inputs.since }}
+          UNTIL: ${{ inputs.until }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          # Both bounds must be explicit instants before anything connects to
+          # anything. The runner validates again with the reader's own rule; this
+          # is the earlier, cheaper refusal.
+          for pair in "since:${SINCE}" "until:${UNTIL}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if ! printf '%s' "${value}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|[+-][0-9]{2}:[0-9]{2})$'; then
+              echo "::error::${name} must be an explicit instant, e.g. 2026-08-19T04:00:00Z (got: ${value})"
+              exit 1
+            fi
+          done
+          echo "Validated the interval for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # `npm install`, matching every other operations workflow. This step also
+        # runs `prisma generate` through the database package's postinstall, which
+        # the runner needs before it can reach the client.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything else
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. These suites
+        # read the runner's own source and fail if it names a checkpoint, a
+        # schedule, a recovery label, a Prisma delegate, raw SQL, certification,
+        # reconciliation, measurement or a declaration. They also assert that every
+        # incomplete provider read reaches ingestion zero times. A red step here
+        # means the write boundary moved, and no production connection is opened.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+          npm test --workspace=@emgloop/providers
+
+      - name: Poll
+        env:
+          # DIRECT, non-pooled, matching deploy-prisma-migrations.yml. A long
+          # operation on a pooled endpoint is the wrong shape for this.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SINCE: ${{ inputs.since }}
+          UNTIL: ${{ inputs.until }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # Arguments are passed as values. Writing is opt-in: the runner dry-runs
+          # unless it is handed --apply, so a lost or mistyped input reads the
+          # provider and writes nothing rather than the other way round.
+          args=(--organization "${ORG_SLUG}" --since "${SINCE}" --until "${UNTIL}")
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); else args+=(--apply); fi
+          npm run poll:callgrid -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Poll stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read the \`OVERALL_RESULT=\` field on the \`event=SUMMARY\` line:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`REFUSED\` - the request, the organization, or a provider record was rejected. **Nothing was written.** When \`REFUSED_RECORDS\` is above zero, CallGrid returned a record the shipped mapper does not recognise; each one has its own \`event=RECORD_REFUSED\` line. That is a provider contract change and needs a person, not a retry." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`FETCH_INCOMPLETE\` - the provider read ended \`TRUNCATED\`, \`RATE_LIMIT_EXHAUSTED\`, \`INVALID_PAGINATION\` or \`PROVIDER_ERROR\`. **Nothing was written**, including the pages that did come back. Retry, or ask for a narrower interval." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`PROCESSING_FAILED\` - the first record failed. **Nothing is live.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`PARTIALLY_APPLIED\` - **some rows are live.** \`FAILED_AT_INDEX\` says where it stopped and \`NOT_ATTEMPTED\` how many were never tried. Re-running the identical interval is safe: rows already written are re-observed, not duplicated." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"
