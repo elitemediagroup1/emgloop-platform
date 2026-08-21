@@ -149,8 +149,20 @@ export interface LocalDeliveryReader {
   read(input: {
     organizationId: string;
     provider: string;
+    /** The OCCURRENCE window. The real question, and the day's exact bounds. */
     since: Date;
     until: Date;
+    /**
+     * The DELIVERY window, for legacy rows that cannot answer the real question.
+     *
+     * `integration_events.occurredAt` exists as of PR #180 but is populated only
+     * for rows written since. An older row's occurrence lives inside `payload`
+     * and cannot be filtered in SQL without duplicating the canonical resolver's
+     * field precedence, so those rows are still reached the way they always were
+     * -- by delivery time, widened -- and judged in memory.
+     */
+    legacySince: Date;
+    legacyUntil: Date;
   }): Promise<LocalDeliveryRecord[]>;
 }
 
@@ -262,8 +274,16 @@ export class ProviderReconciliationService {
     const local = await this.localReader.read({
       organizationId: input.organizationId,
       provider: CALLGRID_PROVIDER,
-      since: scanStart,
-      until: scanEnd,
+      // THE DAY ITSELF, by provider occurrence. A call that HAPPENED on this date
+      // belongs to it however long afterwards Loop received it -- which is the
+      // whole point: a recovered August call must count on its August day, not on
+      // the day somebody ran the recovery.
+      since: window.start,
+      until: window.end,
+      // And the widened DELIVERY window, for rows written before occurrence was
+      // a column. They are still found exactly the way they used to be.
+      legacySince: scanStart,
+      legacyUntil: scanEnd,
     });
 
     // --- Provider side ----------------------------------------------------------
@@ -281,9 +301,15 @@ export class ProviderReconciliationService {
     }
 
     // --- Local side -------------------------------------------------------------
-    // Selected by delivery time, judged by OCCURRENCE. A row whose occurrence
-    // cannot be resolved is counted and never silently dropped: it cannot be
-    // ruled out of this date, which is exactly what makes it impeach it.
+    // Selected by OCCURRENCE where the row can state it, by delivery time where it
+    // cannot, and judged by occurrence either way. The in-memory bound is kept
+    // even though the query now applies it: the legacy rows arrive through the
+    // delivery window and still have to be ruled in or out, and one place deciding
+    // membership is what keeps the two paths agreeing.
+    //
+    // A row whose occurrence cannot be resolved is counted and never silently
+    // dropped: it cannot be ruled out of this date, which is exactly what makes it
+    // impeach it.
     let localUnresolvedOccurrence = 0;
     const inWindow: LocalDeliveryRecord[] = [];
     for (const record of local) {
@@ -540,12 +566,19 @@ export function callGridPopulationReader(): ProviderPopulationReader {
 /**
  * The local seam: a batched, organization-scoped SELECT over integration_events.
  *
- * Occurrence comes from the CANONICAL resolver rather than a hand-written JSON
- * expression, so local and provider occurrence semantics are identical by
- * construction. A SQL filter would have duplicated the resolver's field
- * precedence and the two would drift -- the previous audit's query already got
- * this wrong once, looking for `UTCUnixTimeMs` when the stored webhook payloads
- * carry `occurredAtUnix`.
+ * SELECTED BY OCCURRENCE, NOT BY DELIVERY. Until PR #180 there was no occurrence
+ * column, so the only way to reach a day's rows was to scan a widened DELIVERY
+ * window and filter in memory. That silently excluded any row received far from
+ * when it happened -- which is exactly what a recovered call is. A recovery would
+ * have written 9,000 correct rows and reconciliation would have gone on reporting
+ * them missing.
+ *
+ * Occurrence for a LEGACY row still comes from the CANONICAL resolver rather than
+ * a hand-written JSON expression, so local and provider occurrence semantics stay
+ * identical by construction. A SQL filter over the payload would have duplicated
+ * the resolver's field precedence and the two would drift -- the previous audit's
+ * query already got this wrong once, looking for `UTCUnixTimeMs` when the stored
+ * webhook payloads carry `occurredAtUnix`.
  */
 export function integrationEventReader(prisma: PrismaClient): LocalDeliveryReader {
   const integrations = new IntegrationRepository(prisma);
@@ -556,10 +589,12 @@ export function integrationEventReader(prisma: PrismaClient): LocalDeliveryReade
       const out: LocalDeliveryRecord[] = [];
       let afterId: string | undefined;
       for (;;) {
-        const batch = await integrations.listEventsReceivedBetween(input.organizationId, {
+        const batch = await integrations.listEventsForOccurrenceWindow(input.organizationId, {
           provider: input.provider,
           since: input.since,
           until: input.until,
+          legacySince: input.legacySince,
+          legacyUntil: input.legacyUntil,
           batchSize: LOCAL_SCAN_BATCH_SIZE,
           ...(afterId ? { afterId } : {}),
         });
@@ -571,7 +606,12 @@ export function integrationEventReader(prisma: PrismaClient): LocalDeliveryReade
               : {};
           out.push({
             identity: normalizeExternalIdentity(row.externalId),
-            occurredAt: resolveOccurrence(payload).at,
+            // THE STORED COLUMN WINS WHERE IT EXISTS. It was written FROM this same
+            // resolver, at ingestion, so today the two agree -- and preferring the
+            // column means a later change to the resolver cannot retroactively
+            // reclassify a row that was already judged. Only a legacy row, whose
+            // column is null, is resolved from the payload here.
+            occurredAt: row.occurredAt ?? resolveOccurrence(payload).at,
             memberExternalId: memberIdFrom(payload),
           });
         }

@@ -224,8 +224,12 @@ export interface LocalIdentityReader {
   read(input: {
     organizationId: string;
     provider: string;
+    /** The OCCURRENCE window: the day itself. */
     since: Date;
     until: Date;
+    /** The widened DELIVERY window, for rows written before occurrence was a column. */
+    legacySince: Date;
+    legacyUntil: Date;
   }): Promise<LocalFact[]>;
 }
 
@@ -686,11 +690,18 @@ export async function runReconciliation(
     return result;
   }
 
+  // THE SAME TWO WINDOWS THE VERDICT PATH USES. This diagnostic answers the same
+  // question as `ProviderReconciliationService`, so it must select the same rows:
+  // a recovered call belongs to the day it happened on, and a tool that still
+  // scanned by delivery time would disagree with the verdict the moment a
+  // recovery landed.
   const localFacts = await deps.local.read({
     organizationId: organization.id,
     provider: request.providerName,
-    since: new Date(window.start.getTime() - LOCAL_SCAN_MARGIN_MS),
-    until: new Date(window.end.getTime() + LOCAL_SCAN_MARGIN_MS),
+    since: window.start,
+    until: window.end,
+    legacySince: new Date(window.start.getTime() - LOCAL_SCAN_MARGIN_MS),
+    legacyUntil: new Date(window.end.getTime() + LOCAL_SCAN_MARGIN_MS),
   });
 
   const { sets, providerOnlyFacts, matchedFacts } = reconcileSets(read.facts, localFacts, window);
@@ -911,10 +922,12 @@ async function main(): Promise<number> {
       const facts: LocalFact[] = [];
       let afterId: string | undefined;
       for (;;) {
-        const batch = await repositories.integrations.listEventsReceivedBetween(input.organizationId, {
+        const batch = await repositories.integrations.listEventsForOccurrenceWindow(input.organizationId, {
           provider: input.provider,
           since: input.since,
           until: input.until,
+          legacySince: input.legacySince,
+          legacyUntil: input.legacyUntil,
           batchSize: LOCAL_SCAN_BATCH_SIZE,
           ...(afterId ? { afterId } : {}),
         });
@@ -929,7 +942,10 @@ async function main(): Promise<number> {
           const occurrence = resolveOccurrence(payload);
           facts.push({
             identity: normaliseIdentity(row.externalId),
-            occurredAt: occurrence.at,
+            // The stored column wins where it exists -- it was written FROM this
+            // same resolver at ingestion, so preferring it means a later change to
+            // the resolver cannot retroactively reclassify an already-judged row.
+            occurredAt: row.occurredAt ?? occurrence.at,
             status: row.status,
             markers: markersFrom(payload),
           });
