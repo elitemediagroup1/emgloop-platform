@@ -14,6 +14,7 @@ import {
   PROMOTION_OUTCOMES,
   investigationDetectionKey,
   investigationRecurrenceKey,
+  isInvestigationAuthorization,
   promotionOpenedOrFoundCase,
   severityForHeadline,
 } from '../src/headline-investigation';
@@ -58,6 +59,28 @@ test('the producer names Commercial Intelligence, not a provider', () => {
   assert.equal(INVESTIGATION_PRODUCER, 'commercial-intelligence');
   assert.ok(!INVESTIGATION_PRODUCER.includes('callgrid'));
   assert.equal(INVESTIGATION_PRODUCER_VERSION, 'headline-investigation.v1');
+});
+
+test('A PLAIN REVIEWED IS NOT AN AUTHORIZATION', () => {
+  // An operator can record a review on any thread at any time through the
+  // existing Decision Center actions. What makes a row THE authorization is the
+  // reason line the promotion writes onto it — the vocabulary has no member for
+  // it yet, so the reason carries the semantic.
+  const authorization = {
+    actorType: 'HUMAN',
+    observationType: 'REVIEWED',
+    reason: INVESTIGATION_AUTHORIZED_REASON,
+  };
+  assert.equal(isInvestigationAuthorization(authorization), true);
+
+  for (const near of [
+    { ...authorization, reason: null },
+    { ...authorization, reason: 'Looked at it.' },
+    { ...authorization, actorType: 'SYSTEM' },
+    { ...authorization, observationType: 'NOTE_ADDED' },
+  ]) {
+    assert.equal(isInvestigationAuthorization(near), false, JSON.stringify(near));
+  }
 });
 
 test('the outcome vocabulary is closed and only two mean a case exists', () => {

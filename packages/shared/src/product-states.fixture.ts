@@ -33,6 +33,8 @@ import type { FactConvergenceDecision } from './provider-fact-convergence';
 import type { CoverageHealthStatus } from './coverage-health';
 import type { HeadlineView } from './headline';
 import type { ObservationSource } from './observation-source';
+import { CASE_WHY_UNAVAILABLE, type CaseBriefView } from './case-brief';
+import { INVESTIGATION_AUTHORIZED_REASON } from './headline-investigation';
 import type { PriorityState } from './operational-lifecycle';
 import type { ReconciliationState } from './provider-reconciliation';
 
@@ -48,6 +50,9 @@ export const PRODUCT_STATES = [
   'ACTION_AWAITING_APPROVAL',
   'RECOVERY_ISSUE',
   'NOTHING_NEEDS_ATTENTION',
+  'CASE_KNOWN',
+  'CASE_WITH_UNCERTAINTY',
+  'CASE_WITH_INCOMPLETE_EVIDENCE',
 ] as const;
 
 export type ProductState = (typeof PRODUCT_STATES)[number];
@@ -498,3 +503,187 @@ export const NOTHING_KNOWN_YET: AllClearState = {
   reconciliationThrough: '',
   checkedAt: '2026-08-22T11:42:00.000Z',
 };
+
+// --- The investigation, as a product surface receives it -----------------------------
+//
+// Typed as the REAL `CaseBriefView`, so a contract change breaks these rather
+// than the design. Three states, because they are the three a Case surface has to
+// render differently: one where Loop knows what it knows, one where the caveats
+// are the story, and one where the population only partly reported.
+//
+// NONE OF THEM CARRIES A FINDING OR A RECOMMENDATION, because the contract does
+// not have those fields and the backend cannot produce them yet. A fixture that
+// showed one would be a promise somebody has to keep.
+//
+// WHY IS EMPTY IN ALL THREE. That is not an oversight in the fixture — it is the
+// state the product is in, and a design that renders WHY convincingly full would
+// be designing for a Loop that infers causes.
+
+function caseBrief(over: Partial<CaseBriefView> & { caseId: string }): CaseBriefView {
+  return {
+    status: 'NEEDS_REVIEW',
+    title: "Buyer CEM's monetized rate fell from 59.7% to 41.2% over the last 7 business days.",
+    subject: 'Grow Medicare answer rate',
+    origin: {
+      kind: 'HEADLINE',
+      headlineId: 'hl_cem_monetized',
+      unresolvedReason: null,
+      headline: {
+        headlineId: 'hl_cem_monetized',
+        statement: "Buyer CEM's monetized rate fell from 59.7% to 41.2% over the last 7 business days.",
+        performanceObjectiveId: 'obj_medicare',
+        objectiveTitle: 'Grow Medicare answer rate',
+        metric: 'MONETIZED_RATE',
+        metricLabel: 'Monetized rate',
+        againstObjective: true,
+        currentValue: 0.412,
+        priorValue: 0.597,
+        percentageChange: -0.31,
+        currentCoverage: 0.98,
+        comparisonBasis: 'Trailing 7 complete Eastern business days against the 7 before them.',
+        currentWindowStart: '2026-08-15T04:00:00.000Z',
+        currentWindowEnd: '2026-08-22T04:00:00.000Z',
+        dismissedAt: null,
+      },
+    },
+    authorization: {
+      userId: 'usr_matt',
+      at: '2026-08-23T09:04:00.000Z',
+      recordedAt: '2026-08-23T09:04:00.000Z',
+      note: null,
+    },
+    ownerUserId: null,
+    assigneeUserId: null,
+    evidence: [],
+    uncertainty: { limitations: [], unknowns: [], incompleteEvidenceCount: 0, completenessUnstatedCount: 0 },
+    fiveWs: { who: [], what: [], when: [], where: [], why: [], unavailable: { WHY: CASE_WHY_UNAVAILABLE } },
+    timeline: [
+      {
+        id: 'obs_1', sequence: 1, type: 'SITUATION_DETECTED',
+        occurredAt: '2026-08-20T11:02:00.000Z', recordedAt: '2026-08-23T09:04:00.000Z',
+        actorType: 'SYSTEM', actorUserId: null, source: 'commercial-intelligence',
+        reason: null, note: null, previousState: 'NEEDS_REVIEW', newState: null, outcome: null,
+      },
+      {
+        id: 'obs_2', sequence: 2, type: 'REVIEWED',
+        occurredAt: '2026-08-23T09:04:00.000Z', recordedAt: '2026-08-23T09:04:00.000Z',
+        actorType: 'HUMAN', actorUserId: 'usr_matt', source: 'operator',
+        reason: INVESTIGATION_AUTHORIZED_REASON, note: null,
+        previousState: 'NEEDS_REVIEW', newState: null, outcome: null,
+      },
+    ],
+    history: {
+      firstDetectedAt: new Date('2026-08-20T11:02:00.000Z'),
+      lastDetectedAt: new Date('2026-08-22T06:15:00.000Z'),
+      detectionCount: 3, timesReopened: 0, msToFirstDecision: null, msToResolution: null,
+      contactAttempts: 0, recordedOutcomes: [], humanActors: ['usr_matt'],
+    },
+    outcome: null,
+    measuredEffectCents: null,
+    sourceSystem: 'commercial-intelligence',
+    recurrenceKey: 'headline:hl_cem_monetized',
+    ...over,
+  };
+}
+
+const CEM_EVIDENCE: CaseBriefView['evidence'][number] = {
+  id: 'ev_1',
+  source: 'commercial-intelligence',
+  metricKey: 'MONETIZED_RATE',
+  window: 'Trailing 7 complete Eastern business days against the 7 before them.',
+  value: 0.412,
+  completeness: 0.98,
+  entityType: 'buyer',
+  entityId: 'buyer_cem',
+  entityName: 'CEM',
+  limitations: [],
+  unknowns: [],
+  ruleId: 'ci.objective-measure-change',
+  ruleVersion: 'v1',
+  producerVersion: 'ci-headline.v1',
+  observedAt: '2026-08-22T06:15:00.000Z',
+};
+
+/** An investigation where the evidence resolved and the caveats are minor. */
+export const CASE_KNOWN: CaseBriefView = caseBrief({
+  caseId: 'case_known',
+  evidence: [CEM_EVIDENCE],
+  uncertainty: {
+    limitations: ['Postback destinations settle after the call, so the most recent day may still move.'],
+    unknowns: [],
+    incompleteEvidenceCount: 1,
+    completenessUnstatedCount: 0,
+  },
+  fiveWs: {
+    who: [
+      { key: 'user:usr_matt', label: 'usr_matt', derivedFrom: 'TIMELINE', evidenceId: null },
+      { key: 'buyer:buyer_cem', label: 'CEM', derivedFrom: 'EVIDENCE', evidenceId: 'ev_1' },
+    ],
+    what: [
+      {
+        key: 'metric:ev_1',
+        label: 'MONETIZED_RATE (Trailing 7 complete Eastern business days against the 7 before them.)',
+        derivedFrom: 'EVIDENCE',
+        evidenceId: 'ev_1',
+      },
+    ],
+    when: [{ key: 'observed:ev_1', label: '2026-08-22T06:15:00.000Z', derivedFrom: 'EVIDENCE', evidenceId: 'ev_1' }],
+    where: [],
+    why: [],
+    unavailable: {
+      WHY: CASE_WHY_UNAVAILABLE,
+      WHERE: 'No evidence names a campaign, market, channel or system this condition exists in.',
+    },
+  },
+});
+
+/** The caveats ARE the story. A surface that hides them has hidden the finding. */
+export const CASE_WITH_UNCERTAINTY: CaseBriefView = caseBrief({
+  caseId: 'case_uncertain',
+  evidence: [
+    {
+      ...CEM_EVIDENCE,
+      limitations: [
+        'Postback destinations settle after the call, so the most recent day may still move.',
+        'The comparison spans one week; a seasonal effect would not be separable.',
+      ],
+      unknowns: [
+        '2% of calls in the current window carry no billable answer yet.',
+        'Whether CEM changed its qualification criteria is not established by anything here.',
+      ],
+    },
+  ],
+  uncertainty: {
+    limitations: [
+      'Postback destinations settle after the call, so the most recent day may still move.',
+      'The comparison spans one week; a seasonal effect would not be separable.',
+    ],
+    unknowns: [
+      '2% of calls in the current window carry no billable answer yet.',
+      'Whether CEM changed its qualification criteria is not established by anything here.',
+    ],
+    incompleteEvidenceCount: 1,
+    completenessUnstatedCount: 0,
+  },
+});
+
+/**
+ * The population only partly reported — and one row did not say at all.
+ *
+ * THE TWO COUNTS ARE DIFFERENT FACTS. "0.6 of it reported" and "the producer
+ * expressed no completeness" are not the same, and a surface that renders both as
+ * a partial bar has turned silence into a measurement.
+ */
+export const CASE_WITH_INCOMPLETE_EVIDENCE: CaseBriefView = caseBrief({
+  caseId: 'case_incomplete',
+  evidence: [
+    { ...CEM_EVIDENCE, completeness: 0.62 },
+    { ...CEM_EVIDENCE, id: 'ev_2', metricKey: 'REVENUE', value: null, completeness: null },
+  ],
+  uncertainty: {
+    limitations: ['Only 62% of the window reported a billable answer.'],
+    unknowns: ['Revenue for this window is not established.'],
+    incompleteEvidenceCount: 1,
+    completenessUnstatedCount: 1,
+  },
+});

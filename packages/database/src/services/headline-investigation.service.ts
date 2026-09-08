@@ -38,6 +38,7 @@ import {
   INVESTIGATION_PRODUCER_VERSION,
   investigationDetectionKey,
   investigationRecurrenceKey,
+  isInvestigationAuthorization,
   severityForHeadline,
   type HeadlineView,
   type PromotionOutcome,
@@ -276,7 +277,16 @@ export class HeadlineInvestigationService {
   private async hasHumanAuthorization(organizationId: string, caseId: string): Promise<boolean> {
     const view = await this.decisions.get(organizationId, caseId);
     if (!view) return false;
-    return view.observations.some((o) => o.actorType === 'HUMAN' && o.observationType === 'REVIEWED');
+    // THE SHARED PREDICATE, not a local spelling of it. An operator can record a
+    // plain REVIEWED on any thread; only the row carrying the authorization reason
+    // is the authorization, and the Case Brief resolves it the same way.
+    return view.observations.some((o) =>
+      isInvestigationAuthorization({
+        actorType: o.actorType,
+        observationType: o.observationType,
+        reason: o.reason,
+      }),
+    );
   }
 }
 
