@@ -208,6 +208,13 @@ export * from './case-brief';
 // it eligible. Establishment is derived on read, never stored, so a claim whose
 // evidence degrades stops being established without anything having to run.
 export * from './case-finding';
+
+// What could be DONE about a finding, and the ceiling on how firmly Loop may say
+// it. Reuses the shipped decision-support vocabularies (evidence strength,
+// approved verbs) rather than forking them: an option's posture may never exceed
+// what its finding's evidence supports, and ranking is explained from inspectable
+// factors instead of collapsed into a score.
+export * from './case-recommendation';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---
