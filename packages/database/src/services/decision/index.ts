@@ -25,6 +25,7 @@ export type {
   CloseInput,
   RecordOutcomeInput,
   AddObservationInput,
+  LinkHypothesisInput,
   DecisionResult,
   DecisionView,
   DecisionTimelineEntry,

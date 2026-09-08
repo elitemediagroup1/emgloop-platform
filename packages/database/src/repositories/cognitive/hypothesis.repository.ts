@@ -94,6 +94,80 @@ export class IntelligenceHypothesisRepository {
     });
   }
 
+  /**
+   * Replace one hypothesis with a newer one, preserving the old in full.
+   *
+   * SUPERSESSION IS NOT AN EDIT. The old row keeps its claim, its evidence
+   * counts, its window and its generator exactly as written; all it gains is a
+   * terminal status and a pointer to what replaced it. This is the only way a
+   * claim's body may ever change, and it changes by there being a second row.
+   *
+   * FAILS CLOSED IN FOUR WAYS. Both rows must belong to the organization, they
+   * must be different rows, the successor must not itself be superseded, and a
+   * row that already names a DIFFERENT successor is refused rather than
+   * repointed -- a supersession chain that can be rewritten is a history that
+   * can be rewritten.
+   *
+   * IDEMPOTENT. Re-superseding by the same successor returns the row unchanged,
+   * so an interrupted caller can safely retry.
+   */
+  async supersede(
+    organizationId: string,
+    id: string,
+    supersededById: string,
+  ): Promise<IntelligenceHypothesis | null> {
+    if (id === supersededById) {
+      throw new Error('A hypothesis cannot supersede itself');
+    }
+    const [found, successor] = await Promise.all([
+      this.findById(organizationId, id),
+      this.findById(organizationId, supersededById),
+    ]);
+    if (!found || !successor) return null;
+    if (successor.supersededById) {
+      throw new Error('A superseded hypothesis cannot supersede another');
+    }
+    if (found.supersededById) {
+      // Already done, or already done differently. The first is a retry; the
+      // second is an attempt to rewrite lineage and is refused.
+      if (found.supersededById === supersededById) return found;
+      throw new Error('This hypothesis was already superseded by a different one');
+    }
+    return this.prisma.intelligenceHypothesis.update({
+      where: { id: found.id },
+      data: { status: 'SUPERSEDED', supersededById },
+    });
+  }
+
+  /**
+   * Everything this hypothesis replaced, walking backwards, newest first.
+   *
+   * READ BACKWARDS FROM THE CURRENT CLAIM, because that is the direction the
+   * pointer does not exist in: a row names what replaced IT, so finding what it
+   * replaced is a query rather than a field. Bounded, so a cycle written by some
+   * future bug cannot hang a page.
+   */
+  async lineageOf(
+    organizationId: string,
+    id: string,
+    maxDepth = 50,
+  ): Promise<IntelligenceHypothesis[]> {
+    const out: IntelligenceHypothesis[] = [];
+    const seen = new Set<string>([id]);
+    let current = id;
+    for (let depth = 0; depth < maxDepth; depth += 1) {
+      const previous = await this.prisma.intelligenceHypothesis.findFirst({
+        where: { organizationId, supersededById: current },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!previous || seen.has(previous.id)) break;
+      seen.add(previous.id);
+      out.push(previous);
+      current = previous.id;
+    }
+    return out;
+  }
+
   list(
     organizationId: string,
     opts: { status?: HypothesisStatus; subjectIdentityId?: string; take?: number } = {},
