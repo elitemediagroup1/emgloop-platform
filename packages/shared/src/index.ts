@@ -222,6 +222,13 @@ export * from './case-recommendation';
 // obligations and Work OS owns them, so a Case REFERENCES work rather than
 // copying its mutable state.
 export * from './case-participation';
+
+// How much this matters to the BUSINESS and how much it matters to YOU, kept
+// permanently apart. Two fields, never combined, and no function that reduces
+// them to one: personal relevance is a tier derived from rows somebody can point
+// at, business significance stays the shipped severity vocabulary, and ordering
+// is a declared lexicographic walk that can always explain itself.
+export * from './personal-priority';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---

@@ -113,6 +113,14 @@ export type {
 } from './services/case-participation.service';
 export { CaseParticipantRepository } from './repositories/case-participant.repository';
 export type { AddParticipantInput } from './repositories/case-participant.repository';
+export { PersonalPriorityService } from './services/personal-priority.service';
+export type {
+  PersonalPriorityDeps,
+  PersonalQueueView,
+  PriorityCaseAccess,
+  PriorityHeadlineReader,
+  QueueOrdering,
+} from './services/personal-priority.service';
 export type {
   CaseRecommendationDeps,
   CaseRecommendationsView,
