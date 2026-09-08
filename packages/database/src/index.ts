@@ -76,6 +76,7 @@ export { HeadlineDetectionService } from './services/headline-detection.service'
 export type {
   DetectionRunSummary,
   ObjectiveDetectionOutcome,
+  ObjectiveReadiness,
 } from './services/headline-detection.service';
 
 // Auction report ingestion — bounded, single-UTC-day, idempotent.
@@ -96,6 +97,16 @@ export type { DiffClassification, FieldDiff, GrainReconciliation, ReconcileGrain
 
 export { CaseBriefService } from './services/case-brief.service';
 export type { CaseBriefDeps, CaseHeadlineReader, CaseReader } from './services/case-brief.service';
+export { CaseFindingService, FINDING_RECORD_OUTCOMES } from './services/case-finding.service';
+export type {
+  CaseFindingCaseAccess,
+  CaseFindingDeps,
+  CaseFindingHeadlineReader,
+  CaseFindingReadinessReader,
+  FindingRecordOutcome,
+  RecordFindingInput,
+  RecordFindingResult,
+} from './services/case-finding.service';
 export { HeadlineInvestigationService } from './services/headline-investigation.service';
 export type {
   HeadlineInvestigationDeps,

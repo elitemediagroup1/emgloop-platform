@@ -23,6 +23,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   COMPARISON_SPAN_DAYS,
@@ -1108,9 +1109,30 @@ test('the binding repository exposes no update path, so a definition cannot be e
   );
 });
 
-test('the detection service exposes one entry point and no side-effecting extras', async () => {
+test('the detection service has ONE writing entry point, and its extras only read', async () => {
+  // `detect` is the only method that may record a Headline. `readinessFor`
+  // answers Stage 4's question -- "is the measure behind this claim eligible?" --
+  // by sharing `assessBinding` with `detect`, so the two can never disagree; it
+  // records nothing and returns no measurement. `assessBinding` is private and
+  // exists so there is exactly one call to `assessReadiness` in this file.
+  //
+  // THE LIST IS EXHAUSTIVE ON PURPOSE. A method added here without a decision is
+  // how a detection service grows a side effect.
   const surface = Object.getOwnPropertyNames(HeadlineDetectionService.prototype);
-  assert.deepEqual(surface.sort(), ['constructor', 'detect'].sort());
+  assert.deepEqual(surface.sort(), ['constructor', 'detect', 'readinessFor', 'assessBinding'].sort());
+
+  const source = readFileSync(
+    new URL('../src/services/headline-detection.service.ts', import.meta.url),
+    'utf8',
+  );
+  // Exactly one gate call, inside the shared private helper.
+  assert.equal(source.split('assessReadiness({').length - 1, 2, 'one shared gate call, plus the unobserved short-circuit');
+  // `readinessFor` may not write. The repositories' only write methods are named
+  // here so a future edit that reaches for one is a failing test, not a review.
+  const readinessBody = source.slice(source.indexOf('async readinessFor('), source.indexOf('private async assessBinding('));
+  for (const write of ['.record(', '.resight(', '.dismiss(', '.recordDay(', '.confirm(', '.retire(']) {
+    assert.equal(readinessBody.includes(write), false, `readinessFor must not call ${write}`);
+  }
 });
 
 // --- helpers ----------------------------------------------------------------------------

@@ -90,12 +90,16 @@ import {
   type MeasurementReadiness,
   type MeasurementResult,
   type ObjectiveMeasureBindingView,
+  type ReconciliationDayFact,
   type WindowObservation,
 } from '@emgloop/shared';
 
 import type { PerformanceObjectiveRepository } from '../repositories/performance-objective.repository';
 import type { ObjectiveMeasureBindingRepository } from '../repositories/objective-measure-binding.repository';
-import type { MarketplaceCallRepository } from '../repositories/marketplace-call.repository';
+import type {
+  MarketplaceCallRepository,
+  PopulationPartitionFacts,
+} from '../repositories/marketplace-call.repository';
 import type { HeadlineRepository, RecordOutcome } from '../repositories/headline.repository';
 import type { ProviderObservationRepository } from '../repositories/provider-observation.repository';
 import type { ProviderReconciliationRepository } from '../repositories/provider-reconciliation.repository';
@@ -151,6 +155,20 @@ export interface DetectionRunSummary {
    */
   observation: WindowObservation;
   outcomes: ObjectiveDetectionOutcome[];
+}
+
+/**
+ * One objective's Stage 3 verdict, and the dates it was assessed over.
+ *
+ * THE VERDICT IS THE POINT. `dates` travels with it so a caller can say WHICH
+ * period was judged without re-deriving the windows and risking a different
+ * answer across a DST boundary.
+ */
+export interface ObjectiveReadiness {
+  performanceObjectiveId: string;
+  measureBindingId: string;
+  dates: readonly BusinessDate[];
+  readiness: MeasurementReadiness;
 }
 
 export class HeadlineDetectionService {
@@ -300,21 +318,20 @@ export class HeadlineDetectionService {
       measurable += 1;
 
       const population = populationOf(binding);
-
-      // THE POPULATION IS SPLIT BEFORE IT IS SUMMED. Every bound member is
-      // returned, including one that contributed nothing, because a campaign that
-      // went silent must still be assessed -- it is the silent ones that carry the
-      // absences.
-      const partitioned = await this.calls.partitionPopulationWindows(
+      const assessed = await this.assessBinding(
         organizationId,
+        binding,
         population,
-        [windows.prior, windows.current],
+        windows,
+        dates,
+        observation,
+        reconciliation,
       );
 
       // A binding with no members cannot produce a population. The repository
       // rejects that at confirmation, so this is only reachable through a row
       // written by an older build -- and the honest answer is still silence.
-      if (!partitioned) {
+      if (!assessed) {
         outcomes.push({
           performanceObjectiveId: objective.id,
           objectiveTitle: objective.title,
@@ -328,33 +345,7 @@ export class HeadlineDetectionService {
         withheldCount += 1;
         continue;
       }
-
-      const { sources, authorities } = await this.measurementSources.readinessFacts(
-        organizationId,
-        partitioned.partitions.map((p) => ({
-          dimension: p.dimension,
-          memberExternalId: p.memberExternalId,
-        })),
-        binding.metric,
-      );
-
-      const readiness = assessReadiness({
-        metric: binding.metric,
-        dates,
-        observation,
-        partitions: partitioned.partitions,
-        unattributedCalls: partitioned.unattributedCalls,
-        reconciliation,
-        authorities,
-        sources,
-        // NO OUTCOME DAYS, AND THAT FAILS CLOSED. `SourceOutcomeDay` is not
-        // persisted yet, and the gate treats a missing outcome day for a
-        // BUYER_REPORT source as AUTHORITATIVE_DATA_PENDING -- so a measure whose
-        // authority names a report source withholds until the importer exists,
-        // rather than being computed from whatever happens to be in the call rows.
-        // Today no BUYER_REPORT source is registered, so the branch is unreached.
-        outcomeDays: [],
-      });
+      const readiness = assessed.readiness;
 
       // REFUSED BEFORE ANY AGGREGATE IS READ. `measureChange` would refuse the
       // same input -- it takes this verdict and cannot be called without one --
@@ -513,6 +504,149 @@ export class HeadlineDetectionService {
       observation,
       outcomes,
     };
+  }
+
+  /**
+   * The Stage 3 readiness verdict for ONE objective, over the trailing complete
+   * windows. A READ. It writes nothing, records no Headline and returns no
+   * measurement.
+   *
+   * WHY THIS EXISTS. Stage 4 asks a question Stage 3 already answers internally:
+   * "is the measure behind this claim eligible to be believed?" The alternative
+   * to exposing the answer was for the Finding layer to resolve observation,
+   * reconciliation, population and authority for itself -- a second readiness
+   * engine, which is the failure mode this repository is named for. So the
+   * judgement stays here, in the one service that owns it, and callers read it.
+   *
+   * IT SHARES `assessBinding` WITH `detect`, DELIBERATELY. If the two ever
+   * diverge, a Finding could be established over a window `detect` would have
+   * refused, which is precisely the disagreement that must be impossible.
+   *
+   * Returns null when the objective has no confirmed binding, or when the bound
+   * population cannot be resolved -- both are "there is nothing to be ready
+   * about", and neither is a pass.
+   */
+  async readinessFor(
+    organizationId: string,
+    performanceObjectiveId: string,
+    now: Date,
+  ): Promise<ObjectiveReadiness | null> {
+    const binding = await this.bindings.activeFor(organizationId, performanceObjectiveId);
+    if (!binding) return null;
+
+    const windows = easternTrailingCompleteWindows(now, COMPARISON_SPAN_DAYS);
+    const dates: BusinessDate[] = [
+      ...easternBusinessDatesIn(windows.prior),
+      ...easternBusinessDatesIn(windows.current),
+    ];
+    const observation = assessWindowObservation(
+      dates,
+      await this.observations.statusesForDates(organizationId, CALLGRID_PROVIDER, CALLS_STREAM, dates),
+    );
+
+    // THE OBSERVATION GATE FIRST, EXACTLY AS `detect` APPLIES IT. `assessReadiness`
+    // evaluates observation first and returns on it, so passing an unobserved
+    // window through produces the same WINDOW_NOT_OBSERVED verdict rather than a
+    // different one -- but resolving the population for a window nobody read is
+    // work with no possible outcome, so this returns the verdict directly.
+    if (!observation.fullyObserved) {
+      return {
+        performanceObjectiveId,
+        measureBindingId: binding.id,
+        dates,
+        readiness: assessReadiness({
+          metric: binding.metric,
+          dates,
+          observation,
+          partitions: [],
+          unattributedCalls: 0,
+          reconciliation: [],
+          authorities: [],
+          sources: [],
+          outcomeDays: [],
+        }),
+      };
+    }
+
+    const reconciliation = await this.reconciliation.factsForDates(
+      organizationId,
+      CALLGRID_PROVIDER,
+      CALLS_STREAM,
+      dates,
+    );
+    const assessed = await this.assessBinding(
+      organizationId,
+      binding,
+      populationOf(binding),
+      windows,
+      dates,
+      observation,
+      reconciliation,
+    );
+    if (!assessed) return null;
+    return {
+      performanceObjectiveId,
+      measureBindingId: binding.id,
+      dates,
+      readiness: assessed.readiness,
+    };
+  }
+
+  /**
+   * Resolve one binding's population and ask the gate about it.
+   *
+   * THE ONLY PLACE `assessReadiness` IS CALLED IN THIS SERVICE, which is what
+   * makes "detection and Stage 4 cannot disagree" a property of the shape rather
+   * than of somebody keeping two copies in step.
+   *
+   * Returns null when the population cannot be resolved at all.
+   */
+  private async assessBinding(
+    organizationId: string,
+    binding: ObjectiveMeasureBindingView,
+    population: ReturnType<typeof populationOf>,
+    windows: { current: { start: Date; end: Date }; prior: { start: Date; end: Date } },
+    dates: readonly BusinessDate[],
+    observation: WindowObservation,
+    reconciliation: readonly ReconciliationDayFact[],
+  ): Promise<{ readiness: MeasurementReadiness; partitioned: PopulationPartitionFacts } | null> {
+    // THE POPULATION IS SPLIT BEFORE IT IS SUMMED. Every bound member is
+    // returned, including one that contributed nothing, because a campaign that
+    // went silent must still be assessed -- it is the silent ones that carry the
+    // absences.
+    const partitioned = await this.calls.partitionPopulationWindows(organizationId, population, [
+      windows.prior,
+      windows.current,
+    ]);
+    if (!partitioned) return null;
+
+    const { sources, authorities } = await this.measurementSources.readinessFacts(
+      organizationId,
+      partitioned.partitions.map((p) => ({
+        dimension: p.dimension,
+        memberExternalId: p.memberExternalId,
+      })),
+      binding.metric,
+    );
+
+    const readiness = assessReadiness({
+      metric: binding.metric,
+      dates: [...dates],
+      observation,
+      partitions: partitioned.partitions,
+      unattributedCalls: partitioned.unattributedCalls,
+      reconciliation,
+      authorities,
+      sources,
+      // NO OUTCOME DAYS, AND THAT FAILS CLOSED. `SourceOutcomeDay` is not
+      // persisted yet, and the gate treats a missing outcome day for a
+      // BUYER_REPORT source as AUTHORITATIVE_DATA_PENDING -- so a measure whose
+      // authority names a report source withholds until the importer exists,
+      // rather than being computed from whatever happens to be in the call rows.
+      // Today no BUYER_REPORT source is registered, so the branch is unreached.
+      outcomeDays: [],
+    });
+    return { readiness, partitioned };
   }
 }
 
