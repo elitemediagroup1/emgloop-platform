@@ -46,6 +46,7 @@ import { EVIDENCE_STRENGTH_RANK } from './callgrid-decision-support';
 import { RECOMMENDATION_VERBS, isSafeRecommendation } from './callgrid-intelligence';
 import type { RecommendationVerb } from './callgrid-intelligence';
 import type { FindingEstablishment, FindingState } from './case-finding';
+import { CASE_EVENT_REASONS, isCaseEvent } from './case-observation';
 
 export const RECOMMENDATION_RULE_VERSION = 'case-recommendation.v1';
 
@@ -566,46 +567,31 @@ export const RECOMMENDATION_RESPONSES = ['SELECTED', 'DISMISSED', 'REVISED'] as 
 export type RecommendationResponse = (typeof RECOMMENDATION_RESPONSES)[number];
 
 /** The exact line written on the Case when a recommendation set is recorded. */
-export const RECOMMENDATION_RECORDED_REASON =
-  'Loop recorded what could be done about this finding. These are options for a person to ' +
-  'weigh, not decisions, and nothing here has been approved or acted on.';
+export const RECOMMENDATION_RECORDED_REASON = CASE_EVENT_REASONS.RECOMMENDATION_RECORDED;
 
 /** The exact line written when a person selects one option. */
-export const RECOMMENDATION_SELECTED_REASON =
-  'A person selected one of the options Loop proposed. Selecting is a decision to pursue it; ' +
-  'it is not the same as having done it, and it changes nothing outside Loop.';
+export const RECOMMENDATION_SELECTED_REASON = CASE_EVENT_REASONS.RECOMMENDATION_SELECTED;
 
 /** The exact line written when a person dismisses an option. */
-export const RECOMMENDATION_DISMISSED_REASON =
-  'A person set one of the options aside. Loop keeps what it proposed exactly as it was.';
+export const RECOMMENDATION_DISMISSED_REASON = CASE_EVENT_REASONS.RECOMMENDATION_DISMISSED;
 
 /** The exact line written when a person proposes their own revision of an option. */
-export const RECOMMENDATION_REVISED_REASON =
-  'A person revised one of the options. The version Loop proposed is kept unchanged alongside it.';
+export const RECOMMENDATION_REVISED_REASON = CASE_EVENT_REASONS.RECOMMENDATION_REVISED;
 
 /**
  * True when this log row records a recommendation event of the given kind.
  *
- * SAME DEVICE, SAME DEBT AS THE FINDING PREDICATES. A dedicated
- * `OperationalObservationType` member is a database enum and therefore a
- * migration that reaches production only by hand, so `NOTE_ADDED` carries the
- * distinction through an exact reason line. These predicates are the only place
- * allowed to read it back out; no analysis may infer meaning from the text.
+ * THE DEDICATED MEMBERS NOW EXIST. Each of the four responses has its own
+ * `OperationalObservationType`, so this reads a governed enum rather than an
+ * English sentence. The kind names line up with the type names on purpose, and
+ * `case-observation.ts` holds the mapping — including how the pre-migration rows
+ * were written, which is the only reason any prose is compared at all any more.
  */
 export function isRecommendationEvent(
   observation: { observationType: string; reason: string | null },
   kind: 'RECORDED' | RecommendationResponse,
 ): boolean {
-  if (observation.observationType !== 'NOTE_ADDED') return false;
-  const expected =
-    kind === 'RECORDED'
-      ? RECOMMENDATION_RECORDED_REASON
-      : kind === 'SELECTED'
-        ? RECOMMENDATION_SELECTED_REASON
-        : kind === 'DISMISSED'
-          ? RECOMMENDATION_DISMISSED_REASON
-          : RECOMMENDATION_REVISED_REASON;
-  return observation.reason === expected;
+  return isCaseEvent(observation, `RECOMMENDATION_${kind}` as const);
 }
 
 // --- Tradeoff re-evaluation: the extension point, and nothing more ---------------------------

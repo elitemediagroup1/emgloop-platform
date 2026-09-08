@@ -221,11 +221,12 @@ export class HeadlineInvestigationService {
     const appendedNow = !alreadyOpen || !(await this.hasHumanAuthorization(organizationId, caseId));
     if (appendedNow) {
       await this.decisions.addObservation(organizationId, caseId, {
-        // REVIEWED is the existing vocabulary member for a person having looked
-        // and formed a view. A dedicated INVESTIGATION_AUTHORIZED member would be
-        // a Prisma enum migration and is deliberately deferred; the reason line
-        // below carries the meaning in the meantime.
-        observationType: 'REVIEWED',
+        // The dedicated member, since the vocabulary migration. It used to be
+        // REVIEWED carrying the reason line below, because "somebody looked" was
+        // the nearest existing meaning; a person deciding to open an
+        // investigation is a different act and now says so. The reason line is
+        // still written, and is now only description.
+        observationType: 'INVESTIGATION_AUTHORIZED',
         occurredAt: now,
         actor: { type: 'HUMAN', userId: actorUserId, source: 'operator' },
         reason: INVESTIGATION_AUTHORIZED_REASON,

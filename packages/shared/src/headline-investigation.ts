@@ -20,6 +20,8 @@
 // language would be the wrong direction of coupling. This file names the act
 // (`promote`), not the destination.
 
+import { CASE_EVENT_REASONS, isCaseEvent } from './case-observation';
+
 /** How a promotion attempt ended. Four answers, and only one of them writes. */
 export const PROMOTION_OUTCOMES = [
   /** A new investigation was opened by this authorization. */
@@ -136,23 +138,29 @@ export function severityForHeadline(againstObjective: boolean): 'NOTABLE' | 'INF
  * answer "who authorized this, and when". Two spellings would eventually give two
  * answers to one question, and the answer matters.
  *
- * DOWNSTREAM INTELLIGENCE MUST NOT GENERALISE FROM THIS. A dedicated observation
- * type belongs in the vocabulary before any behavioural analysis treats
- * authorization as a kind of review; until then this function is the only place
- * allowed to make the distinction.
+ * THE DEDICATED OBSERVATION TYPE NOW EXISTS. This predicate used to be the only
+ * thing standing between "somebody read this" and "somebody authorized an
+ * investigation", because both were REVIEWED rows telling apart by a sentence.
+ * `INVESTIGATION_AUTHORIZED` carries the meaning now, and this delegates to the
+ * one module that also knows how the pre-migration rows were written.
+ *
+ * IT STILL CHECKS THE ACTOR. A machine writing the word is not a person
+ * deciding, and the type did not change that.
  */
 export function isInvestigationAuthorization(observation: {
   actorType: string;
   observationType: string;
   reason: string | null;
 }): boolean {
-  return (
-    observation.actorType === 'HUMAN' &&
-    observation.observationType === 'REVIEWED' &&
-    observation.reason === INVESTIGATION_AUTHORIZED_REASON
-  );
+  return isCaseEvent(observation, 'INVESTIGATION_AUTHORIZED');
 }
 
-export const INVESTIGATION_AUTHORIZED_REASON =
-  'A person authorized this Headline for organizational investigation. ' +
-  'That is a decision to look into it, not a judgement that it is correct.';
+/**
+ * The line written onto the authorization row, for a person reading a timeline.
+ *
+ * NO LONGER LOAD-BEARING. Until the vocabulary migration this sentence WAS the
+ * distinction; `INVESTIGATION_AUTHORIZED` now is, and this is description.
+ * It is kept exactly as written, and still written, so history spanning the
+ * migration reads continuously.
+ */
+export const INVESTIGATION_AUTHORIZED_REASON = CASE_EVENT_REASONS.INVESTIGATION_AUTHORIZED;

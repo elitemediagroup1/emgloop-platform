@@ -279,7 +279,7 @@ export class CaseRecommendationService {
       optionIds.push(row.id);
 
       await this.cases.addObservation(organizationId, id, {
-        observationType: 'NOTE_ADDED',
+        observationType: 'RECOMMENDATION_RECORDED',
         actor: input.actor,
         reason: RECOMMENDATION_RECORDED_REASON,
         note: option.label,
@@ -322,7 +322,7 @@ export class CaseRecommendationService {
     const approved = await this.decisions.approve(organizationId, row.id, actor.userId);
     if (!approved) return null;
     await this.cases.addObservation(organizationId, caseId, {
-      observationType: 'NOTE_ADDED',
+      observationType: 'RECOMMENDATION_SELECTED',
       actor,
       reason: RECOMMENDATION_SELECTED_REASON,
       note: optionKey,
@@ -346,7 +346,7 @@ export class CaseRecommendationService {
     const row = await this.currentOptionRow(organizationId, caseId, optionKey);
     if (!row) return false;
     await this.cases.addObservation(organizationId, caseId, {
-      observationType: 'NOTE_ADDED',
+      observationType: 'RECOMMENDATION_DISMISSED',
       actor,
       reason: RECOMMENDATION_DISMISSED_REASON,
       note: optionKey,
@@ -417,7 +417,7 @@ export class CaseRecommendationService {
     });
 
     await this.cases.addObservation(organizationId, caseId, {
-      observationType: 'NOTE_ADDED',
+      observationType: 'RECOMMENDATION_REVISED',
       actor,
       reason: RECOMMENDATION_REVISED_REASON,
       note: optionKey,
