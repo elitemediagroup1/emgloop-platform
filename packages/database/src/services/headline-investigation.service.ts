@@ -103,6 +103,17 @@ export interface PromotionResult {
    * second one is missing.
    */
   humanAuthorizationRecorded: boolean;
+  /**
+   * Whether THIS call is the one that appended it.
+   *
+   * DIFFERENT FROM `humanAuthorizationRecorded`, which answers "is one present".
+   * This answers "did something just happen", and a caller with a supplementary
+   * trail to write needs the second question: a repeated press appends nothing
+   * and must record nothing, while a press that completes an interrupted
+   * promotion appends the authorization and must record that it did. Keying a
+   * trail on `opened` instead misses exactly that case.
+   */
+  authorizationAppendedNow: boolean;
   /** One sentence for an operator. Never a credential, never a payload. */
   reason: string;
 }
@@ -140,7 +151,13 @@ export class HeadlineInvestigationService {
   async promote(organizationId: string, input: PromoteHeadlineInput): Promise<PromotionResult> {
     const headlineId = input.headlineId?.trim() ?? '';
     const actorUserId = input.actorUserId?.trim() ?? '';
-    const base = { caseId: null, headlineId, opened: false, humanAuthorizationRecorded: false };
+    const base = {
+      caseId: null,
+      headlineId,
+      opened: false,
+      humanAuthorizationRecorded: false,
+      authorizationAppendedNow: false,
+    };
 
     if (!actorUserId) {
       // Refused BEFORE the Headline is read. An unattributed promotion must not
@@ -200,9 +217,8 @@ export class HeadlineInvestigationService {
     // THE HUMAN'S OWN ROW. Appended even when the thread already existed and
     // lacks one, so a promotion interrupted between the two writes converges
     // rather than leaving an investigation nobody is recorded as authorizing.
-    const needsAuthorization = !alreadyOpen || !(await this.hasHumanAuthorization(organizationId, caseId));
-    let recorded = !needsAuthorization;
-    if (needsAuthorization) {
+    const appendedNow = !alreadyOpen || !(await this.hasHumanAuthorization(organizationId, caseId));
+    if (appendedNow) {
       await this.decisions.addObservation(organizationId, caseId, {
         // REVIEWED is the existing vocabulary member for a person having looked
         // and formed a view. A dedicated INVESTIGATION_AUTHORIZED member would be
@@ -214,7 +230,6 @@ export class HeadlineInvestigationService {
         reason: INVESTIGATION_AUTHORIZED_REASON,
         note: input.note ?? null,
       });
-      recorded = true;
     }
 
     return {
@@ -222,7 +237,10 @@ export class HeadlineInvestigationService {
       caseId,
       headlineId: headline.id,
       opened: !alreadyOpen,
-      humanAuthorizationRecorded: recorded,
+      // True either way by this point: it was already there, or it was just
+      // appended. The authoritative record is complete in both cases.
+      humanAuthorizationRecorded: true,
+      authorizationAppendedNow: appendedNow,
       reason: alreadyOpen
         ? 'This headline is already under investigation. Nothing new was opened.'
         : 'An investigation was opened and the authorizing person was recorded.',

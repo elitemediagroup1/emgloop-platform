@@ -73,9 +73,19 @@ export async function investigateHeadlineAction(formData: FormData): Promise<voi
     redirect(backTo('An investigation must be authorized by a person.', 'error'));
   }
 
-  // ONLY WHEN SOMETHING HAPPENED. A repeated press opens nothing, so it writes no
-  // audit row: an audit trail that records non-events is one people stop reading.
-  if (result.opened) {
+  // ONLY WHEN SOMETHING HAPPENED, and "something" is the AUTHORIZATION, not the
+  // thread. A repeated press appends nothing and writes nothing here — an audit
+  // trail that records non-events is one people stop reading. But a press that
+  // completes an interrupted promotion DOES append the authorization to the
+  // authoritative log, and keying this on `opened` instead would have left the
+  // one reachable case where a person authorized an investigation and the
+  // generic trail never said so.
+  //
+  // THE AUTHORITATIVE ANSWER TO "WHO AUTHORIZED THIS, AND WHEN" IS NOT HERE. It
+  // is the attributed HUMAN observation on the Case's own append-only log, which
+  // carries actorUserId, occurredAt and recordedAt and cannot be edited. This row
+  // is the platform-wide admin trail, and it is supplementary to that.
+  if (result.authorizationAppendedNow) {
     await repositories.audit.record({
       organizationId: session.organizationId,
       userId: session.userId,

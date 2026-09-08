@@ -249,6 +249,21 @@ test('7b. identity is derived from the headline, never from a clock', () => {
   assert.equal(investigationDetectionKey(HEADLINE_ID), `promotion:${HEADLINE_ID}`);
 });
 
+test('7d. only a call that APPENDS the authorization reports having done so', async () => {
+  // The distinction a supplementary audit trail has to key on. `opened` is not
+  // it: an interrupted promotion completes on the retry without opening anything,
+  // and a trail keyed on `opened` would never record that a person authorized it.
+  const { svc } = service();
+  const first = await svc.promote(ORG, { headlineId: HEADLINE_ID, actorUserId: ACTOR });
+  assert.equal(first.opened, true);
+  assert.equal(first.authorizationAppendedNow, true, 'the opening press appended it');
+
+  const repeat = await svc.promote(ORG, { headlineId: HEADLINE_ID, actorUserId: ACTOR });
+  assert.equal(repeat.opened, false);
+  assert.equal(repeat.authorizationAppendedNow, false, 'a repeated press appended nothing');
+  assert.equal(repeat.humanAuthorizationRecorded, true, 'and one is still on record');
+});
+
 test('7c. an interrupted promotion converges: the missing human row is appended', async () => {
   // A thread opened but never attributed — the shape a crash between the two
   // writes would leave. Promoting again must record the authorization rather
@@ -262,6 +277,11 @@ test('7c. an interrupted promotion converges: the missing human row is appended'
   assert.equal(out.humanAuthorizationRecorded, true);
   assert.equal(dc.observations.length, 1, 'the missing authorization was appended');
   assert.equal(dc.rows.length, 1, 'and no second thread was opened');
+  // AND THE CALLER IS TOLD IT HAPPENED, even though nothing was opened. Without
+  // this the one reachable path where a person authorizes an investigation and
+  // the generic admin trail stays silent would go unrecorded.
+  assert.equal(out.opened, false);
+  assert.equal(out.authorizationAppendedNow, true);
 });
 
 // --- 8. Tenancy ----------------------------------------------------------------------
