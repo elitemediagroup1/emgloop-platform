@@ -94,6 +94,15 @@ export {
 } from './services/auction-reconciliation';
 export type { DiffClassification, FieldDiff, GrainReconciliation, ReconcileGrainInput } from './services/auction-reconciliation';
 
+export { HeadlineInvestigationService } from './services/headline-investigation.service';
+export type {
+  HeadlineInvestigationDeps,
+  HeadlineReader,
+  InvestigationFinder,
+  InvestigationOpener,
+  PromoteHeadlineInput,
+  PromotionResult,
+} from './services/headline-investigation.service';
 export { IngestionService, isDuplicateObservation } from './services/ingestion.service';
 export type { IngestInput, IngestResult } from './services/ingestion.service';
 export { deriveSignals, SIGNAL_REGISTRY } from './services/signal-registry';
