@@ -69,6 +69,24 @@ export const OBSERVATION_TYPES = [
   'OUTCOME_RECORDED',
   'RESOLVED',
   'DISMISSED',
+
+  // --- Stage 4 investigation vocabulary ---------------------------------
+  // Ten meanings that Stage 4 previously carried on NOTE_ADDED and REVIEWED,
+  // separated only by an exact English sentence in `reason`. See
+  // `case-observation.ts`, which owns the vocabulary and the compatibility
+  // with rows written before these members existed. Appended rather than
+  // interleaved so the underlying Postgres enum grows without any existing
+  // value moving.
+  'INVESTIGATION_AUTHORIZED',
+  'FINDING_RECORDED',
+  'FINDING_SUPERSEDED',
+  'RECOMMENDATION_RECORDED',
+  'RECOMMENDATION_SELECTED',
+  'RECOMMENDATION_DISMISSED',
+  'RECOMMENDATION_REVISED',
+  'PARTICIPANT_ADDED',
+  'PARTICIPANT_CHANGED',
+  'PARTICIPANT_RELEASED',
 ] as const;
 export type ObservationType = (typeof OBSERVATION_TYPES)[number];
 
@@ -302,6 +320,30 @@ export function projectLifecycle(
       case 'AWAITING_RESPONSE':
       case 'RESPONSE_RECEIVED':
       case 'ESCALATED':
+        break;
+
+      // --- Stage 4 investigation events -------------------------------------
+      // WHAT HAPPENS INSIDE A LANE, NEVER TO IT. Every one of these was written
+      // as NOTE_ADDED (or, for authorization, REVIEWED) before it had a type of
+      // its own, and NOTE_ADDED and REVIEWED both move nothing. Giving them
+      // typed members made them legible; it must not also, silently, have made
+      // them move a Case between lanes — a history replayed through this
+      // reducer has to land in the same place before and after the migration.
+      //
+      // AUTHORIZATION IS NOT A LANE CHANGE, DELIBERATELY. A Case is opened by
+      // the promotion and starts in NEEDS_REVIEW; authorizing the investigation
+      // is the reason it exists, not a decision about who is working it. It
+      // leaves review by somebody being assigned, exactly as before.
+      case 'INVESTIGATION_AUTHORIZED':
+      case 'FINDING_RECORDED':
+      case 'FINDING_SUPERSEDED':
+      case 'RECOMMENDATION_RECORDED':
+      case 'RECOMMENDATION_SELECTED':
+      case 'RECOMMENDATION_DISMISSED':
+      case 'RECOMMENDATION_REVISED':
+      case 'PARTICIPANT_ADDED':
+      case 'PARTICIPANT_CHANGED':
+      case 'PARTICIPANT_RELEASED':
         break;
 
       case 'OUTCOME_RECORDED':

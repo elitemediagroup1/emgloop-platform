@@ -2925,6 +2925,39 @@ enum OperationalObservationType {
   OUTCOME_RECORDED
   RESOLVED
   DISMISSED
+
+  // --- Stage 4 investigation vocabulary ---
+  // Ten meanings Stage 4 recorded on NOTE_ADDED and REVIEWED, separated only by
+  // an exact English sentence in `reason`. Behaviour that depends on prose stops
+  // working the day somebody fixes a typo, and no test notices. Appended, never
+  // interleaved: a Postgres enum value cannot be reordered without recreating
+  // the type, and nothing here sorts by it.
+  //
+  // `packages/shared/src/case-observation.ts` owns the vocabulary, the
+  // human-readable line each one writes, and the compatibility with rows that
+  // predate these members. Pre-migration history is NOT rewritten.
+  /// A person authorized a Headline for organizational investigation.
+  INVESTIGATION_AUTHORIZED
+  /// Loop attached an analytical claim to the investigation.
+  FINDING_RECORDED
+  /// A newer claim replaced the previous one. The previous one is kept in full.
+  FINDING_SUPERSEDED
+  /// Loop recorded the options that could be taken. Options, not decisions.
+  RECOMMENDATION_RECORDED
+  /// A person chose to pursue one option. Distinct from approving it, which is
+  /// `cognitive_decisions.approvedAt`, and distinct from having done it.
+  RECOMMENDATION_SELECTED
+  /// A person set an option aside. What Loop proposed is kept unchanged.
+  RECOMMENDATION_DISMISSED
+  /// A person proposed their own revision of an option. The machine's version
+  /// is kept alongside it, never overwritten.
+  RECOMMENDATION_REVISED
+  /// Somebody was asked to contribute. NOT an assignment and NOT work.
+  PARTICIPANT_ADDED
+  /// What somebody is being asked for changed. The previous ask is kept.
+  PARTICIPANT_CHANGED
+  /// Somebody was released from the investigation.
+  PARTICIPANT_RELEASED
 }
 
 /// How a priority ended, and — where it can be measured — whether Loop's read of
