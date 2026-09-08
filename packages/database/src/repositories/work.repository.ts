@@ -1092,15 +1092,40 @@ export class WorkRepository {
   // ------------------------------------------------------------------
   // Reads for the queue UI
   // ------------------------------------------------------------------
-  async getWorkInstance(id: string): Promise<
+  /**
+   * One work instance, resolved WITHIN an organization.
+   *
+   * THE ORGANIZATION IS THE FIRST ARGUMENT, AND THAT IS THE WHOLE FIX. This
+   * method used to be `getWorkInstance(id)` -- a `findUnique` on a primary key,
+   * returning any tenant's work to any caller. Both call sites did compare
+   * `instance.organizationId` afterwards and were correct, which is exactly the
+   * problem: the safe call and the unsafe call looked identical at the call
+   * site, and the next caller inherits nothing.
+   *
+   * Sprint 29A found three cross-tenant writes introduced DURING four
+   * consecutive tenancy-hardening PRs, by people actively thinking about
+   * tenancy. The conclusion recorded then was that caller-enforced isolation
+   * cannot be sustained by review, and the fix is to make the unsafe call
+   * unwriteable. This is that fix, applied to the last read in Work OS that
+   * still had the old shape -- and applied now, because Commercial Intelligence
+   * is about to read Work state through it on behalf of a Case.
+   *
+   * NOT-FOUND, NEVER FORBIDDEN. Another tenant's work id returns null, exactly
+   * as a deleted one does. A distinguishable "forbidden" would confirm that the
+   * row exists, which is a disclosure about another tenant.
+   */
+  async getWorkInstance(
+    organizationId: string,
+    id: string,
+  ): Promise<
     | (WorkInstance & {
         stages: WorkStage[];
         comments: WorkComment[];
       })
     | null
   > {
-    return this.prisma.workInstance.findUnique({
-      where: { id },
+    return this.prisma.workInstance.findFirst({
+      where: { id, organizationId },
       include: {
         stages: { orderBy: { position: 'asc' } },
         comments: { orderBy: { createdAt: 'asc' } },

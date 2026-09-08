@@ -107,9 +107,10 @@ export async function listMyCompletedToday(
 // organization (the page renders notFound in that case).
 export async function loadEmployeeInstance(id: string, organizationId: string) {
   const work = workRepo();
-  const instance = await work.getWorkInstance(id);
-  if (!instance || instance.organizationId !== organizationId) return null;
-  return instance;
+  // Scoped at the data layer, not here. The post-hoc comparison this replaced
+  // was correct and is still correct -- it is simply no longer the only thing
+  // standing between a caller and another tenant's work.
+  return work.getWorkInstance(organizationId, id);
 }
 
 // Directory of people who can own a stage, for the next-owner selector.
