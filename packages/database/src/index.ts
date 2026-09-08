@@ -98,6 +98,21 @@ export type { DiffClassification, FieldDiff, GrainReconciliation, ReconcileGrain
 export { CaseBriefService } from './services/case-brief.service';
 export type { CaseBriefDeps, CaseHeadlineReader, CaseReader } from './services/case-brief.service';
 export { CaseFindingService, FINDING_RECORD_OUTCOMES } from './services/case-finding.service';
+export {
+  CaseRecommendationService,
+  RECOMMENDATION_RECORD_OUTCOMES,
+} from './services/case-recommendation.service';
+export type {
+  CaseRecommendationDeps,
+  CaseRecommendationsView,
+  RecommendationCaseAccess,
+  RecommendationFindingReader,
+  RecommendationOptionView,
+  RecommendationRecordOutcome,
+  RecommendationRevisionView,
+  RecordRecommendationsInput,
+  RecordRecommendationsResult,
+} from './services/case-recommendation.service';
 export type {
   CaseFindingCaseAccess,
   CaseFindingDeps,

@@ -97,6 +97,12 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
     callerStates: [],
     memberLabels: {},
   },
+  // The nullable columns a decision is BORN with. The repository's `record` does
+  // not name them, so without these the column is absent rather than null -- and
+  // `row.approvedBy` reads `undefined` here while reading `null` in production,
+  // which is exactly the kind of difference that makes a read model look broken
+  // only against the double.
+  cognitiveDecision: { approvedAt: null, approvedBy: null, executedAt: null },
   stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
   stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
   stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
@@ -290,6 +296,14 @@ function condMatches(value: any, cond: any): boolean {
     if ('gte' in cond) checks.push(value != null && cmp(value, cond.gte) >= 0);
     if ('lt' in cond) checks.push(value != null && cmp(value, cond.lt) < 0);
     if ('lte' in cond) checks.push(value != null && cmp(value, cond.lte) <= 0);
+    // Prefix match on a string column. Case-sensitive, matching Postgres' default
+    // collation and Prisma's default `mode`. Used where a row is addressed by a
+    // DERIVED key rather than found by search — listing every option recorded
+    // against one case, for instance — so the prefix is produced by the same
+    // shared function that wrote the key.
+    if ('startsWith' in cond) {
+      checks.push(typeof value === 'string' && value.startsWith(String(cond.startsWith)));
+    }
     // An unrecognised operator must not silently pass. Matching nothing surfaces
     // as a failing assertion; matching everything hides a broken query.
     if (checks.length === 0) return false;
