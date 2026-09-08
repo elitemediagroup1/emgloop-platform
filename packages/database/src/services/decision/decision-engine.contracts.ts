@@ -154,6 +154,36 @@ export interface AddObservationInput extends DecisionActionInput {
   destination?: { system: string; type?: string | null; id?: string | null };
 }
 
+/**
+ * Attach a belief to a decision that is already open.
+ *
+ * WHY THIS IS ITS OWN INPUT AND NOT A FIELD ON `UpdateDecisionInput`. `update`
+ * revises producer-owned ATTRIBUTES -- a title, a severity, an impact estimate --
+ * and every one of them may be written repeatedly by the producer that owns the
+ * thread. A hypothesis link is not an attribute: it is a structural claim about
+ * what this decision is about, it is written by a different actor than the one
+ * that opened the thread, and it may change only through supersession. Folding it
+ * into `update` would make "quietly repoint the belief behind a case" reachable
+ * from every producer that revises a title.
+ *
+ * ONE BELIEF PER DECISION. `OperationalPriority.hypothesisId` is a single
+ * nullable column, so a decision carries at most one -- the current one. Its
+ * predecessors live on the supersession chain, not on the decision.
+ */
+export interface LinkHypothesisInput extends DecisionActionInput {
+  hypothesisId: string;
+  /**
+   * The belief this replaces, when it replaces one.
+   *
+   * REQUIRED TO REPOINT, AND IT MUST MATCH. A decision that already names a
+   * belief refuses a different one unless the caller states which belief it
+   * believes is there -- so two concurrent callers cannot both think they
+   * replaced the same thing, and a caller working from a stale read cannot
+   * silently discard a claim it never saw.
+   */
+  supersedes?: string | null;
+}
+
 /** What every mutating operation returns. */
 export interface DecisionResult {
   decision: OperationalPriority;

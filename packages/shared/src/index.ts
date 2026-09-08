@@ -201,6 +201,13 @@ export * from './headline-investigation';
 // the Decision Center, its evidence and the Headline that opened it. Nothing here
 // is persisted.
 export * from './case-brief';
+
+// What Loop CONCLUDES on an investigation, and what it may call established.
+// The authority boundary: a claim reaches ESTABLISHED only through a person
+// accepting it or the deterministic Stage 3 gate proving the measurement under
+// it eligible. Establishment is derived on read, never stored, so a claim whose
+// evidence degrades stops being established without anything having to run.
+export * from './case-finding';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---

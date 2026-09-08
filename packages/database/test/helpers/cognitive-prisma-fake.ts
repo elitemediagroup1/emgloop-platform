@@ -331,6 +331,13 @@ function applyData(row: Row, data: Row): void {
   for (const [key, val] of Object.entries(data)) {
     if (isPlainObject(val) && 'increment' in val) row[key] = (row[key] ?? 0) + val.increment;
     else if (isPlainObject(val) && 'decrement' in val) row[key] = (row[key] ?? 0) - val.decrement;
+    // A RELATION WRITE SETS THE SCALAR THE RELATION IS BUILT ON, exactly as
+    // Prisma does. `{ hypothesis: { connect: { id } } }` and `{ hypothesisId: id }`
+    // are the checked and unchecked spellings of one write, and a double that
+    // stored the former verbatim would leave the foreign key null while every
+    // assertion about the write passed.
+    else if (isPlainObject(val) && 'connect' in val) row[`${key}Id`] = val.connect?.id ?? null;
+    else if (isPlainObject(val) && 'disconnect' in val) row[`${key}Id`] = null;
     else row[key] = val;
   }
   row.updatedAt = nextTime();

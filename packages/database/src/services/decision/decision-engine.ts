@@ -61,6 +61,7 @@ import {
 import type {
   CreateDecisionInput,
   UpdateDecisionInput,
+  LinkHypothesisInput,
   DecisionActionInput,
   AssignInput,
   SetOwnerInput,
@@ -338,6 +339,88 @@ export class DecisionEngine {
         },
       });
       return { decision: after, observation, effect: 'UPDATED' as const, eventType: DECISION_EVENT_TYPE[type] };
+    });
+  }
+
+  /**
+   * Attach the belief this decision is about, or replace it with a newer one.
+   *
+   * THE ONLY WAY `hypothesisId` MOVES AFTER CREATION. `create` sets it once, for
+   * a producer that opened a thread from a belief it already had; everything else
+   * comes through here, appends an observation, and is refused unless the caller
+   * says what it thought was there. There is no field on `update` that reaches
+   * this column, deliberately -- see `LinkHypothesisInput`.
+   *
+   * IT DOES NOT WRITE THE HYPOTHESIS. Creating, superseding, accepting and
+   * rejecting a belief all belong to `IntelligenceHypothesisRepository`, whose
+   * invariant -- created PROPOSED, accepted only by an attributed human -- this
+   * engine may not reach around. This method links a row that already exists.
+   *
+   * TENANT-SCOPED ON BOTH SIDES. The decision resolves within the organization,
+   * and so does the hypothesis: a belief from another tenant is NOT-FOUND, so
+   * the link can never become a way to reference one.
+   *
+   * IDEMPOTENT. Linking the belief already linked returns UNCHANGED and appends
+   * nothing, so an interrupted caller can retry without writing a second row on
+   * the log.
+   */
+  async linkHypothesis(
+    organizationId: string,
+    decisionId: string,
+    input: LinkHypothesisInput,
+  ): Promise<DecisionResult> {
+    validateActor(input.actor);
+    if (!input.hypothesisId?.trim()) {
+      throw new InvalidDecisionInputError('linkHypothesis requires a hypothesis');
+    }
+    const hypothesisId = input.hypothesisId.trim();
+    const decision = await this.requireDecision(organizationId, decisionId);
+
+    if (decision.hypothesisId === hypothesisId) {
+      return { decision, observation: null, effect: 'UNCHANGED', eventType: null };
+    }
+    if (decision.hypothesisId && input.supersedes !== decision.hypothesisId) {
+      // A CASE'S BELIEF IS NOT OVERWRITABLE BY ACCIDENT. Repointing requires the
+      // caller to name the belief it is replacing, and to be right about it.
+      throw new InvalidTransitionError(
+        decision.hypothesisId,
+        'linkHypothesis without naming the belief it replaces',
+      );
+    }
+
+    const hypothesis = await this.prisma.intelligenceHypothesis.findFirst({
+      where: { id: hypothesisId, organizationId },
+      select: { id: true },
+    });
+    if (!hypothesis) throw new DecisionNotFoundError(hypothesisId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const { decision: after, observation } = await this.appendInternal(
+        tx,
+        organizationId,
+        decision,
+        {
+          // NOTE_ADDED CARRYING AN EXACT REASON LINE, because a dedicated
+          // observation type is a database enum member and therefore a migration,
+          // and a build emitting one would throw against production until somebody
+          // dispatched it by hand. The predicates in `@emgloop/shared` are the only
+          // place allowed to read the distinction back out. Recorded debt: the
+          // vocabulary should grow a member of its own.
+          observationType: 'NOTE_ADDED',
+          occurredAt: input.occurredAt ?? new Date(),
+          actor: input.actor,
+          note: input.note ?? null,
+          reason: input.reason ?? null,
+          evidenceId: input.evidenceId ?? null,
+          extra: { hypothesis: { connect: { id: hypothesisId } } },
+        },
+      );
+      return {
+        decision: after,
+        observation,
+        effect: 'UPDATED' as const,
+        eventType: DECISION_EVENT_TYPE.NOTE_ADDED,
+      };
     });
   }
 
