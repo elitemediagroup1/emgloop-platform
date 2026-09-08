@@ -215,6 +215,13 @@ export * from './case-finding';
 // what its finding's evidence supports, and ranking is explained from inspectable
 // factors instead of collapsed into a score.
 export * from './case-recommendation';
+
+// Who is involved in an investigation and what each of them is being asked for --
+// and the line between that and the work itself. Participation carries no due
+// date, dependency, SLA, blocked state or completion: those are execution
+// obligations and Work OS owns them, so a Case REFERENCES work rather than
+// copying its mutable state.
+export * from './case-participation';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---

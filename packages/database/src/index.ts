@@ -102,6 +102,17 @@ export {
   CaseRecommendationService,
   RECOMMENDATION_RECORD_OUTCOMES,
 } from './services/case-recommendation.service';
+export { CaseParticipationService, PARTICIPATION_OUTCOMES } from './services/case-participation.service';
+export type {
+  AddCaseParticipantInput,
+  CaseParticipationDeps,
+  ParticipationCaseAccess,
+  ParticipationHeadlineReader,
+  ParticipationOutcome,
+  ParticipationResult,
+} from './services/case-participation.service';
+export { CaseParticipantRepository } from './repositories/case-participant.repository';
+export type { AddParticipantInput } from './repositories/case-participant.repository';
 export type {
   CaseRecommendationDeps,
   CaseRecommendationsView,
