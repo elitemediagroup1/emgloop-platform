@@ -23,6 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  INVESTIGATION_AUTHORIZED_REASON,
   INVESTIGATION_PRODUCER,
   PROMOTION_OUTCOMES,
   investigationDetectionKey,
@@ -122,10 +123,17 @@ function decisionCenter(seed: Array<{ org: string; key: string; id: string; huma
     async get(organizationId: string, id: string) {
       const row = rows.find((r) => r.org === organizationId && r.id === id);
       if (!row) return null;
+      // The `reason` column is what distinguishes an authorization from somebody
+      // simply reading, and the engine persists it — so the double has to carry it
+      // too. Without it this stand-in described a row the database never writes.
       return {
         observations: row.humanReviewed
-          ? [{ actorType: 'HUMAN', observationType: 'REVIEWED' }]
-          : [{ actorType: 'SYSTEM', observationType: 'SITUATION_DETECTED' }],
+          ? [{
+              actorType: 'HUMAN',
+              observationType: 'REVIEWED',
+              reason: INVESTIGATION_AUTHORIZED_REASON,
+            }]
+          : [{ actorType: 'SYSTEM', observationType: 'SITUATION_DETECTED', reason: null }],
       } as never;
     },
   };
@@ -285,6 +293,18 @@ test('7c. an interrupted promotion converges: the missing human row is appended'
 });
 
 // --- 8. Tenancy ----------------------------------------------------------------------
+
+test('a generic REVIEWED does not satisfy the promotion\'s authorization check either', async () => {
+  // The promotion and the Case Brief share one predicate, so they cannot come to
+  // different conclusions about the same row. A thread carrying only somebody's
+  // plain review still needs its authorization appended.
+  const { svc, dc } = service({
+    seed: [{ org: ORG, key: investigationRecurrenceKey(HEADLINE_ID), id: 'pri_reviewed', humanReviewed: false }],
+  });
+  const out = await svc.promote(ORG, { headlineId: HEADLINE_ID, actorUserId: ACTOR });
+  assert.equal(out.authorizationAppendedNow, true);
+  assert.equal(dc.observations[0]!.input.reason, INVESTIGATION_AUTHORIZED_REASON);
+});
 
 test('8. CROSS-TENANT PROMOTION IS IMPOSSIBLE, and answers not-found rather than forbidden', async () => {
   const { svc, dc } = service({ headlines: { [ORG]: { [HEADLINE_ID]: headline() } } });

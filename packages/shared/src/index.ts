@@ -197,6 +197,10 @@ export * from './product-states.fixture';
 // Turning a Headline into an authorized investigation. Pure: identity, severity
 // mapping and the outcome vocabulary. The write lives in @emgloop/database.
 export * from './headline-investigation';
+// The investigation, assembled for a product surface. A derived read model over
+// the Decision Center, its evidence and the Headline that opened it. Nothing here
+// is persisted.
+export * from './case-brief';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---

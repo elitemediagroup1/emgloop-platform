@@ -11,6 +11,12 @@ import assert from 'node:assert/strict';
 
 import {
   ACTION_AWAITING_APPROVAL,
+  CASE_KNOWN,
+  CASE_WHY_UNAVAILABLE,
+  CASE_WITH_INCOMPLETE_EVIDENCE,
+  CASE_WITH_UNCERTAINTY,
+  caseIsAuthorized,
+  caseIsOpen,
   COVERAGE_HEALTHY,
   COVERAGE_HEALTH_STATUSES,
   COVERAGE_NEVER_PROVEN,
@@ -40,9 +46,42 @@ import {
   isHeadlineOpen,
 } from '../src/index';
 
-test('all ten required product states are named', () => {
+test('the Case fixtures are real CaseBriefViews and carry no Finding or Recommendation', () => {
+  for (const brief of [CASE_KNOWN, CASE_WITH_UNCERTAINTY, CASE_WITH_INCOMPLETE_EVIDENCE]) {
+    assert.ok(caseIsOpen(brief), 'an open investigation');
+    assert.equal(caseIsAuthorized(brief), true, 'a person authorized it');
+    // WHY IS EMPTY IN ALL THREE, and that is the product's state rather than an
+    // omission. A fixture with a convincing WHY would be designing for a Loop
+    // that infers causes.
+    assert.deepEqual(brief.fiveWs.why, []);
+    assert.equal(brief.fiveWs.unavailable.WHY, CASE_WHY_UNAVAILABLE);
+    // The contract has no field for either, and a fixture must not imply one.
+    const json = JSON.stringify(brief);
+    for (const forbidden of ['recommendation', 'hypothesis', 'confidence', 'actionSequence']) {
+      assert.ok(!json.includes(forbidden), `a Case fixture invented a ${forbidden}`);
+    }
+  }
+});
+
+test('the incomplete-evidence fixture keeps unstated completeness distinct from partial', () => {
+  const u = CASE_WITH_INCOMPLETE_EVIDENCE.uncertainty;
+  assert.equal(u.incompleteEvidenceCount, 1, 'one row partly reported');
+  assert.equal(u.completenessUnstatedCount, 1, 'one row said nothing about it');
+  assert.equal(CASE_WITH_INCOMPLETE_EVIDENCE.evidence[1]!.completeness, null, 'null, not zero');
+  assert.equal(CASE_WITH_INCOMPLETE_EVIDENCE.evidence[1]!.value, null, 'and no value invented for it');
+});
+
+test('the uncertainty fixture carries caveats the known one does not', () => {
+  assert.ok(CASE_WITH_UNCERTAINTY.uncertainty.unknowns.length > CASE_KNOWN.uncertainty.unknowns.length);
+  assert.ok(CASE_WITH_UNCERTAINTY.uncertainty.limitations.length > 0);
+});
+
+test('all thirteen required product states are named', () => {
   assert.deepEqual([...PRODUCT_STATES].sort(), [
     'ACTION_AWAITING_APPROVAL',
+    'CASE_KNOWN',
+    'CASE_WITH_INCOMPLETE_EVIDENCE',
+    'CASE_WITH_UNCERTAINTY',
     'HEALTHY_KNOWN_METRIC',
     'HIGH_PRIORITY_ATTENTION',
     'INCOMPLETE_CAPTURE',

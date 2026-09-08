@@ -121,6 +121,38 @@ export function severityForHeadline(againstObjective: boolean): 'NOTABLE' | 'INF
  * that blurred them would let a later reader treat a human's curiosity as a
  * human's endorsement.
  */
+/**
+ * Whether one observation IS the authorization that opened this investigation.
+ *
+ * THE REASON LINE IS THE SEMANTIC, because the vocabulary has no member for it
+ * yet. `REVIEWED` is the existing type for a person having looked and formed a
+ * view, and an operator can record one on any thread at any time -- so
+ * HUMAN + REVIEWED alone is not authorization, it is somebody reading. What makes
+ * this row the authorization is that the promotion wrote
+ * INVESTIGATION_AUTHORIZED_REASON onto it.
+ *
+ * ONE PREDICATE, TWO READERS. The promotion uses it to decide whether an
+ * interrupted attempt still needs its human row, and the Case Brief uses it to
+ * answer "who authorized this, and when". Two spellings would eventually give two
+ * answers to one question, and the answer matters.
+ *
+ * DOWNSTREAM INTELLIGENCE MUST NOT GENERALISE FROM THIS. A dedicated observation
+ * type belongs in the vocabulary before any behavioural analysis treats
+ * authorization as a kind of review; until then this function is the only place
+ * allowed to make the distinction.
+ */
+export function isInvestigationAuthorization(observation: {
+  actorType: string;
+  observationType: string;
+  reason: string | null;
+}): boolean {
+  return (
+    observation.actorType === 'HUMAN' &&
+    observation.observationType === 'REVIEWED' &&
+    observation.reason === INVESTIGATION_AUTHORIZED_REASON
+  );
+}
+
 export const INVESTIGATION_AUTHORIZED_REASON =
   'A person authorized this Headline for organizational investigation. ' +
   'That is a decision to look into it, not a judgement that it is correct.';

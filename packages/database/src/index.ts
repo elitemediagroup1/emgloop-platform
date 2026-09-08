@@ -94,6 +94,8 @@ export {
 } from './services/auction-reconciliation';
 export type { DiffClassification, FieldDiff, GrainReconciliation, ReconcileGrainInput } from './services/auction-reconciliation';
 
+export { CaseBriefService } from './services/case-brief.service';
+export type { CaseBriefDeps, CaseHeadlineReader, CaseReader } from './services/case-brief.service';
 export { HeadlineInvestigationService } from './services/headline-investigation.service';
 export type {
   HeadlineInvestigationDeps,
