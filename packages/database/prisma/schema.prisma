@@ -257,6 +257,8 @@ model Organization {
   measurementSources      MeasurementSource[]
   measurementSourceMetrics MeasurementSourceMetric[]
   sourceAuthorities       MeasureSourceAuthority[]
+  // --- Commercial Intelligence Stage 4 ---
+  caseParticipants        CaseParticipant[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -354,6 +356,14 @@ model User {
   /// members. Attribution only.
   declaredMemberExpectations ProviderMemberExpectation[] @relation("ProviderMemberExpectationDeclarer")
   declaredSourceAuthorities  MeasureSourceAuthority[]    @relation("MeasureSourceAuthorityDeclarer")
+
+  /// Commercial Intelligence Stage 4. The investigations this person is involved
+  /// in, and the ones they asked somebody else to be involved in. Participation
+  /// is NOT work: none of these rows carries a due date, a status or a
+  /// completion, because Work OS owns execution.
+  caseParticipations         CaseParticipant[]           @relation("CaseParticipantUser")
+  addedCaseParticipants      CaseParticipant[]           @relation("CaseParticipantAdder")
+  releasedCaseParticipants   CaseParticipant[]           @relation("CaseParticipantReleaser")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -3027,6 +3037,10 @@ model OperationalPriority {
   observations     OperationalObservation[]
   hypothesis       IntelligenceHypothesis?  @relation(fields: [hypothesisId], references: [id])
   DecisionEvidence DecisionEvidence[]
+  /// Who is involved and what each of them is being asked for. Distinct from
+  /// ownerUserId and assigneeUserId, which answer accountability and execution;
+  /// a real investigation routinely needs a third person for a third reason.
+  participants     CaseParticipant[]
 
   @@unique([organizationId, sourceSystem, recurrenceKey])
   @@index([organizationId, state])
@@ -3035,6 +3049,75 @@ model OperationalPriority {
   @@index([organizationId, sourceSystem, lastDetectedAt])
   @@index([hypothesisId])
   @@map("operational_priorities")
+}
+
+/// One person's involvement in one investigation, and what is being asked of them.
+///
+/// WHY THIS TABLE EXISTS. `operational_priorities` already carries `ownerUserId`
+/// (accountability) and `assigneeUserId` (execution) and was right to keep those
+/// apart. But an investigation routinely needs three people for three different
+/// reasons -- one to decide, one to change something technical, one to handle the
+/// counterparty -- and two columns cannot hold that. Rotating `assigneeUserId`
+/// between them would destroy the only answer to "who is working this".
+///
+/// IT IS NOT A TASK, AND THE ABSENCES ARE THE CONTRACT. No due date. No
+/// dependency. No SLA. No blocked state. No completion. Every one of those is an
+/// execution obligation, and Work OS owns execution: a Case that carried its own
+/// task status beside a Work status would be a second answer to "is it done", and
+/// the copy is always the one that goes stale. Where an investigation does become
+/// work, the Case REFERENCES it through the destination columns
+/// `operational_observations` already carries on a CONVERTED_TO_WORK outcome.
+///
+/// NO STATUS COLUMN EITHER. Presence and release, following `work_assignments`'
+/// own `assignedAt` / `unassignedAt` convention rather than inventing an enum
+/// beside it -- a participant is active exactly when `releasedAt` is null, which
+/// cannot disagree with itself the way a status maintained beside a timestamp can.
+///
+/// ONE ROW PER PERSON PER CONTRIBUTION PER CASE. The unique makes re-adding
+/// somebody idempotent rather than accumulating duplicates, and lets one person
+/// hold two genuinely different roles on one investigation. The HISTORY of being
+/// added, changed and released lives on the Case's append-only observation log,
+/// which is where every other lifecycle fact in the Decision Center already lives.
+model CaseParticipant {
+  id             String @id @default(cuid())
+  organizationId String
+  /// The investigation. Named `priorityId` to match the column every other
+  /// Decision Center table uses for it -- the product word is Case, the
+  /// architecture's word is OperationalPriority, and renaming it here would give
+  /// one producer's vocabulary to producer-neutral machinery.
+  priorityId     String
+  userId         String
+
+  /// What this person is being asked to contribute. One of CASE_CONTRIBUTIONS,
+  /// kept as a String so a new kind of contribution is a value rather than a
+  /// migration -- the same stance `operational_priorities.severity` takes.
+  contribution String
+  /// WHY this person, in the words of whoever asked. Required: a participant with
+  /// no stated request is a name on a list, and the next person to open the case
+  /// has to guess what was wanted.
+  request      String
+
+  /// Attribution. SetNull rather than Cascade, following audit_logs and
+  /// performance_objectives: who asked is attribution and should survive them
+  /// leaving the organization.
+  addedByUserId    String?
+  addedAt          DateTime  @default(now())
+  releasedAt       DateTime?
+  releasedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  priority     OperationalPriority @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  user         User                @relation("CaseParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy      User?               @relation("CaseParticipantAdder", fields: [addedByUserId], references: [id], onDelete: SetNull)
+  releasedBy   User?               @relation("CaseParticipantReleaser", fields: [releasedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([priorityId, userId, contribution], map: "case_participants_priority_user_contribution_key")
+  @@index([organizationId, priorityId], map: "case_participants_org_priority_idx")
+  @@index([organizationId, userId, releasedAt], map: "case_participants_org_user_released_idx")
+  @@map("case_participants")
 }
 
 /// One immutable fact in the life of a priority.
