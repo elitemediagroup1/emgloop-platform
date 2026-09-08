@@ -194,6 +194,9 @@ export * from './coverage-health';
 // Representative product states for building and reviewing surfaces. Typed as the
 // real contracts, so a contract change breaks the fixtures rather than the design.
 export * from './product-states.fixture';
+// Turning a Headline into an authorized investigation. Pure: identity, severity
+// mapping and the outcome vocabulary. The write lives in @emgloop/database.
+export * from './headline-investigation';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---
