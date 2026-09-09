@@ -210,6 +210,7 @@ export * from './case-brief';
 export * from './work-execution';
 export * from './case-work-coordination';
 export * from './case-monitoring';
+export * from './case-learning';
 export * from './case-observation';
 export * from './case-finding';
 
