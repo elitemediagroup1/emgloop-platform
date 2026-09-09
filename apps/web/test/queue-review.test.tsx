@@ -62,13 +62,18 @@ function item(over: Partial<PersonalPriorityView> = {}): PersonalPriorityView {
       {
         tier: 'AWAITED_DECISION',
         statement: 'You were asked to decide whether to move volume, and have not been released.',
-        source: 'PARTICIPANT',
+        source: 'CASE_PARTICIPANT',
         sourceId: 'p1',
       },
     ],
     notConsidered: NOT_CONSIDERED,
     ...over,
-  } as PersonalPriorityView;
+    // NO BLANKET CAST. `as PersonalPriorityView` on the whole object is what let
+    // a source member that does not exist sit in this fixture until the test
+    // tsconfig caught it. Typed properly, an invented vocabulary member is a
+    // compile error — which is the entire point of typing fixtures as the real
+    // contracts.
+  };
 }
 
 const queue = (over: Record<string, unknown> = {}) =>
@@ -81,7 +86,7 @@ const queue = (over: Record<string, unknown> = {}) =>
         tier: 'ORGANIZATION_WIDE',
         significance: { severity: 'NOTABLE', againstObjective: false, measuredImpactCents: null, percentageChange: null },
         reasons: [
-          { tier: 'ORGANIZATION_WIDE', statement: 'Nothing connects you to this investigation personally.', source: 'NONE', sourceId: null },
+          { tier: 'ORGANIZATION_WIDE', statement: 'Nothing connects you to this investigation personally.', source: 'PERFORMANCE_OBJECTIVE', sourceId: null },
         ],
       }),
     ],
@@ -119,7 +124,7 @@ test('1c. why an item is yours names the row it came from', () => {
   const out = strip(render(<PersonalQueue queue={queue()} />));
   assert.ok(out.includes('Why this is yours'));
   assert.ok(out.includes('You were asked to decide whether to move volume'));
-  assert.ok(out.includes('from participant'), 'the source');
+  assert.ok(out.includes('from case participant'), 'the source');
   assert.ok(out.includes('p1'), 'and the exact row');
 });
 

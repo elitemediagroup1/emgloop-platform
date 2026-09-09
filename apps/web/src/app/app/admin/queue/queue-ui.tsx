@@ -81,7 +81,7 @@ function QueueItem({
                   <span className="pq-reasons__tier">{RELEVANCE_TIER_LABELS[r.tier]}</span>
                   <span className="pq-reasons__stmt">{r.statement}</span>
                   <span className="pq-reasons__src">
-                    from {r.source.toLowerCase()}
+                    from {r.source.toLowerCase().replace(/_/g, ' ')}
                     {r.sourceId ? ' · ' + r.sourceId : ''}
                   </span>
                 </li>
