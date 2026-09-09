@@ -30,8 +30,24 @@ import { requirePermission } from '../../../../../auth/guard';
 
 const PATH = '/app/admin/administration/objectives';
 
-function backTo(message: string, kind: 'notice' | 'error'): string {
-  return PATH + '?' + kind + '=' + encodeURIComponent(message);
+/**
+ * Where a completed action returns to.
+ *
+ * A KEY INTO A CONSTANT, NEVER A URL FROM THE FORM. Two surfaces now offer the
+ * same governed actions -- the administration list and the Headlines feed -- and
+ * each needs the person to land back where they were. Reading a `returnTo` URL
+ * out of the form would be an open redirect on a page behind authentication,
+ * which is a vulnerability with a very old name. An unrecognised key falls back
+ * to the administration surface rather than being trusted.
+ */
+const SURFACES: Record<string, string> = {
+  objectives: PATH,
+  headlines: '/app/admin/headlines',
+};
+
+function backTo(message: string, kind: 'notice' | 'error', surface?: string): string {
+  const base = (surface && SURFACES[surface]) || PATH;
+  return base + '?' + kind + '=' + encodeURIComponent(message);
 }
 
 /**
@@ -50,8 +66,11 @@ export async function investigateHeadlineAction(formData: FormData): Promise<voi
   // investigation is an authoring act by a different set of people.
   const session = await requirePermission('commercialIntelligence', 'update');
 
+  // An allow-listed key, not a URL. See SURFACES above.
+  const surface = String(formData.get('surface') ?? '').trim();
+
   const headlineId = String(formData.get('headlineId') ?? '').trim();
-  if (!headlineId) redirect(backTo('No headline selected.', 'error'));
+  if (!headlineId) redirect(backTo('No headline selected.', 'error', surface));
 
   const service = new HeadlineInvestigationService(prisma);
   const result = await service.promote(session.organizationId, {
@@ -64,13 +83,13 @@ export async function investigateHeadlineAction(formData: FormData): Promise<voi
 
   if (result.outcome === 'HEADLINE_NOT_FOUND') {
     // The same answer a headline belonging to another organization gets.
-    redirect(backTo('That headline no longer exists.', 'error'));
+    redirect(backTo('That headline no longer exists.', 'error', surface));
   }
   if (result.outcome === 'NO_AUTHORIZING_HUMAN') {
     // Unreachable through this action -- the session supplies the actor -- and
     // handled rather than assumed, because an unattributed promotion must fail
     // loudly if the guard above ever changes shape.
-    redirect(backTo('An investigation must be authorized by a person.', 'error'));
+    redirect(backTo('An investigation must be authorized by a person.', 'error', surface));
   }
 
   // ONLY WHEN SOMETHING HAPPENED, and "something" is the AUTHORIZATION, not the
@@ -104,6 +123,7 @@ export async function investigateHeadlineAction(formData: FormData): Promise<voi
         ? 'Investigation opened.'
         : 'This headline is already under investigation.',
       'notice',
+      surface,
     ),
   );
 }

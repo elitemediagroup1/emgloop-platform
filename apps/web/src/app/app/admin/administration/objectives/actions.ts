@@ -41,8 +41,24 @@ import { requirePermission } from '../../../../../auth/guard';
 
 const PATH = '/app/admin/administration/objectives';
 
-function backTo(message: string, kind: 'notice' | 'error'): string {
-  return PATH + '?' + kind + '=' + encodeURIComponent(message);
+/**
+ * Where a completed action returns to.
+ *
+ * A KEY INTO A CONSTANT, NEVER A URL FROM THE FORM. Two surfaces now offer the
+ * same governed actions -- the administration list and the Headlines feed -- and
+ * each needs the person to land back where they were. Reading a `returnTo` URL
+ * out of the form would be an open redirect on a page behind authentication,
+ * which is a vulnerability with a very old name. An unrecognised key falls back
+ * to the administration surface rather than being trusted.
+ */
+const SURFACES: Record<string, string> = {
+  objectives: PATH,
+  headlines: '/app/admin/headlines',
+};
+
+function backTo(message: string, kind: 'notice' | 'error', surface?: string): string {
+  const base = (surface && SURFACES[surface]) || PATH;
+  return base + '?' + kind + '=' + encodeURIComponent(message);
 }
 
 function text(formData: FormData, key: string): string {
@@ -526,15 +542,18 @@ export async function detectHeadlinesAction(): Promise<void> {
 export async function dismissHeadlineAction(formData: FormData): Promise<void> {
   const session = await requirePermission('commercialIntelligence', 'update');
 
+  // An allow-listed key, not a URL. See SURFACES above.
+  const surface = text(formData, 'surface');
+
   const headlineId = text(formData, 'headlineId');
-  if (!headlineId) redirect(backTo('No headline selected.', 'error'));
+  if (!headlineId) redirect(backTo('No headline selected.', 'error', surface));
 
   const basisRaw = text(formData, 'basis');
   if (!isHeadlineDismissalBasis(basisRaw)) {
     // Deliberately no default. Which of the two a person meant is the entire
     // value of the feedback, and guessing it would corrupt the only signal Loop
     // gets about whether it earns attention.
-    redirect(backTo('Say whether Loop got this wrong, or whether it was simply not worth surfacing.', 'error'));
+    redirect(backTo('Say whether Loop got this wrong, or whether it was simply not worth surfacing.', 'error', surface));
   }
 
   const dismissed = await repositories.headlines.dismiss(session.organizationId, headlineId, {
@@ -544,7 +563,7 @@ export async function dismissHeadlineAction(formData: FormData): Promise<void> {
   });
 
   if (!dismissed) {
-    redirect(backTo('That headline no longer exists, or was already dismissed.', 'error'));
+    redirect(backTo('That headline no longer exists, or was already dismissed.', 'error', surface));
   }
 
   await repositories.audit.record({
@@ -561,6 +580,7 @@ export async function dismissHeadlineAction(formData: FormData): Promise<void> {
     backTo(
       `Recorded: ${HEADLINE_DISMISSAL_BASIS_LABELS[basisRaw].toLowerCase()}. Loop keeps watching whether it persists.`,
       'notice',
+      surface,
     ),
   );
 }
