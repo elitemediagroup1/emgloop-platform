@@ -305,7 +305,30 @@ function stageMetaToStep(m: Record<string, unknown>): {
 }
 
 export class WorkRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  /**
+   * @param onWorkCompleted Called AFTER a work item's completion has committed.
+   *
+   * WHY A HOOK AND NOT A DIRECT CALL. Completing work is this repository's job;
+   * deciding what that unblocks elsewhere is not, and importing a service into a
+   * repository would invert the layering the whole package is arranged around.
+   * The composition root wires the two together, so there is exactly one
+   * completion path and exactly one thing that reacts to it.
+   *
+   * AFTER THE TRANSACTION, DELIBERATELY. The reaction reads the committed
+   * completion back and verifies it before acting; running inside the
+   * transaction would let a failure in the reaction roll back a completion the
+   * person watching had already been told about.
+   *
+   * OPTIONAL, so every existing caller and every test behaves exactly as before.
+   */
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly onWorkCompleted?: (
+      organizationId: string,
+      workInstanceId: string,
+      completedByUserId: string | null,
+    ) => Promise<unknown>,
+  ) {}
 
   // ------------------------------------------------------------------
   // Blueprints
@@ -759,8 +782,11 @@ export class WorkRepository {
   async completeWorkStep(input: CompleteWorkStepInput): Promise<WorkInstanceWithStages> {
     const activeIds = input.activeMemberIds ?? null;
     const owners = input.responsibilityOwners ?? null;
+    // Set inside the transaction, read after it commits. Nothing reacts to a
+    // completion that was rolled back.
+    let completedInstanceId: string | null = null;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const instance = await tx.workInstance.findUnique({
         where: { id: input.workInstanceId },
         include: { stages: { orderBy: { position: 'asc' } } },
@@ -807,6 +833,7 @@ export class WorkRepository {
             },
           });
         }
+        completedInstanceId = done.id;
         return done;
       }
 
@@ -845,6 +872,21 @@ export class WorkRepository {
       }
       return updated;
     });
+
+    // POST-COMMIT, AND ONLY ON A COMMITTED COMPLETION. The person completing a
+    // step is told it completed; whether something else downstream was unblocked
+    // is a separate fact, published through the outbox for whoever is listening.
+    // A failure here must not turn a committed completion into an error the
+    // caller reads as a failed write -- so it is swallowed, and the reaction is
+    // safe to run again because everything it does converges.
+    if (completedInstanceId && this.onWorkCompleted) {
+      await this.onWorkCompleted(
+        input.organizationId,
+        completedInstanceId,
+        input.completedByUserId ?? null,
+      ).catch(() => undefined);
+    }
+    return result;
   }
 
   // ------------------------------------------------------------------
