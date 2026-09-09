@@ -124,6 +124,8 @@ export type {
 export { WorkExecutionService } from './services/work-execution.service';
 export { WorkReactivationService, WORK_EVENT_NAMES } from './services/work-reactivation.service';
 export { CaseWorkCoordinationService } from './services/case-work-coordination.service';
+export { CaseMonitoringService, MONITORING_OUTCOMES } from './services/case-monitoring.service';
+export type { MonitoringView, CaseMonitoringDeps, MonitoringActOutcome } from './services/case-monitoring.service';
 export type { CaseCoordinationDeps } from './services/case-work-coordination.service';
 export type { ReactivationResult, WorkReactivationDeps } from './services/work-reactivation.service';
 export type { WorkExecutionView, WorkExecutionDeps } from './services/work-execution.service';
