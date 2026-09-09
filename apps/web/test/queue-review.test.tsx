@@ -278,6 +278,21 @@ test('4d. the harness covers the states that are hardest to reach in production'
   assert.ok(src.includes('<ReadError'));
 });
 
+test('4e. the harness shows the interactive controls, and cannot touch real work', () => {
+  const src = readFileSync(new URL('../src/app/app/admin/review/page.tsx', import.meta.url), 'utf8');
+  for (const control of ['FindingControls', 'RecommendationControls', 'MonitoringControls', 'LifecycleControls']) {
+    assert.ok(src.includes('<' + control), `the harness shows ${control}`);
+  }
+  // THE REAL CONTROLS, POINTED AT NOTHING. Every one names a fixture Case id, so
+  // pressing it posts to the genuine guarded action, which resolves the id
+  // within the organization, finds nothing, and returns not-found. That is a
+  // stronger guarantee than a disabled button — there is no production id here
+  // to name.
+  assert.ok(src.includes('const REVIEW_CASE_ID ='));
+  assert.ok(src.includes('not_a_real_investigation'), 'and the id says what it is');
+  assert.equal(/caseId=\{(?!REVIEW_CASE_ID)/.test(src), false, 'no control names any other id');
+});
+
 // --- 5. No LLM, no external action, anywhere in this package ----------------------------------------
 
 test('5. no Stage 4 surface calls a model or performs an external action', () => {

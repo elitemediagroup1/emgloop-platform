@@ -533,18 +533,32 @@ test('8b. a failed read cannot render as an empty investigation', () => {
   assert.ok(page.includes('notFound()'), 'and a missing Case is not-found, not an error');
 });
 
-test('8c. absent controls are named rather than faked', () => {
-  // A disabled control with a documented gap beats an invented mutation. There
-  // is no generic updateCase anywhere.
-  const page = readFileSync(new URL('../src/app/app/admin/cases/[id]/page.tsx', import.meta.url), 'utf8');
-  assert.ok(page.includes('governed actions that exist in the backend'));
-  assert.ok(page.includes('will not offer a control it cannot honestly perform'));
-  // SCANNED AS CODE. The comment above the section names `updateCase` to say it
-  // was refused; forbidding the word would forbid the explanation.
-  const code = page.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
-  assert.equal(/updateCase|saveCase|editCase/.test(code), false, 'no invented mutation');
-  // And no form posts anywhere on this page yet.
-  assert.equal(/action=\{/.test(code), false, 'no wired mutation claims to exist');
+test('8c. every control reuses an existing mutation, and none was invented', () => {
+  // THIS TEST REPLACES ITS OWN PLACEHOLDER. It previously asserted that NO form
+  // posted anywhere on this page and that the screen said so in words. The
+  // controls are wired now, so it asserts the property that mattered underneath:
+  // every one of them calls a mutation that already existed, and there is no
+  // generic write path.
+  const actions = readFileSync(new URL('../src/app/app/admin/cases/actions.ts', import.meta.url), 'utf8');
+  const code = actions.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+
+  // NO GENERIC MUTATION. Not one, under any of the names it would arrive as.
+  assert.equal(/updateCase|saveCase|editCase|patchCase|setCaseState/.test(code), false);
+
+  // Every write goes through a service that owns the fact. The actions file
+  // constructs no Prisma query of its own.
+  for (const forbidden of ['prisma.', '$transaction', 'findFirst', 'updateMany']) {
+    assert.equal(code.includes(forbidden), false, `actions must not contain ${forbidden}`);
+  }
+  for (const owner of [
+    'CaseRecommendationService',
+    'CaseFindingService',
+    'CaseParticipationService',
+    'CaseMonitoringService',
+    'createDecisionEngine',
+  ]) {
+    assert.ok(code.includes(owner), `${owner} is the authority for its own mutation`);
+  }
 });
 
 test('8d. no monitoring plan is not "monitoring healthy"', () => {

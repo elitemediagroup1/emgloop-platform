@@ -1,9 +1,25 @@
 {
-  "//": "Test-only tsconfig. IDENTICAL to tsconfig.json except `jsx`, which Next sets to `preserve` because ITS bundler owns the transform. Node's test runner has no bundler, so tests compile JSX with the automatic runtime instead. Nothing else differs — a test must typecheck against the same rules the app does.",
+  "//": "Test-only tsconfig. Differs from tsconfig.json in exactly two ways: `jsx` compiles with the automatic runtime because Node has no bundler, and `server-only` maps to a local stub because that module is provided by Next rather than installed. Neither affects the app build.",
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "server-only": [
+        "./test/_server-only.ts"
+      ]
+    }
   },
-  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"]
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.ts",
+    "test/**/*.tsx"
+  ]
 }

@@ -162,6 +162,19 @@ export const RECOMMENDATION_VERBS = [
 ] as const;
 export type RecommendationVerb = (typeof RECOMMENDATION_VERBS)[number];
 
+/**
+ * A guard, so a form value becomes a safe verb or nothing.
+ *
+ * THE SAFETY PROPERTY IS ALREADY ENFORCED DEEPER -- `validateRecommendationSet`
+ * refuses an unsafe statement inside the service, and that stays the authority.
+ * This exists so a person revising a sequence in the UI cannot submit something
+ * the service will reject for a reason they could not have anticipated, and so a
+ * surface never has to cast a string into this vocabulary.
+ */
+export function isRecommendationVerb(value: string): value is RecommendationVerb {
+  return (RECOMMENDATION_VERBS as readonly string[]).includes(value);
+}
+
 /** Verbs that assert an outcome Loop cannot support. Kept explicit so the test
  *  suite can prove no generated copy uses one. */
 export const FORBIDDEN_RECOMMENDATION_VERBS = [

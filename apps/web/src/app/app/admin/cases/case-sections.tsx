@@ -139,7 +139,20 @@ export function FiveWs({ brief }: { brief: CaseBriefView }) {
  * ESTABLISHED IS NOT ACCEPTED. Human acceptance is a separate act with its own
  * word, and the two never share a badge.
  */
-export function FindingSection({ finding }: { finding: CaseFindingView | null }) {
+export function FindingSection({
+  finding,
+  controls,
+}: {
+  finding: CaseFindingView | null;
+  /**
+   * The human judgement controls, supplied by the guarded page.
+   *
+   * PASSED IN, NEVER BUILT HERE. A section that constructed its own form could
+   * offer authority the page has not checked for, and this file is rendered in
+   * tests with no session at all.
+   */
+  controls?: ReactNode;
+}) {
   if (!finding) {
     return (
       <Section id="cw-finding" title="What Loop concludes">
@@ -230,6 +243,8 @@ export function FindingSection({ finding }: { finding: CaseFindingView | null })
             </ol>
           </details>
         ) : null}
+
+        {controls ? <div className="cw-find__controls">{controls}</div> : null}
 
         <details className="cw-find__tech">
           <summary>How Loop decided this</summary>
@@ -481,13 +496,20 @@ export function RecommendationsSection({
  */
 export function ParticipationSection({
   participation,
+  controls,
+  releaseControl,
 }: {
   participation: CaseParticipationView | null;
+  /** The "ask somebody" form, supplied by the guarded page. */
+  controls?: ReactNode;
+  /** One release control per active participant, keyed by who and what. */
+  releaseControl?: (userId: string, contribution: string) => ReactNode;
 }) {
   if (!participation || participation.participants.length === 0) {
     return (
       <Section id="cw-people" title="Who is involved">
         <NotYet line="Nobody has been asked to contribute to this investigation yet." />
+        {controls ? <div className="cw-people__add">{controls}</div> : null}
       </Section>
     );
   }
@@ -507,9 +529,14 @@ export function ParticipationSection({
             </div>
             <p className="cw-person__req">{p.request}</p>
             <p className="cw-person__meta">Asked {p.addedAt.slice(0, 10)}</p>
+            {releaseControl ? (
+              <div className="cw-person__act">{releaseControl(p.userId, p.contribution)}</div>
+            ) : null}
           </li>
         ))}
       </ul>
+
+      {controls ? <div className="cw-people__add">{controls}</div> : null}
 
       {participation.released.length > 0 ? (
         <details className="cw-people__released">
