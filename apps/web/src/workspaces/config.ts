@@ -128,6 +128,11 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
       label: '',
       items: [
         { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
+        // Stage 4. HEADLINES is the product noun Charlie and Lexi established;
+        // the technical contracts keep their own names. Gated on the READ half
+        // of commercialIntelligence, so a READ_ONLY member sees the intelligence
+        // and the surface itself offers them no authoring control.
+        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: OBJECTIVES_VIEW },
         { href: '/app/admin/brain', label: 'Brain', icon: 'brain', requires: CALLGRID_INTEL },
         { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: CALLGRID_INTEL },
         { href: '/app/admin/crm', label: 'CRM', icon: 'users' },
