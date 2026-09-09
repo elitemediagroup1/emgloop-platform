@@ -87,6 +87,15 @@ export const OBSERVATION_TYPES = [
   'PARTICIPANT_ADDED',
   'PARTICIPANT_CHANGED',
   'PARTICIPANT_RELEASED',
+
+  // --- Stage 4 monitoring -----------------------------------------------
+  // MONITORING_STARTED enters WATCHING, the lane that already exists. Two types
+  // entering one lane is not a parallel system: ASSIGNED and REASSIGNED both set
+  // an assignee, and REOPENED and UNASSIGNED both return a Case to review. The
+  // lane is one; the reasons for entering it are several.
+  'MONITORING_STARTED',
+  'MONITORING_REVISED',
+  'MONITORING_CONCLUDED',
 ] as const;
 export type ObservationType = (typeof OBSERVATION_TYPES)[number];
 
@@ -344,6 +353,22 @@ export function projectLifecycle(
       case 'PARTICIPANT_ADDED':
       case 'PARTICIPANT_CHANGED':
       case 'PARTICIPANT_RELEASED':
+        break;
+
+      case 'MONITORING_STARTED':
+        // WATCHING IS MONITORING. The lane already meant "somebody is waiting to
+        // see whether this holds"; this names why, and enters the same lane
+        // WATCH_STARTED does rather than inventing a second one beside it.
+        enter('WATCHING', o.occurredAt);
+        break;
+
+      case 'MONITORING_REVISED':
+      case 'MONITORING_CONCLUDED':
+        // NEITHER CLOSES THE CASE, DELIBERATELY. A verdict is what was observed;
+        // deciding the investigation is finished is a separate act with its own
+        // row, taken by a person or by the eligibility rule. Collapsing the two
+        // would mean a monitor that fired could close a Case nobody agreed was
+        // answered.
         break;
 
       case 'OUTCOME_RECORDED':

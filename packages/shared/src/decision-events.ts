@@ -131,6 +131,13 @@ export const DECISION_EVENT_TYPE: Record<ObservationType, DecisionEventName> = {
   PARTICIPANT_ADDED: 'DecisionNoteAdded',
   PARTICIPANT_CHANGED: 'DecisionNoteAdded',
   PARTICIPANT_RELEASED: 'DecisionNoteAdded',
+
+  // Monitoring. STARTED announces what WATCH_STARTED announces, because it
+  // enters the same lane and a subscriber watching for "this is being watched"
+  // must keep hearing about it. The other two are progress inside the lane.
+  MONITORING_STARTED: 'DecisionWatched',
+  MONITORING_REVISED: 'DecisionNoteAdded',
+  MONITORING_CONCLUDED: 'DecisionOutcomeRecorded',
 };
 
 /** Which observation types announce a given event. Derived, never hand-listed. */

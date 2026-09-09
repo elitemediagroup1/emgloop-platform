@@ -3122,6 +3122,20 @@ enum OperationalObservationType {
   PARTICIPANT_CHANGED
   /// Somebody was released from the investigation.
   PARTICIPANT_RELEASED
+
+  // --- Stage 4 monitoring ---
+  // MONITORING_STARTED enters the WATCHING lane that already exists. Two types
+  // entering one lane is not a parallel lifecycle: ASSIGNED and REASSIGNED both
+  // set an assignee today.
+  /// Loop is watching whether something held. The plan -- condition, baseline,
+  /// success and failure criteria, window, evidence requirement -- is on the
+  /// row's `evidence` payload, declared BEFORE the answer is known.
+  MONITORING_STARTED
+  /// The plan was corrected. The previous plan stays on the log in full.
+  MONITORING_REVISED
+  /// A verdict was reached. Does NOT close the Case: a verdict is what was
+  /// observed, and deciding the investigation is finished is a separate act.
+  MONITORING_CONCLUDED
 }
 
 /// How a priority ended, and — where it can be measured — whether Loop's read of
