@@ -2906,3 +2906,88 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 
 /* The shell-wide reduced-motion rule already disables animation and transition
    inside `.loop-os`; the shimmer and the hover lifts are both covered by it. */
+
+/* ===================== STAGE 4 · PRODUCT STATE ===================== *
+
+   Semantic treatment for the governed states a Commercial Intelligence surface
+   renders. Built entirely on the existing --loop-* tokens: no new palette, no
+   second token set, nothing that would make Stage 4 look like a different
+   product bolted onto this one.
+
+   STATE IS NEVER COMMUNICATED BY COLOUR ALONE. Every badge carries a word and a
+   glyph, and the glyphs differ in SHAPE (check, half-circle, clock, gear,
+   triangle) rather than only in hue. A monochrome screen, a printout and any
+   form of colour blindness all get the same information.                       */
+
+.ps-badge {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--loop-line-strong);
+  background: var(--loop-panel-2);
+  font-size: 12px; line-height: 1.4; white-space: nowrap;
+}
+.ps-badge__glyph { font-size: 11px; line-height: 1; transform: translateY(1px); }
+.ps-badge__label { font-weight: 500; letter-spacing: .005em; }
+.ps-badge__label--raw { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+/* The governed name, for the surfaces whose reader is an operator. Deliberately
+   quiet: present for anyone who needs it, ignorable by anyone who does not. */
+.ps-badge__tech {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px; color: var(--loop-text-3); letter-spacing: .02em;
+  padding-left: 6px; border-left: 1px solid var(--loop-line);
+}
+.ps-badge--good { border-color: rgba(55,211,155,0.36); color: var(--loop-good); }
+.ps-badge--warn { border-color: rgba(242,180,91,0.36); color: var(--loop-warn); }
+.ps-badge--crit { border-color: rgba(242,104,138,0.4); color: var(--loop-crit); }
+.ps-badge--idle { border-color: var(--loop-line-strong); color: var(--loop-text-2); }
+.ps-badge--good .ps-badge__tech,
+.ps-badge--warn .ps-badge__tech,
+.ps-badge--crit .ps-badge__tech,
+.ps-badge--idle .ps-badge__tech { color: var(--loop-text-3); }
+
+.ps-list { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+.ps-note {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px;
+  margin: 0 0 10px; font-size: 13.5px; color: var(--loop-text-2); line-height: 1.55;
+}
+.ps-note__detail { flex: 1 1 24ch; min-width: 0; }
+
+/* What Loop does not know. A BLOCK, not a footnote — the section that makes the
+   rest of the page trustworthy, and the one a redesign would be tempted to
+   shrink. */
+.ps-unknown {
+  border: 1px solid var(--loop-line-strong);
+  border-left: 3px solid var(--loop-warn);
+  border-radius: var(--loop-radius);
+  background: var(--loop-panel-2);
+  padding: 14px 18px; margin: 0 0 16px;
+}
+.ps-unknown__title {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--loop-text);
+  letter-spacing: .005em;
+}
+.ps-unknown__glyph { color: var(--loop-warn); font-size: 12px; }
+.ps-unknown__list { margin: 0; padding-left: 18px; color: var(--loop-text-2); font-size: 13.5px; line-height: 1.6; }
+.ps-unknown__list li + li { margin-top: 5px; }
+
+/* A read that FAILED. Visually unlike every governed state on purpose: nobody
+   should be able to mistake "Loop could not look" for "Loop looked". */
+.ps-error {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: start;
+  border: 1px solid rgba(242,104,138,0.4);
+  border-radius: var(--loop-radius);
+  background: rgba(242,104,138,0.07);
+  padding: 14px 16px; margin: 0 0 16px;
+}
+.ps-error__glyph { color: var(--loop-crit); font-size: 14px; line-height: 1.5; }
+.ps-error__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ps-error__title { color: var(--loop-text); font-size: 14px; font-weight: 600; }
+.ps-error__body { color: var(--loop-text-2); font-size: 13px; line-height: 1.55; }
+.ps-error__retry { align-self: center; }
+
+@media (max-width: 760px) {
+  .ps-error { grid-template-columns: 22px minmax(0, 1fr); }
+  .ps-error__retry { grid-column: 1 / -1; justify-self: start; }
+}

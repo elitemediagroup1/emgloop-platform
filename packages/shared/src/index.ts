@@ -211,6 +211,7 @@ export * from './work-execution';
 export * from './case-work-coordination';
 export * from './case-monitoring';
 export * from './case-learning';
+export * from './stage4-ui.fixture';
 export * from './attention-state';
 export * from './product-language';
 export * from './case-observation';
