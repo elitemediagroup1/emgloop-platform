@@ -124,8 +124,8 @@ export function PersonalQueue({ queue }: { queue: PersonalQueueView }) {
     queue.orderings.find((o) => o.aboveCaseId === caseId)?.statement ?? null;
 
   return (
-    <div className="pq">
-      <ol className="pq-list">
+    <section className="pq" aria-label="Your queue">
+      <ol className="pq-list" aria-label="Your queue, most relevant first">
         {queue.items.map((item, i) => (
           <QueueItem
             key={item.caseId}
@@ -142,6 +142,6 @@ export function PersonalQueue({ queue }: { queue: PersonalQueueView }) {
         title="What this order could not take into account"
         lines={queue.notConsidered}
       />
-    </div>
+    </section>
   );
 }

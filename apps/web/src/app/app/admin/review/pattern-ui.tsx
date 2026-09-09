@@ -30,7 +30,7 @@ export function PatternCard({ pattern }: { pattern: PatternView }) {
 
       <div className="pt-cols">
         <div className="pt-col">
-          <h4>What people chose</h4>
+          <h3>What people chose</h3>
           {pattern.chosen.length > 0 ? (
             <ul>
               {pattern.chosen.map((c) => (
@@ -47,7 +47,7 @@ export function PatternCard({ pattern }: { pattern: PatternView }) {
         </div>
 
         <div className="pt-col">
-          <h4>Followed by a monitored recovery</h4>
+          <h3>Followed by a monitored recovery</h3>
           {pattern.followedByRecovery.length > 0 ? (
             <ul>
               {pattern.followedByRecovery.map((c) => (
