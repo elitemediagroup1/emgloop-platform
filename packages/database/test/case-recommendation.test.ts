@@ -600,10 +600,16 @@ test('recording, selecting and revising create nothing executable', async () => 
   await recommendations.select(ORG, caseId, 'protect-revenue', HUMAN);
   await recommendations.revise(ORG, caseId, 'protect-revenue', [step(1, 'Review', 'the feed.')], HUMAN);
 
-  // NONE OF THESE TABLES IS MODELLED ON THIS DOUBLE, so any attempt to reach Work
-  // OS would throw rather than pass quietly. Asserting their absence is what makes
-  // that a fact rather than an accident of the fixture.
-  for (const table of ['workInstance', 'workStage', 'workAssignment', 'blueprint', 'workNotification']) {
+  // WORK OS IS NOW MODELLED ON THIS DOUBLE, so "the table does not exist" is no
+  // longer available as a proxy -- and what replaces it is stronger. The tables
+  // are present and reachable, and recording, selecting and revising still write
+  // nothing into any of them. Absence of a capability proved nothing about
+  // restraint; this proves restraint.
+  for (const table of ['workInstance', 'workStage', 'workStageEvent', 'workDependency']) {
+    assert.equal((await (prisma as never as Record<string, { findMany(a: object): Promise<unknown[]> }>)[table]!.findMany({})).length, 0, `Stage 4 must not create ${table}`);
+  }
+  // These three are still not modelled at all, so reaching them would throw.
+  for (const table of ['workAssignment', 'blueprint', 'workNotification']) {
     assert.equal(table in prisma, false, `Stage 4 must not reach ${table}`);
   }
 });

@@ -687,9 +687,14 @@ test('no work, no recommendation, no outbound anything is created by a finding',
   // A Recommendation is a CognitiveDecision. Stage 4 PR #4 writes those; PR #3
   // must not, or the two would be two authorities for one thing.
   assert.equal((await prisma.cognitiveDecision.findMany({})).length, 0);
-  // Work OS is not modelled on this double at all, so any attempt to reach it
-  // would throw rather than pass quietly.
-  assert.equal('workInstance' in prisma, false);
+  // WORK OS IS NOW MODELLED ON THIS DOUBLE, so "the table does not exist" is no
+  // longer available as a proxy -- and what replaces it is stronger. The tables
+  // are present and reachable, and Commercial Intelligence still writes nothing
+  // into any of them. Absence of a capability proved nothing about restraint;
+  // this proves restraint.
+  for (const table of ['workInstance', 'workStage', 'workStageEvent', 'workDependency']) {
+    assert.equal((await (prisma as never as Record<string, { findMany(a: object): Promise<unknown[]> }>)[table]!.findMany({})).length, 0, `a finding must not create ${table}`);
+  }
 });
 
 const SERVICE_SOURCE = readFileSync(

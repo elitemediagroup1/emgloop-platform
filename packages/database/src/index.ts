@@ -112,6 +112,17 @@ export type {
   ParticipationResult,
 } from './services/case-participation.service';
 export { CaseParticipantRepository } from './repositories/case-participant.repository';
+// --- Work OS execution governance ---
+export { WorkExecutionRepository, normalizeState, toEventRecords, stageIsClosed, TRANSITION_REFUSALS } from './repositories/work-execution.repository';
+export type {
+  StageWithInstance,
+  TransitionInput,
+  TransitionRefusal,
+  TransitionResult,
+  DependencyResult,
+} from './repositories/work-execution.repository';
+export { WorkExecutionService } from './services/work-execution.service';
+export type { WorkExecutionView, WorkExecutionDeps } from './services/work-execution.service';
 export type { AddParticipantInput } from './repositories/case-participant.repository';
 export { PersonalPriorityService } from './services/personal-priority.service';
 export type {
