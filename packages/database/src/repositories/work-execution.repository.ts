@@ -110,6 +110,53 @@ export class WorkExecutionRepository {
     return { ...stage, workInstance };
   }
 
+  /**
+   * One work item with its stages, resolved within the organization.
+   *
+   * THE SCOPE IS ON THE INSTANCE, which is where `organizationId` actually
+   * lives. Another tenant's id is not-found, indistinguishable from a deleted
+   * one.
+   */
+  async getWorkInstance(
+    organizationId: string,
+    workInstanceId: string,
+  ): Promise<{ id: string; status: string; currentStageId: string | null; stages: WorkStage[] } | null> {
+    const instance = await this.prisma.workInstance.findFirst({
+      where: { id: workInstanceId, organizationId },
+      select: { id: true, status: true, currentStageId: true },
+    });
+    if (!instance) return null;
+    const stages = await this.prisma.workStage.findMany({
+      where: { workInstanceId },
+      orderBy: { position: 'asc' },
+    });
+    return { ...instance, stages };
+  }
+
+  /**
+   * Which stage answers "where does this work stand".
+   *
+   * ONE CHOICE, MADE ONCE. A Case points at a work instance; accountability
+   * lives on a stage. If each caller picked its own stage, two surfaces would
+   * disagree about the same work item and both would be defensible.
+   *
+   * The current stage if the instance names one, else the first unfinished
+   * stage, else the last. The last is what a completed item looks like, and
+   * returning it is what lets finished work report CLOSED rather than nothing.
+   */
+  representativeStageId(instance: {
+    currentStageId: string | null;
+    stages: readonly WorkStage[];
+  }): string | null {
+    if (instance.stages.length === 0) return null;
+    if (instance.currentStageId) {
+      const named = instance.stages.find((s) => s.id === instance.currentStageId);
+      if (named) return named.id;
+    }
+    const open = instance.stages.find((s) => !stageIsClosed(s));
+    return (open ?? instance.stages[instance.stages.length - 1])?.id ?? null;
+  }
+
   /** The full history of one obligation, in sequence order. */
   async listEvents(organizationId: string, stageId: string): Promise<WorkStageEvent[]> {
     return this.prisma.workStageEvent.findMany({

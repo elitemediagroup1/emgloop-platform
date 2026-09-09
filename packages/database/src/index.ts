@@ -123,6 +123,8 @@ export type {
 } from './repositories/work-execution.repository';
 export { WorkExecutionService } from './services/work-execution.service';
 export { WorkReactivationService, WORK_EVENT_NAMES } from './services/work-reactivation.service';
+export { CaseWorkCoordinationService } from './services/case-work-coordination.service';
+export type { CaseCoordinationDeps } from './services/case-work-coordination.service';
 export type { ReactivationResult, WorkReactivationDeps } from './services/work-reactivation.service';
 export type { WorkExecutionView, WorkExecutionDeps } from './services/work-execution.service';
 export type { AddParticipantInput } from './repositories/case-participant.repository';
