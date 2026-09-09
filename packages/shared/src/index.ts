@@ -208,6 +208,7 @@ export * from './case-brief';
 // it eligible. Establishment is derived on read, never stored, so a claim whose
 // evidence degrades stops being established without anything having to run.
 export * from './work-execution';
+export * from './case-work-coordination';
 export * from './case-observation';
 export * from './case-finding';
 

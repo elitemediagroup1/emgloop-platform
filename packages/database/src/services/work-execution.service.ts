@@ -118,6 +118,37 @@ export class WorkExecutionService {
     };
   }
 
+  /**
+   * The obligation that best represents a whole work item right now.
+   *
+   * WHY A WORK ITEM NEEDS ONE. A Case points at a work INSTANCE — that is what
+   * `destinationId` records — but accountability lives on a STAGE, because a
+   * stage is what has an owner and a clock. Something has to choose which stage
+   * answers "where does this stand", and doing it here means every caller gets
+   * the same choice rather than each picking its own.
+   *
+   * THE CHOICE, IN ORDER: the instance's current stage if it names one, else the
+   * first stage that is not finished, else the last stage. The first two are
+   * where the work actually is; the third is what a completed item looks like,
+   * and returning it is what lets a finished work item report CLOSED rather than
+   * report nothing.
+   *
+   * RETURNS null FOR A WORK ITEM WITH NO STAGES, which is a real shape — an
+   * instance can exist mid-creation — and is reported as unreadable rather than
+   * as fine.
+   */
+  async getForWorkInstance(
+    organizationId: string,
+    workInstanceId: string,
+    now: Date = new Date(),
+  ): Promise<{ workStatus: string; view: WorkExecutionView | null } | null> {
+    const instance = await this.execution.getWorkInstance(organizationId, workInstanceId);
+    if (!instance) return null;
+    const stageId = this.execution.representativeStageId(instance);
+    if (!stageId) return { workStatus: instance.status, view: null };
+    return { workStatus: instance.status, view: await this.get(organizationId, stageId, now) };
+  }
+
   /** Move an obligation. Refuses, with a reason, rather than coercing. */
   transition(
     organizationId: string,
