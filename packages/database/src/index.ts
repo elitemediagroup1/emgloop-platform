@@ -126,6 +126,8 @@ export { WorkReactivationService, WORK_EVENT_NAMES } from './services/work-react
 export { CaseWorkCoordinationService } from './services/case-work-coordination.service';
 export { CaseMonitoringService, MONITORING_OUTCOMES } from './services/case-monitoring.service';
 export { CaseLearningService } from './services/case-learning.service';
+export { CaseWorkspaceService } from './services/case-workspace.service';
+export type { CaseWorkspaceView, AttentionView, CaseWorkspaceDeps } from './services/case-workspace.service';
 export type { CaseLearningDeps } from './services/case-learning.service';
 export type { MonitoringView, CaseMonitoringDeps, MonitoringActOutcome } from './services/case-monitoring.service';
 export type { CaseCoordinationDeps } from './services/case-work-coordination.service';
