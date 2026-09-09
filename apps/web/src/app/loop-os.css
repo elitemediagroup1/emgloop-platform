@@ -3376,3 +3376,76 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .pq-because { padding-left: 18px; }
   .pt-col li { flex-direction: column; gap: 2px; }
 }
+
+/* ===================== STAGE 4 · CASE CONTROLS ===================== *
+
+   The forms a person acts through. Every one is a real <form> posting to a
+   guarded server action — no client JavaScript, matching every other
+   administration surface here.
+
+   CONSEQUENTIAL ACTS SIT BEHIND A DISCLOSURE and require a written reason. No
+   modal: a dialog is something people learn to dismiss, and a field they have to
+   fill in makes them think about what they are recording.                      */
+
+.cw-ctl { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-top: 14px; }
+.cw-ctl__row { display: flex; flex-wrap: wrap; gap: 10px; }
+.cw-ctl__note { flex: 1 1 100%; margin: 0 0 4px; font-size: 12.5px; color: var(--loop-text-3); line-height: 1.55; }
+.cw-ctl__done { margin: 0; font-size: 13px; color: var(--loop-text-3); }
+.cw-btn--quiet { font-size: 12px; padding: 4px 10px; }
+
+.cw-ctl__revise, .cw-ctl__add { flex: 1 1 100%; }
+.cw-ctl__revise summary, .cw-ctl__add summary {
+  cursor: pointer; font-size: 13px; color: var(--loop-accent-2); padding: 4px 0;
+}
+.cw-find__controls { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--loop-line); }
+.cw-people__add { margin-top: 14px; }
+.cw-person__act { margin-top: 8px; }
+
+.cw-revise, .cw-add {
+  display: flex; flex-direction: column; gap: 12px;
+  margin-top: 12px; padding: 15px 17px;
+  border: 1px solid var(--loop-line-strong); border-radius: var(--loop-radius);
+  background: var(--loop-panel-2);
+}
+.cw-revise__help, .cw-add__help { margin: 0; font-size: 12.5px; color: var(--loop-text-3); line-height: 1.55; }
+.cw-revise__steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.cw-revise__step { display: grid; grid-template-columns: 22px 132px minmax(0, 1fr); gap: 9px; align-items: center; }
+.cw-revise__keep { display: grid; place-items: center; }
+/* The checkbox needs a name for assistive technology; sighted readers have the
+   step beside it. */
+.cw-revise__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cw-revise__add { border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 11px 13px; margin: 0; display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 9px; align-items: center; }
+.cw-revise__add legend { grid-column: 1 / -1; font-size: 11.5px; color: var(--loop-text-3); padding: 0 0 6px; }
+
+.cw-add__field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.cw-add__field > span { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); }
+.cw-add__pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 11px; }
+.cw-add__fs { border: 1px solid var(--loop-line); border-radius: var(--loop-radius); padding: 12px 14px; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.cw-add__fs legend { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-text-3); padding: 0 6px; }
+.cw-add__radio { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 9px; align-items: start; font-size: 13px; cursor: pointer; }
+.cw-add__radio strong { display: block; font-weight: 500; color: var(--loop-text); }
+.cw-add__radio em { display: block; font-style: normal; color: var(--loop-text-3); font-size: 12px; margin-top: 2px; line-height: 1.5; }
+.cw-add__check { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 9px; align-items: center; font-size: 13px; cursor: pointer; }
+
+/* Inputs inherit the shell rather than introducing a second field style. */
+.cw-revise input[type="text"], .cw-add input[type="text"], .cw-add input[type="number"],
+.cw-add input[type="date"], .cw-revise select, .cw-add select {
+  background: var(--loop-elev); color: var(--loop-text);
+  border: 1px solid var(--loop-line-strong); border-radius: 8px;
+  padding: 7px 10px; font: inherit; font-size: 13px; min-width: 0; width: 100%;
+}
+.cw-revise :focus-visible, .cw-add :focus-visible,
+.cw-ctl :focus-visible, .cw-ctl__add :focus-visible {
+  outline: 2px solid var(--loop-accent-2); outline-offset: 2px; border-radius: 4px;
+}
+
+@media (max-width: 720px) {
+  /* REFLOW, NEVER HIDE. Every field and every control stays reachable. */
+  .cw-revise__step { grid-template-columns: 22px minmax(0, 1fr); }
+  .cw-revise__step select { grid-column: 2; }
+  .cw-revise__step input[type="text"] { grid-column: 2; }
+  .cw-revise__add { grid-template-columns: 1fr; }
+  .cw-add__pair { grid-template-columns: 1fr; }
+  .cw-ctl { flex-direction: column; align-items: stretch; }
+  .cw-ctl form, .cw-ctl .ent-btn { width: 100%; }
+}

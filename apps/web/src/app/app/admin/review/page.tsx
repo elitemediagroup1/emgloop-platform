@@ -46,9 +46,26 @@ import { requirePermission } from '../../../../auth/guard';
 import { NotKnown, ReadError, StateBadge } from '../../_loop-os/product-state';
 import { AttentionBanner } from '../headlines/headline-ui';
 import { OutcomeSection, WorkSection } from '../cases/case-sections';
+import {
+  FindingControls,
+  LifecycleControls,
+  MonitoringControls,
+  RecommendationControls,
+} from '../cases/case-controls';
 import { PatternCard } from './pattern-ui';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The Case id every control on this page names.
+ *
+ * DELIBERATELY NOT A REAL ONE. Pressing a control here posts to the genuine
+ * guarded action, which resolves this id within the signed-in organization,
+ * finds nothing, and returns the not-found message. So the controls are the real
+ * ones and they cannot touch a real investigation — the harness has no
+ * production id to name, which is a stronger guarantee than a disabled button.
+ */
+const REVIEW_CASE_ID = 'case_review_fixture_not_a_real_investigation';
 
 function State({ name, note, children }: { name: string; note?: string; children: React.ReactNode }) {
   return (
@@ -189,6 +206,81 @@ export default async function ReviewPage() {
         note="Four comparable Cases. Worth a person looking at — and still not doctrine, at any count."
       >
         <PatternCard pattern={PATTERN_EMERGING} />
+      </State>
+
+      {/*
+        THE INTERACTIVE STATES. Rendered with a fixture Case id, so pressing one
+        of these posts to the real guarded action and lands on a not-found
+        message — the action resolves the id within the organization and finds
+        nothing. That is the correct behaviour and it is why this page cannot
+        mutate production truth: it has no production id to name.
+      */}
+      <State
+        name="Controls · a developing finding"
+        note="Accepting records a judgement. It does not change what the claim says, and for a measurement-backed claim it does not make it established either."
+      >
+        <FindingControls caseId={REVIEW_CASE_ID} findingId="fnd_review" state="DEVELOPING" />
+      </State>
+
+      <State
+        name="Controls · a finding somebody rejected"
+        note="No further verdict is offered, and the claim stays as history."
+      >
+        <FindingControls caseId={REVIEW_CASE_ID} findingId="fnd_review" state="REJECTED" />
+      </State>
+
+      <State
+        name="Controls · an option, with its sequence"
+        note="Unchecking a step drops it. Verbs come from the shipped vocabulary, which is why there is no 'Increase' or 'Shift'. Loop's original is kept whatever the person does."
+      >
+        <RecommendationControls
+          caseId={REVIEW_CASE_ID}
+          optionKey="relationship-first"
+          actions={[
+            { position: 1, verb: 'Review', statement: 'Review the settlement feed for the affected days.', intent: null },
+            { position: 2, verb: 'Evaluate', statement: 'Evaluate whether one source accounts for it.', intent: null },
+          ]}
+          selected={false}
+          dismissed={false}
+        />
+      </State>
+
+      <State
+        name="Controls · start watching"
+        note="Every criterion is declared before the answer is known. Loop proposes none of them — a suggested threshold would be Loop marking its own homework."
+      >
+        <MonitoringControls caseId={REVIEW_CASE_ID} existing={null} />
+      </State>
+
+      <State
+        name="Controls · correct a monitoring plan"
+        note="A correction is an append. Every earlier version is kept, so what was originally said to count stays readable after the numbers are in."
+      >
+        <MonitoringControls
+          caseId={REVIEW_CASE_ID}
+          existing={{
+            condition: "Buyer CEM's monetized rate",
+            metric: 'MONETIZED_RATE',
+            successThreshold: 0.55,
+            failureThreshold: 0.35,
+            observationStart: '2026-08-25T04:00:00.000Z',
+            observationEnd: '2026-09-01T04:00:00.000Z',
+          }}
+        />
+      </State>
+
+      <State
+        name="Controls · close an investigation"
+        note="Recording what happened is the point. 'We acted' and 'it did not need action' are different closes, and the false-positive rate depends on the difference."
+      >
+        <LifecycleControls caseId={REVIEW_CASE_ID} open reopenCount={0} />
+      </State>
+
+      <State
+        name="Controls · reopen one that did not hold"
+        note="The earlier resolution stays on the log. A resolution that did not hold is the most informative event an investigation can carry."
+      >
+        <LifecycleControls caseId={REVIEW_CASE_ID} open={false} reopenCount={2} />
       </State>
 
       <State

@@ -253,8 +253,6 @@ test('6. no component declares its own translation of a governed state', () => {
 
   for (const file of walk(new URL('../src/app/app/', import.meta.url))) {
     if (file.endsWith('product-state.tsx')) continue;
-    // KNOWN, NAMED, AND TRACKED BY THE TEST BELOW rather than silently skipped.
-    if (file.includes('admin/work/')) continue;
     const src = codeOnly(readFileSync(file, 'utf8'));
     for (const label of labels) {
       // A hard-coded product word in a component means somebody re-derived the
@@ -281,31 +279,43 @@ test('6b. the presentation layer decides appearance and never meaning', () => {
   }
 });
 
-test('6c. the one pre-existing surface that names a health state itself is on record', () => {
-  // WORK OS\'S DETAIL PAGE PREDATES THE SLA VOCABULARY and derives its own
-  // health from `work_stages.status`, calling a stage with no execution history
-  // "On track". That is the exact defect the SLA UNKNOWN state exists to
-  // prevent: absence of overdue evidence is not compliance.
+test('6c. the Work OS detail page no longer names a health state itself', () => {
+  // THIS TEST REPLACES A PLACEHOLDER. Until now it asserted the OPPOSITE: that
+  // `admin/work/[id]/page.tsx` still contained `label: 'On track'`, derived from
+  // `work_stages.status` with no reference to any execution history. That was
+  // the defect the SLA UNKNOWN state exists to prevent, and it was recorded by
+  // name rather than silently skipped so it could not be forgotten.
   //
-  // It is EXEMPTED FROM THE WALK ABOVE AND ASSERTED HERE INSTEAD, so the
-  // exemption is visible and the finding cannot be forgotten. Fixing it means
-  // that page reading WorkExecutionService, which is a behavioural change to a
-  // shipped surface and belongs in its own change — not smuggled into the
-  // foundation of a different feature.
-  //
-  // WHEN IT IS FIXED, this test fails and should be deleted along with the
-  // exemption. That is the intended lifecycle.
+  // It is fixed. The page now reads the governed verdict from
+  // WorkExecutionService and the words come from `productLabel`, so the
+  // exemption in test 6 is gone and this asserts the property instead.
   const src = readFileSync(
     new URL('../src/app/app/admin/work/[id]/page.tsx', import.meta.url),
     'utf8',
   );
-  assert.ok(
-    src.includes("label: 'On track'"),
-    'if this no longer holds, delete this test and the exemption in test 6',
-  );
-  // And it must not have grown a SECOND self-derived vocabulary in the meantime.
   const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
-  for (const label of ['Not measured', "Can't tell", 'All clear', 'Badly overdue']) {
-    assert.equal(code.includes(`'${label}'`), false, `must not hard-code "${label}" either`);
-  }
+
+  // It consumes the canonical assessment.
+  assert.ok(code.includes('WorkExecutionService'), 'reads the service that owns execution truth');
+  assert.ok(code.includes('assessment.sla'), 'and the governed verdict');
+  assert.ok(code.includes('productLabel('), 'with the words from the one dictionary');
+
+  // IT DOES NOT COMPUTE ONE. Scoped to the health derivation, deliberately: the
+  // page legitimately sorts a timeline by completion time and formats a relative
+  // date, and forbidding all date arithmetic would forbid those. What must not
+  // exist is a health verdict derived from a clock on this page.
+  const healthBlock = code.slice(code.indexOf('let health'), code.indexOf('const stats'));
+  assert.ok(healthBlock.length > 100, 'the health block was found');
+  assert.equal(/getTime\(\)|Date\.now\(\)/.test(healthBlock), false, 'no clock in the verdict');
+  assert.equal(/\b\d+\s*\*\s*60\s*\*\s*60/.test(healthBlock), false, 'no hour thresholds');
+  assert.equal(/work_stages|\.status ===/.test(healthBlock.replace(/current\.status === '(ready|pending)'/g, '')), false,
+    'health no longer derives from raw stage status alone');
+  // And nowhere on the page is the assessor reimplemented.
+  assert.equal(/assessExecution|replayDurations|REMINDER_AFTER|ESCALATION_AFTER/.test(code), false,
+    'no duplicated assessor');
+
+  // And UNKNOWN is handled explicitly, before anything can be called healthy.
+  assert.ok(code.includes("sla === 'UNKNOWN'"), 'unmeasured is its own branch');
+  const unknownBranch = code.slice(code.indexOf("sla === 'UNKNOWN'"), code.indexOf("ESCALATION_ELIGIBLE"));
+  assert.equal(unknownBranch.includes("'On track'"), false, 'and it is never On track');
 });

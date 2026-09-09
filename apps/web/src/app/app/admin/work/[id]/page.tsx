@@ -14,6 +14,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { WorkExecutionService, prisma } from '@emgloop/database';
+import { productLabel } from '@emgloop/shared';
+
 import { requireWorkActor, workRepo, listAssignableUsers } from '../work-data';
 import {
   completeCurrentStageAction,
@@ -71,9 +74,19 @@ function stepTone(status: string): EntityTone {
 export default async function WorkDetailPage({ params }: { params: { id: string } }) {
   const actor = await requireWorkActor();
   const work = workRepo();
-  const [instance, users] = await Promise.all([
+  const [instance, users, execution] = await Promise.all([
     work.getWorkInstance(actor.organizationId, params.id),
     listAssignableUsers(actor.organizationId),
+    // THE CANONICAL ASSESSMENT, from the service that owns execution truth.
+    // This page used to decide for itself whether work was healthy by reading
+    // `work_stages.status`, and called a stage with no recorded history "On
+    // track" — which is precisely what the SLA UNKNOWN state exists to prevent.
+    // Absence of overdue evidence is not compliance.
+    //
+    // NOT A UI-SPECIFIC ASSESSOR. Nothing here recomputes a duration, compares a
+    // timestamp or applies a threshold; the verdict arrives decided and this
+    // page renders it.
+    new WorkExecutionService(prisma).getForWorkInstance(actor.organizationId, params.id),
   ]);
 
   // Another tenant's id is indistinguishable from a deleted one, by design.
@@ -93,6 +106,25 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
   const currentOwner = current ? ownerName(current.ownerUserId, users) : 'Unassigned';
 
   // 2. Is it healthy?
+  //
+  // THE ORDER IS THE ARGUMENT. Finished work is finished. A step nobody owns is
+  // the operator's problem regardless of any clock. And then — before anything
+  // is called healthy — the governed SLA verdict decides, because "no evidence
+  // that it is late" and "measured, and on time" are different facts and only
+  // one of them earns the words "On track".
+  const sla = execution?.view?.assessment.sla ?? null;
+  const slaLabel = sla ? productLabel(sla) : null;
+  /**
+   * The word for a governed state, or the state's own name.
+   *
+   * NO FLATTERING FALLBACK. An earlier draft defaulted the missing-label case to
+   * the healthy word, which is the exact defect this fix exists to remove
+   * wearing a `??`: if the dictionary ever lost an entry, the page would
+   * announce that unmeasured work was fine. A state with no label renders its
+   * own name, which is ugly and true.
+   */
+  const slaWord = (fallbackState: string) => slaLabel?.label ?? fallbackState;
+
   let health: EntityPageModel['health'];
   if (isComplete) {
     health = { label: 'Complete', tone: 'good', line: 'This work is finished — every step has been completed.' };
@@ -104,6 +136,33 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
       tone: 'warn',
       line: `The step “${current.name}” is ready, but nobody is assigned to it. Only you can put someone on it.`,
     };
+  } else if (sla === 'UNKNOWN' || sla === null) {
+    // NEVER "On track". Every work item created before the execution foundation
+    // is in exactly this position, and reporting them as fine would be Loop
+    // issuing a clean bill of health it never earned.
+    health = {
+      label: slaWord('UNKNOWN'),
+      tone: 'warn',
+      line:
+        `Loop has no execution history for “${current.name}”, so it cannot say whether this is ` +
+        'on track. That is different from knowing it is fine.',
+    };
+  } else if (sla === 'ESCALATION_ELIGIBLE' || sla === 'REMINDER_ELIGIBLE') {
+    health = {
+      label: slaWord(sla),
+      tone: 'crit',
+      line:
+        execution?.view?.assessment.explanation[0] ??
+        `“${current.name}” has been actionable for a while and has not moved.`,
+    };
+  } else if (sla === 'PAUSED_WAITING') {
+    health = {
+      label: slaWord(sla),
+      tone: 'warn',
+      line:
+        execution?.view?.assessment.explanation[0] ??
+        `“${current.name}” is legitimately waiting. The accountability clock is paused.`,
+    };
   } else if (current.status === 'pending') {
     health = {
       label: 'Blocked',
@@ -111,8 +170,9 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
       line: `“${current.name}” can’t start yet — earlier work needs to finish first.`,
     };
   } else {
+    // WITHIN_POLICY, and only then. Measured, and inside the window.
     health = {
-      label: 'On track',
+      label: slaWord('WITHIN_POLICY'),
       tone: 'good',
       line: `${currentOwner} is on “${current.name}”. Nothing is stuck.`,
     };

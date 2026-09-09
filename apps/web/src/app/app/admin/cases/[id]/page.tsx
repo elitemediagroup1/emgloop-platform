@@ -21,7 +21,16 @@ import Link from 'next/link';
 
 import { CASE_STATE_LANGUAGE } from '@emgloop/shared';
 
-import { requirePermission } from '../../../../../auth/guard';
+import { hasPermission, requirePermission } from '../../../../../auth/guard';
+import { listAssignableUsers } from '../../../employee/work/work-data';
+import {
+  AddParticipantControl,
+  FindingControls,
+  LifecycleControls,
+  MonitoringControls,
+  RecommendationControls,
+  ReleaseParticipantControl,
+} from '../case-controls';
 import { NotKnown, ReadError, StateBadge } from '../../../_loop-os/product-state';
 import {
   FindingSection,
@@ -36,8 +45,18 @@ import { loadCase } from '../case-data';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CaseWorkspacePage({ params }: { params: { id: string } }) {
+export default async function CaseWorkspacePage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams?: { notice?: string; error?: string };
+}) {
+  // READ is the broad grant. Every control below requires the narrower AUTHORING
+  // grant, checked separately -- and each server action checks it again for
+  // itself, because hiding a control is not access control.
   const session = await requirePermission('commercialIntelligence', 'view');
+  const canAct = await hasPermission('commercialIntelligence', 'update');
   const read = await loadCase(session.organizationId, params.id);
 
   if (!read.ok) {
@@ -54,6 +73,11 @@ export default async function CaseWorkspacePage({ params }: { params: { id: stri
 
   const brief = view.brief;
   const state = CASE_STATE_LANGUAGE[brief.status];
+  const caseIsOpen = brief.status !== 'RESOLVED' && brief.status !== 'DISMISSED';
+
+  // ONLY LOADED WHEN IT CAN BE USED. A read-only member is never offered the
+  // ask-somebody form, so the directory read does not happen for them either.
+  const members = canAct ? await listAssignableUsers(session.organizationId) : [];
 
   return (
     <div className="cw-page">
@@ -111,36 +135,97 @@ export default async function CaseWorkspacePage({ params }: { params: { id: stri
         </dl>
       </header>
 
+      {searchParams?.notice ? (
+        <p className="hl-flash hl-flash--notice" role="status">{searchParams.notice}</p>
+      ) : null}
+      {searchParams?.error ? (
+        <p className="hl-flash hl-flash--error" role="alert">{searchParams.error}</p>
+      ) : null}
+
       {/* ABOVE EVERYTHING. A Case whose gaps are buried at the bottom reads as a
           complete one, and this is the section that stops that. */}
       <NotKnown lines={view.notKnown} />
 
-      <FindingSection finding={view.finding} />
-      <RecommendationsSection recommendations={view.recommendations} />
-      <ParticipationSection participation={view.participation} />
+      <FindingSection
+        finding={view.finding}
+        controls={
+          canAct && view.finding ? (
+            <FindingControls
+              caseId={params.id}
+              findingId={view.finding.findingId}
+              state={view.finding.state}
+            />
+          ) : undefined
+        }
+      />
+
+      <RecommendationsSection
+        recommendations={view.recommendations}
+        controls={
+          canAct
+            ? (optionKey) => {
+                const option = view.recommendations?.options.find((o) => o.key === optionKey);
+                if (!option) return null;
+                return (
+                  <RecommendationControls
+                    caseId={params.id}
+                    optionKey={option.key}
+                    // THE MACHINE'S SEQUENCE IS WHAT THE REVISION FORM STARTS
+                    // FROM, and the service keeps it whatever the person does.
+                    actions={option.actions}
+                    selected={option.selectedAt !== null}
+                    dismissed={option.dismissed}
+                  />
+                );
+              }
+            : undefined
+        }
+      />
+
+      <ParticipationSection
+        participation={view.participation}
+        controls={canAct ? <AddParticipantControl caseId={params.id} members={members} /> : undefined}
+        releaseControl={
+          canAct
+            ? (userId, contribution) => (
+                <ReleaseParticipantControl
+                  caseId={params.id}
+                  userId={userId}
+                  contribution={contribution}
+                />
+              )
+            : undefined
+        }
+      />
+
       <WorkSection coordination={view.coordination} />
-      <MonitoringSummary view={view} />
+      <MonitoringSummary view={view} canAct={canAct} caseId={params.id} />
       <OutcomeSection outcome={view.outcome} />
       <FiveWs brief={brief} />
       <TimelineSection brief={brief} />
 
       <section className="cw-sec" aria-labelledby="cw-controls">
         <header className="cw-sec__head">
-          <h2 className="cw-sec__title" id="cw-controls">What you can do here</h2>
+          <h2 className="cw-sec__title" id="cw-controls">Close or reopen</h2>
+          <p className="cw-sec__sub">
+            Closing records what actually happened, not just that somebody closed it.
+          </p>
         </header>
-        {/*
-          A DISABLED CONTROL WITH A DOCUMENTED GAP BEATS AN INVENTED MUTATION.
-          Every governed action listed below exists in the backend and none has a
-          route into this page yet; wiring them is the next change, not something
-          to fake with a generic updateCase. Saying so on the screen is more
-          honest than a page that looks finished.
-        */}
-        <p className="cw-todo">
-          Selecting an option, revising a sequence, accepting or rejecting a finding, changing who
-          is involved, revising the monitoring plan and resolving or reopening this investigation
-          are all governed actions that exist in the backend. None of them is wired into this
-          screen yet, and Loop will not offer a control it cannot honestly perform.
-        </p>
+        {canAct ? (
+          <LifecycleControls
+            caseId={params.id}
+            open={caseIsOpen}
+            reopenCount={brief.history.timesReopened}
+          />
+        ) : (
+          // EXPLAINED IN TEXT, not silently absent. A person who cannot act
+          // should know that is why they see nothing, rather than assuming the
+          // product has no such control.
+          <p className="cw-todo">
+            You can read this investigation. Closing or reopening it needs permission to author
+            commercial intelligence.
+          </p>
+        )}
       </section>
     </div>
   );
@@ -153,13 +238,21 @@ export default async function CaseWorkspacePage({ params }: { params: { id: stri
  * measurement seam is unwired. The screen says so rather than dressing an
  * unjudged window as a healthy one.
  */
-function MonitoringSummary({ view }: { view: { monitoring: unknown } }) {
+function MonitoringSummary({
+  view,
+  canAct,
+  caseId,
+}: {
+  view: { monitoring: unknown };
+  canAct: boolean;
+  caseId: string;
+}) {
   const monitoring = view.monitoring as {
     plan: {
       condition: string;
       baseline: { value: number; unit: string } | null;
-      success: { statement: string };
-      failure: { statement: string };
+      success: { statement: string; metric: string; threshold: number };
+      failure: { statement: string; threshold: number };
       observationStart: string;
       observationEnd: string;
     } | null;
@@ -175,6 +268,7 @@ function MonitoringSummary({ view }: { view: { monitoring: unknown } }) {
         </header>
         {/* NOT "monitoring healthy". Nothing is being watched. */}
         <p className="cw-notyet">This investigation is not currently being monitored.</p>
+        {canAct ? <MonitoringControls caseId={caseId} existing={null} /> : null}
       </section>
     );
   }
@@ -219,6 +313,21 @@ function MonitoringSummary({ view }: { view: { monitoring: unknown } }) {
             The plan has been corrected {monitoring.history.length - 1}{' '}
             {monitoring.history.length === 2 ? 'time' : 'times'}. Every earlier version is kept.
           </p>
+        ) : null}
+        {canAct ? (
+          <MonitoringControls
+            caseId={caseId}
+            // SEEDED FROM WHAT STANDS, so a correction starts from the plan
+            // rather than a blank form — and every earlier version survives it.
+            existing={{
+              condition: p.condition,
+              metric: p.success.metric,
+              successThreshold: p.success.threshold,
+              failureThreshold: p.failure.threshold,
+              observationStart: p.observationStart,
+              observationEnd: p.observationEnd,
+            }}
+          />
         ) : null}
       </div>
     </section>

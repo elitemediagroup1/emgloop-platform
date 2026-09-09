@@ -116,6 +116,18 @@ export const OPERATIONAL_OUTCOMES = [
 ] as const;
 export type OperationalOutcome = (typeof OPERATIONAL_OUTCOMES)[number];
 
+/**
+ * A guard, so a form value becomes a governed outcome or nothing.
+ *
+ * ADDED BESIDE ITS VOCABULARY, matching `isDecisionSeverity`,
+ * `isCaseContribution` and `isHeadlineDismissalBasis`. A surface that cast a
+ * string to `OperationalOutcome` would be the one place an ungoverned value
+ * could reach the log, and the cast would look perfectly ordinary.
+ */
+export function isOperationalOutcome(value: string): value is OperationalOutcome {
+  return (OPERATIONAL_OUTCOMES as readonly string[]).includes(value);
+}
+
 export type LifecycleActorType = 'HUMAN' | 'SYSTEM';
 
 /** Lanes an operator can move an item into by deciding. */
