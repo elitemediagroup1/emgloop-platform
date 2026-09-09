@@ -122,6 +122,8 @@ export type {
   DependencyResult,
 } from './repositories/work-execution.repository';
 export { WorkExecutionService } from './services/work-execution.service';
+export { WorkReactivationService, WORK_EVENT_NAMES } from './services/work-reactivation.service';
+export type { ReactivationResult, WorkReactivationDeps } from './services/work-reactivation.service';
 export type { WorkExecutionView, WorkExecutionDeps } from './services/work-execution.service';
 export type { AddParticipantInput } from './repositories/case-participant.repository';
 export { PersonalPriorityService } from './services/personal-priority.service';
