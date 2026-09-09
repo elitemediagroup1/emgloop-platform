@@ -98,6 +98,40 @@ export type { DiffClassification, FieldDiff, GrainReconciliation, ReconcileGrain
 export { CaseBriefService } from './services/case-brief.service';
 export type { CaseBriefDeps, CaseHeadlineReader, CaseReader } from './services/case-brief.service';
 export { CaseFindingService, FINDING_RECORD_OUTCOMES } from './services/case-finding.service';
+export {
+  CaseRecommendationService,
+  RECOMMENDATION_RECORD_OUTCOMES,
+} from './services/case-recommendation.service';
+export { CaseParticipationService, PARTICIPATION_OUTCOMES } from './services/case-participation.service';
+export type {
+  AddCaseParticipantInput,
+  CaseParticipationDeps,
+  ParticipationCaseAccess,
+  ParticipationHeadlineReader,
+  ParticipationOutcome,
+  ParticipationResult,
+} from './services/case-participation.service';
+export { CaseParticipantRepository } from './repositories/case-participant.repository';
+export type { AddParticipantInput } from './repositories/case-participant.repository';
+export { PersonalPriorityService } from './services/personal-priority.service';
+export type {
+  PersonalPriorityDeps,
+  PersonalQueueView,
+  PriorityCaseAccess,
+  PriorityHeadlineReader,
+  QueueOrdering,
+} from './services/personal-priority.service';
+export type {
+  CaseRecommendationDeps,
+  CaseRecommendationsView,
+  RecommendationCaseAccess,
+  RecommendationFindingReader,
+  RecommendationOptionView,
+  RecommendationRecordOutcome,
+  RecommendationRevisionView,
+  RecordRecommendationsInput,
+  RecordRecommendationsResult,
+} from './services/case-recommendation.service';
 export type {
   CaseFindingCaseAccess,
   CaseFindingDeps,

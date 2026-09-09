@@ -208,6 +208,27 @@ export * from './case-brief';
 // it eligible. Establishment is derived on read, never stored, so a claim whose
 // evidence degrades stops being established without anything having to run.
 export * from './case-finding';
+
+// What could be DONE about a finding, and the ceiling on how firmly Loop may say
+// it. Reuses the shipped decision-support vocabularies (evidence strength,
+// approved verbs) rather than forking them: an option's posture may never exceed
+// what its finding's evidence supports, and ranking is explained from inspectable
+// factors instead of collapsed into a score.
+export * from './case-recommendation';
+
+// Who is involved in an investigation and what each of them is being asked for --
+// and the line between that and the work itself. Participation carries no due
+// date, dependency, SLA, blocked state or completion: those are execution
+// obligations and Work OS owns them, so a Case REFERENCES work rather than
+// copying its mutable state.
+export * from './case-participation';
+
+// How much this matters to the BUSINESS and how much it matters to YOU, kept
+// permanently apart. Two fields, never combined, and no function that reduces
+// them to one: personal relevance is a tier derived from rows somebody can point
+// at, business significance stays the shipped severity vocabulary, and ordering
+// is a declared lexicographic walk that can always explain itself.
+export * from './personal-priority';
 export * from './callgrid-window';
 
 // --- The canonical CallGrid metric contract ---

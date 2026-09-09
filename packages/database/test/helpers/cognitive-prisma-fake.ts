@@ -58,6 +58,11 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // metric cannot be supported twice with two different definitions.
   measurementSource: ['organizationId', 'key'],
   measurementSourceMetric: ['measurementSourceId', 'metric'],
+  // Commercial Intelligence Stage 4. One row per person per contribution per
+  // investigation, so re-asking somebody for the same thing converges on one row
+  // instead of accumulating -- and one person may legitimately hold two different
+  // roles on one case.
+  caseParticipant: ['priorityId', 'userId', 'contribution'],
 };
 
 /**
@@ -97,6 +102,15 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
     callerStates: [],
     memberLabels: {},
   },
+  // The nullable columns a decision is BORN with. The repository's `record` does
+  // not name them, so without these the column is absent rather than null -- and
+  // `row.approvedBy` reads `undefined` here while reading `null` in production,
+  // which is exactly the kind of difference that makes a read model look broken
+  // only against the double.
+  cognitiveDecision: { approvedAt: null, approvedBy: null, executedAt: null },
+  // A participant is ACTIVE exactly when `releasedAt` is null, so a row born
+  // without the column reads `undefined` and every participant looks released.
+  caseParticipant: { releasedAt: null, releasedByUserId: null },
   stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
   stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
   stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
@@ -115,6 +129,11 @@ const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
   // narrower future caller consistent with `createdAt`.
   headline: ['firstDetectedAt', 'lastDetectedAt'],
   objectiveMeasureBinding: ['confirmedAt'],
+  // `recordedAt` is @default(now()) and the engine does not name it: it means
+  // "when Loop learned about it" and differs from `occurredAt` only for something
+  // recorded after the fact. Without this the column is absent, and a read model
+  // that projects it throws here while working in production.
+  operationalObservation: ['recordedAt'],
 };
 
 /**
@@ -205,6 +224,11 @@ const DELEGATES = [
   // table — the same stance the Stage 2 tests take.
   'objectiveMeasureBinding',
   'headline',
+  // Commercial Intelligence Stage 4. Faked because the properties under test are
+  // exactly that a participant cannot be attached across a tenant boundary and
+  // that re-adding converges on one row -- supplying either read from the test
+  // would assume away what is being proven.
+  'caseParticipant',
   // Commercial Intelligence Stage 3 correctness. The observation ledger IS faked
   // here, unlike marketplaceCall: the detection gate reads it directly and the
   // property under test is exactly that a missing row withholds a measurement, so
@@ -290,6 +314,14 @@ function condMatches(value: any, cond: any): boolean {
     if ('gte' in cond) checks.push(value != null && cmp(value, cond.gte) >= 0);
     if ('lt' in cond) checks.push(value != null && cmp(value, cond.lt) < 0);
     if ('lte' in cond) checks.push(value != null && cmp(value, cond.lte) <= 0);
+    // Prefix match on a string column. Case-sensitive, matching Postgres' default
+    // collation and Prisma's default `mode`. Used where a row is addressed by a
+    // DERIVED key rather than found by search — listing every option recorded
+    // against one case, for instance — so the prefix is produced by the same
+    // shared function that wrote the key.
+    if ('startsWith' in cond) {
+      checks.push(typeof value === 'string' && value.startsWith(String(cond.startsWith)));
+    }
     // An unrecognised operator must not silently pass. Matching nothing surfaces
     // as a failing assertion; matching everything hides a broken query.
     if (checks.length === 0) return false;
@@ -308,6 +340,9 @@ function condMatches(value: any, cond: any): boolean {
 const COMPOUND_UNIQUE_ALIASES: Record<string, string> = {
   providerObservationDay: 'observation_day_identity',
   providerReconciliationDay: 'reconciliation_day_identity',
+  // The @@unique carries a `map:` for the INDEX name, which does not rename the
+  // client's accessor -- Prisma still exposes the field list joined by `_`.
+  caseParticipant: 'priorityId_userId_contribution',
 };
 
 function flattenCompound(name: string, where: Row | undefined): Row | undefined {
