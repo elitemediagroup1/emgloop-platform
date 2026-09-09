@@ -96,7 +96,17 @@ function headline(over: Partial<HeadlineView> = {}): HeadlineView {
  * identity is `(organization, producer, recurrenceKey)`, and a second create
  * against an existing key RESIGHTS rather than opening a second thread.
  */
-function decisionCenter(seed: Array<{ org: string; key: string; id: string; humanReviewed: boolean }> = []) {
+type SeedRow = {
+  org: string;
+  key: string;
+  id: string;
+  humanReviewed: boolean;
+  /** What the human row was written as. Absent on a seed; filled in on a write. */
+  humanType?: string;
+  humanReason?: string | null;
+};
+
+function decisionCenter(seed: Array<SeedRow> = []) {
   const rows = [...seed];
   const creates: Array<{ org: string; input: CreateDecisionInput }> = [];
   const observations: Array<{ org: string; id: string; input: AddObservationInput }> = [];
@@ -117,21 +127,32 @@ function decisionCenter(seed: Array<{ org: string; key: string; id: string; huma
     async addObservation(organizationId: string, id: string, input: AddObservationInput) {
       observations.push({ org: organizationId, id, input });
       const row = rows.find((r) => r.id === id);
-      if (row && input.observationType === 'REVIEWED' && input.actor.type === 'HUMAN') row.humanReviewed = true;
+      // ECHOES WHAT THE SERVICE ACTUALLY WROTE, rather than asserting a shape.
+      // This double previously hard-coded 'REVIEWED', which described the row the
+      // service wrote before the observation vocabulary existed; the day the
+      // service started writing INVESTIGATION_AUTHORIZED, the double kept
+      // describing a row the database would never contain again. A stand-in that
+      // replays the call cannot drift from the caller that way.
+      if (row && input.actor.type === 'HUMAN') {
+        row.humanReviewed = true;
+        row.humanType = input.observationType;
+        row.humanReason = input.reason ?? null;
+      }
       return { decision: { id } as never, observation: null, effect: 'UPDATED' as const, eventType: 'DecisionObserved' as never };
     },
     async get(organizationId: string, id: string) {
       const row = rows.find((r) => r.org === organizationId && r.id === id);
       if (!row) return null;
-      // The `reason` column is what distinguishes an authorization from somebody
-      // simply reading, and the engine persists it — so the double has to carry it
-      // too. Without it this stand-in described a row the database never writes.
+      // The row this replays is the row the service wrote. Both the type and
+      // the reason are carried, because `caseEventKind` reads the type on a
+      // current row and the (type, reason) pair on a pre-migration one, and this
+      // double has to be able to stand in for either.
       return {
         observations: row.humanReviewed
           ? [{
               actorType: 'HUMAN',
-              observationType: 'REVIEWED',
-              reason: INVESTIGATION_AUTHORIZED_REASON,
+              observationType: row.humanType ?? 'INVESTIGATION_AUTHORIZED',
+              reason: row.humanReason ?? INVESTIGATION_AUTHORIZED_REASON,
             }]
           : [{ actorType: 'SYSTEM', observationType: 'SITUATION_DETECTED', reason: null }],
       } as never;

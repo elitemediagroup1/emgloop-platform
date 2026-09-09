@@ -161,7 +161,7 @@ export class CaseParticipationService {
     if (!row) return { outcome: 'PARTICIPANT_NOT_FOUND', caseId: id, participantId: null };
 
     await this.cases.addObservation(organizationId, id, {
-      observationType: 'NOTE_ADDED',
+      observationType: existing ? 'PARTICIPANT_CHANGED' : 'PARTICIPANT_ADDED',
       actor: input.actor,
       reason: existing ? PARTICIPANT_CHANGED_REASON : PARTICIPANT_ADDED_REASON,
       note: `${input.contribution}: ${input.userId}`,
@@ -204,7 +204,7 @@ export class CaseParticipationService {
     if (!released) return { outcome: 'PARTICIPANT_NOT_FOUND', caseId: id, participantId: null };
 
     await this.cases.addObservation(organizationId, id, {
-      observationType: 'NOTE_ADDED',
+      observationType: 'PARTICIPANT_RELEASED',
       actor,
       reason: PARTICIPANT_RELEASED_REASON,
       note: `${contribution}: ${userId}`,

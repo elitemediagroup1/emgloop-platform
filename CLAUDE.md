@@ -278,6 +278,26 @@ review, because the safe call and the unsafe call look identical at the call sit
    diff. `git checkout -- apps/web/next-env.d.ts` before committing.
 9. Verify a merge actually landed before deleting a branch. GitHub squash-merges here, so your commit
    SHA won't be an ancestor of `main` — check the *content*, not the graph.
+10. **A stacked PR that says `MERGED` has not necessarily reached `main`.** A PR opened against the
+    branch below it merges into *that branch*, not into `main`. GitHub retargets a stacked PR when
+    its base merges — but that retarget is not instant, and merging a stack in one sitting beats it.
+    The PR badge then reads `MERGED` and is telling the truth about the wrong branch. Delete the
+    branch and the squash commit is reachable from nothing.
+
+    **So merge a stack one PR at a time, and after each one prove the content is on the target:**
+
+    ```sh
+    git fetch origin
+    git diff --stat origin/main <the-branch-you-just-merged>   # must be empty
+    ```
+
+    Empty means it landed. Anything else means it did not, whatever the badge says. Only then merge
+    the next PR in the stack.
+
+    **This has happened twice**, on 2026-09-08 and 2026-09-09: eleven PRs across two sittings all
+    reported `MERGED`, and the content of eleven of them reached no branch anybody reads — 5,348
+    lines the first time and 9,570 the second. Both took a full recovery PR to repair. Nothing in the
+    repo catches this; rule 9 covers the squash case and this covers the stacked one.
 
 ---
 

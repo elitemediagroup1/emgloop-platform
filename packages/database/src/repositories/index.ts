@@ -379,6 +379,8 @@ export interface Repositories {
   memberExpectations: ProviderMemberExpectationRepository;
 }
 
+import { WorkReactivationService } from '../services/work-reactivation.service';
+
 export function createRepositories(prisma: PrismaClient): Repositories {
   return {
     cognitive: createCognitiveRepositories(prisma),
@@ -404,7 +406,20 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     intelligence: new IntelligenceRepository(prisma),
     liveOperations: new LiveOperationsRepository(prisma),
     revenueIntelligence: new RevenueIntelligenceRepository(prisma),
-    work: new WorkRepository(prisma),
+    // THE ONE PLACE COMPLETION AND REACTION ARE TIED TOGETHER. Completing work
+    // is the repository's job; deciding what that unblocks elsewhere is the
+    // service's, and a repository importing a service would invert the layering
+    // this package is arranged around. Wiring them here keeps one completion
+    // path with one thing reacting to it, rather than an event contract with no
+    // producer -- which is how `EVENT_BUS.md` came to describe a system that
+    // does not exist.
+    work: new WorkRepository(prisma, (organizationId, workInstanceId, completedByUserId) =>
+      new WorkReactivationService(prisma).onWorkCompleted(organizationId, workInstanceId, {
+        userId: completedByUserId,
+        type: 'HUMAN',
+        source: 'work-os',
+      }),
+    ),
     verifiedKnowledge: new VerifiedKnowledgeRepository(prisma),
     marketplaceCalls: new MarketplaceCallRepository(prisma),
     marketplaceAuction: new MarketplaceAuctionRepository(prisma),

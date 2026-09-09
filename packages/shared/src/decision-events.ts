@@ -101,6 +101,43 @@ export const DECISION_EVENT_TYPE: Record<ObservationType, DecisionEventName> = {
   OUTCOME_RECORDED: 'DecisionOutcomeRecorded',
   RESOLVED: 'DecisionResolved',
   DISMISSED: 'DecisionClosed',
+
+  // --- Stage 4 investigation events -------------------------------------
+  // COLLAPSED ONTO THE EVENTS THEY ALREADY ANNOUNCED, AND THAT IS THE WHOLE
+  // POINT. Before these types existed, an authorization was a REVIEWED row and
+  // published `DecisionReviewed`; a finding, a recommendation and a participant
+  // change were all NOTE_ADDED rows and published `DecisionNoteAdded`. Mapping
+  // them anywhere else would change what every existing subscriber receives as
+  // a side effect of naming an observation better, which is not a vocabulary
+  // migration — it is a contract change wearing one.
+  //
+  // THE DISTINCTION IS NOT LOST, AND IS NOW BETTER THAN IT WAS. `changeType`
+  // carries the observation type verbatim, so a subscriber that needs to tell a
+  // recommendation selection from a note reads a governed enum member — where
+  // before it would have had to compare the reason paragraph, which the payload
+  // deliberately does not carry at all. This is the documented ASSIGNED /
+  // REASSIGNED collapse, applied for the same reason.
+  //
+  // A DEDICATED EVENT NAME IS A SEPARATE DECISION. Adding one means every
+  // subscription that wants it must list it in `eventTypes`, so it belongs with
+  // the first subscriber that actually needs it, not ahead of one.
+  INVESTIGATION_AUTHORIZED: 'DecisionReviewed',
+  FINDING_RECORDED: 'DecisionNoteAdded',
+  FINDING_SUPERSEDED: 'DecisionNoteAdded',
+  RECOMMENDATION_RECORDED: 'DecisionNoteAdded',
+  RECOMMENDATION_SELECTED: 'DecisionNoteAdded',
+  RECOMMENDATION_DISMISSED: 'DecisionNoteAdded',
+  RECOMMENDATION_REVISED: 'DecisionNoteAdded',
+  PARTICIPANT_ADDED: 'DecisionNoteAdded',
+  PARTICIPANT_CHANGED: 'DecisionNoteAdded',
+  PARTICIPANT_RELEASED: 'DecisionNoteAdded',
+
+  // Monitoring. STARTED announces what WATCH_STARTED announces, because it
+  // enters the same lane and a subscriber watching for "this is being watched"
+  // must keep hearing about it. The other two are progress inside the lane.
+  MONITORING_STARTED: 'DecisionWatched',
+  MONITORING_REVISED: 'DecisionNoteAdded',
+  MONITORING_CONCLUDED: 'DecisionOutcomeRecorded',
 };
 
 /** Which observation types announce a given event. Derived, never hand-listed. */

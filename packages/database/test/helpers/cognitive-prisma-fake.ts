@@ -114,6 +114,47 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
   stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
   stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
+  // The nullable execution columns a stage is BORN with. Neither is defaulted in
+  // the schema -- a defaulted due time is an obligation nobody agreed to -- so a
+  // row created without them must read `null` here exactly as it does in
+  // production, or an assessment reads `undefined` and reports UNKNOWN for the
+  // wrong reason.
+  workStage: {
+    status: 'pending',
+    actionableAt: null,
+    dueAt: null,
+    startedAt: null,
+    completedAt: null,
+    completedByUserId: null,
+    ownerUserId: null,
+    metadata: {},
+  },
+  workInstance: { status: 'active', metadata: {}, currentStageId: null, completedAt: null },
+  // Every nullable column on a dependency. `resolvedAt: null` is what makes a
+  // dependency OPEN, so a row born without it reads `undefined` and every block
+  // looks already cleared -- the same defect class the participant row hit.
+  workDependency: {
+    dependsOnWorkInstanceId: null,
+    conditionSubject: null,
+    expectedResolutionAt: null,
+    resolvedAt: null,
+    resolution: null,
+    resolvedByUserId: null,
+    createdByUserId: null,
+  },
+  workStageEvent: {
+    fromStatus: null,
+    toStatus: null,
+    waitReason: null,
+    waitSubject: null,
+    expectedResolutionAt: null,
+    dueAt: null,
+    dependencyId: null,
+    actorType: 'HUMAN',
+    actorUserId: null,
+    source: 'work-os',
+    note: null,
+  },
 };
 
 /**
@@ -134,6 +175,8 @@ const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
   // recorded after the fact. Without this the column is absent, and a read model
   // that projects it throws here while working in production.
   operationalObservation: ['recordedAt'],
+  // `occurredAt` is @default(now()) and callers that do not name it mean "now".
+  workStageEvent: ['occurredAt'],
 };
 
 /**
@@ -183,6 +226,13 @@ const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
   // A binding may supersede at most one predecessor. NULL is distinct in
   // Postgres, so this binds only rows that actually point at something.
   objectiveMeasureBinding: [['supersededByBindingId']],
+  // The append boundary on a stage's log: a concurrent double-append fails
+  // loudly rather than silently interleaving. Same device as
+  // operational_observations.
+  workStageEvent: [['workStageId', 'sequence']],
+  // One stage cannot declare the same work dependency twice. NULLs are distinct
+  // in Postgres, so several external conditions on one stage stay legal.
+  workDependency: [['workStageId', 'dependsOnWorkInstanceId']],
 };
 
 const DELEGATES = [
@@ -254,6 +304,15 @@ const DELEGATES = [
   'measurementSource',
   'measurementSourceMetric',
   'measureSourceAuthority',
+  // Work OS execution governance. All four are faked because the properties
+  // under test are exactly that a stage in another tenant is unreachable, that a
+  // status and its log row land together or not at all, and that a dependency
+  // cannot be declared across a tenant or into a cycle -- supplying any of those
+  // reads from the test would assume away what is being proven.
+  'workInstance',
+  'workStage',
+  'workStageEvent',
+  'workDependency',
 ] as const;
 
 let idSeq = 0;

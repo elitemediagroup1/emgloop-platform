@@ -271,6 +271,7 @@ export class CaseFindingService {
       hypothesisId: created.id,
       supersedes: existing?.id ?? null,
       actor: input.actor,
+      observationType: existing ? 'FINDING_SUPERSEDED' : 'FINDING_RECORDED',
       reason: existing ? FINDING_SUPERSEDED_REASON : FINDING_RECORDED_REASON,
     });
 
@@ -468,6 +469,7 @@ export class CaseFindingService {
         hypothesisId: head.id,
         supersedes: linkedId,
         actor,
+        observationType: 'FINDING_SUPERSEDED',
         reason: FINDING_SUPERSEDED_REASON,
       });
     }

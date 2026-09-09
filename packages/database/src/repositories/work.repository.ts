@@ -39,6 +39,8 @@ import {
   type WorkFieldDef,
 } from '../work-os/workflow';
 
+import { WORK_EXECUTION_STATES, type WorkExecutionState } from '@emgloop/shared';
+
 // --- Vocabulary (kept as string unions to match the spec's lowercase values) ---
 export const BLUEPRINT_STATUSES = ['active', 'archived'] as const;
 export type BlueprintStatus = (typeof BLUEPRINT_STATUSES)[number];
@@ -46,14 +48,16 @@ export type BlueprintStatus = (typeof BLUEPRINT_STATUSES)[number];
 export const WORK_INSTANCE_STATUSES = ['active', 'completed', 'cancelled'] as const;
 export type WorkInstanceStatus = (typeof WORK_INSTANCE_STATUSES)[number];
 
-export const WORK_STAGE_STATUSES = [
-  'pending',
-  'ready',
-  'in_progress',
-  'completed',
-  'skipped',
-] as const;
-export type WorkStageStatus = (typeof WORK_STAGE_STATUSES)[number];
+/**
+ * ONE VOCABULARY, DEFINED ONCE. This used to be a five-value list here; Stage 4
+ * needed three more (waiting_internal, waiting_external, blocked) and a pure
+ * assessor that reasons over all eight. Keeping a copy in each place is how this
+ * repository ended up with three workflow systems and two token sets, so the
+ * list lives in `@emgloop/shared` and this is the same array under the name
+ * every existing importer already uses.
+ */
+export const WORK_STAGE_STATUSES = WORK_EXECUTION_STATES;
+export type WorkStageStatus = WorkExecutionState;
 
 export const WORK_NOTIFICATION_TYPES = [
   'next_action_ready',
@@ -301,7 +305,30 @@ function stageMetaToStep(m: Record<string, unknown>): {
 }
 
 export class WorkRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  /**
+   * @param onWorkCompleted Called AFTER a work item's completion has committed.
+   *
+   * WHY A HOOK AND NOT A DIRECT CALL. Completing work is this repository's job;
+   * deciding what that unblocks elsewhere is not, and importing a service into a
+   * repository would invert the layering the whole package is arranged around.
+   * The composition root wires the two together, so there is exactly one
+   * completion path and exactly one thing that reacts to it.
+   *
+   * AFTER THE TRANSACTION, DELIBERATELY. The reaction reads the committed
+   * completion back and verifies it before acting; running inside the
+   * transaction would let a failure in the reaction roll back a completion the
+   * person watching had already been told about.
+   *
+   * OPTIONAL, so every existing caller and every test behaves exactly as before.
+   */
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly onWorkCompleted?: (
+      organizationId: string,
+      workInstanceId: string,
+      completedByUserId: string | null,
+    ) => Promise<unknown>,
+  ) {}
 
   // ------------------------------------------------------------------
   // Blueprints
@@ -755,8 +782,11 @@ export class WorkRepository {
   async completeWorkStep(input: CompleteWorkStepInput): Promise<WorkInstanceWithStages> {
     const activeIds = input.activeMemberIds ?? null;
     const owners = input.responsibilityOwners ?? null;
+    // Set inside the transaction, read after it commits. Nothing reacts to a
+    // completion that was rolled back.
+    let completedInstanceId: string | null = null;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const instance = await tx.workInstance.findUnique({
         where: { id: input.workInstanceId },
         include: { stages: { orderBy: { position: 'asc' } } },
@@ -803,6 +833,7 @@ export class WorkRepository {
             },
           });
         }
+        completedInstanceId = done.id;
         return done;
       }
 
@@ -841,6 +872,21 @@ export class WorkRepository {
       }
       return updated;
     });
+
+    // POST-COMMIT, AND ONLY ON A COMMITTED COMPLETION. The person completing a
+    // step is told it completed; whether something else downstream was unblocked
+    // is a separate fact, published through the outbox for whoever is listening.
+    // A failure here must not turn a committed completion into an error the
+    // caller reads as a failed write -- so it is swallowed, and the reaction is
+    // safe to run again because everything it does converges.
+    if (completedInstanceId && this.onWorkCompleted) {
+      await this.onWorkCompleted(
+        input.organizationId,
+        completedInstanceId,
+        input.completedByUserId ?? null,
+      ).catch(() => undefined);
+    }
+    return result;
   }
 
   // ------------------------------------------------------------------
@@ -1092,15 +1138,40 @@ export class WorkRepository {
   // ------------------------------------------------------------------
   // Reads for the queue UI
   // ------------------------------------------------------------------
-  async getWorkInstance(id: string): Promise<
+  /**
+   * One work instance, resolved WITHIN an organization.
+   *
+   * THE ORGANIZATION IS THE FIRST ARGUMENT, AND THAT IS THE WHOLE FIX. This
+   * method used to be `getWorkInstance(id)` -- a `findUnique` on a primary key,
+   * returning any tenant's work to any caller. Both call sites did compare
+   * `instance.organizationId` afterwards and were correct, which is exactly the
+   * problem: the safe call and the unsafe call looked identical at the call
+   * site, and the next caller inherits nothing.
+   *
+   * Sprint 29A found three cross-tenant writes introduced DURING four
+   * consecutive tenancy-hardening PRs, by people actively thinking about
+   * tenancy. The conclusion recorded then was that caller-enforced isolation
+   * cannot be sustained by review, and the fix is to make the unsafe call
+   * unwriteable. This is that fix, applied to the last read in Work OS that
+   * still had the old shape -- and applied now, because Commercial Intelligence
+   * is about to read Work state through it on behalf of a Case.
+   *
+   * NOT-FOUND, NEVER FORBIDDEN. Another tenant's work id returns null, exactly
+   * as a deleted one does. A distinguishable "forbidden" would confirm that the
+   * row exists, which is a disclosure about another tenant.
+   */
+  async getWorkInstance(
+    organizationId: string,
+    id: string,
+  ): Promise<
     | (WorkInstance & {
         stages: WorkStage[];
         comments: WorkComment[];
       })
     | null
   > {
-    return this.prisma.workInstance.findUnique({
-      where: { id },
+    return this.prisma.workInstance.findFirst({
+      where: { id, organizationId },
       include: {
         stages: { orderBy: { position: 'asc' } },
         comments: { orderBy: { createdAt: 'asc' } },

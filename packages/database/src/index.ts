@@ -112,6 +112,27 @@ export type {
   ParticipationResult,
 } from './services/case-participation.service';
 export { CaseParticipantRepository } from './repositories/case-participant.repository';
+// --- Work OS execution governance ---
+export { WorkExecutionRepository, normalizeState, toEventRecords, stageIsClosed, TRANSITION_REFUSALS } from './repositories/work-execution.repository';
+export type {
+  StageWithInstance,
+  TransitionInput,
+  TransitionRefusal,
+  TransitionResult,
+  DependencyResult,
+} from './repositories/work-execution.repository';
+export { WorkExecutionService } from './services/work-execution.service';
+export { WorkReactivationService, WORK_EVENT_NAMES } from './services/work-reactivation.service';
+export { CaseWorkCoordinationService } from './services/case-work-coordination.service';
+export { CaseMonitoringService, MONITORING_OUTCOMES } from './services/case-monitoring.service';
+export { CaseLearningService } from './services/case-learning.service';
+export { CaseWorkspaceService } from './services/case-workspace.service';
+export type { CaseWorkspaceView, AttentionView, CaseWorkspaceDeps } from './services/case-workspace.service';
+export type { CaseLearningDeps } from './services/case-learning.service';
+export type { MonitoringView, CaseMonitoringDeps, MonitoringActOutcome } from './services/case-monitoring.service';
+export type { CaseCoordinationDeps } from './services/case-work-coordination.service';
+export type { ReactivationResult, WorkReactivationDeps } from './services/work-reactivation.service';
+export type { WorkExecutionView, WorkExecutionDeps } from './services/work-execution.service';
 export type { AddParticipantInput } from './repositories/case-participant.repository';
 export { PersonalPriorityService } from './services/personal-priority.service';
 export type {

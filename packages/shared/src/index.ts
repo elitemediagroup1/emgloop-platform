@@ -207,6 +207,13 @@ export * from './case-brief';
 // accepting it or the deterministic Stage 3 gate proving the measurement under
 // it eligible. Establishment is derived on read, never stored, so a claim whose
 // evidence degrades stops being established without anything having to run.
+export * from './work-execution';
+export * from './case-work-coordination';
+export * from './case-monitoring';
+export * from './case-learning';
+export * from './attention-state';
+export * from './product-language';
+export * from './case-observation';
 export * from './case-finding';
 
 // What could be DONE about a finding, and the ceiling on how firmly Loop may say

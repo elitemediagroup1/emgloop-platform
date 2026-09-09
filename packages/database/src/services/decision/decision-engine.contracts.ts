@@ -173,6 +173,17 @@ export interface AddObservationInput extends DecisionActionInput {
 export interface LinkHypothesisInput extends DecisionActionInput {
   hypothesisId: string;
   /**
+   * What this link MEANS on the Case's log. Defaults to `NOTE_ADDED`.
+   *
+   * WHY THE CALLER CHOOSES. The engine knows a belief was attached; only the
+   * producer knows whether that is "a finding was recorded", "a newer finding
+   * replaced the previous one", or something a later producer records that has
+   * no vocabulary member yet. Deriving it here from `supersedes` would put one
+   * producer's product language inside producer-neutral machinery, and would be
+   * wrong the first time a second producer links a belief for its own reasons.
+   */
+  observationType?: OperationalObservationType;
+  /**
    * The belief this replaces, when it replaces one.
    *
    * REQUIRED TO REPOINT, AND IT MUST MATCH. A decision that already names a

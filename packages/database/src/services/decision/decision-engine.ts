@@ -400,13 +400,17 @@ export class DecisionEngine {
         organizationId,
         decision,
         {
-          // NOTE_ADDED CARRYING AN EXACT REASON LINE, because a dedicated
-          // observation type is a database enum member and therefore a migration,
-          // and a build emitting one would throw against production until somebody
-          // dispatched it by hand. The predicates in `@emgloop/shared` are the only
-          // place allowed to read the distinction back out. Recorded debt: the
-          // vocabulary should grow a member of its own.
-          observationType: 'NOTE_ADDED',
+          // THE CALLER NAMES THE MEANING, AND THE ENGINE STAYS NEUTRAL. Linking a
+          // belief is one mechanism serving several producers, and only the
+          // producer knows whether this row is a Finding being recorded, a
+          // Finding being superseded, or something a future producer records
+          // that has no name yet. NOTE_ADDED remains the default so a caller
+          // that expresses no opinion behaves exactly as before.
+          //
+          // The Decision Center must not learn the word "Finding". It is
+          // producer-neutral platform machinery, and a switch here on Stage 4
+          // vocabulary would be the inversion this layer exists to avoid.
+          observationType: input.observationType ?? 'NOTE_ADDED',
           occurredAt: input.occurredAt ?? new Date(),
           actor: input.actor,
           note: input.note ?? null,
@@ -419,7 +423,7 @@ export class DecisionEngine {
         decision: after,
         observation,
         effect: 'UPDATED' as const,
-        eventType: DECISION_EVENT_TYPE.NOTE_ADDED,
+        eventType: DECISION_EVENT_TYPE[observation.observationType],
       };
     });
   }

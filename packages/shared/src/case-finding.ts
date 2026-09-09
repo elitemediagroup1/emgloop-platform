@@ -43,6 +43,7 @@
 
 import type { MeasurementReadiness, ReadinessWithholding } from './measurement-readiness';
 import { MEASUREMENT_READINESS_RULE_VERSION } from './measurement-readiness';
+import { CASE_EVENT_REASONS, isCaseEvent } from './case-observation';
 
 export const FINDING_ESTABLISHMENT_RULE_VERSION = 'case-finding-establishment.v1';
 
@@ -523,45 +524,32 @@ export function findingIsCurrent(view: Pick<CaseFindingView, 'state'>): boolean 
 // --- The Case's own log ------------------------------------------------------------------
 
 /**
- * The exact line recorded on the Case when a Finding is attached to it.
+ * The line recorded on the Case when a Finding is attached to it.
  *
- * WHY A REASON LINE AND NOT AN OBSERVATION TYPE. `OperationalObservationType` is
- * a database enum, and adding a member is a migration -- which reaches
- * production only through a manually dispatched workflow, so a build that
- * emitted a new member would throw against the live schema until somebody ran
- * it. PR #1 met the same wall and answered it the same way, with `REVIEWED`
- * carrying `INVESTIGATION_AUTHORIZED_REASON`.
+ * THE DEBT THIS USED TO CARRY IS PAID. Until the vocabulary migration there was
+ * no observation type meaning "a finding was recorded", so `NOTE_ADDED` carried
+ * it and this sentence was the only thing separating a finding from a note.
+ * `FINDING_RECORDED` and `FINDING_SUPERSEDED` are governed enum members now, and
+ * this text is what a person reads on the timeline.
  *
- * THIS IS RECORDED DEBT, NOT A PATTERN TO GROW. `NOTE_ADDED` now carries two
- * meanings, and the honest fix is a dedicated observation vocabulary in a
- * migration of its own. Until that exists, these predicates are the ONLY place
- * allowed to make the distinction -- no behavioural analysis may treat a note as
- * a finding by reading the text itself.
+ * STILL WRITTEN, STILL VERBATIM. A Case whose log spans the migration must read
+ * as one continuous story, and `case-observation.ts` is the single place that
+ * knows both shapes mean the same thing.
  */
-export const FINDING_RECORDED_REASON =
-  'Loop recorded a finding on this investigation. A finding is a claim about what is ' +
-  'happening, not a decision about what to do.';
+export const FINDING_RECORDED_REASON = CASE_EVENT_REASONS.FINDING_RECORDED;
 
-export const FINDING_SUPERSEDED_REASON =
-  'A newer finding replaced the previous one on this investigation. The previous finding is ' +
-  'kept in full.';
+export const FINDING_SUPERSEDED_REASON = CASE_EVENT_REASONS.FINDING_SUPERSEDED;
 
 export function isFindingRecorded(observation: {
   observationType: string;
   reason: string | null;
 }): boolean {
-  return (
-    observation.observationType === 'NOTE_ADDED' &&
-    observation.reason === FINDING_RECORDED_REASON
-  );
+  return isCaseEvent(observation, 'FINDING_RECORDED');
 }
 
 export function isFindingSuperseded(observation: {
   observationType: string;
   reason: string | null;
 }): boolean {
-  return (
-    observation.observationType === 'NOTE_ADDED' &&
-    observation.reason === FINDING_SUPERSEDED_REASON
-  );
+  return isCaseEvent(observation, 'FINDING_SUPERSEDED');
 }

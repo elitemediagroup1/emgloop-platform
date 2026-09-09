@@ -58,6 +58,8 @@
  * APPROVE         Must sign off before something consequential happens.
  * INFORMED        Needs to know. Asked for nothing.
  */
+import { CASE_EVENT_REASONS, isCaseEvent } from './case-observation';
+
 export const CASE_CONTRIBUTIONS = [
   'DECIDE',
   'INVESTIGATE',
@@ -325,18 +327,13 @@ export function suggestParticipants(input: {
 // --- The Case's own log ----------------------------------------------------------------------
 
 /** The exact line written on the Case when somebody is asked to participate. */
-export const PARTICIPANT_ADDED_REASON =
-  'A person was asked to contribute to this investigation. Being asked is not being ' +
-  'assigned work, and nothing was created anywhere else.';
+export const PARTICIPANT_ADDED_REASON = CASE_EVENT_REASONS.PARTICIPANT_ADDED;
 
 /** The exact line written when somebody is released from an investigation. */
-export const PARTICIPANT_RELEASED_REASON =
-  'A person was released from this investigation. What they were asked for is kept.';
+export const PARTICIPANT_RELEASED_REASON = CASE_EVENT_REASONS.PARTICIPANT_RELEASED;
 
 /** The exact line written when what a person is being asked for changes. */
-export const PARTICIPANT_CHANGED_REASON =
-  'What a person is being asked to contribute to this investigation changed. The previous ' +
-  'request is kept on this log.';
+export const PARTICIPANT_CHANGED_REASON = CASE_EVENT_REASONS.PARTICIPANT_CHANGED;
 
 export const PARTICIPATION_EVENTS = ['ADDED', 'RELEASED', 'CHANGED'] as const;
 export type ParticipationEvent = (typeof PARTICIPATION_EVENTS)[number];
@@ -344,22 +341,14 @@ export type ParticipationEvent = (typeof PARTICIPATION_EVENTS)[number];
 /**
  * True when this log row records a participation event of the given kind.
  *
- * THE SAME DEVICE AND THE SAME RECORDED DEBT as the Finding and Recommendation
- * predicates: a dedicated `OperationalObservationType` member is a database enum
- * and therefore a migration, so `NOTE_ADDED` carries the distinction through an
- * exact reason line. These predicates are the only place allowed to read it back
- * out.
+ * THE DEBT IS PAID, HERE AND IN THE FINDING AND RECOMMENDATION PREDICATES.
+ * `PARTICIPANT_ADDED`, `PARTICIPANT_CHANGED` and `PARTICIPANT_RELEASED` are
+ * governed enum members; this reads one instead of an English sentence, through
+ * the module that also knows how the pre-migration rows were written.
  */
 export function isParticipationEvent(
   observation: { observationType: string; reason: string | null },
   kind: ParticipationEvent,
 ): boolean {
-  if (observation.observationType !== 'NOTE_ADDED') return false;
-  const expected =
-    kind === 'ADDED'
-      ? PARTICIPANT_ADDED_REASON
-      : kind === 'RELEASED'
-        ? PARTICIPANT_RELEASED_REASON
-        : PARTICIPANT_CHANGED_REASON;
-  return observation.reason === expected;
+  return isCaseEvent(observation, `PARTICIPANT_${kind}` as const);
 }
