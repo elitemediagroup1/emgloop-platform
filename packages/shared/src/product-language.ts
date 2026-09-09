@@ -27,6 +27,8 @@ import type { ReadinessOutcome, ReadinessWithholding } from './measurement-readi
 import type { AttentionState } from './attention-state';
 import type { SlaState, WorkExecutionState } from './work-execution';
 import type { MonitoringVerdict } from './case-monitoring';
+import type { FactorLevel, RecommendationFactor, RecommendationPosture } from './case-recommendation';
+import type { PriorityState } from './operational-lifecycle';
 
 export const PRODUCT_LANGUAGE_VERSION = 'product-language.v1';
 
@@ -214,6 +216,167 @@ export const ATTENTION_LANGUAGE: Record<AttentionState, ProductLabel> = {
   NOTHING_TO_CHECK: { tone: 'NEEDS_SETUP', label: 'Nothing to check', detail: 'Nobody has told Loop what to watch.', from: 'NOTHING_TO_CHECK' },
 };
 
+// --- Recommendation vocabulary ---------------------------------------------------------
+
+/**
+ * The nine tradeoff factors, in the words a person weighing options reads.
+ *
+ * HERE RATHER THAN IN A COMPONENT, for the same reason as everything above: a
+ * `const FACTOR_LABELS` in a React file is the second dictionary, and the second
+ * dictionary is how "Downside risk" and "Risk" end up on two screens meaning one
+ * thing. The engine's vocabulary stays exactly as it is; this says how to read it.
+ */
+export const FACTOR_LANGUAGE: Record<RecommendationFactor, { label: string; detail: string }> = {
+  EVIDENCE_STRENGTH: {
+    label: 'Evidence',
+    detail: 'How much Loop can currently stand behind about the claim this responds to.',
+  },
+  EXPECTED_BENEFIT: {
+    label: 'Expected benefit',
+    detail: 'How much this is expected to help, if it works.',
+  },
+  DOWNSIDE_RISK: { label: 'Downside', detail: 'What it costs if this turns out to be the wrong move.' },
+  REVERSIBILITY: { label: 'Reversibility', detail: 'How easily this can be undone.' },
+  URGENCY: { label: 'Urgency', detail: 'How much the situation worsens while nobody acts.' },
+  EFFORT: { label: 'Effort', detail: 'What it takes from people here to do this.' },
+  OPERATIONAL_RISK: {
+    label: 'Operational risk',
+    detail: 'What else this could disturb while it is happening.',
+  },
+  RELATIONSHIP_RISK: {
+    label: 'Relationship risk',
+    detail: 'How a counterparty is likely to read this.',
+  },
+  TIME_TO_RESULT: { label: 'Time to result', detail: 'How long before anybody can tell whether it worked.' },
+};
+
+/**
+ * Factor levels.
+ *
+ * UNKNOWN IS NOT A POLITE MODERATE. It means nobody assessed it, and it reads
+ * differently — "Not assessed" — because a surface that rendered it as a middle
+ * value would turn an absence into a measurement.
+ */
+export const FACTOR_LEVEL_LANGUAGE: Record<FactorLevel, ProductLabel> = {
+  LOW: { tone: 'VERIFIED', label: 'Low', detail: 'Assessed as low.', from: 'LOW' },
+  MODERATE: { tone: 'INCOMPLETE', label: 'Moderate', detail: 'Assessed as moderate.', from: 'MODERATE' },
+  HIGH: { tone: 'CONFLICTING', label: 'High', detail: 'Assessed as high.', from: 'HIGH' },
+  UNKNOWN: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Not assessed',
+    detail: 'Nobody assessed this factor, so it is not part of the comparison.',
+    from: 'UNKNOWN',
+  },
+};
+
+/**
+ * How committing an option is.
+ *
+ * THE CEILING IS EVIDENCE-GOVERNED. `maxPostureFor` refuses a committed change
+ * on weak evidence, so these words describe a constraint the engine enforces
+ * rather than a mood the UI sets.
+ */
+export const POSTURE_LANGUAGE: Record<RecommendationPosture, ProductLabel> = {
+  LEARN_BEFORE_ACTING: {
+    tone: 'VERIFIED',
+    label: 'Learn first',
+    detail: 'Gathers information. Costs time and changes nothing.',
+    from: 'LEARN_BEFORE_ACTING',
+  },
+  DIAGNOSTIC: {
+    tone: 'VERIFIED',
+    label: 'Find out',
+    detail: 'Establishes what is actually happening. Changes nothing outside Loop.',
+    from: 'DIAGNOSTIC',
+  },
+  REVERSIBLE_MITIGATION: {
+    tone: 'INCOMPLETE',
+    label: 'Reversible change',
+    detail: 'A change that can be undone within the period, at a known cost.',
+    from: 'REVERSIBLE_MITIGATION',
+  },
+  COMMITTED_CHANGE: {
+    tone: 'CONFLICTING',
+    label: 'Committed change',
+    detail: 'A change that cannot be cheaply undone: spend, contracts, relationships.',
+    from: 'COMMITTED_CHANGE',
+  },
+};
+
+/**
+ * Case lifecycle states, in product language.
+ *
+ * WATCHING IS MONITORING, and it reads that way. The backend keeps its name; a
+ * person is told what it means for them.
+ */
+export const CASE_STATE_LANGUAGE: Record<PriorityState, ProductLabel> = {
+  NEEDS_REVIEW: {
+    tone: 'INCOMPLETE',
+    label: 'Needs review',
+    detail: 'Authorized, and nobody has picked it up yet.',
+    from: 'NEEDS_REVIEW',
+  },
+  ASSIGNED: {
+    tone: 'VERIFIED',
+    label: 'Under investigation',
+    detail: 'Somebody is working on it.',
+    from: 'ASSIGNED',
+  },
+  WATCHING: {
+    tone: 'VERIFIED',
+    label: 'Monitoring',
+    detail: 'The work is done and Loop is watching whether it held.',
+    from: 'WATCHING',
+  },
+  RESOLVED: { tone: 'VERIFIED', label: 'Resolved', detail: 'Closed, having acted.', from: 'RESOLVED' },
+  DISMISSED: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Closed without acting',
+    detail: 'Closed because it did not need action, not because it was fixed.',
+    from: 'DISMISSED',
+  },
+};
+
+/**
+ * Finding states.
+ *
+ * ESTABLISHED IS NOT ACCEPTED, and the two must never share a word. A human
+ * accepting a claim is a decision; establishment is what the evidence currently
+ * supports, and it can weaken on its own.
+ */
+export const FINDING_STATE_LANGUAGE: Record<string, ProductLabel> = {
+  DEVELOPING: {
+    tone: 'INCOMPLETE',
+    label: 'Developing',
+    detail: 'Loop has a claim, and the evidence does not yet meet the standard to establish it.',
+    from: 'DEVELOPING',
+  },
+  ESTABLISHED: {
+    tone: 'VERIFIED',
+    label: 'Established',
+    detail: 'The evidence currently meets the governed standard. This is re-derived on every read.',
+    from: 'ESTABLISHED',
+  },
+  REJECTED: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Rejected',
+    detail: 'A person judged this claim wrong.',
+    from: 'REJECTED',
+  },
+  SUPERSEDED: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Superseded',
+    detail: 'A newer claim replaced it. This one is kept in full.',
+    from: 'SUPERSEDED',
+  },
+  EXPIRED: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Expired',
+    detail: 'It aged out without being established or rejected.',
+    from: 'EXPIRED',
+  },
+};
+
 /**
  * Every label, by the governed state it translates.
  *
@@ -230,6 +393,12 @@ export function productLabel(state: string): ProductLabel | null {
     (SLA_LANGUAGE as Record<string, ProductLabel>)[state] ??
     (MONITORING_LANGUAGE as Record<string, ProductLabel>)[state] ??
     (ATTENTION_LANGUAGE as Record<string, ProductLabel>)[state] ??
+    (POSTURE_LANGUAGE as Record<string, ProductLabel>)[state] ??
+    (CASE_STATE_LANGUAGE as Record<string, ProductLabel>)[state] ??
+    FINDING_STATE_LANGUAGE[state] ??
+    // Factor levels last: LOW/MODERATE/HIGH/UNKNOWN are the most generic names
+    // in the vocabulary, and a state from a richer map must win the lookup.
+    (FACTOR_LEVEL_LANGUAGE as Record<string, ProductLabel>)[state] ??
     // NULL RATHER THAN A GUESS. A state with no label is a state somebody added
     // without deciding what to call it, and rendering the raw enum is better
     // than rendering a plausible-sounding word for something nobody chose.
