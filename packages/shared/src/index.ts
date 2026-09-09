@@ -207,6 +207,7 @@ export * from './case-brief';
 // accepting it or the deterministic Stage 3 gate proving the measurement under
 // it eligible. Establishment is derived on read, never stored, so a claim whose
 // evidence degrades stops being established without anything having to run.
+export * from './work-execution';
 export * from './case-observation';
 export * from './case-finding';
 

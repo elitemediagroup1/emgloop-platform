@@ -259,6 +259,12 @@ model Organization {
   sourceAuthorities       MeasureSourceAuthority[]
   // --- Commercial Intelligence Stage 4 ---
   caseParticipants        CaseParticipant[]
+  // --- Work OS execution governance ---
+  // The first Work OS tables with a real foreign key to an organization. The
+  // originals carry organizationId as a bare string, which is why deleting an
+  // organization orphans them; new tables do not repeat that.
+  workStageEvents         WorkStageEvent[]
+  workDependencies        WorkDependency[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -1296,20 +1302,178 @@ model WorkStage {
   name              String
   description       String?
   position          Int
-  status            String    @default("pending") // pending | ready | in_progress | completed | skipped
+  /// THE EXISTING COLUMN, WITH THREE MORE VALUES. Stage 4 needed to tell active
+  /// execution from legitimate waiting from being blocked, all three of which
+  /// previously had to be recorded as `in_progress`. The vocabulary is
+  /// WORK_EXECUTION_STATES in `@emgloop/shared`; a parallel `executionState`
+  /// column beside this one would have been a second status for one thing.
+  /// pending | ready | in_progress | waiting_internal | waiting_external |
+  /// blocked | completed | skipped
+  status            String    @default("pending")
   ownerUserId       String?
   startedAt         DateTime?
   completedAt       DateTime?
   completedByUserId String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  metadata          Json      @default("{}")
 
-  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+  /// When this obligation first became something its owner could act on.
+  /// EXECUTION TRUTH, NOT POLICY: the 12h/24h thresholds are evaluated against
+  /// the event log, never stored. Null on every stage created before the
+  /// execution foundation existed, and null means unknown -- see the UNKNOWN
+  /// member of SLA_STATES, which is why those are not reported as compliant.
+  actionableAt      DateTime?
+  /// When somebody said this should be done by. NULLABLE AND NEVER DEFAULTED: a
+  /// defaulted due time is an obligation nobody agreed to, and it would make
+  /// every historical row retroactively late.
+  dueAt             DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  metadata  Json     @default("{}")
+
+  workInstance WorkInstance    @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+  events       WorkStageEvent[]
+  dependencies WorkDependency[] @relation("DependentStage")
 
   @@index([ownerUserId, status])
   @@index([workInstanceId, position])
+  /// The queue read: everything actionable in one organization, oldest first.
+  @@index([status, dueAt])
   @@map("work_stages")
+}
+
+/// APPEND-ONLY. What happened to one execution obligation, in order.
+///
+/// WHY WORK OS NEEDED A LOG. Stage 4 has to answer how long something has been
+/// actionable, how long it waited internally versus externally, and how many
+/// times its expected time was moved. Every one of those is a duration, and a
+/// duration cannot be recovered from a current-state column -- `status` knows
+/// where a stage is, never where it has been. The alternative was counter
+/// columns, which drift the first time an event is written without them; this
+/// repository has made that mistake under other names and the Decision Center
+/// already chose the log instead.
+///
+/// NOTHING HERE IS EVER UPDATED OR DELETED. There is no `updatedAt`, on purpose.
+/// A projection is rebuilt from these rows; these rows are not corrected.
+///
+/// NOT A DELIVERY RECORD. "A reminder fired" is a fact about a notification and
+/// belongs to whatever sends one. Reminder and escalation eligibility are
+/// derived from these rows on every read, so they cannot go stale and cannot be
+/// faked by writing a flag.
+model WorkStageEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  workInstanceId String
+  workStageId    String
+
+  /// STATE_CHANGED | DUE_SET | DUE_EXTENDED | DEPENDENCY_ADDED |
+  /// DEPENDENCY_RESOLVED | NOTE_ADDED -- WORK_EVENT_TYPES in `@emgloop/shared`.
+  eventType String
+
+  /// Monotonic per stage. Gives the log a deterministic order independent of
+  /// timestamp collisions, and the unique below makes concurrent appends fail
+  /// loudly rather than silently interleave. Same device as
+  /// `operational_observations.sequence`.
+  sequence   Int
+  occurredAt DateTime @default(now())
+
+  /// Present on STATE_CHANGED. Both ends are stored rather than re-derived so a
+  /// reader can answer "what changed" without replaying the log up to that row.
+  fromStatus String?
+  toStatus   String?
+
+  /// Present when the change was into a waiting state. A CODE, not prose:
+  /// whether the accountability clock pauses must not be decided by wording.
+  waitReason           String?
+  /// What is being waited on, in the caller's terms. Opaque -- never parsed.
+  waitSubject          String?
+  /// When it is expected to resolve, IF anybody said. Null is "we do not know",
+  /// and it stays null rather than becoming a guess.
+  expectedResolutionAt DateTime?
+
+  /// The due time as of this event, on DUE_SET and DUE_EXTENDED. Every move
+  /// stays visible: an obligation extended four times is a different fact from
+  /// one extended once, and only this log knows.
+  dueAt DateTime?
+
+  /// Set on DEPENDENCY_ADDED / DEPENDENCY_RESOLVED.
+  dependencyId String?
+
+  /// HUMAN | SYSTEM.
+  actorType   String  @default("HUMAN")
+  actorUserId String?
+  /// What produced it: 'operator', 'work-os', a producer key.
+  source      String  @default("work-os")
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workStage    WorkStage    @relation(fields: [workStageId], references: [id], onDelete: Cascade)
+
+  @@unique([workStageId, sequence])
+  @@index([organizationId, workStageId, sequence])
+  @@index([organizationId, eventType, occurredAt])
+  @@index([dependencyId])
+  @@map("work_stage_events")
+}
+
+/// One execution obligation cannot proceed until something else resolves.
+///
+/// NOT STAGE-TO-STAGE WITHIN ONE WORK ITEM. `work_stages.position` already
+/// sequences the steps of a work item and `completeWorkStep` already readies the
+/// next one. A dependency row restating that would be a second, contradictable
+/// representation of a fact the position column owns, and the two would disagree
+/// the first time somebody skipped a step.
+///
+/// COMMERCIAL INTELLIGENCE MAY NOT WRITE THESE. A Case can observe that work is
+/// blocked; it cannot declare or resolve a block, because that is a statement
+/// about execution and execution is owned here. Resolution comes from an
+/// authoritative Work transition or an attributed person, never from an
+/// inference elsewhere in the platform.
+model WorkDependency {
+  id             String @id @default(cuid())
+  organizationId String
+  /// The obligation that is waiting.
+  workStageId    String
+
+  /// WORK_INSTANCE | EXTERNAL_CONDITION -- DEPENDENCY_KINDS in `@emgloop/shared`.
+  kind String
+
+  /// Set when `kind` is WORK_INSTANCE. Tenant-checked before it is written: a
+  /// dependency can never point at another organization's work.
+  dependsOnWorkInstanceId String?
+  /// What the condition is, when it is external. In the caller's terms, never
+  /// parsed here.
+  conditionSubject        String?
+  /// The sentence a person reads. Carries no policy meaning.
+  description             String
+
+  /// When it is expected to clear, if anybody said. Null is unknown.
+  expectedResolutionAt DateTime?
+
+  /// NULL WHILE IT BLOCKS. A resolved dependency keeps its row: deleting it
+  /// would erase the reason a piece of work was stalled for a week, which is
+  /// exactly the history somebody will want afterwards.
+  resolvedAt         DateTime?
+  /// DEPENDED_WORK_COMPLETED | CONFIRMED_BY_PERSON | ABANDONED. Never null on a
+  /// resolved row: "it stopped blocking" without saying how is not inspectable.
+  resolution         String?
+  resolvedByUserId   String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workStage    WorkStage    @relation("DependentStage", fields: [workStageId], references: [id], onDelete: Cascade)
+
+  /// The same stage cannot declare the same work dependency twice. NULLs are
+  /// distinct in Postgres, so external conditions are not constrained by this --
+  /// two different external waits on one stage are legitimate.
+  @@unique([workStageId, dependsOnWorkInstanceId], map: "work_dependencies_stage_depends_on_key")
+  @@index([organizationId, workStageId, resolvedAt])
+  @@index([organizationId, dependsOnWorkInstanceId, resolvedAt])
+  @@map("work_dependencies")
 }
 
 model WorkAssignment {

@@ -369,7 +369,16 @@ test('nothing executable is created by any participation act', async () => {
   await participation.add(ORG, caseId, ask(MATT, 'INVESTIGATE', 'Check the feed.'));
   await participation.release(ORG, caseId, MATT, 'INVESTIGATE', asHuman(CHARLIE));
 
-  for (const table of ['workInstance', 'workStage', 'workAssignment', 'blueprint', 'workNotification']) {
+  // WORK OS IS NOW MODELLED ON THIS DOUBLE, so "the table does not exist" is no
+  // longer available as a proxy -- and what replaces it is stronger. The tables
+  // are present and reachable, and Commercial Intelligence still writes nothing
+  // into any of them. Absence of a capability proved nothing about restraint;
+  // this proves restraint.
+  for (const table of ['workInstance', 'workStage', 'workStageEvent', 'workDependency']) {
+    assert.equal((await (prisma as never as Record<string, { findMany(a: object): Promise<unknown[]> }>)[table]!.findMany({})).length, 0, `participation must not create ${table}`);
+  }
+  // These three are still not modelled at all, so reaching them would throw.
+  for (const table of ['workAssignment', 'blueprint', 'workNotification']) {
     assert.equal(table in prisma, false, `participation must not reach ${table}`);
   }
 });

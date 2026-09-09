@@ -39,6 +39,8 @@ import {
   type WorkFieldDef,
 } from '../work-os/workflow';
 
+import { WORK_EXECUTION_STATES, type WorkExecutionState } from '@emgloop/shared';
+
 // --- Vocabulary (kept as string unions to match the spec's lowercase values) ---
 export const BLUEPRINT_STATUSES = ['active', 'archived'] as const;
 export type BlueprintStatus = (typeof BLUEPRINT_STATUSES)[number];
@@ -46,14 +48,16 @@ export type BlueprintStatus = (typeof BLUEPRINT_STATUSES)[number];
 export const WORK_INSTANCE_STATUSES = ['active', 'completed', 'cancelled'] as const;
 export type WorkInstanceStatus = (typeof WORK_INSTANCE_STATUSES)[number];
 
-export const WORK_STAGE_STATUSES = [
-  'pending',
-  'ready',
-  'in_progress',
-  'completed',
-  'skipped',
-] as const;
-export type WorkStageStatus = (typeof WORK_STAGE_STATUSES)[number];
+/**
+ * ONE VOCABULARY, DEFINED ONCE. This used to be a five-value list here; Stage 4
+ * needed three more (waiting_internal, waiting_external, blocked) and a pure
+ * assessor that reasons over all eight. Keeping a copy in each place is how this
+ * repository ended up with three workflow systems and two token sets, so the
+ * list lives in `@emgloop/shared` and this is the same array under the name
+ * every existing importer already uses.
+ */
+export const WORK_STAGE_STATUSES = WORK_EXECUTION_STATES;
+export type WorkStageStatus = WorkExecutionState;
 
 export const WORK_NOTIFICATION_TYPES = [
   'next_action_ready',
