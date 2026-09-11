@@ -292,7 +292,7 @@ Loop's claim about what is happening. **Four states, and two independent axes.**
 | | Meaning |
 |---|---|
 | **Accepted** | a person judged the claim correct |
-| **Rejected** | a person judged it wrong. It stays as history |
+| **Rejected** | a person judged it wrong. It is still the current claim, and Loop keeps evaluating its evidence |
 
 ### The distinction that must never collapse
 
@@ -303,9 +303,11 @@ Loop's claim about what is happening. **Four states, and two independent axes.**
 
 Three consequences for your designs:
 
-1. **Accepting does not make weak evidence strong.** For a measurement-backed
-   claim, acceptance is one input to the gate — never a bypass. The control says
-   so on screen.
+1. **Accepting does not make weak evidence strong, and rejecting does not make
+   strong evidence weak.** A person's judgement is not an input to the gate at
+   all: Established + Rejected and Developing + Accepted are both ordinary. The
+   control says so on screen. *(Corrected in Stage 5 PR 1 — until then an
+   acceptance established a claim outright.)*
 2. **Establishment can weaken by itself.** If the measurement behind a claim
    degrades, the same stored claim stops reading as Established — with nothing
    written in between and nobody having changed their mind. Please do not design

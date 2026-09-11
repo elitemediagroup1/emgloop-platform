@@ -12,11 +12,20 @@
 // expression of that is a boundary a person crosses rather than a status a
 // machine sets.
 //
-// THE KNOWLEDGE AUTHORITY ALREADY EXISTS AND IS NOT DUPLICATED.
-// `KnowledgeAssertion` carries `assertionClass: ORGANIZATIONAL`, a status that
-// starts PROPOSED and only a person moves to ACTIVE, explicit supersession, and
-// a header recording that a class is "NEVER silently promoted". A second store
-// for what EMG has learned would be a second Brain.
+// A KNOWLEDGE STORE ALREADY EXISTS AND IS NOT DUPLICATED -- BUT IT HAS NO HUMAN
+// PROMOTION PATH. `KnowledgeAssertion` carries an ORGANIZATIONAL class and
+// explicit supersession, and its repository creates rows ACTIVE by default, with
+// no method that promotes a PROPOSED row, none that rejects one and no approver
+// recorded. The human boundary Stage 4 requires is therefore the nomination
+// itself, which writes nothing. A second store for what EMG has learned would be
+// a second Brain; whether this one is the right destination is an open Stage 5
+// decision.
+//
+// WHAT THE EVIDENCE LOOKED LIKE AT DECISION TIME IS NOT KNOWN, AND IS SAID TO BE
+// UNKNOWN. Evidence state is derived on every read and nothing records it as
+// decisions are taken, so a reading taken now would describe today's evidence
+// under a label claiming to be the past. `evidenceAtDecision` is unrecorded, with
+// the reason, until Loop records its evaluations as they happen.
 //
 // WHAT IT REFUSES TO KNOW. Whether the selected sequence is the executed one.
 // Loop knows what was chosen and that work was created; it does not know what
@@ -25,6 +34,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import {
+  EVIDENCE_AT_DECISION_UNRECORDED,
   assessPattern,
   comparableKey,
   groupComparable,
@@ -40,12 +50,10 @@ import {
 
 import { DecisionEngine } from './decision/decision-engine';
 import { CaseMonitoringService } from './case-monitoring.service';
-import { CaseFindingService } from './case-finding.service';
 
 export interface CaseLearningDeps {
   cases?: Pick<DecisionEngine, 'get' | 'list'>;
   monitoring?: Pick<CaseMonitoringService, 'get'>;
-  findings?: Pick<CaseFindingService, 'get'>;
   decisions?: { findMany(args: unknown): Promise<unknown[]> };
 }
 
@@ -55,7 +63,6 @@ const CLOSED_STATES = ['RESOLVED', 'DISMISSED'] as const;
 export class CaseLearningService {
   private readonly cases: Pick<DecisionEngine, 'get' | 'list'>;
   private readonly monitoring: Pick<CaseMonitoringService, 'get'>;
-  private readonly findings: Pick<CaseFindingService, 'get'>;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -63,7 +70,6 @@ export class CaseLearningService {
   ) {
     this.cases = deps.cases ?? new DecisionEngine(prisma);
     this.monitoring = deps.monitoring ?? new CaseMonitoringService(prisma);
-    this.findings = deps.findings ?? new CaseFindingService(prisma);
   }
 
   /**
@@ -94,7 +100,6 @@ export class CaseLearningService {
     };
 
     const monitoring = await this.monitoring.get(organizationId, caseId, now);
-    const finding = await this.findings.get(organizationId, caseId, now);
 
     return {
       caseId,
@@ -113,13 +118,9 @@ export class CaseLearningService {
       executed: null,
       outcome: (view.decision.outcome as OperationalOutcome | null) ?? null,
       monitoringVerdict: (monitoring?.assessment?.verdict as MonitoringVerdict | null) ?? null,
-      evidenceAtDecision: {
-        findingEstablished: finding?.state === 'ESTABLISHED',
-        readinessOutcome: finding?.establishment.readinessWithholdings.length
-          ? 'WITHHELD'
-          : (finding?.establishment.eligible ? 'READY' : null),
-        supportingCount: finding?.supporting.length ?? 0,
-      },
+      // UNRECORDED, NOT READ NOW. See the header: today's reading of the
+      // evidence is not the evidence this decision was made on.
+      evidenceAtDecision: { recorded: false, reason: EVIDENCE_AT_DECISION_UNRECORDED },
       closedAt: view.decision.resolvedAt?.toISOString() ?? null,
     };
   }

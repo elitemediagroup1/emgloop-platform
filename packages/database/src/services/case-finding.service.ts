@@ -8,8 +8,11 @@
 // appends an observation so the attachment is on the investigation's own log.
 // There is no third table, no Finding model and no migration.
 //
-// ESTABLISHMENT IS DERIVED, NEVER STORED. `get` recomputes the gate on every
-// read from the live Stage 3 verdict and the Case's evidence. That is the whole
+// ESTABLISHMENT IS DERIVED, NEVER STORED, AND NO PERSON CAN SET IT. `get`
+// recomputes the gate on every read from the live Stage 3 verdict and the Case's
+// evidence, and reports a person's acceptance or rejection on a separate axis
+// that the gate never reads. Human authority may authorize action under
+// uncertainty; it cannot authorize certainty. That is the whole
 // design: a Finding whose day stops reconciling, whose authority becomes
 // contested or whose evidence gains a contradiction STOPS being established by
 // itself, with no job to run and no row anyone has to remember to correct. A
@@ -45,17 +48,18 @@ import {
   assessFindingEstablishment,
   findEvidenceContradictions,
   findingClaimKind,
+  findingEvidenceState,
   findingHypothesisType,
-  findingIsLive,
+  findingJudgment,
+  findingLifecycle,
   type CaseFindingView,
   type FindingClaimKind,
   type FindingEstablishment,
-  type FindingEstablishmentBasis,
   type FindingEvidenceRef,
   type FindingGeneratedBy,
   type FindingLineageEntry,
   type FindingReasoning,
-  type FindingState,
+  type FindingRecordFacts,
   type FindingStatement,
   type HeadlineView,
   type MeasurementReadiness,
@@ -284,28 +288,46 @@ export class CaseFindingService {
   }
 
   /**
-   * A person accepts the claim.
+   * A person accepts the claim. A JUDGMENT, AND NOTHING MORE.
    *
-   * THE EXISTING HUMAN PATH, UNCHANGED AND NOT WRAPPED IN A NEW RULE. The
-   * repository refuses an unattributed actor, and this service adds nothing to
-   * that: accepting a Finding is the one way a NON_MEASUREMENT claim can become
-   * established, precisely because a person is answerable for it.
+   * It is recorded, attributed and shown, and it does not establish anything:
+   * whether Loop can establish the claim is decided by the evidence alone, on
+   * every read, and the gate never reads this. The repository refuses an
+   * unattributed actor.
+   *
+   * SCOPED TO THE CASE'S CURRENT FINDING. The claim must be the one this Case
+   * currently carries, in this organization, and still current -- not a
+   * superseded ancestor and not another Case's claim that happens to share the
+   * tenant. Anything else answers null, exactly as a claim that does not exist
+   * would, and nothing is written.
    */
-  accept(
+  async accept(
     organizationId: string,
+    caseId: string,
     findingId: string,
     acceptedByUserId: string,
   ): Promise<IntelligenceHypothesis | null> {
-    return this.hypotheses.accept(organizationId, findingId, acceptedByUserId);
+    const target = await this.judgeable(organizationId, caseId, findingId);
+    if (!target) return null;
+    return this.hypotheses.accept(organizationId, target.id, acceptedByUserId);
   }
 
-  /** A person rejects the claim. It stays on the Case, as history. */
-  reject(
+  /**
+   * A person rejects the claim. A JUDGMENT, AND NOTHING MORE.
+   *
+   * The claim stays the current one on the Case and Loop keeps evaluating its
+   * evidence: a person disagreeing does not weaken the evidence, so a rejected
+   * claim can still read as established. Scoped exactly as `accept` is.
+   */
+  async reject(
     organizationId: string,
+    caseId: string,
     findingId: string,
     rejectedByUserId: string,
   ): Promise<IntelligenceHypothesis | null> {
-    return this.hypotheses.reject(organizationId, findingId, rejectedByUserId);
+    const target = await this.judgeable(organizationId, caseId, findingId);
+    if (!target) return null;
+    return this.hypotheses.reject(organizationId, target.id, rejectedByUserId);
   }
 
   // =========================================================================
@@ -341,31 +363,25 @@ export class CaseFindingService {
 
     const supporting = view.evidence.map(toEvidenceRef);
     const contradicting = findEvidenceContradictions(supporting);
-    const state = deriveState(finding);
-    const live = findingIsLive(state);
+    const facts = recordFacts(finding);
+    // LIFECYCLE, NOT JUDGMENT, DECIDES WHETHER THE EVIDENCE IS EVALUATED. A
+    // superseded or expired claim is history; a rejected one is still the claim
+    // on the Case, and its evidence is read exactly as an unjudged one's is.
+    const lifecycle = findingLifecycle(facts);
+    const current = lifecycle === 'CURRENT';
 
     const readiness =
-      claimKind === 'MEASUREMENT_BACKED' && live
+      claimKind === 'MEASUREMENT_BACKED' && current
         ? await this.readinessForCase(organizationId, view.decision, now)
         : null;
 
     const establishment = assessFindingEstablishment({
       claimKind,
-      live,
+      current,
       readiness,
       supporting,
       contradicting,
     });
-
-    // TWO WAYS TO BE ESTABLISHED, AND THE HUMAN ONE WINS THE ATTRIBUTION. A
-    // person who accepted the claim is answerable for it whether or not the
-    // deterministic gate also happens to agree today.
-    const humanAccepted = finding.status === 'ACCEPTED' && !!finding.acceptedBy;
-    const basis: FindingEstablishmentBasis | null = humanAccepted
-      ? 'HUMAN_ACCEPTANCE'
-      : establishment.eligible
-        ? 'DETERMINISTIC_POLICY'
-        : null;
 
     const lineage = await this.hypotheses.lineageOf(organizationId, finding.id);
 
@@ -375,13 +391,15 @@ export class CaseFindingService {
       claim: finding.title,
       conclusion: finding.summary,
       claimKind,
-      state: live && basis ? 'ESTABLISHED' : state,
       generatedBy: finding.generatedBy as FindingGeneratedBy,
-      establishedBy: basis,
-      establishedByUserId: humanAccepted ? finding.acceptedBy : null,
-      establishedAt: humanAccepted ? (finding.acceptedAt?.toISOString() ?? null) : null,
+      // THREE AXES, EACH FROM ITS OWN SOURCE. Evidence state from the gate and
+      // nothing else; judgment from the attributed columns; lifecycle from
+      // supersession and expiry. None is computed from another.
+      evidenceState: findingEvidenceState(establishment),
+      judgment: findingJudgment(facts),
+      lifecycle,
       establishment,
-      reasoning: deriveReasoning(view.evidence, supporting, contradicting, establishment, live),
+      reasoning: deriveReasoning(view.evidence, supporting, contradicting, establishment, current),
       supporting,
       createdAt: finding.createdAt.toISOString(),
       supportingWindowStart: finding.supportingWindowStart?.toISOString() ?? null,
@@ -449,6 +467,30 @@ export class CaseFindingService {
   }
 
   /**
+   * The Finding a person may judge on this Case, or null. A READ, and no repair.
+   *
+   * THREE SCOPES, ALL REQUIRED. The Case must exist in this organization; the
+   * claim must be the head of that Case's own chain -- so another Case's claim,
+   * or a superseded ancestor of this one, is refused; and it must still be
+   * CURRENT and a governed Finding. Every refusal is the same null, so this can
+   * never be used to learn that a claim exists somewhere it may not be touched.
+   */
+  private async judgeable(
+    organizationId: string,
+    caseId: string,
+    findingId: string,
+  ): Promise<IntelligenceHypothesis | null> {
+    if (!caseId?.trim() || !findingId?.trim()) return null;
+    const view = await this.cases.get(organizationId, caseId.trim());
+    if (!view?.decision.hypothesisId) return null;
+    const head = await this.headOfChain(organizationId, view.decision.hypothesisId);
+    if (!head || head.id !== findingId.trim()) return null;
+    if (!findingClaimKind(head.hypothesisType)) return null;
+    if (findingLifecycle(recordFacts(head)) !== 'CURRENT') return null;
+    return head;
+  }
+
+  /**
    * Resolve the Case's current Finding, completing an interrupted link on the way.
    *
    * THE ONE WRITE ON A READ-SHAPED PATH, and it is a repair: it only ever moves
@@ -495,25 +537,31 @@ function toEvidenceRef(e: DecisionEvidence): FindingEvidenceRef {
 }
 
 /**
- * The product state of a stored claim, before establishment is considered.
+ * The stored row, in the plain values the shared axis derivations read.
  *
- * THE STORED LIFECYCLE SHOWING THROUGH. `ACCEPTED` maps to DEVELOPING here and
- * is raised to ESTABLISHED by the caller once the basis is known, so there is
- * exactly one place that decides what established means.
+ * ONE TRANSLATION, so the judgment and lifecycle a surface sees come from the
+ * same functions the fixtures exercise, and this file holds no second opinion
+ * about what a status means.
  */
-function deriveState(h: IntelligenceHypothesis): FindingState {
-  if (h.supersededById || h.status === 'SUPERSEDED') return 'SUPERSEDED';
-  if (h.status === 'REJECTED') return 'REJECTED';
-  if (h.status === 'EXPIRED') return 'EXPIRED';
-  return 'DEVELOPING';
+function recordFacts(h: IntelligenceHypothesis): FindingRecordFacts {
+  return {
+    status: h.status,
+    supersededById: h.supersededById,
+    acceptedBy: h.acceptedBy,
+    acceptedAt: h.acceptedAt?.toISOString() ?? null,
+    rejectedBy: h.rejectedBy,
+    rejectedAt: h.rejectedAt?.toISOString() ?? null,
+  };
 }
 
 function toLineageEntry(h: IntelligenceHypothesis): FindingLineageEntry {
+  const facts = recordFacts(h);
   return {
     findingId: h.id,
     claim: h.title,
     conclusion: h.summary,
-    state: deriveState(h),
+    lifecycle: findingLifecycle(facts),
+    judgment: findingJudgment(facts),
     generatedBy: h.generatedBy as FindingGeneratedBy,
     createdAt: h.createdAt.toISOString(),
     supersededById: h.supersededById,
@@ -537,7 +585,7 @@ function deriveReasoning(
   supporting: readonly FindingEvidenceRef[],
   contradicting: ReturnType<typeof findEvidenceContradictions>,
   establishment: FindingEstablishment,
-  live: boolean,
+  current: boolean,
 ): FindingReasoning {
   const known: FindingStatement[] = supporting.map((e) => ({
     text: e.window ? `${e.metricKey} (${e.window})` : e.metricKey,
@@ -549,7 +597,7 @@ function deriveReasoning(
     if (s && !missing.includes(s)) missing.push(s);
   };
   for (const e of evidence) for (const u of e.unknowns) push(u);
-  if (live) for (const r of establishment.reasons) push(FINDING_INELIGIBILITY_LABELS[r]);
+  if (current) for (const r of establishment.reasons) push(FINDING_INELIGIBILITY_LABELS[r]);
 
   const unavailable: FindingReasoning['unavailable'] = { INFERRED: FINDING_INFERENCE_UNAVAILABLE };
   if (known.length === 0) {

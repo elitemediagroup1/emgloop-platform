@@ -7,23 +7,32 @@
 // rather than a measurement. That is exactly why it needs a gate: a claim that
 // can promote itself into truth is how a system starts lying confidently.
 //
-// TWO PRODUCT STATES, AND ONLY ONE OF THEM IS AUTONOMOUS.
+// THREE INDEPENDENT AXES, AND NONE OF THEM MAY STAND IN FOR ANOTHER.
 //
-//   DEVELOPING   Loop has a claim and is still assembling the evidence for it.
-//                Anything may be DEVELOPING, including a claim a model wrote.
-//   ESTABLISHED  The claim is backed. Reached in exactly two ways: a person
-//                accepted it, or the deterministic Stage 3 gate proved the
-//                measurement underneath it is eligible. There is no third way,
-//                and no argument that produces one.
+//   EVIDENCE STATE  What the evidence supports. DEVELOPING or ESTABLISHED, and
+//                   derived from governed evidence ONLY. Reached in exactly one
+//                   way today: the deterministic Stage 3 gate proved the
+//                   measurement underneath the claim is eligible.
+//   JUDGMENT        What a person decided. ACCEPTED, REJECTED or nothing yet,
+//                   with who and when.
+//   LIFECYCLE       Whether this is still the claim on the Case. CURRENT, or
+//                   SUPERSEDED by a newer claim, or EXPIRED.
 //
-// ESTABLISHED IS NOT `ACCEPTED`. `IntelligenceHypothesis.status` already carries
-// a hard invariant -- a hypothesis is only ever created PROPOSED, and acceptance
-// demands an attributed human -- and this file does not touch it. `ACCEPTED`
-// remains the human act it has always been. Autonomous establishment is a
-// SEPARATE, DERIVED property computed from Stage 3 evidence on every read, which
-// is what makes it safe: a Finding whose evidence degrades stops being
-// established by itself, with no job to run and no row to correct. A stored
-// establishment flag would have to be un-set by something, and nothing would.
+// HUMAN AUTHORITY MAY AUTHORIZE ACTION UNDER UNCERTAINTY, BUT IT CANNOT
+// AUTHORIZE CERTAINTY. A person accepting a claim does not establish it, and a
+// person rejecting one does not weaken its evidence or stop Loop evaluating it.
+// Established + Rejected and Developing + Accepted are both true, ordinary
+// states. Until Stage 5 PR 1 a person's acceptance established a claim outright,
+// which let an opinion stand where evidence should have.
+//
+// ESTABLISHMENT IS NEVER STORED. `IntelligenceHypothesis.status` carries the
+// judgment -- a hypothesis is only ever created PROPOSED, and acceptance demands
+// an attributed human -- and this file does not touch that invariant. Evidence
+// state is a SEPARATE, DERIVED property computed from Stage 3 evidence on every
+// read, which is what makes it safe: a Finding whose evidence degrades stops
+// being established by itself, with no job to run and no row to correct. A
+// stored establishment flag would have to be un-set by something, and nothing
+// would.
 //
 // THERE IS NO SECOND READINESS ENGINE. Eligibility is decided from a
 // `MeasurementReadiness` verdict produced by `assessReadiness` -- the same gate
@@ -62,9 +71,11 @@ export const FINDING_TYPE_PREFIX = 'case-finding:';
  *                     behaviour. Real intelligence, and there is no governed
  *                     standard for establishing it yet.
  *
- * A NON_MEASUREMENT Finding can never establish itself, no matter what generated
- * it and no matter how sure it sounds. It can still be ESTABLISHED by a person,
- * because a person taking responsibility is the standard that already exists.
+ * A NON_MEASUREMENT Finding cannot be established today, no matter what generated
+ * it, how sure it sounds or who accepts it. There is no governed evidence
+ * standard for claims of that kind yet, and a person's acceptance is a judgment
+ * rather than evidence. It stays DEVELOPING, says why, and can still be accepted
+ * or rejected like any other claim.
  */
 export const FINDING_CLAIM_KINDS = ['MEASUREMENT_BACKED', 'NON_MEASUREMENT'] as const;
 export type FindingClaimKind = (typeof FINDING_CLAIM_KINDS)[number];
@@ -91,39 +102,130 @@ export function findingClaimKind(hypothesisType: string): FindingClaimKind | nul
   return isFindingClaimKind(rest) ? rest : null;
 }
 
-// --- Lifecycle ------------------------------------------------------------------
+// --- The three axes ----------------------------------------------------------------
 
 /**
- * The product state of a Finding. DERIVED from the stored hypothesis lifecycle
- * plus the establishment assessment -- never stored as a column of its own.
+ * WHAT THE EVIDENCE SUPPORTS. Derived from the establishment assessment on every
+ * read and never stored -- see `findingEvidenceState`.
  *
- * The three terminal members are the stored lifecycle showing through unchanged,
- * because "a person rejected this" and "a newer claim replaced it" are facts the
- * repository already records and a second vocabulary for them would drift.
+ * Two members and no third. Rejected, superseded and expired are not evidence
+ * states: the first is a person's judgment and the other two are lifecycle, and
+ * folding either into this axis is how "somebody disagreed" came to read as "the
+ * evidence stopped counting".
  */
-export const FINDING_STATES = [
-  'DEVELOPING',
-  'ESTABLISHED',
-  'REJECTED',
-  'SUPERSEDED',
-  'EXPIRED',
-] as const;
-export type FindingState = (typeof FINDING_STATES)[number];
+export const FINDING_EVIDENCE_STATES = ['DEVELOPING', 'ESTABLISHED'] as const;
+export type FindingEvidenceState = (typeof FINDING_EVIDENCE_STATES)[number];
 
-/** Whether a Finding is still a live belief, as opposed to history. */
-export function findingIsLive(state: FindingState): boolean {
-  return state === 'DEVELOPING' || state === 'ESTABLISHED';
+/** Whether a stored value is a governed evidence state. Anything else is not one. */
+export function isFindingEvidenceState(value: unknown): value is FindingEvidenceState {
+  return typeof value === 'string' && (FINDING_EVIDENCE_STATES as readonly string[]).includes(value);
+}
+
+/**
+ * WHAT A PERSON DECIDED. The hypothesis's own attributed acceptance and
+ * rejection, shown through unchanged. No judgment at all is `null` on the view,
+ * not a third member: "nobody has judged this" is an absence, and a value for it
+ * would be one more thing a surface could mistake for a decision.
+ */
+export const FINDING_JUDGMENTS = ['ACCEPTED', 'REJECTED'] as const;
+export type FindingJudgment = (typeof FINDING_JUDGMENTS)[number];
+
+/** One person's judgment of a claim, with who made it and when. */
+export interface FindingJudgmentView {
+  judgment: FindingJudgment;
+  /**
+   * Who judged. Null only when the stored row carries no attribution -- which the
+   * repository refuses to write for an acceptance -- and a surface must then say
+   * the attribution is missing rather than imply nobody was involved.
+   */
+  byUserId: string | null;
+  /** When. Null only when the stored row carries no time, which is the same defect. */
+  at: string | null;
+}
+
+/**
+ * WHETHER THIS IS STILL THE CLAIM ON THE CASE. A superseded claim is kept in full
+ * as lineage, and an expired one aged out; neither is evaluated any further,
+ * because history does not establish. Rejection is NOT a lifecycle: a rejected
+ * claim is still the current claim, and Loop still evaluates its evidence.
+ */
+export const FINDING_LIFECYCLES = ['CURRENT', 'SUPERSEDED', 'EXPIRED'] as const;
+export type FindingLifecycle = (typeof FINDING_LIFECYCLES)[number];
+
+/**
+ * The stored facts the judgment and lifecycle axes are read from.
+ *
+ * THE HYPOTHESIS ROW, IN PLAIN VALUES. Kept free of Prisma so the same derivation
+ * serves the service that reads the row and the fixtures that exercise the
+ * surface, and neither can grow its own idea of what a status means.
+ */
+export interface FindingRecordFacts {
+  /** The stored `HypothesisStatus`, e.g. PROPOSED, ACCEPTED, REJECTED, SUPERSEDED. */
+  status: string;
+  supersededById: string | null;
+  acceptedBy: string | null;
+  /** ISO-8601 UTC (`Date#toISOString`), which orders correctly as text. */
+  acceptedAt: string | null;
+  rejectedBy: string | null;
+  rejectedAt: string | null;
+}
+
+/** Whether the claim is still the one on the Case. Rejection does not enter into it. */
+export function findingLifecycle(facts: FindingRecordFacts): FindingLifecycle {
+  if (facts.supersededById || facts.status === 'SUPERSEDED') return 'SUPERSEDED';
+  if (facts.status === 'EXPIRED') return 'EXPIRED';
+  return 'CURRENT';
+}
+
+/**
+ * The most recent judgment a person recorded, or null when nobody has judged.
+ *
+ * READ FROM THE ATTRIBUTED COLUMNS, NOT FROM THE STATUS ALONE. Accepting writes
+ * `acceptedBy`/`acceptedAt` and rejecting writes `rejectedBy`/`rejectedAt`, and
+ * neither clears the other -- so the later of the two times is the latest act,
+ * and it survives a supersession that overwrote the status. What does NOT
+ * survive is anything earlier: the repository overwrites in place, so a claim
+ * accepted, then rejected, then accepted again reports only the last. That
+ * history belongs to a hypothesis lifecycle log that does not exist yet.
+ *
+ * A STATUS NAMING A JUDGMENT NOBODY TIMESTAMPED is reported as that judgment with
+ * no time, rather than dropped. The repository cannot write that shape; if a row
+ * ever carries it, hiding the judgment would be the worse lie.
+ */
+export function findingJudgment(facts: FindingRecordFacts): FindingJudgmentView | null {
+  const accepted = facts.acceptedAt;
+  const rejected = facts.rejectedAt;
+  if (accepted && (!rejected || accepted >= rejected)) {
+    return { judgment: 'ACCEPTED', byUserId: facts.acceptedBy, at: accepted };
+  }
+  if (rejected) return { judgment: 'REJECTED', byUserId: facts.rejectedBy, at: rejected };
+  if (facts.status === 'ACCEPTED') return { judgment: 'ACCEPTED', byUserId: facts.acceptedBy, at: null };
+  if (facts.status === 'REJECTED') return { judgment: 'REJECTED', byUserId: facts.rejectedBy, at: null };
+  return null;
+}
+
+/**
+ * What the evidence supports, from the gate's own verdict and nothing else.
+ *
+ * DELIBERATELY TAKES NO JUDGMENT. There is no argument through which a person's
+ * acceptance could raise this or a rejection lower it; the type is the guarantee.
+ */
+export function findingEvidenceState(
+  establishment: Pick<FindingEstablishment, 'eligible'>,
+): FindingEvidenceState {
+  return establishment.eligible ? 'ESTABLISHED' : 'DEVELOPING';
 }
 
 /**
  * How a Finding came to be established, when it is.
  *
- * HUMAN_ACCEPTANCE       A person accepted the hypothesis. The existing,
- *                        attributed, human-only path.
- * DETERMINISTIC_POLICY   The Stage 3 gate proved the measurement eligible. No
- *                        person, no model, no judgement -- an evaluation.
+ * ONE MEMBER, DELIBERATELY. DETERMINISTIC_POLICY is the Stage 3 gate proving the
+ * measurement eligible: no person, no model, no judgement -- an evaluation.
+ * HUMAN_ACCEPTANCE used to be the second member, and was removed because a
+ * person's authority is not evidence. A second basis arrives only with a
+ * governed evidence standard behind it.
  */
-export const FINDING_ESTABLISHMENT_BASES = ['HUMAN_ACCEPTANCE', 'DETERMINISTIC_POLICY'] as const;
+export const FINDING_ESTABLISHMENT_BASES = ['DETERMINISTIC_POLICY'] as const;
 export type FindingEstablishmentBasis = (typeof FINDING_ESTABLISHMENT_BASES)[number];
 
 // --- Why a claim may not establish itself ------------------------------------------
@@ -133,9 +235,9 @@ export type FindingEstablishmentBasis = (typeof FINDING_ESTABLISHMENT_BASES)[num
  * DIFFERENT next move -- the test `measurement-readiness.ts` already sets.
  */
 export const FINDING_INELIGIBILITY_REASONS = [
-  /** Rejected, superseded or expired. History does not establish. */
-  'FINDING_NOT_LIVE',
-  /** Non-measurement intelligence. Only a person can establish this today. */
+  /** Superseded or expired. History does not establish. Rejection is not here. */
+  'FINDING_NOT_CURRENT',
+  /** Non-measurement intelligence. No governed standard can establish it yet. */
   'CLAIM_NOT_MEASUREMENT_BACKED',
   /** No Stage 3 verdict could be obtained for the measure behind this claim. */
   'READINESS_NOT_PROVEN',
@@ -187,10 +289,11 @@ export const FINDING_REASON_BY_WITHHOLDING: Record<
 
 /** One sentence per refusal. Said once, so every surface says the same thing. */
 export const FINDING_INELIGIBILITY_LABELS: Record<FindingIneligibilityReason, string> = {
-  FINDING_NOT_LIVE: 'This finding is no longer the current one on the case.',
+  FINDING_NOT_CURRENT: 'This finding is no longer the current one on the case.',
   CLAIM_NOT_MEASUREMENT_BACKED:
-    'This finding is not based on a measured number, so Loop cannot establish it on its own. ' +
-    'A person can accept it.',
+    'This finding is not based on a measured number, and Loop has no governed standard yet for ' +
+    'establishing a claim of this kind, so it stays developing. A person can accept or reject it; ' +
+    'that records their judgement and does not establish it.',
   READINESS_NOT_PROVEN:
     'Loop could not check whether the measurement behind this finding is sound, so it will not ' +
     'treat the finding as established.',
@@ -257,8 +360,11 @@ export interface FindingContradiction {
 /** Everything the gate judges. Nothing is fetched, defaulted or inferred here. */
 export interface FindingEstablishmentInput {
   claimKind: FindingClaimKind;
-  /** False for a rejected, superseded or expired Finding. */
-  live: boolean;
+  /**
+   * False for a superseded or expired Finding. TRUE for a rejected one: a
+   * person's judgment does not stop Loop evaluating the evidence.
+   */
+  current: boolean;
   /**
    * The Stage 3 verdict for the measure this claim rests on, re-read live.
    *
@@ -276,7 +382,7 @@ export interface FindingEstablishment {
   ruleVersion: string;
   /** True only when nothing objected. */
   eligible: boolean;
-  /** Non-null exactly when `eligible` is true and nothing else established it. */
+  /** Non-null exactly when `eligible` is true. */
   basis: FindingEstablishmentBasis | null;
   /** Every refusal, in a fixed order. Empty when eligible. */
   reasons: readonly FindingIneligibilityReason[];
@@ -295,7 +401,7 @@ export interface FindingEstablishment {
  * May this Finding establish itself?
  *
  * ORDER IS DELIBERATE AND STRUCTURAL-REFUSAL-FIRST. A finding that is no longer
- * live, or that is not measurement-backed, is refused before any evidence is
+ * current, or that is not measurement-backed, is refused before any evidence is
  * read: those are properties of the claim rather than of its support, and
  * listing evidence problems underneath them would suggest that fixing the
  * evidence would help.
@@ -312,7 +418,7 @@ export function assessFindingEstablishment(
     if (!reasons.includes(r)) reasons.push(r);
   };
 
-  if (!input.live) return refused(['FINDING_NOT_LIVE'], []);
+  if (!input.current) return refused(['FINDING_NOT_CURRENT'], []);
   if (input.claimKind !== 'MEASUREMENT_BACKED') {
     return refused(['CLAIM_NOT_MEASUREMENT_BACKED'], []);
   }
@@ -470,12 +576,20 @@ export const FINDING_INFERENCE_UNAVAILABLE =
 export const FINDING_CONTRADICTION_NONE =
   'No two pieces of evidence measure the same thing over the same period and disagree.';
 
-/** One superseded ancestor, kept so a claim can never be silently rewritten. */
+/**
+ * One superseded ancestor, kept so a claim can never be silently rewritten.
+ *
+ * NO EVIDENCE STATE, deliberately. History is not evaluated, so an ancestor has
+ * no current evidentiary standing to report -- and showing the standing it
+ * would have TODAY would pass off a fresh reading as what was known then.
+ */
 export interface FindingLineageEntry {
   findingId: string;
   claim: string;
   conclusion: string | null;
-  state: FindingState;
+  lifecycle: FindingLifecycle;
+  /** The last judgment recorded on it before it was replaced, if any. */
+  judgment: FindingJudgmentView | null;
   generatedBy: FindingGeneratedBy;
   createdAt: string;
   /** The Finding that replaced it. */
@@ -491,15 +605,23 @@ export interface CaseFindingView {
   /** The analytical conclusion, when the author wrote one. */
   conclusion: string | null;
   claimKind: FindingClaimKind;
-  state: FindingState;
   generatedBy: FindingGeneratedBy;
 
-  /** How it became established, or null while it has not. */
-  establishedBy: FindingEstablishmentBasis | null;
-  /** Set only for HUMAN_ACCEPTANCE. A policy has no actor. */
-  establishedByUserId: string | null;
-  establishedAt: string | null;
-  /** The deterministic assessment, in full, including every refusal. */
+  /**
+   * WHAT THE EVIDENCE SUPPORTS. From the gate below and from nothing else.
+   * Always DEVELOPING for a claim that is not CURRENT, because history is not
+   * evaluated.
+   */
+  evidenceState: FindingEvidenceState;
+  /** WHAT A PERSON DECIDED, with who and when. Null when nobody has judged it. */
+  judgment: FindingJudgmentView | null;
+  /** WHETHER THIS IS STILL THE CLAIM ON THE CASE. */
+  lifecycle: FindingLifecycle;
+
+  /**
+   * The deterministic assessment, in full, including every refusal. Its `basis`
+   * is the only way evidence state is ever ESTABLISHED.
+   */
   establishment: FindingEstablishment;
 
   reasoning: FindingReasoning;
@@ -516,9 +638,15 @@ export interface CaseFindingView {
   lineage: readonly FindingLineageEntry[];
 }
 
-/** True when the Finding is the current belief on its Case. */
-export function findingIsCurrent(view: Pick<CaseFindingView, 'state'>): boolean {
-  return findingIsLive(view.state);
+/**
+ * True when the Finding is the current claim on its Case.
+ *
+ * A REJECTED FINDING IS CURRENT. Rejection is a person's judgment of the claim,
+ * not its replacement; only supersession and expiry end a claim's time on the
+ * Case.
+ */
+export function findingIsCurrent(view: Pick<CaseFindingView, 'lifecycle'>): boolean {
+  return view.lifecycle === 'CURRENT';
 }
 
 // --- The Case's own log ------------------------------------------------------------------

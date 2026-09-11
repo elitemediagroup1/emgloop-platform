@@ -208,12 +208,27 @@ test('3c. an inconclusive window says so rather than describing a result', () =>
 
 const settled = {
   findingEstablished: true,
+  findingRejected: false,
   workAllComplete: true,
   noWorkRequested: false,
   openBlockers: 0,
   monitoring: { ruleVersion: CASE_MONITORING_RULE_VERSION, verdict: 'HELD' as const, insufficiency: null, measured: null, explanation: [], evidenceIds: [] },
   coordinationComplete: true,
 };
+
+test('4z. a person rejecting the finding withholds Loop\'s authority to close it', () => {
+  // THE EVIDENCE IS UNCHANGED. `findingEstablished` stays true, because a
+  // rejection does not weaken evidence. What it withholds is Loop's authority to
+  // act alone over somebody's stated disagreement -- which is why the two are
+  // separate inputs rather than one folded flag.
+  const r = assessResolutionEligibility({ ...settled, findingRejected: true });
+  assert.equal(r.eligible, false);
+  assert.ok(r.unmet.includes('QUESTION_ANSWERED'));
+  assert.ok(r.explanation.some((l) => l.includes('rejected')));
+  // And a person accepting it changes nothing either way: acceptance is not a
+  // condition, it is a judgement.
+  assert.equal(assessResolutionEligibility({ ...settled }).eligible, true);
+});
 
 test('4. every condition, or Loop does not close it', () => {
   assert.equal(assessResolutionEligibility(settled).eligible, true);

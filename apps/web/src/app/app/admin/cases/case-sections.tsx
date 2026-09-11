@@ -22,13 +22,17 @@ import {
   CASE_STATE_LANGUAGE,
   FACTOR_LANGUAGE,
   FACTOR_LEVEL_LANGUAGE,
-  FINDING_STATE_LANGUAGE,
+  FINDING_EVIDENCE_LANGUAGE,
+  FINDING_INELIGIBILITY_LABELS,
+  FINDING_JUDGMENT_LANGUAGE,
+  FINDING_NO_JUDGMENT,
   POSTURE_LANGUAGE,
   type CaseBriefView,
   type CaseCoordinationView,
   type CaseDimension,
   type CaseFindingView,
   type CaseOutcomeView,
+  type FindingJudgmentView,
   type CaseParticipationView,
   type FactorLevel,
 } from '@emgloop/shared';
@@ -128,16 +132,18 @@ export function FiveWs({ brief }: { brief: CaseBriefView }) {
 // --- The Finding ---------------------------------------------------------------------------
 
 /**
- * What Loop currently claims, and whether the evidence establishes it.
+ * What Loop currently claims, on three axes that are shown apart.
+ *
+ * WHAT THE EVIDENCE SUPPORTS, WHAT A PERSON DECIDED, AND WHETHER THIS IS STILL
+ * THE CLAIM. Each has its own line and its own source, and none is derived from
+ * another: a claim can be Established and Rejected, or Developing and Accepted,
+ * and both are ordinary. Only the evidence carries a state badge -- a judgment
+ * gets words, never the tick that means "Loop stands behind this".
  *
  * ESTABLISHED IS RE-DERIVED ON EVERY READ AND THE UI SAYS SO. It is not a stored
  * flag and it can weaken: the same claim reads ESTABLISHED under a clean verdict
- * and DEVELOPING under a degraded one with nothing written in between. A surface
- * that cached it as permanent product truth would be the one place that lie
- * could enter.
- *
- * ESTABLISHED IS NOT ACCEPTED. Human acceptance is a separate act with its own
- * word, and the two never share a badge.
+ * and DEVELOPING under a degraded one with nothing written in between. No
+ * person's acceptance raises it and no rejection lowers it.
  */
 export function FindingSection({
   finding,
@@ -163,17 +169,18 @@ export function FindingSection({
     );
   }
 
-  const established = finding.state === 'ESTABLISHED';
-  const label = FINDING_STATE_LANGUAGE[finding.state];
+  const established = finding.evidenceState === 'ESTABLISHED';
+  const evidence = FINDING_EVIDENCE_LANGUAGE[finding.evidenceState];
 
   return (
     <Section id="cw-finding" title="What Loop concludes">
       <div className="cw-find">
         <div className="cw-find__head">
-          <StateBadge state={finding.state} />
+          <StateBadge state={finding.evidenceState} />
+          {finding.lifecycle !== 'CURRENT' ? <StateBadge state={finding.lifecycle} /> : null}
           <p className="cw-find__claim">{finding.claim}</p>
         </div>
-        {label ? <p className="cw-find__what">{label.detail}</p> : null}
+        <p className="cw-find__what">{evidence.detail}</p>
 
         {finding.conclusion ? (
           <p className="cw-find__conclusion">{finding.conclusion}</p>
@@ -181,13 +188,27 @@ export function FindingSection({
 
         <dl className="cw-find__meta">
           <div>
-            <dt>Basis</dt>
+            <dt>What the evidence supports</dt>
             <dd>
               {established
-                ? finding.establishedBy === 'HUMAN_ACCEPTANCE'
-                  ? 'A person accepted this claim.'
-                  : 'The evidence meets the governed standard on its own.'
-                : 'Not established.'}
+                ? 'Established. The evidence meets the governed standard on its own.'
+                : 'Developing. The evidence does not meet the standard to establish it.'}
+            </dd>
+          </div>
+          <div>
+            <dt>What a person decided</dt>
+            <dd>
+              {finding.judgment ? (
+                <>
+                  {judgmentLine(finding.judgment)}
+                  <span className="cw-find__judgment-note">
+                    {' '}
+                    {FINDING_JUDGMENT_LANGUAGE[finding.judgment.judgment].detail}
+                  </span>
+                </>
+              ) : (
+                FINDING_NO_JUDGMENT
+              )}
             </dd>
           </div>
           <div>
@@ -205,15 +226,14 @@ export function FindingSection({
           ) : null}
         </dl>
 
-        {/* WHY IT IS NOT ESTABLISHED, in the gate's own refusals. A developing
-            finding whose obstacles are invisible is just a weaker claim; naming
-            them is what makes it useful. */}
+        {/* WHY IT IS NOT ESTABLISHED, in the gate's own refusals and the
+            dictionary's words for them. A developing finding whose obstacles are
+            invisible is just a weaker claim; naming them is what makes it useful.
+            A person's rejection is never among them -- it is not evidence. */}
         {!established && finding.establishment.reasons.length > 0 ? (
           <NotKnown
             title="What stands between this and being established"
-            lines={finding.establishment.reasons.map(
-              (r) => FINDING_REASON_TEXT[r] ?? r,
-            )}
+            lines={finding.establishment.reasons.map((r) => FINDING_INELIGIBILITY_LABELS[r] ?? r)}
           />
         ) : null}
 
@@ -228,11 +248,14 @@ export function FindingSection({
                 <li key={l.findingId}>
                   {/* HISTORY IS NEVER VISUALLY REWRITTEN. The earlier claim
                       appears in its own words, with when it stood and what
-                      replaced it. */}
+                      replaced it. It carries no evidence badge: history is not
+                      evaluated, and today's reading would not be what was known
+                      then. */}
                   <p className="cw-lineage__claim">{l.claim}</p>
                   <p className="cw-lineage__meta">
-                    <StateBadge state={l.state} />
+                    {l.lifecycle !== 'CURRENT' ? <StateBadge state={l.lifecycle} /> : null}
                     <span>Recorded {l.createdAt.slice(0, 10)}</span>
+                    {l.judgment ? <span>{judgmentLine(l.judgment)}</span> : null}
                     {/* WHAT REPLACED IT, by id. The contract records which
                         claim superseded this one, not when — and inventing a
                         date would be the surface adding a fact. */}
@@ -252,7 +275,9 @@ export function FindingSection({
             <div><dt>Rule version</dt><dd>{finding.establishment.ruleVersion}</dd></div>
             <div><dt>Claim kind</dt><dd>{finding.claimKind}</dd></div>
             <div><dt>Generated by</dt><dd>{finding.generatedBy}</dd></div>
-            <div><dt>State</dt><dd>{finding.state}</dd></div>
+            <div><dt>Evidence state</dt><dd>{finding.evidenceState}</dd></div>
+            <div><dt>Judgment</dt><dd>{finding.judgment?.judgment ?? 'none'}</dd></div>
+            <div><dt>Lifecycle</dt><dd>{finding.lifecycle}</dd></div>
             {finding.establishment.readinessWithholdings.length > 0 ? (
               <div>
                 <dt>Readiness withheld</dt>
@@ -267,26 +292,16 @@ export function FindingSection({
 }
 
 /**
- * The gate's refusals, in a person's words.
- *
- * A LOOKUP, NOT A SENTENCE GENERATOR. Every key is a governed
- * `FindingIneligibilityReason`; an unmapped one renders its own name rather than
- * a soothing paraphrase.
+ * A person's judgment, with who and when. A MISSING ATTRIBUTION IS SAID, never
+ * filled: "Accepted" with nobody named would read as the claim being accepted in
+ * general, which is exactly the collapse this section exists to prevent.
  */
-const FINDING_REASON_TEXT: Record<string, string> = {
-  NOT_LIVE: 'This claim is no longer the current one on the investigation.',
-  NO_READINESS_VERDICT: 'Loop could not obtain a measurement verdict for what this claim rests on.',
-  READINESS_NOT_READY: 'The measurement behind this claim is not currently ready.',
-  NO_SUPPORTING_EVIDENCE: 'No evidence has been attached to this claim.',
-  EVIDENCE_CONTRADICTS: 'Two pieces of evidence disagree about this.',
-  EVIDENCE_INCOMPLETE: 'Part of the evidence population did not report.',
-  COMPLETENESS_UNSTATED: 'The evidence does not say how much of the population reported.',
-  WINDOW_NOT_STATED: 'The claim does not say which period it is about.',
-  HUMAN_REJECTED: 'A person judged this claim wrong.',
-  SUPERSEDED_BY_NEWER: 'A newer claim replaced this one.',
-  EXPIRED_UNRESOLVED: 'It aged out before anybody established or rejected it.',
-  NON_MEASUREMENT_CLAIM: 'This claim is not measurement-backed, so the measurement gate cannot establish it.',
-};
+function judgmentLine(j: FindingJudgmentView): string {
+  const word = FINDING_JUDGMENT_LANGUAGE[j.judgment].label;
+  const who = j.byUserId ? `by ${j.byUserId}` : '(who was not recorded)';
+  const when = j.at ? j.at.slice(0, 10) : '(when was not recorded)';
+  return `${word} ${who} · ${when}`;
+}
 
 // --- Recommendations ---------------------------------------------------------------------------
 
@@ -337,7 +352,13 @@ export function RecommendationsSection({
       subtitle="Options for a person to weigh. Nothing here has been approved or acted on."
     >
       <p className="cw-recs__ceiling">
-        <StateBadge state={recommendations.findingStateAtIssue} />
+        {/* EVIDENCE STATE AT ISSUE, never judgment: what capped these options
+            was what the evidence supported, not whether anybody agreed. */}
+        {recommendations.findingEvidenceStateAtIssue ? (
+          <StateBadge state={recommendations.findingEvidenceStateAtIssue} />
+        ) : (
+          <span className="cw-recs__unrecorded">Evidence state at issue not recorded</span>
+        )}
         <span>
           What Loop is willing to propose is capped by how strong the evidence was when these were
           written. Stronger evidence permits more committing options; weaker evidence does not.

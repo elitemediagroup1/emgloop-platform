@@ -48,6 +48,7 @@ import {
   diffSequence,
   factorsAffectedBy,
   findingEvidenceStrength,
+  isFindingEvidenceState,
   optionsInRank,
   recommendationKey,
   recommendationKeyPrefix,
@@ -55,6 +56,7 @@ import {
   validateRecommendationSet,
   type CaseFindingView,
   type EvidenceStrength,
+  type FindingEvidenceState,
   type OptionComparison,
   type RecommendationAuthor,
   type RecommendationOption,
@@ -150,8 +152,13 @@ export interface CaseRecommendationsView {
   /** The current set. Earlier sets are in `supersededSets`, unchanged. */
   setNumber: number;
   ruleVersion: string;
-  /** The Finding's state when this set was written. A snapshot, deliberately. */
-  findingStateAtIssue: string;
+  /**
+   * What the evidence supported when this set was written. A snapshot,
+   * deliberately. NULL when the set was written before this field existed: a
+   * state recorded under the old contract could mean a person's acceptance
+   * rather than evidence, and reading it as evidence would re-mean history.
+   */
+  findingEvidenceStateAtIssue: FindingEvidenceState | null;
   evidenceStrengthAtIssue: EvidenceStrength;
   options: readonly RecommendationOptionView[];
   /**
@@ -264,7 +271,9 @@ export class CaseRecommendationService {
         inputStateSnapshot: {
           caseId: id,
           findingId: finding.findingId,
-          findingStateAtIssue: finding.state,
+          // EVIDENCE STATE, NOT JUDGMENT. What bounded this set was what the
+          // evidence supported; a person's acceptance never raised that ceiling.
+          findingEvidenceStateAtIssue: finding.evidenceState,
           evidenceStrengthAtIssue: evidenceStrength,
           issuedAt: issuedAt.toISOString(),
           author: input.author,
@@ -400,7 +409,7 @@ export class CaseRecommendationService {
       inputStateSnapshot: {
         caseId,
         findingId: parsed.findingId,
-        findingStateAtIssue: parsed.findingStateAtIssue,
+        findingEvidenceStateAtIssue: parsed.findingEvidenceStateAtIssue,
         evidenceStrengthAtIssue: parsed.evidenceStrengthAtIssue,
         issuedAt: new Date().toISOString(),
         // THE PROVENANCE THAT MAKES THIS SAFE TO STORE. A person wrote it, and it
@@ -503,7 +512,7 @@ export class CaseRecommendationService {
       findingId: meta?.findingId ?? '',
       setNumber: currentSet,
       ruleVersion: RECOMMENDATION_RULE_VERSION,
-      findingStateAtIssue: meta?.findingStateAtIssue ?? '',
+      findingEvidenceStateAtIssue: meta?.findingEvidenceStateAtIssue ?? null,
       evidenceStrengthAtIssue: meta?.evidenceStrengthAtIssue ?? 'INSUFFICIENT',
       options: current,
       comparisons: adjacentComparisons(current),
@@ -590,10 +599,12 @@ export class CaseRecommendationService {
 
 /** The evidence strength of the Finding a set rests on. One derivation, shared. */
 function strengthOf(finding: CaseFindingView): EvidenceStrength {
+  // NO JUDGMENT IS PASSED, BECAUSE THERE IS NOWHERE TO PASS IT. Accepting a
+  // claim does not raise the ceiling on what Loop may propose, and rejecting it
+  // does not lower it; only the evidence does either.
   return findingEvidenceStrength({
-    state: finding.state,
-    establishedBy: finding.establishedBy,
-    establishment: finding.establishment,
+    evidenceState: finding.evidenceState,
+    lifecycle: finding.lifecycle,
     supportingCount: finding.supporting.length,
   });
 }
@@ -602,7 +613,7 @@ interface ParsedOption {
   option: RecommendationOption;
   setNumber: number;
   findingId: string;
-  findingStateAtIssue: string;
+  findingEvidenceStateAtIssue: FindingEvidenceState | null;
   evidenceStrengthAtIssue: EvidenceStrength;
   author: RecommendationAuthor;
   derivedFromDecisionId: string | null;
@@ -629,8 +640,12 @@ function parseOption(row: CognitiveDecision): ParsedOption | null {
     option,
     setNumber,
     findingId: typeof snapshot?.findingId === 'string' ? snapshot.findingId : '',
-    findingStateAtIssue:
-      typeof snapshot?.findingStateAtIssue === 'string' ? snapshot.findingStateAtIssue : '',
+    // ONLY THE NEW KEY, AND ONLY A GOVERNED MEMBER. The old `findingStateAtIssue`
+    // is deliberately not read: under the old contract ESTABLISHED could mean a
+    // person accepted the claim, and that cannot be re-read as evidence.
+    findingEvidenceStateAtIssue: isFindingEvidenceState(snapshot?.findingEvidenceStateAtIssue)
+      ? snapshot.findingEvidenceStateAtIssue
+      : null,
     evidenceStrengthAtIssue: (snapshot?.evidenceStrengthAtIssue ??
       'INSUFFICIENT') as EvidenceStrength,
     author: (snapshot?.author ?? 'MACHINE') as RecommendationAuthor,
