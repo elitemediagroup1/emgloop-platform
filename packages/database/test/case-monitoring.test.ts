@@ -26,6 +26,9 @@ import {
   MONITORING_EVENTS,
   PRIORITY_STATES,
   investigationRecurrenceKey,
+  type CaseFindingView,
+  type FindingEvidenceState,
+  type FindingJudgment,
   type MonitoringObservation,
   type MonitoringPlan,
 } from '@emgloop/shared';
@@ -77,10 +80,51 @@ const reading = (over: Partial<MonitoringObservation> = {}): MonitoringObservati
  * and driving a whole Finding + Work OS fixture through every case would test
  * those instead. Their own suites already prove them.
  */
+/**
+ * A Finding, typed as the production contract with no cast.
+ *
+ * THE AXES ARE SEPARATE HERE TOO. A stub that carried one collapsed "state"
+ * could not express established-and-rejected, which is precisely the case the
+ * resolution rule has to get right.
+ */
+function findingView(
+  evidenceState: FindingEvidenceState,
+  judgment?: FindingJudgment,
+): CaseFindingView {
+  return {
+    findingId: 'fnd_1',
+    caseId: 'case_1',
+    claim: 'A claim about the monetized rate.',
+    conclusion: null,
+    claimKind: 'MEASUREMENT_BACKED',
+    generatedBy: 'DETERMINISTIC_RULE',
+    evidenceState,
+    judgment: judgment
+      ? { judgment, byUserId: 'user_charlie', at: '2026-08-26T15:40:00.000Z' }
+      : null,
+    lifecycle: 'CURRENT',
+    establishment: {
+      ruleVersion: 'case-finding-establishment.v1',
+      eligible: evidenceState === 'ESTABLISHED',
+      basis: evidenceState === 'ESTABLISHED' ? 'DETERMINISTIC_POLICY' : null,
+      reasons: [],
+      readinessWithholdings: [],
+    },
+    reasoning: { known: [], inferred: [], missing: [], contradictory: [], unavailable: {} },
+    supporting: [],
+    createdAt: START,
+    supportingWindowStart: null,
+    supportingWindowEnd: null,
+    ruleVersion: null,
+    lineage: [],
+  };
+}
+
 async function world(
   opts: {
     measurement?: MonitoringObservation | null;
-    findingState?: string;
+    evidenceState?: FindingEvidenceState;
+    judgment?: FindingJudgment;
     work?: { unknown: string | null; workStatus: string | null; blockers: number }[];
     notKnown?: string[];
   } = {},
@@ -103,7 +147,7 @@ async function world(
     findings: {
       async get(organizationId: string, caseId: string) {
         if (organizationId !== ORG || caseId !== decision.id) return null;
-        return { findingId: 'fnd_1', state: opts.findingState ?? 'ESTABLISHED' } as never;
+        return findingView(opts.evidenceState ?? 'ESTABLISHED', opts.judgment);
       },
     },
     coordination: {
@@ -267,7 +311,7 @@ test('4. the outcome carries lineage and refuses causation in the same breath', 
 test('4b. an outcome over an unreadable window says what it could not establish', async () => {
   const { monitoring, caseId } = await world({
     measurement: null,
-    findingState: 'DEVELOPING',
+    evidenceState: 'DEVELOPING',
     notKnown: ['Loop cannot find the work this Case pointed at.'],
     work: [{ unknown: 'WORK_NOT_FOUND', workStatus: null, blockers: 0 }],
   });
@@ -352,13 +396,43 @@ test('5d. an open blocker blocks the close', async () => {
 test('5e. an unestablished finding blocks the close', async () => {
   const { monitoring, caseId } = await world({
     measurement: reading(),
-    findingState: 'DEVELOPING',
+    evidenceState: 'DEVELOPING',
     work: [{ unknown: null, workStatus: 'completed', blockers: 0 }],
   });
   await monitoring.start(ORG, caseId, plan(), human);
   const { resolved, eligibility } = await monitoring.autoResolve(ORG, caseId, AFTER);
   assert.equal(resolved, false);
   assert.ok(eligibility?.unmet.includes('QUESTION_ANSWERED'));
+});
+
+test('5f. an established finding a person REJECTED does not let Loop close it', async () => {
+  // THE EVIDENCE IS UNTOUCHED BY THE REJECTION -- that is the whole point of the
+  // two axes -- but closing an investigation is an ACT, and Loop does not act
+  // over a person's stated disagreement. A person still can.
+  const { monitoring, caseId } = await world({
+    measurement: reading(),
+    evidenceState: 'ESTABLISHED',
+    judgment: 'REJECTED',
+    work: [{ unknown: null, workStatus: 'completed', blockers: 0 }],
+  });
+  await monitoring.start(ORG, caseId, plan(), human);
+  const { resolved, eligibility } = await monitoring.autoResolve(ORG, caseId, AFTER);
+  assert.equal(resolved, false);
+  assert.ok(eligibility?.unmet.includes('QUESTION_ANSWERED'));
+  assert.ok(eligibility?.explanation.some((l) => l.includes('rejected')));
+});
+
+test('5g. an established finding a person ACCEPTED closes exactly as an unjudged one does', async () => {
+  const { monitoring, caseId } = await world({
+    measurement: reading(),
+    evidenceState: 'ESTABLISHED',
+    judgment: 'ACCEPTED',
+    work: [{ unknown: null, workStatus: 'completed', blockers: 0 }],
+  });
+  await monitoring.start(ORG, caseId, plan(), human);
+  const { resolved, eligibility } = await monitoring.autoResolve(ORG, caseId, AFTER);
+  assert.equal(resolved, true);
+  assert.deepEqual(eligibility?.unmet, []);
 });
 
 // --- 6. Tenancy and human control ------------------------------------------------------------

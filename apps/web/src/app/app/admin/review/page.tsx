@@ -24,6 +24,10 @@
 import { notFound } from 'next/navigation';
 
 import {
+  FINDING_DEVELOPING_ACCEPTED,
+  FINDING_DEVELOPING_REJECTED,
+  FINDING_ESTABLISHED_ACCEPTED,
+  FINDING_ESTABLISHED_REJECTED,
   MORNING_ALL_CLEAR,
   MORNING_CANT_TELL,
   MORNING_NEEDS_ATTENTION,
@@ -45,7 +49,7 @@ import {
 import { requirePermission } from '../../../../auth/guard';
 import { NotKnown, ReadError, StateBadge } from '../../_loop-os/product-state';
 import { AttentionBanner } from '../headlines/headline-ui';
-import { OutcomeSection, WorkSection } from '../cases/case-sections';
+import { FindingSection, OutcomeSection, WorkSection } from '../cases/case-sections';
 import {
   FindingControls,
   LifecycleControls,
@@ -94,7 +98,7 @@ export default async function ReviewPage() {
         <p className="rv-head__eyebrow">Design review · development only</p>
         <h1 className="rv-head__title">Every Stage 4 state, on one page</h1>
         <p className="rv-head__sub">
-          Sixteen representative states, typed as the contracts production returns. Nothing here
+          Twenty representative states, typed as the contracts production returns. Nothing here
           reads the database and nothing here is real. The numbers, buyers and people are invented.
         </p>
       </header>
@@ -209,6 +213,40 @@ export default async function ReviewPage() {
       </State>
 
       {/*
+        FINDINGS ON TWO AXES THAT NEVER SHARE A WORD. What the evidence supports
+        and what a person decided are independent, so all four combinations are
+        ordinary and each is shown. Every one comes out of the real gate over a
+        real Stage 3 verdict.
+      */}
+      <State
+        name="Finding · established, and a person accepted it"
+        note="Two facts, not one. The evidence establishes it; separately, somebody agreed."
+      >
+        <FindingSection finding={FINDING_ESTABLISHED_ACCEPTED} />
+      </State>
+
+      <State
+        name="Finding · established, and a person rejected it"
+        note="Still established. Disagreeing with a claim does not weaken the evidence under it, and Loop keeps evaluating it."
+      >
+        <FindingSection finding={FINDING_ESTABLISHED_REJECTED} />
+      </State>
+
+      <State
+        name="Finding · developing, and a person accepted it"
+        note="Still developing. There is no governed standard yet for establishing a claim of this kind, and acceptance is a judgement, not evidence."
+      >
+        <FindingSection finding={FINDING_DEVELOPING_ACCEPTED} />
+      </State>
+
+      <State
+        name="Finding · developing, and a person rejected it"
+        note="Part of the window was never observed, so it would be developing whatever anybody decided. It carries the earlier claim it replaced, with that claim's own judgement."
+      >
+        <FindingSection finding={FINDING_DEVELOPING_REJECTED} />
+      </State>
+
+      {/*
         THE INTERACTIVE STATES. Rendered with a fixture Case id, so pressing one
         of these posts to the real guarded action and lands on a not-found
         message — the action resolves the id within the organization and finds
@@ -216,17 +254,17 @@ export default async function ReviewPage() {
         mutate production truth: it has no production id to name.
       */}
       <State
-        name="Controls · a developing finding"
-        note="Accepting records a judgement. It does not change what the claim says, and for a measurement-backed claim it does not make it established either."
+        name="Controls · a finding nobody has judged"
+        note="Accepting or rejecting records a judgement. It does not change what the claim says, and it does not move what the evidence supports in either direction."
       >
-        <FindingControls caseId={REVIEW_CASE_ID} findingId="fnd_review" state="DEVELOPING" />
+        <FindingControls caseId={REVIEW_CASE_ID} findingId="fnd_review" judgment={null} />
       </State>
 
       <State
         name="Controls · a finding somebody rejected"
-        note="No further verdict is offered, and the claim stays as history."
+        note="No further verdict is offered. The claim is still the current one, and Loop keeps evaluating its evidence."
       >
-        <FindingControls caseId={REVIEW_CASE_ID} findingId="fnd_review" state="REJECTED" />
+        <FindingControls caseId={REVIEW_CASE_ID} findingId="fnd_review" judgment="REJECTED" />
       </State>
 
       <State

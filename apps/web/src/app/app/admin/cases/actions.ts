@@ -253,14 +253,14 @@ export async function reviseSequenceAction(formData: FormData): Promise<void> {
  * A person accepts or rejects the claim.
  *
  * THIS IS NOT EDITING A FINDING. Nothing here changes what the claim SAYS.
- * Acceptance is a governed act on the hypothesis -- the repository refuses an
- * unattributed actor -- and it is the one way a NON_MEASUREMENT claim becomes
- * established, precisely because a person is answerable for it.
+ * Acceptance and rejection are governed acts on the hypothesis -- the
+ * repository refuses an unattributed acceptance -- and they record a person's
+ * judgement.
  *
- * IT DOES NOT FREEZE AN INVALID CONCLUSION. Establishment for a
- * MEASUREMENT_BACKED claim is derived on every read from live evidence, so a
- * claim whose readiness later degrades stops reading as established regardless
- * of who accepted it. Acceptance is one input to that gate, never a bypass.
+ * A JUDGEMENT IS NOT EVIDENCE. Accepting does not establish a claim and
+ * rejecting does not weaken one: what the evidence supports is derived on every
+ * read from the evidence alone, and the gate never reads this. Human authority
+ * may authorize action under uncertainty; it cannot authorize certainty.
  */
 export async function judgeFindingAction(formData: FormData): Promise<void> {
   const { session, actor } = await actorFor();
@@ -275,10 +275,13 @@ export async function judgeFindingAction(formData: FormData): Promise<void> {
 
   const findings = new CaseFindingService(prisma);
   const userId = actor.userId;
+  // SCOPED TO THIS CASE'S CURRENT FINDING, in the session's organization. A
+  // finding id from another Case, a superseded ancestor or another tenant all
+  // answer null from the service, and all read the same here.
   const result =
     verdict === 'ACCEPT'
-      ? await findings.accept(session.organizationId, findingId, userId)
-      : await findings.reject(session.organizationId, findingId, userId);
+      ? await findings.accept(session.organizationId, caseId, findingId, userId)
+      : await findings.reject(session.organizationId, caseId, findingId, userId);
 
   redirect(
     result
@@ -286,7 +289,7 @@ export async function judgeFindingAction(formData: FormData): Promise<void> {
           caseId,
           verdict === 'ACCEPT'
             ? 'Recorded: you accept this claim. Whether Loop can establish it still depends on the evidence.'
-            : 'Recorded: you reject this claim. It stays on the investigation as history.',
+            : 'Recorded: you reject this claim. Loop keeps evaluating the evidence behind it; your judgement does not change what the evidence supports.',
           'notice',
         )
       : backTo(caseId, 'That claim is no longer available to judge.', 'error'),

@@ -19,9 +19,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  EVIDENCE_AT_DECISION_UNRECORDED,
+  FINDING_ESTABLISHMENT_RULE_VERSION,
   INVESTIGATION_PRODUCER,
   LEARNING_REFUSALS,
   investigationRecurrenceKey,
+  type CaseFindingView,
 } from '@emgloop/shared';
 
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
@@ -78,27 +81,58 @@ const learnFirst = (rank = 2) => ({
  *
  * SUPPLIED DIRECTLY, DELIBERATELY. What is under test here is the ASSEMBLY of a
  * learning record, and driving the whole readiness gate through every case would
- * be testing the Finding service instead -- which has its own suite of 61 tests
- * doing exactly that.
+ * be testing the Finding service instead -- which has its own suite doing
+ * exactly that.
+ *
+ * TYPED AS THE PRODUCTION CONTRACT, with no cast. A stub that bypassed the
+ * contract would keep compiling after the contract changed under it, which is
+ * exactly what happened to the old `as never` version of this: it went on
+ * claiming ESTABLISHED through a field the service had stopped reading.
  */
-const establishedFinding = () =>
-  ({
-    findingId: 'fnd_1',
-    state: 'ESTABLISHED',
-    establishedBy: 'DETERMINISTIC_POLICY',
-    establishment: { eligible: true, basis: 'DETERMINISTIC_POLICY', reasons: [], readinessWithholdings: [], ruleVersion: 'x' },
-    supporting: [{ id: 'ev_1' }, { id: 'ev_2' }, { id: 'ev_3' }],
-  }) as never;
+const establishedFinding = (): CaseFindingView => ({
+  findingId: 'fnd_1',
+  caseId: 'case_1',
+  claim: 'A claim strong enough to carry options.',
+  conclusion: null,
+  claimKind: 'MEASUREMENT_BACKED',
+  generatedBy: 'DETERMINISTIC_RULE',
+  evidenceState: 'ESTABLISHED',
+  judgment: null,
+  lifecycle: 'CURRENT',
+  establishment: {
+    ruleVersion: FINDING_ESTABLISHMENT_RULE_VERSION,
+    eligible: true,
+    basis: 'DETERMINISTIC_POLICY',
+    reasons: [],
+    readinessWithholdings: [],
+  },
+  reasoning: { known: [], inferred: [], missing: [], contradictory: [], unavailable: {} },
+  supporting: ['ev_1', 'ev_2', 'ev_3'].map((id) => ({
+    id,
+    source: 'commercial-intelligence',
+    metricKey: 'MONETIZED_RATE',
+    window: 'Trailing 7 business days',
+    value: 0.412,
+    completeness: 1,
+  })),
+  createdAt: NOW.toISOString(),
+  supportingWindowStart: null,
+  supportingWindowEnd: null,
+  ruleVersion: null,
+  lineage: [],
+});
 
 async function world() {
   const prisma = makeCognitivePrisma();
   const engine = new DecisionEngine(prisma as never);
-  const findings = { async get() { return establishedFinding(); } } as never;
+  const findings = { async get() { return establishedFinding(); } };
   const recommendations = new CaseRecommendationService(prisma as never, { cases: engine, findings });
+  // NO FINDING SEAM HERE ANY MORE. Learning no longer reads the Finding: what
+  // the evidence looked like when a decision was taken is not recorded, and a
+  // reading taken now is not that.
   const learning = new CaseLearningService(prisma as never, {
     cases: engine,
     monitoring: { async get() { return null; } } as never,
-    findings,
   });
 
   const open = async (headlineId: string) => {
@@ -160,6 +194,38 @@ test('1c. the LAST selection wins, and the earlier one stays on the log', async 
   const selections = (await prisma.operationalObservation.findMany({ where: { priorityId: caseId } }))
     .filter((r) => r.observationType === 'RECOMMENDATION_SELECTED');
   assert.equal(selections.length, 2);
+});
+
+test('1c2. the evidence at decision time is UNRECORDED, and says so', async () => {
+  // IT MUST NOT MASQUERADE AS A SNAPSHOT. Nothing records what the evidence
+  // looked like when the decision was taken, and a reading taken now would be
+  // today's evidence wearing yesterday's label. The learning record therefore
+  // reports it as unknown, with the reason -- until Loop records evaluations as
+  // they happen.
+  const { recommendations, learning, open } = await world();
+  const caseId = await open('hl_cem');
+  await recommendations.record(ORG, caseId, { ...SET, options: [revenueFirst(), learnFirst()] });
+  await recommendations.select(ORG, caseId, 'protect-revenue', human);
+
+  const o = await learning.observationFor(ORG, caseId, NOW);
+  assert.equal(o?.evidenceAtDecision.recorded, false);
+  assert.equal(o?.evidenceAtDecision.reason, EVIDENCE_AT_DECISION_UNRECORDED);
+  // And there is no way to read a value out of it: the only shape it has is the
+  // unrecorded one.
+  assert.deepEqual(Object.keys(o?.evidenceAtDecision ?? {}).sort(), ['reason', 'recorded']);
+});
+
+test('1c3. the learning service does not read the Finding at all', () => {
+  // The seam is gone rather than unused: a service that still held a Finding
+  // reader would be one edit away from filling a historical field from a
+  // present-tense read, which is the defect this replaced.
+  const source = readFileSync(
+    new URL('../src/services/case-learning.service.ts', import.meta.url),
+    'utf8',
+  )
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ');
+  assert.equal(/CaseFindingService|findings\./.test(source), false);
 });
 
 test('1d. `executed` is null, because Loop does not know what anybody did', async () => {

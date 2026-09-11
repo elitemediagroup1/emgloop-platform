@@ -29,6 +29,7 @@ import type { SlaState, WorkExecutionState } from './work-execution';
 import type { MonitoringVerdict } from './case-monitoring';
 import type { FactorLevel, RecommendationFactor, RecommendationPosture } from './case-recommendation';
 import type { PriorityState } from './operational-lifecycle';
+import type { FindingEvidenceState, FindingJudgment, FindingLifecycle } from './case-finding';
 
 export const PRODUCT_LANGUAGE_VERSION = 'product-language.v1';
 
@@ -338,13 +339,14 @@ export const CASE_STATE_LANGUAGE: Record<PriorityState, ProductLabel> = {
 };
 
 /**
- * Finding states.
+ * Findings, on three axes that never share a word.
  *
- * ESTABLISHED IS NOT ACCEPTED, and the two must never share a word. A human
- * accepting a claim is a decision; establishment is what the evidence currently
- * supports, and it can weaken on its own.
+ * WHAT THE EVIDENCE SUPPORTS is the only one of the three that carries a tone,
+ * because it is the only one that is an epistemic state. ESTABLISHED IS NOT
+ * ACCEPTED: establishment is what the evidence currently supports, it can
+ * weaken on its own, and no person's judgment moves it in either direction.
  */
-export const FINDING_STATE_LANGUAGE: Record<string, ProductLabel> = {
+export const FINDING_EVIDENCE_LANGUAGE: Record<FindingEvidenceState, ProductLabel> = {
   DEVELOPING: {
     tone: 'INCOMPLETE',
     label: 'Developing',
@@ -357,12 +359,43 @@ export const FINDING_STATE_LANGUAGE: Record<string, ProductLabel> = {
     detail: 'The evidence currently meets the governed standard. This is re-derived on every read.',
     from: 'ESTABLISHED',
   },
+};
+
+/**
+ * WHAT A PERSON DECIDED. Words only, and DELIBERATELY NO TONE.
+ *
+ * A judgment is not a statement about the evidence, so it gets none of the five
+ * epistemic tones: an "Accepted" rendered with the tick that means "Loop stands
+ * behind this" is exactly how a person comes to read somebody's agreement as
+ * proof. It is also kept out of `productLabel`, so no state badge can render one.
+ */
+export const FINDING_JUDGMENT_LANGUAGE: Record<
+  FindingJudgment,
+  { label: string; detail: string; from: FindingJudgment }
+> = {
+  ACCEPTED: {
+    label: 'Accepted',
+    detail: 'A person judged this claim correct. That is their judgement; it does not establish the claim.',
+    from: 'ACCEPTED',
+  },
   REJECTED: {
-    tone: 'WAITING_FOR_DATA',
     label: 'Rejected',
-    detail: 'A person judged this claim wrong.',
+    detail:
+      'A person judged this claim wrong. That is their judgement; Loop keeps evaluating the evidence ' +
+      'behind it, which the rejection does not change.',
     from: 'REJECTED',
   },
+};
+
+/** Said when nobody has judged the claim. An absence, not a verdict. */
+export const FINDING_NO_JUDGMENT = 'Nobody has accepted or rejected this claim.';
+
+/**
+ * WHETHER THIS IS STILL THE CLAIM ON THE CASE. Only the two ways a claim stops
+ * being current have a label; a current claim is simply the claim, and a badge
+ * saying so would be one more thing to misread.
+ */
+export const FINDING_LIFECYCLE_LANGUAGE: Record<Exclude<FindingLifecycle, 'CURRENT'>, ProductLabel> = {
   SUPERSEDED: {
     tone: 'WAITING_FOR_DATA',
     label: 'Superseded',
@@ -372,7 +405,7 @@ export const FINDING_STATE_LANGUAGE: Record<string, ProductLabel> = {
   EXPIRED: {
     tone: 'WAITING_FOR_DATA',
     label: 'Expired',
-    detail: 'It aged out without being established or rejected.',
+    detail: 'It aged out without being replaced.',
     from: 'EXPIRED',
   },
 };
@@ -395,7 +428,8 @@ export function productLabel(state: string): ProductLabel | null {
     (ATTENTION_LANGUAGE as Record<string, ProductLabel>)[state] ??
     (POSTURE_LANGUAGE as Record<string, ProductLabel>)[state] ??
     (CASE_STATE_LANGUAGE as Record<string, ProductLabel>)[state] ??
-    FINDING_STATE_LANGUAGE[state] ??
+    (FINDING_EVIDENCE_LANGUAGE as Record<string, ProductLabel>)[state] ??
+    (FINDING_LIFECYCLE_LANGUAGE as Record<string, ProductLabel>)[state] ??
     // Factor levels last: LOW/MODERATE/HIGH/UNKNOWN are the most generic names
     // in the vocabulary, and a state from a richer map must win the lookup.
     (FACTOR_LEVEL_LANGUAGE as Record<string, ProductLabel>)[state] ??

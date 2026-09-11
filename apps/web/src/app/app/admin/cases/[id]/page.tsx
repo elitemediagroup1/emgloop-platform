@@ -153,7 +153,7 @@ export default async function CaseWorkspacePage({
             <FindingControls
               caseId={params.id}
               findingId={view.finding.findingId}
-              state={view.finding.state}
+              judgment={view.finding.judgment?.judgment ?? null}
             />
           ) : undefined
         }

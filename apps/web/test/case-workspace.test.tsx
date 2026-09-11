@@ -30,6 +30,7 @@ import {
   WORK_NOT_MEASURED,
   WORK_REFERENCE_DANGLING,
   type CaseFindingView,
+  type FindingJudgmentView,
   type CaseParticipationView,
 } from '@emgloop/shared';
 
@@ -60,11 +61,10 @@ function finding(over: Partial<CaseFindingView> = {}): CaseFindingView {
     claim: "CEM's settlement rate fell because their qualification criteria tightened.",
     conclusion: null,
     claimKind: 'MEASUREMENT_BACKED',
-    state: 'DEVELOPING',
     generatedBy: 'DETERMINISTIC_RULE',
-    establishedBy: null,
-    establishedByUserId: null,
-    establishedAt: null,
+    evidenceState: 'DEVELOPING',
+    judgment: null,
+    lifecycle: 'CURRENT',
     establishment: {
       ruleVersion: 'case-finding-establishment.v1',
       eligible: false,
@@ -72,8 +72,20 @@ function finding(over: Partial<CaseFindingView> = {}): CaseFindingView {
       reasons: ['EVIDENCE_INCOMPLETE'],
       readinessWithholdings: [],
     },
-    reasoning: { supports: [], contradicts: [], missing: [], statement: '' } as never,
-    supporting: [{ id: 'ev_1' } as never],
+    // NO CASTS. A fixture that bypassed the contract would keep compiling after
+    // the contract moved under it, which is how the old version of this file went
+    // on describing a Finding shape the product had stopped producing.
+    reasoning: { known: [], inferred: [], missing: [], contradictory: [], unavailable: {} },
+    supporting: [
+      {
+        id: 'ev_1',
+        source: 'commercial-intelligence',
+        metricKey: 'MONETIZED_RATE',
+        window: 'Trailing 7 business days',
+        value: 0.412,
+        completeness: 0.6,
+      },
+    ],
     createdAt: '2026-08-23T14:00:00.000Z',
     supportingWindowStart: '2026-08-15T04:00:00.000Z',
     supportingWindowEnd: '2026-08-22T04:00:00.000Z',
@@ -83,19 +95,36 @@ function finding(over: Partial<CaseFindingView> = {}): CaseFindingView {
   };
 }
 
+/** The same claim, with its evidence establishing it. */
+const established = (over: Partial<CaseFindingView> = {}) =>
+  finding({
+    evidenceState: 'ESTABLISHED',
+    establishment: {
+      ruleVersion: 'case-finding-establishment.v1',
+      eligible: true,
+      basis: 'DETERMINISTIC_POLICY',
+      reasons: [],
+      readinessWithholdings: [],
+    },
+    ...over,
+  });
+
+const ACCEPTED: FindingJudgmentView = {
+  judgment: 'ACCEPTED',
+  byUserId: 'user_lexi',
+  at: '2026-08-26T14:05:00.000Z',
+};
+const REJECTED: FindingJudgmentView = {
+  judgment: 'REJECTED',
+  byUserId: 'user_charlie',
+  at: '2026-08-26T15:40:00.000Z',
+};
+
 // --- 1. Developing vs Established vs Accepted -------------------------------------------
 
 test('1. a developing finding is visibly not an established one', () => {
   const dev = strip(render(<FindingSection finding={finding()} />));
-  const est = strip(render(
-    <FindingSection
-      finding={finding({
-        state: 'ESTABLISHED',
-        establishedBy: 'DETERMINISTIC_POLICY',
-        establishment: { ruleVersion: 'v1', eligible: true, basis: 'DETERMINISTIC_POLICY', reasons: [], readinessWithholdings: [] },
-      })}
-    />,
-  ));
+  const est = strip(render(<FindingSection finding={established()} />));
   assert.ok(dev.includes('Developing'));
   assert.ok(est.includes('Established'));
   assert.notEqual(dev, est);
@@ -103,51 +132,77 @@ test('1. a developing finding is visibly not an established one', () => {
 });
 
 test('1b. established is never rendered as "accepted"', () => {
-  // A human accepting a claim is a decision. Establishment is what the evidence
-  // supports. They must never share a word.
-  const policy = strip(render(
-    <FindingSection
-      finding={finding({
-        state: 'ESTABLISHED',
-        establishedBy: 'DETERMINISTIC_POLICY',
-        establishment: { ruleVersion: 'v1', eligible: true, basis: 'DETERMINISTIC_POLICY', reasons: [], readinessWithholdings: [] },
-      })}
-    />,
-  ));
+  // A person accepting a claim is a decision. Establishment is what the evidence
+  // supports. They must never share a word, a line or a badge.
+  const policy = strip(render(<FindingSection finding={established()} />));
   assert.ok(policy.includes('evidence meets the governed standard on its own'));
-  assert.equal(policy.toLowerCase().includes('accepted'), false);
+  // Nobody judged it, and the page says exactly that rather than letting the
+  // establishment double as somebody's agreement.
+  assert.ok(policy.includes('Nobody has accepted or rejected this claim'));
+  assert.equal(policy.includes('Accepted by'), false);
+  assert.equal(policy.includes('A person accepted'), false);
+});
 
-  const human = strip(render(
+test('1b2. what the evidence supports and what a person decided are separate lines', () => {
+  const out = strip(render(<FindingSection finding={established({ judgment: ACCEPTED })} />));
+  assert.ok(out.includes('What the evidence supports'));
+  assert.ok(out.includes('What a person decided'));
+  // BOTH FACTS, NEITHER STANDING IN FOR THE OTHER.
+  assert.ok(out.includes('Established. The evidence meets the governed standard on its own.'));
+  assert.ok(out.includes('Accepted by user_lexi · 2026-08-26'));
+  assert.ok(out.includes('it does not establish the claim'));
+});
+
+test('1b3. an accepted claim with weak evidence still reads as developing', () => {
+  // THE PROPERTY PR 1 EXISTS FOR, at the surface a person actually looks at.
+  const out = strip(render(<FindingSection finding={finding({ judgment: ACCEPTED })} />));
+  assert.ok(out.includes('Developing'));
+  assert.equal(out.includes('Established. The evidence'), false);
+  assert.ok(out.includes('Accepted by user_lexi'));
+  assert.ok(out.includes('What stands between this and being established'));
+});
+
+test('1b4. a rejected claim still reads as established when the evidence establishes it', () => {
+  const out = strip(render(<FindingSection finding={established({ judgment: REJECTED })} />));
+  assert.ok(out.includes('Established. The evidence meets the governed standard on its own.'));
+  assert.ok(out.includes('Rejected by user_charlie · 2026-08-26'));
+  assert.ok(out.includes('Loop keeps evaluating the evidence'));
+  // A rejection is never listed as a reason the claim is not established.
+  assert.equal(out.includes('What stands between this and being established'), false);
+});
+
+test('1b5. a judgement never renders as a state badge', () => {
+  // The five tones say what Loop knows. A judgement is not one of them, so it
+  // gets words — otherwise "Accepted" arrives wearing the tick that means "Loop
+  // stands behind this".
+  const raw = render(<FindingSection finding={finding({ judgment: ACCEPTED })} />);
+  const badges = raw.match(/class="[^"]*ps-badge ps-badge--[^"]*"/g) ?? [];
+  assert.equal(raw.includes('>Accepted<'), false, 'the judgement is not its own badge');
+  assert.ok(badges.length >= 1, 'the evidence state still is one');
+});
+
+test('1b6. a judgement with no attribution says so rather than implying nobody', () => {
+  const out = strip(render(
     <FindingSection
-      finding={finding({
-        state: 'ESTABLISHED',
-        establishedBy: 'HUMAN_ACCEPTANCE',
-        establishment: { ruleVersion: 'v1', eligible: true, basis: 'HUMAN_ACCEPTANCE', reasons: [], readinessWithholdings: [] },
-      })}
+      finding={finding({ judgment: { judgment: 'ACCEPTED', byUserId: null, at: null } })}
     />,
   ));
-  // When a person DID accept it, that is said — and it is a different sentence.
-  assert.ok(human.includes('A person accepted this claim'));
-  assert.notEqual(policy, human);
+  assert.ok(out.includes('(who was not recorded)'));
+  assert.ok(out.includes('(when was not recorded)'));
 });
 
 test('1c. establishment is described as re-derived, never as permanent', () => {
-  const out = strip(render(
-    <FindingSection
-      finding={finding({
-        state: 'ESTABLISHED',
-        establishedBy: 'DETERMINISTIC_POLICY',
-        establishment: { ruleVersion: 'v1', eligible: true, basis: 'DETERMINISTIC_POLICY', reasons: [], readinessWithholdings: [] },
-      })}
-    />,
-  ));
+  const out = strip(render(<FindingSection finding={established()} />));
   assert.ok(out.includes('re-derived on every read'), 'a person is told it can weaken');
 });
 
 test('1d. a developing finding names what stands between it and establishment', () => {
   const out = strip(render(<FindingSection finding={finding()} />));
   assert.ok(out.includes('What stands between this and being established'));
-  assert.ok(out.includes('Part of the evidence population did not report'));
+  // THE GATE'S OWN REFUSAL, in the dictionary's words rather than a second
+  // vocabulary the surface invented for itself.
+  assert.ok(out.includes('Some evidence covers only part of the population it describes'));
+  assert.equal(out.includes('EVIDENCE_INCOMPLETE'), false, 'and not as a raw enum');
   // The governed reason is still reachable for an operator.
   const raw = render(<FindingSection finding={finding()} />);
   assert.ok(raw.includes('case-finding-establishment.v1'));
@@ -177,7 +232,8 @@ test('1g. a superseded finding keeps its own words', () => {
             findingId: 'fnd_0',
             claim: 'The drop is caused by a single source going dark.',
             conclusion: null,
-            state: 'SUPERSEDED',
+            lifecycle: 'SUPERSEDED',
+            judgment: ACCEPTED,
             generatedBy: 'DETERMINISTIC_RULE',
             createdAt: '2026-08-21T09:00:00.000Z',
             supersededById: 'fnd_1',
@@ -191,6 +247,9 @@ test('1g. a superseded finding keeps its own words', () => {
   assert.ok(out.includes('Superseded'));
   assert.ok(out.includes('Replaced by a later claim'));
   assert.ok(out.includes('2026-08-21'), 'and when it stood');
+  // AND THE JUDGEMENT IT CARRIED, without an evidence state: history is not
+  // re-evaluated, and today's reading is not what was known then.
+  assert.ok(out.includes('Accepted by user_lexi'));
 });
 
 // --- 2. Recommendations ---------------------------------------------------------------------

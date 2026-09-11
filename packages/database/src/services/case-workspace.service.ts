@@ -186,7 +186,7 @@ export class CaseWorkspaceService {
       // The Finding's own refusals, in the product's words rather than the
       // gate's — the gate's are carried on the Finding itself, unchanged, for
       // anybody who needs them.
-      ...(finding && finding.state !== 'ESTABLISHED'
+      ...(finding && finding.evidenceState !== 'ESTABLISHED'
         ? ['Loop has not established this claim yet.']
         : []),
     ];

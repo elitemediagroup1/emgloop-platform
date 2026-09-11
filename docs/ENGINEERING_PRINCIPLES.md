@@ -150,12 +150,16 @@ consumer be added, changed or removed without touching anything that produces.
 **Violation looks like:** an intelligence module importing another product's repository; a
 detection path that creates a work item, sends a notification, or writes to a CRM record.
 
-**Enforced by:** **NOTHING YET — this is the largest open gap in this document.** The cognitive
-layer has the machinery (transactional outbox, `StateChangeSubscription`, exactly-once delivery
-per subscriber, a `WORK_OS` subscriber type) and the Decision Center **does not publish into it
-yet**. Today the rule holds only because the Decision Center was deliberately built to touch
-nothing else — which is discipline, not enforcement. Wiring publication is the next foundation
-layer, and until it exists, this rule is a commitment rather than a guarantee.
+**Enforced by:** **NOTHING YET — this is the largest open gap in this document.** The
+publishing half exists: the Decision Center writes exactly one domain event into the cognitive
+layer's transactional outbox for every observation it appends, in the same transaction, and Work
+OS publishes its execution events the same way; a scheduled drain delivers them through
+`StateChangeSubscription` with exactly-once delivery per subscriber. **The consuming half does
+not.** No code provisions a subscription, the subscription's `eventTypes` filter is stored but not
+matched on, and none of the internal handlers acts on a Decision Center or Work OS event — an event
+with no matching subscription is marked published and goes nowhere. Today the rule holds only
+because producers were deliberately built to touch nothing else, which is discipline, not
+enforcement; until a consumer exists, this rule is a commitment rather than a guarantee.
 
 ---
 

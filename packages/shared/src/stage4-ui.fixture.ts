@@ -14,7 +14,7 @@
 //
 // EVERY GOVERNED VALUE IS A REAL SHIPPED VOCABULARY MEMBER. Not a string that
 // looks like one. `SLA_STATES`, `MONITORING_VERDICTS`, `ATTENTION_STATES`,
-// `READINESS_OUTCOMES`, `FINDING_STATES` and the rest are imported and used, so a
+// `READINESS_OUTCOMES`, `FINDING_EVIDENCE_STATES` and the rest are imported and used, so a
 // fixture cannot drift into describing a state the engines cannot produce.
 //
 // WHAT IT DELIBERATELY REFUSES TO SHOW. A confidence percentage, a causal claim,
@@ -25,19 +25,41 @@
 
 import type {
   AttentionAssessment,
+  BusinessDate,
   CaseCoordinationView,
+  CaseFindingView,
   CaseOutcomeView,
   CoordinatedWork,
+  FindingClaimKind,
+  FindingEvidenceRef,
+  FindingLineageEntry,
+  FindingReasoning,
+  FindingRecordFacts,
+  MeasurementReadiness,
   MonitoringAssessment,
   MonitoringPlan,
   ObjectiveCoverage,
   PatternView,
+  ProviderObservationStatus,
 } from './index';
 import { CASE_MONITORING_RULE_VERSION, CAUSAL_CAVEAT } from './case-monitoring';
 import { ATTENTION_RULE_VERSION, assessAttention } from './attention-state';
 import { CASE_COORDINATION_RULE_VERSION, WORK_OS_SYSTEM } from './case-work-coordination';
 import { CASE_LEARNING_RULE_VERSION, LEARNING_REFUSALS } from './case-learning';
 import { WORK_EXECUTION_RULE_VERSION } from './work-execution';
+import { assessReadiness } from './measurement-readiness';
+import { assessWindowObservation } from './provider-observation';
+import {
+  FINDING_CONTRADICTION_NONE,
+  FINDING_ESTABLISHMENT_RULE_VERSION,
+  FINDING_INELIGIBILITY_LABELS,
+  FINDING_INFERENCE_UNAVAILABLE,
+  assessFindingEstablishment,
+  findEvidenceContradictions,
+  findingEvidenceState,
+  findingJudgment,
+  findingLifecycle,
+} from './case-finding';
 
 // --- Objective coverage, the input an all-clear is earned from -----------------------
 
@@ -449,6 +471,237 @@ export const PATTERN_EMERGING: PatternView = {
   ],
 };
 
+// --- Findings: what the evidence supports, and separately what a person decided ---------
+
+// THE VERDICTS ARE REAL. Nothing below hand-writes a `MeasurementReadiness` or an
+// establishment: a two-day window goes through `assessReadiness`, the claim goes
+// through `assessFindingEstablishment`, and the three axes come out of the same
+// functions the service uses. A fixture that could say ESTABLISHED on its own
+// say-so would be the one place in this file the gate did not apply.
+
+const FINDING_DATES: BusinessDate[] = ['2026-08-24', '2026-08-25'];
+const FINDING_CAMPAIGN = 'camp-cem-ssdi';
+
+function findingReadiness(unobserved: BusinessDate | null): MeasurementReadiness {
+  const byDate = new Map<BusinessDate, ProviderObservationStatus>();
+  for (const d of FINDING_DATES) if (d !== unobserved) byDate.set(d, 'SUCCESS');
+  return assessReadiness({
+    metric: 'REVENUE',
+    dates: FINDING_DATES,
+    observation: assessWindowObservation(FINDING_DATES, byDate),
+    partitions: [{ dimension: 'CAMPAIGN', memberExternalId: FINDING_CAMPAIGN, localCalls: 412 }],
+    unattributedCalls: 0,
+    reconciliation: FINDING_DATES.map((businessDate) => ({
+      businessDate,
+      state: 'RECONCILED',
+      counts: {
+        providerUnique: 206,
+        providerDuplicateIds: 0,
+        localUnique: 206,
+        localDuplicateIds: 0,
+        intersection: 206,
+        providerOnly: 0,
+        localOnly: 0,
+        providerOnlyExpected: 0,
+        providerOnlyNotConfigured: 0,
+        providerOnlyExcluded: 0,
+        providerOnlyUnknownMember: 0,
+      },
+      members: [
+        {
+          dimension: 'CAMPAIGN',
+          memberExternalId: FINDING_CAMPAIGN,
+          providerCount: 206,
+          localCount: 206,
+          providerOnly: 0,
+          expectation: 'EXPECTED',
+        },
+      ],
+      ruleVersion: 'provider-reconciliation.v1',
+    })),
+    authorities: [
+      {
+        dimension: 'CAMPAIGN',
+        memberExternalId: FINDING_CAMPAIGN,
+        metric: 'REVENUE',
+        sourceKey: 'provider-calls',
+        effectiveFrom: '2026-01-01',
+        effectiveTo: null,
+      },
+    ],
+    sources: [
+      {
+        key: 'provider-calls',
+        kind: 'PROVIDER_STREAM',
+        displayName: 'Call provider',
+        supportedMetrics: ['CALL_VOLUME', 'REVENUE'],
+        measureDefinitionIds: { CALL_VOLUME: 'calls.provider.v1', REVENUE: 'revenue.provider.v1' },
+        provider: 'callgrid',
+        stream: 'calls',
+      },
+    ],
+    outcomeDays: [],
+  });
+}
+
+/** A window every day of which was observed and reconciled. */
+const FINDING_READY = findingReadiness(null);
+/** The same window with its second day never observed. */
+const FINDING_NOT_READY = findingReadiness('2026-08-25');
+
+const FINDING_EVIDENCE: FindingEvidenceRef[] = [
+  {
+    id: 'ev_ssdi_revenue',
+    source: 'commercial-intelligence',
+    metricKey: 'REVENUE',
+    window: '2026-08-24..2026-08-25',
+    value: 18_420,
+    completeness: 1,
+  },
+];
+
+/** Nobody has judged it. */
+const UNJUDGED: FindingRecordFacts = {
+  status: 'PROPOSED',
+  supersededById: null,
+  acceptedBy: null,
+  acceptedAt: null,
+  rejectedBy: null,
+  rejectedAt: null,
+};
+const ACCEPTED_BY_LEXI: FindingRecordFacts = {
+  ...UNJUDGED,
+  status: 'ACCEPTED',
+  acceptedBy: 'user_lexi',
+  acceptedAt: '2026-08-26T14:05:00.000Z',
+};
+const REJECTED_BY_CHARLIE: FindingRecordFacts = {
+  ...UNJUDGED,
+  status: 'REJECTED',
+  rejectedBy: 'user_charlie',
+  rejectedAt: '2026-08-26T15:40:00.000Z',
+};
+
+function findingView(input: {
+  id: string;
+  claim: string;
+  conclusion: string | null;
+  claimKind: FindingClaimKind;
+  facts: FindingRecordFacts;
+  readiness: MeasurementReadiness;
+  lineage?: FindingLineageEntry[];
+}): CaseFindingView {
+  const lifecycle = findingLifecycle(input.facts);
+  const current = lifecycle === 'CURRENT';
+  const contradicting = findEvidenceContradictions(FINDING_EVIDENCE);
+  const establishment = assessFindingEstablishment({
+    claimKind: input.claimKind,
+    current,
+    // As the service does it: only a current, measurement-backed claim is ever
+    // put in front of a Stage 3 verdict.
+    readiness: input.claimKind === 'MEASUREMENT_BACKED' && current ? input.readiness : null,
+    supporting: FINDING_EVIDENCE,
+    contradicting,
+  });
+  const missing = current ? establishment.reasons.map((r) => FINDING_INELIGIBILITY_LABELS[r]) : [];
+  const reasoning: FindingReasoning = {
+    known: FINDING_EVIDENCE.map((e) => ({ text: `${e.metricKey} (${e.window})`, evidenceId: e.id })),
+    inferred: [],
+    missing,
+    contradictory: contradicting,
+    unavailable: {
+      INFERRED: FINDING_INFERENCE_UNAVAILABLE,
+      ...(contradicting.length === 0 ? { CONTRADICTORY: FINDING_CONTRADICTION_NONE } : {}),
+      ...(missing.length === 0
+        ? { MISSING: 'Nothing is currently standing between this finding and its evidence.' }
+        : {}),
+    },
+  };
+  return {
+    findingId: input.id,
+    caseId: 'case_ssdi_revenue',
+    claim: input.claim,
+    conclusion: input.conclusion,
+    claimKind: input.claimKind,
+    generatedBy: 'DETERMINISTIC_RULE',
+    evidenceState: findingEvidenceState(establishment),
+    judgment: findingJudgment(input.facts),
+    lifecycle,
+    establishment,
+    reasoning,
+    supporting: FINDING_EVIDENCE,
+    createdAt: '2026-08-26T09:00:00.000Z',
+    supportingWindowStart: '2026-08-24T04:00:00.000Z',
+    supportingWindowEnd: '2026-08-26T04:00:00.000Z',
+    ruleVersion: FINDING_ESTABLISHMENT_RULE_VERSION,
+    lineage: input.lineage ?? [],
+  };
+}
+
+const SSDI_CLAIM = 'SSDI revenue per call fell over the two days after one buyer stopped settling.';
+
+/** The evidence establishes it, and a person agreed. Two facts, not one. */
+export const FINDING_ESTABLISHED_ACCEPTED: CaseFindingView = findingView({
+  id: 'fnd_ssdi_established_accepted',
+  claim: SSDI_CLAIM,
+  conclusion: null,
+  claimKind: 'MEASUREMENT_BACKED',
+  facts: ACCEPTED_BY_LEXI,
+  readiness: FINDING_READY,
+});
+
+/**
+ * The evidence establishes it, and a person rejected it. STILL ESTABLISHED:
+ * disagreeing with a claim does not weaken the evidence under it.
+ */
+export const FINDING_ESTABLISHED_REJECTED: CaseFindingView = findingView({
+  id: 'fnd_ssdi_established_rejected',
+  claim: SSDI_CLAIM,
+  conclusion: null,
+  claimKind: 'MEASUREMENT_BACKED',
+  facts: REJECTED_BY_CHARLIE,
+  readiness: FINDING_READY,
+});
+
+/**
+ * A person accepted a claim there is no governed standard to establish. STILL
+ * DEVELOPING, and the refusal says why: acceptance is a judgment, not evidence.
+ */
+export const FINDING_DEVELOPING_ACCEPTED: CaseFindingView = findingView({
+  id: 'fnd_buyer_relationship_accepted',
+  claim: 'The buyer is deprioritizing SSDI volume ahead of a contract renegotiation.',
+  conclusion: null,
+  claimKind: 'NON_MEASUREMENT',
+  facts: ACCEPTED_BY_LEXI,
+  readiness: FINDING_READY,
+});
+
+/**
+ * Part of the window was never observed, and a person rejected the claim. The
+ * two are independent: it would be developing whatever anybody decided, and it
+ * still carries the superseded claim it replaced, with that claim's own judgment.
+ */
+export const FINDING_DEVELOPING_REJECTED: CaseFindingView = findingView({
+  id: 'fnd_ssdi_developing_rejected',
+  claim: SSDI_CLAIM,
+  conclusion: null,
+  claimKind: 'MEASUREMENT_BACKED',
+  facts: REJECTED_BY_CHARLIE,
+  readiness: FINDING_NOT_READY,
+  lineage: [
+    {
+      findingId: 'fnd_ssdi_first_reading',
+      claim: 'SSDI revenue per call fell because answer rates dropped.',
+      conclusion: null,
+      lifecycle: findingLifecycle({ ...ACCEPTED_BY_LEXI, supersededById: 'fnd_ssdi_developing_rejected' }),
+      judgment: findingJudgment({ ...ACCEPTED_BY_LEXI, supersededById: 'fnd_ssdi_developing_rejected' }),
+      generatedBy: 'DETERMINISTIC_RULE',
+      createdAt: '2026-08-25T09:00:00.000Z',
+      supersededById: 'fnd_ssdi_developing_rejected',
+    },
+  ],
+});
+
 // --- The catalogue --------------------------------------------------------------------------
 
 /**
@@ -472,6 +725,10 @@ export const STAGE4_UI_STATES = {
   'Monitoring · still running': MONITORING_IN_PROGRESS,
   'Outcome · recovered, cause not established': OUTCOME_RECOVERED_NO_CAUSE,
   'Outcome · nothing established': OUTCOME_UNESTABLISHED,
+  'Finding · established, and a person accepted it': FINDING_ESTABLISHED_ACCEPTED,
+  'Finding · established, and a person rejected it': FINDING_ESTABLISHED_REJECTED,
+  'Finding · developing, and a person accepted it': FINDING_DEVELOPING_ACCEPTED,
+  'Finding · developing, and a person rejected it': FINDING_DEVELOPING_REJECTED,
   'Learning · one observation': PATTERN_OBSERVATION,
   'Learning · emerging pattern': PATTERN_EMERGING,
 } as const;
@@ -483,4 +740,5 @@ export const STAGE4_FIXTURE_RULE_VERSIONS = {
   monitoring: CASE_MONITORING_RULE_VERSION,
   learning: CASE_LEARNING_RULE_VERSION,
   execution: WORK_EXECUTION_RULE_VERSION,
+  findingEstablishment: FINDING_ESTABLISHMENT_RULE_VERSION,
 } as const;

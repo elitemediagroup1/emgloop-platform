@@ -249,7 +249,9 @@ export class CaseMonitoringService {
     if (monitoring?.assessment?.verdict === 'INCONCLUSIVE') {
       notEstablished.push('Monitoring could not establish what happened over its window.');
     }
-    if (finding?.state !== 'ESTABLISHED') {
+    // EVIDENCE STATE ONLY. Whether a person accepted the finding says nothing
+    // about whether the evidence behind this outcome was established.
+    if (finding?.evidenceState !== 'ESTABLISHED') {
       notEstablished.push('No established finding stands behind this outcome.');
     }
 
@@ -283,7 +285,11 @@ export class CaseMonitoringService {
     const monitoring = await this.get(organizationId, caseId, now);
 
     return assessResolutionEligibility({
-      findingEstablished: finding?.state === 'ESTABLISHED',
+      // TWO AXES, PASSED SEPARATELY. What the evidence supports, and whether a
+      // person rejected the claim -- which does not weaken the evidence, but does
+      // withhold Loop's authority to close the Case over that person's objection.
+      findingEstablished: finding?.evidenceState === 'ESTABLISHED',
+      findingRejected: finding?.judgment?.judgment === 'REJECTED',
       workAllComplete:
         coordination.work.length > 0 &&
         coordination.work.every((w) => w.unknown === null && w.workStatus === 'completed'),

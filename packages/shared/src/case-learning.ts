@@ -60,8 +60,11 @@ export interface LearningObservation {
   executed: readonly string[] | null;
   outcome: OperationalOutcome | null;
   monitoringVerdict: MonitoringVerdict | null;
-  /** What the evidence looked like when the decision was made. Not now. */
-  evidenceAtDecision: LearningEvidenceState;
+  /**
+   * What the evidence looked like when the decision was made -- which Loop does
+   * not record yet, and says so. See `LearningEvidenceAtDecision`.
+   */
+  evidenceAtDecision: LearningEvidenceAtDecision;
   /** When the Case closed, when it did. */
   closedAt: string | null;
 }
@@ -76,14 +79,27 @@ export interface LearningOption {
   actions: readonly string[];
 }
 
-export interface LearningEvidenceState {
-  /** Whether a Finding was established when the decision was taken. */
-  findingEstablished: boolean;
-  /** The Stage 3 verdict at the time, when one was recorded. */
-  readinessOutcome: string | null;
-  /** How many pieces of supporting evidence stood behind it. */
-  supportingCount: number;
+/**
+ * The evidence a decision was taken on -- UNRECORDED, and only representable as
+ * unrecorded.
+ *
+ * WHY THERE IS NO VALUE HERE. Evidence state is derived on every read and never
+ * stored, so nothing captures what it was at the moment somebody chose an
+ * option. Filling this from a read taken now would describe today's evidence
+ * and label it as the evidence the decision was made on -- the one comparison a
+ * learning record exists to keep honest. Until Loop records its evaluations as
+ * they happen, the only truthful shape is this one.
+ */
+export interface LearningEvidenceAtDecision {
+  recorded: false;
+  /** Why it is unknown, in a sentence a person can read. */
+  reason: string;
 }
+
+export const EVIDENCE_AT_DECISION_UNRECORDED =
+  'Loop does not yet record what the evidence looked like when a decision was taken. Reading ' +
+  "it now would describe today's evidence rather than the evidence the decision was made on, " +
+  'so it is left unknown.';
 
 // --- Comparability ---------------------------------------------------------------------
 
@@ -276,16 +292,24 @@ export function assessPattern(
 /**
  * WHERE DURABLE KNOWLEDGE ALREADY LIVES, and why Stage 4 does not build another.
  *
- * `KnowledgeAssertion` is the platform's authority for what EMG durably knows.
- * It carries `assertionClass: ORGANIZATIONAL`, a status that starts at PROPOSED
- * and only a person moves to ACTIVE, explicit supersession rather than deletion,
- * effective dating, permitted purposes and a consent basis. Its own header
- * records that a class is "NEVER silently promoted -- an inferred belief must
- * not read back as a declared fact", which is precisely the rule Stage 4 needs.
+ * `KnowledgeAssertion` is where the cognitive layer keeps what it knows or
+ * believes about an identity. It carries an `ORGANIZATIONAL` assertion class,
+ * explicit supersession rather than deletion, effective dating, permitted
+ * purposes and a consent basis, and its header records that a class is "NEVER
+ * silently promoted".
  *
- * SO STAGE 4 NOMINATES INTO IT AND DOES NOT DUPLICATE IT. A second store for
+ * WHAT IT DOES NOT HAVE IS A HUMAN PROMOTION PATH. Its repository creates rows
+ * ACTIVE by default, has no method that moves one from PROPOSED to ACTIVE and no
+ * method that rejects one, records no approver, and is superseded automatically
+ * by the cognitive event processor per (subject, predicate) whatever the class.
+ * Nothing produces the ORGANIZATIONAL class today. The human approval Stage 4
+ * requires therefore lives in THIS file -- in a nomination that writes nothing --
+ * and not in the store it names as its destination.
+ *
+ * STAGE 4 NOMINATES TOWARDS IT AND DOES NOT DUPLICATE IT. A second store for
  * "things EMG has learned" would be a second Brain, and this repository already
- * carries the cost of every parallel system it has built.
+ * carries the cost of every parallel system it has built. Whether it is the
+ * right destination at all is an open Stage 5 decision.
  */
 export const KNOWLEDGE_AUTHORITY = 'KnowledgeAssertion' as const;
 

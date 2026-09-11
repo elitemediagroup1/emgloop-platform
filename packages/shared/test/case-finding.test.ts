@@ -23,11 +23,14 @@ import { readFileSync } from 'node:fs';
 
 import {
   FINDING_CLAIM_KINDS,
+  FINDING_ESTABLISHMENT_BASES,
   FINDING_ESTABLISHMENT_RULE_VERSION,
   FINDING_INELIGIBILITY_LABELS,
   FINDING_INELIGIBILITY_REASONS,
   FINDING_REASON_BY_WITHHOLDING,
-  FINDING_STATES,
+  FINDING_EVIDENCE_STATES,
+  FINDING_JUDGMENTS,
+  FINDING_LIFECYCLES,
   FINDING_TYPE_PREFIX,
   MEASUREMENT_READINESS_RULE_VERSION,
   READINESS_WITHHOLDINGS,
@@ -36,8 +39,10 @@ import {
   assessWindowObservation,
   findEvidenceContradictions,
   findingClaimKind,
+  findingEvidenceState,
   findingHypothesisType,
-  findingIsLive,
+  findingJudgment,
+  findingLifecycle,
   isFindingRecorded,
   isFindingSuperseded,
   FINDING_RECORDED_REASON,
@@ -45,6 +50,7 @@ import {
   type BusinessDate,
   type FindingEstablishmentInput,
   type FindingEvidenceRef,
+  type FindingRecordFacts,
   type MeasureSourceAuthorityDeclaration,
   type MeasurementReadiness,
   type MeasurementSourceDefinition,
@@ -54,6 +60,8 @@ import {
   type ReconciliationDayFact,
   type ReconciliationMemberFact,
 } from '../src/index';
+
+const SOURCE_TEXT = readFileSync(new URL('../src/case-finding.ts', import.meta.url), 'utf8');
 
 const DATES: BusinessDate[] = ['2026-08-04', '2026-08-05'];
 const CAMPAIGN = 'camp-delivering';
@@ -159,13 +167,34 @@ function evidence(over: Partial<FindingEvidenceRef> = {}): FindingEvidenceRef {
 function input(over: Partial<FindingEstablishmentInput> = {}): FindingEstablishmentInput {
   return {
     claimKind: 'MEASUREMENT_BACKED',
-    live: true,
+    current: true,
     readiness: READY,
     supporting: [evidence()],
     contradicting: [],
     ...over,
   };
 }
+
+const UNJUDGED: FindingRecordFacts = {
+  status: 'PROPOSED',
+  supersededById: null,
+  acceptedBy: null,
+  acceptedAt: null,
+  rejectedBy: null,
+  rejectedAt: null,
+};
+const ACCEPTED: FindingRecordFacts = {
+  ...UNJUDGED,
+  status: 'ACCEPTED',
+  acceptedBy: 'user_lexi',
+  acceptedAt: '2026-08-26T14:05:00.000Z',
+};
+const REJECTED: FindingRecordFacts = {
+  ...UNJUDGED,
+  status: 'REJECTED',
+  rejectedBy: 'user_charlie',
+  rejectedAt: '2026-08-26T15:40:00.000Z',
+};
 
 // --- The path that must work ------------------------------------------------------
 
@@ -190,9 +219,9 @@ test('a non-measurement claim can never establish itself, whatever else is true'
   assert.equal(v.basis, null);
 });
 
-test('a claim that is no longer live cannot establish', () => {
-  const v = assessFindingEstablishment(input({ live: false }));
-  assert.deepEqual(v.reasons, ['FINDING_NOT_LIVE']);
+test('a claim that is no longer current cannot establish', () => {
+  const v = assessFindingEstablishment(input({ current: false }));
+  assert.deepEqual(v.reasons, ['FINDING_NOT_CURRENT']);
 });
 
 // --- The Stage 3 proof -----------------------------------------------------------------
@@ -375,11 +404,109 @@ test('a hypothesis written by some other producer is not a Finding', () => {
   assert.equal(findingClaimKind(`${FINDING_TYPE_PREFIX}SOMETHING_ELSE`), null);
 });
 
-test('only DEVELOPING and ESTABLISHED are live', () => {
-  assert.deepEqual(
-    FINDING_STATES.filter(findingIsLive),
-    ['DEVELOPING', 'ESTABLISHED'],
+// --- The three axes -----------------------------------------------------------------
+
+test('evidence state is the gate\'s verdict and nothing else', () => {
+  assert.deepEqual([...FINDING_EVIDENCE_STATES], ['DEVELOPING', 'ESTABLISHED']);
+  assert.equal(findingEvidenceState(assessFindingEstablishment(input())), 'ESTABLISHED');
+  assert.equal(
+    findingEvidenceState(assessFindingEstablishment(input({ supporting: [] }))),
+    'DEVELOPING',
   );
+});
+
+test('accepting a claim is not a way to establish it', () => {
+  // THE PROPERTY THIS WHOLE PR EXISTS FOR. There is no argument, and no input,
+  // through which a person's acceptance reaches the gate: the only basis the
+  // vocabulary has is the deterministic one.
+  assert.deepEqual([...FINDING_ESTABLISHMENT_BASES], ['DETERMINISTIC_POLICY']);
+  // IN THE CODE, NOT IN THE PROSE. The comments explain why the human basis was
+  // removed, so the check strips them first rather than depending on wording
+  // nobody is allowed to edit.
+  const code = SOURCE_TEXT.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  assert.equal(/HUMAN_ACCEPTANCE/.test(code), false);
+  // AND THE GATE ITSELF CANNOT SEE A JUDGEMENT. Its whole body, comments
+  // stripped, never mentions one -- there is nothing for an acceptance to reach.
+  const gate = code.slice(
+    code.indexOf('export function assessFindingEstablishment('),
+    code.indexOf('function refused('),
+  );
+  assert.ok(gate.length > 200, 'the gate body was found');
+  assert.equal(/accept|reject|judg/i.test(gate), false, 'no judgement reaches the gate');
+  // A claim with nothing under it stays developing however it is judged.
+  const bare = assessFindingEstablishment(input({ supporting: [] }));
+  for (const facts of [ACCEPTED, REJECTED, UNJUDGED]) {
+    assert.equal(findingEvidenceState(bare), 'DEVELOPING', facts.status);
+  }
+});
+
+test('a rejected claim is still evaluated, and can be established', () => {
+  // Rejection is a judgment. It is not a lifecycle and it is not evidence, so a
+  // rejected claim goes through the gate exactly as an unjudged one does.
+  assert.equal(findingLifecycle(REJECTED), 'CURRENT');
+  assert.equal(findingEvidenceState(assessFindingEstablishment(input())), 'ESTABLISHED');
+  assert.equal(findingJudgment(REJECTED)?.judgment, 'REJECTED');
+});
+
+test('a judgment carries who made it and when', () => {
+  const accepted = findingJudgment(ACCEPTED);
+  assert.equal(accepted?.judgment, 'ACCEPTED');
+  assert.equal(accepted?.byUserId, 'user_lexi');
+  assert.equal(accepted?.at, '2026-08-26T14:05:00.000Z');
+  assert.equal(findingJudgment(UNJUDGED), null, 'nobody judging is an absence, not a verdict');
+  assert.deepEqual([...FINDING_JUDGMENTS], ['ACCEPTED', 'REJECTED']);
+});
+
+test('the latest judgment wins, and an unattributed status is still reported', () => {
+  // The columns are overwritten in place, so the later timestamp is the latest
+  // act. Anything earlier is lost until a hypothesis lifecycle log exists.
+  const acceptedThenRejected: FindingRecordFacts = {
+    ...ACCEPTED,
+    status: 'REJECTED',
+    rejectedBy: 'user_charlie',
+    rejectedAt: '2026-08-27T09:00:00.000Z',
+  };
+  assert.equal(findingJudgment(acceptedThenRejected)?.judgment, 'REJECTED');
+  const reaccepted: FindingRecordFacts = {
+    ...acceptedThenRejected,
+    status: 'ACCEPTED',
+    acceptedAt: '2026-08-28T09:00:00.000Z',
+  };
+  assert.equal(findingJudgment(reaccepted)?.judgment, 'ACCEPTED');
+  const untimed: FindingRecordFacts = { ...UNJUDGED, status: 'ACCEPTED' };
+  assert.deepEqual(findingJudgment(untimed), { judgment: 'ACCEPTED', byUserId: null, at: null });
+});
+
+test('lifecycle answers only whether this is still the claim', () => {
+  assert.deepEqual([...FINDING_LIFECYCLES], ['CURRENT', 'SUPERSEDED', 'EXPIRED']);
+  assert.equal(findingLifecycle(UNJUDGED), 'CURRENT');
+  assert.equal(findingLifecycle({ ...UNJUDGED, supersededById: 'fnd_2' }), 'SUPERSEDED');
+  assert.equal(findingLifecycle({ ...UNJUDGED, status: 'SUPERSEDED' }), 'SUPERSEDED');
+  assert.equal(findingLifecycle({ ...UNJUDGED, status: 'EXPIRED' }), 'EXPIRED');
+  // AND NOT WHAT ANYBODY DECIDED.
+  assert.equal(findingLifecycle(ACCEPTED), 'CURRENT');
+  assert.equal(findingLifecycle(REJECTED), 'CURRENT');
+});
+
+test('the three axes are independent: all four combinations are representable', () => {
+  const combinations = [
+    [findingEvidenceState(assessFindingEstablishment(input())), findingJudgment(ACCEPTED)?.judgment],
+    [findingEvidenceState(assessFindingEstablishment(input())), findingJudgment(REJECTED)?.judgment],
+    [
+      findingEvidenceState(assessFindingEstablishment(input({ supporting: [] }))),
+      findingJudgment(ACCEPTED)?.judgment,
+    ],
+    [
+      findingEvidenceState(assessFindingEstablishment(input({ supporting: [] }))),
+      findingJudgment(REJECTED)?.judgment,
+    ],
+  ];
+  assert.deepEqual(combinations, [
+    ['ESTABLISHED', 'ACCEPTED'],
+    ['ESTABLISHED', 'REJECTED'],
+    ['DEVELOPING', 'ACCEPTED'],
+    ['DEVELOPING', 'REJECTED'],
+  ]);
 });
 
 test('every refusal has a sentence a person can read', () => {
@@ -401,8 +528,6 @@ test('the case-log predicates match only their own exact line', () => {
 });
 
 // --- What the contract must NOT carry ---------------------------------------------------
-
-const SOURCE_TEXT = readFileSync(new URL('../src/case-finding.ts', import.meta.url), 'utf8');
 
 test('the Finding contract carries no confidence percentage', () => {
   // `IntelligenceHypothesis.confidence` exists and nothing reads it, so it has no

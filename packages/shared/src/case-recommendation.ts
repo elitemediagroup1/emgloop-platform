@@ -45,7 +45,7 @@ import type { EvidenceStrength } from './callgrid-decision-support';
 import { EVIDENCE_STRENGTH_RANK } from './callgrid-decision-support';
 import { RECOMMENDATION_VERBS, isSafeRecommendation } from './callgrid-intelligence';
 import type { RecommendationVerb } from './callgrid-intelligence';
-import type { FindingEstablishment, FindingState } from './case-finding';
+import type { FindingEvidenceState, FindingLifecycle } from './case-finding';
 import { CASE_EVENT_REASONS, isCaseEvent } from './case-observation';
 
 export const RECOMMENDATION_RULE_VERSION = 'case-recommendation.v1';
@@ -143,31 +143,31 @@ export function postureIsSupported(
  * How strong the evidence under a Stage 4 Finding is, in the platform's existing
  * vocabulary.
  *
- * DERIVED FROM THE ESTABLISHMENT VERDICT, NOT FROM A CONFIDENCE NUMBER. The
- * Finding contract deliberately carries no confidence, so this reads the gate's
- * own answer instead:
+ * DERIVED FROM THE EVIDENCE STATE, NOT FROM A CONFIDENCE NUMBER. The Finding
+ * contract deliberately carries no confidence, so this reads the gate's own
+ * answer instead:
  *
- *   established by the deterministic gate  → HIGH        (a measurement proved it)
- *   established by a person                → MODERATE    (judgement, not measurement)
- *   developing, with supporting evidence   → LOW
- *   developing, with nothing under it      → INSUFFICIENT
- *   rejected / superseded / expired        → INSUFFICIENT
+ *   established (by the deterministic gate)  → HIGH          (a measurement proved it)
+ *   developing, with supporting evidence     → LOW
+ *   developing, with nothing under it        → INSUFFICIENT
+ *   superseded / expired                     → INSUFFICIENT  (history is not evaluated)
  *
- * A HUMAN ACCEPTANCE IS NOT A MEASUREMENT, and that is why it caps at MODERATE.
- * A person taking responsibility is the governance standard that lets a
- * non-measurement claim be used at all; it is not evidence that the claim is
- * arithmetically true, and treating it as HIGH would let an opinion authorize a
- * committed change.
+ * A PERSON'S JUDGMENT IS NOT AN INPUT, AND THE TYPE ENFORCES IT. Accepting a
+ * claim does not make its evidence stronger and rejecting it does not make it
+ * weaker, so there is no field here through which either could reach the posture
+ * ceiling. Until Stage 5 PR 1 an acceptance raised a developing claim to
+ * MODERATE, which let an opinion unlock a mitigation the evidence could not. A
+ * person who wants to act beyond what the evidence supports is authorizing
+ * action under uncertainty, and that is recorded where the action is -- it does
+ * not make the claim any more certain.
  */
 export function findingEvidenceStrength(finding: {
-  state: FindingState;
-  establishedBy: 'HUMAN_ACCEPTANCE' | 'DETERMINISTIC_POLICY' | null;
-  establishment: Pick<FindingEstablishment, 'eligible'>;
+  evidenceState: FindingEvidenceState;
+  lifecycle: FindingLifecycle;
   supportingCount: number;
 }): EvidenceStrength {
-  if (finding.state !== 'DEVELOPING' && finding.state !== 'ESTABLISHED') return 'INSUFFICIENT';
-  if (finding.establishedBy === 'DETERMINISTIC_POLICY') return 'HIGH';
-  if (finding.establishedBy === 'HUMAN_ACCEPTANCE') return 'MODERATE';
+  if (finding.lifecycle !== 'CURRENT') return 'INSUFFICIENT';
+  if (finding.evidenceState === 'ESTABLISHED') return 'HIGH';
   return finding.supportingCount > 0 ? 'LOW' : 'INSUFFICIENT';
 }
 
@@ -405,8 +405,12 @@ export function compareOptions(
 export interface RecommendationSet {
   caseId: string;
   findingId: string;
-  /** The Finding's state WHEN THIS WAS WRITTEN. A snapshot, deliberately. */
-  findingStateAtIssue: FindingState;
+  /**
+   * What the evidence supported WHEN THIS WAS WRITTEN. A snapshot, deliberately.
+   * Evidence state only: a person's judgment of the claim is not what bounds a
+   * recommendation, so it is not what the snapshot records.
+   */
+  findingEvidenceStateAtIssue: FindingEvidenceState;
   evidenceStrengthAtIssue: EvidenceStrength;
   /** The strongest posture the evidence allowed at that moment. */
   postureCeiling: RecommendationPosture;

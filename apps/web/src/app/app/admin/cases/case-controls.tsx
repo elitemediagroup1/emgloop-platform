@@ -26,6 +26,7 @@ import {
   OPERATIONAL_OUTCOMES,
   RECOMMENDATION_VERBS,
   type CaseContribution,
+  type FindingJudgment,
   type OperationalOutcome,
   type RecommendedAction,
 } from '@emgloop/shared';
@@ -186,33 +187,34 @@ export function RecommendationControls({
 /**
  * A person judges the claim.
  *
- * THIS DOES NOT EDIT THE FINDING. There is no field here for changing what the
- * claim says, deliberately: a claim changes through evidence and supersession,
- * not because somebody disagrees with it. The copy says exactly that, because a
- * person who wants to argue with a conclusion should know where the argument
- * actually belongs.
+ * A JUDGMENT, NOT EVIDENCE, AND NOT AN EDIT. There is no field here for changing
+ * what the claim says, deliberately: a claim changes through evidence and
+ * supersession, not because somebody disagrees with it. And accepting or
+ * rejecting it does not move what the evidence supports in either direction. The
+ * copy says both, because a person who wants to argue with a conclusion should
+ * know where the argument actually belongs.
  */
 export function FindingControls({
   caseId,
   findingId,
-  state,
+  judgment,
 }: {
   caseId: string;
   findingId: string;
-  state: string;
+  /** The judgment already recorded on this claim, or null when nobody has judged it. */
+  judgment: FindingJudgment | null;
 }) {
-  const judged = state === 'REJECTED';
+  const rejected = judgment === 'REJECTED';
   return (
     <div className="cw-ctl">
       <p className="cw-ctl__note">
         Accepting or rejecting records your judgement of this claim. It does not change what the
         claim says — a claim changes when the evidence does, or when a newer one supersedes it.
-        {state === 'DEVELOPING'
-          ? ' Accepting does not make it established either: for a measurement-backed claim, that still depends on the evidence.'
-          : ''}
+        Accepting does not make it established, and rejecting does not weaken it: whether Loop can
+        establish it still depends on the evidence.
       </p>
       <div className="cw-ctl__row">
-        {!judged ? (
+        {!rejected ? (
           <>
             <form action={judgeFindingAction}>
               <CaseField caseId={caseId} />
@@ -232,7 +234,10 @@ export function FindingControls({
             </form>
           </>
         ) : (
-          <p className="cw-ctl__done">A person rejected this claim. It stays here as history.</p>
+          <p className="cw-ctl__done">
+            A person rejected this claim. It is still the claim on this investigation, and Loop keeps
+            evaluating the evidence behind it.
+          </p>
         )}
       </div>
     </div>

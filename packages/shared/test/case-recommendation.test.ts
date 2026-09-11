@@ -23,6 +23,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 import {
   FACTOR_LABEL,
@@ -124,37 +125,51 @@ test('postures are ordered safest-first, and the ceiling respects that order', (
 
 // --- Evidence strength from a Finding ----------------------------------------------
 
-test('evidence strength is derived from the establishment verdict, not a confidence number', () => {
-  const base = { establishment: { eligible: true }, supportingCount: 2 };
+test('evidence strength is derived from the evidence state, not a confidence number', () => {
+  const base = { lifecycle: 'CURRENT' as const, supportingCount: 2 };
+  assert.equal(findingEvidenceStrength({ ...base, evidenceState: 'ESTABLISHED' }), 'HIGH');
+  assert.equal(findingEvidenceStrength({ ...base, evidenceState: 'DEVELOPING' }), 'LOW');
   assert.equal(
-    findingEvidenceStrength({ ...base, state: 'ESTABLISHED', establishedBy: 'DETERMINISTIC_POLICY' }),
-    'HIGH',
-  );
-  // A PERSON TAKING RESPONSIBILITY IS NOT A MEASUREMENT. Capping at MODERATE is
-  // what stops an opinion authorizing a committed change.
-  assert.equal(
-    findingEvidenceStrength({ ...base, state: 'ESTABLISHED', establishedBy: 'HUMAN_ACCEPTANCE' }),
-    'MODERATE',
-  );
-  assert.equal(
-    findingEvidenceStrength({ ...base, state: 'DEVELOPING', establishedBy: null }),
-    'LOW',
-  );
-  assert.equal(
-    findingEvidenceStrength({ ...base, state: 'DEVELOPING', establishedBy: null, supportingCount: 0 }),
+    findingEvidenceStrength({ ...base, evidenceState: 'DEVELOPING', supportingCount: 0 }),
     'INSUFFICIENT',
   );
 });
 
-test('a rejected or superseded finding supports nothing beyond diagnosis', () => {
-  for (const state of ['REJECTED', 'SUPERSEDED', 'EXPIRED'] as const) {
+test('a person\'s judgement cannot move the posture ceiling in either direction', () => {
+  // THE TYPE IS THE GUARANTEE: there is no judgment field to pass. This pins the
+  // behaviour that follows from it — the same evidence yields the same ceiling
+  // whether somebody accepted the claim, rejected it, or said nothing at all.
+  const developing = findingEvidenceStrength({
+    evidenceState: 'DEVELOPING',
+    lifecycle: 'CURRENT',
+    supportingCount: 2,
+  });
+  assert.equal(developing, 'LOW');
+  assert.equal(maxPostureFor(developing), 'REVERSIBLE_MITIGATION');
+
+  const established = findingEvidenceStrength({
+    evidenceState: 'ESTABLISHED',
+    lifecycle: 'CURRENT',
+    supportingCount: 2,
+  });
+  assert.equal(established, 'HIGH');
+  assert.equal(maxPostureFor(established), 'COMMITTED_CHANGE');
+
+  const source = readFileSync(new URL('../src/case-recommendation.ts', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ');
+  assert.equal(/judgment|judgement|ACCEPTED/.test(source), false,
+    'no judgment may reach the recommendation contract');
+});
+
+test('a superseded or expired finding supports nothing beyond diagnosis', () => {
+  for (const lifecycle of ['SUPERSEDED', 'EXPIRED'] as const) {
     const strength = findingEvidenceStrength({
-      state,
-      establishedBy: null,
-      establishment: { eligible: false },
+      evidenceState: 'DEVELOPING',
+      lifecycle,
       supportingCount: 5,
     });
-    assert.equal(strength, 'INSUFFICIENT', state);
+    assert.equal(strength, 'INSUFFICIENT', lifecycle);
     assert.equal(maxPostureFor(strength), 'DIAGNOSTIC');
   }
 });

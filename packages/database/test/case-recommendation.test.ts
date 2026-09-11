@@ -285,7 +285,7 @@ test('a recommendation links to the finding and the case that justified it', asy
   const view = await recommendations.get(ORG, caseId);
   assert.equal(view?.caseId, caseId);
   assert.equal(view?.findingId, finding?.findingId);
-  assert.equal(view?.findingStateAtIssue, 'ESTABLISHED');
+  assert.equal(view?.findingEvidenceStateAtIssue, 'ESTABLISHED');
   assert.equal(view?.evidenceStrengthAtIssue, 'HIGH');
 });
 
@@ -310,7 +310,7 @@ test('the recorded set is on the case’s own log, matched by the shared predica
 
 test('a developing finding refuses a committed change, and writes nothing', async () => {
   const { recommendations, findings, caseId, prisma } = await world({ readiness: DEGRADED });
-  assert.equal((await findings.get(ORG, caseId, NOW))?.state, 'DEVELOPING');
+  assert.equal((await findings.get(ORG, caseId, NOW))?.evidenceState, 'DEVELOPING');
 
   const result = await recommendations.record(ORG, caseId, {
     ...SET,
@@ -634,7 +634,8 @@ test('recording a recommendation does not move the case or touch the finding', a
 
   assert.equal(findingAfter?.findingId, findingBefore?.findingId);
   assert.equal(findingAfter?.claim, findingBefore?.claim);
-  assert.equal(findingAfter?.state, findingBefore?.state);
+  assert.equal(findingAfter?.evidenceState, findingBefore?.evidenceState);
+  assert.equal(findingAfter?.judgment, findingBefore?.judgment);
 });
 
 const SERVICE_SOURCE = readFileSync(

@@ -185,21 +185,32 @@ test('3. nothing lets a person edit what a Finding says', () => {
   assert.ok(body.includes('findings.accept(') && body.includes('findings.reject('));
 });
 
-test('3b. the control says acceptance is not establishment', () => {
-  const out = strip(render(
-    <FindingControls caseId="c1" findingId="f1" state="DEVELOPING" />,
-  ));
+test('3b. the control says a judgement is neither an edit nor evidence', () => {
+  const out = strip(render(<FindingControls caseId="c1" findingId="f1" judgment={null} />));
   assert.ok(out.includes('does not change what the claim says'));
   assert.ok(out.includes('when the evidence does, or when a newer one supersedes it'));
-  // The distinction that must never collapse.
+  // The distinction that must never collapse, in both directions.
   assert.ok(out.includes('Accepting does not make it established'));
+  assert.ok(out.includes('rejecting does not weaken it'));
   assert.ok(out.includes('still depends on the evidence'));
 });
 
-test('3c. a rejected Finding offers no further verdict, and stays as history', () => {
-  const out = strip(render(<FindingControls caseId="c1" findingId="f1" state="REJECTED" />));
-  assert.ok(out.includes('stays here as history'));
+test('3c. a rejected Finding offers no further verdict, and is still the current claim', () => {
+  const out = strip(render(<FindingControls caseId="c1" findingId="f1" judgment="REJECTED" />));
+  assert.ok(out.includes('still the claim on this investigation'));
+  assert.ok(out.includes('Loop keeps evaluating the evidence behind it'));
   assert.equal(out.includes('I accept this claim'), false);
+  // AND IT IS NOT CALLED HISTORY. A rejected claim is not a superseded one.
+  assert.equal(out.includes('stays here as history'), false);
+});
+
+test('3d. the judgement action is scoped to the Case, not just the organization', () => {
+  // A finding id from another Case in the same tenant must not be judgeable from
+  // this Case's form. The action passes the Case through, and the service
+  // resolves the claim within it.
+  const body = CODE.slice(CODE.indexOf('export async function judgeFindingAction'));
+  assert.ok(/findings\.accept\(\s*session\.organizationId,\s*caseId,/.test(body));
+  assert.ok(/findings\.reject\(\s*session\.organizationId,\s*caseId,/.test(body));
 });
 
 // --- 4. The machine sequence survives ---------------------------------------------------------

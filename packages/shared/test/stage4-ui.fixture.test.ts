@@ -31,6 +31,11 @@ import {
   WORK_EXECUTION_STATES,
   OPERATIONAL_OUTCOMES,
   CASE_CONTRIBUTIONS,
+  FINDING_DEVELOPING_ACCEPTED,
+  FINDING_DEVELOPING_REJECTED,
+  FINDING_ESTABLISHED_ACCEPTED,
+  FINDING_ESTABLISHED_REJECTED,
+  FINDING_ESTABLISHMENT_RULE_VERSION,
   STAGE4_UI_STATES,
   STAGE4_FIXTURE_RULE_VERSIONS,
   MORNING_ALL_CLEAR,
@@ -114,12 +119,63 @@ test('1e. every governed state in a fixture has a human label', () => {
       .flatMap((v) => v.work.flatMap((w) => (w.execution ? [w.execution.state, w.execution.sla] : []))),
     ...[MONITORING_INCONCLUSIVE, MONITORING_HELD, MONITORING_IN_PROGRESS].map((m) => m.verdict),
     ...[MORNING_CANT_TELL].flatMap((a) => a.unmeasurable.flatMap((o) => o.withholdings)),
+    ...[FINDING_ESTABLISHED_ACCEPTED, FINDING_DEVELOPING_REJECTED].map((f) => f.evidenceState),
   ];
   for (const s of states) {
     const label = productLabel(s);
     assert.ok(label, `${s} has no product label`);
     assert.equal(label!.from, s, `${s} keeps its governed name`);
   }
+});
+
+// --- 1f. The Finding fixtures come from the real gate --------------------------------------
+
+test('1f. every Finding fixture is a verdict the real gate produced', () => {
+  for (const f of [
+    FINDING_ESTABLISHED_ACCEPTED,
+    FINDING_ESTABLISHED_REJECTED,
+    FINDING_DEVELOPING_ACCEPTED,
+    FINDING_DEVELOPING_REJECTED,
+  ]) {
+    assert.equal(f.establishment.ruleVersion, FINDING_ESTABLISHMENT_RULE_VERSION, f.findingId);
+    // The one property the fixture may not fake: the evidence state IS the
+    // gate's verdict, not a word chosen to make a screenshot look right.
+    assert.equal(f.evidenceState, f.establishment.eligible ? 'ESTABLISHED' : 'DEVELOPING');
+    assert.equal(f.establishment.basis, f.establishment.eligible ? 'DETERMINISTIC_POLICY' : null);
+  }
+});
+
+test('1g. the fixtures show all four evidence/judgement combinations', () => {
+  assert.deepEqual(
+    [
+      FINDING_ESTABLISHED_ACCEPTED,
+      FINDING_ESTABLISHED_REJECTED,
+      FINDING_DEVELOPING_ACCEPTED,
+      FINDING_DEVELOPING_REJECTED,
+    ].map((f) => [f.evidenceState, f.judgment?.judgment ?? null]),
+    [
+      ['ESTABLISHED', 'ACCEPTED'],
+      ['ESTABLISHED', 'REJECTED'],
+      ['DEVELOPING', 'ACCEPTED'],
+      ['DEVELOPING', 'REJECTED'],
+    ],
+  );
+  // AND THE JUDGEMENTS ARE ATTRIBUTED. A fixture judgement with nobody attached
+  // would let a surface ship a screen that never had to show who decided.
+  for (const f of [FINDING_ESTABLISHED_ACCEPTED, FINDING_DEVELOPING_REJECTED]) {
+    assert.ok(f.judgment?.byUserId, f.findingId);
+    assert.ok(f.judgment?.at, f.findingId);
+  }
+});
+
+test('1h. a person accepting a claim never establishes it in a fixture either', () => {
+  // Same claim, same evidence, opposite judgements, identical evidence state.
+  assert.equal(FINDING_ESTABLISHED_ACCEPTED.evidenceState, FINDING_ESTABLISHED_REJECTED.evidenceState);
+  // And the accepted non-measurement claim says WHY it is still developing.
+  assert.ok(
+    FINDING_DEVELOPING_ACCEPTED.establishment.reasons.includes('CLAIM_NOT_MEASUREMENT_BACKED'),
+  );
+  assert.equal(FINDING_DEVELOPING_ACCEPTED.evidenceState, 'DEVELOPING');
 });
 
 // --- 2. The attention fixtures come from the real rule ------------------------------------
@@ -222,10 +278,14 @@ test('4. the catalogue covers every state the brief names', () => {
     'Monitoring · inconclusive', 'Monitoring · held',
     'Outcome · recovered, cause not established',
     'Learning · one observation', 'Learning · emerging pattern',
+    'Finding · established, and a person accepted it',
+    'Finding · established, and a person rejected it',
+    'Finding · developing, and a person accepted it',
+    'Finding · developing, and a person rejected it',
   ]) {
     assert.ok(names.includes(required), `catalogue is missing "${required}"`);
   }
-  assert.equal(names.length, 16);
+  assert.equal(names.length, 20);
 });
 
 test('4b. the fixtures name the rule versions they were written against', () => {

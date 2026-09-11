@@ -436,7 +436,7 @@ export function describeOutcome(input: {
  * entitled to make.
  */
 export const RESOLUTION_CONDITIONS = [
-  /** A Finding is established, or the Case was explicitly answered without one. */
+  /** A Finding is established by its evidence, and no person has rejected it. */
   'QUESTION_ANSWERED',
   /** Every piece of work the Case pointed at is complete, and readable. */
   'WORK_COMPLETE',
@@ -474,7 +474,16 @@ export interface ResolutionEligibility {
 }
 
 export interface ResolutionInput {
+  /** What the evidence supports. The Finding's evidence state, and nothing else. */
   findingEstablished: boolean;
+  /**
+   * Whether a person rejected the Finding. SEPARATE FROM THE ABOVE ON PURPOSE:
+   * a rejection does not weaken the evidence, so it cannot be folded into
+   * `findingEstablished` -- but it does withhold Loop's authority to treat the
+   * question as answered and close the investigation on its own. Loop acting
+   * alone over a person's stated disagreement is not a decision it may take.
+   */
+  findingRejected: boolean;
   workAllComplete: boolean;
   /** True when the Case pointed at no work at all. Not the same as complete. */
   noWorkRequested: boolean;
@@ -507,7 +516,13 @@ export function assessResolutionEligibility(input: ResolutionInput): ResolutionE
     if (!holds) explanation.push(`Not yet: ${RESOLUTION_CONDITION_LABELS[condition]}`);
   };
 
-  push('QUESTION_ANSWERED', input.findingEstablished);
+  push('QUESTION_ANSWERED', input.findingEstablished && !input.findingRejected);
+  if (input.findingEstablished && input.findingRejected) {
+    explanation.push(
+      'The evidence establishes the finding, and a person rejected it. Loop does not close an ' +
+        'investigation over a person\'s disagreement; a person can.',
+    );
+  }
   // A Case that asked for no work has nothing outstanding, which is different
   // from a Case whose work finished -- but for this condition both qualify.
   push('WORK_COMPLETE', input.noWorkRequested || input.workAllComplete);
