@@ -24,11 +24,30 @@ export interface DescriptiveInsight {
   summary: string;
 }
 
-/** A diagnostic insight (Layer 2: why it happened). */
+/**
+ * A diagnostic insight (Layer 2: why it happened).
+ *
+ * NO CONFIDENCE FIELD, DELIBERATELY. This interface carried one until CRM Phase
+ * Zero, and the three rules that produce these insights each wrote a hardcoded
+ * literal into it -- 0.7, 0.85, 0.8 -- which the CRM then rendered as
+ * "confidence 70%". Nothing derived those numbers from anything: they were
+ * constants in a rule body, and a percentage on a screen is read as a
+ * measurement of how sure the system is.
+ *
+ * Loop has no ungoverned confidence. Where the platform does express strength it
+ * is a governed, categorical judgement derived from evidence
+ * (`EvidenceStrength` in @emgloop/shared, ceilinged by `maxPostureFor`), and
+ * Commercial Intelligence refuses percentages by design. A second, fabricated
+ * confidence regime shipping in the same application was the conflict; the
+ * fabricated one is the one that goes.
+ *
+ * The insight itself is unchanged: what it observed, and what that may indicate,
+ * both stated in words a person can check.
+ */
 export interface DiagnosticInsight {
-  type: 'correlation' | 'pattern' | 'anomaly' | 'trend';  primarySignal: string;
+  type: 'correlation' | 'pattern' | 'anomaly' | 'trend';
+  primarySignal: string;
   correlatedSignal?: string;
-  confidence: number;
   description: string;
 }
 
@@ -202,7 +221,6 @@ export class IntelligenceRepository {
         type: 'correlation',
         primarySignal: 'CHURN_RISK',
         correlatedSignal: 'INTENT',
-        confidence: 0.7,
         description:
           churnSignals + ' churn risk signals detected — ' +
           Math.round((churnSignals / intentCur) * 100) + '% of lead volume. ' +
@@ -214,7 +232,6 @@ export class IntelligenceRepository {
       layer2.push({
         type: 'anomaly',
         primarySignal: 'RESPONSE_TIME',
-        confidence: 0.85,
         description:
           'Average response time of ' + Math.round(avgResponseTime / 60) + ' minutes exceeds the 15-minute target. ' +
           'This may be causing lead drop-off and lower booking rates.',
@@ -225,7 +242,6 @@ export class IntelligenceRepository {
       layer2.push({
         type: 'trend',
         primarySignal: 'INTENT',
-        confidence: 0.8,
         description:
           'Lead volume declined ' + Math.abs(Math.round(intentChange)) + '% vs prior period. ' +
           'Consider reviewing marketing channel performance and AI coverage.',

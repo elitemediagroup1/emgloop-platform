@@ -201,9 +201,15 @@ export class ConversationsRepository {
 
   /** Full conversation workspace: the conversation plus its complete
       message thread (oldest-first), with denormalized actor names. */
-  async getWorkspace(id: string): Promise<ConversationWorkspace | null> {
-    const c = await this.prisma.conversation.findUnique({
-      where: { id },
+  async getWorkspace(
+    organizationId: string,
+    id: string,
+  ): Promise<ConversationWorkspace | null> {
+    // THE ORGANIZATION IS IN THE QUERY. A conversation in another tenant is
+    // not-found, indistinguishable from one that never existed, rather than
+    // relying on the page to compare an id after the fact.
+    const c = await this.prisma.conversation.findFirst({
+      where: { id, organizationId },
       include: {
         customer: { select: { firstName: true, lastName: true } },
         assignee: { select: { name: true, email: true } },

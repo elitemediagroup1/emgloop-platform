@@ -77,8 +77,8 @@ export default async function WorkflowBuilderPage({
       return { empty: true as const };
     }
     const [workflow, runs, customerList, conversationList] = await Promise.all([
-      crmRepos.workflows.getWorkflow(params.id),
-      crmRepos.workflows.listRuns(params.id, 25),
+      crmRepos.workflows.getWorkflow(organizationId, params.id),
+      crmRepos.workflows.listRuns(organizationId, params.id, 25),
       crmRepos.crm.listCustomers(organizationId, { pageSize: 50 }),
       crmRepos.conversationsInbox.listConversations(organizationId, {}),
     ]);

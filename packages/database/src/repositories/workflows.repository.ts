@@ -193,8 +193,8 @@ export class WorkflowsRepository {
     });
   }
 
-  async getWorkflow(id: string): Promise<WorkflowDetail | null> {
-    const w = await this.prisma.workflow.findUnique({ where: { id } });
+  async getWorkflow(organizationId: string, id: string): Promise<WorkflowDetail | null> {
+    const w = await this.prisma.workflow.findFirst({ where: { id, organizationId } });
     if (!w) return null;
     return {
       id: w.id,
@@ -209,9 +209,15 @@ export class WorkflowsRepository {
     };
   }
 
-  async listRuns(workflowId: string, take = 50): Promise<WorkflowRunView[]> {
+  async listRuns(
+    organizationId: string,
+    workflowId: string,
+    take = 50,
+  ): Promise<WorkflowRunView[]> {
     const rows = await this.prisma.workflowRun.findMany({
-      where: { workflowId },
+      // SCOPED THROUGH THE WORKFLOW, so a run history cannot be read by naming
+      // another tenant's workflow id.
+      where: { workflowId, workflow: { organizationId } },
       orderBy: { createdAt: 'desc' },
       take: Math.min(200, Math.max(1, take)),
     });
@@ -296,8 +302,26 @@ export class WorkflowsRepository {
     return this.prisma.workflow.update({ where: { id }, data });
   }
 
-  setActive(id: string, isActive: boolean): Promise<Workflow> {
-    return this.prisma.workflow.update({ where: { id }, data: { isActive } });
+  /**
+   * Turn a workflow on or off.
+   *
+   * FAILS CLOSED TO NULL across a tenant boundary. This switch starts automatic,
+   * unsupervised CRM mutation on every matching event, so it is the last place
+   * that should have trusted a caller to have checked whose workflow it is.
+   * (That the switch is a bare boolean at all is recorded as Phase Zero debt --
+   * bounding it by consequence is machine-authority work, not this PR.)
+   */
+  async setActive(
+    organizationId: string,
+    id: string,
+    isActive: boolean,
+  ): Promise<Workflow | null> {
+    const found = await this.prisma.workflow.findFirst({
+      where: { id, organizationId },
+      select: { id: true },
+    });
+    if (!found) return null;
+    return this.prisma.workflow.update({ where: { id: found.id }, data: { isActive } });
   }
 
   // --- Execution engine ----------------------------------------------

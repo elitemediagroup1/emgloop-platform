@@ -55,7 +55,7 @@ export default async function ConversationWorkspacePage({
     const owned = await conversationBelongsToOrg(organizationId, params.id);
     if (!owned) return { empty: true as const };
     const [workspace, assignees] = await Promise.all([
-      crmRepos.conversationsInbox.getWorkspace(params.id),
+      crmRepos.conversationsInbox.getWorkspace(organizationId, params.id),
       crmRepos.crm.listAssignees(organizationId),
     ]);
     return { empty: false as const, workspace, assignees };

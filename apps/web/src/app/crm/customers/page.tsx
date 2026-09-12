@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
+import { requirePermission } from '../../../auth/guard';
 import {
   PIPELINE_STATUSES,
   type PipelineStatus,
@@ -79,6 +80,10 @@ export default async function CustomersPage({
 }: {
   searchParams: SP;
 }) {
+  // AUTHORIZATION BEFORE THE READ. The resource has existed in the matrix
+  // since Sprint 7; this page simply never consulted it, so every signed-in
+  // member of the organization saw the whole customer book.
+  await requirePermission('customers', 'view');
   const { organizationId } = await requireCrmContext();
   const sp = searchParams ?? {};
   const q = sp.q ?? '';

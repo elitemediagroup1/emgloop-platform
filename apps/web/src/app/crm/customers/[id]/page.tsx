@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
+import { requirePermission } from '../../../../auth/guard';
 import { PIPELINE_STATUSES, type AssigneeOptions } from '@emgloop/database';
 import {
   addNoteAction,
@@ -130,10 +131,14 @@ export default async function CustomerWorkspace({
     ? (searchParams!.tab as Tab)
     : 'Overview';
 
+  // AUTHORIZATION BEFORE THE READ. The resource has existed in the matrix
+  // since Sprint 7; this page simply never consulted it, so every signed-in
+  // member of the organization saw the whole customer book.
+  await requirePermission('customers', 'view');
   const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
-    const ws = await crmRepos.crm.getWorkspace(params.id);
+    const ws = await crmRepos.crm.getWorkspace(organizationId, params.id);
     // Fail closed: a customer from another organization is treated as not found.
     if (ws && ws.customer.organizationId !== organizationId) {
       return { ws: null, assignees: { humans: [], ais: [] } as AssigneeOptions, timeline: null };

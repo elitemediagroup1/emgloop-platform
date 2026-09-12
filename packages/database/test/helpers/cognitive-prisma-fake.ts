@@ -89,6 +89,12 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   // path needs a default here and `createdAt` already supplies the instant.
   commercialSignal: { evaluationCount: 1 },
   user: { status: 'ACTIVE', metadata: {} },
+  // A customer's tags and attributes default to [] and {} in the schema. A row
+  // born without them reads `undefined` here and `[]`/`{}` in production, which
+  // is exactly the difference that makes a tag write look broken only against
+  // the double.
+  customer: { tags: [], attributes: {}, metadata: {} },
+  workflow: { isActive: false },
   // A headline is established once and counted from one, matching @default(1).
   // The array columns default to empty in the schema; a repository reading one
   // back would work in production and throw here without them.
@@ -615,9 +621,34 @@ export interface CognitivePrismaFake {
 }
 
 /** Build a fresh in-memory cognitive Prisma double. */
-export function makeCognitivePrisma(): CognitivePrismaFake {
+/**
+ * Delegates a caller can ask for BY NAME, and which are absent otherwise.
+ *
+ * OPT-IN, BECAUSE ABSENCE IS ITSELF UNDER TEST. `commercial-signal.test.ts`
+ * asserts `prisma.signal === undefined` to prove the Commercial Signal subsystem
+ * never reaches the incumbent behavioural `Signal` model -- an invariant that
+ * only holds while the delegate is missing. Adding these to the always-on list
+ * would have made that suite pass quietly for the wrong reason, so the CRM
+ * surface is requested explicitly by the suites that drive it.
+ */
+export const OPTIONAL_DELEGATES = [
+  'customer',
+  'conversation',
+  'message',
+  'workflow',
+  'interaction',
+  'booking',
+  'signal',
+] as const;
+
+export function makeCognitivePrisma(
+  opts: { also?: readonly string[] } = {},
+): CognitivePrismaFake {
   const fake: any = {};
   for (const d of DELEGATES) fake[d] = makeDelegate(d);
+  for (const d of opts.also ?? []) {
+    if (!fake[d]) fake[d] = makeDelegate(d);
+  }
   // Interactive transaction: run against the same in-memory tables. Rollback is
   // not simulated — Increment 1 tests assert commit atomicity, not partial
   // failure, so a straight-through application is faithful for those cases.

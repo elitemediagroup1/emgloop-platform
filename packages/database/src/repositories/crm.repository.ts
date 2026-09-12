@@ -337,9 +337,20 @@ export class CrmRepository {
     return { newCustomers, conversations, conversationsAssigned };
   }
 
-  /** Full customer workspace payload, read from Neon via Prisma. */
-  async getWorkspace(id: string) {
-    const customer = await this.prisma.customer.findUnique({ where: { id } });
+  /**
+   * Full customer workspace payload, read from Neon via Prisma.
+   *
+   * THE ORGANIZATION IS RESOLVED IN THE QUERY, not by the caller. `findFirst`
+   * with both the id AND the organization is what makes a customer belonging to
+   * another tenant indistinguishable from one that does not exist -- the caller
+   * cannot widen it, and forgetting a guard at a call site can no longer leak a
+   * row. Before this, the signature was `getWorkspace(id)` and every call site
+   * was one forgotten `customerBelongsToOrg` away from a cross-tenant read.
+   */
+  async getWorkspace(organizationId: string, id: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id, organizationId },
+    });
     if (!customer) return null;
 
     const [interactions, bookings, signals, conversations] = await Promise.all([
@@ -380,55 +391,71 @@ export class CrmRepository {
     };
   }
 
-  /** Merge a patch into the customer's JSON attributes (assignment, status). */
+  /**
+   * Merge a patch into the customer's JSON attributes (assignment, status).
+   *
+   * RESOLVES WITHIN THE ORGANIZATION AND FAILS CLOSED TO NULL. A row in another
+   * tenant is not found, so nothing is written and nothing is disclosed --
+   * rather than the previous `update({ where: { id } })`, which would have
+   * written across a tenant boundary the moment any caller forgot its guard.
+   */
   private async patchAttributes(
+    organizationId: string,
     id: string,
     patch: Record<string, unknown>,
-  ): Promise<Customer> {
-    const existing = await this.prisma.customer.findUnique({
-      where: { id },
-      select: { attributes: true },
+  ): Promise<Customer | null> {
+    const existing = await this.prisma.customer.findFirst({
+      where: { id, organizationId },
+      select: { id: true, attributes: true },
     });
+    if (!existing) return null;
     const current =
-      existing && existing.attributes && typeof existing.attributes === 'object'
+      existing.attributes && typeof existing.attributes === 'object'
         ? (existing.attributes as Record<string, unknown>)
         : {};
     return this.prisma.customer.update({
-      where: { id },
+      where: { id: existing.id },
       data: { attributes: { ...current, ...patch } as object },
     });
   }
 
-  setPipelineStatus(id: string, status: PipelineStatus): Promise<Customer> {
-    return this.patchAttributes(id, { pipelineStatus: status });
+  setPipelineStatus(
+    organizationId: string,
+    id: string,
+    status: PipelineStatus,
+  ): Promise<Customer | null> {
+    return this.patchAttributes(organizationId, id, { pipelineStatus: status });
   }
 
   setAssignment(
+    organizationId: string,
     id: string,
     args: { humanName?: string | null; aiName?: string | null },
-  ): Promise<Customer> {
+  ): Promise<Customer | null> {
     const patch: Record<string, unknown> = {};
     if (args.humanName !== undefined) patch.assignedHumanName = args.humanName;
     if (args.aiName !== undefined) patch.assignedAIName = args.aiName;
-    return this.patchAttributes(id, patch);
+    return this.patchAttributes(organizationId, id, patch);
   }
 
-  async addTag(id: string, tag: string): Promise<Customer> {
-    const c = await this.prisma.customer.findUnique({
-      where: { id },
-      select: { tags: true },
+  async addTag(organizationId: string, id: string, tag: string): Promise<Customer | null> {
+    const c = await this.prisma.customer.findFirst({
+      where: { id, organizationId },
+      select: { id: true, tags: true },
     });
-    const next = Array.from(new Set([...(c?.tags ?? []), tag])).filter(Boolean);
-    return this.prisma.customer.update({ where: { id }, data: { tags: next } });
+    if (!c) return null;
+    const next = Array.from(new Set([...(c.tags ?? []), tag])).filter(Boolean);
+    return this.prisma.customer.update({ where: { id: c.id }, data: { tags: next } });
   }
 
-  async removeTag(id: string, tag: string): Promise<Customer> {
-    const c = await this.prisma.customer.findUnique({
-      where: { id },
-      select: { tags: true },
+  async removeTag(organizationId: string, id: string, tag: string): Promise<Customer | null> {
+    const c = await this.prisma.customer.findFirst({
+      where: { id, organizationId },
+      select: { id: true, tags: true },
     });
-    const next = (c?.tags ?? []).filter((t) => t !== tag);
-    return this.prisma.customer.update({ where: { id }, data: { tags: next } });
+    if (!c) return null;
+    const next = (c.tags ?? []).filter((t) => t !== tag);
+    return this.prisma.customer.update({ where: { id: c.id }, data: { tags: next } });
   }
 
   // ----------------------------------------------------------------------
@@ -442,6 +469,7 @@ export class CrmRepository {
    * so unrelated keys (status, assignments) are preserved.
    */
   async updateCustomerFields(
+    organizationId: string,
     id: string,
     fields: {
       firstName?: string | null;
@@ -454,7 +482,14 @@ export class CrmRepository {
       serviceType?: string | null;
       source?: string | null;
     },
-  ): Promise<Customer> {
+  ): Promise<Customer | null> {
+    // RESOLVED WITHIN THE ORGANIZATION FIRST, like every other write here.
+    const target = await this.prisma.customer.findFirst({
+      where: { id, organizationId },
+      select: { id: true, attributes: true },
+    });
+    if (!target) return null;
+
     const data: Prisma.CustomerUpdateInput = {};
     if (fields.firstName !== undefined) data.firstName = fields.firstName;
     if (fields.lastName !== undefined) data.lastName = fields.lastName;
@@ -467,18 +502,14 @@ export class CrmRepository {
     }
 
     if (Object.keys(attrPatch).length > 0) {
-      const existing = await this.prisma.customer.findUnique({
-        where: { id },
-        select: { attributes: true },
-      });
       const current =
-        existing && existing.attributes && typeof existing.attributes === 'object'
-          ? (existing.attributes as Record<string, unknown>)
+        target.attributes && typeof target.attributes === 'object'
+          ? (target.attributes as Record<string, unknown>)
           : {};
       data.attributes = { ...current, ...attrPatch } as object;
     }
 
-    return this.prisma.customer.update({ where: { id }, data });
+    return this.prisma.customer.update({ where: { id: target.id }, data });
   }
 
   /** Bulk: set pipeline status on many customers (scoped to the org). */
@@ -493,7 +524,7 @@ export class CrmRepository {
     });
     let n = 0;
     for (const t of targets) {
-      await this.setPipelineStatus(t.id, status);
+      await this.setPipelineStatus(organizationId, t.id, status);
       n += 1;
     }
     return n;
@@ -511,7 +542,7 @@ export class CrmRepository {
     });
     let n = 0;
     for (const t of targets) {
-      await this.addTag(t.id, tag);
+      await this.addTag(organizationId, t.id, tag);
       n += 1;
     }
     return n;
@@ -529,7 +560,7 @@ export class CrmRepository {
     });
     let n = 0;
     for (const t of targets) {
-      await this.setAssignment(t.id, args);
+      await this.setAssignment(organizationId, t.id, args);
       n += 1;
     }
     return n;

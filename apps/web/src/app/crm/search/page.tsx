@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
+import { requirePermission } from '../../../auth/guard';
 
 // Global customer search — Sprint 5 (Internal CRM, Phase 1).
 //
@@ -17,6 +18,10 @@ export default async function SearchPage({
 }) {
   const q = (searchParams?.q ?? '').trim();
 
+  // AUTHORIZATION BEFORE THE READ. The resource has existed in the matrix
+  // since Sprint 7; this page simply never consulted it, so every signed-in
+  // member of the organization saw the whole customer book.
+  await requirePermission('customers', 'view');
   const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
