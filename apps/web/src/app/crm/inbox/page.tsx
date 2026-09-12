@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
+import { requirePermission } from '../../../auth/guard';
 
 // Activity inbox — Sprint 6 (Internal CRM, Phase 2).
 //
@@ -67,6 +68,10 @@ export default async function InboxPage({
 }) {
   const kindFilter = (searchParams?.kind ?? '').trim();
 
+  // AUTHORIZATION BEFORE THE READ. The resource has existed in the matrix
+  // since Sprint 7; this page simply never consulted it, so every signed-in
+  // member of the organization saw the whole customer book.
+  await requirePermission('customers', 'view');
   const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {

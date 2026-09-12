@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
+import { requirePermission } from '../../../auth/guard';
 import { PIPELINE_STATUSES } from '@emgloop/database';
 import { movePipelineAction } from '../../../crm/actions';
 
@@ -36,6 +37,10 @@ function relTime(iso: string | null): string {
 }
 
 export default async function PipelinePage() {
+  // AUTHORIZATION BEFORE THE READ. The resource has existed in the matrix
+  // since Sprint 7; this page simply never consulted it, so every signed-in
+  // member of the organization saw the whole customer book.
+  await requirePermission('pipeline', 'view');
   const { organizationId } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {

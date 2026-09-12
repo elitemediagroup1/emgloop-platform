@@ -140,7 +140,7 @@ export async function addStepAction(formData: FormData): Promise<void> {
       return;
   }
 
-  const current = await repositories.workflows.getWorkflow(id);
+  const current = await repositories.workflows.getWorkflow(session.organizationId, id);
   if (!current) return;
   const nextSteps: WorkflowStep[] = [...current.definition.steps, { type, config }];
   await repositories.workflows.updateWorkflow(id, { definition: { steps: nextSteps } });
@@ -164,7 +164,7 @@ export async function removeStepAction(formData: FormData): Promise<void> {
   if (!id || Number.isNaN(index)) return;
   // Fail closed: cross-org workflow ids cannot be mutated.
   if (!(await workflowBelongsToOrg(session.organizationId, id))) return;
-  const current = await repositories.workflows.getWorkflow(id);
+  const current = await repositories.workflows.getWorkflow(session.organizationId, id);
   if (!current) return;
   const nextSteps = current.definition.steps.filter((_, i) => i !== index);
   await repositories.workflows.updateWorkflow(id, { definition: { steps: nextSteps } });
@@ -189,7 +189,7 @@ export async function toggleWorkflowActiveAction(formData: FormData): Promise<vo
   // Fail closed: cross-org workflow ids cannot be mutated.
   if (!(await workflowBelongsToOrg(session.organizationId, id))) return;
   const active = String(formData.get('active') ?? '').trim() === 'true';
-  await repositories.workflows.setActive(id, active);
+  await repositories.workflows.setActive(session.organizationId, id, active);
   await repositories.audit.record({
     organizationId: session.organizationId,
     userId: session.userId,

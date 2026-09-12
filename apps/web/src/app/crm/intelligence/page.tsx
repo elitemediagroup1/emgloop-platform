@@ -17,7 +17,7 @@ const PIPELINE: { name: string; desc: string }[] = [
   { name: 'Identity', desc: 'Resolve people & businesses across channels' },
   { name: 'Intent', desc: 'What the customer is trying to do' },
   { name: 'Reasoning', desc: 'Customer Intelligence Graph' },
-  { name: 'Recommendations', desc: 'Next Best Action with confidence' },
+  { name: 'Recommendations', desc: 'Next Best Action, with what it was based on' },
   { name: 'Actions', desc: 'Workflows · CRM · AI Employees' },
   { name: 'Revenue', desc: 'Attribution → Revenue Intelligence' },
 ];
@@ -126,8 +126,14 @@ export default async function IntelligencePage() {
             </p>
           ) : report.layer2_why.map((d, i) => (
             <div key={i} className="crm-intel-insight">
+              {/* NO CONFIDENCE PERCENTAGE. The number this used to render was a
+                  constant in a rule body, not a measurement of anything, and a
+                  percentage beside an observation is read as how sure the system
+                  is. What the rule actually knows is its own kind and the signal
+                  it watched, so that is what it says. */}
               <div className="crm-intel-insight-metric">
-                {d.type} · confidence {Math.round(d.confidence * 100)}%
+                {d.type} · {d.primarySignal}
+                {d.correlatedSignal ? ' · ' + d.correlatedSignal : ''}
               </div>
               <div className="crm-intel-insight-summary">{d.description}</div>
             </div>

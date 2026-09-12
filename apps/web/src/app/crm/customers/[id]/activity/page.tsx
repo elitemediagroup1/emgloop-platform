@@ -34,7 +34,7 @@ export default async function CustomerActivityPage({
     if (!organizationId) return { empty: true as const, rows: [], name: '' };
     const [rows, workspace] = await Promise.all([
       crmRepos.conversationsInbox.customerActivity(organizationId, params.id, 200),
-      crmRepos.crm.getWorkspace(params.id),
+      crmRepos.crm.getWorkspace(organizationId, params.id),
     ]);
     // Fail closed: ignore a customer that is not in the caller's organization.
     if (workspace && workspace.customer.organizationId !== organizationId) {

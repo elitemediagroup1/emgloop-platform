@@ -187,5 +187,5 @@ async function ensureWorkflow(
     triggerConfig: { eventName: args.eventName },
     definition: { steps: args.steps as { type: any; config: Record<string, unknown> }[] },
   });
-  await repositories.workflows.setActive(wf.id, true);
+  await repositories.workflows.setActive(organizationId, wf.id, true);
 }
