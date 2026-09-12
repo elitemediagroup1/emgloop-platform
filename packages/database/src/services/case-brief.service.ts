@@ -29,6 +29,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import {
+  projectEvidenceContext,
   isEvidenceClass,
   isMeasuredEvidence,
   reportedLine,
@@ -40,6 +41,8 @@ import {
   type CaseBriefView,
   type CaseDimensionItem,
   type CaseEvidenceItem,
+  type ContextObservation,
+  type EvidenceContextEntry,
   type CaseFiveWs,
   type CaseOrigin,
   type CaseTimelineEntry,
@@ -95,7 +98,11 @@ export class CaseBriefService {
     if (!view) return null;
 
     const decision = view.decision;
-    const evidence = view.evidence.map(toEvidenceItem);
+    // CONTEXT COMES OFF THE CASE'S OWN LOG, not a second store. The relations
+    // were recorded as observations, so projecting them is a replay of what this
+    // read already has in hand.
+    const context = projectEvidenceContext(view.observations.map(toContextObservation));
+    const evidence = view.evidence.map((e) => toEvidenceItem(e, context.get(e.id) ?? []));
     const timeline = view.observations.map(toTimelineEntry);
 
     return {
@@ -194,7 +201,7 @@ function toEvidenceItem(e: {
   ruleVersion: string | null;
   producerVersion: string | null;
   observedAt: Date;
-}): CaseEvidenceItem {
+}, context: readonly EvidenceContextEntry[] = []): CaseEvidenceItem {
   return {
     id: e.id,
     source: e.source,
@@ -218,6 +225,36 @@ function toEvidenceItem(e: {
     ruleVersion: e.ruleVersion,
     producerVersion: e.producerVersion,
     observedAt: e.observedAt.toISOString(),
+    context,
+  };
+}
+
+/** One observation, in the plain values the context projection reads. */
+function toContextObservation(o: {
+  id: string;
+  observationType: string;
+  evidenceId: string | null;
+  relatedEvidenceId: string | null;
+  evidenceRelation: string | null;
+  note: string | null;
+  actorType: string;
+  actorUserId: string | null;
+  source: string;
+  occurredAt: Date;
+  recordedAt: Date;
+}): ContextObservation {
+  return {
+    id: o.id,
+    observationType: o.observationType,
+    evidenceId: o.evidenceId,
+    relatedEvidenceId: o.relatedEvidenceId,
+    evidenceRelation: o.evidenceRelation,
+    note: o.note,
+    actorType: o.actorType,
+    actorUserId: o.actorUserId,
+    source: o.source,
+    occurredAt: o.occurredAt.toISOString(),
+    recordedAt: o.recordedAt.toISOString(),
   };
 }
 

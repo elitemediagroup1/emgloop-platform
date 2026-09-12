@@ -23,6 +23,8 @@ import {
   FACTOR_LANGUAGE,
   FACTOR_LEVEL_LANGUAGE,
   EVIDENCE_CLASS_LANGUAGE,
+  EVIDENCE_CONTEXT_PREFACE,
+  EVIDENCE_RELATION_LANGUAGE,
   FINDING_EVIDENCE_LANGUAGE,
   FINDING_INELIGIBILITY_LABELS,
   FINDING_JUDGMENT_LANGUAGE,
@@ -151,10 +153,18 @@ export function FiveWs({ brief }: { brief: CaseBriefView }) {
 export function EvidenceSection({
   brief,
   controls,
+  contextControl,
 }: {
   brief: CaseBriefView;
   /** The report form, supplied by the guarded page. Never built here. */
   controls?: ReactNode;
+  /**
+   * The per-item "record what you know about this" form, supplied by the page.
+   *
+   * A FUNCTION OF THE EVIDENCE ID, because the control has to name which piece
+   * of evidence it is about. Sections still build no forms of their own.
+   */
+  contextControl?: (evidenceId: string) => ReactNode;
 }) {
   const evidence = brief.evidence;
 
@@ -214,6 +224,42 @@ export function EvidenceSection({
             </p>
             {e.limitations.length > 0 ? (
               <NotKnown title="What this cannot support" lines={e.limitations} />
+            ) : null}
+
+            {/* WHAT WAS RECORDED LATER, BENEATH THE UNCHANGED ORIGINAL. The
+                evidence above is exactly as it was written; everything here is a
+                separate, attributed fact about it. Each one says what it
+                establishes AND what it does not, because "corrected by" read on
+                its own is easily mistaken for a verdict. */}
+            {e.context.length > 0 ? (
+              <div className="cw-ev__ctx">
+                <p className="cw-ev__ctx-preface">{EVIDENCE_CONTEXT_PREFACE}</p>
+                <ul className="cw-ev__ctx-list">
+                  {e.context.map((c) => {
+                    const lang = EVIDENCE_RELATION_LANGUAGE[c.relation];
+                    return (
+                      <li key={c.id} className={'cw-ev__ctx-item cw-ev__ctx-item--' + c.relation.toLowerCase()}>
+                        <p className="cw-ev__ctx-head">
+                          <span className="cw-ev__ctx-rel">{lang.label}</span>
+                          <span className="cw-ev__ctx-who">
+                            {c.actorType === 'HUMAN'
+                              ? reportedLine(c.actorUserId).replace(' reported', '')
+                              : c.source}
+                          </span>
+                          <span className="cw-ev__ctx-when">{c.occurredAt.slice(0, 10)}</span>
+                        </p>
+                        {c.note ? <p className="cw-ev__ctx-note">{c.note}</p> : null}
+                        <p className="cw-ev__ctx-means">{lang.establishes}</p>
+                        <p className="cw-ev__ctx-limit">{lang.doesNotEstablish}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
+            {contextControl ? (
+              <div className="cw-ev__ctx-add">{contextControl(e.id)}</div>
             ) : null}
           </li>
         ))}

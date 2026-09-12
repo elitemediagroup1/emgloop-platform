@@ -27,6 +27,7 @@
 // which is how this repository got three workflow systems.
 
 import type { EvidenceClass } from './evidence-class';
+import type { EvidenceContextEntry } from './evidence-context';
 import type {
   LifecycleHistory,
   ObservationType,
@@ -179,6 +180,15 @@ export interface CaseEvidenceItem {
   producerVersion: string | null;
   /** When the evidence describes the world. */
   observedAt: string;
+  /**
+   * WHAT WAS RECORDED LATER ABOUT IT, oldest first.
+   *
+   * ADDITIVE, AND THE ROW ABOVE IS UNCHANGED. Context never edits, replaces or
+   * hides the evidence it is about: a corrected report keeps its original words
+   * and gains a fact saying what corrected it. A surface that rendered only the
+   * latest state would have quietly performed the edit the architecture refuses.
+   */
+  context: readonly EvidenceContextEntry[];
 }
 
 /**

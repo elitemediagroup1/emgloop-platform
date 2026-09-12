@@ -43,6 +43,8 @@ import type {
 } from '@prisma/client';
 import {
   DEFAULT_EVIDENCE_CLASS,
+  isEvidenceRelation,
+  relationRequiresBasis,
   projectLifecycle,
   summarizeHistory,
   isClosed,
@@ -71,6 +73,7 @@ import type {
   RecordOutcomeInput,
   AddObservationInput,
   DecisionEvidenceInput,
+  RelateEvidenceInput,
   DecisionResult,
   DecisionView,
   DecisionTimelineEntry,
@@ -166,6 +169,43 @@ function validateEvidence(e: DecisionEvidenceInput, actor: DecisionActor): void 
   if (e.statement !== undefined && e.statement !== null) {
     throw new InvalidDecisionInputError(
       'Measured evidence carries no reported statement. Record a human report as one',
+    );
+  }
+}
+
+/**
+ * A relation that cannot be governed is not recorded.
+ *
+ * FAILS CLOSED ON EVERY AXIS. An ungoverned relation name, a relation that needs
+ * a basis and has none, a "no longer applicable" with no stated reason, and a
+ * row pointed at itself are all refused -- because each of them produces a
+ * context entry a reader would take at face value and nothing could justify.
+ *
+ * NOTHING HERE COMPARES TEXT. Whether two statements disagree is a claim about
+ * the world, not about language: a person records it, or a deterministic
+ * producer that can actually check it does. There is no similarity path into
+ * this function, and a model may not author a relation.
+ */
+function validateEvidenceRelation(input: RelateEvidenceInput): void {
+  if (!isEvidenceRelation(input.relation)) {
+    throw new InvalidDecisionInputError(`Unknown evidence relation "${String(input.relation)}"`);
+  }
+  if (!input.subjectEvidenceId?.trim()) {
+    throw new InvalidDecisionInputError('A relation must name the evidence it is about');
+  }
+  if (relationRequiresBasis(input.relation) && !input.basisEvidenceId?.trim()) {
+    throw new InvalidDecisionInputError(
+      `${input.relation} must name the evidence doing it`,
+    );
+  }
+  if (input.basisEvidenceId && input.basisEvidenceId === input.subjectEvidenceId) {
+    throw new InvalidDecisionInputError('A piece of evidence cannot be its own context');
+  }
+  if (input.relation === 'NO_LONGER_APPLICABLE' && !input.note?.trim()) {
+    // It names a change in the world rather than a second record, so the reason
+    // is the only thing carrying it.
+    throw new InvalidDecisionInputError(
+      'NO_LONGER_APPLICABLE must say what changed',
     );
   }
 }
@@ -646,6 +686,70 @@ export class DecisionEngine {
     });
   }
 
+  /**
+   * Record what LATER evidence says about EARLIER evidence.
+   *
+   * ADDITIVE, NEVER AN EDIT. Neither row is touched: this appends one immutable,
+   * attributed fact saying how the two relate, and both stay readable in the
+   * order they were learned. There is no update path to an evidence row and this
+   * does not create one.
+   *
+   * BOTH ROWS ARE RESOLVED INSIDE THIS CASE, IN THIS ORGANIZATION, and that is
+   * what makes a cross-Case or cross-tenant relation unwriteable rather than
+   * discouraged: an id from somewhere else does not resolve, and the answer is
+   * the same not-found a made-up id gets.
+   *
+   * IT DECIDES NOTHING ABOUT THE EVIDENCE. A relation does not change either
+   * row's class, does not reach the Stage 3 measurement gate, and does not
+   * establish the claim the evidence is about. It records what somebody -- or a
+   * deterministic producer naming its policy -- observed about two records.
+   */
+  async relateEvidence(
+    organizationId: string,
+    id: string,
+    input: RelateEvidenceInput,
+    actor: DecisionActor,
+  ): Promise<DecisionResult | null> {
+    validateActor(actor);
+    validateEvidenceRelation(input);
+    const decision = await this.requireDecision(organizationId, id);
+
+    // RESOLVED WITHIN THE CASE. `findFirst` with the organization AND the
+    // priority in the WHERE is the whole tenancy story; a caller cannot widen it.
+    const subject = await this.prisma.decisionEvidence.findFirst({
+      where: { id: input.subjectEvidenceId, organizationId, priorityId: decision.id },
+      select: { id: true },
+    });
+    if (!subject) return null;
+
+    if (input.basisEvidenceId) {
+      const basis = await this.prisma.decisionEvidence.findFirst({
+        where: { id: input.basisEvidenceId, organizationId, priorityId: decision.id },
+        select: { id: true },
+      });
+      if (!basis) return null;
+    }
+
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const { decision: after, observation } = await this.appendInternal(tx, organizationId, decision, {
+        observationType: 'EVIDENCE_CONTEXT_RECORDED',
+        occurredAt: input.occurredAt ?? now,
+        actor,
+        note: input.note ?? null,
+        evidenceId: input.subjectEvidenceId,
+        relatedEvidenceId: input.basisEvidenceId ?? null,
+        evidenceRelation: input.relation,
+      });
+      return {
+        decision: after,
+        observation,
+        effect: 'UPDATED' as const,
+        eventType: DECISION_EVENT_TYPE.EVIDENCE_CONTEXT_RECORDED,
+      };
+    });
+  }
+
   // =========================================================================
   // Reads
   // =========================================================================
@@ -884,6 +988,8 @@ export class DecisionEngine {
       measuredEffectCents?: number | null;
       measuredEffectBasis?: string | null;
       evidenceId?: string | null;
+      relatedEvidenceId?: string | null;
+      evidenceRelation?: string | null;
       evidencePayload?: Record<string, unknown>;
       detectionKey?: string | null;
       identityId?: string | null;
@@ -924,6 +1030,8 @@ export class DecisionEngine {
         reason: op.reason ?? null,
         evidence: (op.evidencePayload ?? {}) as Prisma.InputJsonValue,
         evidenceId: op.evidenceId ?? null,
+        relatedEvidenceId: op.relatedEvidenceId ?? null,
+        evidenceRelation: op.evidenceRelation ?? null,
         assignedToUserId: op.assignedToUserId ?? null,
         outcome: op.outcome ?? null,
         measuredEffectCents: op.measuredEffectCents ?? null,

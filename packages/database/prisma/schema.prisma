@@ -3137,6 +3137,18 @@ enum OperationalObservationType {
   /// A verdict was reached. Does NOT close the Case: a verdict is what was
   /// observed, and deciding the investigation is finished is a separate act.
   MONITORING_CONCLUDED
+
+  // --- Stage 5 evidence context ---
+  /// What LATER evidence says about EARLIER evidence: corroborated, contradicted,
+  /// clarified, corrected, or no longer applicable.
+  ///
+  /// ADDITIVE, NEVER AN EDIT. Evidence is immutable, so the relation is a fact
+  /// about two rows rather than a change to either: the original sentence or
+  /// number stays exactly as recorded, and a reader sees both plus the order they
+  /// were learned in. The relation is on `evidenceRelation`, the evidence being
+  /// given context is `evidenceId`, and the evidence doing it is
+  /// `relatedEvidenceId`.
+  EVIDENCE_CONTEXT_RECORDED
 }
 
 /// How a priority ended, and — where it can be measured — whether Loop's read of
@@ -3390,7 +3402,19 @@ model OperationalObservation {
   /// transition, the note belongs to the moment.
   reason              String?
   /// The evidence this observation was recorded against, when it cites some.
+  /// On EVIDENCE_CONTEXT_RECORDED this is the evidence BEING GIVEN CONTEXT.
   evidenceId          String?
+  /// The evidence DOING it, on EVIDENCE_CONTEXT_RECORDED. Null on every other
+  /// type, and null on a relation that names a change in the world rather than a
+  /// second record (NO_LONGER_APPLICABLE).
+  relatedEvidenceId   String?
+  /// Which governed relation, one of EVIDENCE_RELATIONS in @emgloop/shared.
+  ///
+  /// A STRING, NOT AN ENUM, following `severity` and `evidenceClass`: the set is
+  /// deliberately small today and the reasoning for each member lives in the
+  /// shared contract, where a reader can see what it does and does not establish.
+  /// An ungoverned value is skipped by the projection rather than rendered.
+  evidenceRelation    String?
   /// Where a CONVERTED_TO_WORK outcome went. Generic on purpose: the Decision
   /// Engine records that work was created somewhere, never which product.
   destinationSystem   String?
@@ -3408,6 +3432,7 @@ model OperationalObservation {
   priority      OperationalPriority @relation(fields: [priorityId], references: [id], onDelete: Cascade)
   decision      CognitiveDecision?  @relation(fields: [decisionId], references: [id])
   citedEvidence DecisionEvidence?   @relation(fields: [evidenceId], references: [id])
+  contextEvidence DecisionEvidence? @relation("ObservationContextEvidence", fields: [relatedEvidenceId], references: [id])
 
   @@unique([priorityId, sequence])
   @@unique([priorityId, detectionKey])
@@ -3416,6 +3441,7 @@ model OperationalObservation {
   @@index([organizationId, actorUserId])
   @@index([decisionId])
   @@index([evidenceId])
+  @@index([relatedEvidenceId])
   @@map("operational_observations")
 }
 
@@ -3526,6 +3552,8 @@ model DecisionEvidence {
   priority     OperationalPriority      @relation(fields: [priorityId], references: [id], onDelete: Cascade)
   reportedBy   User?                    @relation("DecisionEvidenceReporter", fields: [reportedByUserId], references: [id], onDelete: SetNull)
   observations OperationalObservation[]
+  /// Observations in which THIS row is the evidence giving context to another.
+  contextFor   OperationalObservation[] @relation("ObservationContextEvidence")
 
   @@index([organizationId, priorityId, observedAt])
   @@index([organizationId, metricKey])

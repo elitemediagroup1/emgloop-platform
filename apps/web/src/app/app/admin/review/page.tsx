@@ -24,6 +24,7 @@
 import { notFound } from 'next/navigation';
 
 import {
+  CASE_WITH_EVIDENCE_CONTEXT,
   CASE_WITH_HUMAN_REPORT,
   FINDING_DEVELOPING_ACCEPTED,
   FINDING_DEVELOPING_REJECTED,
@@ -57,6 +58,7 @@ import {
   WorkSection,
 } from '../cases/case-sections';
 import {
+  EvidenceContextControl,
   FindingControls,
   LifecycleControls,
   ReportEvidenceControl,
@@ -105,7 +107,7 @@ export default async function ReviewPage() {
         <p className="rv-head__eyebrow">Design review · development only</p>
         <h1 className="rv-head__title">Every Stage 4 state, on one page</h1>
         <p className="rv-head__sub">
-          Twenty-two representative states, typed as the contracts production returns. Nothing here
+          Twenty-four representative states, typed as the contracts production returns. Nothing here
           reads the database and nothing here is real. The numbers, buyers and people are invented.
         </p>
       </header>
@@ -230,6 +232,20 @@ export default async function ReviewPage() {
         note="Nothing numeric is invented for the report: no value, no completeness, no metric, and no sentinel standing in for one."
       >
         <EvidenceSection brief={CASE_WITH_HUMAN_REPORT} />
+      </State>
+
+      <State
+        name="Evidence · corroborated, contradicted, and corrected"
+        note="Every original is still here in its own words. Context is additive: a corrected report is a report PLUS a correction, and each relation says what it establishes and what it does not."
+      >
+        <EvidenceSection brief={CASE_WITH_EVIDENCE_CONTEXT} />
+      </State>
+
+      <State
+        name="Controls · record what you know about a piece of evidence"
+        note="The form cannot edit the evidence it is attached to. It appends a separate attributed fact, and the copy says so before anything else."
+      >
+        <EvidenceContextControl caseId={REVIEW_CASE_ID} evidenceId="ev_review_fixture" />
       </State>
 
       <State

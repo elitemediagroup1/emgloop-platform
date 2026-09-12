@@ -20,6 +20,7 @@ import type {
 import type {
   DecisionEventName,
   EvidenceClass,
+  EvidenceRelation,
   LifecycleHistory,
   PriorityState,
 } from '@emgloop/shared';
@@ -80,6 +81,26 @@ export interface DecisionEvidenceInput {
   payload?: Record<string, unknown>;
   /** When the evidence describes the world. Defaults to the operation's `now`. */
   observedAt?: Date;
+}
+
+/**
+ * What LATER evidence says about EARLIER evidence, on one Case.
+ *
+ * DIRECTION IS FIXED AND NAMED. `subjectEvidenceId` is the evidence BEING GIVEN
+ * CONTEXT; `basisEvidenceId` is the evidence DOING it. Reading them the other way
+ * round would invert every relation, so neither is optional by accident: four of
+ * the five relations require a basis, and the fifth requires a stated reason.
+ */
+export interface RelateEvidenceInput {
+  subjectEvidenceId: string;
+  /** One of EVIDENCE_RELATIONS in @emgloop/shared. */
+  relation: EvidenceRelation;
+  /** Required except on NO_LONGER_APPLICABLE, which names a change, not a record. */
+  basisEvidenceId?: string | null;
+  /** Why, in the actor's words. Required on NO_LONGER_APPLICABLE. */
+  note?: string | null;
+  /** When it happened in the world. Defaults to now. */
+  occurredAt?: Date;
 }
 
 /**

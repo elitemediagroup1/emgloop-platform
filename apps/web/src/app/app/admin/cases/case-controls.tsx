@@ -19,6 +19,8 @@
 import type { ReactNode } from 'react';
 
 import {
+  EVIDENCE_RELATIONS,
+  EVIDENCE_RELATION_LANGUAGE,
   CASE_CONTRIBUTIONS,
   CASE_CONTRIBUTION_DESCRIPTIONS,
   CASE_CONTRIBUTION_LABELS,
@@ -36,6 +38,7 @@ import {
   closeCaseAction,
   dismissRecommendationAction,
   judgeFindingAction,
+  addEvidenceContextAction,
   reportEvidenceAction,
   releaseParticipantAction,
   reopenCaseAction,
@@ -287,6 +290,72 @@ export function ReportEvidenceControl({ caseId }: { caseId: string }) {
         />
         <button type="submit" className="ent-btn ent-btn--ghost">
           Record what I reported
+        </button>
+      </form>
+    </details>
+  );
+}
+
+/**
+ * A person records what later evidence says about earlier evidence.
+ *
+ * IT ADDS; IT NEVER EDITS. The copy says so in the first sentence, because the
+ * one thing a person might reasonably expect from a form attached to a piece of
+ * evidence is that it changes it -- and that is precisely what this refuses to
+ * do. The original keeps its words, and this appends a separate, attributed fact.
+ *
+ * THE RELATIONS ARE THE GOVERNED FIVE, and each is labelled with what it means
+ * rather than with a bare enum. "No longer applicable" is offered last and asks
+ * for a reason instead of a basis, because it names a change in the world rather
+ * than a second record.
+ */
+export function EvidenceContextControl({
+  caseId,
+  evidenceId,
+}: {
+  caseId: string;
+  evidenceId: string;
+}) {
+  return (
+    <details className="cw-ctl__add">
+      <summary>Record what you know about this</summary>
+      <form action={addEvidenceContextAction} className="cw-ctl__form">
+        <CaseField caseId={caseId} />
+        <input type="hidden" name="subjectEvidenceId" value={evidenceId} />
+        <p className="cw-ctl__note">
+          This does not change the evidence above — nothing does. Loop records a separate,
+          attributed fact saying how the two relate, and both stay on the investigation.
+        </p>
+
+        <label className="cw-ctl__label" htmlFor={'ctx-rel-' + evidenceId}>
+          What is true of it?
+        </label>
+        <select id={'ctx-rel-' + evidenceId} name="relation" className="cw-ctl__select" required>
+          {EVIDENCE_RELATIONS.map((r) => (
+            <option key={r} value={r}>
+              {EVIDENCE_RELATION_LANGUAGE[r].label}
+            </option>
+          ))}
+        </select>
+
+        <label className="cw-ctl__label" htmlFor={'ctx-basis-' + evidenceId}>
+          What do you know? (the evidence doing it)
+        </label>
+        <textarea
+          id={'ctx-basis-' + evidenceId}
+          name="basisStatement"
+          rows={3}
+          className="cw-ctl__textarea"
+          placeholder="I was looking at the staging credential, not production."
+        />
+
+        <label className="cw-ctl__label" htmlFor={'ctx-note-' + evidenceId}>
+          Why (required if nothing changed except the world)
+        </label>
+        <input id={'ctx-note-' + evidenceId} name="note" type="text" className="cw-ctl__input" />
+
+        <button type="submit" className="ent-btn ent-btn--ghost">
+          Record this context
         </button>
       </form>
     </details>
