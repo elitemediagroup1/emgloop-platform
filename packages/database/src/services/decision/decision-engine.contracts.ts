@@ -17,7 +17,12 @@ import type {
   OperationalObservationType,
   OperationalActorType,
 } from '@prisma/client';
-import type { LifecycleHistory, PriorityState, DecisionEventName } from '@emgloop/shared';
+import type {
+  DecisionEventName,
+  EvidenceClass,
+  LifecycleHistory,
+  PriorityState,
+} from '@emgloop/shared';
 
 /** Who is acting. Every lifecycle write is attributed. */
 export interface DecisionActor {
@@ -31,7 +36,31 @@ export interface DecisionActor {
 /** One piece of evidence, in producer-neutral terms. */
 export interface DecisionEvidenceInput {
   source: string;
-  metricKey: string;
+  /**
+   * HOW THIS EVIDENCE ARRIVED. Defaults to MEASURED, which is what every producer
+   * writing today produces, so no existing caller changes.
+   *
+   * IT DECIDES WHICH OTHER FIELDS ARE ALLOWED, and the engine enforces that
+   * rather than trusting a caller to fill in a coherent shape: a MEASURED row
+   * must name a measure and may carry no statement; a HUMAN_REPORTED row must
+   * carry a statement and may carry no measurement.
+   */
+  evidenceClass?: EvidenceClass;
+  /**
+   * What a person reported, exactly as they wrote it. HUMAN_REPORTED only.
+   *
+   * STORED VERBATIM. The engine does not trim, collapse or summarize it: on a
+   * report the sentence is the evidence, and a system that tidies it has edited
+   * the record.
+   */
+  statement?: string;
+  /**
+   * The measure, in the producer's vocabulary. Required for MEASURED evidence.
+   *
+   * ABSENT ON A HUMAN REPORT, and no sentinel is accepted in its place -- see the
+   * migration header for why a fake metric is worse than a null.
+   */
+  metricKey?: string | null;
   window?: string | null;
   ruleId?: string | null;
   ruleVersion?: string | null;

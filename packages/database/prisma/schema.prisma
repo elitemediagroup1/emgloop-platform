@@ -370,6 +370,7 @@ model User {
   caseParticipations         CaseParticipant[]           @relation("CaseParticipantUser")
   addedCaseParticipants      CaseParticipant[]           @relation("CaseParticipantAdder")
   releasedCaseParticipants   CaseParticipant[]           @relation("CaseParticipantReleaser")
+  reportedEvidence           DecisionEvidence[]          @relation("DecisionEvidenceReporter")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -3437,8 +3438,48 @@ model DecisionEvidence {
 
   /// Where the value came from: a provider report, a canonical service, a person.
   source    String
+
+  /// HOW THIS EVIDENCE ENTERED LOOP. One of EVIDENCE_CLASSES in @emgloop/shared:
+  /// MEASURED (a producer measured it) or HUMAN_REPORTED (a person wrote it down).
+  ///
+  /// IT RANKS NOTHING. The class carries no trust, authority, reliability or
+  /// confidence -- those belong to a claim plus its evidence, differ by claim
+  /// type, and are decided by standards that do not exist yet. What it decides
+  /// here is which columns below mean anything, and whether the Stage 3
+  /// measurement gate may read the row at all.
+  ///
+  /// A STRING, NOT AN ENUM, following `severity` and `case_participants.contribution`:
+  /// the vocabulary is deliberately narrow today and will gain members (a
+  /// deterministic diagnostic, a document, an outcome), and each one should be a
+  /// value rather than a migration.
+  ///
+  /// THE DEFAULT IS A STATEMENT OF FACT, NOT A GUESS. Until people could report
+  /// evidence there was exactly one way for a row to arrive, so every existing
+  /// row IS measured and nothing had to be backfilled to make that true.
+  evidenceClass String @default("MEASURED")
+
+  /// What a person reported, in their own words, exactly as they wrote it.
+  ///
+  /// NEVER NORMALIZED AND NEVER REWRITTEN. A surface may shorten it on screen;
+  /// this column keeps what was actually said, because on a human report that
+  /// sentence IS the evidence. Null on anything a producer measured.
+  statement String?
+
+  /// Who reported it. Null for measured evidence.
+  ///
+  /// SET FROM THE SESSION ACTOR BY THE ENGINE, never from a caller's field, so
+  /// there is no path through which one person can file a report under another's
+  /// name. SetNull rather than Cascade, following `case_participants.addedByUserId`:
+  /// who said something is attribution, and it should survive them leaving.
+  reportedByUserId String?
+
   /// What it measures, in the producer's contract vocabulary.
-  metricKey String
+  ///
+  /// NULLABLE SINCE STAGE 5 PR 1's SUCCESSOR: a human report is not necessarily
+  /// about a metric. There is deliberately no sentinel -- a `HUMAN_REPORT` or
+  /// `MANUAL` metric key would be a measured referent nothing measures, and every
+  /// grouping by metric would carry a fake member for ever.
+  metricKey String?
   /// Which period it describes, in operator language.
   window    String?
 
@@ -3483,10 +3524,12 @@ model DecisionEvidence {
   createdAt  DateTime @default(now())
 
   priority     OperationalPriority      @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  reportedBy   User?                    @relation("DecisionEvidenceReporter", fields: [reportedByUserId], references: [id], onDelete: SetNull)
   observations OperationalObservation[]
 
   @@index([organizationId, priorityId, observedAt])
   @@index([organizationId, metricKey])
+  @@index([organizationId, reportedByUserId])
   @@map("decision_evidence")
 }
 

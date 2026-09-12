@@ -35,6 +35,7 @@
 import { redirect } from 'next/navigation';
 
 import {
+  CaseEvidenceService,
   CaseFindingService,
   CaseMonitoringService,
   CaseParticipationService,
@@ -72,6 +73,18 @@ async function actorFor() {
 
 function text(formData: FormData, key: string): string {
   return String(formData.get(key) ?? '').trim();
+}
+
+/**
+ * A form value taken EXACTLY as it was typed.
+ *
+ * FOR WHAT SOMEBODY REPORTED, and nothing else. `text` trims, which is right for
+ * an id or a verdict and wrong for a person's own words: the statement is the
+ * evidence, and a system that tidies it has edited the record. Emptiness is
+ * checked by the service, on the trimmed value, without changing what is stored.
+ */
+function verbatim(formData: FormData, key: string): string {
+  return String(formData.get(key) ?? '');
 }
 
 function backTo(caseId: string, message: string, kind: 'notice' | 'error'): string {
@@ -293,6 +306,68 @@ export async function judgeFindingAction(formData: FormData): Promise<void> {
           'notice',
         )
       : backTo(caseId, 'That claim is no longer available to judge.', 'error'),
+  );
+}
+
+// =========================================================================
+// Evidence
+// =========================================================================
+
+/**
+ * A person reports what they know, and Loop records that they reported it.
+ *
+ * THE GUARD HERE IS THE READ GRANT, AND THAT IS DELIBERATE. Reporting is the one
+ * Case act that does not require organization-wide authoring authority: somebody
+ * asked to contribute to an investigation can answer it. So this action
+ * establishes only that there is a session and that this person may see
+ * Commercial Intelligence at all, and `CaseEvidenceService` decides the rest by
+ * resolving organization -> Case -> active participant -> person against the
+ * database. A page that rendered the form for somebody who may not use it changes
+ * nothing: the authority is resolved here, on every submission.
+ *
+ * THE REPORTER IS THE SESSION. There is no form field naming who is reporting,
+ * and the engine writes the evidence's reporter from the actor -- so the two
+ * cannot disagree and nobody can file a report under somebody else's name.
+ *
+ * WHAT IT IS NOT. It does not establish what was reported, it does not accept or
+ * reject a Finding, and it does not touch the lifecycle. It appends one immutable
+ * piece of evidence and the Case log entry that cites it.
+ */
+export async function reportEvidenceAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('commercialIntelligence', 'view');
+  const caseId = requireCaseId(formData);
+  const statement = verbatim(formData, 'statement');
+
+  const result = await new CaseEvidenceService(prisma).report(session.organizationId, caseId, {
+    statement,
+    // FROM THE SESSION, ALWAYS. Never from the form.
+    reportedByUserId: session.userId,
+  });
+
+  if (result.outcome === 'RECORDED') {
+    redirect(
+      backTo(
+        caseId,
+        'Recorded: you reported this. Loop has not established that it is true — that depends on ' +
+          'the evidence.',
+        'notice',
+      ),
+    );
+  }
+
+  // EVERY REFUSAL SAYS WHICH ONE IT IS, except across a tenant boundary: a Case
+  // in another organization and a Case that does not exist answer identically.
+  redirect(
+    backTo(
+      caseId,
+      result.outcome === 'EMPTY_STATEMENT'
+        ? 'Say what you are reporting before recording it.'
+        : result.outcome === 'NOT_AUTHORIZED'
+          ? 'You can report on an investigation you have been asked to contribute to. Ask to be ' +
+            'added to this one.'
+          : 'That investigation is no longer available.',
+      'error',
+    ),
   );
 }
 

@@ -141,6 +141,32 @@ export class CaseParticipantRepository {
     });
   }
 
+  /**
+   * Whether this person is an ACTIVE participant on this investigation.
+   *
+   * THE RESOLUTION AN INSTANCE-SCOPED GRANT RESTS ON, and it is deliberately one
+   * query with every scope in the WHERE clause: organization, case, person, and
+   * not released. A version that fetched the participants and filtered in the
+   * caller would be the same shape as the cross-tenant bugs this repository has
+   * already paid for -- the safe call and the unsafe one look identical at the
+   * call site.
+   *
+   * FALSE, NEVER AN ERROR. A case in another organization, a case that does not
+   * exist and a person who was released all answer the same way.
+   */
+  async isActiveParticipant(
+    organizationId: string,
+    priorityId: string,
+    userId: string,
+  ): Promise<boolean> {
+    if (!organizationId || !priorityId || !userId) return false;
+    const found = await this.prisma.caseParticipant.findFirst({
+      where: { organizationId, priorityId, userId, releasedAt: null },
+      select: { id: true },
+    });
+    return found !== null;
+  }
+
   /** One person's current involvements across the organization's investigations. */
   listForUser(
     organizationId: string,

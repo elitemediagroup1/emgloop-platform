@@ -36,6 +36,7 @@ import {
   closeCaseAction,
   dismissRecommendationAction,
   judgeFindingAction,
+  reportEvidenceAction,
   releaseParticipantAction,
   reopenCaseAction,
   reviseMonitoringAction,
@@ -241,6 +242,54 @@ export function FindingControls({
         )}
       </div>
     </div>
+  );
+}
+
+// --- Evidence ---------------------------------------------------------------------------
+
+/**
+ * A person reports what they know.
+ *
+ * WHAT THE COPY HAS TO CARRY, because the screen is where this is understood or
+ * misunderstood: the statement is recorded as attributed evidence, it is kept in
+ * the person's own words, and recording it does not make Loop believe it. A
+ * control that said "Add evidence" and nothing else would invite somebody to
+ * think they had settled the question.
+ *
+ * WHAT IT DELIBERATELY DOES NOT OFFER. No reporter field -- who is reporting comes
+ * from the session, and a form that let somebody pick would be a way to file a
+ * report under another name. No confidence percentage and no verification
+ * checkbox: neither is a thing a person may assert about their own report, and a
+ * box saying "verified" would be exactly the silent upgrade this whole stage
+ * exists to prevent.
+ */
+export function ReportEvidenceControl({ caseId }: { caseId: string }) {
+  return (
+    <details className="cw-ctl__add">
+      <summary>Report what you know</summary>
+      <form action={reportEvidenceAction} className="cw-ctl__form">
+        <CaseField caseId={caseId} />
+        <p className="cw-ctl__note">
+          This is recorded as evidence, in your words, attributed to you and timed. Loop will record
+          that <strong>you reported it</strong> — not that it is true. Whether the thing you describe
+          is established depends on the evidence for it.
+        </p>
+        <label className="cw-ctl__label" htmlFor="cw-report-statement">
+          What do you know?
+        </label>
+        <textarea
+          id="cw-report-statement"
+          name="statement"
+          rows={4}
+          required
+          className="cw-ctl__textarea"
+          placeholder="The production API token expired at about 09:15 this morning."
+        />
+        <button type="submit" className="ent-btn ent-btn--ghost">
+          Record what I reported
+        </button>
+      </form>
+    </details>
   );
 }
 

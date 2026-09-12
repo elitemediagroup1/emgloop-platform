@@ -32,9 +32,11 @@ import {
   type CaseFindingView,
   type FindingJudgmentView,
   type CaseParticipationView,
+  CASE_WITH_HUMAN_REPORT,
 } from '@emgloop/shared';
 
 import {
+  EvidenceSection,
   FindingSection,
   FiveWs,
   OutcomeSection,
@@ -571,6 +573,47 @@ test('7. the timeline renders every entry, including a reopen', () => {
 });
 
 // --- 8. The page composes and does not derive ----------------------------------------------------------
+
+// --- 7z. Evidence: what was reported, and what was measured -----------------------------
+
+test('7z. a human report renders attributed, never as a bare fact', () => {
+  // "The API token expired" and "Matt reported that the API token expired" are
+  // different claims, and only the second one is true the moment it is written.
+  const out = strip(render(<EvidenceSection brief={CASE_WITH_HUMAN_REPORT} />));
+  assert.ok(out.includes('usr_matt reported'));
+  assert.ok(out.includes('CEM told me on Friday'), 'their own words, verbatim');
+  assert.ok(out.includes('has not established that what it says is true'));
+});
+
+test('7z2. nothing numeric is invented for a report', () => {
+  const out = strip(render(<EvidenceSection brief={CASE_WITH_HUMAN_REPORT} />));
+  // The measurement beside it shows a measure and a population that reported;
+  // the report shows neither, because a sentence has neither.
+  assert.ok(out.includes('MONETIZED_RATE'));
+  assert.ok(out.includes('% of the population reported'));
+  const reportBlock = out.slice(out.indexOf('usr_matt reported'));
+  for (const invented of ['HUMAN_REPORT', 'NON_METRIC', 'MANUAL', 'UNKNOWN', '0%', 'n/a']) {
+    assert.equal(reportBlock.includes(invented), false, `must not render "${invented}"`);
+  }
+});
+
+test('7z3. a report never wears an epistemic state badge', () => {
+  // The five tones say what LOOP knows. How evidence arrived is not one of them,
+  // so the class is words: a report carrying the tick that means "Loop stands
+  // behind this" is the exact confusion this section exists to prevent.
+  const html = render(<EvidenceSection brief={CASE_WITH_HUMAN_REPORT} />);
+  assert.equal(/ps-badge/.test(html), false, 'no state badge in the evidence list');
+  assert.ok(strip(html).includes('Reported by a person'));
+});
+
+test('7z4. an investigation with nothing recorded says so, and does not read as clear', () => {
+  const empty = { ...CASE_WITH_HUMAN_REPORT, evidence: [] };
+  const out = strip(render(<EvidenceSection brief={empty} />));
+  assert.ok(out.includes('Nothing has been recorded'));
+  for (const wrong of ['no issue', 'all clear', 'nothing wrong', 'healthy']) {
+    assert.equal(out.toLowerCase().includes(wrong), false);
+  }
+});
 
 test('8. the workspace page reads one contract and joins nothing', () => {
   const page = readFileSync(new URL('../src/app/app/admin/cases/[id]/page.tsx', import.meta.url), 'utf8');

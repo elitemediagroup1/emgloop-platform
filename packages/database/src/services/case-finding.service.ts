@@ -50,6 +50,7 @@ import {
   findingClaimKind,
   findingEvidenceState,
   findingHypothesisType,
+  isMeasuredEvidence,
   findingJudgment,
   findingLifecycle,
   type CaseFindingView,
@@ -361,7 +362,16 @@ export class CaseFindingService {
     const claimKind = findingClaimKind(finding.hypothesisType);
     if (!claimKind) return null;
 
-    const supporting = view.evidence.map(toEvidenceRef);
+    // MEASURED EVIDENCE ONLY, AND THE FILTER IS THE WHOLE ISOLATION.
+    //
+    // A human report is not an input to a measurement gate. If reports reached
+    // `supporting`, two different things would go wrong at once: a report could
+    // never SATISFY readiness (nothing here derives readiness from Case evidence),
+    // but its missing completeness WOULD be read as "the producer did not say how
+    // much of the population reported" -- so somebody adding a note to a Case
+    // would silently demote an established claim. Stage 3 truth is unchanged by
+    // anything a person writes down.
+    const supporting = view.evidence.filter(isMeasuredEvidence).map(toEvidenceRef);
     const contradicting = findEvidenceContradictions(supporting);
     const facts = recordFacts(finding);
     // LIFECYCLE, NOT JUDGMENT, DECIDES WHETHER THE EVIDENCE IS EVALUATED. A
@@ -587,8 +597,15 @@ function deriveReasoning(
   establishment: FindingEstablishment,
   current: boolean,
 ): FindingReasoning {
+  // ONLY WHAT THE GATE ACTUALLY READ. `supporting` is measured evidence, so every
+  // statement here names a measure; a row that named none would be reported as
+  // that rather than given a metric it does not have.
   const known: FindingStatement[] = supporting.map((e) => ({
-    text: e.window ? `${e.metricKey} (${e.window})` : e.metricKey,
+    text: e.metricKey
+      ? e.window
+        ? `${e.metricKey} (${e.window})`
+        : e.metricKey
+      : 'evidence naming no measure',
     evidenceId: e.id,
   }));
 

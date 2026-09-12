@@ -24,6 +24,7 @@
 import { notFound } from 'next/navigation';
 
 import {
+  CASE_WITH_HUMAN_REPORT,
   FINDING_DEVELOPING_ACCEPTED,
   FINDING_DEVELOPING_REJECTED,
   FINDING_ESTABLISHED_ACCEPTED,
@@ -49,10 +50,16 @@ import {
 import { requirePermission } from '../../../../auth/guard';
 import { NotKnown, ReadError, StateBadge } from '../../_loop-os/product-state';
 import { AttentionBanner } from '../headlines/headline-ui';
-import { FindingSection, OutcomeSection, WorkSection } from '../cases/case-sections';
+import {
+  EvidenceSection,
+  FindingSection,
+  OutcomeSection,
+  WorkSection,
+} from '../cases/case-sections';
 import {
   FindingControls,
   LifecycleControls,
+  ReportEvidenceControl,
   MonitoringControls,
   RecommendationControls,
 } from '../cases/case-controls';
@@ -98,7 +105,7 @@ export default async function ReviewPage() {
         <p className="rv-head__eyebrow">Design review · development only</p>
         <h1 className="rv-head__title">Every Stage 4 state, on one page</h1>
         <p className="rv-head__sub">
-          Twenty representative states, typed as the contracts production returns. Nothing here
+          Twenty-two representative states, typed as the contracts production returns. Nothing here
           reads the database and nothing here is real. The numbers, buyers and people are invented.
         </p>
       </header>
@@ -210,6 +217,26 @@ export default async function ReviewPage() {
         note="Four comparable Cases. Worth a person looking at — and still not doctrine, at any count."
       >
         <PatternCard pattern={PATTERN_EMERGING} />
+      </State>
+
+      {/*
+        EVIDENCE OF TWO CLASSES, IN ONE LIST, READING DIFFERENTLY. A measurement
+        names a measure, a window and a population that reported. A report names a
+        person and their exact words, carries none of those, and says plainly that
+        what it establishes is that somebody reported it.
+      */}
+      <State
+        name="Evidence · a measurement and a person's report"
+        note="Nothing numeric is invented for the report: no value, no completeness, no metric, and no sentinel standing in for one."
+      >
+        <EvidenceSection brief={CASE_WITH_HUMAN_REPORT} />
+      </State>
+
+      <State
+        name="Controls · report what you know"
+        note="The reporter comes from the session — there is no field for it. No confidence percentage and no verification checkbox: neither is something a person may assert about their own report."
+      >
+        <ReportEvidenceControl caseId={REVIEW_CASE_ID} />
       </State>
 
       {/*

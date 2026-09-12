@@ -30,6 +30,7 @@ import type { MonitoringVerdict } from './case-monitoring';
 import type { FactorLevel, RecommendationFactor, RecommendationPosture } from './case-recommendation';
 import type { PriorityState } from './operational-lifecycle';
 import type { FindingEvidenceState, FindingJudgment, FindingLifecycle } from './case-finding';
+import type { EvidenceClass } from './evidence-class';
 
 export const PRODUCT_LANGUAGE_VERSION = 'product-language.v1';
 
@@ -389,6 +390,50 @@ export const FINDING_JUDGMENT_LANGUAGE: Record<
 
 /** Said when nobody has judged the claim. An absence, not a verdict. */
 export const FINDING_NO_JUDGMENT = 'Nobody has accepted or rejected this claim.';
+
+/**
+ * HOW A PIECE OF EVIDENCE ARRIVED. Words only, and DELIBERATELY NO TONE.
+ *
+ * The five tones say what Loop KNOWS. How evidence arrived is not that: an
+ * authoritative diagnostic and a stale number are both MEASURED, and a report
+ * from the person who ran the system and one from somebody repeating a rumour are
+ * both HUMAN_REPORTED. Giving either a tick or a warning triangle would publish a
+ * hierarchy this platform has not decided and cannot currently justify. Kept out
+ * of `productLabel` too, so no state badge can render one.
+ */
+export const EVIDENCE_CLASS_LANGUAGE: Record<
+  EvidenceClass,
+  { label: string; detail: string; from: EvidenceClass }
+> = {
+  MEASURED: {
+    label: 'Measured',
+    detail: 'A producer measured this, and it can be traced to a rule, a source and a period.',
+    from: 'MEASURED',
+  },
+  HUMAN_REPORTED: {
+    label: 'Reported by a person',
+    detail:
+      'Somebody wrote this down. What it establishes is that they reported it -- whether the thing ' +
+      'they described is true is a separate question Loop answers from evidence.',
+    from: 'HUMAN_REPORTED',
+  },
+};
+
+/**
+ * The line a human report is introduced with.
+ *
+ * ATTRIBUTION IS PART OF THE FACT, not decoration around it. "The API token
+ * expired" and "Matt reported that the API token expired" are different claims,
+ * and only the second one is established the moment it is written.
+ */
+export function reportedLine(reporterUserId: string | null): string {
+  return reporterUserId ? `${reporterUserId} reported` : 'Somebody reported';
+}
+
+/** Said beside a report, so nobody reads an attributed sentence as a settled one. */
+export const HUMAN_REPORT_CAVEAT =
+  'Loop records that this was reported, and by whom. It has not established that what it says ' +
+  'is true.';
 
 /**
  * WHETHER THIS IS STILL THE CLAIM ON THE CASE. Only the two ways a claim stops

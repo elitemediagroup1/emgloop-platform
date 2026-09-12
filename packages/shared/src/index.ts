@@ -202,10 +202,17 @@ export * from './headline-investigation';
 // is persisted.
 export * from './case-brief';
 
+// HOW a piece of evidence entered Loop: measured, or reported by a person. Says
+// nothing about whether to believe it -- trust, authority and diagnostic power
+// are properties of a claim plus its evidence, decided by standards that do not
+// exist yet.
+export * from './evidence-class';
+
 // What Loop CONCLUDES on an investigation, and what it may call established.
-// The authority boundary: a claim reaches ESTABLISHED only through a person
-// accepting it or the deterministic Stage 3 gate proving the measurement under
-// it eligible. Establishment is derived on read, never stored, so a claim whose
+// The authority boundary: a claim reaches ESTABLISHED only through the
+// deterministic Stage 3 gate proving the measurement under it eligible. A
+// person's acceptance is a judgement on its own axis and does not establish
+// anything. Establishment is derived on read, never stored, so a claim whose
 // evidence degrades stops being established without anything having to run.
 export * from './work-execution';
 export * from './case-work-coordination';

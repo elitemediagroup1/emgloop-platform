@@ -589,6 +589,11 @@ function caseBrief(over: Partial<CaseBriefView> & { caseId: string }): CaseBrief
 const CEM_EVIDENCE: CaseBriefView['evidence'][number] = {
   id: 'ev_1',
   source: 'commercial-intelligence',
+  // MEASURED, like every piece of evidence that existed before people could
+  // report one. The class says how it arrived, not how much to believe it.
+  evidenceClass: 'MEASURED',
+  statement: null,
+  reportedByUserId: null,
   metricKey: 'MONETIZED_RATE',
   window: 'Trailing 7 complete Eastern business days against the 7 before them.',
   value: 0.412,
@@ -662,6 +667,51 @@ export const CASE_WITH_UNCERTAINTY: CaseBriefView = caseBrief({
       '2% of calls in the current window carry no billable answer yet.',
       'Whether CEM changed its qualification criteria is not established by anything here.',
     ],
+    incompleteEvidenceCount: 1,
+    completenessUnstatedCount: 0,
+  },
+});
+
+/**
+ * A person reported something, beside a measurement.
+ *
+ * THE TWO CLASSES SIT IN ONE LIST AND MUST NOT READ ALIKE. The measurement names
+ * a measure, a window and a population that reported; the report names a person
+ * and their exact words, and carries none of those because none of them apply to
+ * a sentence. What the report establishes is that it was reported.
+ *
+ * NOTHING NUMERIC IS FILLED IN FOR IT. No value, no completeness, no metric and
+ * no sentinel standing in for one -- and the uncertainty counts below cover the
+ * measurement only, because a report cannot be an incomplete population.
+ */
+export const CASE_WITH_HUMAN_REPORT: CaseBriefView = caseBrief({
+  caseId: 'case_reported',
+  evidence: [
+    CEM_EVIDENCE,
+    {
+      id: 'ev_report_1',
+      source: 'operator',
+      evidenceClass: 'HUMAN_REPORTED',
+      statement: 'CEM told me on Friday they had paused same-day settlement while they re-papered.',
+      reportedByUserId: 'usr_matt',
+      metricKey: null,
+      window: null,
+      value: null,
+      completeness: null,
+      entityType: null,
+      entityId: null,
+      entityName: null,
+      limitations: [],
+      unknowns: [],
+      ruleId: null,
+      ruleVersion: null,
+      producerVersion: null,
+      observedAt: '2026-08-21T16:40:00.000Z',
+    },
+  ],
+  uncertainty: {
+    limitations: ['Postback destinations settle after the call, so the most recent day may still move.'],
+    unknowns: ['Whether CEM actually paused settlement is not established by anything here.'],
     incompleteEvidenceCount: 1,
     completenessUnstatedCount: 0,
   },
