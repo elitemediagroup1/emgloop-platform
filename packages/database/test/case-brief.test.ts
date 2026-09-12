@@ -87,7 +87,10 @@ function headline(over: Partial<HeadlineView> = {}): HeadlineView {
 type Ev = {
   id: string;
   source?: string;
-  metricKey?: string;
+  evidenceClass?: string;
+  statement?: string | null;
+  reportedByUserId?: string | null;
+  metricKey?: string | null;
   window?: string | null;
   derivedValue?: number | null;
   completeness?: number | null;
@@ -103,6 +106,13 @@ function evidence(e: Ev) {
   return {
     id: e.id,
     source: e.source ?? INVESTIGATION_PRODUCER,
+    // THE PRODUCTION ROW SHAPE. Every one of these is a producer's measurement,
+    // which is what the column's default says of every row written before the
+    // class existed. A double that omitted it would be asserting against a shape
+    // the database cannot produce.
+    evidenceClass: e.evidenceClass ?? 'MEASURED',
+    statement: e.statement ?? null,
+    reportedByUserId: e.reportedByUserId ?? null,
     metricKey: e.metricKey ?? 'MONETIZED_RATE',
     window: e.window ?? 'Trailing 7 business days',
     derivedValue: 'derivedValue' in e ? (e.derivedValue ?? null) : 0.412,

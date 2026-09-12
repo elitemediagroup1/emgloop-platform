@@ -42,10 +42,12 @@ import type {
   OperationalPriorityState,
 } from '@prisma/client';
 import {
+  DEFAULT_EVIDENCE_CLASS,
   projectLifecycle,
   summarizeHistory,
   isClosed,
   isDecisionSeverity,
+  isEvidenceClass,
   type LifecycleObservation,
   type PriorityState,
   type DecisionEventPayloadV1,
@@ -97,6 +99,75 @@ function toLifecycle(o: OperationalObservation): LifecycleObservation {
 
 function isP2002(e: unknown): boolean {
   return (e as { code?: string })?.code === 'P2002';
+}
+
+/**
+ * The two evidence classes are two shapes, and neither may wear the other's
+ * fields.
+ *
+ * WHY THE ENGINE ENFORCES IT RATHER THAN THE CALLER. A row that carried both a
+ * measurement and a person's sentence would be readable as either, and the first
+ * reader to guess wrong would treat somebody's opinion as a measured number. The
+ * refusals below make that row unwriteable instead of discouraged:
+ *
+ *   MEASURED         must name a measure. May not carry a statement, and may not
+ *                    name a reporter -- a producer measuring something is not a
+ *                    person reporting it.
+ *   HUMAN_REPORTED   must carry a statement and must be written by an attributed
+ *                    HUMAN actor. May not name a measure, a value, or a
+ *                    completeness: a sentence is not a measurement, and a report
+ *                    that could carry one would be a way to get an unmeasured
+ *                    number past the Stage 3 gate.
+ *
+ * COMPLETENESS IS THE ONE WORTH SPELLING OUT. It means "this fraction of the
+ * population reported", which is a statement about instrumentation. On a human
+ * report it has no meaning at all -- and a null there must never be read as the
+ * measurement concern "the producer did not say", which is why the readers count
+ * it separately rather than lumping reports in with silent producers.
+ */
+function validateEvidence(e: DecisionEvidenceInput, actor: DecisionActor): void {
+  const evidenceClass = e.evidenceClass ?? DEFAULT_EVIDENCE_CLASS;
+  if (!isEvidenceClass(evidenceClass)) {
+    throw new InvalidDecisionInputError(`Unknown evidence class "${String(evidenceClass)}"`);
+  }
+
+  if (evidenceClass === 'HUMAN_REPORTED') {
+    if (!e.statement || !e.statement.trim()) {
+      throw new InvalidDecisionInputError('A human report must carry what the person reported');
+    }
+    if (actor.type !== 'HUMAN' || !actor.userId) {
+      throw new InvalidDecisionInputError(
+        'A human report must be written by an attributed person',
+      );
+    }
+    if (e.metricKey !== undefined && e.metricKey !== null) {
+      throw new InvalidDecisionInputError(
+        'A human report names no measure. There is no sentinel metric for one',
+      );
+    }
+    for (const [field, value] of [
+      ['rawValue', e.rawValue],
+      ['normalizedValue', e.normalizedValue],
+      ['derivedValue', e.derivedValue],
+      ['completeness', e.completeness],
+    ] as const) {
+      if (value !== undefined && value !== null) {
+        throw new InvalidDecisionInputError(
+          `A human report carries no ${field}: a statement is not a measurement`,
+        );
+      }
+    }
+    return;
+  }
+
+  if (!e.metricKey || !e.metricKey.trim()) {
+    throw new InvalidDecisionInputError('Measured evidence must name what it measures');
+  }
+  if (e.statement !== undefined && e.statement !== null) {
+    throw new InvalidDecisionInputError(
+      'Measured evidence carries no reported statement. Record a human report as one',
+    );
+  }
 }
 
 /** Every write is attributed. A HUMAN action with no user is not attributable. */
@@ -211,7 +282,7 @@ export class DecisionEngine {
         });
 
         for (const e of input.evidence ?? []) {
-          await this.insertEvidence(tx, organizationId, decision.id, e, input.detectedAt);
+          await this.insertEvidence(tx, organizationId, decision.id, e, input.detectedAt, { type: 'SYSTEM' as const, userId: null, source: input.producer });
         }
 
         const { decision: after, observation } = await this.appendInternal(tx, organizationId, decision, {
@@ -251,7 +322,7 @@ export class DecisionEngine {
     try {
       return await this.prisma.$transaction(async (tx) => {
         for (const e of input.evidence ?? []) {
-          await this.insertEvidence(tx, organizationId, existing.id, e, input.detectedAt);
+          await this.insertEvidence(tx, organizationId, existing.id, e, input.detectedAt, { type: 'SYSTEM' as const, userId: null, source: input.producer });
         }
         const { decision, observation } = await this.appendInternal(tx, organizationId, existing, {
           observationType: relapsed ? 'REOPENED' : 'SITUATION_RESIGHTED',
@@ -551,11 +622,12 @@ export class DecisionEngine {
     actor: DecisionActor,
   ): Promise<{ evidence: DecisionEvidence; result: DecisionResult }> {
     validateActor(actor);
+    validateEvidence(evidence, actor);
     const decision = await this.requireDecision(organizationId, id);
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
-      const row = await this.insertEvidence(tx, organizationId, decision.id, evidence, now);
+      const row = await this.insertEvidence(tx, organizationId, decision.id, evidence, now, actor);
       const { decision: after, observation } = await this.appendInternal(tx, organizationId, decision, {
         observationType: 'EVIDENCE_ADDED',
         occurredAt: now,
@@ -955,13 +1027,21 @@ export class DecisionEngine {
     priorityId: string,
     e: DecisionEvidenceInput,
     fallbackObservedAt: Date,
+    actor: DecisionActor,
   ): Promise<DecisionEvidence> {
+    const evidenceClass = e.evidenceClass ?? DEFAULT_EVIDENCE_CLASS;
     return tx.decisionEvidence.create({
       data: {
         organizationId,
         priorityId,
         source: e.source,
-        metricKey: e.metricKey,
+        evidenceClass,
+        statement: evidenceClass === 'HUMAN_REPORTED' ? (e.statement ?? null) : null,
+        // FROM THE ACTOR, NEVER FROM THE INPUT. There is no field a caller could
+        // set to file a report under somebody else's name, because the reporter
+        // is read off the session actor the engine was already given.
+        reportedByUserId: evidenceClass === 'HUMAN_REPORTED' ? (actor.userId ?? null) : null,
+        metricKey: e.metricKey ?? null,
         window: e.window ?? null,
         ruleId: e.ruleId ?? null,
         ruleVersion: e.ruleVersion ?? null,

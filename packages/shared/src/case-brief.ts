@@ -26,6 +26,7 @@
 // second product-facing mapping of it would be two vocabularies for one fact,
 // which is how this repository got three workflow systems.
 
+import type { EvidenceClass } from './evidence-class';
 import type {
   LifecycleHistory,
   ObservationType,
@@ -126,8 +127,33 @@ export interface CaseEvidenceItem {
   id: string;
   /** Where the value came from: a producer, a canonical service, a person. */
   source: string;
-  /** What it measures, in the producer's contract vocabulary. */
-  metricKey: string;
+  /**
+   * HOW IT ARRIVED. Measured, or reported by a person.
+   *
+   * NOT A RANKING. It says nothing about whether to believe the evidence; what
+   * it decides is which fields below mean anything, and whether the Stage 3 gate
+   * may read it at all.
+   */
+  evidenceClass: EvidenceClass;
+  /**
+   * What a person reported, in their own words, exactly as they wrote it.
+   *
+   * NULL FOR MEASURED EVIDENCE, and never a summary. A surface may shorten it on
+   * screen; the original has to remain readable, because what a person actually
+   * said is the evidence.
+   */
+  statement: string | null;
+  /** Who reported it. Null for anything a producer measured. */
+  reportedByUserId: string | null;
+  /**
+   * What it measures, in the producer's contract vocabulary.
+   *
+   * NULL FOR A HUMAN REPORT, because a sentence is not necessarily about a
+   * metric. There is deliberately no sentinel: a `HUMAN_REPORT` or `UNKNOWN`
+   * metric key would be a referent nothing in the platform measures, and every
+   * query grouping by metric would then have a fake member in it.
+   */
+  metricKey: string | null;
   /** Which period it describes, in operator language. Null when it names none. */
   window: string | null;
   /** After our formula. Null when the producer expressed no number. */

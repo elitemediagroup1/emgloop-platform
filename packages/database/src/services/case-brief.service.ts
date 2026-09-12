@@ -29,6 +29,9 @@
 
 import type { PrismaClient } from '@prisma/client';
 import {
+  isEvidenceClass,
+  isMeasuredEvidence,
+  reportedLine,
   CASE_PARTY_ENTITY_TYPES,
   CASE_PLACE_ENTITY_TYPES,
   CASE_WHY_UNAVAILABLE,
@@ -175,7 +178,10 @@ export class CaseBriefService {
 function toEvidenceItem(e: {
   id: string;
   source: string;
-  metricKey: string;
+  evidenceClass: string;
+  statement: string | null;
+  reportedByUserId: string | null;
+  metricKey: string | null;
   window: string | null;
   derivedValue: number | null;
   completeness: number | null;
@@ -192,6 +198,13 @@ function toEvidenceItem(e: {
   return {
     id: e.id,
     source: e.source,
+    // THE STORED VALUE, OR A REFUSAL TO GUESS. A row carrying a class this build
+    // does not know is reported as what it is rather than defaulted into MEASURED,
+    // because defaulting would let an unrecognised row through the measurement
+    // gate.
+    evidenceClass: isEvidenceClass(e.evidenceClass) ? e.evidenceClass : 'HUMAN_REPORTED',
+    statement: e.statement,
+    reportedByUserId: e.reportedByUserId,
     metricKey: e.metricKey,
     window: e.window,
     value: e.derivedValue,
@@ -206,6 +219,23 @@ function toEvidenceItem(e: {
     producerVersion: e.producerVersion,
     observedAt: e.observedAt.toISOString(),
   };
+}
+
+/**
+ * How one piece of evidence reads under WHAT.
+ *
+ * ATTRIBUTION IS PART OF THE LABEL for a report, and the whole label for a
+ * measurement is the measure it names. Neither borrows the other's shape: a
+ * report with no measure is not "unknown metric", and a measurement is not
+ * something somebody said.
+ */
+function labelForEvidence(e: CaseEvidenceItem): string {
+  if (!isMeasuredEvidence(e)) {
+    const said = e.statement ?? '';
+    return `${reportedLine(e.reportedByUserId)}: "${said}"`;
+  }
+  const measure = e.metricKey ?? 'a measure it does not name';
+  return e.window ? `${measure} (${e.window})` : measure;
 }
 
 function toTimelineEntry(o: {
@@ -290,6 +320,11 @@ function summarizeUncertainty(evidence: CaseEvidenceItem[]): CaseUncertainty {
     for (const u of e.unknowns) if (!unknowns.includes(u)) unknowns.push(u);
     // NULL IS NOT ONE. "The producer did not say" and "all of it reported" are
     // different facts and are counted separately.
+    // MEASUREMENT COUNTS, OVER MEASUREMENTS ONLY. Completeness means "this
+    // fraction of the population reported", which a human report does not have
+    // and cannot lack: counting a report as "completeness unstated" would file a
+    // person's sentence as a gap in Loop's instrumentation.
+    if (!isMeasuredEvidence(e)) continue;
     if (e.completeness === null) unstated += 1;
     else if (e.completeness < 1) incomplete += 1;
   }
@@ -350,10 +385,16 @@ function deriveFiveWs(
   }
 
   for (const e of evidence) {
-    // WHAT — the measured fact itself.
+    // WHAT — the measured fact, or the reported sentence, ATTRIBUTED.
+    //
+    // A REPORT IS NEVER PLACED AS A BARE STATEMENT. "The API token expired" and
+    // "Matt reported that the API token expired" are different claims, and only
+    // the second is established the moment it is written. PR 6 owns the epistemic
+    // tagging of the 5Ws; this is only what it takes to place a report here
+    // without the placement asserting it is true.
     push(what, {
-      key: `metric:${e.id}`,
-      label: e.window ? `${e.metricKey} (${e.window})` : e.metricKey,
+      key: `evidence:${e.id}`,
+      label: labelForEvidence(e),
       derivedFrom: 'EVIDENCE',
       evidenceId: e.id,
     });

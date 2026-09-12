@@ -33,6 +33,7 @@ import {
 import {
   AddParticipantControl,
   FindingControls,
+  ReportEvidenceControl,
   LifecycleControls,
   MonitoringControls,
   RecommendationControls,
@@ -119,10 +120,10 @@ test('1d. a cross-tenant id fails closed and reveals nothing', () => {
     assert.ok(ACTIONS.includes(msg), `not-found message: ${msg}`);
   }
   // Nothing the USER SEES says "forbidden", "not yours" or names another tenant.
-  // Scanned over the messages rather than the file: the header explains at
-  // length that cross-org is not-found and never forbidden, and forbidding the
-  // word would forbid the explanation.
-  const messages = ACTIONS.match(/backTo\([^)]*'([^']+)'/g) ?? [];
+  // Scanned over the messages IN THE CODE, comments stripped first: the header
+  // and several inline notes explain at length that cross-org is not-found and
+  // never forbidden, and forbidding the word would forbid the explanation.
+  const messages = CODE.match(/backTo\([^)]*'([^']+)'/g) ?? [];
   for (const leak of ['forbidden', 'not yours', 'another organization', 'permission denied']) {
     assert.equal(
       messages.join(' ').toLowerCase().includes(leak),
@@ -172,7 +173,7 @@ test('2c. each capability calls the service that owns that fact', () => {
 test('3. nothing lets a person edit what a Finding says', () => {
   // A claim changes through evidence and supersession, not because somebody
   // disagrees. There is no field for the claim text anywhere.
-  for (const field of ['claim', 'conclusion', 'statement']) {
+  for (const field of ['claim', 'conclusion']) {
     assert.equal(
       new RegExp(`formData[^)]*['"]${field}['"]`).test(CODE),
       false,
@@ -426,6 +427,62 @@ test('8. a read-only member is offered nothing to press', () => {
   assert.ok(PAGE.includes('canAct ?'), 'controls are conditional');
   // And the absence is explained rather than silent.
   assert.ok(PAGE.includes('needs permission to author'));
+});
+
+// --- 8a. Reporting: the one Case act a participant may do -------------------------------------
+
+/** Just the reporting action's body -- the file's later actions use `actorFor`. */
+function reportBody(): string {
+  const from = CODE.indexOf('export async function reportEvidenceAction');
+  const next = CODE.indexOf('export async function ', from + 10);
+  return CODE.slice(from, next === -1 ? undefined : next);
+}
+
+test('8a. reporting is guarded by the READ grant, and the service decides the rest', () => {
+  // THE ONE CASE ACTION THAT IS NOT `actorFor`. Somebody asked to contribute to
+  // an investigation can answer it without organization-wide authoring
+  // authority, so the action establishes a session and defers the decision to
+  // CaseEvidenceService -- which resolves organization -> Case -> participation
+  // against the database on every submission.
+  const body = reportBody();
+  assert.ok(body.includes("requirePermission('commercialIntelligence', 'view')"));
+  assert.equal(body.includes('actorFor()'), false, 'it does not require the authoring grant');
+  assert.ok(/new CaseEvidenceService\(prisma\)\.report\(\s*session\.organizationId,\s*caseId,/.test(body));
+});
+
+test('8a2. the reporter comes from the session, and no form field can name one', () => {
+  const body = reportBody();
+  assert.ok(/reportedByUserId:\s*session\.userId/.test(body));
+  // No form field is read for the reporter, anywhere in the action or the form.
+  assert.equal(/formData\.get\(['\`"]reportedBy/.test(CODE), false);
+  const control = strip(render(<ReportEvidenceControl caseId="c1" />));
+  assert.equal(/name="reportedBy/.test(render(<ReportEvidenceControl caseId="c1" />)), false);
+  assert.ok(control.includes('attributed to you'));
+});
+
+test('8a3. the statement is read verbatim, not trimmed like an id', () => {
+  // `text()` trims, which is right for an id and wrong for a person's words: the
+  // statement IS the evidence, and tidying it edits the record.
+  const body = reportBody();
+  assert.ok(/verbatim\(formData, 'statement'\)/.test(body));
+  assert.equal(/text\(formData, 'statement'\)/.test(CODE), false);
+  // AND THE ONLY 'statement' FIELD IN THE FILE IS THIS ONE. A Finding's words are
+  // still not editable from a form -- a report is evidence, not a claim being
+  // rewritten.
+  const statementReads = CODE.match(/formData, 'statement'/g) ?? [];
+  assert.equal(statementReads.length, 1);
+});
+
+test('8a4. the report form offers no confidence, and no verification checkbox', () => {
+  const html = render(<ReportEvidenceControl caseId="c1" />);
+  const out = strip(html);
+  for (const forbidden of ['confidence', 'verified', 'verify', '%', 'certain', 'probability']) {
+    assert.equal(out.toLowerCase().includes(forbidden), false, `must not offer "${forbidden}"`);
+  }
+  assert.equal(/type="checkbox"/.test(html), false);
+  // And it says what recording actually establishes.
+  assert.ok(out.includes('you reported it'));
+  assert.ok(out.includes('not that it is true'));
 });
 
 test('8b. the page passes controls in; sections never build their own', () => {

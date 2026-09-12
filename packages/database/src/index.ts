@@ -102,6 +102,14 @@ export {
   CaseRecommendationService,
   RECOMMENDATION_RECORD_OUTCOMES,
 } from './services/case-recommendation.service';
+export { CaseEvidenceService, EVIDENCE_REPORT_OUTCOMES } from './services/case-evidence.service';
+export type {
+  CaseEvidenceCaseAccess,
+  CaseEvidenceDeps,
+  EvidenceReportOutcome,
+  ReportEvidenceInput,
+  ReportEvidenceResult,
+} from './services/case-evidence.service';
 export { CaseParticipationService, PARTICIPATION_OUTCOMES } from './services/case-participation.service';
 export type {
   AddCaseParticipantInput,

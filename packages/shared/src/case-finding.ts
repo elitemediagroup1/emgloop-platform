@@ -325,7 +325,16 @@ export const FINDING_INELIGIBILITY_LABELS: Record<FindingIneligibilityReason, st
 export interface FindingEvidenceRef {
   id: string;
   source: string;
-  metricKey: string;
+  /**
+   * The measure this evidence is about.
+   *
+   * NULL IS POSSIBLE AND IS NOT A GROUPING KEY. Evidence that names no measure
+   * cannot disagree with evidence that does, so it takes no part in contradiction
+   * detection. Only MEASURED evidence reaches this contract at all -- a human
+   * report is not an input to the gate -- but a measured row that named no
+   * measure would still be one the gate must not group on.
+   */
+  metricKey: string | null;
   window: string | null;
   value: number | null;
   /**
@@ -491,6 +500,9 @@ export function findEvidenceContradictions(
   const order: string[] = [];
   for (const e of evidence) {
     if (e.value === null) continue;
+    // A ROW THAT NAMES NO MEASURE CANNOT CONTRADICT ONE THAT DOES. Grouping on a
+    // null key would make every such row "the same measurement" as every other.
+    if (e.metricKey === null) continue;
     const key = `${e.metricKey} ${e.window ?? ''}`;
     const bucket = groups.get(key);
     if (bucket) bucket.push(e);
@@ -508,7 +520,7 @@ export function findEvidenceContradictions(
     const distinctSources = new Set(bucket.map((e) => e.source));
     if (distinctValues.size < 2 || distinctSources.size < 2) continue;
     const first = bucket[0];
-    if (!first) continue;
+    if (!first || first.metricKey === null) continue;
     out.push({
       metricKey: first.metricKey,
       window: first.window,

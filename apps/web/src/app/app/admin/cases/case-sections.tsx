@@ -22,11 +22,14 @@ import {
   CASE_STATE_LANGUAGE,
   FACTOR_LANGUAGE,
   FACTOR_LEVEL_LANGUAGE,
+  EVIDENCE_CLASS_LANGUAGE,
   FINDING_EVIDENCE_LANGUAGE,
   FINDING_INELIGIBILITY_LABELS,
   FINDING_JUDGMENT_LANGUAGE,
   FINDING_NO_JUDGMENT,
+  HUMAN_REPORT_CAVEAT,
   POSTURE_LANGUAGE,
+  reportedLine,
   type CaseBriefView,
   type CaseCoordinationView,
   type CaseDimension,
@@ -130,6 +133,95 @@ export function FiveWs({ brief }: { brief: CaseBriefView }) {
 }
 
 // --- The Finding ---------------------------------------------------------------------------
+
+/**
+ * The evidence on the investigation, with what a person reported kept separate
+ * from what a producer measured.
+ *
+ * A REPORT IS ALWAYS ATTRIBUTED, AND IS NEVER RENDERED AS A BARE FACT. "The API
+ * token expired" and "Matt reported that the API token expired" are different
+ * claims, and only the second one is true the moment somebody writes it. So a
+ * report leads with who said it, shows their words in quotation marks, and
+ * carries the caveat -- rather than appearing in a list of things Loop knows.
+ *
+ * NOTHING NUMERIC IS INVENTED FOR A REPORT. No value, no completeness, no
+ * window, no metric. Those are measurement concepts, and a dash where a number
+ * would be is not "missing data" -- it is a field that does not apply.
+ */
+export function EvidenceSection({
+  brief,
+  controls,
+}: {
+  brief: CaseBriefView;
+  /** The report form, supplied by the guarded page. Never built here. */
+  controls?: ReactNode;
+}) {
+  const evidence = brief.evidence;
+
+  if (evidence.length === 0) {
+    return (
+      <Section
+        id="cw-evidence"
+        title="What this rests on"
+        subtitle="Everything recorded on this investigation, measured or reported."
+      >
+        <NotYet line="Nothing has been recorded on this investigation yet." />
+        {controls ? <div className="cw-ev__add">{controls}</div> : null}
+      </Section>
+    );
+  }
+
+  return (
+    <Section
+      id="cw-evidence"
+      title="What this rests on"
+      subtitle="Everything recorded on this investigation, measured or reported. A report establishes that somebody reported it."
+    >
+      <ul className="cw-ev">
+        {evidence.map((e) => (
+          <li key={e.id} className={'cw-ev__item cw-ev__item--' + e.evidenceClass.toLowerCase()}>
+            {e.evidenceClass === 'HUMAN_REPORTED' ? (
+              <>
+                <p className="cw-ev__who">{reportedLine(e.reportedByUserId)}</p>
+                {/* THEIR WORDS, UNEDITED. Quoted so the boundary between what
+                    somebody said and what Loop says is visible on the page. A row
+                    carrying no words says that, rather than showing empty quotes
+                    that read as somebody having said nothing. */}
+                {e.statement ? (
+                  <blockquote className="cw-ev__said">{e.statement}</blockquote>
+                ) : (
+                  <p className="cw-ev__said cw-ev__said--absent">
+                    Loop has no record of what was reported here.
+                  </p>
+                )}
+                <p className="cw-ev__caveat">{HUMAN_REPORT_CAVEAT}</p>
+              </>
+            ) : (
+              <p className="cw-ev__measure">
+                {e.metricKey ?? 'A measure this evidence does not name'}
+                {e.window ? <span className="cw-ev__window"> · {e.window}</span> : null}
+                {e.value !== null ? <span className="cw-ev__value"> · {e.value}</span> : null}
+              </p>
+            )}
+            <p className="cw-ev__meta">
+              <span>{EVIDENCE_CLASS_LANGUAGE[e.evidenceClass].label}</span>
+              <span>Recorded about {e.observedAt.slice(0, 10)}</span>
+              {/* COMPLETENESS IS A MEASUREMENT CONCERN, so it is shown only where
+                  it means something. A report has no population to have reported. */}
+              {e.evidenceClass === 'MEASURED' && e.completeness !== null ? (
+                <span>{Math.round(e.completeness * 100)}% of the population reported</span>
+              ) : null}
+            </p>
+            {e.limitations.length > 0 ? (
+              <NotKnown title="What this cannot support" lines={e.limitations} />
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {controls ? <div className="cw-ev__add">{controls}</div> : null}
+    </Section>
+  );
+}
 
 /**
  * What Loop currently claims, on three axes that are shown apart.

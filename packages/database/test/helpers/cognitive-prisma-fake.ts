@@ -313,6 +313,12 @@ const DELEGATES = [
   'workStage',
   'workStageEvent',
   'workDependency',
+  // Commercial Intelligence Stage 5. `permission` is faked so the REAL
+  // IamRepository runs in the evidence tests: who may report on a Case is decided
+  // by the organization-wide grant OR active participation, and stubbing the
+  // first half would have the test assert against its own idea of the permission
+  // matrix instead of the shipped one.
+  'permission',
 ] as const;
 
 let idSeq = 0;

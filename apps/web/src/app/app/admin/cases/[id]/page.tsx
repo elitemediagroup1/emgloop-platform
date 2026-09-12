@@ -20,12 +20,14 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
 import { CASE_STATE_LANGUAGE } from '@emgloop/shared';
+import { CaseEvidenceService, prisma } from '@emgloop/database';
 
 import { hasPermission, requirePermission } from '../../../../../auth/guard';
 import { listAssignableUsers } from '../../../employee/work/work-data';
 import {
   AddParticipantControl,
   FindingControls,
+  ReportEvidenceControl,
   LifecycleControls,
   MonitoringControls,
   RecommendationControls,
@@ -33,6 +35,7 @@ import {
 } from '../case-controls';
 import { NotKnown, ReadError, StateBadge } from '../../../_loop-os/product-state';
 import {
+  EvidenceSection,
   FindingSection,
   FiveWs,
   OutcomeSection,
@@ -78,6 +81,17 @@ export default async function CaseWorkspacePage({
   // ONLY LOADED WHEN IT CAN BE USED. A read-only member is never offered the
   // ask-somebody form, so the directory read does not happen for them either.
   const members = canAct ? await listAssignableUsers(session.organizationId) : [];
+
+  // WHETHER TO RENDER THE REPORT FORM, ASKED OF THE AUTHORITY THAT DECIDES IT.
+  // Somebody asked to contribute to this investigation may report on it even when
+  // their organization-wide grant is read-only, so this is not `canAct`. The page
+  // only decides what to draw: the action re-resolves all of it on submission,
+  // and rendering the form for somebody who may not use it grants them nothing.
+  const canReport = await new CaseEvidenceService(prisma).canReport(
+    session.organizationId,
+    params.id,
+    session.userId,
+  );
 
   return (
     <div className="cw-page">
@@ -201,6 +215,11 @@ export default async function CaseWorkspacePage({
       <WorkSection coordination={view.coordination} />
       <MonitoringSummary view={view} canAct={canAct} caseId={params.id} />
       <OutcomeSection outcome={view.outcome} />
+      <EvidenceSection
+        brief={brief}
+        controls={canReport ? <ReportEvidenceControl caseId={params.id} /> : undefined}
+      />
+
       <FiveWs brief={brief} />
       <TimelineSection brief={brief} />
 
