@@ -31,6 +31,7 @@ import type { FactorLevel, RecommendationFactor, RecommendationPosture } from '.
 import type { PriorityState } from './operational-lifecycle';
 import type { FindingEvidenceState, FindingJudgment, FindingLifecycle } from './case-finding';
 import type { EvidenceClass } from './evidence-class';
+import type { EvidenceRelation } from './evidence-context';
 
 export const PRODUCT_LANGUAGE_VERSION = 'product-language.v1';
 
@@ -418,6 +419,69 @@ export const EVIDENCE_CLASS_LANGUAGE: Record<
     from: 'HUMAN_REPORTED',
   },
 };
+
+/**
+ * What later evidence says about earlier evidence -- and, beside each one, what
+ * it does NOT say.
+ *
+ * BOTH HALVES ARE THE PRODUCT. A person reading "corrected by" needs to know
+ * that the original is still there and still readable, and that correcting a
+ * report does not settle the question the report was about. Stating only the
+ * first half is how a context note comes to read as a verdict.
+ *
+ * NO TONE, like the evidence class and the human judgement: a relation is a fact
+ * about two records, not a statement of what Loop knows, and it is kept out of
+ * `productLabel` so no state badge can render one.
+ */
+export const EVIDENCE_RELATION_LANGUAGE: Record<
+  EvidenceRelation,
+  { label: string; establishes: string; doesNotEstablish: string; from: EvidenceRelation }
+> = {
+  CORROBORATED_BY: {
+    label: 'Corroborated by',
+    establishes: 'Somebody recorded that other evidence on this investigation agrees with it.',
+    doesNotEstablish:
+      'Agreement is not measurement. Two people saying the same thing are two reports, and the ' +
+      'question they are about is still settled by the evidence standard for it.',
+    from: 'CORROBORATED_BY',
+  },
+  CONTRADICTED_BY: {
+    label: 'Contradicted by',
+    establishes: 'Somebody recorded that other evidence on this investigation disagrees with it.',
+    doesNotEstablish:
+      'It does not decide which one is right. Loop has recorded a disagreement, not resolved it.',
+    from: 'CONTRADICTED_BY',
+  },
+  CLARIFIED_BY: {
+    label: 'Clarified by',
+    establishes: 'Later evidence narrows or qualifies what this covers. The original is unchanged.',
+    doesNotEstablish: 'It does not correct it, and it does not widen what the original can support.',
+    from: 'CLARIFIED_BY',
+  },
+  CORRECTED_BY: {
+    label: 'Corrected by',
+    establishes:
+      'Somebody recorded that this was wrong, and what they say instead. Both stay on the ' +
+      'investigation, in the order they were learned.',
+    doesNotEstablish:
+      'It does not delete or edit the original, and the correction is itself evidence of its own ' +
+      'kind rather than a settled answer.',
+    from: 'CORRECTED_BY',
+  },
+  NO_LONGER_APPLICABLE: {
+    label: 'No longer applicable',
+    establishes:
+      'It described the world truthfully and stopped doing so. Not a mistake -- a change.',
+    doesNotEstablish:
+      'It does not say the original was wrong, and it does not establish what is true now.',
+    from: 'NO_LONGER_APPLICABLE',
+  },
+};
+
+/** Said above the context list, so additive never reads as edited. */
+export const EVIDENCE_CONTEXT_PREFACE =
+  'What was recorded later about this. The evidence above is unchanged: nothing here edits, ' +
+  'replaces or hides it.';
 
 /**
  * The line a human report is introduced with.

@@ -208,6 +208,11 @@ export * from './case-brief';
 // exist yet.
 export * from './evidence-class';
 
+// What LATER evidence says about earlier evidence. Immutable rows, additive
+// context: five governed relations recorded as facts on the Case's own log,
+// which never edit, replace or reclassify the evidence they are about.
+export * from './evidence-context';
+
 // What Loop CONCLUDES on an investigation, and what it may call established.
 // The authority boundary: a claim reaches ESTABLISHED only through the
 // deterministic Stage 3 gate proving the measurement under it eligible. A

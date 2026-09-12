@@ -45,6 +45,7 @@ import {
 } from '@emgloop/database';
 import {
   isCaseContribution,
+  isEvidenceRelation,
   isOperationalOutcome,
   isRecommendationVerb,
   type MonitoringPlan,
@@ -366,6 +367,69 @@ export async function reportEvidenceAction(formData: FormData): Promise<void> {
           ? 'You can report on an investigation you have been asked to contribute to. Ask to be ' +
             'added to this one.'
           : 'That investigation is no longer available.',
+      'error',
+    ),
+  );
+}
+
+/**
+ * A person records what later evidence says about earlier evidence.
+ *
+ * SAME AUTHORITY AS REPORTING, and for the same reason: somebody asked to
+ * contribute to an investigation can say that their own earlier report was about
+ * staging rather than production. The guard here establishes a session; the
+ * service resolves organization -> Case -> evidence -> participation and decides.
+ *
+ * NOTHING IS EDITED BY THIS ACTION. It appends at most two immutable rows: the
+ * new report, if the person supplied one, and the attributed fact relating it to
+ * the earlier evidence.
+ */
+export async function addEvidenceContextAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('commercialIntelligence', 'view');
+  const caseId = requireCaseId(formData);
+  const subjectEvidenceId = text(formData, 'subjectEvidenceId');
+  const relation = text(formData, 'relation');
+  // VERBATIM, like every other statement: this one becomes evidence too.
+  const basisStatement = verbatim(formData, 'basisStatement');
+  const note = text(formData, 'note');
+
+  if (!isEvidenceRelation(relation)) {
+    redirect(backTo(caseId, 'Say how the two pieces of evidence relate.', 'error'));
+  }
+
+  const result = await new CaseEvidenceService(prisma).addContext(session.organizationId, caseId, {
+    subjectEvidenceId,
+    relation,
+    ...(basisStatement.trim() ? { basisStatement } : {}),
+    note: note || null,
+    // FROM THE SESSION, ALWAYS. Never from the form.
+    actorUserId: session.userId,
+  });
+
+  if (result.outcome === 'RECORDED') {
+    redirect(
+      backTo(
+        caseId,
+        'Recorded. The evidence you commented on is unchanged — both are on the investigation now.',
+        'notice',
+      ),
+    );
+  }
+
+  redirect(
+    backTo(
+      caseId,
+      result.outcome === 'BASIS_REQUIRED'
+        ? 'Say what you know that does this. Only "no longer applicable" can stand without it.'
+        : result.outcome === 'EMPTY_STATEMENT'
+          ? 'Say what you are reporting before recording it.'
+          : result.outcome === 'NOT_AUTHORIZED'
+            ? 'You can record this on an investigation you have been asked to contribute to.'
+            : result.outcome === 'EVIDENCE_NOT_FOUND'
+              ? 'That evidence is not on this investigation.'
+              : result.outcome === 'AMBIGUOUS_BASIS'
+                ? 'Name one thing as the basis, not two.'
+                : 'That investigation is no longer available.',
       'error',
     ),
   );

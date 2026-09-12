@@ -34,6 +34,7 @@ import type { CoverageHealthStatus } from './coverage-health';
 import type { HeadlineView } from './headline';
 import type { ObservationSource } from './observation-source';
 import { CASE_WHY_UNAVAILABLE, type CaseBriefView } from './case-brief';
+import { projectEvidenceContext } from './evidence-context';
 import { INVESTIGATION_AUTHORIZED_REASON } from './headline-investigation';
 import type { PriorityState } from './operational-lifecycle';
 import type { ReconciliationState } from './provider-reconciliation';
@@ -607,6 +608,7 @@ const CEM_EVIDENCE: CaseBriefView['evidence'][number] = {
   ruleVersion: 'v1',
   producerVersion: 'ci-headline.v1',
   observedAt: '2026-08-22T06:15:00.000Z',
+  context: [],
 };
 
 /** An investigation where the evidence resolved and the caveats are minor. */
@@ -707,11 +709,134 @@ export const CASE_WITH_HUMAN_REPORT: CaseBriefView = caseBrief({
       ruleVersion: null,
       producerVersion: null,
       observedAt: '2026-08-21T16:40:00.000Z',
+      context: [],
     },
   ],
   uncertainty: {
     limitations: ['Postback destinations settle after the call, so the most recent day may still move.'],
     unknowns: ['Whether CEM actually paused settlement is not established by anything here.'],
+    incompleteEvidenceCount: 1,
+    completenessUnstatedCount: 0,
+  },
+});
+
+/**
+ * A report that was corroborated, one that was contradicted, and one the
+ * reporter corrected himself.
+ *
+ * THE ORIGINALS ARE ALL STILL HERE, IN THEIR OWN WORDS. That is the property a
+ * surface has to make visible: context is additive, so a corrected report is a
+ * report PLUS a correction, not a tidied sentence.
+ *
+ * THE CONTEXT COMES OUT OF THE REAL REDUCER. These entries are projected from
+ * fixture observations by `projectEvidenceContext` -- the same function the Case
+ * brief calls -- so a fixture cannot show a relation the projection would skip.
+ */
+const CONTEXT_LOG = [
+  {
+    id: 'obs_ctx_1',
+    observationType: 'EVIDENCE_CONTEXT_RECORDED',
+    evidenceId: 'ev_report_settlement',
+    relatedEvidenceId: 'ev_1',
+    evidenceRelation: 'CORROBORATED_BY',
+    note: 'The monetized rate moved on the day he says they paused.',
+    actorType: 'HUMAN',
+    actorUserId: 'usr_lexi',
+    source: 'operator',
+    occurredAt: '2026-08-22T09:10:00.000Z',
+    recordedAt: '2026-08-22T09:10:00.000Z',
+  },
+  {
+    id: 'obs_ctx_2',
+    observationType: 'EVIDENCE_CONTEXT_RECORDED',
+    evidenceId: 'ev_report_cap',
+    relatedEvidenceId: 'ev_1',
+    evidenceRelation: 'CONTRADICTED_BY',
+    note: 'The measured volume did not fall in the window he describes.',
+    actorType: 'HUMAN',
+    actorUserId: 'usr_lexi',
+    source: 'operator',
+    occurredAt: '2026-08-22T09:20:00.000Z',
+    recordedAt: '2026-08-22T09:20:00.000Z',
+  },
+  {
+    id: 'obs_ctx_3',
+    observationType: 'EVIDENCE_CONTEXT_RECORDED',
+    evidenceId: 'ev_report_token',
+    relatedEvidenceId: 'ev_report_token_fix',
+    evidenceRelation: 'CORRECTED_BY',
+    note: null,
+    actorType: 'HUMAN',
+    actorUserId: 'usr_matt',
+    source: 'operator',
+    occurredAt: '2026-08-22T11:05:00.000Z',
+    recordedAt: '2026-08-22T11:05:00.000Z',
+  },
+];
+
+const EVIDENCE_CONTEXT = projectEvidenceContext(CONTEXT_LOG);
+
+function reportedEvidence(over: {
+  id: string;
+  statement: string;
+  reportedByUserId: string;
+  observedAt: string;
+}): CaseBriefView['evidence'][number] {
+  return {
+    id: over.id,
+    source: 'operator',
+    evidenceClass: 'HUMAN_REPORTED',
+    statement: over.statement,
+    reportedByUserId: over.reportedByUserId,
+    metricKey: null,
+    window: null,
+    value: null,
+    completeness: null,
+    entityType: null,
+    entityId: null,
+    entityName: null,
+    limitations: [],
+    unknowns: [],
+    ruleId: null,
+    ruleVersion: null,
+    producerVersion: null,
+    observedAt: over.observedAt,
+    context: EVIDENCE_CONTEXT.get(over.id) ?? [],
+  };
+}
+
+export const CASE_WITH_EVIDENCE_CONTEXT: CaseBriefView = caseBrief({
+  caseId: 'case_context',
+  evidence: [
+    { ...CEM_EVIDENCE, context: EVIDENCE_CONTEXT.get('ev_1') ?? [] },
+    reportedEvidence({
+      id: 'ev_report_settlement',
+      statement: 'CEM told me on Friday they had paused same-day settlement while they re-papered.',
+      reportedByUserId: 'usr_matt',
+      observedAt: '2026-08-21T16:40:00.000Z',
+    }),
+    reportedEvidence({
+      id: 'ev_report_cap',
+      statement: 'CEM cut our cap on Tuesday because lead quality slipped.',
+      reportedByUserId: 'usr_mike',
+      observedAt: '2026-08-22T08:30:00.000Z',
+    }),
+    reportedEvidence({
+      id: 'ev_report_token',
+      statement: 'The production API token expired at about 09:15.',
+      reportedByUserId: 'usr_matt',
+      observedAt: '2026-08-22T09:30:00.000Z',
+    }),
+    reportedEvidence({
+      id: 'ev_report_token_fix',
+      statement: 'I was looking at the staging credential, not production. Production was fine.',
+      reportedByUserId: 'usr_matt',
+      observedAt: '2026-08-22T11:00:00.000Z',
+    }),
+  ],
+  uncertainty: {
+    limitations: ['Postback destinations settle after the call, so the most recent day may still move.'],
+    unknowns: ['Whether CEM paused settlement is not established by anything here.'],
     incompleteEvidenceCount: 1,
     completenessUnstatedCount: 0,
   },

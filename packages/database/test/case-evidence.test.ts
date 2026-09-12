@@ -465,6 +465,13 @@ test('12d. the report is on the Case log, citing the evidence it wrote', async (
 
 // --- 3. Stage 3 is untouched -------------------------------------------------------------
 
+/** A Case with a measured claim established, plus one human report on it. */
+async function findingContextWorld() {
+  const w = await findingWorld();
+  await w.evidence.report(ORG, w.caseId, { statement: STATEMENT, reportedByUserId: OWNER });
+  return w;
+}
+
 async function findingWorld() {
   const w = await world({ withMeasuredEvidence: true });
   const hypotheses = new IntelligenceHypothesisRepository(w.prisma as never);
@@ -581,6 +588,251 @@ test('21. no reporter reliability, trust or weight is recorded anywhere', async 
   for (const field of Object.keys(row)) {
     assert.equal(/reliab|trust|credib|weight|score/i.test(field), false, `${field} must not exist`);
   }
+});
+
+// --- 4b. Evidence context: additive, never an edit ---------------------------------------
+
+/** A Case carrying one measurement and one report, ready to be related. */
+async function contextWorld() {
+  const w = await world({ withMeasuredEvidence: true });
+  const reported = await w.evidence.report(ORG, w.caseId, {
+    statement: STATEMENT,
+    reportedByUserId: OWNER,
+  });
+  const rows = await w.prisma.decisionEvidence.findMany({});
+  const measured = rows.find((r: any) => r.statement === null);
+  return { ...w, reportId: reported.evidenceId as string, measuredId: measured.id as string };
+}
+
+test('c1. context is appended and the evidence it is about is untouched', async () => {
+  const { evidence, caseId, prisma, reportId, measuredId } = await contextWorld();
+  const before = await prisma.decisionEvidence.findFirst({ where: { id: reportId } });
+
+  const r = await evidence.addContext(ORG, caseId, {
+    subjectEvidenceId: reportId,
+    relation: 'CORROBORATED_BY',
+    basisEvidenceId: measuredId,
+    note: 'The measured rate moved the same day.',
+    actorUserId: OWNER,
+  });
+  assert.equal(r.outcome, 'RECORDED');
+  assert.ok(r.contextId);
+
+  // THE ORIGINAL ROW IS BYTE-FOR-BYTE WHAT IT WAS.
+  const after = await prisma.decisionEvidence.findFirst({ where: { id: reportId } });
+  assert.deepEqual(after, before);
+});
+
+test('c2. a correction is a NEW report plus a relation — both stay', async () => {
+  const { evidence, caseId, prisma, reportId } = await contextWorld();
+  const r = await evidence.addContext(ORG, caseId, {
+    subjectEvidenceId: reportId,
+    relation: 'CORRECTED_BY',
+    basisStatement: 'I was looking at staging, not production.',
+    actorUserId: OWNER,
+  });
+  assert.equal(r.outcome, 'RECORDED');
+  assert.ok(r.evidenceId, 'the correction is itself evidence');
+
+  const rows = await prisma.decisionEvidence.findMany({});
+  const original = rows.find((e: any) => e.id === reportId);
+  const correction = rows.find((e: any) => e.id === r.evidenceId);
+  assert.equal(original.statement, STATEMENT, 'the original words are unchanged');
+  assert.equal(correction.statement, 'I was looking at staging, not production.');
+  // AND THE CORRECTION IS A REPORT LIKE ANY OTHER: attributed, verbatim, and
+  // still not a measurement.
+  assert.equal(correction.evidenceClass, 'HUMAN_REPORTED');
+  assert.equal(correction.reportedByUserId, OWNER);
+  assert.equal(correction.metricKey, null);
+});
+
+test('c3. context does not reclassify evidence, and cannot reach the Stage 3 gate', async () => {
+  const { evidence, findings, caseId, prisma } = await findingContextWorld();
+
+  const before = await findings.get(ORG, caseId, NOW);
+  assert.equal(before?.evidenceState, 'ESTABLISHED');
+
+  const rows = await prisma.decisionEvidence.findMany({});
+  const measured = rows.find((r: any) => r.statement === null);
+  const report = rows.find((r: any) => r.statement !== null);
+
+  // Somebody records that the MEASUREMENT is contradicted by a person's report.
+  const r = await evidence.addContext(ORG, caseId, {
+    subjectEvidenceId: measured.id,
+    relation: 'CONTRADICTED_BY',
+    basisEvidenceId: report.id,
+    actorUserId: OWNER,
+  });
+  assert.equal(r.outcome, 'RECORDED');
+
+  const after = await findings.get(ORG, caseId, NOW);
+  // 12. CONTEXT DOES NOT BYPASS OR MOVE ESTABLISHMENT. A disagreement recorded
+  // by a person is not a governed measurement comparison, and the gate never
+  // reads context at all.
+  assert.equal(after?.evidenceState, 'ESTABLISHED');
+  assert.deepEqual(after?.establishment, before?.establishment);
+  assert.deepEqual(after?.supporting, before?.supporting);
+
+  // 11. AND NO CLASS CHANGED. Corroboration is not measurement.
+  const classesAfter = (await prisma.decisionEvidence.findMany({})).map((e: any) => [e.id, e.evidenceClass]);
+  assert.deepEqual(
+    classesAfter.sort(),
+    rows.map((e: any) => [e.id, e.evidenceClass]).sort(),
+  );
+});
+
+test('c4. a relation across a Case or a tenant boundary fails closed', async () => {
+  const { evidence, engine, caseId, prisma, reportId } = await contextWorld();
+
+  // Another Case in the SAME tenant, with its own evidence.
+  const { decision: other } = await engine.create(ORG, {
+    producer: INVESTIGATION_PRODUCER,
+    recurrenceKey: 'headline:other',
+    detectionKey: 'promotion:other',
+    detectedAt: NOW,
+    title: 'A different investigation.',
+    severity: 'NOTABLE',
+    sourceReference: 'hl_other',
+    evidence: [{ source: INVESTIGATION_PRODUCER, metricKey: 'REVENUE', derivedValue: 1, completeness: 1 }],
+  });
+  const otherEvidence = (await prisma.decisionEvidence.findMany({})).find(
+    (e: any) => e.priorityId === other.id,
+  );
+
+  // Subject from this Case, basis from another: refused.
+  assert.equal(
+    (await evidence.addContext(ORG, caseId, {
+      subjectEvidenceId: reportId,
+      relation: 'CORROBORATED_BY',
+      basisEvidenceId: otherEvidence.id,
+      actorUserId: OWNER,
+    })).outcome,
+    'EVIDENCE_NOT_FOUND',
+  );
+
+  // Subject from another Case: refused.
+  assert.equal(
+    (await evidence.addContext(ORG, caseId, {
+      subjectEvidenceId: otherEvidence.id,
+      relation: 'CORROBORATED_BY',
+      basisEvidenceId: reportId,
+      actorUserId: OWNER,
+    })).outcome,
+    'EVIDENCE_NOT_FOUND',
+  );
+
+  // Another tenant naming this Case: not-found, exactly as a missing Case.
+  assert.equal(
+    (await evidence.addContext(OTHER_ORG, caseId, {
+      subjectEvidenceId: reportId,
+      relation: 'NO_LONGER_APPLICABLE',
+      note: 'x',
+      actorUserId: OWNER,
+    })).outcome,
+    'CASE_NOT_FOUND',
+  );
+
+  // Nothing was written by any of them.
+  const ctx = (await prisma.operationalObservation.findMany({})).filter(
+    (o: any) => o.observationType === 'EVIDENCE_CONTEXT_RECORDED',
+  );
+  assert.equal(ctx.length, 0);
+});
+
+test('c5. authority is the same narrow grant reporting uses', async () => {
+  const { evidence, caseId, reportId, measuredId } = await contextWorld();
+  const attempt = (userId: string) =>
+    evidence.addContext(ORG, caseId, {
+      subjectEvidenceId: reportId,
+      relation: 'CLARIFIED_BY',
+      basisEvidenceId: measuredId,
+      actorUserId: userId,
+    });
+
+  assert.equal((await attempt(PARTICIPANT)).outcome, 'RECORDED', 'an active participant may');
+  assert.equal((await attempt(EMPLOYEE)).outcome, 'NOT_AUTHORIZED', 'a non-participant may not');
+  assert.equal((await attempt(RELEASED)).outcome, 'NOT_AUTHORIZED', 'a released one may not');
+});
+
+test('c6. an ungoverned relation records nothing', async () => {
+  const { evidence, caseId, prisma, reportId } = await contextWorld();
+  const r = await evidence.addContext(ORG, caseId, {
+    subjectEvidenceId: reportId,
+    // The member that deliberately does not exist: provider restatement and
+    // claim supersession are owned elsewhere.
+    relation: 'SUPERSEDED_BY' as never,
+    basisEvidenceId: null,
+    actorUserId: OWNER,
+  });
+  assert.equal(r.outcome, 'UNGOVERNED_RELATION');
+  const ctx = (await prisma.operationalObservation.findMany({})).filter(
+    (o: any) => o.observationType === 'EVIDENCE_CONTEXT_RECORDED',
+  );
+  assert.equal(ctx.length, 0);
+});
+
+test('c7. a relation needing a basis refuses without one, and self-reference is refused', async () => {
+  const { evidence, engine, caseId, reportId } = await contextWorld();
+  assert.equal(
+    (await evidence.addContext(ORG, caseId, {
+      subjectEvidenceId: reportId,
+      relation: 'CONTRADICTED_BY',
+      actorUserId: OWNER,
+    })).outcome,
+    'BASIS_REQUIRED',
+  );
+
+  // The engine refuses the degenerate shapes outright.
+  const actor = { type: 'HUMAN' as const, userId: OWNER, source: 'operator' };
+  await assert.rejects(
+    () => engine.relateEvidence(ORG, caseId, {
+      subjectEvidenceId: reportId,
+      relation: 'CORROBORATED_BY',
+      basisEvidenceId: reportId,
+    }, actor),
+    /its own context/i,
+  );
+  await assert.rejects(
+    () => engine.relateEvidence(ORG, caseId, {
+      subjectEvidenceId: reportId,
+      relation: 'NO_LONGER_APPLICABLE',
+    }, actor),
+    /what changed/i,
+  );
+});
+
+test('c8. the context is on the Case log, attributed, and readable from the brief', async () => {
+  const { evidence, engine, caseId, prisma, reportId, measuredId } = await contextWorld();
+  await evidence.addContext(ORG, caseId, {
+    subjectEvidenceId: reportId,
+    relation: 'CORROBORATED_BY',
+    basisEvidenceId: measuredId,
+    note: 'Same day.',
+    actorUserId: PARTICIPANT,
+  });
+
+  const log = (await prisma.operationalObservation.findMany({})).filter(
+    (o: any) => o.observationType === 'EVIDENCE_CONTEXT_RECORDED',
+  );
+  assert.equal(log.length, 1);
+  assert.equal(log[0].evidenceId, reportId);
+  assert.equal(log[0].relatedEvidenceId, measuredId);
+  assert.equal(log[0].evidenceRelation, 'CORROBORATED_BY');
+  assert.equal(log[0].actorType, 'HUMAN');
+  assert.equal(log[0].actorUserId, PARTICIPANT);
+
+  const brief = await new CaseBriefService(null as never, {
+    cases: engine,
+    headlines: { async get() { return HEADLINE; } },
+  }).get(ORG, caseId);
+
+  const report = brief!.evidence.find((e) => e.id === reportId)!;
+  assert.equal(report.context.length, 1);
+  assert.equal(report.context[0]!.relation, 'CORROBORATED_BY');
+  assert.equal(report.context[0]!.basisEvidenceId, measuredId);
+  assert.equal(report.context[0]!.actorUserId, PARTICIPANT);
+  // The statement is still the statement.
+  assert.equal(report.statement, STATEMENT);
 });
 
 // --- 5. Existing reads still work --------------------------------------------------------

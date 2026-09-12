@@ -35,7 +35,12 @@
 // standing is "somebody reported this".
 
 import type { PrismaClient, DecisionEvidence } from '@prisma/client';
-import { HUMAN_REPORT_SOURCE } from '@emgloop/shared';
+import {
+  HUMAN_REPORT_SOURCE,
+  isEvidenceRelation,
+  relationRequiresBasis,
+  type EvidenceRelation,
+} from '@emgloop/shared';
 
 import { CaseParticipantRepository } from '../repositories/case-participant.repository';
 import { IamRepository } from '../repositories/iam.repository';
@@ -69,6 +74,54 @@ export interface ReportEvidenceResult {
   evidenceId: string | null;
 }
 
+/** How a request to add context ended. Exactly one of them writes. */
+export const EVIDENCE_CONTEXT_OUTCOMES = [
+  'RECORDED',
+  /** No such Case in this organization. Not-found, never forbidden. */
+  'CASE_NOT_FOUND',
+  /** The subject or the basis is not evidence on THIS Case. Same answer either way. */
+  'EVIDENCE_NOT_FOUND',
+  'NOT_AUTHORIZED',
+  /** A relation this build does not govern. Nothing is recorded on a guess. */
+  'UNGOVERNED_RELATION',
+  /** The relation needs a basis and none was given. */
+  'BASIS_REQUIRED',
+  /** Both an existing basis and a new report were offered. Pick one. */
+  'AMBIGUOUS_BASIS',
+  /** Nothing was reported as the basis. */
+  'EMPTY_STATEMENT',
+] as const;
+export type EvidenceContextOutcome = (typeof EVIDENCE_CONTEXT_OUTCOMES)[number];
+
+export interface AddEvidenceContextResult {
+  outcome: EvidenceContextOutcome;
+  caseId: string;
+  /** The new evidence, when the basis was reported here. Null when it already existed. */
+  evidenceId: string | null;
+  /** The context fact's own id: the observation that recorded it. */
+  contextId: string | null;
+}
+
+export interface AddEvidenceContextInput {
+  /** The evidence being given context. Must already be on this Case. */
+  subjectEvidenceId: string;
+  relation: EvidenceRelation;
+  /** Evidence already on this Case that does it. Mutually exclusive with `basisStatement`. */
+  basisEvidenceId?: string | null;
+  /**
+   * A NEW human report to record as the basis, in the person's own words.
+   *
+   * Goes through the same report path as any other: verbatim, attributed to the
+   * session actor, and HUMAN_REPORTED. Correcting a report produces a report.
+   */
+  basisStatement?: string;
+  /** Why, in the actor's words. Required by the engine on NO_LONGER_APPLICABLE. */
+  note?: string | null;
+  /** Who is recording it, FROM THE SESSION. Never a form field. */
+  actorUserId: string;
+  occurredAt?: Date;
+}
+
 export interface ReportEvidenceInput {
   /**
    * WHAT THE PERSON REPORTED, exactly as they wrote it.
@@ -96,7 +149,10 @@ export interface ReportEvidenceInput {
 }
 
 /** The Decision Center surface this service needs. One read, one append. */
-export type CaseEvidenceCaseAccess = Pick<DecisionEngine, 'get' | 'addEvidence'>;
+export type CaseEvidenceCaseAccess = Pick<
+  DecisionEngine,
+  'get' | 'addEvidence' | 'relateEvidence'
+>;
 
 /** The two authorities a report may rest on. Both are resolved, never asserted. */
 export interface CaseEvidenceDeps {
@@ -129,6 +185,101 @@ export class CaseEvidenceService {
     const view = await this.cases.get(organizationId, caseId.trim());
     if (!view) return false;
     return this.authorized(organizationId, caseId.trim(), userId);
+  }
+
+  /**
+   * Record what LATER evidence says about EARLIER evidence.
+   *
+   * THE ORIGINAL IS NEVER TOUCHED. This is the whole point of the operation:
+   * evidence is immutable, so a correction is a NEW piece of evidence plus an
+   * attributed fact saying the earlier one was corrected by it. Both stay on the
+   * investigation, in the order they were learned, and a reader sees the history
+   * rather than a tidied result.
+   *
+   * TWO WAYS TO NAME THE BASIS, and both end in the same place. A caller can
+   * point at evidence already on the Case, or report something new -- which goes
+   * through the same `report` path as any other human report, so the attribution,
+   * the verbatim statement and the evidence class are decided in exactly one
+   * place rather than two.
+   *
+   * NOT ATOMIC ACROSS THE TWO WRITES, and that is the honest failure mode. A new
+   * report is written first and the relation second; an interruption between them
+   * leaves a report with no relation, which is a visible, correct, incomplete
+   * record. The other order would leave a relation pointing at nothing.
+   */
+  async addContext(
+    organizationId: string,
+    caseId: string,
+    input: AddEvidenceContextInput,
+  ): Promise<AddEvidenceContextResult> {
+    const id = caseId?.trim() ?? '';
+    const base = { caseId: id, evidenceId: null, contextId: null };
+    if (!id) return { ...base, outcome: 'CASE_NOT_FOUND' };
+    if (!isEvidenceRelation(input.relation)) return { ...base, outcome: 'UNGOVERNED_RELATION' };
+    if (!input.actorUserId?.trim()) return { ...base, outcome: 'NOT_AUTHORIZED' };
+
+    const view = await this.cases.get(organizationId, id);
+    if (!view) return { ...base, outcome: 'CASE_NOT_FOUND' };
+
+    const mayReport = await this.authorized(organizationId, id, input.actorUserId);
+    if (!mayReport) return { ...base, outcome: 'NOT_AUTHORIZED' };
+
+    // THE SUBJECT MUST BE ON THIS CASE. Resolved from the Case's own evidence,
+    // so a piece of evidence from another investigation -- or another tenant --
+    // is simply not there, and the answer is the same not-found a made-up id
+    // gets. The engine resolves it again on write; this is the early, honest
+    // refusal rather than the only one.
+    const onThisCase = new Set(view.evidence.map((e) => e.id));
+    if (!onThisCase.has(input.subjectEvidenceId)) {
+      return { ...base, outcome: 'EVIDENCE_NOT_FOUND' };
+    }
+
+    let basisEvidenceId = input.basisEvidenceId ?? null;
+    let reportedId: string | null = null;
+
+    if (input.basisStatement !== undefined) {
+      if (basisEvidenceId) return { ...base, outcome: 'AMBIGUOUS_BASIS' };
+      const reported = await this.report(organizationId, id, {
+        statement: input.basisStatement,
+        reportedByUserId: input.actorUserId,
+        ...(input.occurredAt ? { observedAt: input.occurredAt } : {}),
+      });
+      if (reported.outcome !== 'RECORDED' || !reported.evidenceId) {
+        return {
+          ...base,
+          outcome: reported.outcome === 'EMPTY_STATEMENT' ? 'EMPTY_STATEMENT' : reported.outcome,
+        };
+      }
+      basisEvidenceId = reported.evidenceId;
+      reportedId = reported.evidenceId;
+    } else if (basisEvidenceId && !onThisCase.has(basisEvidenceId)) {
+      return { ...base, outcome: 'EVIDENCE_NOT_FOUND' };
+    }
+
+    if (relationRequiresBasis(input.relation) && !basisEvidenceId) {
+      return { ...base, outcome: 'BASIS_REQUIRED' };
+    }
+
+    const result = await this.cases.relateEvidence(
+      organizationId,
+      id,
+      {
+        subjectEvidenceId: input.subjectEvidenceId,
+        relation: input.relation,
+        basisEvidenceId,
+        note: input.note ?? null,
+        ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
+      },
+      { type: 'HUMAN', userId: input.actorUserId, source: HUMAN_REPORT_SOURCE },
+    );
+    if (!result?.observation) return { ...base, outcome: 'EVIDENCE_NOT_FOUND' };
+
+    return {
+      caseId: id,
+      outcome: 'RECORDED',
+      evidenceId: reportedId,
+      contextId: result.observation.id,
+    };
   }
 
   /**

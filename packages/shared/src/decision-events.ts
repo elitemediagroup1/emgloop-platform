@@ -138,6 +138,12 @@ export const DECISION_EVENT_TYPE: Record<ObservationType, DecisionEventName> = {
   MONITORING_STARTED: 'DecisionWatched',
   MONITORING_REVISED: 'DecisionNoteAdded',
   MONITORING_CONCLUDED: 'DecisionOutcomeRecorded',
+
+  // Evidence context announces what EVIDENCE_ADDED announces: the evidence on
+  // this Case changed. A subscriber that re-reads on new evidence must also
+  // re-read when a piece of it is contradicted or corrected, and giving context
+  // its own event name would let exactly that subscriber miss it.
+  EVIDENCE_CONTEXT_RECORDED: 'DecisionEvidenceAdded',
 };
 
 /** Which observation types announce a given event. Derived, never hand-listed. */

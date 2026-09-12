@@ -96,6 +96,11 @@ export const OBSERVATION_TYPES = [
   'MONITORING_STARTED',
   'MONITORING_REVISED',
   'MONITORING_CONCLUDED',
+
+  // Stage 5. What later evidence says about earlier evidence. It moves no lane
+  // and changes no lifecycle: evidence is immutable, and this records a fact
+  // ABOUT two rows rather than a change to either.
+  'EVIDENCE_CONTEXT_RECORDED',
 ] as const;
 export type ObservationType = (typeof OBSERVATION_TYPES)[number];
 
@@ -314,6 +319,7 @@ export function projectLifecycle(
       case 'PRIORITY_CHANGED':
       case 'SEVERITY_CHANGED':
       case 'EVIDENCE_ADDED':
+      case 'EVIDENCE_CONTEXT_RECORDED':
         // Attributes of the decision, not of its lifecycle. Recorded because
         // "who raised this to urgent, and when" is a real operational question;
         // they move nothing.

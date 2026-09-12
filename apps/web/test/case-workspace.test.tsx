@@ -32,6 +32,7 @@ import {
   type CaseFindingView,
   type FindingJudgmentView,
   type CaseParticipationView,
+  CASE_WITH_EVIDENCE_CONTEXT,
   CASE_WITH_HUMAN_REPORT,
 } from '@emgloop/shared';
 
@@ -613,6 +614,37 @@ test('7z4. an investigation with nothing recorded says so, and does not read as 
   for (const wrong of ['no issue', 'all clear', 'nothing wrong', 'healthy']) {
     assert.equal(out.toLowerCase().includes(wrong), false);
   }
+});
+
+// --- 7y. Evidence context: additive, never an edit ---------------------------------------
+
+test('7y. context renders beneath the unchanged original, never instead of it', () => {
+  const out = strip(render(<EvidenceSection brief={CASE_WITH_EVIDENCE_CONTEXT} />));
+  // The corrected report keeps its own words AND the correction is visible.
+  assert.ok(out.includes('The production API token expired at about 09:15'));
+  assert.ok(out.includes('Corrected by'));
+  assert.ok(out.includes('I was looking at the staging credential'));
+  // And the page says plainly that nothing above was edited.
+  assert.ok(out.includes('nothing here edits, replaces or hides it'));
+});
+
+test('7y2. every relation shows what it establishes and what it does not', () => {
+  const out = strip(render(<EvidenceSection brief={CASE_WITH_EVIDENCE_CONTEXT} />));
+  assert.ok(out.includes('Corroborated by'));
+  assert.ok(out.includes('Contradicted by'));
+  // The half that stops a context note reading as a verdict.
+  assert.ok(out.includes('does not decide which one is right'));
+  assert.ok(out.includes('Agreement is not measurement'));
+  assert.ok(out.includes('does not delete or edit the original'));
+});
+
+test('7y3. context is attributed, and carries no state badge', () => {
+  const html = render(<EvidenceSection brief={CASE_WITH_EVIDENCE_CONTEXT} />);
+  const out = strip(html);
+  assert.ok(out.includes('usr_lexi'), 'who recorded it');
+  assert.ok(out.includes('2026-08-22'), 'and when');
+  // A relation is a fact about two records, not a statement of what Loop knows.
+  assert.equal(/ps-badge/.test(html), false);
 });
 
 test('8. the workspace page reads one contract and joins nothing', () => {

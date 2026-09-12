@@ -27,6 +27,7 @@ import { listAssignableUsers } from '../../../employee/work/work-data';
 import {
   AddParticipantControl,
   FindingControls,
+  EvidenceContextControl,
   ReportEvidenceControl,
   LifecycleControls,
   MonitoringControls,
@@ -218,6 +219,11 @@ export default async function CaseWorkspacePage({
       <EvidenceSection
         brief={brief}
         controls={canReport ? <ReportEvidenceControl caseId={params.id} /> : undefined}
+        contextControl={
+          canReport
+            ? (evidenceId) => <EvidenceContextControl caseId={params.id} evidenceId={evidenceId} />
+            : undefined
+        }
       />
 
       <FiveWs brief={brief} />

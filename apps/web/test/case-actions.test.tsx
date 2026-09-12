@@ -33,6 +33,7 @@ import {
 import {
   AddParticipantControl,
   FindingControls,
+  EvidenceContextControl,
   ReportEvidenceControl,
   LifecycleControls,
   MonitoringControls,
@@ -483,6 +484,34 @@ test('8a4. the report form offers no confidence, and no verification checkbox', 
   // And it says what recording actually establishes.
   assert.ok(out.includes('you reported it'));
   assert.ok(out.includes('not that it is true'));
+});
+
+test('8a5. recording context is guarded like reporting, and scoped to the Case', () => {
+  const from = CODE.indexOf('export async function addEvidenceContextAction');
+  const next = CODE.indexOf('export async function ', from + 10);
+  const body = CODE.slice(from, next === -1 ? undefined : next);
+  assert.ok(body.includes("requirePermission('commercialIntelligence', 'view')"));
+  assert.equal(body.includes('actorFor()'), false);
+  assert.ok(/addContext\(\s*session\.organizationId,\s*caseId,/.test(body));
+  assert.ok(/actorUserId:\s*session\.userId/.test(body), 'the actor is the session');
+  // The relation is checked against the governed vocabulary before anything is
+  // attempted, so an invented one never reaches the service.
+  assert.ok(body.includes('isEvidenceRelation(relation)'));
+  // The basis statement is evidence too, so it is read verbatim.
+  assert.ok(/verbatim\(formData, 'basisStatement'\)/.test(body));
+});
+
+test('8a6. the context form says it cannot edit the evidence', () => {
+  const out = strip(render(<EvidenceContextControl caseId="c1" evidenceId="ev_1" />));
+  assert.ok(out.includes('does not change the evidence above'));
+  // It offers exactly the governed relations and nothing else.
+  assert.ok(out.includes('Corroborated by'));
+  assert.ok(out.includes('No longer applicable'));
+  assert.equal(out.includes('Superseded'), false, 'the member that lives elsewhere is not offered');
+  // And no verification or confidence, here either.
+  for (const forbidden of ['confidence', 'verified', '%', 'certain']) {
+    assert.equal(out.toLowerCase().includes(forbidden), false, forbidden);
+  }
 });
 
 test('8b. the page passes controls in; sections never build their own', () => {
