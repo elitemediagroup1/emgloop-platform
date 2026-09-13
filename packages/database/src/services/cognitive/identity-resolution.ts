@@ -12,6 +12,13 @@
 // Never merges on name similarity. Never resolves across organizations (every
 // lookup is org-scoped through the repositories). Records the method and
 // confidence; attaches evidence hints (idempotently) so future events resolve.
+//
+// ATTRIBUTION, NOT CANONICAL IDENTITY. This decides which cognitive subject an
+// event is about. It never establishes a Party (`@emgloop/shared` party.ts): a
+// PERSON or COMPANY row it creates from a session, a pseudonymous key or an
+// anonymous key is a cognitive subject, not canonical identity; `hint.verified`
+// is a caller's claim, not recorded verification; and the confidence it returns
+// is quarantined from every Party decision. It writes no resolution link.
 
 import type { CognitiveRepositories } from '../../repositories/cognitive';
 import type { IdentityDescriptor } from './types';

@@ -83,6 +83,11 @@ export class CognitiveIdentityRepository {
    * Idempotent resolve-or-create by the (org, entityType, canonicalKey) unique.
    * The processor's terminal fallback when no evidence resolves an existing
    * identity — creates an ANONYMOUS identity by default.
+   *
+   * Creates a cognitive subject, never an established Party: a PERSON or COMPANY
+   * row minted here is canonical identity only once a governed basis establishes
+   * it (see `PartyRepository` and `@emgloop/shared` party.ts). There is no
+   * resolve-or-create for Parties, by design.
    */
   async resolveOrCreate(
     organizationId: string,
