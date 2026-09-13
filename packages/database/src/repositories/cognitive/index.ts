@@ -15,6 +15,7 @@ import {
   IdentityResolutionLinkRepository,
   IdentityRelationshipRepository,
 } from './identity.repository';
+import { PartyRepository } from './party.repository';
 import { MemoryEventRepository } from './memory.repository';
 import { KnowledgeAssertionRepository } from './knowledge.repository';
 import { DataGovernancePolicyRepository } from './governance.repository';
@@ -39,6 +40,8 @@ export type {
   ProposeLinkInput,
   CreateRelationshipInput,
 } from './identity.repository';
+export { PartyRepository } from './party.repository';
+export type { PartyView } from './party.repository';
 export { MemoryEventRepository } from './memory.repository';
 export type { AppendMemoryInput } from './memory.repository';
 export { KnowledgeAssertionRepository } from './knowledge.repository';
@@ -80,6 +83,8 @@ export interface CognitiveRepositories {
   identityEvidence: IdentityEvidenceRepository;
   identityResolutionLinks: IdentityResolutionLinkRepository;
   identityRelationships: IdentityRelationshipRepository;
+  /** Party reads over the identities above. Owns no table. */
+  parties: PartyRepository;
   memoryEvents: MemoryEventRepository;
   knowledgeAssertions: KnowledgeAssertionRepository;
   governancePolicies: DataGovernancePolicyRepository;
@@ -99,6 +104,7 @@ export function createCognitiveRepositories(prisma: PrismaClient): CognitiveRepo
     identityEvidence: new IdentityEvidenceRepository(prisma),
     identityResolutionLinks: new IdentityResolutionLinkRepository(prisma),
     identityRelationships: new IdentityRelationshipRepository(prisma),
+    parties: new PartyRepository(prisma),
     memoryEvents: new MemoryEventRepository(prisma),
     knowledgeAssertions: new KnowledgeAssertionRepository(prisma),
     governancePolicies: new DataGovernancePolicyRepository(prisma),

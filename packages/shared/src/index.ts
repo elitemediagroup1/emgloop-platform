@@ -329,6 +329,12 @@ export * from './demo-seed';
 // contract, not on persistence. See ./cognitive-context.ts.
 export * from './cognitive-context';
 
+// --- Party: the canonical identity contract over CognitiveIdentity (CRM P0.2a) ---
+// PERSON and COMPANY only; commercial capacities are roles, never Party types. A
+// party-typed row is a cognitive subject until a governed basis -- provenance, not
+// a method name and never a confidence number -- establishes it. See ./party.ts.
+export * from './party';
+
 // --- Operational decision lifecycle (platform primitives) ---
 // The pure projection from an append-only observation log to the current state
 // of a priority, plus the operational history and decision-activity statistics
