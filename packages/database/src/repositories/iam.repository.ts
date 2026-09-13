@@ -5,8 +5,10 @@
 // Sprint 2 schema (SystemRole, Role, Permission, Invitation) — nothing is
 // reinvented; this repository wires the already-designed tables into queries.
 //
-// Permission model: every user carries a SystemRole (stored in
-// user.metadata.systemRole, defaulting to EMPLOYEE). A static capability matrix
+// Permission model: a user acts in an organization under the SystemRole of their
+// ACTIVE OrganizationMembership there (CRM P0.2c; see resolveMembershipAuthority --
+// no membership, an inactive one, or one that disagrees with the User row is a
+// denial). A static capability matrix
 // maps each SystemRole to its resource:action grants. Explicit Permission rows
 // can ADD or DENY on top of the matrix; DENY always wins (deny-by-default).
 //
@@ -25,7 +27,7 @@
 
 import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
-import { hasRemovalMarker, syncMembershipFromUser } from './membership.repository';
+import { hasRemovalMarker, membershipAuthority, syncMembershipFromUser } from './membership.repository';
 
 
 export type Resource =
@@ -48,7 +50,14 @@ export type Resource =
   // organization is trying to accomplish is a different act by different people,
   // and reusing one resource for both would have silently handed every
   // READ_ONLY user a write capability the day the first form shipped.
-  | 'commercialIntelligence';
+  | 'commercialIntelligence'
+  // CRM Phase Zero P0.2. Asserting that two records are the same real-world Party,
+  // or linking a CRM projection to one. Deliberately NOT `customers:update`:
+  // editing a contact and asserting canonical identity are different authorities.
+  // NO SYSTEM ROLE IS GRANTED IT YET -- which roles hold which actions is an open
+  // Product decision, so the matrix below lists it nowhere and every role is
+  // denied. An explicit Permission row can still grant it, as for any resource.
+  | 'identityResolution';
 
 
 export type Action = 'view' | 'create' | 'update' | 'delete' | 'manage';
@@ -232,13 +241,12 @@ export class IamRepository {
   async can(args: CanArgs): Promise<boolean> {
     const { organizationId, userId, resource, action } = args;
 
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, organizationId },
-      select: { metadata: true, status: true },
-    });
-    if (!user || user.status !== 'ACTIVE') return false;
-
-    const role = userSystemRole(user);
+    // Standing and role come from the membership in THIS organization. No
+    // membership, an inactive one, a login from another organization, or drift
+    // from the User row: denied, before any rule is read.
+    const authority = await membershipAuthority(this.prisma, organizationId, userId);
+    if (!authority.granted) return false;
+    const role = authority.systemRole;
 
     // Check explicit DENY rules first (deny wins)
     const denyRules = await this.prisma.permission.findMany({

@@ -173,8 +173,9 @@ test('login never touches membership, so a lagging migration can never lock anyo
   await auth.recordLogin(u.id);
   fake.organizationMembership = { __rows: JSON.parse(before) };
   assert.equal(JSON.stringify(fake.organizationMembership.__rows), before);
-  const authCode = code('packages/database/src/repositories/auth.repository.ts');
-  assert.equal(/membership/i.test(authCode), false, 'the auth repository names no membership');
+  const recordLogin = code('packages/database/src/repositories/auth.repository.ts').match(/recordLogin\(userId: string\)[\s\S]*?\n {2}\}/)?.[0] ?? '';
+  assert.ok(recordLogin.length > 0);
+  assert.equal(/membership/i.test(recordLogin), false, 'recordLogin names no membership');
   const loginGuard = code('apps/web/src/auth/auth.ts');
   assert.match(loginGuard, /if \(user\.status !== 'ACTIVE'\)[\s\S]*?recordLogin\(user\.id\)/, 'only ACTIVE users reach recordLogin');
 });
@@ -235,31 +236,21 @@ test('the same email in two organizations stays two authentication principals wi
 
 // ---- Authority is unchanged -------------------------------------------------
 
-test('existing permission behavior is preserved: can() still resolves from the User row alone', async () => {
-  const { fake, iam } = setup();
-  const u = await iam.createUser({ organizationId: ORG_A, email: 'm@x.io', systemRole: 'MANAGER' });
-  await iam.activateUser(ORG_A, u.id);
-  const resources = ['customers', 'users', 'organizations', 'commercialIntelligence'] as const;
-  const actions = ['view', 'update', 'delete'] as const;
-  const answers = async () => {
-    const out: boolean[] = [];
+test('legacy permission behavior is preserved for every in-step member: can() answers exactly what the matrix gives their role', async () => {
+  const { iam } = setup();
+  const resources = ['customers', 'pipeline', 'users', 'organizations', 'settings', 'audit', 'commercialIntelligence', 'identityResolution'] as const;
+  const actions = ['view', 'create', 'update', 'delete', 'manage'] as const;
+  for (const role of ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY'] as const) {
+    const u = await iam.createUser({ organizationId: ORG_A, email: `${role}@x.io`, systemRole: role });
+    await iam.activateUser(ORG_A, u.id);
     for (const resource of resources) for (const action of actions) {
-      out.push(await iam.can({ organizationId: ORG_A, userId: u.id, resource, action }));
+      assert.equal(
+        await iam.can({ organizationId: ORG_A, userId: u.id, resource, action }),
+        matrixAllows(role, resource, action),
+        `${role} ${resource}:${action}`,
+      );
     }
-    return out;
-  };
-  const expected = resources.flatMap((r) => actions.map((a) => matrixAllows('MANAGER', r, a)));
-  assert.deepEqual(await answers(), expected);
-
-  // Tamper with the membership: an authority that read it would change its answer.
-  fake.organizationMembership.__rows[0].status = 'REMOVED';
-  fake.organizationMembership.__rows[0].systemRole = 'OWNER';
-  assert.deepEqual(await answers(), expected, 'membership is not yet read for authority');
-
-  const canBody = code('packages/database/src/repositories/iam.repository.ts').match(/async can\([\s\S]*?\n {2}\}/)?.[0] ?? '';
-  assert.ok(canBody.length > 0);
-  assert.equal(/membership/i.test(canBody), false);
-  assert.equal(/membership/i.test(code('packages/database/src/repositories/auth.repository.ts').match(/async resolveSession\([\s\S]*?\n {2}\}/)?.[0] ?? 'x'), false);
+  }
 });
 
 test('no Party is created and no commercial role is inferred', async () => {

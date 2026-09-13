@@ -409,10 +409,11 @@ enum MembershipStatus {
 /// inside the organization. It never says buyer, brand, creator, source or
 /// participant, and a membership never creates or implies a Party.
 ///
-/// NOT YET READ FOR AUTHORITY. In P0.2b it is written in the same transaction as
-/// every User lifecycle write and backfilled from `User.organizationId`; session
-/// and permission resolution still read `User`. Membership becomes authoritative
-/// only in P0.2c, after the backfill is verified complete in production.
+/// THE AUTHORITY SINCE P0.2c. Session resolution and permission checks read a
+/// User's standing and system role here. It is written in the same transaction as
+/// every User lifecycle write and was backfilled from `User.organizationId`; the
+/// User row remains a fail-closed compatibility guard -- a membership that
+/// disagrees with it denies (see `resolveMembershipAuthority`).
 model OrganizationMembership {
   id              String           @id @default(cuid())
   organizationId  String
