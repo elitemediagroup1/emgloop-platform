@@ -102,6 +102,8 @@ export {
   REPAIR_REFUSAL_REASONS,
 } from './removed-marker-repair.repository';
 export type { RemovedMarkerAssessment, RepairRefusalReason } from './removed-marker-repair.repository';
+export { CustomerPartyLinkRepository } from './customer-party-link.repository';
+export type { CreateCustomerPartyLinkInput } from './customer-party-link.repository';
 export { OrganizationRepository } from './organization.repository';
 export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
