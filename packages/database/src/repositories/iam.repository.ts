@@ -25,7 +25,7 @@
 
 import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
-import { syncMembershipFromUser } from './membership.repository';
+import { hasRemovalMarker, syncMembershipFromUser } from './membership.repository';
 
 
 export type Resource =
@@ -438,12 +438,22 @@ export class IamRepository {
     });
   }
 
-  async activateUser(organizationId: string, userId: string): Promise<void> {
-    await this.setStatus(organizationId, userId, 'ACTIVE');
+  /**
+   * Make a member ACTIVE. Returns whether the write happened.
+   *
+   * REFUSES A REMOVED MEMBER. A row carrying the soft-removal marker was removed
+   * by an administrator; activating it would restore login and authority while
+   * `listUsers` keeps hiding it -- a member nobody can see or remove. That is
+   * exactly how the legacy demo bootstrap resurrected removed people. Removal is
+   * undone only by re-inviting (`prepareInvitation` clears the marker), never by
+   * a status flip.
+   */
+  async activateUser(organizationId: string, userId: string): Promise<boolean> {
+    return this.setStatus(organizationId, userId, 'ACTIVE');
   }
 
-  async disableUser(organizationId: string, userId: string): Promise<void> {
-    await this.setStatus(organizationId, userId, 'DISABLED');
+  async disableUser(organizationId: string, userId: string): Promise<boolean> {
+    return this.setStatus(organizationId, userId, 'DISABLED');
   }
 
   /** Org-scoped status write plus its membership, in one transaction. No row, no write. */
@@ -451,15 +461,19 @@ export class IamRepository {
     organizationId: string,
     userId: string,
     status: 'ACTIVE' | 'DISABLED',
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.user.findFirst({ where: { id: userId, organizationId } });
+      if (!current) return false;
+      if (status === 'ACTIVE' && hasRemovalMarker(current.metadata)) return false;
       const { count } = await tx.user.updateMany({
         where: { id: userId, organizationId },
         data: { status },
       });
-      if (count === 0) return;
+      if (count === 0) return false;
       const user = await tx.user.findFirst({ where: { id: userId, organizationId } });
       if (user) await syncMembershipFromUser(tx, user);
+      return true;
     });
   }
 

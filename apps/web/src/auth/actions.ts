@@ -178,8 +178,17 @@ export async function acceptInviteAction(formData: FormData) {
 
   let userEmail = invitation.email;
   if (existing) {
+    // Activate FIRST, and stop if it is refused: a row an administrator removed
+    // after this invitation was issued must not come back through a stale link.
+    // Re-inviting clears the removal; an old token never does.
+    const activated = await iam.activateUser(invitation.organizationId, existing.id);
+    if (!activated) {
+      redirect(
+        '/crm/login?error=' +
+          encodeURIComponent('This invitation is no longer active. Please ask an administrator for a new one'),
+      );
+    }
     await auth.setPasswordHash(existing.id, passwordHash);
-    await iam.activateUser(invitation.organizationId, existing.id);
     userEmail = existing.email;
   } else {
     const created = await iam.createUser({

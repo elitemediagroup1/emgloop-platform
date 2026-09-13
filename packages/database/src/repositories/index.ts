@@ -94,6 +94,13 @@ export {
   compareMembershipCoverage,
 } from './membership.repository';
 export type { MembershipCoverage, MembershipDerivation } from './membership.repository';
+export { hasRemovalMarker } from './membership.repository';
+export {
+  RemovedMarkerRepairRepository,
+  USER_LIFECYCLE_ACTIONS,
+  REPAIR_REFUSAL_REASONS,
+} from './removed-marker-repair.repository';
+export type { RemovedMarkerAssessment, RepairRefusalReason } from './removed-marker-repair.repository';
 export { OrganizationRepository } from './organization.repository';
 export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';

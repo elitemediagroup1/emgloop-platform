@@ -59,9 +59,14 @@ function metaOf(metadata: unknown): Record<string, unknown> {
     : {};
 }
 
-/** JavaScript truthiness, which is what `listUsers` has always applied to it. */
-function truthy(value: unknown): boolean {
-  return Boolean(value);
+/**
+ * Whether a User row carries the soft-removal marker `softRemoveUser` writes.
+ * JavaScript truthiness of `metadata.removedAt`, which is what `listUsers` has
+ * always applied to hide a removed member. The one definition every reader of
+ * the marker uses.
+ */
+export function hasRemovalMarker(metadata: unknown): boolean {
+  return Boolean(metaOf(metadata)['removedAt']);
 }
 
 const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?Z$/;
@@ -96,7 +101,7 @@ export function membershipFromUser(user: Pick<MembershipSourceUser, 'status' | '
   if (user.status !== 'INVITED' && user.status !== 'ACTIVE' && user.status !== 'DISABLED') {
     return { derivable: false, reason: 'UNKNOWN_USER_STATUS' };
   }
-  const removed = user.status === 'DISABLED' && truthy(m['removedAt']);
+  const removed = user.status === 'DISABLED' && hasRemovalMarker(user.metadata);
   return {
     derivable: true,
     systemRole,
@@ -213,7 +218,7 @@ export function compareMembershipCoverage(
     orphanMemberships: memberships.filter((m) => !userIds.has(m.userId)).length,
   };
   for (const u of users) {
-    if (u.status !== 'DISABLED' && truthy(metaOf(u.metadata)['removedAt'])) c.removedMarkerNotDisabled += 1;
+    if (u.status !== 'DISABLED' && hasRemovalMarker(u.metadata)) c.removedMarkerNotDisabled += 1;
     const d = membershipFromUser(u);
     if (!d.derivable) {
       if (d.reason === 'UNKNOWN_SYSTEM_ROLE') c.underivableRole += 1;

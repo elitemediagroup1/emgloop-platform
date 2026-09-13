@@ -32,6 +32,7 @@
     "poll:callgrid-routine": "tsx scripts/operations/poll-callgrid-routine.ts",
     "recover:callgrid": "tsx scripts/operations/recover-callgrid-interval.ts",
     "verify:callgrid": "tsx scripts/operations/verify-callgrid-recovery.ts",
+    "repair:removed-marker": "tsx scripts/operations/repair-removed-marker.ts",
     "drain:failed-events": "tsx scripts/operations/drain-failed-events.ts",
     "read:identity-footprint": "tsx scripts/operations/read-identity-footprint.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",

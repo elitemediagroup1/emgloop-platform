@@ -1,0 +1,121 @@
+# Repair removed marker.
+#
+# WRITES PRODUCTION WHEN dry_run IS FALSE. Restores administrators' removals that
+# the legacy demo bootstrap (before #134) undid: members who carry the soft-removal
+# marker but are ACTIVE again, hidden from the Team page and still able to sign in.
+#
+# DRY RUN FIRST, AND BY DEFAULT. Run with dry_run=true, read ASSESSMENT and VERDICT,
+# then dispatch again with dry_run=false and the same expected_repairs.
+#
+# WHAT IT REPAIRS, AND ONLY THAT. Rows the runner finds itself (no user id is an
+# input, and none is printed -- this repository's logs are public) whose last
+# lifecycle act was an administrator's `user.removed`, with no reactivation,
+# re-invitation, role change or invitation after it. Each is removed again through
+# the existing governed path: softRemoveUser (membership -> REMOVED), revoke every
+# session, and a `user.removed` audit entry tagged as this repair. A real run
+# refuses unless the eligible count equals expected_repairs and nothing was refused.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL.
+
+name: Repair Removed Marker
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      expected_repairs:
+        description: 'How many members you expect to be repaired (from the dry run)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Check what this would do and write nothing'
+        required: true
+        default: true
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-removed-marker
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Repair removed marker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, printed or written to the summary.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          EXPECTED: ${{ inputs.expected_repairs }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if ! printf '%s' "${EXPECTED}" | grep -Eq '^(0|[1-9][0-9]{0,3})$'; then
+            echo "::error::expected_repairs must be a whole number."
+            exit 1
+          fi
+          echo "Validated organization ${ORG_SLUG}, expecting ${EXPECTED}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the repair boundary before touching the database
+        # RUN BEFORE THE DATABASE CREDENTIAL IS USED, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Repair
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          EXPECTED: ${{ inputs.expected_repairs }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          npm run repair:removed-marker -- --organization "${ORG_SLUG}" --expected "${EXPECTED}"
+
+      - name: How to read the output
+        if: always()
+        run: |
+          echo "### Repair removed marker" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ASSESSMENT\` - \`CANDIDATES\` carry the removal marker but are not disabled; \`ELIGIBLE\` passed the rule; \`REFUSED_*\` did not and were never touched." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Dry run: \`WOULD_REPAIR\` and \`MATCHES_EXPECTED\`. \`WROTE=false\` always." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Real run: \`REPAIRED\` and \`REMOVED_MARKER_NOT_DISABLED_AFTER\` (expect 0). Then dispatch **Read Membership Coverage** and confirm \`READY_FOR_AUTHORITY=true\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`PRECONDITION_FAILED\` or \`STOPPED\` - nothing further was written. A refused candidate or a count mismatch is a reason to look, not to retry." >> "$GITHUB_STEP_SUMMARY"
