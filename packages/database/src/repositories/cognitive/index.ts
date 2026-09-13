@@ -72,6 +72,9 @@ export {
   hashIdentifier,
   normalizeIdentifier,
 } from './hashing';
+// CRM P0.2d: counts-only read of what exists before Party schema alignment.
+export { IdentityFootprintRepository, FOOTPRINT_ROW_BOUND } from './identity-footprint.repository';
+export type { IdentityFootprint } from './identity-footprint.repository';
 
 /** The full cognitive persistence layer, constructed over one PrismaClient. */
 export interface CognitiveRepositories {
