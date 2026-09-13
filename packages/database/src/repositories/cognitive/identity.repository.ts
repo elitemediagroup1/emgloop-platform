@@ -124,6 +124,32 @@ export class CognitiveIdentityRepository {
     });
   }
 
+  /**
+   * Persist the provenance that establishes a Party as canonical identity.
+   *
+   * THE ONLY WRITER OF `established*`, and it has exactly one caller:
+   * `PartyService.establish`, which has already authorized the actor under
+   * `identityResolution:approve`. Organization-scoped, and conditional on the row
+   * not being established yet, so a concurrent second establishment writes
+   * nothing and returns null rather than overwriting who did it first.
+   */
+  async recordEstablishment(
+    organizationId: string,
+    id: string,
+    input: { establishedByUserId: string; basis: 'MANUAL' | 'EXPLICIT_LINK'; at: Date },
+  ): Promise<CognitiveIdentity | null> {
+    const { count } = await this.prisma.cognitiveIdentity.updateMany({
+      where: { id, organizationId, establishedAt: null, entityType: { in: ['PERSON', 'COMPANY'] } },
+      data: {
+        establishedAt: input.at,
+        establishedByUserId: input.establishedByUserId,
+        establishmentBasis: input.basis,
+      },
+    });
+    if (count === 0) return null;
+    return this.findById(organizationId, id);
+  }
+
   async archive(organizationId: string, id: string): Promise<CognitiveIdentity | null> {
     const found = await this.findById(organizationId, id);
     if (!found) return null;

@@ -156,7 +156,8 @@ write a User's status or role any other way.
 ### RBAC
 Deny-by-default. Static `MATRIX` in `iam.repository.ts` maps `SystemRole` → `resource:action`.
 `Permission` rows can ADD or DENY on top; **DENY always wins**. 14 resources, 5 actions.
-`identityResolution` is granted to no role yet (open Product decision).
+`identityResolution` has its own grant table (`IDENTITY_RESOLUTION_GRANTS`, no READ_ONLY fallback,
+AI_EMPLOYEE hard-denied); `approve` is the only action that establishes a Party.
 
 ⚠️ `passwordHash` and the legacy `systemRole` both still live in the `user.metadata` JSON bag, and
 the membership is derived from it. **Always merge, never replace** that bag (see §Multi-Tenant

@@ -51,16 +51,19 @@ export type Resource =
   // and reusing one resource for both would have silently handed every
   // READ_ONLY user a write capability the day the first form shipped.
   | 'commercialIntelligence'
-  // CRM Phase Zero P0.2. Asserting that two records are the same real-world Party,
-  // or linking a CRM projection to one. Deliberately NOT `customers:update`:
-  // editing a contact and asserting canonical identity are different authorities.
-  // NO SYSTEM ROLE IS GRANTED IT YET -- which roles hold which actions is an open
-  // Product decision, so the matrix below lists it nowhere and every role is
-  // denied. An explicit Permission row can still grant it, as for any resource.
+  // CRM Phase Zero P0.2. Creating Party records, establishing them as canonical
+  // identity, and asserting that two records are the same real-world Party.
+  // Deliberately NOT `customers:update`: editing a contact and asserting canonical
+  // identity are different authorities. Grants: see IDENTITY_RESOLUTION_GRANTS.
   | 'identityResolution';
 
 
-export type Action = 'view' | 'create' | 'update' | 'delete' | 'manage';
+/**
+ * `approve` exists for one resource: on `identityResolution` it is the ONLY action
+ * that may establish a Party as canonical identity or confirm that two records are
+ * the same Party. `create` makes a Party record; it never establishes one.
+ */
+export type Action = 'view' | 'create' | 'update' | 'delete' | 'manage' | 'approve';
 
 
 export const SYSTEM_ROLES: SystemRole[] = [
@@ -108,6 +111,25 @@ const RO: Action[] = ['view'];
 // Widening this needs a real platform relationship (or a product decision that
 // org-wide authoring is acceptable), never an inference from the role name.
 
+// IDENTITY RESOLUTION -- Product decision, CRM P0.2 (2026-09-13).
+//
+// Kept apart from MATRIX because its failure mode is different. MATRIX falls back
+// to READ_ONLY grants for a role it does not list, which is how AI_EMPLOYEE reads
+// every surface today. That fallback must not reach identity: AI_EMPLOYEE is
+// denied every identityResolution action, and a role missing from this table is
+// denied too. `manage` is granted to nobody, so it can never imply `approve`.
+export const IDENTITY_RESOLUTION_GRANTS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
+  OWNER: ['view', 'create', 'update', 'approve'],
+  ADMIN: ['view', 'create', 'update', 'approve'],
+  MANAGER: ['view', 'create', 'update'],
+  EMPLOYEE: ['view', 'create'],
+  READ_ONLY: ['view'],
+  AI_EMPLOYEE: [],
+});
+
+/** Roles that may never hold identity-resolution authority, whatever a Permission row says. */
+const IDENTITY_RESOLUTION_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
+
 // The capability matrix. Deny-by-default: anything not listed is denied.
 // Sprint 10 adds analytics/integrations/intelligence columns.
 const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
@@ -152,6 +174,9 @@ export function roleLabel(role: string | null | undefined): string {
 
 /** Pure matrix check (no DB). Baseline before explicit rules. */
 export function matrixAllows(role: string, resource: Resource, action: Action): boolean {
+  if (resource === 'identityResolution') {
+    return (IDENTITY_RESOLUTION_GRANTS[role] ?? []).includes(action);
+  }
   const grants = MATRIX[role] ?? MATRIX.READ_ONLY ?? {};
   const allowed = grants[resource] ?? [];
   if (allowed.includes('manage')) return true;
@@ -247,6 +272,8 @@ export class IamRepository {
     const authority = await membershipAuthority(this.prisma, organizationId, userId);
     if (!authority.granted) return false;
     const role = authority.systemRole;
+    // A machine never asserts identity: no Permission row can grant it.
+    if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
 
     // Check explicit DENY rules first (deny wins)
     const denyRules = await this.prisma.permission.findMany({
