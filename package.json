@@ -27,6 +27,7 @@
     "bootstrap:stage3": "tsx scripts/operations/bootstrap-stage3-production.ts",
     "read:reconciliation-evidence": "tsx scripts/operations/read-reconciliation-evidence.ts",
     "read:event-coverage": "tsx scripts/operations/read-integration-event-coverage.ts",
+    "read:membership-coverage": "tsx scripts/operations/read-membership-coverage.ts",
     "poll:callgrid": "tsx scripts/operations/poll-callgrid-interval.ts",
     "poll:callgrid-routine": "tsx scripts/operations/poll-callgrid-routine.ts",
     "recover:callgrid": "tsx scripts/operations/recover-callgrid-interval.ts",

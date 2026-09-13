@@ -25,6 +25,8 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // only detection rows).
   operationalPriority: ['organizationId', 'sourceSystem', 'recurrenceKey'],
   user: ['organizationId', 'email'],
+  // CRM P0.2b. One membership per (user, organization).
+  organizationMembership: ['userId', 'organizationId'],
   // Commercial Intelligence Stage 2. TENANT-SCOPED, unlike marketplace_calls'
   // global (provider, externalId): re-running an evaluation over the same window
   // must reaffirm one determination rather than accumulate duplicates, and
@@ -95,6 +97,9 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   // the double.
   customer: { tags: [], attributes: {}, metadata: {} },
   workflow: { isActive: false },
+  // The nullable columns a membership is BORN with, so `where: { effectiveTo: null }`
+  // matches a fresh row here the way it does in Postgres.
+  organizationMembership: { invitedByUserId: null, effectiveTo: null },
   // A headline is established once and counted from one, matching @default(1).
   // The array columns default to empty in the schema; a repository reading one
   // back would work in production and throw here without them.
@@ -639,6 +644,9 @@ export const OPTIONAL_DELEGATES = [
   'interaction',
   'booking',
   'signal',
+  // CRM P0.2b. Requested by the membership suite; the IAM lifecycle writes them.
+  'invitation',
+  'organizationMembership',
 ] as const;
 
 export function makeCognitivePrisma(

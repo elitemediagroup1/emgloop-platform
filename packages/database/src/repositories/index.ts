@@ -19,6 +19,7 @@ import { AIEmployeeRepository } from './ai-employee.repository';
 import { CrmRepository } from './crm.repository';
 import { AuthRepository } from './auth.repository';
 import { IamRepository } from './iam.repository';
+import { MembershipRepository } from './membership.repository';
 import { OrganizationRepository } from './organization.repository';
 import { AuditRepository } from './audit.repository';
 import { ConversationsRepository } from './conversations.repository';
@@ -85,6 +86,14 @@ export {
   invitationSystemRole,
 } from './iam.repository';
 export type { Resource, Action, UserListItem } from './iam.repository';
+export {
+  MembershipRepository,
+  membershipFromUser,
+  syncMembershipFromUser,
+  isActiveMembership,
+  compareMembershipCoverage,
+} from './membership.repository';
+export type { MembershipCoverage, MembershipDerivation } from './membership.repository';
 export { OrganizationRepository } from './organization.repository';
 export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
@@ -352,6 +361,8 @@ export interface Repositories {
   crm: CrmRepository;
   auth: AuthRepository;
   iam: IamRepository;
+  /** CRM P0.2b. Written with every User lifecycle write; not yet read for authority. */
+  memberships: MembershipRepository;
   organizations: OrganizationRepository;
   audit: AuditRepository;
   conversationsInbox: ConversationsRepository;
@@ -396,6 +407,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     crm: new CrmRepository(prisma),
     auth: new AuthRepository(prisma),
     iam: new IamRepository(prisma),
+    memberships: new MembershipRepository(prisma),
     organizations: new OrganizationRepository(prisma),
     audit: new AuditRepository(prisma),
     conversationsInbox: new ConversationsRepository(prisma),
