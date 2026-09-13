@@ -144,11 +144,23 @@ export async function setUserStatusAction(formData: FormData): Promise<void> {
   const userId = String(formData.get('userId') ?? '');
   const status = String(formData.get('status') ?? '');
   if (!userId || (status !== 'ACTIVE' && status !== 'DISABLED')) return;
+  let changed: boolean;
   if (status === 'DISABLED') {
-    await repositories.iam.disableUser(session.organizationId, userId);
-    await repositories.auth.revokeAllForUser(userId);
+    changed = await repositories.iam.disableUser(session.organizationId, userId);
+    if (changed) await repositories.auth.revokeAllForUser(userId);
   } else {
-    await repositories.iam.activateUser(session.organizationId, userId);
+    // Refused for a removed member: removal is undone by re-inviting, never by a
+    // status flip that would restore a login the Team page cannot show.
+    changed = await repositories.iam.activateUser(session.organizationId, userId);
+  }
+  // No audit entry for a write that did not happen.
+  if (!changed) {
+    redirect(teamUrl(
+      status === 'DISABLED'
+        ? 'That team member could not be found.'
+        : 'That team member was removed. Re-invite them to restore access.',
+      'error',
+    ));
   }
   await repositories.audit.record({
     organizationId: session.organizationId,
