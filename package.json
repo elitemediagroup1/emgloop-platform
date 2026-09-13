@@ -33,6 +33,7 @@
     "recover:callgrid": "tsx scripts/operations/recover-callgrid-interval.ts",
     "verify:callgrid": "tsx scripts/operations/verify-callgrid-recovery.ts",
     "drain:failed-events": "tsx scripts/operations/drain-failed-events.ts",
+    "read:identity-footprint": "tsx scripts/operations/read-identity-footprint.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",
     "test:diagnostics": "node --import tsx --test scripts/diagnostics/*.test.ts",
     "typecheck:operations": "tsc --noEmit -p scripts/tsconfig.json"

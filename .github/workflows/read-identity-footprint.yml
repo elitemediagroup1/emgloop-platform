@@ -1,0 +1,106 @@
+# Read identity footprint.
+#
+# READ-ONLY, COUNTS ONLY. For one organization, prints what the cognitive identity
+# layer actually holds -- identity rows by type and status, keys that would
+# collide under a (organizationId, canonicalKey) uniqueness, satellites, cognitive
+# records that reference identities, and references that resolve to nothing. It
+# writes nothing and prints no id, key, name, hash or contact value.
+#
+# WHY IT EXISTS. CRM Phase Zero P0.2d aligns `cognitive_identities` with the
+# canonical Party contract. No code path writes that table in production, but
+# absence of a writer in source is not absence of rows in the database. A
+# constraint must never be added on the assumption that a table is empty.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is
+# still touching production, and a human should be the one asking.
+
+name: Read Identity Footprint
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-identity-footprint
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read identity footprint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, printed or written to the summary.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          echo "Validated organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything
+        # RUN BEFORE THE DATABASE CREDENTIAL IS USED, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Read
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        run: |
+          set -euo pipefail
+          npm run read:identity-footprint -- --organization "${ORG_SLUG}"
+
+      - name: How to read the output
+        if: always()
+        run: |
+          echo "### Identity footprint" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** This job prints aggregate counts of rows that already exist." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`EMPTY=true\` - no identity row, satellite or identity reference exists in this organization. Party schema alignment reinterprets nothing here." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`DUPLICATE_KEY_GROUPS\` - canonical keys held by more than one row (different entity types). A (organizationId, canonicalKey) uniqueness would reject these; they must be understood before that constraint exists." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`UNRESOLVED_REFERENCES\` - identity ids referenced in this organization that name no identity in it." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`UNKNOWN\` - a bound was exceeded (\`EXCEEDED_BOUND=true\`). Do not proceed on an UNKNOWN answer." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Run once per organization. An unknown organization is a red run; a non-empty footprint is an answer, not a failure." >> "$GITHUB_STEP_SUMMARY"
