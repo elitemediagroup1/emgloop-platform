@@ -5,9 +5,10 @@
 // principal and the stable actor id every attribution column points at) and
 // separate from identity (a membership never creates or implies a Party).
 //
-// DERIVED FROM THE USER ROW, IN ONE PLACE. Until P0.2c the User row stays the
-// authority: `IamRepository.can()` and session resolution read it, unchanged.
-// Every lifecycle write the IamRepository makes to a User is followed, in the
+// THE AUTHORITY SINCE P0.2c. Session resolution and `IamRepository.can()` read a
+// User's standing and system role from membership (`resolveMembershipAuthority`).
+//
+// DERIVED FROM THE USER ROW, IN ONE PLACE. Every lifecycle write the IamRepository makes to a User is followed, in the
 // same transaction, by `syncMembershipFromUser`, which recomputes the membership
 // from that row with `membershipFromUser` -- the same rule the migration's
 // backfill applies in SQL. One derivation, applied after every write, is what
@@ -179,6 +180,75 @@ export function isActiveMembership(
   return true;
 }
 
+// ---- Authority (CRM P0.2c) --------------------------------------------------
+//
+// Membership is where a User's authority in an organization now comes from:
+// whether they may act there at all, and under which system role. Session
+// resolution and `IamRepository.can()` both read it through this one function.
+//
+// THE USER ROW STAYS A COMPATIBILITY GUARD, FAIL-CLOSED. Until `User.organizationId`
+// and `metadata.systemRole` are retired (a later, separately approved cleanup),
+// every membership is kept in step with its User row in the same transaction. If
+// the two ever disagree -- a write that bypassed the repository, a deploy-window
+// gap -- that is DRIFT, and drift denies. Authority can therefore narrow on a
+// broken invariant but can never widen: nothing a membership says grants more
+// than the User row it was derived from.
+//
+// ONE ORGANIZATION PER LOGIN, STILL. A membership in an organization the login
+// does not belong to grants nothing until multi-organization sign-in is designed
+// and approved. No authority is discoverable across organizations.
+
+export const MEMBERSHIP_AUTHORITY_DENIALS = [
+  'NO_USER',
+  'WRONG_ORGANIZATION',
+  'NO_MEMBERSHIP',
+  'INACTIVE_MEMBERSHIP',
+  'DRIFT',
+] as const;
+export type MembershipAuthorityDenial = (typeof MEMBERSHIP_AUTHORITY_DENIALS)[number];
+
+export type MembershipAuthority =
+  | { granted: true; systemRole: SystemRole; membershipId: string }
+  | { granted: false; reason: MembershipAuthorityDenial };
+
+/** Pure: may this User act in this organization now, and as what? Fails closed. */
+export function resolveMembershipAuthority(args: {
+  organizationId: string;
+  user: Pick<MembershipSourceUser, 'id' | 'organizationId' | 'status' | 'metadata'> | null;
+  membership: Pick<
+    OrganizationMembership,
+    'id' | 'organizationId' | 'userId' | 'systemRole' | 'status' | 'effectiveFrom' | 'effectiveTo'
+  > | null;
+  now: Date;
+}): MembershipAuthority {
+  const { organizationId, user, membership, now } = args;
+  if (!user) return { granted: false, reason: 'NO_USER' };
+  if (user.organizationId !== organizationId) return { granted: false, reason: 'WRONG_ORGANIZATION' };
+  if (!membership || membership.organizationId !== organizationId || membership.userId !== user.id) {
+    return { granted: false, reason: 'NO_MEMBERSHIP' };
+  }
+  if (!isActiveMembership(membership, now)) return { granted: false, reason: 'INACTIVE_MEMBERSHIP' };
+  const derived = membershipFromUser(user);
+  if (!derived.derivable || derived.status !== membership.status || derived.systemRole !== membership.systemRole) {
+    return { granted: false, reason: 'DRIFT' };
+  }
+  return { granted: true, systemRole: membership.systemRole, membershipId: membership.id };
+}
+
+/** Load and resolve authority for (organizationId, userId). Organization-scoped reads only. */
+export async function membershipAuthority(
+  db: Db,
+  organizationId: string,
+  userId: string,
+  now: Date = new Date(),
+): Promise<MembershipAuthority> {
+  const [user, membership] = await Promise.all([
+    db.user.findFirst({ where: { id: userId, organizationId } }),
+    db.organizationMembership.findFirst({ where: { organizationId, userId } }),
+  ]);
+  return resolveMembershipAuthority({ organizationId, user, membership, now });
+}
+
 // ---- Backfill coverage (counts only) ----------------------------------------
 
 export interface MembershipCoverage {
@@ -252,6 +322,11 @@ export class MembershipRepository {
   ): Promise<OrganizationMembership | null> {
     const m = await this.findMembership(organizationId, userId);
     return isActiveMembership(m, now) ? m : null;
+  }
+
+  /** The authority a User holds in the organization now. See `resolveMembershipAuthority`. */
+  authority(organizationId: string, userId: string, now: Date = new Date()): Promise<MembershipAuthority> {
+    return membershipAuthority(this.prisma, organizationId, userId, now);
   }
 
   /** Counts only: does every User row in the organization have the membership it implies? */

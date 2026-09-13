@@ -145,16 +145,22 @@ only its SHA-256 hash is persisted. `timingSafeEqual` everywhere. This is correc
 server guards. `PUBLIC_PATHS` in `middleware.ts` must stay in sync with `STANDALONE_PREFIXES` in
 `crm/layout.tsx` — they drifted once and made the entire invite flow unreachable.
 
-**One organization per user.** `User.organizationId` is scalar. No membership table, no org switcher.
-This is a real ceiling; changing it is a schema decision, not a refactor.
+**Authority comes from `OrganizationMembership`, and it is still one organization per login.** A
+session and every `can()` check resolve through `resolveMembershipAuthority`: an ACTIVE membership
+in the organization the signed session names, with the role it carries. `User.organizationId` is
+still scalar and the User row is a fail-closed guard — a membership that disagrees with it denies.
+There is no org switcher and no multi-org sign-in; adding either is a product decision, not a refactor.
+Every `IamRepository` lifecycle write re-derives the membership in the same transaction — never
+write a User's status or role any other way.
 
 ### RBAC
 Deny-by-default. Static `MATRIX` in `iam.repository.ts` maps `SystemRole` → `resource:action`.
-`Permission` rows can ADD or DENY on top; **DENY always wins**. 12 resources, 5 actions.
+`Permission` rows can ADD or DENY on top; **DENY always wins**. 14 resources, 5 actions.
+`identityResolution` is granted to no role yet (open Product decision).
 
-⚠️ `systemRole` and `passwordHash` both live in the `user.metadata` JSON bag. **Always merge, never
-replace** that bag (see §Multi-Tenant Rules). `Invitation.systemRole` is a real column that nothing
-reads — the role is in metadata. Don't be fooled.
+⚠️ `passwordHash` and the legacy `systemRole` both still live in the `user.metadata` JSON bag, and
+the membership is derived from it. **Always merge, never replace** that bag (see §Multi-Tenant
+Rules). `Invitation.systemRole` is a real column that nothing reads — the role is in metadata.
 
 ### WorkspaceShell & routing
 `/` → `/crm/login` → `/crm` → setup gate → `/app` → role home. `/app/page.tsx` is the *only* place

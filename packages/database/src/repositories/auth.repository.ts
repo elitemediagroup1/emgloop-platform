@@ -10,11 +10,14 @@
 // token signing live in the web app's auth lib using Node's built-in crypto;
 // this repository only reads/writes the stored values.
 
-import type { PrismaClient, User, UserSession } from '@prisma/client';
+import type { PrismaClient, SystemRole, User, UserSession } from '@prisma/client';
+import { membershipAuthority } from './membership.repository';
 
 export interface SessionWithUser {
   session: UserSession;
   user: User;
+  /** The system role of the ACTIVE membership in the session's organization. */
+  systemRole: SystemRole;
 }
 
 function meta(u: { metadata: unknown }): Record<string, unknown> {
@@ -112,11 +115,17 @@ export class AuthRepository {
     const user = await this.prisma.user.findUnique({ where: { id: session.userId } });
     if (!user) return null;
     if (user.status === 'DISABLED') return null;
+    // CRM P0.2c: a session is only as good as the membership behind it. The
+    // organization is the one the signed session row names -- never a request
+    // value -- and it must hold an ACTIVE membership for this user, or the session
+    // resolves to nothing (fail closed; no reason is exposed).
+    const authority = await membershipAuthority(this.prisma, session.organizationId, user.id);
+    if (!authority.granted) return null;
     await this.prisma.userSession.update({
       where: { id: session.id },
       data: { lastUsedAt: new Date() },
     });
-    return { session, user };
+    return { session, user, systemRole: authority.systemRole };
   }
 
   async revokeSession(tokenHash: string): Promise<void> {

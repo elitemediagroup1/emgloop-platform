@@ -49,6 +49,7 @@ import {
 } from '@emgloop/shared';
 
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
+import { syncMembershipFromUser } from '../src/repositories/membership.repository';
 import { DecisionEngine } from '../src/services/decision/decision-engine';
 import { CaseEvidenceService } from '../src/services/case-evidence.service';
 import { CaseBriefService } from '../src/services/case-brief.service';
@@ -176,11 +177,13 @@ const HEADLINE: HeadlineView = {
 };
 
 async function world(options: { withMeasuredEvidence?: boolean } = {}) {
-  const prisma = makeCognitivePrisma();
+  // CRM P0.2c: authority comes from membership, so the double carries it.
+  const prisma = makeCognitivePrisma({ also: ['organizationMembership'] });
   const engine = new DecisionEngine(prisma as never);
   const evidence = new CaseEvidenceService(prisma as never, { cases: engine });
 
-  // THE REAL PEOPLE, with the roles the shipped matrix reads off `metadata`.
+  // THE REAL PEOPLE, with their roles -- and, as every production User has since
+  // P0.2b, the membership derived from that row, which is where authority is read.
   for (const [id, systemRole] of [
     [OWNER, 'OWNER'],
     [ADMIN, 'ADMIN'],
@@ -188,9 +191,10 @@ async function world(options: { withMeasuredEvidence?: boolean } = {}) {
     [PARTICIPANT, 'EMPLOYEE'],
     [RELEASED, 'EMPLOYEE'],
   ] as const) {
-    await prisma.user.create({
+    const user = await prisma.user.create({
       data: { id, organizationId: ORG, email: `${id}@emg.test`, status: 'ACTIVE', metadata: { systemRole } },
     });
+    await syncMembershipFromUser(prisma as never, user as never);
   }
 
   const { decision } = await engine.create(ORG, {

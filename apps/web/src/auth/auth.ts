@@ -17,7 +17,6 @@ import { cookies } from 'next/headers';
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto';
 import { repositories, type User } from '@emgloop/database';
 import {
-  userSystemRole,
   roleLabel,
   type Resource,
   type Action,
@@ -74,11 +73,15 @@ export interface AuthSession {
   roleLabel: string;
 }
 
-function toAuthSession(user: User): AuthSession {
-  const role = userSystemRole(user);
+/**
+ * The session the app sees. The organization is the one the signed session row
+ * names, and the role is the ACTIVE membership's there (CRM P0.2c) -- both
+ * resolved server-side by `resolveSession`, never taken from a request.
+ */
+function toAuthSession(user: User, organizationId: string, role: string): AuthSession {
   return {
     userId: user.id,
-    organizationId: user.organizationId,
+    organizationId,
     email: user.email,
     name: user.name ?? user.email,
     systemRole: role,
@@ -124,6 +127,14 @@ export async function login(args: {
     return { ok: false, error: 'Invalid email or password.' };
   }
 
+  // CRM P0.2c: sign-in opens a session in an organization only through an ACTIVE
+  // membership there. No membership, an inactive one, or drift from the User row
+  // is refused with the same generic message, so nothing about membership leaks.
+  const authority = await repositories.memberships.authority(user.organizationId, user.id);
+  if (!authority.granted) {
+    return { ok: false, error: 'Invalid email or password.' };
+  }
+
   const token = newToken();
   const days = args.remember ? REMEMBER_DAYS : SESSION_DAYS;
   const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
@@ -162,7 +173,7 @@ export async function getSession(): Promise<AuthSession | null> {
   if (!token) return null;
   const resolved = await repositories.auth.resolveSession(hashToken(token));
   if (!resolved) return null;
-  return toAuthSession(resolved.user);
+  return toAuthSession(resolved.user, resolved.session.organizationId, resolved.systemRole);
 }
 
 /** Permission check for the current session. */
