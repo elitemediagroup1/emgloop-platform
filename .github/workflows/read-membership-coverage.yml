@@ -1,0 +1,104 @@
+# Read membership coverage.
+#
+# READ-ONLY, COUNTS ONLY. For one organization, compares every User row with the
+# OrganizationMembership row it implies (CRM Phase Zero P0.2b) and prints
+# aggregate counts. It writes nothing, backfills nothing, repairs nothing and
+# prints no id, email or name.
+#
+# WHY IT EXISTS. P0.2c moves session and permission authority from the User row
+# to membership. That is truthful only if every User who can act today has the
+# membership that says so. The P0.2b migration backfills once and application
+# code keeps memberships in step afterwards; this read is how a human confirms
+# nothing fell between the two before authority moves.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is
+# still touching production, and a human should be the one asking.
+
+name: Read Membership Coverage
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-membership-coverage
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read membership coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, printed or written to the summary.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          echo "Validated organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything
+        # RUN BEFORE THE DATABASE CREDENTIAL IS USED, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Read
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        run: |
+          set -euo pipefail
+          npm run read:membership-coverage -- --organization "${ORG_SLUG}"
+
+      - name: How to read the output
+        if: always()
+        run: |
+          echo "### Membership coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** This job prints aggregate counts of rows that already exist." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`READY_FOR_AUTHORITY=true\` - every User in this organization has exactly the membership its row implies. Authority can move to membership (P0.2c) without anyone gaining or losing access." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`MISSING_MEMBERSHIPS\`, \`ROLE_MISMATCHES\`, \`STATUS_MISMATCHES\`, \`ORPHAN_MEMBERSHIPS\` - a User write fell between the migration and the new code, or something else wrote. Do not proceed to P0.2c; report the counts." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`UNDERIVABLE_ROLE\` / \`UNDERIVABLE_STATUS\` - a User row the backfill refused to guess about. Those users would lose access under membership authority; a human decides what their role is." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`REMOVED_MARKER_NOT_DISABLED\` - a removal marker on a user who is still INVITED or ACTIVE. Not treated as removal, because today's permission check has never honoured it." >> "$GITHUB_STEP_SUMMARY"

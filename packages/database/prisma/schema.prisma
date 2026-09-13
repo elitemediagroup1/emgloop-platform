@@ -214,6 +214,7 @@ model Organization {
 
   locations               Location[]
   users                   User[]
+  memberships             OrganizationMembership[]
   roles                   Role[]
   customers               Customer[]
   interactions            Interaction[]
@@ -372,10 +373,71 @@ model User {
   releasedCaseParticipants   CaseParticipant[]           @relation("CaseParticipantReleaser")
   reportedEvidence           DecisionEvidence[]          @relation("DecisionEvidenceReporter")
 
+  /// CRM Phase Zero P0.2b. The organizations this login belongs to, and the
+  /// memberships this person invited somebody into. See OrganizationMembership.
+  memberships                OrganizationMembership[]    @relation("MembershipUser")
+  invitedMemberships         OrganizationMembership[]    @relation("MembershipInviter")
+
   @@unique([organizationId, email])
   @@index([organizationId])
   @@index([externalAuthId])
   @@map("users")
+}
+
+/// Where a membership stands. Mirrors the lifecycle `User` already carries --
+/// `INVITED`, `ACTIVE`, `DISABLED` -- plus `REMOVED`, which the repository has
+/// expressed until now as a DISABLED user with `metadata.removedAt`. DISABLED is
+/// a suspension an admin can lift; REMOVED ended the membership.
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+  REMOVED
+}
+
+/// CRM Phase Zero P0.2b -- an authenticated User belongs to, and may act within,
+/// an Organization under a governed system role.
+///
+/// SEPARATE FROM THE LOGIN, ON PURPOSE. `User` is the authentication principal
+/// and the stable actor id every attribution column points at. Until now the
+/// User row was also the membership (`User.organizationId` is scalar), which is
+/// why one person in two organizations had to be two unrelated logins. This
+/// table carries membership on its own so that can change without re-keying a
+/// single historical actor.
+///
+/// NOT A COMMERCIAL ROLE, NOT AN IDENTITY. `systemRole` is an authorization level
+/// inside the organization. It never says buyer, brand, creator, source or
+/// participant, and a membership never creates or implies a Party.
+///
+/// NOT YET READ FOR AUTHORITY. In P0.2b it is written in the same transaction as
+/// every User lifecycle write and backfilled from `User.organizationId`; session
+/// and permission resolution still read `User`. Membership becomes authoritative
+/// only in P0.2c, after the backfill is verified complete in production.
+model OrganizationMembership {
+  id              String           @id @default(cuid())
+  organizationId  String
+  userId          String
+  systemRole      SystemRole
+  status          MembershipStatus
+  /// Who invited this person. NULL for every membership backfilled from an
+  /// existing User: nothing on the User row records an inviter, and inferring one
+  /// from the invitation history would be a guess.
+  invitedByUserId String?
+  /// When this membership period began. Backfilled rows use `User.createdAt`,
+  /// the moment the User-row membership came into existence.
+  effectiveFrom   DateTime         @default(now())
+  /// When the membership ended (REMOVED). NULL while it has not.
+  effectiveTo     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, status])
+  @@map("organization_memberships")
 }
 
 // ---------------------------------------------------------------------------

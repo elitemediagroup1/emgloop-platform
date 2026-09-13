@@ -15,10 +15,17 @@
 //
 // Sprint 10 adds `analytics`, `integrations`, and `intelligence` resources for
 // the Loop Intelligence Foundation (Phases 2–5).
+//
+// CRM Phase Zero P0.2b: every User lifecycle write below (create, invite,
+// reinstate, role change, activate, disable, remove) recomputes the user's
+// OrganizationMembership in the SAME transaction (`syncMembershipFromUser`).
+// Authority still resolves from the User row -- `can()` is unchanged -- until
+// P0.2c moves it to membership after the backfill is verified in production.
 
 
 import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
+import { syncMembershipFromUser } from './membership.repository';
 
 
 export type Resource =
@@ -312,17 +319,21 @@ export class IamRepository {
     systemRole?: string;
     passwordHash?: string;
   }): Promise<User> {
-    return this.prisma.user.create({
-      data: {
-        organizationId: data.organizationId,
-        // Normalize on write: reads always lowercase the email, so storing a
-        // mixed-case email here would let a case-variant slip past the unique
-        // lookup and create a second row for the same person. Store it lowercased.
-        email: data.email.toLowerCase().trim(),
-        name: data.name,
-        status: 'INVITED',
-        metadata: { systemRole: data.systemRole ?? 'EMPLOYEE', passwordHash: data.passwordHash },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          organizationId: data.organizationId,
+          // Normalize on write: reads always lowercase the email, so storing a
+          // mixed-case email here would let a case-variant slip past the unique
+          // lookup and create a second row for the same person. Store it lowercased.
+          email: data.email.toLowerCase().trim(),
+          name: data.name,
+          status: 'INVITED',
+          metadata: { systemRole: data.systemRole ?? 'EMPLOYEE', passwordHash: data.passwordHash },
+        },
+      });
+      await syncMembershipFromUser(tx, user);
+      return user;
     });
   }
 
@@ -343,14 +354,19 @@ export class IamRepository {
    *     PENDING tokens are revoked so exactly one live token can exist.
    *   - no row at all                → create a fresh INVITED row.
    * Fail-closed and org-scoped throughout; the caller then issues the token/email.
+   *
+   * `invitedByUserId` is the acting user, established by the caller from the
+   * session -- never from form input. It is recorded on the membership.
    */
   async prepareInvitation(params: {
     organizationId: string;
     email: string;
     name?: string;
     systemRole: string;
+    invitedByUserId?: string | null;
   }): Promise<InviteOutcome> {
     const { organizationId, name, systemRole } = params;
+    const invitedByUserId = params.invitedByUserId ?? null;
     // Normalize on write so a case-variant of an existing email can never create a
     // second row for the same person (reads always lowercase).
     const email = params.email.toLowerCase().trim();
@@ -374,8 +390,12 @@ export class IamRepository {
     });
 
     if (!existing) {
-      const created = await this.prisma.user.create({
-        data: { organizationId, email, name, status: 'INVITED', metadata: { systemRole } },
+      const created = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: { organizationId, email, name, status: 'INVITED', metadata: { systemRole } },
+        });
+        await syncMembershipFromUser(tx, user, { invitedByUserId });
+        return user;
       });
       return { ok: true, userId: created.id, reused: false };
     }
@@ -387,13 +407,16 @@ export class IamRepository {
     const nextMeta: Record<string, unknown> = { ...meta(existing), systemRole };
     delete nextMeta['removedAt'];
     delete nextMeta['passwordHash'];
-    await this.prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        status: 'INVITED',
-        name: name ?? existing.name,
-        metadata: nextMeta as Prisma.InputJsonValue,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: existing.id },
+        data: {
+          status: 'INVITED',
+          name: name ?? existing.name,
+          metadata: nextMeta as Prisma.InputJsonValue,
+        },
+      });
+      await syncMembershipFromUser(tx, user, { invitedByUserId });
     });
     return { ok: true, userId: existing.id, reused: true };
   }
@@ -406,23 +429,37 @@ export class IamRepository {
     const user = await this.prisma.user.findFirst({ where: { id: userId, organizationId } });
     if (!user) return;
     const m = meta(user);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { metadata: { ...m, systemRole } },
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: { metadata: { ...m, systemRole } },
+      });
+      await syncMembershipFromUser(tx, updated);
     });
   }
 
   async activateUser(organizationId: string, userId: string): Promise<void> {
-    await this.prisma.user.updateMany({
-      where: { id: userId, organizationId },
-      data: { status: 'ACTIVE' },
-    });
+    await this.setStatus(organizationId, userId, 'ACTIVE');
   }
 
   async disableUser(organizationId: string, userId: string): Promise<void> {
-    await this.prisma.user.updateMany({
-      where: { id: userId, organizationId },
-      data: { status: 'DISABLED' },
+    await this.setStatus(organizationId, userId, 'DISABLED');
+  }
+
+  /** Org-scoped status write plus its membership, in one transaction. No row, no write. */
+  private async setStatus(
+    organizationId: string,
+    userId: string,
+    status: 'ACTIVE' | 'DISABLED',
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.user.updateMany({
+        where: { id: userId, organizationId },
+        data: { status },
+      });
+      if (count === 0) return;
+      const user = await tx.user.findFirst({ where: { id: userId, organizationId } });
+      if (user) await syncMembershipFromUser(tx, user);
     });
   }
 
@@ -435,12 +472,15 @@ export class IamRepository {
     const user = await this.prisma.user.findFirst({ where: { id: userId, organizationId } });
     if (!user) return;
     const m = meta(user);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        status: 'DISABLED',
-        metadata: { ...m, removedAt: new Date().toISOString() },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: {
+          status: 'DISABLED',
+          metadata: { ...m, removedAt: new Date().toISOString() },
+        },
+      });
+      await syncMembershipFromUser(tx, updated);
     });
   }
 

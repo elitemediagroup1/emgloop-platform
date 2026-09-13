@@ -63,6 +63,8 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
         email,
         name: name || undefined,
         systemRole: role,
+        // The inviter is the session's user -- never a form field.
+        invitedByUserId: session.userId,
       });
       if (!outcome.ok) {
         result = {

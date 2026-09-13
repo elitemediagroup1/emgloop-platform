@@ -33,7 +33,7 @@ function matches(row: Row, where: Row): boolean {
   });
 }
 
-function makeTable(name: 'users' | 'invitations') {
+function makeTable(name: 'users' | 'invitations' | 'organization_memberships') {
   const rows: Row[] = [];
   let seq = 0;
   const nextId = () => `${name}_${++seq}`;
@@ -103,8 +103,13 @@ function makeTable(name: 'users' | 'invitations') {
 function makeIam() {
   const user = makeTable('users');
   const invitation = makeTable('invitations');
-  const prisma = { user, invitation } as unknown as PrismaClient;
-  return { iam: new IamRepository(prisma), user, invitation };
+  // CRM P0.2b: every lifecycle write now also recomputes the user's membership
+  // inside one interactive transaction, so the double carries that table and a
+  // straight-through $transaction (rollback is not what these tests assert).
+  const organizationMembership = makeTable('organization_memberships');
+  const prisma: Record<string, unknown> = { user, invitation, organizationMembership };
+  prisma['$transaction'] = async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(prisma);
+  return { iam: new IamRepository(prisma as unknown as PrismaClient), user, invitation, organizationMembership };
 }
 
 const ORG = 'org_a';
