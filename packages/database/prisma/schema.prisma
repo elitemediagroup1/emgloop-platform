@@ -373,6 +373,11 @@ model User {
   releasedCaseParticipants   CaseParticipant[]           @relation("CaseParticipantReleaser")
   reportedEvidence           DecisionEvidence[]          @relation("DecisionEvidenceReporter")
 
+  /// CRM P0.2d. Parties this person established as canonical identity, and
+  /// records they marked superseded. Attribution only.
+  establishedIdentities      CognitiveIdentity[]         @relation("CognitiveIdentityEstablisher")
+  supersededIdentities       CognitiveIdentity[]         @relation("CognitiveIdentitySuperseder")
+
   /// CRM Phase Zero P0.2b. The organizations this login belongs to, and the
   /// memberships this person invited somebody into. See OrganizationMembership.
   memberships                OrganizationMembership[]    @relation("MembershipUser")
@@ -2560,6 +2565,11 @@ enum ProcessingAttemptStatus {
 
 /// WHO or WHAT this is. The stable canonical entity. NOT the CRM Contact —
 /// CRM/Customer rows reference this; this never depends on them.
+///
+/// CRM P0.2d: a PERSON or COMPANY row is a Party record, and the `established*`
+/// columns are the provenance that makes one canonical identity. They are written
+/// only by `PartyService.establish`, only under `identityResolution:approve`, and
+/// they are NULL on every row that existed before -- none of which is established.
 model CognitiveIdentity {
   id             String                  @id @default(cuid())
   organizationId String
@@ -2571,6 +2581,25 @@ model CognitiveIdentity {
   archivedAt     DateTime?
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
+
+  /// When a governed basis established this Party as canonical identity.
+  establishedAt       DateTime?
+  /// The User who established it, acting under identityResolution:approve.
+  establishedByUserId String?
+  /// The basis it was established on. Only governed methods are ever written.
+  establishmentBasis  IdentityResolutionMethod?
+
+  /// Supersession: this record was found to be the same Party as another, which
+  /// is now canonical. Superseded records stay addressable -- references to them
+  /// resolve forward, and nothing that points here is rewritten. NOTHING WRITES
+  /// THESE YET; same-Party confirmation is a later, separately governed operation.
+  /// A scalar id, like every other identity reference in this schema.
+  supersededByIdentityId String?
+  supersededAt           DateTime?
+  supersededByUserId     String?
+
+  establishedBy User? @relation("CognitiveIdentityEstablisher", fields: [establishedByUserId], references: [id], onDelete: SetNull)
+  supersededBy  User? @relation("CognitiveIdentitySuperseder", fields: [supersededByUserId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, entityType, canonicalKey])
   @@index([organizationId, entityType])

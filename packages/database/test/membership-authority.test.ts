@@ -133,24 +133,34 @@ test('permission rules resolve in the organization being asked about, and DENY s
 
 // ---- identityResolution ----------------------------------------------------
 
-test('identity resolution is its own authority: no role holds it, customer editing never implies it', async () => {
+test('identity resolution is its own authority: customer editing never implies it, and roles hold only the Product grants', async () => {
   const s = setup();
-  for (const role of ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY'] as const) {
+  const grants: Record<string, readonly string[]> = {
+    OWNER: ['view', 'create', 'update', 'approve'],
+    ADMIN: ['view', 'create', 'update', 'approve'],
+    MANAGER: ['view', 'create', 'update'],
+    EMPLOYEE: ['view', 'create'],
+    READ_ONLY: ['view'],
+  };
+  for (const [role, granted] of Object.entries(grants)) {
     const u = await member(s, ORG_A, `${role}@x.io`, role);
-    for (const action of ['view', 'create', 'update', 'delete', 'manage'] as const) {
-      assert.equal(matrixAllows(role, 'identityResolution', action), false, `${role} ${action}`);
-      assert.equal(await s.iam.can({ organizationId: ORG_A, userId: u.id, resource: 'identityResolution', action }), false);
+    for (const action of ['view', 'create', 'update', 'delete', 'manage', 'approve'] as const) {
+      assert.equal(await s.iam.can({ organizationId: ORG_A, userId: u.id, resource: 'identityResolution', action }), granted.includes(action), `${role} ${action}`);
     }
-    if (role !== 'READ_ONLY') {
+    if (role !== 'OWNER' && role !== 'ADMIN') {
+      assert.equal(await s.iam.can({ organizationId: ORG_A, userId: u.id, resource: 'identityResolution', action: 'approve' }), false,
+        `${role} can never establish identity`);
+    }
+    if (role === 'MANAGER' || role === 'EMPLOYEE') {
       assert.equal(await s.iam.can({ organizationId: ORG_A, userId: u.id, resource: 'customers', action: 'update' }), true,
-        `${role} can edit customers and still cannot assert identity`);
+        `${role} edits customers and still cannot approve identity`);
     }
   }
-  // Only an explicit grant confers it -- and only that.
-  const granted = await member(s, ORG_A, 'linker@x.io', 'EMPLOYEE');
+  // An explicit grant confers exactly what it names.
+  const granted = await member(s, ORG_A, 'linker@x.io', 'READ_ONLY');
   await s.fake.permission.create({ data: { organizationId: ORG_A, userId: granted.id, resource: 'identityResolution', action: 'update', effect: 'ALLOW' } });
   assert.equal(await s.iam.can({ organizationId: ORG_A, userId: granted.id, resource: 'identityResolution', action: 'update' }), true);
-  assert.equal(await s.iam.can({ organizationId: ORG_A, userId: granted.id, resource: 'identityResolution', action: 'delete' }), false);
+  assert.equal(await s.iam.can({ organizationId: ORG_A, userId: granted.id, resource: 'identityResolution', action: 'approve' }), false);
 });
 
 // ---- Sessions --------------------------------------------------------------

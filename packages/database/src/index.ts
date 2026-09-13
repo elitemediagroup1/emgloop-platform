@@ -103,6 +103,10 @@ export {
   RECOMMENDATION_RECORD_OUTCOMES,
 } from './services/case-recommendation.service';
 export { CaseEvidenceService, EVIDENCE_REPORT_OUTCOMES } from './services/case-evidence.service';
+// CRM P0.2d: governed Party creation (identityResolution:create) and establishment
+// (identityResolution:approve). Keys are minted, never derived from contact values.
+export { PartyService, PARTY_WRITE_OUTCOMES, PARTY_ESTABLISHMENT_BASES } from './services/party.service';
+export type { PartyWriteOutcome, PartyWriteResult, PartyEstablishmentBasis, PartyServiceDeps } from './services/party.service';
 export type {
   CaseEvidenceCaseAccess,
   CaseEvidenceDeps,

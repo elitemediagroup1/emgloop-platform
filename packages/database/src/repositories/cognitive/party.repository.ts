@@ -14,16 +14,20 @@
 // wrong organization, unknown id, or a non-Party type -- is `null`, and the three
 // are indistinguishable to the caller.
 //
-// EVERY RECORDED BASIS IS UNGOVERNED TODAY, and this file says so rather than
+// ONE GOVERNED BASIS IS PERSISTED (P0.2d): the identity row's own `established*`
+// provenance, written only by `PartyService.establish` under
+// `identityResolution:approve`. A MANUAL or EXPLICIT_LINK establishment with its
+// actor still on record reads as governed. If that User row is ever deleted
+// (SET NULL), the actor can no longer be shown and the Party reads as not
+// established -- fail closed, never an invented actor.
+//
+// EVERYTHING ELSE RECORDED IS STILL UNGOVERNED, and this file says so rather than
 // guessing. `IdentityEvidence` and `IdentityResolutionLink` carry no column that
-// records an authorized actor acting under identity-resolution authority, a
-// recorded verification, or a Party's own authenticated act; `establishedBy` is
-// free text and `confirm()` records no actor. So recorded rows are read with
-// `NO_GOVERNED_PROVENANCE`: an `AUTHENTICATED_ACCOUNT` evidence row does not
-// establish a Party, and a `CONFIRMED` link reads as a possible match. Nothing is
-// reclassified in storage -- the rows keep exactly what they say. When governed
-// identity resolution records provenance, this mapping is the one place that
-// changes.
+// records an authorized actor, a recorded verification, or a Party's own
+// authenticated act; a link's `establishedBy` is free text and `confirm()` records
+// no actor. Those rows are read with `NO_GOVERNED_PROVENANCE`: an
+// `AUTHENTICATED_ACCOUNT` evidence row does not establish a Party, and a
+// `CONFIRMED` link reads as a possible match. Nothing is reclassified in storage.
 //
 // No confidence column is read here.
 
@@ -72,7 +76,12 @@ export interface PartyView {
   partyType: PartyType;
   status: CognitiveIdentityStatus;
   establishment: PartyEstablishment;
+  /** The canonical record this one was superseded by, when it was. */
+  supersededByIdentityId: string | null;
 }
+
+/** Bases whose persisted provenance is an authorized actor. */
+const ACTOR_BASES: readonly string[] = ['MANUAL', 'EXPLICIT_LINK'];
 
 export class PartyRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -82,12 +91,19 @@ export class PartyRepository {
     const row = await this.prisma.cognitiveIdentity.findFirst({ where: { id, organizationId } });
     if (!row || !isPartyType(row.entityType)) return null;
     const bases = await this.recordedBases(organizationId, row.id, now);
+    if (row.establishedAt && row.establishmentBasis && ACTOR_BASES.includes(row.establishmentBasis)) {
+      bases.push({
+        method: row.establishmentBasis,
+        provenance: { ...NO_GOVERNED_PROVENANCE, authorizedActorUserId: row.establishedByUserId },
+      });
+    }
     return {
       id: row.id,
       organizationId: row.organizationId,
       partyType: row.entityType,
       status: row.status,
       establishment: partyEstablishment({ entityType: row.entityType, bases }),
+      supersededByIdentityId: row.supersededByIdentityId ?? null,
     };
   }
 

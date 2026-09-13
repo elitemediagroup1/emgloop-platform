@@ -82,6 +82,7 @@ export {
   SYSTEM_ROLE_LABELS,
   roleLabel,
   matrixAllows,
+  IDENTITY_RESOLUTION_GRANTS,
   userSystemRole,
   invitationSystemRole,
 } from './iam.repository';
