@@ -5,6 +5,8 @@ import { requirePermission } from '../auth/guard';
 import type { Resource, Action } from '@emgloop/database';
 import { resolveWorkspaceRole } from './role-router';
 import { WORKSPACES, type WorkspaceRole } from './config';
+import { loginPathFor } from '../auth/landing';
+import { requestedPath } from '../auth/request-path';
 
 // Loop OS — Workspace guards (Phase 2, PR #47).
 //
@@ -15,19 +17,23 @@ import { WORKSPACES, type WorkspaceRole } from './config';
 // individual capabilities still flows through requirePermission (unchanged),
 // keeping backend authorization the single source of truth.
 
-/** Require an authenticated session, or redirect to the universal login (/). */
+/**
+ * Require an authenticated session, or redirect to login carrying the page that
+ * was actually requested (so it survives sign-in). `returnTo` is only a fallback.
+ */
 export async function requireWorkspaceSession(returnTo?: string): Promise<AuthSession> {
   const session = await getSession();
   if (!session) {
-    const suffix = returnTo ? '?next=' + encodeURIComponent(returnTo) : '';
-    redirect('/' + suffix);
+    // Straight to login: going via / used to drop the requested destination, and
+    // workspace layouts used to pass their home instead of the page asked for.
+    redirect(loginPathFor(requestedPath() ?? returnTo));
   }
   return session!;
 }
 
 /**
  * Require that the current session resolves to the given workspace. If the user
- * belongs to a DIFFERENT workspace, send them to THEIR own home rather than
+ * belongs to a DIFFERENT workspace, send them home (Loop Home, /app) rather than
  * showing an unauthorized page — the router, not the URL, decides where a role
  * lives. Fail-closed: unknown roles resolve to the most isolated workspace.
  */
