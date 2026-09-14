@@ -531,13 +531,13 @@ export class ConversationsRepository {
       access.includeAudit
         ? this.prisma.auditLog.findMany({
             where: { organizationId, entityType: 'customer', entityId: customerId },
-            orderBy: { createdAt: 'desc' },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
             take,
           })
         : Promise.resolve([]),
       this.prisma.domainEvent.findMany({
         where: { organizationId, aggregateType: 'customer', aggregateId: customerId },
-        orderBy: { occurredAt: 'desc' },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
         take,
       }),
     ]);
@@ -565,7 +565,8 @@ export class ConversationsRepository {
         at: e.occurredAt.toISOString(),
       })),
     ];
-    rows.sort((a, b) => (a.at < b.at ? 1 : -1));
+    // Newest first; equal timestamps fall back to id so the order is total.
+    rows.sort((a, b) => (a.at === b.at ? (a.id < b.id ? 1 : a.id > b.id ? -1 : 0) : a.at < b.at ? 1 : -1));
     return rows.slice(0, take);
   }
 }

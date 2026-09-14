@@ -354,23 +354,25 @@ export class CrmRepository {
     });
     if (!customer) return null;
 
+    // Every ordering ends on id: rows that share a timestamp (a batch import,
+    // one loop step) must not reorder between two renders of the same timeline.
     const [interactions, bookings, signals, conversations] = await Promise.all([
       this.prisma.interaction.findMany({
-        where: { customerId: id },
-        orderBy: { occurredAt: 'desc' },
+        where: { organizationId, customerId: id },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.booking.findMany({
-        where: { customerId: id },
-        orderBy: { startAt: 'desc' },
+        where: { organizationId, customerId: id },
+        orderBy: [{ startAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.signal.findMany({
-        where: { customerId: id },
-        orderBy: { observedAt: 'desc' },
+        where: { organizationId, customerId: id },
+        orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.conversation.findMany({
-        where: { customerId: id },
-        orderBy: { lastMessageAt: 'desc' },
-        include: { messages: { orderBy: { sentAt: 'asc' } } },
+        where: { organizationId, customerId: id },
+        orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+        include: { messages: { orderBy: [{ sentAt: 'asc' }, { id: 'asc' }] } },
       }),
     ]);
 
@@ -607,7 +609,7 @@ export class CrmRepository {
   async inboxFeed(organizationId: string, take = 50): Promise<InboxItem[]> {
     const interactions = await this.prisma.interaction.findMany({
       where: { organizationId },
-      orderBy: { occurredAt: 'desc' },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
       take: Math.min(200, Math.max(1, take)),
       include: {
         customer: {
