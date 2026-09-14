@@ -103,13 +103,11 @@ export function runWorkspaceRoutingVerification(): VerificationReport {
     resolveWorkspaceRole({ systemRole: 'ADMIN', workspaceRole: 'NOPE' }) === 'ADMIN',
   );
 
-  // 7. Home routes are inside each workspace's own basePath (config integrity).
+  // 7. Every role's home is Loop Home (/app): one application, one home. The
+  //    role decides what the home shows, never a different address.
   for (const role of WORKSPACE_ROLES) {
     const ws = WORKSPACES[role];
-    c.ok(
-      role + ' home is within its basePath',
-      ws.home === ws.basePath || ws.home.startsWith(ws.basePath),
-    );
+    c.eq(role + ' home is Loop Home', ws.home, '/app');
     c.eq(
       role + ' home route resolves for a hinted session',
       resolveHomeRoute({ systemRole: 'x', workspaceRole: role }),
@@ -118,14 +116,14 @@ export function runWorkspaceRoutingVerification(): VerificationReport {
   }
 
   // 8. Nav integrity: every workspace has at least one group with items, and
-  //    every intra-app link stays inside the workspace basePath (except a few
-  //    deliberate cross-links, e.g. Admin -> /crm, which are absolute app roots).
+  //    every intra-app link stays inside the workspace basePath, except Loop
+  //    Home itself and deliberate cross-links to /crm.
   for (const role of WORKSPACE_ROLES) {
     const ws = WORKSPACES[role];
     const items = ws.nav.flatMap((g) => g.items);
     c.ok(role + ' has nav items', items.length > 0);
     for (const item of items) {
-      const insideOwnWorkspace = item.href.startsWith(ws.basePath);
+      const insideOwnWorkspace = item.href.startsWith(ws.basePath) || item.href === '/app';
       const knownCrossLink = item.href === '/crm' || item.href.startsWith('/crm/');
       c.ok(
         role + ' nav link is scoped (' + item.href + ')',
