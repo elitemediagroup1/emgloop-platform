@@ -51,7 +51,12 @@ function renderNavLink(item: NavItem, permitted: Map<string, boolean>, active: s
       {content}
     </span>
   ) : (
-    <Link className={className} href={item.href} key={item.href}>
+    <Link
+      className={className}
+      href={item.href}
+      key={item.href}
+      aria-current={isActive ? 'page' : undefined}
+    >
       {content}
     </Link>
   );
@@ -93,27 +98,29 @@ export default async function WorkspaceShell({
 
   return (
     <div className="loop-os">
+      {/* Without this, a keyboard user tabs through every nav item on every page. */}
+      <a className="loop-skip" href="#loop-main">Skip to content</a>
       <div className="loop-shell">
         <aside className="loop-sidebar">
           <div className="loop-sb__brand">
             <EmgLoopWordmark height={22} />
             <span className="loop-sb__os">OS</span>
           </div>
-          <div className="loop-sb__scroll">
+          <nav className="loop-sb__scroll" aria-label={`${shell.label} navigation`}>
             {shell.nav.filter((g) => !g.footer).map((group, gi) => (
               <div className="loop-sb__group" key={group.label || `g${gi}`}>
                 {group.label ? <div className="loop-sb__grouplabel">{group.label}</div> : null}
                 {group.items.map((item) => renderNavLink(item, permitted, active))}
               </div>
             ))}
-          </div>
+          </nav>
           {shell.nav.some((g) => g.footer) ? (
-            <div className="loop-sb__adminarea">
+            <nav className="loop-sb__adminarea" aria-label="Administration">
               {shell.nav
                 .filter((g) => g.footer)
                 .flatMap((g) => g.items)
                 .map((item) => renderNavLink(item, permitted, active))}
-            </div>
+            </nav>
           ) : null}
           <div className="loop-sb__foot">
             <div className="loop-sb__user">
@@ -134,13 +141,13 @@ export default async function WorkspaceShell({
             {/* The breadcrumb leads with the SIGNED-IN user's display name, then
                the active product — "Charlie / Dashboard", "Matt / Administration".
                Never the shell label ("Admin"), so the header is always personal. */}
-            <div className="loop-crumbs">
+            <nav className="loop-crumbs" aria-label="Breadcrumb">
               <Link href={shell.home}>
                 <b>{session.name}</b>
               </Link>
-              <span className="sep">/</span>
-              <span>{crumb}</span>
-            </div>
+              <span className="sep" aria-hidden="true">/</span>
+              <span aria-current="page">{crumb}</span>
+            </nav>
             {/* Sprint 27: Search + Activity removed (no session-scoped
                backend wired to the shell yet). Notifications links to the
                real Work OS notifications; no fake unread badge is shown
@@ -150,7 +157,7 @@ export default async function WorkspaceShell({
               <SidebarIcon name="bell" />
             </Link>
           </header>
-          <main className="loop-main">{children}</main>
+          <main className="loop-main" id="loop-main" tabIndex={-1}>{children}</main>
         </div>
       </div>
     </div>
