@@ -88,9 +88,9 @@ export default async function CrmCommandCenter() {
           <h1 className="ds-title">{greeting}, {ctx.session.name}</h1>
           <p className="ds-subtitle">{orgName} &middot; {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
         </div>
-        <div className="cc-search" role="search">
-          <input type="search" className="crm-input cc-search__input" placeholder="Search — coming in next Phase 1 slice" aria-label="Search" disabled />
-        </div>
+        <form className="cc-search" method="get" action="/crm/search" role="search">
+          <input type="search" name="q" className="crm-input cc-search__input" placeholder="Search people, conversations, organizations…" aria-label="Search" />
+        </form>
       </div>
 
       {/* KPI Row */}
@@ -188,10 +188,10 @@ export default async function CrmCommandCenter() {
               <span className="cc-action__ico">💬</span>
               <span>Conversations</span>
             </Link>
-            <span className="cc-action" style={{ opacity: 0.5, pointerEvents: 'none' }}>
+            <Link href="/crm/search" className="cc-action">
               <span className="cc-action__ico">🔍</span>
-              <span>Search (coming soon)</span>
-            </span>
+              <span>Search</span>
+            </Link>
           </div>
         </div>
       </div>
