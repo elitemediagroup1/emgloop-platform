@@ -12,6 +12,9 @@ import {
   setAssignmentAction,
   updateCustomerFieldsAction,
 } from '../../../../crm/actions';
+import {
+  Timeline, TimelineItem, EmptyTimeline, fromInteraction,
+} from '../../../../crm/timeline';
 
 // Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2)
 // + Sprint 14 (Website Intelligence — Website tab)
@@ -354,24 +357,16 @@ export default async function CustomerWorkspace({
             <div className="crm-card">
               <h3>Interaction timeline</h3>
               {ws.interactions.length === 0 ? (
-                <p className="crm-faint">No interactions yet.</p>
+                <EmptyTimeline message="No interactions yet." />
               ) : (
-                <ul className="crm-timeline">
+                <Timeline>
                   {ws.interactions.map((i) => (
-                    <li key={i.id}>
-                      <span className="crm-tl-dot" style={{ background: KIND_COLOR[i.kind] ?? 'var(--crm-faint)' }} />
-                      <div>
-                        <div className="crm-tl-title">{i.summary || i.kind}</div>
-                        {jsonVal<string>(i.payload, 'body') ? (
-                          <div className="crm-tl-body">“{jsonVal<string>(i.payload, 'body')}”</div>
-                        ) : null}
-                        <div className="crm-tl-meta">
-                          {i.kind} · {actorLabel(jsonVal<string>(i.payload, 'actorType'))} · {i.channel} · {fmt(i.occurredAt)}
-                        </div>
-                      </div>
-                    </li>
+                    <TimelineItem
+                      key={i.id}
+                      entry={fromInteraction(i, { badgeColor: KIND_COLOR[i.kind] })}
+                    />
                   ))}
-                </ul>
+                </Timeline>
               )}
             </div>
           ) : null}
@@ -448,20 +443,26 @@ export default async function CustomerWorkspace({
             <div className="crm-card">
               <h3>Messages</h3>
               {messages.length === 0 ? (
-                <p className="crm-faint">No messages yet.</p>
+                <EmptyTimeline message="No messages yet." />
               ) : (
-                <ul className="crm-timeline">
-                  {messages.map((m) => (
-                    <li key={m.id}>
-                      <span className="crm-tl-dot" style={{ background: m.actorType === 'CUSTOMER' ? 'var(--crm-blue)' : 'var(--crm-purple)' }} />
-                      <div>
-                        <div className="crm-tl-title">{actorLabel(m.actorType)}</div>
-                        <div className="crm-tl-body">{m.body}</div>
-                        <div className="crm-tl-meta">{m.type} · {fmt(m.sentAt)}</div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <Timeline>
+                  {messages.map((m) => {
+                    const color = m.actorType === 'CUSTOMER' ? 'var(--crm-blue)' : 'var(--crm-purple)';
+                    return (
+                      <TimelineItem key={m.id} entry={{
+                        id: m.id,
+                        source: 'interaction',
+                        title: actorLabel(m.actorType),
+                        body: m.body ?? undefined,
+                        actor: actorLabel(m.actorType),
+                        actorType: m.actorType,
+                        kind: m.type,
+                        occurredAt: typeof m.sentAt === 'string' ? m.sentAt : m.sentAt.toISOString(),
+                        badgeColor: color,
+                      }} />
+                    );
+                  })}
+                </Timeline>
               )}
             </div>
           ) : null}
@@ -470,22 +471,23 @@ export default async function CustomerWorkspace({
             <div className="crm-card">
               <h3>Bookings</h3>
               {ws.bookings.length === 0 ? (
-                <p className="crm-faint">No bookings yet.</p>
+                <EmptyTimeline message="No bookings yet." />
               ) : (
-                <ul className="crm-timeline">
+                <Timeline>
                   {ws.bookings.map((b) => (
-                    <li key={b.id}>
-                      <span className="crm-tl-dot" style={{ background: 'var(--crm-accent)' }} />
-                      <div>
-                        <div className="crm-tl-title">{b.title || 'Booking'} — {b.status}</div>
-                        <div className="crm-tl-meta">
-                          Starts {fmt(b.startAt)}{b.endAt ? ' · ends ' + fmt(b.endAt) : ''}
-                          {b.calendarEventId ? ' · cal ' + b.calendarEventId : ''}
-                        </div>
-                      </div>
-                    </li>
+                    <TimelineItem key={b.id} entry={{
+                      id: b.id,
+                      source: 'interaction',
+                      title: (b.title || 'Booking') + ' — ' + b.status,
+                      body: 'Starts ' + fmt(b.startAt) + (b.endAt ? ' · ends ' + fmt(b.endAt) : ''),
+                      actor: 'System',
+                      actorType: 'SYSTEM',
+                      kind: 'APPOINTMENT',
+                      occurredAt: typeof b.startAt === 'string' ? b.startAt : b.startAt.toISOString(),
+                      badgeColor: 'var(--crm-accent)',
+                    }} />
                   ))}
-                </ul>
+                </Timeline>
               )}
             </div>
           ) : null}
@@ -547,21 +549,22 @@ export default async function CustomerWorkspace({
             <div className="crm-card">
               <h3>Signals</h3>
               {ws.signals.length === 0 ? (
-                <p className="crm-faint">No signals yet.</p>
+                <EmptyTimeline message="No signals yet." />
               ) : (
-                <ul className="crm-timeline">
+                <Timeline>
                   {ws.signals.map((s) => (
-                    <li key={s.id}>
-                      <span className="crm-tl-dot" style={{ background: 'var(--crm-amber)' }} />
-                      <div>
-                        <div className="crm-tl-title">{s.label || s.key} <span className="crm-faint">({s.type})</span></div>
-                        <div className="crm-tl-meta">
-                          {s.source ? 'source ' + s.source + ' · ' : ''}{fmt(s.observedAt)}
-                        </div>
-                      </div>
-                    </li>
+                    <TimelineItem key={s.id} entry={{
+                      id: s.id,
+                      source: 'event',
+                      title: (s.label || s.key) + ' (' + s.type + ')',
+                      actor: s.source || 'System',
+                      actorType: 'SYSTEM',
+                      kind: s.type,
+                      occurredAt: typeof s.observedAt === 'string' ? s.observedAt : s.observedAt.toISOString(),
+                      badgeColor: 'var(--crm-amber)',
+                    }} />
                   ))}
-                </ul>
+                </Timeline>
               )}
             </div>
           ) : null}
@@ -570,19 +573,16 @@ export default async function CustomerWorkspace({
             <div className="crm-card">
               <h3>AI activity</h3>
               {aiActivity.length === 0 ? (
-                <p className="crm-faint">No AI activity yet.</p>
+                <EmptyTimeline message="No AI activity yet." />
               ) : (
-                <ul className="crm-timeline">
+                <Timeline>
                   {aiActivity.map((i) => (
-                    <li key={i.id}>
-                      <span className="crm-tl-dot" style={{ background: 'var(--crm-purple)' }} />
-                      <div>
-                        <div className="crm-tl-title">{i.summary || i.kind}</div>
-                        <div className="crm-tl-meta">{i.kind} · {fmt(i.occurredAt)}</div>
-                      </div>
-                    </li>
+                    <TimelineItem
+                      key={i.id}
+                      entry={fromInteraction(i, { badgeColor: 'var(--crm-purple)' })}
+                    />
                   ))}
-                </ul>
+                </Timeline>
               )}
             </div>
           ) : null}

@@ -25,6 +25,7 @@ export interface TimelineEntry {
   entityType?: string;
   entityId?: string;
   href?: string;
+  badgeColor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +97,40 @@ export function fromCustomerActivity(item: {
   };
 }
 
+export function fromInteraction(item: {
+  id: string;
+  kind: string;
+  channel: string;
+  direction: string;
+  summary: string | null;
+  occurredAt: Date | string;
+  payload?: unknown;
+}, opts?: { badgeColor?: string }): TimelineEntry {
+  const payload = (item.payload && typeof item.payload === 'object')
+    ? item.payload as Record<string, unknown>
+    : {};
+  const actorType = typeof payload.actorType === 'string'
+    ? payload.actorType
+    : 'SYSTEM';
+  const body = typeof payload.body === 'string' ? payload.body : undefined;
+  const iso = typeof item.occurredAt === 'string'
+    ? item.occurredAt
+    : item.occurredAt.toISOString();
+  return {
+    id: item.id,
+    source: 'interaction',
+    title: item.summary || item.kind,
+    body,
+    actor: ACTOR_TYPE_LABELS[actorType] ?? actorType,
+    actorType,
+    channel: item.channel,
+    direction: item.direction,
+    kind: item.kind,
+    occurredAt: iso,
+    badgeColor: opts?.badgeColor,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Display helpers
 // ---------------------------------------------------------------------------
@@ -129,6 +164,7 @@ export function TimelineItem({ entry }: { entry: TimelineEntry }) {
       <ActivityTypeBadge
         source={entry.source}
         direction={entry.direction}
+        color={entry.badgeColor}
       />
       <div className="tl-content">
         <div className="tl-title">{entry.title}</div>
@@ -154,10 +190,21 @@ export function TimelineItem({ entry }: { entry: TimelineEntry }) {
 export function ActivityTypeBadge({
   source,
   direction,
+  color,
 }: {
   source: TimelineSource;
   direction?: string;
+  color?: string;
 }) {
+  if (color) {
+    return (
+      <span
+        className="tl-badge"
+        style={{ background: color }}
+        aria-label={SOURCE_LABELS[source] ?? source}
+      />
+    );
+  }
   let modifier = '';
   if (source === 'interaction' && direction === 'inbound') modifier = ' tl-badge--in';
   else if (source === 'interaction' && direction === 'outbound') modifier = ' tl-badge--out';
