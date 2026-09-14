@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../../../demo/db-health';
 import { crmRepos } from '../../../../../crm/crm-data';
-import { requirePermission } from '../../../../../auth/guard';
+import { requirePermission, hasPermission } from '../../../../../auth/guard';
 
 // Per-customer activity / audit view — Sprint 8 (Conversations, Phase 3).
 //
@@ -9,7 +9,8 @@ import { requirePermission } from '../../../../../auth/guard';
 // customer, merged into one reverse-chronological stream. This is the record
 // of WHO did WHAT to this customer (status changes, merges, assignments) and
 // WHAT the platform observed (domain events). Read-only; guarded behind
-// customers:view.
+// customers:view. Audit rows are read only for a user who also holds
+// audit:view — EMPLOYEE and READ_ONLY see domain events alone.
 
 export const dynamic = 'force-dynamic';
 
@@ -29,11 +30,12 @@ export default async function CustomerActivityPage({
   params: { id: string };
 }) {
   const { organizationId } = await requirePermission('customers', 'view');
+  const canViewAudit = await hasPermission('audit', 'view');
 
   const result = await loadOrFallback(async () => {
     if (!organizationId) return { empty: true as const, rows: [], name: '' };
     const [rows, workspace] = await Promise.all([
-      crmRepos.conversationsInbox.customerActivity(organizationId, params.id, 200),
+      crmRepos.conversationsInbox.customerActivity(organizationId, params.id, 200, { includeAudit: canViewAudit }),
       crmRepos.crm.getWorkspace(organizationId, params.id),
     ]);
     // Fail closed: ignore a customer that is not in the caller's organization.
@@ -52,9 +54,11 @@ export default async function CustomerActivityPage({
       <div className="crm-breadcrumb">
         <Link href={'/crm/customers/' + params.id}>← {name}</Link>
       </div>
-      <h1 className="crm-h1">Activity & audit</h1>
+      <h1 className="crm-h1">{canViewAudit ? 'Activity & audit' : 'Activity'}</h1>
       <p className="crm-sub">
-        {rows.length} recorded action(s) and event(s) for this customer.
+        {canViewAudit
+          ? `${rows.length} recorded action(s) and event(s) for this customer.`
+          : `${rows.length} recorded event(s) for this customer. Audit entries require audit access.`}
       </p>
 
       <div className="crm-panel">
