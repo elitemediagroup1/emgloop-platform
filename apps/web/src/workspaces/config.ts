@@ -139,12 +139,12 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
   label: 'Admin',
   basePath: '/app/admin',
-  home: '/app/admin',
+  home: '/app',
   nav: [
     {
       label: '',
       items: [
-        { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
+        { href: '/app', label: 'Dashboard', icon: 'grid' },
         // Stage 4. HEADLINES is the product noun Charlie and Lexi established;
         // the technical contracts keep their own names. Gated on the READ half
         // of commercialIntelligence, so a READ_ONLY member sees the intelligence
@@ -179,12 +179,12 @@ const EMPLOYEE_WORKSPACE: WorkspaceConfig = {
   role: 'EMPLOYEE',
   label: 'Employee',
   basePath: '/app/employee',
-  home: '/app/employee',
+  home: '/app',
   nav: [
     {
       label: 'My Work',
       items: [
-        { href: '/app/employee', label: 'Dashboard', icon: 'grid' },
+        { href: '/app', label: 'Dashboard', icon: 'grid' },
         { href: '/app/employee/work', label: 'Work OS', icon: 'flow' },
         { href: '/app/employee/businesses', label: 'Assigned Businesses', icon: 'building' },
         { href: '/app/employee/creators', label: 'Assigned Creators', icon: 'star' },
@@ -207,12 +207,12 @@ const BUSINESS_WORKSPACE: WorkspaceConfig = {
   role: 'BUSINESS_OWNER',
   label: 'Business',
   basePath: '/app/business',
-  home: '/app/business',
+  home: '/app',
   nav: [
     {
       label: 'Overview',
       items: [
-        { href: '/app/business', label: 'Dashboard', icon: 'grid' },
+        { href: '/app', label: 'Dashboard', icon: 'grid' },
         { href: '/app/business/calls', label: 'Calls', icon: 'chat' },
         { href: '/app/business/leads', label: 'Leads', icon: 'users' },
         { href: '/app/business/revenue', label: 'Revenue', icon: 'revenue' },
@@ -240,12 +240,12 @@ const CREATOR_WORKSPACE: WorkspaceConfig = {
   role: 'CREATOR',
   label: 'Creator',
   basePath: '/app/creator',
-  home: '/app/creator',
+  home: '/app',
   nav: [
     {
       label: 'Studio',
       items: [
-        { href: '/app/creator', label: 'Dashboard', icon: 'grid' },
+        { href: '/app', label: 'Dashboard', icon: 'grid' },
         { href: '/app/creator/content-calendar', label: 'Content Calendar', icon: 'calendar' },
         { href: '/app/creator/upload', label: 'Upload Video', icon: 'activity' },
         { href: '/app/creator/review-queue', label: 'Content Review Queue', icon: 'columns' },
@@ -275,12 +275,12 @@ const CLIENT_WORKSPACE: WorkspaceConfig = {
   role: 'CLIENT',
   label: 'Client',
   basePath: '/app/client',
-  home: '/app/client',
+  home: '/app',
   nav: [
     {
       label: 'Overview',
       items: [
-        { href: '/app/client', label: 'Dashboard', icon: 'grid' },
+        { href: '/app', label: 'Dashboard', icon: 'grid' },
         { href: '/app/client/messages', label: 'Messages', icon: 'chat' },
         { href: '/app/client/settings', label: 'Settings', icon: 'cog' },
       ],
