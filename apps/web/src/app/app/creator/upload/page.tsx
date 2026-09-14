@@ -1,5 +1,4 @@
-import ShellPage from '../../../../workspaces/ShellPage';
-import { workspaceFor } from '../../../../workspaces/config';
+import { requireWorkspace } from '../../../../workspaces/guard';
 
 // Loop OS — Creator · Upload Video (Phase 2, PR #47).
 //
@@ -9,12 +8,12 @@ import { workspaceFor } from '../../../../workspaces/config';
 // The upload control below is an inert shell affordance (no handler), present
 // so the information architecture is real and reviewable.
 
-export default function CreatorUploadPage() {
-  const ws = workspaceFor('CREATOR');
+export default async function CreatorUploadPage() {
+  await requireWorkspace('CREATOR');
   return (
     <div>
       <div className="ds-pagehead">
-        <div className="ds-eyebrow">{ws.label} Workspace · First-class</div>
+        <div className="ds-eyebrow">Creator Hub</div>
         <h1 className="ds-title">Upload Video</h1>
         <p className="ds-subtitle">
           Upload content for review. Brain analysis and AI critiques will plug into this page.

@@ -1,106 +1,47 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { logoutAction } from '../auth/actions';
-import { hasPermission } from '../auth/guard';
 import { EmgLoopWordmark } from '../app/crm/_brand/Logos';
 import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
-import type { ShellConfig, NavItem, WorkspaceRole } from './config';
-import { navItemVisible, resolveActiveNav } from './config';
-import { resolveWorkspaceRole } from './role-router';
+import { LOOP_NAV, myWorkHref, resolveActiveNav } from './config';
+import { navFor } from './nav-access';
+import { ShellNav } from './ShellNav';
 
-// Loop OS — WorkspaceShell.
+// Loop OS — the application shell.
 //
-// Sprint 29B: THE application shell. Every signed-in surface renders through
-// this component — the five role workspaces under /app AND the CRM under /crm.
-// It takes a ShellConfig (label + nav) and a session; it has no role branching
-// and no knowledge of which surface it is drawing. Adding a surface is a config
-// entry, never a new shell.
+// THE shell. Every signed-in page renders through this component: Loop Home, the
+// role-guarded /app trees and the CRM under /crm. It always renders the one
+// registry, LOOP_NAV; there is no prop to hand it another, so entering a module
+// can never swap the sidebar.
+//
+// It is about the PERSON, not a role-branded workspace: their name and role in
+// the sidebar foot, their name at the root of the breadcrumb, and only the items
+// their permissions and role authority let them open.
 //
 // It renders CHROME ONLY (sidebar, header, breadcrumb, main slot). It never
-// loads data, never decides authorization, and is never the security boundary:
-// `requires` here only greys out a nav link, while each destination still
-// enforces its own server-side gate on arrival.
+// loads business data and is never the security boundary: hiding an item only
+// removes a link, while each destination still enforces its own server-side
+// authority on arrival.
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
   return parts.map((p) => p[0]?.toUpperCase() ?? '').join('') || 'EM';
 }
 
-// One nav link, shared by the main list and the footer (Administration) — the
-// sidebar has ONE link implementation, never per-route variants.
-function renderNavLink(
-  item: NavItem,
-  permitted: Map<string, boolean>,
-  active: string | null,
-  workspace: WorkspaceRole,
-) {
-  // An item the user is denied, or whose workspace they are not in, is HIDDEN,
-  // not greyed — we never render a control the user cannot use. Server guards
-  // still enforce access on arrival; this only removes the link.
-  if (!navItemVisible(item, { permitted: permitted.get(item.href) ?? true, workspace })) return null;
-  const disabled = Boolean(item.soon);
-  const isActive = item.href === active;
-  const className = 'loop-sb__link' + (isActive ? ' is-active' : '') + (disabled ? ' is-disabled' : '');
-  const content = (
-    <>
-      <span className="loop-sb__ico">
-        <SidebarIcon name={item.icon} />
-      </span>
-      <span>{item.label}</span>
-      {item.soon ? <span className="loop-sb__soon">Soon</span> : null}
-    </>
-  );
-  return disabled ? (
-    <span className={className} key={item.href} aria-disabled>
-      {content}
-    </span>
-  ) : (
-    <Link
-      className={className}
-      href={item.href}
-      key={item.href}
-      aria-current={isActive ? 'page' : undefined}
-    >
-      {content}
-    </Link>
-  );
-}
-
 export default async function WorkspaceShell({
-  shell,
   session,
   children,
 }: {
-  shell: ShellConfig;
   session: AuthSession;
   children: React.ReactNode;
 }) {
-  // Breadcrumb leaf, resolved from the path the middleware forwards. Falls back
-  // to the shell root's own label so an unmatched path never renders an empty
-  // crumb.
-  const pathname = headers().get('x-pathname');
-  // ONE resolver for both the breadcrumb product AND the active sidebar item.
-  const activeItem = resolveActiveNav(shell, pathname);
+  const groups = await navFor(session);
+  // Breadcrumb leaf and active item, from the path the middleware forwards, over
+  // the items this person can see. An unmatched path never renders an empty crumb.
+  const activeItem = resolveActiveNav({ nav: groups }, headers().get('x-pathname'));
   const crumb = activeItem?.label ?? 'Overview';
-  const active = activeItem?.href ?? null;
-
-  const workspace = resolveWorkspaceRole(session);
-  const permitted = new Map<string, boolean>();
-  await Promise.all(
-    shell.nav.flatMap((group) =>
-      group.items.map(async (item: NavItem) => {
-        if (!item.requires) {
-          permitted.set(item.href, true);
-          return;
-        }
-        permitted.set(
-          item.href,
-          await hasPermission(item.requires.resource, item.requires.action),
-        );
-      }),
-    ),
-  );
+  const workHref = myWorkHref(groups);
 
   return (
     <div className="loop-os">
@@ -112,22 +53,7 @@ export default async function WorkspaceShell({
             <EmgLoopWordmark height={22} />
             <span className="loop-sb__os">OS</span>
           </div>
-          <nav className="loop-sb__scroll" aria-label={`${shell.label} navigation`}>
-            {shell.nav.filter((g) => !g.footer).map((group, gi) => (
-              <div className="loop-sb__group" key={group.label || `g${gi}`}>
-                {group.label ? <div className="loop-sb__grouplabel">{group.label}</div> : null}
-                {group.items.map((item) => renderNavLink(item, permitted, active, workspace))}
-              </div>
-            ))}
-          </nav>
-          {shell.nav.some((g) => g.footer) ? (
-            <nav className="loop-sb__adminarea" aria-label="Administration">
-              {shell.nav
-                .filter((g) => g.footer)
-                .flatMap((g) => g.items)
-                .map((item) => renderNavLink(item, permitted, active, workspace))}
-            </nav>
-          ) : null}
+          <ShellNav groups={groups} active={activeItem?.href ?? null} label={LOOP_NAV.label} />
           <div className="loop-sb__foot">
             <div className="loop-sb__user">
               <span className="loop-sb__avatar">{initials(session.name)}</span>
@@ -144,24 +70,23 @@ export default async function WorkspaceShell({
         </aside>
         <div className="loop-content">
           <header className="loop-appbar">
-            {/* The breadcrumb leads with the SIGNED-IN user's display name, then
-               the active product — "Charlie / Dashboard", "Matt / Administration".
-               Never the shell label ("Admin"), so the header is always personal. */}
+            {/* The breadcrumb leads with the SIGNED-IN person's name, then the
+               active item: "Charlie / People". Never a role or workspace label. */}
             <nav className="loop-crumbs" aria-label="Breadcrumb">
-              <Link href={shell.home}>
+              <Link href={LOOP_NAV.home}>
                 <b>{session.name}</b>
               </Link>
               <span className="sep" aria-hidden="true">/</span>
               <span aria-current="page">{crumb}</span>
             </nav>
-            {/* Sprint 27: Search + Activity removed (no session-scoped
-               backend wired to the shell yet). Notifications links to the
-               real Work OS notifications; no fake unread badge is shown
-               because AuthSession carries no unread count and this sprint
-               adds no new notification query. */}
-            <Link className="loop-iconbtn" href="/app/admin/work" aria-label="View work notifications">
-              <SidebarIcon name="bell" />
-            </Link>
+            {/* Notifications live in the person's Work OS queue. No fake unread
+               badge: AuthSession carries no unread count. Someone without a Work
+               OS queue is not offered a link that would send them away. */}
+            {workHref ? (
+              <Link className="loop-iconbtn" href={workHref} aria-label="View work notifications">
+                <SidebarIcon name="bell" />
+              </Link>
+            ) : null}
           </header>
           <main className="loop-main" id="loop-main" tabIndex={-1}>{children}</main>
         </div>

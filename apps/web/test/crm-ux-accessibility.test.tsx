@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ActorDisplay, Timeline, TimelineItem, fromInboxItem } from '../src/crm/timeline';
 import { SectionTabs } from '../src/crm/section-tabs';
 import { CrmLoadError } from '../src/crm/load-error';
+import { LOOP_NAV } from '../src/workspaces/config';
 
 const render = (el: unknown) => renderToStaticMarkup(el as never);
 
@@ -20,7 +21,7 @@ const code = (s: string) =>
   s.replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
 const SHELL = read('../src/workspaces/WorkspaceShell.tsx');
-const CONFIG = read('../src/workspaces/config.ts');
+const SHELL_NAV = read('../src/workspaces/ShellNav.tsx');
 const TABS = read('../src/crm/section-tabs.tsx');
 const LOAD_ERROR = read('../src/crm/load-error.tsx');
 const TIMELINE = read('../src/crm/timeline.tsx');
@@ -34,18 +35,11 @@ const DS_CSS = read('../src/app/crm/design-system.css');
 const CRM_CSS = read('../src/app/crm/crm.css');
 const SHELL_CSS = read('../src/app/loop-os.css');
 
-function crmShellBlock(): string {
-  const start = CONFIG.indexOf('export const CRM_SHELL');
-  assert.notEqual(start, -1, 'CRM_SHELL exists');
-  return CONFIG.slice(start, CONFIG.indexOf('\n};', start));
-}
-
+// The CRM area of the one Loop navigation registry.
 function navItems(): { href: string; label: string; soon: boolean }[] {
-  return [...crmShellBlock().matchAll(/\{\s*href:\s*'([^']+)',\s*label:\s*'([^']+)'[^}]*\}/g)].map((m) => ({
-    href: m[1]!,
-    label: m[2]!,
-    soon: /soon:\s*true/.test(m[0]),
-  }));
+  const crm = LOOP_NAV.nav.find((g) => g.label === 'CRM');
+  assert.ok(crm, 'LOOP_NAV has a CRM area');
+  return crm!.items.map((i) => ({ href: i.href, label: i.label, soon: Boolean(i.soon) }));
 }
 
 describe('Shell and navigation', () => {
@@ -56,16 +50,19 @@ describe('Shell and navigation', () => {
   });
 
   it('exposes sidebar and breadcrumb as named navigation landmarks', () => {
-    assert.match(SHELL, /<nav className="loop-sb__scroll" aria-label=/);
+    assert.match(SHELL_NAV, /<nav className="loop-sb__scroll" aria-label=\{label\}>/);
     assert.match(SHELL, /<nav className="loop-crumbs" aria-label="Breadcrumb">/);
-    assert.match(SHELL, /aria-current=\{isActive \? 'page' : undefined\}/);
+    assert.match(SHELL_NAV, /aria-current=\{isActive \? 'page' : undefined\}/);
   });
 
   it('never labels the Customer.status intake board as Pipeline or Opportunities', () => {
     const intake = navItems().find((i) => i.href === '/crm/pipeline');
     assert.ok(intake, '/crm/pipeline is in the CRM nav');
     assert.equal(intake!.label, 'Intake Board');
-    assert.equal(/label:\s*'(Pipeline|Opportunities)'/.test(crmShellBlock()), false);
+    assert.equal(navItems().some((i) => /pipeline/i.test(i.label)), false);
+    const opportunities = navItems().find((i) => i.label === 'Opportunities');
+    assert.ok(opportunities?.soon, 'Opportunities is an unbuilt Phase 2 domain');
+    assert.notEqual(opportunities!.href, '/crm/pipeline');
   });
 
   it('every enabled CRM nav item resolves to a real route; unbuilt ones are marked soon', () => {

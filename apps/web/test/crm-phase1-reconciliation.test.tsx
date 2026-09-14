@@ -20,7 +20,7 @@ import {
   fromAuditView, fromDerivedSignal, fromInboxItem, fromInteraction,
 } from '../src/crm/timeline';
 import { SEARCH_LIMITS, kindLabel, runSearch, type SearchRepos } from '../src/crm/search-data';
-import { CRM_SHELL, navItemVisible } from '../src/workspaces/config';
+import { LOOP_NAV, navItemVisible } from '../src/workspaces/config';
 import { resolveWorkspaceRole } from '../src/workspaces/role-router';
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -115,7 +115,7 @@ describe('AI Activity contains only what an AI actor did', () => {
 });
 
 describe('Navigation', () => {
-  const items = CRM_SHELL.nav.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label })));
+  const items = LOOP_NAV.nav.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label })));
 
   it('no item claims a Calendar that does not exist; the inbox is named as the page names itself', () => {
     assert.equal(items.some((i) => i.label === 'Calendar'), false);
@@ -133,9 +133,11 @@ describe('Navigation', () => {
     assert.equal(headlines!.workspace, 'ADMIN');
   });
 
-  it('those two gates are exactly the ones the destination enforces', () => {
+  it('those two gates are exactly the ones the destination enforces, in the page itself', () => {
+    const page = code(read('../src/app/app/admin/headlines/page.tsx'));
+    assert.match(page, /requireWorkspace\('ADMIN'\)/);
+    assert.match(page, /requirePermission\('commercialIntelligence', 'view'\)/);
     assert.match(code(read('../src/app/app/admin/layout.tsx')), /requireWorkspace\('ADMIN'\)/);
-    assert.match(code(read('../src/app/app/admin/headlines/page.tsx')), /requirePermission\('commercialIntelligence', 'view'\)/);
   });
 
   it('a user whose workspace the destination would redirect is not shown the item', () => {
@@ -156,10 +158,14 @@ describe('Navigation', () => {
     for (const role of ['OWNER', 'ADMIN', 'MANAGER']) assert.equal(resolveWorkspaceRole({ systemRole: role }), 'ADMIN', role);
   });
 
-  it('the shell applies the workspace gate for every item', () => {
+  it('the shell applies the role gate and the permission gate for every item', () => {
     const shell = code(read('../src/workspaces/WorkspaceShell.tsx'));
-    assert.match(shell, /const workspace = resolveWorkspaceRole\(session\);/);
-    assert.match(shell, /navItemVisible\(item, \{ permitted: permitted\.get\(item\.href\) \?\? true, workspace \}\)/);
+    assert.match(shell, /const groups = await navFor\(session\);/);
+    const access = code(read('../src/workspaces/nav-access.ts'));
+    assert.match(access, /workspace: resolveWorkspaceRole\(session\),/);
+    assert.match(access, /repositories\.iam\.canEach\(session\.organizationId, session\.userId, checks\)/);
+    const config = code(read('../src/workspaces/config.ts'));
+    assert.match(config, /navItemVisible\(item, \{\s*permitted: item\.requires \? access\.permitted\(item\) : true,\s*workspace: access\.workspace,\s*\}\)/);
   });
 });
 

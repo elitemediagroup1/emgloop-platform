@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pickActiveHref } from '../src/nav-match';
 
-// The real ADMIN global sidebar hrefs.
+// A fixed href set exercising the resolver (the flat ADMIN sidebar as it was before
+// LOOP_NAV). apps/web/test/one-loop-shell.test.tsx checks the live registry.
 const NAV = [
   '/app/admin',
   '/app/admin/marketplace',

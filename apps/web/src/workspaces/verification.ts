@@ -1,18 +1,17 @@
-// Loop OS — Workspace routing verification harness (pure, PR #47).
+// Loop OS — routing verification harness (pure).
 //
-// Mirrors the PR #45/#46 proof pattern: a tiny framework-free checker over the
-// pure, deterministic pieces of the Phase 2 shell — the role router and the
-// workspace config. It asserts the invariants the Phase 2 brief requires:
-// every SystemRole routes somewhere, routing is config-driven (not hard-coded),
-// isolation holds (an Employee never lands in Admin), the default fails closed,
-// and every workspace's nav points inside its own basePath. No React, no DOM,
-// no I/O, no runtime wiring; it compiles under typecheck and may be invoked via
-// runWorkspaceRoutingVerification().
+// A tiny framework-free checker over the pure, deterministic pieces of the
+// shell — the role router, the role authority table and LOOP_NAV. It asserts:
+// every SystemRole resolves to an authority, routing is table-driven, isolation
+// holds (an Employee never holds Admin authority), the default fails closed,
+// every home is Loop Home, and every nav item states the role authority of the
+// route tree its destination lives in. No React, no DOM, no I/O; it may be
+// invoked via runWorkspaceRoutingVerification().
 
 import {
+  LOOP_NAV,
   WORKSPACES,
   WORKSPACE_ROLES,
-  type WorkspaceRole,
 } from './config';
 import {
   SYSTEM_ROLE_TO_WORKSPACE,
@@ -115,21 +114,18 @@ export function runWorkspaceRoutingVerification(): VerificationReport {
     );
   }
 
-  // 8. Nav integrity: every workspace has at least one group with items, and
-  //    every intra-app link stays inside the workspace basePath, except Loop
-  //    Home itself and deliberate cross-links to /crm.
-  for (const role of WORKSPACE_ROLES) {
-    const ws = WORKSPACES[role];
-    const items = ws.nav.flatMap((g) => g.items);
-    c.ok(role + ' has nav items', items.length > 0);
-    for (const item of items) {
-      const insideOwnWorkspace = item.href.startsWith(ws.basePath) || item.href === '/app';
-      const knownCrossLink = item.href === '/crm' || item.href.startsWith('/crm/');
-      c.ok(
-        role + ' nav link is scoped (' + item.href + ')',
-        insideOwnWorkspace || knownCrossLink,
-      );
-    }
+  // 8. One registry, honest about authority: every LOOP_NAV item opens the
+  //    application (/app or /crm), and an item whose destination lives in a
+  //    role-guarded tree states exactly that tree's role; any other item states
+  //    none. A mismatch would show someone a link that sends them away, or hide
+  //    one they can open.
+  const items = LOOP_NAV.nav.flatMap((g) => g.items);
+  c.ok('LOOP_NAV has nav items', items.length > 0);
+  for (const item of items) {
+    const within = (prefix: string) => item.href === prefix || item.href.startsWith(prefix + '/');
+    c.ok('nav link stays in the application (' + item.href + ')', within('/app') || within('/crm'));
+    const tree = WORKSPACE_ROLES.find((role) => within(WORKSPACES[role].basePath));
+    c.eq('nav authority matches its route tree (' + item.href + ')', item.workspace, tree);
   }
 
   const failures = c.checks.filter((x) => !x.passed).length;

@@ -9,19 +9,16 @@ import './sprint16.css';
 import '../loop-os.css';
 import { getSession } from '../../auth/auth';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
-import { CRM_SHELL, isStandalonePath } from '../../workspaces/config';
+import { isStandalonePath } from '../../workspaces/config';
 
-// CRM layout — Sprint 29B (Unified Workspace Foundation).
+// CRM layout.
 //
-// This layout no longer owns a shell. It is an ADAPTER: it resolves the
-// session, decides whether the route is a public auth screen, and otherwise
-// hands off to the one WorkspaceShell with the CRM's ShellConfig. The sidebar,
-// header, breadcrumb and nav it used to hand-render now come from the shared
-// shell, so /crm and /app are one application framework.
+// The CRM owns no shell. This layout resolves the session, decides whether the
+// route is a public auth screen, and otherwise renders the one Loop shell: the
+// same sidebar, breadcrumb and navigation as every other signed-in page, with
+// CRM as one area of it. Entering the CRM never swaps the sidebar.
 //
-// What deliberately did NOT change: every route still renders in the same
-// content slot, the session read is unchanged, and no page, action, query or
-// permission was touched. Business logic was not moved.
+// It is not a guard: every /crm page enforces its own session and permission.
 //
 // The .crm wrapper stays around the CONTENT (not the shell chrome) because the
 // --crm-* design tokens are scoped to .crm and every CRM page depends on them.
@@ -57,7 +54,7 @@ export default async function CrmLayout({
   }
 
   return (
-    <WorkspaceShell shell={CRM_SHELL} session={session}>
+    <WorkspaceShell session={session}>
       <div className="crm crm--embedded">{children}</div>
     </WorkspaceShell>
   );

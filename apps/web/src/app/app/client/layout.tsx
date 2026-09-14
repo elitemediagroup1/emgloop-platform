@@ -1,14 +1,14 @@
 import WorkspaceShell from '../../../workspaces/WorkspaceShell';
 import { requireWorkspace } from '../../../workspaces/guard';
-import { workspaceFor } from '../../../workspaces/config';
 
 export const dynamic = 'force-dynamic';
 
-// Loop OS — CLIENT workspace layout (Phase 2, PR #47).
+// The client route tree (CLIENT role authority).
 //
-// Guards the workspace (server-side, fail-closed via requireWorkspace) and wraps
-// every page in the shared WorkspaceShell with THIS workspace's config. Same
-// design language as the operating system; nav + permissions come from config.
+// Guards the tree server-side and renders the one Loop shell. The guard here is
+// defence in depth, not the boundary: every page in this tree also enforces
+// requireWorkspace('CLIENT') itself, because a layout is never the only thing
+// standing between a request and a page's data.
 
 export default async function CLIENTLayout({
   children,
@@ -16,9 +16,5 @@ export default async function CLIENTLayout({
   children: React.ReactNode;
 }) {
   const session = await requireWorkspace('CLIENT');
-  return (
-    <WorkspaceShell shell={workspaceFor('CLIENT')} session={session}>
-      {children}
-    </WorkspaceShell>
-  );
+  return <WorkspaceShell session={session}>{children}</WorkspaceShell>;
 }

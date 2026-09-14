@@ -153,14 +153,14 @@ describe('/app renders Loop Home for every role', () => {
   const app = code(read('app/app/page.tsx'));
 
   it('renders inside the shell instead of redirecting by role', () => {
-    assert.match(app, /<WorkspaceShell shell=\{workspaceFor\(role\)\} session=\{session\}>/);
+    assert.match(app, /<WorkspaceShell session=\{session\}>/);
     assert.equal(/resolveHomeRoute/.test(app), false);
     assert.equal((app.match(/redirect\(/g) ?? []).length, 1, 'the only redirect is for a missing session');
     assert.match(app, /if \(!session\) redirect\(loginPathFor\(LOOP_HOME\)\);/);
   });
 
-  it('the Owner/Admin/Manager home renders only for that workspace and enforces it itself', () => {
-    assert.match(app, /\{role === 'ADMIN' \? <AdminHome \/> : <WorkspacePlaceholderHome role=\{role\} \/>\}/);
+  it('the Owner/Admin/Manager home renders only for that authority and enforces it itself', () => {
+    assert.match(app, /\{role === 'ADMIN' \? <AdminHome \/> : <ModuleHome name=\{session\.name\} groups=\{await navFor\(session\)\} \/>\}/);
     const home = code(read('app/app/_home/admin-home.tsx'));
     const body = home.slice(home.indexOf('export async function AdminHome'));
     assert.ok(body.indexOf("await requireWorkspace('ADMIN');") > -1);
