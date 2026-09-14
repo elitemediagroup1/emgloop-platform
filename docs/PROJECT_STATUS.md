@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-14 (CRM Phase 1: PR E #231 in review; merge checkpoint)._
+_Last updated: 2026-09-14 (CRM Phase 1: #234 final reconciliation and #233 demo footprint runner in review)._
 
 ---
 
@@ -1161,36 +1161,34 @@ original `customerId`; the audit records counts only) and its header comment cla
 **NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
 schema**) as its own branch. Business Identity implementation has not begun.
 
-## CRM Phase 1 — Shared Experience Layer — IN REVIEW (#231, security closeout)
+## CRM Phase 1 — Shared Experience Layer — IN REVIEW (#234, final reconciliation)
 
-_Last updated: 2026-09-14 (PR E open; merge checkpoint)._
+_Last updated: 2026-09-14 (#234 and #233 open; merge checkpoints)._
 
 | PR | Scope | Status |
 |----|-------|--------|
-| A — Governed Search | Cross-entity search, Command Center search form | **MERGED** #227 |
-| B — Timeline + Audit Primitives | `src/crm/timeline.tsx`, Command Center adoption | **MERGED** #228 |
-| C — Shared Detail Experience | Customer tabs on primitives, org Activity tab | **MERGED** #229 |
-| D — UX / accessibility / responsive | Shell landmarks + phone nav, intake labelling, `SectionTabs`, `CrmLoadError`, contrast | **MERGED** #230 |
-| E — Security / integrity closeout | Tenant-local org access, `audit:view` gating, server-derived note provenance, Workspace nav | **IN REVIEW** #231 |
+| A–D | Search, timeline primitives, detail experience, UX/a11y/responsive | **MERGED** #227 #228 #229 #230 |
+| E — Security closeout | Tenant-local orgs, `audit:view` gating, server-derived note provenance, Workspace nav | **MERGED** #231 |
+| — /demo removal | Public PII read + fabricated-record write surface deleted | **MERGED** #232 — production verified 404 (GET and server-action POST) 2026-09-14 16:39Z |
+| — Demo footprint runner | Read-only `workflow_dispatch` runner for records the /demo generators left | **IN REVIEW** #233 |
+| F — Final reconciliation | Derived signals, AI Activity, Inbox nav, permission-aware record, intake framing, activity link, deterministic ordering, search/timeline tests, governed Headlines | **IN REVIEW** #234 |
 
-**Next:** merge #231, then run the Phase 1 completion audit against fresh `main`.
+**Next:** merge #234 → run the Phase 1 completion audit against fresh `main`. Merge #233 → dispatch
+**Read Demo Footprint** (`servicesinmycity-demo`) → review suspects before any cleanup (production
+writes need explicit authorization).
 
-**What #231 locks in:**
-- `/crm/organizations` redirects to the session organization; no request path lists, creates or
-  slug-resolves an organization (`listSummaries`/`createOrganization` deleted; `findBySlug` is for
-  `scripts/operations` only).
-- Audit rows are read only with `audit:view`: Command Center (`loadCommandCenter`), organization
-  record, and `customerActivity(…, { includeAudit })`.
-- CRM notes: actor comes from the session via `crmNotePayload`; every actor read goes through
-  `interactionActorType`. Legacy form notes (`loopKind: human_note`, no `actorUserId`) display as
-  human whatever they claimed. No migration — the actor lives in `Interaction.payload`.
+**/demo exposure — what is and is not known.** Closed on production (verified). Whether it was
+accessed is **unknown**: no Netlify credentials or request logs are reachable from the dev
+environment, and missing logs are not evidence of no access. The exposure window ran from Sprint 4
+(2026-06-24) to the #232 deploy (2026-09-14).
 
-**Test baseline:** web `tsx --tsconfig tsconfig.test.json --test test/*.test.tsx` → 251/251 on #231
-(main after #230: 229/229). Database: 1006/1006. Without the test tsconfig, JSX tests fail with
-`React is not defined` — that produced a false "86 failures" figure in #229's description.
+**Headlines in the CRM (Product decision 2026-09-14):** link to CI's governed `/app/admin/headlines`
+and compose its `AttentionBanner` on the Command Center — only for sessions that can open it (ADMIN
+workspace + `commercialIntelligence:view`). EMPLOYEE/READ_ONLY hold the read grant but are not shown
+it; a broader Headlines route/access policy is a separate future decision.
 
-**Not exercised against a live session:** employee view of `/crm` (no audit card), foreign org id
-→ 404, note author name — check on the deploy preview.
+**Test baseline:** web `tsx --tsconfig tsconfig.test.json --test test/*.test.tsx` → 299/299 on #234
+(main after #232: 263/263). Database 1006, shared 996, providers 132, operations 535, diagnostics 47.
 ---
 
 ## Open threads / next steps
