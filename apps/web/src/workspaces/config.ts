@@ -326,7 +326,6 @@ export const CRM_SHELL: ShellConfig = {
     {
       label: 'Relationships',
       items: [
-        { href: '/crm/organizations', label: 'Organizations', icon: 'building' },
         { href: '/crm/customers', label: 'People', icon: 'users' },
         // Canonical Relationship records are a Phase 2 CRM domain. No route
         // exists yet; `soon` renders a non-link item, so nothing 404s.
@@ -367,6 +366,9 @@ export const CRM_SHELL: ShellConfig = {
       label: '',
       footer: true,
       items: [
+        // The signed-in tenant's own Workspace Organization — not a commercial
+        // Company or Relationship, so it sits with workspace administration.
+        { href: '/crm/organizations', label: 'Workspace', icon: 'building' },
         { href: '/app/admin/administration/team', label: 'Team', icon: 'team' },
         { href: '/crm/settings', label: 'Settings', icon: 'cog' },
         { href: '/crm/audit', label: 'Audit Log', icon: 'activity' },
