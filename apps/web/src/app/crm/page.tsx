@@ -4,6 +4,10 @@ import { hasPermission } from '../../auth/guard';
 import { loadOrFallback } from '../../demo/db-health';
 import { loadCommandCenter } from '../../crm/command-center-data';
 import { CrmLoadError } from '../../crm/load-error';
+import { canOpenHeadlines } from '../../crm/headlines-access';
+import { loadAttention } from '../app/admin/headlines/headlines-data';
+import { AttentionBanner } from '../app/admin/headlines/headline-ui';
+import { ReadError } from '../app/_loop-os/product-state';
 import {
   Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
   fromInboxItem, fromAuditView,
@@ -14,7 +18,11 @@ import {
 // The internal EMG operator's landing page. Every value is org-scoped and
 // real — customer counts, intake status breakdown, conversation volume,
 // recent activity. Where a capability is not yet built (Relationships,
-// Campaigns, Commercial Intelligence), the card shows an honest empty state.
+// Campaigns), the card shows an honest empty state.
+//
+// NEEDS ATTENTION is Commercial Intelligence's, not the CRM's. It is read through
+// CI's own loader and rendered with CI's own governed banner, and it appears only
+// for people who can open the Headlines surface it links to.
 //
 // This page replaces the Sprint 24 redirect-to-/app. The CRM is now its own
 // first-class experience within the shared WorkspaceShell.
@@ -28,13 +36,18 @@ function fmtNum(n: number): string {
 
 export default async function CrmCommandCenter() {
   const ctx = await requireCrmContext('/crm');
-  // Resolved before any read: without audit:view the audit query is not issued.
-  const canViewAudit = await hasPermission('audit', 'view');
+  // Resolved before any read: without audit:view the audit query is not issued,
+  // and without access to Headlines no CI read is issued either.
+  const [canViewAudit, showHeadlines] = await Promise.all([
+    hasPermission('audit', 'view'),
+    canOpenHeadlines(ctx.session),
+  ]);
 
   // Parallel data loads — all org-scoped, all real.
-  const result = await loadOrFallback(() =>
-    loadCommandCenter(crmRepos, ctx.organizationId, { canViewAudit }),
-  );
+  const [result, attention] = await Promise.all([
+    loadOrFallback(() => loadCommandCenter(crmRepos, ctx.organizationId, { canViewAudit })),
+    showHeadlines ? loadAttention(ctx.organizationId) : Promise.resolve(null),
+  ]);
 
   if (!result.ok) return <CrmLoadError failure={result} surface="The Command Center" />;
 
@@ -98,6 +111,38 @@ export default async function CrmCommandCenter() {
           <div className="k-trend neutral">{fmtNum(weekCounts.conversations)} conversations</div>
         </div>
       </div>
+
+      {/* Needs Attention — Commercial Intelligence's governed Headlines, linked, never copied */}
+      {attention ? (
+        <section className="ds-card cc-attention" aria-labelledby="cc-attention">
+          <div className="ds-card-head">
+            <h2 id="cc-attention">Needs Attention</h2>
+            <span className="cc-attention__owner">Commercial Intelligence</span>
+            <Link href="/app/admin/headlines" className="more">All headlines <span aria-hidden="true">→</span></Link>
+          </div>
+          <div className="ds-card-body">
+            {!attention.ok ? (
+              <ReadError what={attention.what} retryHref="/crm" />
+            ) : (
+              <>
+                <AttentionBanner attention={attention.value.attention} />
+                {attention.value.headlines.length > 0 ? (
+                  <ul className="cc-attention__list" role="list">
+                    {attention.value.headlines.slice(0, 3).map((h) => (
+                      <li key={h.id}>
+                        <Link href={`/app/admin/headlines/${encodeURIComponent(h.id)}`} className="cc-attention__item">
+                          <span className="cc-attention__statement">{h.statement}</span>
+                          {h.objectiveTitle ? <span className="cc-attention__objective">{h.objectiveTitle}</span> : null}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       {/* Main Grid */}
       <div className="ds-grid cols-3">

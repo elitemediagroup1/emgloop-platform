@@ -50,6 +50,23 @@ export interface NavItem {
   icon: string;
   requires?: { resource: Resource; action: Action };
   soon?: boolean;
+  /**
+   * The workspace whose routes this item opens, when that differs from the
+   * shell it appears in. Its layout redirects any other workspace home, so the
+   * item is shown only to sessions that resolve to it -- never a link that
+   * bounces the user somewhere else.
+   */
+  workspace?: WorkspaceRole;
+}
+
+/** Whether a nav item is offered: its permission, if any, and its workspace, if any. */
+export function navItemVisible(
+  item: Pick<NavItem, 'requires' | 'workspace'>,
+  ctx: { permitted: boolean; workspace: WorkspaceRole },
+): boolean {
+  if (item.requires && !ctx.permitted) return false;
+  if (item.workspace && item.workspace !== ctx.workspace) return false;
+  return true;
 }
 
 export interface NavGroup {
@@ -311,7 +328,10 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // Intelligence. Existing working routes are preserved; new families that don't
 // have full backend support yet render honest empty states on arrival.
 //
-// The CRM sidebar deliberately has NO `requires` on any item — see note above.
+// CRM items still carry no `requires` — see note above. The one exception is an
+// item that opens a governed surface outside the CRM (Headlines): it carries
+// that surface's own permission and workspace, because showing it to someone
+// the destination would redirect is a dead end, not a policy choice.
 export const CRM_SHELL: ShellConfig = {
   label: 'CRM',
   basePath: '/crm',
@@ -348,7 +368,8 @@ export const CRM_SHELL: ShellConfig = {
         { href: '/crm/live/activity', label: 'Live Activity', icon: 'activity' },
         { href: '/crm/live/calls', label: 'Calls', icon: 'chat' },
         { href: '/crm/live/websites', label: 'Websites', icon: 'grid' },
-        { href: '/crm/inbox', label: 'Calendar', icon: 'calendar' },
+        // An activity inbox, not a calendar: no calendar surface exists.
+        { href: '/crm/inbox', label: 'Inbox', icon: 'activity' },
         { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot' },
         { href: '/crm/workflows', label: 'Workflows', icon: 'flow' },
       ],
@@ -356,6 +377,9 @@ export const CRM_SHELL: ShellConfig = {
     {
       label: 'Intelligence',
       items: [
+        // Commercial Intelligence's governed Headlines -- CI's route and CI's
+        // authority, linked, never copied into the CRM.
+        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: OBJECTIVES_VIEW, workspace: 'ADMIN' },
         { href: '/crm/intelligence', label: 'Brain', icon: 'brain' },
         { href: '/crm/analytics', label: 'Analytics', icon: 'chart' },
         { href: '/crm/traffic', label: 'Traffic', icon: 'chart' },

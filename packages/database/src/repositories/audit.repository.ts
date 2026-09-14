@@ -66,7 +66,7 @@ export class AuditRepository {
   ): Promise<AuditView[]> {
     const rows = await this.prisma.auditLog.findMany({
       where: { organizationId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: Math.min(500, Math.max(1, opts.take ?? 200)),
     });
     const prefix = opts.actionPrefix;
