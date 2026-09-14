@@ -47,7 +47,9 @@ export function fromInboxItem(item: {
     source: 'interaction',
     title: item.customerName,
     body: item.summary !== item.kind ? item.summary : undefined,
-    actor: item.customerName,
+    // The person is the subject, not necessarily the actor: an outbound SMS
+    // sent by an AI employee must not read as though the customer sent it.
+    actor: ACTOR_TYPE_LABELS[item.actorType] ?? item.actorType,
     actorType: item.actorType,
     channel: item.channel,
     direction: item.direction,
@@ -155,7 +157,8 @@ const ACTOR_TYPE_LABELS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export function Timeline({ children }: { children: ReactNode }) {
-  return <ul className="tl">{children}</ul>;
+  // role="list" restores list semantics that Safari drops under list-style: none.
+  return <ul className="tl" role="list">{children}</ul>;
 }
 
 export function TimelineItem({ entry }: { entry: TimelineEntry }) {
@@ -196,12 +199,13 @@ export function ActivityTypeBadge({
   direction?: string;
   color?: string;
 }) {
+  // Decorative: every row already states its provenance in text.
   if (color) {
     return (
       <span
         className="tl-badge"
         style={{ background: color }}
-        aria-label={SOURCE_LABELS[source] ?? source}
+        aria-hidden="true"
       />
     );
   }
@@ -212,23 +216,16 @@ export function ActivityTypeBadge({
   else if (source === 'state-change') modifier = ' tl-badge--state';
   else if (source === 'event') modifier = ' tl-badge--event';
 
-  return (
-    <span
-      className={'tl-badge' + modifier}
-      aria-label={SOURCE_LABELS[source] ?? source}
-    />
-  );
+  return <span className={'tl-badge' + modifier} aria-hidden="true" />;
 }
 
 export function ActorDisplay({ name, type }: { name: string; type: string }) {
+  const typeLabel = type ? ACTOR_TYPE_LABELS[type] ?? type : '';
+  const showType = typeLabel !== '' && typeLabel.toLowerCase() !== name.toLowerCase();
   return (
     <span className="tl-actor">
       <span className="tl-actor__name">{name}</span>
-      {type ? (
-        <span className="tl-actor__type">
-          {ACTOR_TYPE_LABELS[type] ?? type}
-        </span>
-      ) : null}
+      {showType ? <span className="tl-actor__type">{typeLabel}</span> : null}
     </span>
   );
 }

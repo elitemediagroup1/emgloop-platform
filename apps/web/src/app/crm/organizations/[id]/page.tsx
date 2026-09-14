@@ -2,6 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
 import { requirePermission } from '../../../../auth/guard';
+import { loadOrFallback } from '../../../../demo/db-health';
+import { CrmLoadError } from '../../../../crm/load-error';
+import { SectionTabs } from '../../../../crm/section-tabs';
 import {
   Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
   fromInboxItem, fromAuditView,
@@ -58,19 +61,24 @@ export default async function OrganizationDetailPage({
     notFound();
   }
 
-  const [org, members, customerResult, statusCounts, recentAudit, recentActivity] = await Promise.all([
+  const result = await loadOrFallback(() => Promise.all([
     crmRepos.organizations.findById(params.id),
     crmRepos.iam.listUsers(params.id),
     crmRepos.crm.listCustomers(params.id, { pageSize: 10, sort: 'createdAt', direction: 'desc' }),
     crmRepos.crm.statusCounts(params.id),
     crmRepos.audit.list(params.id, { take: 10 }),
     crmRepos.crm.inboxFeed(params.id, 10),
-  ]);
+  ]));
+
+  if (!result.ok) return <CrmLoadError failure={result} surface="This workspace organization" />;
+
+  const [org, members, customerResult, statusCounts, recentAudit, recentActivity] = result.data;
 
   if (!org) notFound();
 
   const activeMembers = members.filter((m) => m.status === 'ACTIVE');
   const totalCustomers = customerResult.total;
+  const base = `/crm/organizations/${params.id}`;
 
   return (
     <div className="crm-page">
@@ -80,72 +88,61 @@ export default async function OrganizationDetailPage({
           {org.name.charAt(0).toUpperCase()}
         </div>
         <div className="org-meta">
+          <p className="ds-eyebrow">Workspace Organization</p>
           <h1>{org.name}</h1>
           <p className="org-sub">
-            Workspace Organization &middot; {org.industry || 'Industry not set'} &middot; {org.timezone} &middot; {org.status}
+            {org.industry || 'Industry not set'} &middot; {org.timezone} &middot; {org.status}
           </p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="org-tabs" role="tablist">
-        <Link
-          className={'org-tab' + (activeTab === 'Overview' ? ' active' : '')}
-          href={`/crm/organizations/${params.id}`}
-          role="tab"
-          aria-selected={activeTab === 'Overview'}
-        >Overview</Link>
-        <Link
-          className={'org-tab' + (activeTab === 'Activity' ? ' active' : '')}
-          href={`/crm/organizations/${params.id}?tab=Activity`}
-          role="tab"
-          aria-selected={activeTab === 'Activity'}
-        >Activity</Link>
-        <span className="org-tab" role="tab" aria-disabled="true" style={{ opacity: 0.5 }}>Relationships</span>
-        <span className="org-tab" role="tab" aria-disabled="true" style={{ opacity: 0.5 }}>Opportunities</span>
-        <span className="org-tab" role="tab" aria-disabled="true" style={{ opacity: 0.5 }}>Campaigns</span>
-      </div>
+      <SectionTabs
+        label="Organization sections"
+        tabs={[
+          { label: 'Overview', href: base, active: activeTab === 'Overview' },
+          { label: 'Activity', href: `${base}?tab=Activity`, active: activeTab === 'Activity' },
+          { label: 'Relationships', href: base, soon: true },
+          { label: 'Opportunities', href: base, soon: true },
+          { label: 'Campaigns', href: base, soon: true },
+        ]}
+      />
 
       {activeTab === 'Activity' ? (
         <div className="org-grid">
-          <div>
-            <div className="ds-card" style={{ marginBottom: '1rem' }}>
-              <div className="ds-card-head">
-                <h3>Recent Activity</h3>
-                <Link href="/crm/live/activity" className="more">Live feed →</Link>
-              </div>
-              <div className="ds-card-body">
-                {recentActivity.length === 0 ? (
-                  <EmptyTimeline message="No operational activity yet. Interactions will appear here as they occur." />
-                ) : (
-                  <Timeline>
-                    {recentActivity.map((a) => (
-                      <TimelineItem key={a.id} entry={fromInboxItem(a)} />
-                    ))}
-                  </Timeline>
-                )}
-              </div>
+          <section className="ds-card" aria-labelledby="org-activity">
+            <div className="ds-card-head">
+              <h2 id="org-activity">Recent Activity</h2>
+              <Link href="/crm/live/activity" className="more">Live feed <span aria-hidden="true">→</span></Link>
             </div>
-          </div>
-          <div>
-            <div className="ds-card">
-              <div className="ds-card-head">
-                <h3>Audit Trail</h3>
-                <Link href="/crm/audit" className="more">Full log →</Link>
-              </div>
-              <div className="ds-card-body">
-                {recentAudit.length === 0 ? (
-                  <EmptyTimeline message="No audit events yet. Material actions will be logged here." />
-                ) : (
-                  <Timeline>
-                    {recentAudit.map((a) => (
-                      <AuditEventRow key={a.id} entry={fromAuditView(a)} />
-                    ))}
-                  </Timeline>
-                )}
-              </div>
+            <div className="ds-card-body">
+              {recentActivity.length === 0 ? (
+                <EmptyTimeline message="No operational activity yet. Interactions will appear here as they occur." />
+              ) : (
+                <Timeline>
+                  {recentActivity.map((a) => (
+                    <TimelineItem key={a.id} entry={fromInboxItem(a)} />
+                  ))}
+                </Timeline>
+              )}
             </div>
-          </div>
+          </section>
+          <section className="ds-card" aria-labelledby="org-audit">
+            <div className="ds-card-head">
+              <h2 id="org-audit">Audit Trail</h2>
+              <Link href="/crm/audit" className="more">Full log <span aria-hidden="true">→</span></Link>
+            </div>
+            <div className="ds-card-body">
+              {recentAudit.length === 0 ? (
+                <EmptyTimeline message="No audit events yet. Material actions will be logged here." />
+              ) : (
+                <Timeline>
+                  {recentAudit.map((a) => (
+                    <AuditEventRow key={a.id} entry={fromAuditView(a)} />
+                  ))}
+                </Timeline>
+              )}
+            </div>
+          </section>
         </div>
       ) : null}
 
@@ -154,42 +151,44 @@ export default async function OrganizationDetailPage({
       <div className="org-grid">
 
         {/* Left column: Organization details + Team */}
-        <div>
-          <div className="ds-card" style={{ marginBottom: '1rem' }}>
-            <div className="ds-card-head"><h3>Workspace Details</h3></div>
+        <div className="org-col">
+          <section className="ds-card" aria-labelledby="org-details">
+            <div className="ds-card-head"><h2 id="org-details">Workspace Details</h2></div>
             <div className="ds-card-body">
-              <div className="org-field">
-                <span className="f-label">Legal Name</span>
-                <span className="f-value">{org.name}</span>
-              </div>
-              <div className="org-field">
-                <span className="f-label">Slug</span>
-                <span className="f-value">{org.slug}</span>
-              </div>
-              <div className="org-field">
-                <span className="f-label">Industry</span>
-                <span className="f-value">{org.industry || 'Not set'}</span>
-              </div>
-              <div className="org-field">
-                <span className="f-label">Timezone</span>
-                <span className="f-value">{org.timezone}</span>
-              </div>
-              <div className="org-field">
-                <span className="f-label">Status</span>
-                <span className="f-value">{org.status}</span>
-              </div>
-              <div className="org-field">
-                <span className="f-label">Created</span>
-                <span className="f-value">{fmtDate(org.createdAt?.toISOString?.() ?? org.createdAt as unknown as string)}</span>
-              </div>
+              <dl className="org-fields">
+                <div className="org-field">
+                  <dt className="f-label">Legal Name</dt>
+                  <dd className="f-value">{org.name}</dd>
+                </div>
+                <div className="org-field">
+                  <dt className="f-label">Slug</dt>
+                  <dd className="f-value">{org.slug}</dd>
+                </div>
+                <div className="org-field">
+                  <dt className="f-label">Industry</dt>
+                  <dd className="f-value">{org.industry || 'Not set'}</dd>
+                </div>
+                <div className="org-field">
+                  <dt className="f-label">Timezone</dt>
+                  <dd className="f-value">{org.timezone}</dd>
+                </div>
+                <div className="org-field">
+                  <dt className="f-label">Status</dt>
+                  <dd className="f-value">{org.status}</dd>
+                </div>
+                <div className="org-field">
+                  <dt className="f-label">Created</dt>
+                  <dd className="f-value">{fmtDate(org.createdAt?.toISOString?.() ?? org.createdAt as unknown as string)}</dd>
+                </div>
+              </dl>
             </div>
-          </div>
+          </section>
 
           {/* Team Members */}
-          <div className="ds-card">
+          <section className="ds-card" aria-labelledby="org-team">
             <div className="ds-card-head">
-              <h3>Team ({activeMembers.length})</h3>
-              <Link href="/app/admin/administration/team" className="more">Manage →</Link>
+              <h2 id="org-team">Team ({activeMembers.length})</h2>
+              <Link href="/app/admin/administration/team" className="more">Manage <span aria-hidden="true">→</span></Link>
             </div>
             <div className="ds-card-body">
               {activeMembers.length === 0 ? (
@@ -198,27 +197,29 @@ export default async function OrganizationDetailPage({
                   <div>Invite team members to get started.</div>
                 </div>
               ) : (
-                activeMembers.slice(0, 10).map((m) => (
-                  <div key={m.id} className="org-contact">
-                    <div className="org-contact__avatar">{initials(m.name)}</div>
-                    <div>
-                      <div className="org-contact__name">{m.name || m.email}</div>
-                      <div className="org-contact__role">{roleLabel(m.systemRole)} &middot; {m.email}</div>
-                    </div>
-                  </div>
-                ))
+                <ul className="org-list" role="list">
+                  {activeMembers.slice(0, 10).map((m) => (
+                    <li key={m.id} className="org-contact">
+                      <div className="org-contact__avatar" aria-hidden="true">{initials(m.name)}</div>
+                      <div className="org-contact__text">
+                        <div className="org-contact__name">{m.name || m.email}</div>
+                        <div className="org-contact__role">{roleLabel(m.systemRole)} &middot; {m.email}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
-          </div>
+          </section>
         </div>
 
-        {/* Right column: People summary + Pipeline + Upcoming */}
-        <div>
+        {/* Right column: People summary + Intake status + Upcoming */}
+        <div className="org-col">
           {/* People linked to this org */}
-          <div className="ds-card" style={{ marginBottom: '1rem' }}>
+          <section className="ds-card" aria-labelledby="org-people">
             <div className="ds-card-head">
-              <h3>People ({totalCustomers})</h3>
-              <Link href="/crm/customers" className="more">View all →</Link>
+              <h2 id="org-people">People ({totalCustomers})</h2>
+              <Link href="/crm/customers" className="more">View all <span aria-hidden="true">→</span></Link>
             </div>
             <div className="ds-card-body">
               {totalCustomers === 0 ? (
@@ -228,39 +229,43 @@ export default async function OrganizationDetailPage({
                 </div>
               ) : (
                 <>
-                  {customerResult.rows.slice(0, 5).map((c) => (
-                    <div key={c.id} className="org-contact">
-                      <div className="org-contact__avatar">{initials(c.name)}</div>
-                      <div>
-                        <div className="org-contact__name">{c.name || 'Unnamed'}</div>
-                        <div className="org-contact__role">
-                          {c.company || 'No company'} &middot; {c.status}
+                  <ul className="org-list" role="list">
+                    {customerResult.rows.slice(0, 5).map((c) => (
+                      <li key={c.id} className="org-contact">
+                        <div className="org-contact__avatar" aria-hidden="true">{initials(c.name)}</div>
+                        <div className="org-contact__text">
+                          <div className="org-contact__name">{c.name || 'Unnamed'}</div>
+                          <div className="org-contact__role">
+                            {c.company || 'No company'} &middot; {c.status}
+                          </div>
                         </div>
-                      </div>
-                      <Link href={`/crm/customers/${c.id}`} className="org-contact__link">View →</Link>
-                    </div>
-                  ))}
+                        <Link
+                          href={`/crm/customers/${c.id}`}
+                          className="org-contact__link"
+                          aria-label={`View ${c.name || 'unnamed person'}`}
+                        >View <span aria-hidden="true">→</span></Link>
+                      </li>
+                    ))}
+                  </ul>
                   {totalCustomers > 5 && (
-                    <div style={{ paddingTop: '0.5rem', fontSize: '0.78rem', color: 'var(--crm-muted)' }}>
-                      and {totalCustomers - 5} more
-                    </div>
+                    <p className="org-more">and {totalCustomers - 5} more</p>
                   )}
                 </>
               )}
             </div>
-          </div>
+          </section>
 
           {/* Customer intake status — legacy Customer.status, not canonical Opportunity pipeline */}
-          <div className="ds-card" style={{ marginBottom: '1rem' }}>
+          <section className="ds-card" aria-labelledby="org-intake">
             <div className="ds-card-head">
-              <h3>Intake Status</h3>
-              <Link href="/crm/pipeline" className="more">Board →</Link>
+              <h2 id="org-intake">Intake Status</h2>
+              <Link href="/crm/pipeline" className="more">Intake board <span aria-hidden="true">→</span></Link>
             </div>
             <div className="ds-card-body">
               <div className="cc-pipeline">
                 {(['New', 'Contacted', 'Quoted', 'Booked', 'Completed'] as const).map((s) => (
                   <div key={s} className="cc-pipeline__row">
-                    <span className={'cc-pipeline__dot cc-pipeline__dot--' + s.toLowerCase()} />
+                    <span className={'cc-pipeline__dot cc-pipeline__dot--' + s.toLowerCase()} aria-hidden="true" />
                     <span className="cc-pipeline__label">{s}</span>
                     <span className="cc-pipeline__count">{(statusCounts[s] ?? 0).toLocaleString()}</span>
                   </div>
@@ -268,11 +273,11 @@ export default async function OrganizationDetailPage({
                 <p className="cc-helper">Current intake statuses. Canonical Opportunity pipeline arrives with the Opportunity domain.</p>
               </div>
             </div>
-          </div>
+          </section>
 
           {/* Upcoming: Relationships, Opportunities, Campaigns */}
-          <div className="ds-card">
-            <div className="ds-card-head"><h3>Coming Next</h3></div>
+          <section className="ds-card" aria-labelledby="org-next">
+            <div className="ds-card-head"><h2 id="org-next">Coming Next</h2></div>
             <div className="ds-card-body">
               <div className="cc-upcoming">
                 <div className="cc-upcoming__item">
@@ -298,7 +303,7 @@ export default async function OrganizationDetailPage({
                 </div>
               </div>
             </div>
-          </div>
+          </section>
         </div>
       </div>
       ) : null}

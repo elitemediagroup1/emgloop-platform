@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { crmRepos, requireCrmContext } from '../../crm/crm-data';
 import { requirePermission } from '../../auth/guard';
+import { loadOrFallback } from '../../demo/db-health';
+import { CrmLoadError } from '../../crm/load-error';
 import {
   Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
   fromInboxItem, fromAuditView,
@@ -23,13 +25,6 @@ function fmtNum(n: number): string {
   return n.toLocaleString('en-US');
 }
 
-// Timestamp for "today" and "this week" windows.
-function todayStart(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 function weekStart(): Date {
   const d = new Date();
   d.setDate(d.getDate() - 7);
@@ -42,6 +37,18 @@ export default async function CrmCommandCenter() {
   const orgId = ctx.organizationId;
 
   // Parallel data loads — all org-scoped, all real.
+  const result = await loadOrFallback(() => Promise.all([
+    crmRepos.organizations.findById(orgId),
+    crmRepos.customers.countByOrganization(orgId),
+    crmRepos.crm.statusCounts(orgId),
+    crmRepos.crm.windowCounts(orgId, weekStart(), new Date()),
+    crmRepos.conversationsInbox.listConversations(orgId, {}),
+    crmRepos.crm.inboxFeed(orgId, 8),
+    crmRepos.audit.list(orgId, { take: 10 }),
+  ]));
+
+  if (!result.ok) return <CrmLoadError failure={result} surface="The Command Center" />;
+
   const [
     org,
     customerCount,
@@ -50,18 +57,10 @@ export default async function CrmCommandCenter() {
     conversationCounts,
     recentActivity,
     recentAudit,
-  ] = await Promise.all([
-    crmRepos.organizations.findById(orgId),
-    crmRepos.customers.countByOrganization(orgId),
-    crmRepos.crm.statusCounts(orgId),
-    crmRepos.crm.windowCounts(orgId, weekStart(), new Date()),
-    crmRepos.conversationsInbox.listConversations(orgId, {}),
-    crmRepos.crm.inboxFeed(orgId, 8),
-    crmRepos.audit.list(orgId, { take: 10 }),
-  ]);
+  ] = result.data;
 
   const orgName = org?.name ?? 'Organization';
-  const greeting = getGreeting();
+  const clock = orgClock(org?.timezone);
 
   // Intake status summary from Customer.status (not canonical Opportunity pipeline).
   const activeIntake = (statusCounts.New ?? 0) + (statusCounts.Contacted ?? 0) + (statusCounts.Quoted ?? 0);
@@ -77,37 +76,37 @@ export default async function CrmCommandCenter() {
     <div className="crm-page cc">
       {/* Header */}
       <div className="cc-header">
-        <div>
+        <div className="cc-header__text">
           <p className="ds-eyebrow">Command Center</p>
-          <h1 className="ds-title">{greeting}, {ctx.session.name}</h1>
-          <p className="ds-subtitle">{orgName} &middot; {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
+          <h1 className="ds-title">{clock.greeting}, {ctx.session.name}</h1>
+          <p className="ds-subtitle">{orgName} &middot; {clock.date}</p>
         </div>
         <form className="cc-search" method="get" action="/crm/search" role="search">
-          <input type="search" name="q" className="crm-input cc-search__input" placeholder="Search people, conversations, organizations…" aria-label="Search" />
+          <input type="search" name="q" className="crm-input cc-search__input" placeholder="Search people, conversations, organizations…" aria-label="Search the CRM" />
         </form>
       </div>
 
-      {/* KPI Row */}
+      {/* KPI Row — counts, not trends: only a positive weekly delta is coloured. */}
       <div className="ds-kpis">
         <div className="ds-kpi">
           <div className="k-label">Total People</div>
           <div className="k-value">{fmtNum(customerCount)}</div>
-          <div className="k-trend">{weekCounts.newCustomers > 0 ? `+${weekCounts.newCustomers} this week` : 'No new this week'}</div>
+          <div className={'k-trend' + (weekCounts.newCustomers > 0 ? '' : ' neutral')}>{weekCounts.newCustomers > 0 ? `+${weekCounts.newCustomers} this week` : 'No new this week'}</div>
         </div>
         <div className="ds-kpi">
-          <div className="k-label">Intake Status</div>
+          <div className="k-label">Active Intake</div>
           <div className="k-value">{fmtNum(activeIntake)}</div>
-          <div className="k-trend">{fmtNum(booked)} booked &middot; {fmtNum(completed)} completed</div>
+          <div className="k-trend neutral">{fmtNum(booked)} booked &middot; {fmtNum(completed)} completed</div>
         </div>
         <div className="ds-kpi">
           <div className="k-label">Open Conversations</div>
           <div className="k-value">{fmtNum(openConvos + pendingConvos)}</div>
-          <div className="k-trend">{fmtNum(totalConvos)} total</div>
+          <div className="k-trend neutral">{fmtNum(totalConvos)} total</div>
         </div>
         <div className="ds-kpi">
           <div className="k-label">New This Week</div>
           <div className="k-value">{fmtNum(weekCounts.newCustomers)}</div>
-          <div className="k-trend">{weekCounts.conversations} conversations</div>
+          <div className="k-trend neutral">{fmtNum(weekCounts.conversations)} conversations</div>
         </div>
       </div>
 
@@ -115,10 +114,10 @@ export default async function CrmCommandCenter() {
       <div className="ds-grid cols-3">
 
         {/* Customer Intake Status — legacy Customer.status, not canonical Opportunity pipeline */}
-        <div className="ds-card">
+        <section className="ds-card" aria-labelledby="cc-intake">
           <div className="ds-card-head">
-            <h3>Customer Intake</h3>
-            <Link href="/crm/pipeline" className="more">View all →</Link>
+            <h2 id="cc-intake">Customer Intake</h2>
+            <Link href="/crm/pipeline" className="more">Intake board <span aria-hidden="true">→</span></Link>
           </div>
           <div className="ds-card-body">
             {customerCount === 0 ? (
@@ -127,7 +126,7 @@ export default async function CrmCommandCenter() {
               <div className="cc-pipeline">
                 {(['New', 'Contacted', 'Quoted', 'Booked', 'Completed'] as const).map((s) => (
                   <div key={s} className="cc-pipeline__row">
-                    <span className={'cc-pipeline__dot cc-pipeline__dot--' + s.toLowerCase()} />
+                    <span className={'cc-pipeline__dot cc-pipeline__dot--' + s.toLowerCase()} aria-hidden="true" />
                     <span className="cc-pipeline__label">{s}</span>
                     <span className="cc-pipeline__count">{fmtNum(statusCounts[s] ?? 0)}</span>
                   </div>
@@ -136,13 +135,13 @@ export default async function CrmCommandCenter() {
               </div>
             )}
           </div>
-        </div>
+        </section>
 
         {/* Recent Activity */}
-        <div className="ds-card">
+        <section className="ds-card" aria-labelledby="cc-activity">
           <div className="ds-card-head">
-            <h3>Recent Activity</h3>
-            <Link href="/crm/live/activity" className="more">Live feed →</Link>
+            <h2 id="cc-activity">Recent Activity</h2>
+            <Link href="/crm/live/activity" className="more">Live feed <span aria-hidden="true">→</span></Link>
           </div>
           <div className="ds-card-body">
             {recentActivity.length === 0 ? (
@@ -155,42 +154,42 @@ export default async function CrmCommandCenter() {
               </Timeline>
             )}
           </div>
-        </div>
+        </section>
 
         {/* Quick Actions */}
-        <div className="ds-card">
+        <section className="ds-card" aria-labelledby="cc-quick">
           <div className="ds-card-head">
-            <h3>Quick Actions</h3>
+            <h2 id="cc-quick">Quick Actions</h2>
           </div>
           <div className="ds-card-body cc-actions">
             <Link href="/crm/customers" className="cc-action">
-              <span className="cc-action__ico">👤</span>
+              <span className="cc-action__ico" aria-hidden="true">👤</span>
               <span>View People</span>
             </Link>
             <Link href="/crm/pipeline" className="cc-action">
-              <span className="cc-action__ico">📋</span>
+              <span className="cc-action__ico" aria-hidden="true">📋</span>
               <span>Intake Board</span>
             </Link>
             <Link href="/crm/conversations" className="cc-action">
-              <span className="cc-action__ico">💬</span>
+              <span className="cc-action__ico" aria-hidden="true">💬</span>
               <span>Conversations</span>
             </Link>
             <Link href="/crm/search" className="cc-action">
-              <span className="cc-action__ico">🔍</span>
+              <span className="cc-action__ico" aria-hidden="true">🔍</span>
               <span>Search</span>
             </Link>
           </div>
-        </div>
+        </section>
       </div>
 
       {/* Second Row */}
-      <div className="ds-grid cols-2" style={{ marginTop: '1rem' }}>
+      <div className="ds-grid cols-2 cc-row">
 
         {/* Audit Trail */}
-        <div className="ds-card">
+        <section className="ds-card" aria-labelledby="cc-audit">
           <div className="ds-card-head">
-            <h3>Recent Audit Events</h3>
-            <Link href="/crm/audit" className="more">Full log →</Link>
+            <h2 id="cc-audit">Recent Audit Events</h2>
+            <Link href="/crm/audit" className="more">Full log <span aria-hidden="true">→</span></Link>
           </div>
           <div className="ds-card-body">
             {recentAudit.length === 0 ? (
@@ -203,12 +202,12 @@ export default async function CrmCommandCenter() {
               </Timeline>
             )}
           </div>
-        </div>
+        </section>
 
         {/* Not-yet-built areas — honest scaffolds */}
-        <div className="ds-card">
+        <section className="ds-card" aria-labelledby="cc-upcoming">
           <div className="ds-card-head">
-            <h3>Coming in Phase 2</h3>
+            <h2 id="cc-upcoming">Coming in Phase 2</h2>
           </div>
           <div className="ds-card-body">
             <div className="cc-upcoming">
@@ -218,18 +217,32 @@ export default async function CrmCommandCenter() {
               <UpcomingItem label="Opportunities" desc="Canonical opportunity pipeline with stage transitions, value tracking, and forecasts." />
             </div>
           </div>
-        </div>
+        </section>
 
       </div>
     </div>
   );
 }
 
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+// The server clock is UTC; greeting an Eastern operator with "Good evening" at
+// 3pm is wrong. Organization.timezone is free text, so an invalid zone falls
+// back to UTC rather than throwing.
+function orgClock(timeZone: string | undefined): { greeting: string; date: string } {
+  const now = new Date();
+  const zone = timeZone && isValidTimeZone(timeZone) ? timeZone : 'UTC';
+  const hour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: zone }).format(now));
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const date = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: zone });
+  return { greeting, date };
+}
+
+function isValidTimeZone(zone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function EmptyCard({ icon, title, line }: { icon: string; title: string; line: string }) {

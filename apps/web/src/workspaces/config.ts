@@ -328,15 +328,17 @@ export const CRM_SHELL: ShellConfig = {
       items: [
         { href: '/crm/organizations', label: 'Organizations', icon: 'building' },
         { href: '/crm/customers', label: 'People', icon: 'users' },
-        // Canonical Relationship records are a Phase 2 CRM domain — the route
-        // exists as an honest scaffold that explains what will live here.
+        // Canonical Relationship records are a Phase 2 CRM domain. No route
+        // exists yet; `soon` renders a non-link item, so nothing 404s.
         { href: '/crm/relationships', label: 'Relationships', icon: 'flow', soon: true },
       ],
     },
     {
-      label: 'Pipeline',
+      // /crm/pipeline is the legacy Customer.status intake board. It is not the
+      // canonical Opportunity pipeline and must not be labelled as one.
+      label: 'Intake & Revenue',
       items: [
-        { href: '/crm/pipeline', label: 'Opportunities', icon: 'columns' },
+        { href: '/crm/pipeline', label: 'Intake Board', icon: 'columns' },
         { href: '/crm/revenue', label: 'Revenue', icon: 'revenue' },
       ],
     },
