@@ -105,7 +105,7 @@ export type { RemovedMarkerAssessment, RepairRefusalReason } from './removed-mar
 export { CustomerPartyLinkRepository } from './customer-party-link.repository';
 export type { CreateCustomerPartyLinkInput } from './customer-party-link.repository';
 export { OrganizationRepository } from './organization.repository';
-export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
+export type { OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
 export type { AuditView } from './audit.repository';
 export { ConversationsRepository, CONVERSATION_STATUSES } from './conversations.repository';
