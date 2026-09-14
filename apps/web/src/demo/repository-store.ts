@@ -18,6 +18,7 @@ import {
   prisma,
   createRepositories,
   customerDisplayName,
+  interactionActorType,
   type ChannelType,
   type InteractionKind,
   type InteractionDirection,
@@ -163,7 +164,7 @@ export function toTimelineEntry(i: {
     channel: (attr<string>(i.payload, 'loopChannel') ?? i.channel).toLowerCase(),
     summary: i.summary ?? '',
     body: attr<string>(i.payload, 'body'),
-    actorType: attr<string>(i.payload, 'actorType') ?? 'system',
+    actorType: interactionActorType(i.payload) ?? 'system',
     occurredAt: i.occurredAt.toISOString(),
   };
 }

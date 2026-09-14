@@ -54,7 +54,13 @@ import { HeadlineRepository } from './headline.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
-export { InteractionRepository } from './interaction.repository';
+export {
+  InteractionRepository,
+  crmNotePayload,
+  interactionActorType,
+  interactionActorName,
+} from './interaction.repository';
+export type { AuthenticatedActor } from './interaction.repository';
 export { BookingRepository } from './booking.repository';
 export { SignalRepository, signalTypeFromLabel } from './signal.repository';
 export { DomainEventRepository } from './domain-event.repository';
