@@ -164,8 +164,10 @@ the membership is derived from it. **Always merge, never replace** that bag (see
 Rules). `Invitation.systemRole` is a real column that nothing reads — the role is in metadata.
 
 ### WorkspaceShell & routing
-`/` → `/crm/login` → `/crm` → setup gate → `/app` → role home. `/app/page.tsx` is the *only* place
-post-login routing happens.
+Sign-in lands on Loop Home: `/` → `/crm/login` → `/app`, and a safe requested deep link survives
+sign-in. Every landing decision goes through `apps/web/src/auth/landing.ts`; `/app` renders Loop Home
+and never redirects by role. The target structure (one shell, `/app/<module>` routes, redirects) is
+locked in `docs/architecture/loop-application-structure.md` and is being implemented PR by PR.
 
 `workspaces/config.ts` is data, not code branches. Adding a role is a row. `WorkspaceShell` takes
 `{workspace, session}` and has zero role branching — keep it that way.
