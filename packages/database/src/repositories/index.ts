@@ -53,7 +53,13 @@ import { HeadlineRepository } from './headline.repository';
 
 export * from './types';
 export { CustomerRepository, customerDisplayName } from './customer.repository';
-export { InteractionRepository } from './interaction.repository';
+export {
+  InteractionRepository,
+  crmNotePayload,
+  interactionActorType,
+  interactionActorName,
+} from './interaction.repository';
+export type { AuthenticatedActor } from './interaction.repository';
 export { SignalRepository, signalTypeFromLabel } from './signal.repository';
 export { DomainEventRepository } from './domain-event.repository';
 export { LoopEventRepository } from './loop-event.repository';
@@ -103,7 +109,7 @@ export type { RemovedMarkerAssessment, RepairRefusalReason } from './removed-mar
 export { CustomerPartyLinkRepository } from './customer-party-link.repository';
 export type { CreateCustomerPartyLinkInput } from './customer-party-link.repository';
 export { OrganizationRepository } from './organization.repository';
-export type { OrgSummary, OrgBranding, OrgCrmDefaults } from './organization.repository';
+export type { OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
 export type { AuditView } from './audit.repository';
 export { ConversationsRepository, CONVERSATION_STATUSES } from './conversations.repository';

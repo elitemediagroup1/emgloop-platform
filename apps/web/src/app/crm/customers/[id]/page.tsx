@@ -5,7 +5,12 @@ import { CrmLoadError } from '../../../../crm/load-error';
 import { SectionTabs } from '../../../../crm/section-tabs';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
 import { requirePermission } from '../../../../auth/guard';
-import { PIPELINE_STATUSES, type AssigneeOptions } from '@emgloop/database';
+import {
+  PIPELINE_STATUSES,
+  type AssigneeOptions,
+  interactionActorType,
+  interactionActorName,
+} from '@emgloop/database';
 import {
   addNoteAction,
   setStatusAction,
@@ -140,7 +145,7 @@ export default async function CustomerWorkspace({
   // since Sprint 7; this page simply never consulted it, so every signed-in
   // member of the organization saw the whole customer book.
   await requirePermission('customers', 'view');
-  const { organizationId } = await requireCrmContext();
+  const { organizationId, session } = await requireCrmContext();
 
   const result = await loadOrFallback(async () => {
     const ws = await crmRepos.crm.getWorkspace(organizationId, params.id);
@@ -171,7 +176,7 @@ export default async function CustomerWorkspace({
   const webEvents = ws.interactions.filter((i) => isWebInteraction(i));
   const aiActivity = ws.interactions.filter(
     (i) =>
-      actorLabel(jsonVal<string>(i.payload, 'actorType')) === 'AI' ||
+      actorLabel(interactionActorType(i.payload)) === 'AI' ||
       i.kind === 'APPOINTMENT',
   );
 
@@ -412,11 +417,7 @@ export default async function CustomerWorkspace({
                 <input type="hidden" name="customerId" value={cid} />
                 <textarea className="crm-textarea" name="body" placeholder="Write an internal note…" aria-label="Internal note" required />
                 <div className="crm-form-row">
-                  <select className="crm-select" name="author" defaultValue="HUMAN_AGENT" aria-label="Note author">
-                    <option value="HUMAN_AGENT">Human</option>
-                    <option value="AI_AGENT">AI</option>
-                    <option value="SYSTEM">System</option>
-                  </select>
+                  <span className="crm-faint">Posting as {session.name}</span>
                   <button className="crm-btn" type="submit">Add note</button>
                 </div>
               </form>
@@ -424,12 +425,15 @@ export default async function CustomerWorkspace({
                 <EmptyTimeline message="No notes yet." />
               ) : (
                 notes.map((n) => {
-                  const who = String(jsonVal<string>(n.payload, 'actorType') ?? 'SYSTEM');
+                  const who = interactionActorType(n.payload) ?? 'SYSTEM';
+                  const authorName = interactionActorName(n.payload);
                   const cls = who === 'AI_AGENT' ? 'AI_AGENT' : who === 'HUMAN_AGENT' ? 'HUMAN_AGENT' : 'SYSTEM';
                   return (
                     <div className="crm-note" key={n.id}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span className={'who ' + cls}>{actorLabel(who)}</span>
+                        <span className={'who ' + cls}>
+                          {authorName ? `${authorName} · ${actorLabel(who)}` : actorLabel(who)}
+                        </span>
                         <span className="when">{fmt(n.occurredAt)}</span>
                       </div>
                       <div className="crm-tl-body">{jsonVal<string>(n.payload, 'body') || n.summary}</div>

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
-import { requirePermission } from '../../../../auth/guard';
+import { requirePermission, hasPermission } from '../../../../auth/guard';
 import { loadOrFallback } from '../../../../demo/db-health';
 import { CrmLoadError } from '../../../../crm/load-error';
 import { SectionTabs } from '../../../../crm/section-tabs';
@@ -57,16 +57,21 @@ export default async function OrganizationDetailPage({
   const ctx = await requireCrmContext('/crm/organizations');
   await requirePermission('organizations', 'view');
 
+  // Tenant-local: the only organization a session may see is its own. Any other
+  // id — real or not — is not-found, before a single row is read.
   if (params.id !== ctx.organizationId) {
     notFound();
   }
+
+  // organizations:view does not imply audit:view (a Permission row can deny it).
+  const canViewAudit = await hasPermission('audit', 'view');
 
   const result = await loadOrFallback(() => Promise.all([
     crmRepos.organizations.findById(params.id),
     crmRepos.iam.listUsers(params.id),
     crmRepos.crm.listCustomers(params.id, { pageSize: 10, sort: 'createdAt', direction: 'desc' }),
     crmRepos.crm.statusCounts(params.id),
-    crmRepos.audit.list(params.id, { take: 10 }),
+    canViewAudit ? crmRepos.audit.list(params.id, { take: 10 }) : Promise.resolve(null),
     crmRepos.crm.inboxFeed(params.id, 10),
   ]));
 
@@ -126,23 +131,25 @@ export default async function OrganizationDetailPage({
               )}
             </div>
           </section>
-          <section className="ds-card" aria-labelledby="org-audit">
-            <div className="ds-card-head">
-              <h2 id="org-audit">Audit Trail</h2>
-              <Link href="/crm/audit" className="more">Full log <span aria-hidden="true">→</span></Link>
-            </div>
-            <div className="ds-card-body">
-              {recentAudit.length === 0 ? (
-                <EmptyTimeline message="No audit events yet. Material actions will be logged here." />
-              ) : (
-                <Timeline>
-                  {recentAudit.map((a) => (
-                    <AuditEventRow key={a.id} entry={fromAuditView(a)} />
-                  ))}
-                </Timeline>
-              )}
-            </div>
-          </section>
+          {recentAudit ? (
+            <section className="ds-card" aria-labelledby="org-audit">
+              <div className="ds-card-head">
+                <h2 id="org-audit">Audit Trail</h2>
+                <Link href="/crm/audit" className="more">Full log <span aria-hidden="true">→</span></Link>
+              </div>
+              <div className="ds-card-body">
+                {recentAudit.length === 0 ? (
+                  <EmptyTimeline message="No audit events yet. Material actions will be logged here." />
+                ) : (
+                  <Timeline>
+                    {recentAudit.map((a) => (
+                      <AuditEventRow key={a.id} entry={fromAuditView(a)} />
+                    ))}
+                  </Timeline>
+                )}
+              </div>
+            </section>
+          ) : null}
         </div>
       ) : null}
 

@@ -29,10 +29,7 @@ import {
   customerBelongsToOrg,
 } from './crm-data';
 import { requirePermission } from '../auth/guard';
-import { PIPELINE_STATUSES, type PipelineStatus } from '@emgloop/database';
-
-/** Author of a note. Mirrors the schema ActorType so the UI can distinguish. */
-export type NoteAuthor = 'HUMAN_AGENT' | 'AI_AGENT' | 'SYSTEM';
+import { PIPELINE_STATUSES, type PipelineStatus, crmNotePayload } from '@emgloop/database';
 
 function refresh(customerId: string) {
   revalidatePath(`/crm/customers/${customerId}`);
@@ -56,21 +53,20 @@ function parseIds(formData: FormData): string[] {
 
 /**
  * Add an internal note to a customer's timeline. Persisted as an Interaction
- * (channel OTHER, kind NOTE, direction INTERNAL). The author type is stored in
- * payload.actorType so Human / AI / System notes are visually distinguished.
+ * (channel OTHER, kind NOTE, direction INTERNAL).
+ *
+ * The author is the signed-in principal — its user id, name and actor type are
+ * taken from the session by crmNotePayload. Nothing the form sends can make a
+ * person's note read as AI or System.
  */
 export async function addNoteAction(formData: FormData): Promise<void> {
   const customerId = String(formData.get('customerId') ?? '').trim();
   const body = String(formData.get('body') ?? '').trim();
-  const authorRaw = String(formData.get('author') ?? 'HUMAN_AGENT');
-  const author: NoteAuthor =
-    authorRaw === 'AI_AGENT' || authorRaw === 'SYSTEM'
-      ? (authorRaw as NoteAuthor)
-      : 'HUMAN_AGENT';
   if (!customerId || !body) return;
 
   await requirePermission('customers', 'update');
-  const { organizationId } = await requireCrmContext();
+  const ctx = await requireCrmContext();
+  const { organizationId } = ctx;
   if (!(await customerBelongsToOrg(organizationId, customerId))) return;
 
   await crmRepos.interactions.create({
@@ -80,7 +76,10 @@ export async function addNoteAction(formData: FormData): Promise<void> {
     kind: 'NOTE',
     direction: 'INTERNAL',
     summary: 'Internal note',
-    payload: { loopKind: 'human_note', actorType: author, body },
+    payload: crmNotePayload(
+      { userId: ctx.userId, name: ctx.session.name, systemRole: ctx.systemRole },
+      body,
+    ),
   });
 
   refresh(customerId);

@@ -1,6 +1,6 @@
 // OrganizationRepository — Sprint 7 (Identity, Authentication & Organizations).
 //
-// Real organization management replacing the demo-only assumption. Wraps the
+// The signed-in tenant's own organization record. Wraps the
 // Organization table plus its OrganizationSettings / OrganizationPreferences /
 // OrganizationDNA satellites. Branding, timezone, and CRM defaults live in the
 // already-designed JSON columns (settings.branding, dna.brand, settings.defaults)
@@ -8,18 +8,6 @@
 // keeps working untouched.
 
 import type { PrismaClient, Organization } from '@prisma/client';
-
-export interface OrgSummary {
-  id: string;
-  name: string;
-  slug: string;
-  industry: string;
-  status: string;
-  timezone: string;
-  userCount: number;
-  customerCount: number;
-  createdAt: string;
-}
 
 export interface OrgBranding {
   primaryColor: string;
@@ -50,54 +38,11 @@ export class OrganizationRepository {
     return this.prisma.organization.findUnique({ where: { id } });
   }
 
+  // Operator scripts only (scripts/operations), which name an organization by
+  // slug. Never call this from a request path: a tenant must not be able to
+  // resolve, list or create any organization but its own session organization.
   findBySlug(slug: string): Promise<Organization | null> {
     return this.prisma.organization.findUnique({ where: { slug } });
-  }
-
-  /** All organizations with light usage counts, for the switcher + list. */
-  async listSummaries(): Promise<OrgSummary[]> {
-    const orgs = await this.prisma.organization.findMany({
-      orderBy: { createdAt: 'asc' },
-      include: { _count: { select: { users: true, customers: true } } },
-    });
-    return orgs.map((o) => ({
-      id: o.id,
-      name: o.name,
-      slug: o.slug,
-      industry: o.industry,
-      status: o.status,
-      timezone: o.timezone,
-      userCount: o._count.users,
-      customerCount: o._count.customers,
-      createdAt: o.createdAt.toISOString(),
-    }));
-  }
-
-  /** Create a new organization (slugified, unique). */
-  async createOrganization(args: {
-    name: string;
-    slug?: string;
-    timezone?: string;
-  }): Promise<Organization> {
-    const base = (args.slug || args.name)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'org';
-    let slug = base;
-    let n = 1;
-    while (await this.prisma.organization.findUnique({ where: { slug } })) {
-      n += 1;
-      slug = base + '-' + n;
-    }
-    return this.prisma.organization.create({
-      data: {
-        name: args.name.trim(),
-        slug,
-        status: 'ACTIVE',
-        timezone: args.timezone || 'UTC',
-      },
-    });
   }
 
   /** Update core profile fields (name, timezone, industry). */

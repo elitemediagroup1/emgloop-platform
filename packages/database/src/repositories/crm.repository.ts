@@ -18,6 +18,7 @@
 
 import type { Prisma, PrismaClient, Customer } from '@prisma/client';
 import { customerDisplayName } from './customer.repository';
+import { interactionActorType } from './interaction.repository';
 
 export type PipelineStatus =
   | 'New'
@@ -618,7 +619,7 @@ export class CrmRepository {
     return interactions.map((i) => {
       const c = i.customer;
       const name = c ? nameFromParts(c) : 'Unknown customer';
-      const actorType = attr<string>(i.payload, 'actorType') ?? 'SYSTEM';
+      const actorType = interactionActorType(i.payload) ?? 'SYSTEM';
       return {
         id: i.id,
         customerId: i.customerId,

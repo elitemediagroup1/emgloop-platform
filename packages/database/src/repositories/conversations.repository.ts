@@ -517,19 +517,24 @@ export class ConversationsRepository {
 
   // --- Per-customer activity / audit view ----------------------------
 
-  /** Surface the AuditLog + DomainEvent rows that concern a customer,
-      merged into one reverse-chronological activity stream. */
+  /** Surface the DomainEvent rows — and, only for a caller holding audit:view,
+      the AuditLog rows — that concern a customer, merged into one
+      reverse-chronological activity stream. `includeAudit` is required so the
+      audit read is a decision every caller makes, not a default. */
   async customerActivity(
     organizationId: string,
     customerId: string,
-    take = 100,
+    take: number,
+    access: { includeAudit: boolean },
   ): Promise<{ id: string; kind: 'audit' | 'event'; label: string; actor: string; at: string }[]> {
     const [audits, events] = await Promise.all([
-      this.prisma.auditLog.findMany({
-        where: { organizationId, entityType: 'customer', entityId: customerId },
-        orderBy: { createdAt: 'desc' },
-        take,
-      }),
+      access.includeAudit
+        ? this.prisma.auditLog.findMany({
+            where: { organizationId, entityType: 'customer', entityId: customerId },
+            orderBy: { createdAt: 'desc' },
+            take,
+          })
+        : Promise.resolve([]),
       this.prisma.domainEvent.findMany({
         where: { organizationId, aggregateType: 'customer', aggregateId: customerId },
         orderBy: { occurredAt: 'desc' },
