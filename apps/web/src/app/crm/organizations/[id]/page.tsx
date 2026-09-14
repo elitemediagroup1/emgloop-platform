@@ -2,6 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
 import { requirePermission } from '../../../../auth/guard';
+import {
+  Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
+  fromInboxItem, fromAuditView,
+} from '../../../../crm/timeline';
 
 // Workspace Organization — Phase 1.
 //
@@ -33,26 +37,34 @@ function roleLabel(role: string): string {
   return map[role] ?? role;
 }
 
+const ORG_TABS = ['Overview', 'Activity'] as const;
+type OrgTab = (typeof ORG_TABS)[number];
+
 export default async function OrganizationDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { tab?: string };
 }) {
+  const activeTab: OrgTab = (ORG_TABS as readonly string[]).includes(searchParams?.tab ?? '')
+    ? (searchParams!.tab as OrgTab)
+    : 'Overview';
+
   const ctx = await requireCrmContext('/crm/organizations');
   await requirePermission('organizations', 'view');
 
-  // Only allow viewing the user's own organization (tenant-local).
-  // Cross-org viewing is a Phase 0 deferred decision.
   if (params.id !== ctx.organizationId) {
     notFound();
   }
 
-  const [org, members, customerResult, statusCounts, recentAudit] = await Promise.all([
+  const [org, members, customerResult, statusCounts, recentAudit, recentActivity] = await Promise.all([
     crmRepos.organizations.findById(params.id),
     crmRepos.iam.listUsers(params.id),
     crmRepos.crm.listCustomers(params.id, { pageSize: 10, sort: 'createdAt', direction: 'desc' }),
     crmRepos.crm.statusCounts(params.id),
-    crmRepos.audit.list(params.id, { take: 5 }),
+    crmRepos.audit.list(params.id, { take: 10 }),
+    crmRepos.crm.inboxFeed(params.id, 10),
   ]);
 
   if (!org) notFound();
@@ -75,16 +87,70 @@ export default async function OrganizationDetailPage({
         </div>
       </div>
 
-      {/* Tabs — shows what sections exist. Active is Overview for now. */}
+      {/* Tabs */}
       <div className="org-tabs" role="tablist">
-        <span className="org-tab active" role="tab" aria-selected="true">Overview</span>
+        <Link
+          className={'org-tab' + (activeTab === 'Overview' ? ' active' : '')}
+          href={`/crm/organizations/${params.id}`}
+          role="tab"
+          aria-selected={activeTab === 'Overview'}
+        >Overview</Link>
+        <Link
+          className={'org-tab' + (activeTab === 'Activity' ? ' active' : '')}
+          href={`/crm/organizations/${params.id}?tab=Activity`}
+          role="tab"
+          aria-selected={activeTab === 'Activity'}
+        >Activity</Link>
         <span className="org-tab" role="tab" aria-disabled="true" style={{ opacity: 0.5 }}>Relationships</span>
         <span className="org-tab" role="tab" aria-disabled="true" style={{ opacity: 0.5 }}>Opportunities</span>
         <span className="org-tab" role="tab" aria-disabled="true" style={{ opacity: 0.5 }}>Campaigns</span>
-        <span className="org-tab" role="tab" aria-disabled="true" style={{ opacity: 0.5 }}>Activity</span>
       </div>
 
-      {/* Main content grid */}
+      {activeTab === 'Activity' ? (
+        <div className="org-grid">
+          <div>
+            <div className="ds-card" style={{ marginBottom: '1rem' }}>
+              <div className="ds-card-head">
+                <h3>Recent Activity</h3>
+                <Link href="/crm/live/activity" className="more">Live feed →</Link>
+              </div>
+              <div className="ds-card-body">
+                {recentActivity.length === 0 ? (
+                  <EmptyTimeline message="No operational activity yet. Interactions will appear here as they occur." />
+                ) : (
+                  <Timeline>
+                    {recentActivity.map((a) => (
+                      <TimelineItem key={a.id} entry={fromInboxItem(a)} />
+                    ))}
+                  </Timeline>
+                )}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div className="ds-card">
+              <div className="ds-card-head">
+                <h3>Audit Trail</h3>
+                <Link href="/crm/audit" className="more">Full log →</Link>
+              </div>
+              <div className="ds-card-body">
+                {recentAudit.length === 0 ? (
+                  <EmptyTimeline message="No audit events yet. Material actions will be logged here." />
+                ) : (
+                  <Timeline>
+                    {recentAudit.map((a) => (
+                      <AuditEventRow key={a.id} entry={fromAuditView(a)} />
+                    ))}
+                  </Timeline>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Main content grid — Overview tab */}
+      {activeTab === 'Overview' ? (
       <div className="org-grid">
 
         {/* Left column: Organization details + Team */}
@@ -235,6 +301,7 @@ export default async function OrganizationDetailPage({
           </div>
         </div>
       </div>
+      ) : null}
     </div>
   );
 }
