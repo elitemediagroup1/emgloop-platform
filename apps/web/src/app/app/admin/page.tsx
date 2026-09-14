@@ -230,11 +230,11 @@ export default async function Dashboard() {
             )}
           </Tile>
 
-          {/* CRM — not built; reads nothing */}
+          {/* CRM — Phase 1: real command center with org-scoped data */}
           <Tile title="CRM">
-            <StatusWord tone="idle" label="Not Configured" />
-            <p className="tile__line">The CRM has not yet been built.</p>
-            <span className="tile__action tile__action--disabled" aria-disabled="true">Open CRM →</span>
+            <StatusWord tone="good" label="Active" />
+            <p className="tile__line">Phase 1 CRM is live with people, conversations, intake status and activity.</p>
+            <Link href="/crm" className="tile__action">Open CRM →</Link>
           </Tile>
 
           {/* Creator Hub */}

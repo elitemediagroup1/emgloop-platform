@@ -293,3 +293,106 @@ a.crm-card:hover, .crm-card.hoverable:hover {
   min-height: 0;
   background: transparent;
 }
+
+/* =====================================================================
+   Phase 1 — CRM Command Center (Charlie/Lexi §10.1)
+   ---------------------------------------------------------------------
+   The internal operator landing page. Uses and extends the existing ds-*
+   primitives; no new design system or token namespace.
+   ===================================================================== */
+
+/* Header */
+.cc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.cc-search { flex: 0 0 320px; }
+.cc-search__input { width: 100%; padding: 0.55rem 0.85rem; font-size: 0.88rem; }
+@media (max-width: 800px) { .cc-search { flex: 1 1 100%; } }
+
+/* Pipeline mini-bar */
+.cc-pipeline { display: flex; flex-direction: column; gap: 0.5rem; }
+.cc-pipeline__row { display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; }
+.cc-pipeline__dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.cc-pipeline__dot--new { background: var(--crm-blue); }
+.cc-pipeline__dot--contacted { background: var(--crm-purple); }
+.cc-pipeline__dot--quoted { background: var(--crm-amber); }
+.cc-pipeline__dot--booked { background: var(--crm-accent); }
+.cc-pipeline__dot--completed { background: var(--crm-green); }
+.cc-pipeline__label { color: var(--crm-muted); }
+.cc-pipeline__count { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Helper text under intake status / status cards */
+.cc-helper { font-size: 0.74rem; color: var(--crm-muted); margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--crm-border-soft); }
+
+/* Activity feed refinements */
+.cc-act__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-act__text strong { font-weight: 600; color: var(--crm-text); }
+.adot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; background: var(--crm-accent); }
+.adot--in { background: var(--crm-green); }
+.adot--out { background: var(--crm-blue); }
+
+/* Quick actions grid */
+.cc-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
+.cc-action {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.7rem 0.85rem; border-radius: var(--crm-radius-sm);
+  background: var(--crm-hover); border: 1px solid var(--crm-border);
+  font-size: 0.85rem; font-weight: 500; color: var(--crm-text);
+  transition: border-color var(--crm-dur) var(--crm-ease), background var(--crm-dur) var(--crm-ease);
+  text-decoration: none;
+}
+.cc-action:hover { border-color: var(--crm-accent-soft); background: var(--crm-card); }
+.cc-action__ico { font-size: 1.1rem; }
+
+/* Upcoming / not-yet-built cards */
+.cc-upcoming { display: flex; flex-direction: column; gap: 0.7rem; }
+.cc-upcoming__item { padding: 0.65rem 0; border-bottom: 1px solid var(--crm-border-soft); }
+.cc-upcoming__item:last-child { border-bottom: none; }
+.cc-upcoming__label { font-weight: 600; font-size: 0.88rem; color: var(--crm-text); margin-bottom: 0.15rem; }
+.cc-upcoming__desc { font-size: 0.78rem; color: var(--crm-muted); }
+
+/* =====================================================================
+   Phase 1 — Organization Detail (Charlie/Lexi §10.2)
+   ===================================================================== */
+
+/* Organization header card */
+.org-header { display: flex; align-items: center; gap: 1.2rem; margin-bottom: 1.5rem; }
+.org-avatar {
+  width: 56px; height: 56px; border-radius: var(--crm-radius);
+  background: var(--crm-brand-grad); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 1.4rem; flex: 0 0 56px;
+}
+.org-meta h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+.org-meta .org-sub { color: var(--crm-muted); font-size: 0.85rem; margin-top: 0.15rem; }
+
+/* Tabs */
+.org-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--crm-border); margin-bottom: 1.25rem; }
+.org-tab {
+  padding: 0.55rem 1rem; font-size: 0.82rem; font-weight: 600;
+  color: var(--crm-muted); text-decoration: none;
+  border-bottom: 2px solid transparent; transition: all var(--crm-dur) var(--crm-ease);
+}
+.org-tab:hover { color: var(--crm-text); }
+.org-tab.active { color: var(--crm-accent); border-bottom-color: var(--crm-accent); }
+
+/* Org detail grid */
+.org-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 900px) { .org-grid { grid-template-columns: 1fr; } }
+
+/* Field rows */
+.org-field { display: flex; justify-content: space-between; padding: 0.45rem 0; border-bottom: 1px solid var(--crm-border-soft); font-size: 0.84rem; }
+.org-field:last-child { border-bottom: none; }
+.org-field .f-label { color: var(--crm-muted); }
+.org-field .f-value { font-weight: 500; text-align: right; }
+
+/* Contact rows in org detail */
+.org-contact { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0; border-bottom: 1px solid var(--crm-border-soft); }
+.org-contact:last-child { border-bottom: none; }
+.org-contact__avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--crm-accent-dim); color: var(--crm-accent);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 0.72rem; flex: 0 0 32px;
+}
+.org-contact__name { font-weight: 600; font-size: 0.85rem; }
+.org-contact__role { color: var(--crm-muted); font-size: 0.76rem; }
+.org-contact__link { margin-left: auto; font-size: 0.78rem; color: var(--crm-accent); text-decoration: none; }
