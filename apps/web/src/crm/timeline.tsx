@@ -10,7 +10,9 @@ import { relTime } from '../app/app/_loop-os/format';
 // Unified entry type
 // ---------------------------------------------------------------------------
 
-export type TimelineSource = 'interaction' | 'audit' | 'state-change' | 'event';
+// 'derived-signal' is what Loop inferred (signal registry, next-best-action),
+// never what happened. It must not share a label with recorded facts.
+export type TimelineSource = 'interaction' | 'audit' | 'state-change' | 'event' | 'derived-signal';
 
 export interface TimelineEntry {
   id: string;
@@ -133,6 +135,25 @@ export function fromInteraction(item: {
   };
 }
 
+export function fromDerivedSignal(item: {
+  id: string;
+  key: string;
+  label: string | null;
+  type: string;
+  source: string | null;
+  observedAt: Date | string;
+}): TimelineEntry {
+  return {
+    id: item.id,
+    source: 'derived-signal',
+    title: item.label || item.key,
+    actor: item.source || 'Unrecorded producer',
+    actorType: 'SYSTEM',
+    kind: item.type,
+    occurredAt: typeof item.observedAt === 'string' ? item.observedAt : item.observedAt.toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Display helpers
 // ---------------------------------------------------------------------------
@@ -142,6 +163,7 @@ const SOURCE_LABELS: Record<TimelineSource, string> = {
   audit: 'Audit',
   'state-change': 'State Change',
   event: 'Domain Event',
+  'derived-signal': 'Derived Signal',
 };
 
 const ACTOR_TYPE_LABELS: Record<string, string> = {
@@ -215,16 +237,20 @@ export function ActivityTypeBadge({
   else if (source === 'audit') modifier = ' tl-badge--audit';
   else if (source === 'state-change') modifier = ' tl-badge--state';
   else if (source === 'event') modifier = ' tl-badge--event';
+  else if (source === 'derived-signal') modifier = ' tl-badge--derived';
 
   return <span className={'tl-badge' + modifier} aria-hidden="true" />;
 }
 
 export function ActorDisplay({ name, type }: { name: string; type: string }) {
+  // A missing actor is stated, not left blank: an empty name reads as though
+  // the row explains itself.
+  const shown = name.trim() || 'Unknown actor';
   const typeLabel = type ? ACTOR_TYPE_LABELS[type] ?? type : '';
-  const showType = typeLabel !== '' && typeLabel.toLowerCase() !== name.toLowerCase();
+  const showType = typeLabel !== '' && typeLabel.toLowerCase() !== shown.toLowerCase();
   return (
     <span className="tl-actor">
-      <span className="tl-actor__name">{name}</span>
+      <span className="tl-actor__name">{shown}</span>
       {showType ? <span className="tl-actor__type">{typeLabel}</span> : null}
     </span>
   );

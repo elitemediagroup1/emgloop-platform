@@ -139,7 +139,7 @@ describe('Timeline primitives', () => {
 
   it('do not repeat an actor type that equals the actor name', () => {
     const actor = TIMELINE.slice(TIMELINE.indexOf('export function ActorDisplay'), TIMELINE.indexOf('export function ProvenanceDisplay'));
-    assert.match(actor, /typeLabel\.toLowerCase\(\) !== name\.toLowerCase\(\)/);
+    assert.match(actor, /typeLabel\.toLowerCase\(\) !== shown\.toLowerCase\(\)/);
   });
 
   it('wrap long titles and bodies instead of truncating them', () => {
@@ -156,7 +156,7 @@ describe('Honest failure states', () => {
 
   it('each Phase 1 surface renders CrmLoadError when its read fails', () => {
     for (const [name, src] of surfaces) {
-      assert.match(src, /await loadOrFallback\(/, `${name} loads through loadOrFallback`);
+      assert.match(src, /loadOrFallback\(/, `${name} loads through loadOrFallback`);
       assert.match(src, /<CrmLoadError failure=\{/, `${name} renders CrmLoadError`);
       assert.equal(src.includes('DbNotConfigured'), false, `${name} no longer renders the legacy full-page notice`);
     }
@@ -164,13 +164,13 @@ describe('Honest failure states', () => {
 
   it('authorization and tenancy checks run before, not inside, the swallowing loader', () => {
     for (const [name, src] of surfaces) {
-      const loader = src.indexOf('await loadOrFallback(');
+      const loader = src.indexOf('loadOrFallback(');
       assert.ok(src.indexOf('requireCrmContext(') < loader, `${name}: context resolved first`);
     }
-    assert.ok(ORG.indexOf('params.id !== ctx.organizationId') < ORG.indexOf('await loadOrFallback('));
-    assert.ok(ORG.indexOf("requirePermission('organizations', 'view')") < ORG.indexOf('await loadOrFallback('));
-    assert.ok(SEARCH.indexOf("requirePermission('customers', 'view')") < SEARCH.indexOf('await loadOrFallback('));
-    assert.ok(CUSTOMER.indexOf("requirePermission('customers', 'view')") < CUSTOMER.indexOf('await loadOrFallback('));
+    assert.ok(ORG.indexOf('params.id !== ctx.organizationId') < ORG.indexOf('loadOrFallback('));
+    assert.ok(ORG.indexOf("requirePermission('organizations', 'view')") < ORG.indexOf('loadOrFallback('));
+    assert.ok(SEARCH.indexOf("requirePermission('customers', 'view')") < SEARCH.indexOf('loadOrFallback('));
+    assert.ok(CUSTOMER.indexOf("requirePermission('customers', 'view')") < CUSTOMER.indexOf('loadOrFallback('));
   });
 
   it('never shows the raw database error to the operator', () => {

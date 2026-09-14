@@ -4,7 +4,7 @@ import { loadOrFallback } from '../../../../demo/db-health';
 import { CrmLoadError } from '../../../../crm/load-error';
 import { SectionTabs } from '../../../../crm/section-tabs';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
-import { requirePermission } from '../../../../auth/guard';
+import { requirePermission, hasPermission } from '../../../../auth/guard';
 import {
   PIPELINE_STATUSES,
   type AssigneeOptions,
@@ -20,7 +20,7 @@ import {
   updateCustomerFieldsAction,
 } from '../../../../crm/actions';
 import {
-  Timeline, TimelineItem, EmptyTimeline, fromInteraction,
+  Timeline, TimelineItem, EmptyTimeline, fromInteraction, fromDerivedSignal,
 } from '../../../../crm/timeline';
 
 // Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2)
@@ -135,17 +135,26 @@ export default async function CustomerWorkspace({
   params: { id: string };
   searchParams: { tab?: string };
 }) {
-  const activeTab: Tab = (TABS as readonly string[]).includes(
-    searchParams?.tab ?? '',
-  )
-    ? (searchParams!.tab as Tab)
-    : 'Overview';
+  const requestedTab = searchParams?.tab ?? '';
 
   // AUTHORIZATION BEFORE THE READ. The resource has existed in the matrix
   // since Sprint 7; this page simply never consulted it, so every signed-in
   // member of the organization saw the whole customer book.
   await requirePermission('customers', 'view');
   const { organizationId, session } = await requireCrmContext();
+
+  // Each control is offered only to someone whose permission its action checks
+  // (status: pipeline:update; everything else: customers:update). The actions
+  // still enforce this themselves -- hiding is not the authorization.
+  const [canUpdateCustomer, canMoveIntake, canViewAudit] = await Promise.all([
+    hasPermission('customers', 'update'),
+    hasPermission('pipeline', 'update'),
+    hasPermission('audit', 'view'),
+  ]);
+  const visibleTabs = TABS.filter((t) => t !== 'Edit' || canUpdateCustomer);
+  const activeTab: Tab = (visibleTabs as readonly string[]).includes(requestedTab)
+    ? (requestedTab as Tab)
+    : 'Overview';
 
   const result = await loadOrFallback(async () => {
     const ws = await crmRepos.crm.getWorkspace(organizationId, params.id);
@@ -160,7 +169,8 @@ export default async function CustomerWorkspace({
     const timeline = organizationId
       ? await crmRepos.revenueIntelligence.customerRevenueTimeline(organizationId, params.id)
       : null;
-    return { ws, assignees, timeline };
+    const org = await crmRepos.organizations.findById(organizationId);
+    return { ws, assignees, timeline, workspaceName: org?.name ?? null };
   });
 
   if (!result.ok) return <CrmLoadError failure={result} surface="This person's record" />;
@@ -169,15 +179,16 @@ export default async function CustomerWorkspace({
   const ws = result.data.ws;
   const assignees = result.data.assignees;
   const timeline = result.data.timeline;
+  const workspaceName = 'workspaceName' in result.data ? result.data.workspaceName : null;
   const cid = ws.customer.id;
 
   const notes = ws.interactions.filter((i) => i.kind === 'NOTE');
   const messages = ws.conversations.flatMap((c) => c.messages);
   const webEvents = ws.interactions.filter((i) => isWebInteraction(i));
   const aiActivity = ws.interactions.filter(
-    (i) =>
-      actorLabel(interactionActorType(i.payload)) === 'AI' ||
-      i.kind === 'APPOINTMENT',
+    // Only what an AI actor did. An appointment is not AI activity by kind: a
+    // customer's own website request or a person's booking is not an AI's.
+    (i) => actorLabel(interactionActorType(i.payload)) === 'AI',
   );
 
   const tabHref = (t: Tab) =>
@@ -203,6 +214,7 @@ export default async function CustomerWorkspace({
           <span aria-hidden="true">←</span> People
         </Link>
       </div>
+      <p className="ds-eyebrow crm-record-type">Person / Intake Record</p>
       <div className="crm-record-head">
         <h1 className="crm-h1">{ws.name}</h1>
         <span className={'crm-status ' + ws.status}>
@@ -219,12 +231,19 @@ export default async function CustomerWorkspace({
           .filter(Boolean)
           .join(' · ') || 'No company / location on file'}
       </p>
+      <p className="crm-record-context">
+        Legacy customer intake record{workspaceName ? <> in the <strong>{workspaceName}</strong> workspace</> : null}.
+        Its status is intake status, not an Opportunity stage.{' '}
+        <Link href={`/crm/customers/${cid}/activity`} className="crm-record-context__link">
+          {canViewAudit ? 'Activity & audit' : 'Activity'} <span aria-hidden="true">→</span>
+        </Link>
+      </p>
 
       <div className="crm-ws">
         {/* Left rail */}
         <div>
           <div className="crm-card">
-            <h2>Customer attributes</h2>
+            <h2>Intake record details</h2>
             <div className="crm-kv"><span className="k">Email</span><span className="v">{ws.customer.email || '—'}</span></div>
             <div className="crm-kv"><span className="k">Phone</span><span className="v">{ws.customer.phone || '—'}</span></div>
             <div className="crm-kv"><span className="k">Company</span><span className="v">{ws.company || '—'}</span></div>
@@ -234,26 +253,34 @@ export default async function CustomerWorkspace({
             <div className="crm-kv"><span className="k">Source</span><span className="v">{ws.source || '—'}</span></div>
             <div className="crm-kv"><span className="k">External ID</span><span className="v">{ws.customer.externalId || '—'}</span></div>
             <div className="crm-kv"><span className="k">Created</span><span className="v">{fmt(ws.customer.createdAt)}</span></div>
-            <Link className="crm-btn crm-btn-ghost" href={tabHref('Edit')} style={{ marginTop: '0.6rem', display: 'inline-block' }}>
-              Edit details
-            </Link>
+            {canUpdateCustomer ? (
+              <Link className="crm-btn crm-btn-ghost" href={tabHref('Edit')} style={{ marginTop: '0.6rem', display: 'inline-block' }}>
+                Edit details
+              </Link>
+            ) : null}
           </div>
 
           <div className="crm-card">
             <h2>Intake status</h2>
-            <form action={setStatusAction} className="crm-form-row">
-              <input type="hidden" name="customerId" value={cid} />
-              <select className="crm-select" name="status" defaultValue={ws.status} style={{ flex: 1 }} aria-label="Intake status">
-                {PIPELINE_STATUSES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-              <button className="crm-btn" type="submit">Set</button>
-            </form>
+            {canMoveIntake ? (
+              <form action={setStatusAction} className="crm-form-row">
+                <input type="hidden" name="customerId" value={cid} />
+                <select className="crm-select" name="status" defaultValue={ws.status} style={{ flex: 1 }} aria-label="Intake status">
+                  {PIPELINE_STATUSES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <button className="crm-btn" type="submit">Set</button>
+              </form>
+            ) : (
+              <div className="crm-kv"><span className="k">Current</span><span className="v">{ws.status}</span></div>
+            )}
           </div>
 
           <div className="crm-card">
             <h2>Assignments</h2>
+            {canUpdateCustomer ? (
+            <>
             <label className="crm-field-label" htmlFor="assign-human">Human employee</label>
             <form action={setAssignmentAction} className="crm-form-row">
               <input type="hidden" name="customerId" value={cid} />
@@ -281,6 +308,13 @@ export default async function CustomerWorkspace({
                 No employees provisioned for this org yet.
               </p>
             ) : null}
+            </>
+            ) : (
+              <>
+                <div className="crm-kv"><span className="k">Human employee</span><span className="v">{ws.assignedHumanName || 'Unassigned'}</span></div>
+                <div className="crm-kv"><span className="k">AI employee</span><span className="v">{ws.assignedAIName || 'Unassigned'}</span></div>
+              </>
+            )}
           </div>
 
           <div className="crm-card">
@@ -288,7 +322,7 @@ export default async function CustomerWorkspace({
             <div className="crm-chips" style={{ marginBottom: '0.5rem' }}>
               {ws.customer.tags.length === 0 ? (
                 <span className="crm-faint" style={{ fontSize: '0.8rem' }}>No tags</span>
-              ) : (
+              ) : canUpdateCustomer ? (
                 ws.customer.tags.map((t) => (
                   <form action={removeTagAction} key={t} style={{ display: 'inline' }}>
                     <input type="hidden" name="customerId" value={cid} />
@@ -298,18 +332,22 @@ export default async function CustomerWorkspace({
                     </button>
                   </form>
                 ))
+              ) : (
+                ws.customer.tags.map((t) => <span className="crm-tag" key={t}>{t}</span>)
               )}
             </div>
-            <form action={addTagAction} className="crm-form-row">
-              <input type="hidden" name="customerId" value={cid} />
-              <input className="crm-input" name="tag" list="crm-tag-suggestions" placeholder="Add tag…" aria-label="Add tag" style={{ flex: 1 }} />
-              <datalist id="crm-tag-suggestions">
-                {SUGGESTED_TAGS.map((t) => (
-                  <option key={t} value={t} />
-                ))}
-              </datalist>
-              <button className="crm-btn" type="submit">Add</button>
-            </form>
+            {canUpdateCustomer ? (
+              <form action={addTagAction} className="crm-form-row">
+                <input type="hidden" name="customerId" value={cid} />
+                <input className="crm-input" name="tag" list="crm-tag-suggestions" placeholder="Add tag…" aria-label="Add tag" style={{ flex: 1 }} />
+                <datalist id="crm-tag-suggestions">
+                  {SUGGESTED_TAGS.map((t) => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+                <button className="crm-btn" type="submit">Add</button>
+              </form>
+            ) : null}
           </div>
         </div>
 
@@ -317,7 +355,7 @@ export default async function CustomerWorkspace({
         <div>
           <SectionTabs
             label="Record sections"
-            tabs={TABS.map((t) => ({ label: t, href: tabHref(t), active: t === activeTab }))}
+            tabs={visibleTabs.map((t) => ({ label: t, href: tabHref(t), active: t === activeTab }))}
           />
 
           {activeTab === 'Overview' ? (
@@ -327,7 +365,7 @@ export default async function CustomerWorkspace({
               <div className="crm-kv"><span className="k">Website events</span><span className="v">{webEvents.length}</span></div>
               <div className="crm-kv"><span className="k">Messages</span><span className="v">{messages.length}</span></div>
               <div className="crm-kv"><span className="k">Bookings</span><span className="v">{ws.bookings.length}</span></div>
-              <div className="crm-kv"><span className="k">Signals</span><span className="v">{ws.signals.length}</span></div>
+              <div className="crm-kv"><span className="k">Derived signals</span><span className="v">{ws.signals.length}</span></div>
               <div className="crm-kv"><span className="k">Notes</span><span className="v">{notes.length}</span></div>
               {timeline ? (<div className="crm-kv"><span className="k">Lifetime value</span><span className="v">{money(timeline.lifetimeValueCents)}</span></div>) : null}
               <div className="crm-kv"><span className="k">Assigned AI</span><span className="v">{ws.assignedAIName || '—'}</span></div>
@@ -335,9 +373,9 @@ export default async function CustomerWorkspace({
             </div>
           ) : null}
 
-          {activeTab === 'Edit' ? (
+          {activeTab === 'Edit' && canUpdateCustomer ? (
             <div className="crm-card">
-              <h2>Edit customer</h2>
+              <h2>Edit intake record</h2>
               <form action={updateCustomerFieldsAction}>
                 <input type="hidden" name="customerId" value={cid} />
                 <div className="crm-edit-grid">
@@ -413,14 +451,16 @@ export default async function CustomerWorkspace({
           {activeTab === 'Notes' ? (
             <div className="crm-card">
               <h2>Internal notes</h2>
-              <form action={addNoteAction} style={{ marginBottom: '1rem' }}>
-                <input type="hidden" name="customerId" value={cid} />
-                <textarea className="crm-textarea" name="body" placeholder="Write an internal note…" aria-label="Internal note" required />
-                <div className="crm-form-row">
-                  <span className="crm-faint">Posting as {session.name}</span>
-                  <button className="crm-btn" type="submit">Add note</button>
-                </div>
-              </form>
+              {canUpdateCustomer ? (
+                <form action={addNoteAction} style={{ marginBottom: '1rem' }}>
+                  <input type="hidden" name="customerId" value={cid} />
+                  <textarea className="crm-textarea" name="body" placeholder="Write an internal note…" aria-label="Internal note" required />
+                  <div className="crm-form-row">
+                    <span className="crm-faint">Posting as {session.name}</span>
+                    <button className="crm-btn" type="submit">Add note</button>
+                  </div>
+                </form>
+              ) : null}
               {notes.length === 0 ? (
                 <EmptyTimeline message="No notes yet." />
               ) : (
@@ -552,22 +592,16 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Signals' ? (
             <div className="crm-card">
-              <h2>Signals</h2>
+              <h2>Derived signals</h2>
+              <p className="crm-faint crm-derived-note">
+                Inferred by Loop from recorded activity — not recorded facts. Each shows the service that produced it.
+              </p>
               {ws.signals.length === 0 ? (
-                <EmptyTimeline message="No signals yet." />
+                <EmptyTimeline message="No derived signals for this record." />
               ) : (
                 <Timeline>
                   {ws.signals.map((s) => (
-                    <TimelineItem key={s.id} entry={{
-                      id: s.id,
-                      source: 'event',
-                      title: (s.label || s.key) + ' (' + s.type + ')',
-                      actor: s.source || 'System',
-                      actorType: 'SYSTEM',
-                      kind: s.type,
-                      occurredAt: typeof s.observedAt === 'string' ? s.observedAt : s.observedAt.toISOString(),
-                      badgeColor: 'var(--crm-amber)',
-                    }} />
+                    <TimelineItem key={s.id} entry={fromDerivedSignal(s)} />
                   ))}
                 </Timeline>
               )}
