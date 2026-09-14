@@ -1,30 +1,13 @@
 // CustomerRepository — Sprint 4 (Real Data Layer).
 //
-// All Customer persistence goes through this class. The loop engine and demo
-// store call these methods instead of pushing to an in-memory array. The
-// repository owns the mapping between the loop's "name" concept and the
-// schema's firstName/lastName columns, and serializes attributes/metadata
-// into the JSON columns.
+// Customer persistence. Serializes attributes/metadata into the JSON columns.
+// Reads here are organization-scoped; there is deliberately no lookup by id
+// alone, because nothing may resolve a customer outside its organization.
 
 import type { PrismaClient, Customer } from '@prisma/client';
 import type { CreateCustomerInput } from './types';
 
-/** Split a single display name into first/last for the schema. */
-function splitName(name?: string | null): {
-  firstName: string | null;
-  lastName: string | null;
-} {
-  if (!name) return { firstName: null, lastName: null };
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? null;
-  if (parts.length <= 1) return { firstName: first, lastName: null };
-  return {
-    firstName: first,
-    lastName: parts.slice(1).join(' '),
-  };
-}
-
-/** Re-join first/last into a single display name for the UI/loop. */
+/** Re-join first/last into a single display name for the UI. */
 export function customerDisplayName(c: Customer): string {
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Customer';
 }
@@ -32,10 +15,7 @@ export function customerDisplayName(c: Customer): string {
 export class CustomerRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  /**
-   * Create a customer. Accepts either a pre-split firstName/lastName or a
-   * single `name` (via createFromName) — this method takes the schema shape.
-   */
+  /** Create a customer from the schema shape (pre-split firstName/lastName). */
   create(input: CreateCustomerInput): Promise<Customer> {
     return this.prisma.customer.create({
       data: {
@@ -49,36 +29,6 @@ export class CustomerRepository {
         attributes: (input.attributes ?? {}) as object,
         metadata: (input.metadata ?? {}) as object,
       },
-    });
-  }
-
-  /** Convenience create that accepts a single display name. */
-  createFromName(
-    input: Omit<CreateCustomerInput, 'firstName' | 'lastName'> & {
-      name?: string | null;
-    },
-  ): Promise<Customer> {
-    const { name, ...rest } = input;
-    const { firstName, lastName } = splitName(name);
-    return this.create({ ...rest, firstName, lastName });
-  }
-
-  findById(id: string): Promise<Customer | null> {
-    return this.prisma.customer.findUnique({ where: { id } });
-  }
-
-  /** Most recently created customer for an org — used as a timeline fallback. */
-  findLatest(organizationId: string): Promise<Customer | null> {
-    return this.prisma.customer.findFirst({
-      where: { organizationId },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  listByOrganization(organizationId: string): Promise<Customer[]> {
-    return this.prisma.customer.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: 'desc' },
     });
   }
 

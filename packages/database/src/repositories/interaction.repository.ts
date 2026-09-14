@@ -1,10 +1,8 @@
 // InteractionRepository — Sprint 4 (Real Data Layer).
 //
-// Interaction is the canonical customer-timeline spine. Every step of the loop
-// appends one row here. The repository maps the loop's lightweight kind labels
-// onto the schema's InteractionKind enum and stores rich detail (body, actor,
-// preferred windows, external ids) in the JSON `payload`/`metadata` columns,
-// since the schema interaction has no first-class `body` column.
+// Interaction is the canonical customer-timeline spine. Rich detail (body,
+// actor, external ids) lives in the JSON `payload`/`metadata` columns, since
+// the schema interaction has no first-class `body` column.
 
 import type { PrismaClient, Interaction } from '@prisma/client';
 import type { CreateInteractionInput } from './types';
@@ -31,14 +29,6 @@ export class InteractionRepository {
     });
   }
 
-  /** Full timeline for one customer, oldest first (the loop's spine order). */
-  timelineFor(customerId: string): Promise<Interaction[]> {
-    return this.prisma.interaction.findMany({
-      where: { customerId },
-      orderBy: { occurredAt: 'asc' },
-    });
-  }
-
   /** Most recent interactions across an org — powers the dashboard feed. */
   recentForOrganization(
     organizationId: string,
@@ -48,15 +38,6 @@ export class InteractionRepository {
       where: { organizationId },
       orderBy: { occurredAt: 'desc' },
       take,
-    });
-  }
-
-  countByKind(
-    organizationId: string,
-    kind: CreateInteractionInput['kind'],
-  ): Promise<number> {
-    return this.prisma.interaction.count({
-      where: { organizationId, kind },
     });
   }
 
