@@ -109,6 +109,16 @@ export type { RemovedMarkerAssessment, RepairRefusalReason } from './removed-mar
 export { CustomerPartyLinkRepository } from './customer-party-link.repository';
 export type { CreateCustomerPartyLinkInput } from './customer-party-link.repository';
 export { OrganizationRepository } from './organization.repository';
+export {
+  DemoFootprintRepository,
+  DEMO_FOOTPRINT_BOUND,
+} from './demo-footprint.repository';
+export type {
+  DemoFootprint,
+  SuspectedDemoCustomer,
+  DemoOrphanArtifact,
+  DemoAttribution,
+} from './demo-footprint.repository';
 export type { OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
 export type { AuditView } from './audit.repository';

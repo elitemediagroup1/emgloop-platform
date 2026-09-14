@@ -1,0 +1,114 @@
+# Read demo footprint.
+#
+# READ-ONLY. For one organization, lists every customer carrying the fingerprints
+# of the removed public /demo generators (mock SMS and calendar artifacts, the
+# demo loop's payload kinds, its scripted reply, the demo form's default contact
+# values) or of the operator-run Prisma seed, with the ids of everything that
+# depends on each one. It writes nothing. It prints record ids, creation
+# timestamps, match flags and counts -- never a name, email, phone number or
+# message body.
+#
+# WHY IT EXISTS. Until #232 the /demo routes let anyone create fabricated
+# customer journeys in the live organization without signing in. Whether any
+# exist -- and what a cleanup would have to touch -- is a question for the
+# database, answered before anyone deletes anything.
+#
+# WHAT IT CANNOT ANSWER. Whether the routes were requested, or by whom. That is
+# in request logs. A fingerprinted row proves a generator ran, not who ran it.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is
+# still touching production, and a human should be the one asking.
+
+name: Read Demo Footprint
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        default: 'servicesinmycity-demo'
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-demo-footprint
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read demo footprint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, printed or written to the summary.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          echo "Validated organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything
+        # RUN BEFORE THE DATABASE CREDENTIAL IS USED, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Read
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        run: |
+          set -euo pipefail
+          npm run read:demo-footprint -- --organization "${ORG_SLUG}"
+
+      - name: How to read the output
+        if: always()
+        run: |
+          echo "### Demo footprint" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** This job lists rows that already exist. Ids and timestamps only; no contact values or message bodies." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`attribution=WEB_DEMO_LOOP\` - mock SMS/calendar artifacts, demo loop kinds or the scripted reply: written by the removed /demo routes (the public intake form or the timeline's auto-seed)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`attribution=PRISMA_SEED\` - the seed's sample externalIds without loop artifacts: written by the operator-run Prisma seed." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`attribution=DEMO_IDENTITY_ONLY\` - only default, sample or reserved (example.com) contact values match." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`LEGITIMACY_SIGNALS\` - anything suggesting a real person or real work on the record (non-demo interactions, orders, party links, human audit entries). Review these before any cleanup." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ORPHAN_ARTIFACT\` - a fingerprinted row whose customer is missing." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`EXCEEDED_BOUND=true\` - the answer is incomplete. Do not act on it." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This does not show whether /demo was requested or by whom; that needs request logs." >> "$GITHUB_STEP_SUMMARY"
