@@ -1,15 +1,36 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
-import { requirePermission } from '../../../auth/guard';
+import { requirePermission, hasPermission } from '../../../auth/guard';
 
-// Global customer search — Sprint 5 (Internal CRM, Phase 1).
+// CRM Governed Search — Phase 1.
 //
-// Searches across name, company, email, phone, address and external IDs by
-// delegating to the repository layer's customer search (which queries Neon).
-// No mock data; results link straight into the customer workspace.
+// Cross-entity search across currently authoritative sources:
+// People (Customer intake), Conversations, and Workspace Organization.
+// Each source is permission-gated independently. Results are typed
+// honestly — a Customer is "Person / Intake Record", never "Opportunity".
+//
+// Organization-scoped, server-authorized, fail-closed.
 
 export const dynamic = 'force-dynamic';
+
+type ResultKind = 'person' | 'conversation' | 'organization';
+
+interface SearchResult {
+  id: string;
+  kind: ResultKind;
+  title: string;
+  subtitle: string;
+  href: string;
+  meta?: string;
+}
+
+function kindLabel(kind: ResultKind): string {
+  switch (kind) {
+    case 'person': return 'Person / Intake Record';
+    case 'conversation': return 'Conversation';
+    case 'organization': return 'Workspace Organization';
+  }
+}
 
 export default async function SearchPage({
   searchParams,
@@ -18,105 +39,159 @@ export default async function SearchPage({
 }) {
   const q = (searchParams?.q ?? '').trim();
 
-  // AUTHORIZATION BEFORE THE READ. The resource has existed in the matrix
-  // since Sprint 7; this page simply never consulted it, so every signed-in
-  // member of the organization saw the whole customer book.
   await requirePermission('customers', 'view');
   const { organizationId } = await requireCrmContext();
 
-  const result = await loadOrFallback(async () => {
-    if (!q) {
-      return { rows: [], total: 0, hasOrg: true };
+  const canViewConversations = await hasPermission('inbox', 'view');
+  const canViewOrganizations = await hasPermission('organizations', 'view');
+
+  const results: SearchResult[] = [];
+
+  if (q) {
+    const searches: Promise<void>[] = [];
+
+    searches.push(
+      crmRepos.crm.listCustomers(organizationId, {
+        search: q,
+        pageSize: 20,
+        page: 1,
+      }).then((list) => {
+        for (const c of list.rows) {
+          results.push({
+            id: c.id,
+            kind: 'person',
+            title: c.name || 'Unnamed',
+            subtitle: [c.company, c.email, c.phone].filter(Boolean).join(' · ') || 'No contact details',
+            href: `/crm/customers/${c.id}`,
+            meta: c.status,
+          });
+        }
+      }),
+    );
+
+    if (canViewConversations) {
+      searches.push(
+        crmRepos.conversationsInbox.listConversations(organizationId, {
+          search: q,
+        }).then((list) => {
+          for (const c of list.rows.slice(0, 15)) {
+            results.push({
+              id: c.id,
+              kind: 'conversation',
+              title: c.subject || 'No subject',
+              subtitle: [c.customerName, c.channel, c.assigneeName].filter(Boolean).join(' · '),
+              href: `/crm/conversations/${c.id}`,
+              meta: c.status,
+            });
+          }
+        }),
+      );
     }
-    const list = await crmRepos.crm.listCustomers(organizationId, {
-      search: q,
-      pageSize: 50,
-      page: 1,
-    });
-    return { rows: list.rows, total: list.total, hasOrg: true };
-  });
 
-  if (!result.ok) return <DbNotConfigured />;
+    if (canViewOrganizations) {
+      searches.push(
+        crmRepos.organizations.findById(organizationId).then((org) => {
+          if (org && org.name.toLowerCase().includes(q.toLowerCase())) {
+            results.push({
+              id: org.id,
+              kind: 'organization',
+              title: org.name,
+              subtitle: [org.industry, org.timezone, org.status].filter(Boolean).join(' · '),
+              href: `/crm/organizations/${org.id}`,
+              meta: 'Workspace',
+            });
+          }
+        }),
+      );
+    }
 
-  const { rows, total } = result.data;
+    await Promise.all(searches);
+  }
+
+  const grouped = {
+    person: results.filter((r) => r.kind === 'person'),
+    conversation: results.filter((r) => r.kind === 'conversation'),
+    organization: results.filter((r) => r.kind === 'organization'),
+  };
+  const totalResults = results.length;
 
   return (
-    <>
-      <h1 className="crm-h1">Search</h1>
-      <p className="crm-sub">
-        Global customer search across name, company, email, phone, address and
-        external IDs.
-      </p>
+    <div className="crm-page">
+      <div className="crm-page-head">
+        <div>
+          <h1>Search</h1>
+          <p>Search across people, conversations, and your workspace organization.</p>
+        </div>
+      </div>
 
-      <form className="crm-toolbar" method="get" action="/crm/search">
+      <form className="search-bar" method="get" action="/crm/search" role="search">
         <input
-          className="crm-input crm-search"
-          type="text"
+          className="crm-input search-bar__input"
+          type="search"
           name="q"
           defaultValue={q}
           autoFocus
-          placeholder="Search customers…"
+          placeholder="Search by name, email, phone, subject…"
+          aria-label="Search"
         />
-        <button className="crm-btn" type="submit">
+        <button className="crm-btn-primary search-bar__btn" type="submit">
           Search
         </button>
       </form>
 
       {!q ? (
-        <div className="crm-panel crm-empty">Type a query to search.</div>
-      ) : rows.length === 0 ? (
-        <div className="crm-panel crm-empty">
-          No customers match “{q}”.
+        <div className="search-empty">
+          <div className="search-empty__icon" aria-hidden="true">&#128269;</div>
+          <p className="search-empty__title">Enter a search query</p>
+          <p className="search-empty__desc">
+            Search across people (intake records), conversations, and your workspace organization.
+            Results are limited to records you have permission to view.
+          </p>
+        </div>
+      ) : totalResults === 0 ? (
+        <div className="search-empty">
+          <div className="search-empty__icon" aria-hidden="true">&#8709;</div>
+          <p className="search-empty__title">No results for &ldquo;{q}&rdquo;</p>
+          <p className="search-empty__desc">
+            No matching records found across people, conversations, or your workspace organization.
+            Try a different query or check spelling.
+          </p>
         </div>
       ) : (
-        <>
-          <p className="crm-muted" style={{ fontSize: '0.8rem' }}>
-            {total} result{total === 1 ? '' : 's'}
+        <div className="search-results">
+          <p className="search-results__count">
+            {totalResults} result{totalResults === 1 ? '' : 's'} for &ldquo;{q}&rdquo;
           </p>
-          <div className="crm-panel">
-            <table className="crm-table">
-              <thead>
-                <tr>
-                  <th>Customer</th>
-                  <th>Company</th>
-                  <th>Phone</th>
-                  <th>Email</th>
-                  <th>City / State</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((c) => (
-                  <tr key={c.id}>
-                    <td>
-                      <Link href={'/crm/customers/' + c.id} className="crm-cell-name">
-                        {c.name}
-                      </Link>
-                    </td>
-                    <td>{c.company || <span className="crm-faint">—</span>}</td>
-                    <td>{c.phone || <span className="crm-faint">—</span>}</td>
-                    <td>{c.email || <span className="crm-faint">—</span>}</td>
-                    <td>
-                      {c.city || c.state ? (
-                        <>
-                          {c.city}
-                          {c.city && c.state ? ', ' : ''}
-                          {c.state}
-                        </>
-                      ) : (
-                        <span className="crm-faint">—</span>
+
+          {(['organization', 'person', 'conversation'] as const).map((kind) => {
+            const items = grouped[kind];
+            if (items.length === 0) return null;
+            return (
+              <div key={kind} className="search-group">
+                <h2 className="search-group__heading">{kindLabel(kind)}s</h2>
+                <div className="search-group__list">
+                  {items.map((r) => (
+                    <Link key={r.id} href={r.href} className="search-result">
+                      <div className="search-result__kind">
+                        <span className={'search-result__badge search-result__badge--' + r.kind}>
+                          {kindLabel(r.kind)}
+                        </span>
+                      </div>
+                      <div className="search-result__body">
+                        <span className="search-result__title">{r.title}</span>
+                        <span className="search-result__subtitle">{r.subtitle}</span>
+                      </div>
+                      {r.meta && (
+                        <span className="search-result__meta">{r.meta}</span>
                       )}
-                    </td>
-                    <td>
-                      <span className={'crm-status ' + c.status}>{c.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
-    </>
+    </div>
   );
 }
