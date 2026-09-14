@@ -5,6 +5,7 @@
 // and create new organizations. Editing branding / CRM defaults lives in
 // Settings. Protected by organizations:view; creation requires create rights.
 
+import Link from 'next/link';
 import { requirePermission, hasPermission } from '../../../auth/guard';
 import { repositories } from '@emgloop/database';
 import { createOrganizationAction } from '../../../crm/admin-actions';
@@ -47,7 +48,13 @@ export default async function OrganizationsPage() {
         <tbody>
           {orgs.map((o) => (
             <tr key={o.id}>
-              <td>{o.name}</td>
+              <td>
+                {o.id === session.organizationId ? (
+                  <Link href={`/crm/organizations/${o.id}`} style={{ fontWeight: 600 }}>{o.name}</Link>
+                ) : (
+                  o.name
+                )}
+              </td>
               <td className="crm-faint">{o.slug}</td>
               <td className="crm-faint">{o.industry}</td>
               <td><span className={'crm-badge ' + (o.status === 'ACTIVE' ? 'ok' : 'off')}>{o.status}</span></td>

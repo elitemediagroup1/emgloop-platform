@@ -305,54 +305,69 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // here would silently remove items from people's sidebars, which is a product
 // decision, not a refactor. Gate them in a later sprint, one at a time.
 // ---------------------------------------------------------------------------
+// Phase 1 — CRM navigation aligned with the Charlie/Lexi Product Specification
+// (§10 Screen Specifications). The groups map to the approved internal screen
+// families: Command Center, Relationships, Pipeline, Campaigns, Operations,
+// Intelligence. Existing working routes are preserved; new families that don't
+// have full backend support yet render honest empty states on arrival.
+//
+// The CRM sidebar deliberately has NO `requires` on any item — see note above.
 export const CRM_SHELL: ShellConfig = {
   label: 'CRM',
   basePath: '/crm',
   home: '/crm',
   nav: [
     {
-      label: 'Intelligence',
+      label: '',
       items: [
-        { href: '/crm', label: 'Overview', icon: 'grid' },
-        { href: '/crm/intelligence', label: 'Brain', icon: 'brain' },
-        { href: '/crm/analytics', label: 'Analytics', icon: 'chart' },
-        { href: '/crm/integrations', label: 'Integration OS', icon: 'plug' },
+        { href: '/crm', label: 'Command Center', icon: 'grid' },
       ],
     },
     {
-      label: 'Live Operations',
+      label: 'Relationships',
       items: [
-        { href: '/crm/live/activity', label: 'Live Activity', icon: 'activity' },
-        { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat' },
-        { href: '/crm/live/websites', label: 'Live Website Feed', icon: 'grid' },
+        { href: '/crm/organizations', label: 'Organizations', icon: 'building' },
+        { href: '/crm/customers', label: 'People', icon: 'users' },
+        // Canonical Relationship records are a Phase 2 CRM domain — the route
+        // exists as an honest scaffold that explains what will live here.
+        { href: '/crm/relationships', label: 'Relationships', icon: 'flow', soon: true },
+      ],
+    },
+    {
+      label: 'Pipeline',
+      items: [
+        { href: '/crm/pipeline', label: 'Opportunities', icon: 'columns' },
+        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue' },
       ],
     },
     {
       label: 'Operations',
       items: [
-        { href: '/crm/customers', label: 'Customers', icon: 'users' },
         { href: '/crm/conversations', label: 'Conversations', icon: 'chat' },
-        { href: '/crm/pipeline', label: 'Pipeline', icon: 'columns' },
+        { href: '/crm/live/activity', label: 'Live Activity', icon: 'activity' },
+        { href: '/crm/live/calls', label: 'Calls', icon: 'chat' },
+        { href: '/crm/live/websites', label: 'Websites', icon: 'grid' },
         { href: '/crm/inbox', label: 'Calendar', icon: 'calendar' },
         { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot' },
         { href: '/crm/workflows', label: 'Workflows', icon: 'flow' },
       ],
     },
     {
-      label: 'Growth',
+      label: 'Intelligence',
       items: [
-        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue' },
+        { href: '/crm/intelligence', label: 'Brain', icon: 'brain' },
+        { href: '/crm/analytics', label: 'Analytics', icon: 'chart' },
         { href: '/crm/traffic', label: 'Traffic', icon: 'chart' },
-        { href: '/crm/organizations', label: 'Organizations', icon: 'building' },
-        { href: '#creators', label: 'Creators', icon: 'star', soon: true },
-        { href: '#business-portal', label: 'Business Portal', icon: 'portal', soon: true },
+        { href: '/crm/integrations', label: 'Integration OS', icon: 'plug' },
       ],
     },
     {
-      label: 'Workspace',
+      label: '',
+      footer: true,
       items: [
         { href: '/app/admin/administration/team', label: 'Team', icon: 'team' },
         { href: '/crm/settings', label: 'Settings', icon: 'cog' },
+        { href: '/crm/audit', label: 'Audit Log', icon: 'activity' },
       ],
     },
   ],
