@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { loadWorkDashboard, type QueueRow } from './work-data';
+import { requireWorkspace } from '../../../../workspaces/guard';
 
 // Work OS — the operating surface for getting work done.
 //
@@ -68,6 +69,7 @@ function CountTile({ title, rows, emptyLine, tone = 'info' }: {
 }
 
 export default async function WorkOSPage() {
+  await requireWorkspace('ADMIN');
   const {
     assigned, readyToStart, blocked, needsOwner, completedToday, recentActivity, nextAction, hasBlueprints,
   } = await loadWorkDashboard();

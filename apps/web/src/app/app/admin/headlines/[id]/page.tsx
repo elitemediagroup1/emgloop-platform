@@ -27,6 +27,7 @@ import { hasPermission, requirePermission } from '../../../../../auth/guard';
 import { NotKnown, ReadError, StateBadge } from '../../../_loop-os/product-state';
 import { investigateHeadlineAction } from '../../administration/objectives/investigate-actions';
 import { loadExistingCase, loadHeadline } from '../headlines-data';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,7 @@ export default async function HeadlineInvestigationPage({
 }: {
   params: { id: string };
 }) {
+  await requireWorkspace('ADMIN');
   const session = await requirePermission('commercialIntelligence', 'view');
   const canAuthor = await hasPermission('commercialIntelligence', 'update');
 

@@ -19,10 +19,12 @@ import { requirePermission } from '../../../../auth/guard';
 import { greeting } from '../../_loop-os/format';
 import { ReadError } from '../../_loop-os/product-state';
 import { PersonalQueue } from './queue-ui';
+import { requireWorkspace } from '../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
 export default async function QueuePage() {
+  await requireWorkspace('ADMIN');
   const session = await requirePermission('commercialIntelligence', 'view');
 
   let queue: PersonalQueueView | null = null;

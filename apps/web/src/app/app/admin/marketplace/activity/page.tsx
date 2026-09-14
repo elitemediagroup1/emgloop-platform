@@ -25,6 +25,7 @@ import { callGridIntelligence, bidIntelligence } from '../intelligence-data';
 import { buildDimQuery } from '../dimension-metrics';
 import { DimensionShell } from '../dimension-ui';
 import { FindingCard, UnknownsSection } from '../intelligence-ui';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,7 @@ function scopeOf(finding: CallGridFinding): FilterKey {
 }
 
 export default async function ActivityPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
+  await requireWorkspace('ADMIN');
   const { organizationId: org } = await requireCrmContext();
 
   const now = new Date();

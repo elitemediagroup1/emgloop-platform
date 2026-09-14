@@ -3,10 +3,12 @@
 // keep working. Do not add content here.
 
 import { redirect } from 'next/navigation';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AuctionRedirect({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
+  await requireWorkspace('ADMIN');
   const qs = new URLSearchParams(
     Object.entries(searchParams ?? {}).filter(([, v]) => typeof v === 'string') as [string, string][],
   ).toString();

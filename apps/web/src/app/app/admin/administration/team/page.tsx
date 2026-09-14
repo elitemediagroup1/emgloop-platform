@@ -17,6 +17,7 @@ import {
   resendInvitationAction,
   revokeInvitationAction,
 } from '../../../../../crm/admin-actions';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ export default async function AdminTeamPage({
 }: {
   searchParams?: { notice?: string; error?: string };
 }) {
+  await requireWorkspace('ADMIN');
   const session = await requirePermission('users', 'view');
   const canManage = await hasPermission('users', 'create');
   const users = await repositories.iam.listUsers(session.organizationId);

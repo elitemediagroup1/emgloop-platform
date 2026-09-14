@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { loadTeamWork } from '../work-data';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 // Work OS › Team Work — everything in progress across the organization.
 // Same shell + design language as the Work OS home; plain business terminology.
@@ -7,6 +8,7 @@ import { loadTeamWork } from '../work-data';
 export const dynamic = 'force-dynamic';
 
 export default async function TeamWorkPage() {
+  await requireWorkspace('ADMIN');
   const { rows } = await loadTeamWork();
 
   return (

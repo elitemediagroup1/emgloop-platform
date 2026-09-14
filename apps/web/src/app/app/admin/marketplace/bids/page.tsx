@@ -27,6 +27,7 @@ import {
   type PerfColumn, type SummaryTile,
 } from '../dimension-ui';
 import { FindingList, UnknownsSection } from '../intelligence-ui';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export default async function BidsPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
+  await requireWorkspace('ADMIN');
   const { organizationId: org } = await requireCrmContext();
 
   const now = new Date();

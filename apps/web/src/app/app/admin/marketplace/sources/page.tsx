@@ -23,6 +23,7 @@ import {
   type PerfColumn, type SummaryTile,
 } from '../dimension-ui';
 import { FindingList, UnknownsSection, ContributionTable } from '../intelligence-ui';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,7 @@ const REJECTION_KEYS: { key: keyof BidSourceRow['rejections']; classification: s
 ];
 
 export default async function SourcesPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
+  await requireWorkspace('ADMIN');
   const { organizationId: org } = await requireCrmContext();
 
   const now = new Date();

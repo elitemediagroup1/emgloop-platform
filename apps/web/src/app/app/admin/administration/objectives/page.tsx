@@ -67,6 +67,7 @@ import {
   detectHeadlinesAction,
   dismissHeadlineAction,
 } from './actions';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,6 +111,7 @@ export default async function AdminObjectivesPage({
 }: {
   searchParams?: { notice?: string; error?: string; show?: string };
 }) {
+  await requireWorkspace('ADMIN');
   const session = await requirePermission('commercialIntelligence', 'view');
   const canManage = await hasPermission('commercialIntelligence', 'update');
   const canCreate = await hasPermission('commercialIntelligence', 'create');
