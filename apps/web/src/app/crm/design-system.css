@@ -396,3 +396,61 @@ a.crm-card:hover, .crm-card.hoverable:hover {
 .org-contact__name { font-weight: 600; font-size: 0.85rem; }
 .org-contact__role { color: var(--crm-muted); font-size: 0.76rem; }
 .org-contact__link { margin-left: auto; font-size: 0.78rem; color: var(--crm-accent); text-decoration: none; }
+
+/* =====================================================================
+   Timeline primitives — Phase 1 reusable activity visual language.
+   One set of rules for operational activity, interactions, state changes,
+   and audit events. Source/type/provenance are retained per item.
+   ===================================================================== */
+.tl { list-style: none; margin: 0; padding: 0; }
+.tl-item {
+  display: flex; gap: 0.65rem; align-items: flex-start;
+  padding: 0.55rem 0; border-bottom: 1px solid var(--crm-border-soft);
+  font-size: 0.82rem;
+}
+.tl-item:last-child { border-bottom: none; }
+
+/* Activity type badge — colored dot encoding source + direction */
+.tl-badge {
+  flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%;
+  margin-top: 0.45rem; background: var(--crm-accent);
+}
+.tl-badge--in { background: var(--crm-green); }
+.tl-badge--out { background: var(--crm-blue); }
+.tl-badge--audit { background: var(--crm-amber); }
+.tl-badge--state { background: var(--crm-purple); }
+.tl-badge--event { background: var(--crm-teal); }
+
+/* Content area */
+.tl-content { flex: 1; min-width: 0; }
+.tl-title {
+  font-weight: 600; color: var(--crm-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tl-body {
+  font-size: 0.8rem; color: var(--crm-muted); margin-top: 0.15rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Metadata line: actor · channel · provenance · timestamp */
+.tl-meta {
+  display: flex; flex-wrap: wrap; gap: 0.15rem; align-items: center;
+  margin-top: 0.2rem; font-size: 0.72rem; color: var(--crm-faint);
+}
+.tl-dot { opacity: 0.5; }
+.tl-actor { display: inline-flex; gap: 0.25rem; align-items: baseline; }
+.tl-actor__name { font-weight: 500; color: var(--crm-muted); }
+.tl-actor__type {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.tl-provenance {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.tl-time { white-space: nowrap; }
+
+/* Empty state */
+.tl-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+  padding: 1.5rem; text-align: center; color: var(--crm-faint); font-size: 0.82rem;
+}
+.tl-empty__icon { font-size: 1.5rem; }
