@@ -1175,7 +1175,7 @@ Read Only with no path to the CRM, so its commits were carried unchanged into th
 
 | PR | Scope | Status |
 |----|-------|--------|
-| 1 + 2 | Sign-in lands on Loop; one shell, one `LOOP_NAV`; CRM inside the shell; explicit guard on every role-guarded page | **IN REVIEW** (branch `feat/one-loop-shell`) |
+| 1 + 2 | Sign-in lands on Loop; one shell, one `LOOP_NAV`; CRM inside the shell; explicit guard on every role-guarded page | **IN REVIEW** #237 |
 | 3 | Route authority, redirect table (incl. `/app/admin/crm`, role homes, catch-alls), public auth routes | Not started |
 | 4–7 | Administration, Intelligence, Work OS, CRM → canonical routes | Not started |
 | Final | Retire role trees, phantom Business/Creator authority, placeholders; docs | Not started |
