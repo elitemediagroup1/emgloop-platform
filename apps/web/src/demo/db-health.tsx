@@ -1,9 +1,9 @@
 // DB availability guard — Sprint 4 (Real Data Layer).
 //
-// The repository-backed pages (/dashboard, /demo/timeline) read from
-// PostgreSQL at request time. In non-production contexts (e.g. a Netlify
-// deploy preview) there may be no DATABASE_URL and no reachable database.
-// These helpers let those pages degrade gracefully instead of crashing.
+// CRM and admin pages read from PostgreSQL at request time. In non-production
+// contexts (e.g. a Netlify deploy preview) there may be no DATABASE_URL and no
+// reachable database. These helpers let those pages degrade gracefully instead
+// of crashing. (The directory name is historical; nothing here is demo data.)
 //
 // Scope: presentation-only guarding. No providers, auth, or business logic.
 

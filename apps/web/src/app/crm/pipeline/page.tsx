@@ -69,11 +69,8 @@ export default async function PipelinePage() {
 
       {totalCards === 0 ? (
         <div className="crm-panel crm-empty" style={{ marginTop: '1rem' }}>
-          No people in intake yet. Run an{' '}
-          <Link href="/demo/intake" style={{ color: 'var(--crm-accent)' }}>
-            intake
-          </Link>{' '}
-          to populate it.
+          No people in intake yet. People appear here as they arrive through calls,
+          website forms, or manual entry.
         </div>
       ) : (
         <div className="crm-board">
