@@ -116,8 +116,7 @@ stops and the dependency is explained.
 
 | PR | Scope | Status |
 |---|---|---|
-| 1 | Sign-in lands on Loop: login, already-signed-in login and root go to `/app`; safe deep links survive; `/app` renders Loop Home | In review |
-| 2 | One shell, one registry (`LOOP_NAV`); explicit authority for layout-protected pages; supersedes #235 | Not started |
+| 1 + 2 | Sign-in lands on Loop (login, already-signed-in login and root go to `/app`; safe deep links survive; `/app` renders Loop Home) **and** one shell, one registry (`LOOP_NAV`); explicit authority on every role-guarded page; supersedes #235 and #236 | In review (one PR) |
 | 3 | Route authority: route module, redirect table, public auth routes, `/app/unauthorized`, edge gate for `/app` | Not started |
 | 4 | Administration → `/app/administration` | Not started |
 | 5 | Intelligence → `/app/intelligence` | Not started |
@@ -125,13 +124,45 @@ stops and the dependency is explained.
 | 7 | CRM → `/app/crm` | Not started |
 | Final | Retire old registries, layouts and placeholders; reconcile documentation | Not started |
 
-## Current landing behaviour (after PR 1)
+**Sequence change — PR 1 and PR 2 ship as one PR (Matt, 2026-09-14).** Landing on `/app` was only usable
+once the single shell existed: before it, `/app` showed each role's old workspace shell, where the
+Owner/Admin/Manager sidebar's CRM item opened a placeholder and Employee and Read Only had no path to the
+CRM at all. So #236's landing work was carried unchanged into the shell PR, cut from `main` (not stacked),
+and landing and shell merge together. #235 and #236 close as superseded.
 
+## Current state (after PR 1 + 2)
+
+**Landing.**
 - The landing authority is `apps/web/src/auth/landing.ts`: `LOOP_HOME`, `safeNextPath`,
   `postLoginDestination`, `loginPathFor`.
 - A requested destination survives sign-in only if it is a same-origin path into `/app` or `/crm` and
   is not an authentication screen. Everything else goes to `/app`. The destination still enforces its
   own authorization.
-- `/app` renders Loop Home. Until PR 2, each role still sees its existing workspace shell and home
-  content there; the Owner/Admin/Manager home enforces `requireWorkspace('ADMIN')` itself.
-- Every workspace `home` is `/app`, so a wrong-workspace redirect lands on a page that renders.
+- `/app` renders Loop Home. Owner, Admin and Manager see the operational overview, which enforces
+  `requireWorkspace('ADMIN')` itself. Everyone else sees the areas of Loop they can open.
+- Every role authority's `home` is `/app`, so a wrong-authority redirect lands on a page that renders.
+
+**Shell and navigation.**
+- One shell: `WorkspaceShell`. It takes only the session and always renders the one registry,
+  `LOOP_NAV` (`apps/web/src/workspaces/config.ts`). Every signed-in surface mounts it: Loop Home, the
+  role-guarded `/app` trees and `/crm`. The CRM has no sidebar of its own; its entries are the CRM area of
+  `LOOP_NAV` and open the real CRM under `/crm`.
+- The shell shows the person: their name and role in the sidebar foot, and their name at the root of the
+  breadcrumb. No role- or workspace-branded label.
+- Each item states the authority its destination enforces: `requires` for the page's
+  `requirePermission`, and `workspace` for its route tree's `requireWorkspace`. The shell hides what a
+  person cannot open. Permissions resolve through `IamRepository.canEach`, which applies the same rules
+  as `can()` in one read.
+- Every page in a role-guarded tree (`/app/admin`, `/app/employee`, `/app/client`, `/app/business`,
+  `/app/creator`) enforces that authority itself, as its first awaited call. The five former role-home
+  pages are the exception: each only redirects to Loop Home. Tree layouts still guard too, as defence
+  in depth; they are no longer the only boundary.
+
+**Left for PR 3.**
+- Legacy addresses with no page still render an honest "not available" state inside the shell rather
+  than redirecting:
+  - `/app/admin/crm`;
+  - the old placeholder items in the Employee and Client trees;
+  - any other catch-all path.
+- The `/app/<role>` home URLs redirect to `/app` from their pages. The redirect table replaces these
+  handlings with direct redirects.

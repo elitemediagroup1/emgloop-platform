@@ -1161,24 +1161,26 @@ original `customerId`; the audit records counts only) and its header comment cla
 **NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
 schema**) as its own branch. Business Identity implementation has not begun.
 
-## Loop Application Structure — IN PROGRESS (PR 1 in review)
+## Loop Application Structure — IN PROGRESS (PR 1 + 2 in review, one PR)
 
 _Last updated: 2026-09-14._
 
 Decisions D1–D8 and the authorization invariant are locked in
 `docs/architecture/loop-application-structure.md` (approved by Matt 2026-09-14). One application under
-`/app`: one shell, one nav registry, `/app/<module>` routes, deliberate redirects. PR #235 is not merged
-standalone; PR 2 supersedes it.
+`/app`: one shell, one nav registry, `/app/<module>` routes, deliberate redirects.
+
+PR 1 (#236) was not merged standalone. Landing on `/app` before the single shell existed left Employee and
+Read Only with no path to the CRM, so its commits were carried unchanged into the shell PR, cut from `main`.
+#235 and #236 close as superseded once that PR is verified.
 
 | PR | Scope | Status |
 |----|-------|--------|
-| 1 | Sign-in lands on Loop; `/app` renders Loop Home; safe deep links survive | **IN REVIEW** |
-| 2 | One shell, one `LOOP_NAV`; explicit authority for layout-protected pages | Not started |
-| 3 | Route authority, redirect table, public auth routes | Not started |
+| 1 + 2 | Sign-in lands on Loop; one shell, one `LOOP_NAV`; CRM inside the shell; explicit guard on every role-guarded page | **IN REVIEW** (branch `feat/one-loop-shell`) |
+| 3 | Route authority, redirect table (incl. `/app/admin/crm`, role homes, catch-alls), public auth routes | Not started |
 | 4–7 | Administration, Intelligence, Work OS, CRM → canonical routes | Not started |
-| Final | Retire old registries/layouts/placeholders; docs | Not started |
+| Final | Retire role trees, phantom Business/Creator authority, placeholders; docs | Not started |
 
-**Next:** merge PR 1 → verify on `main` by content → cut PR 2 from fresh `main`.
+**Next:** merge the combined PR → verify on `main` by content → close #235/#236 → cut PR 3 from fresh `main`.
 
 ## CRM Phase 1 — Shared Experience Layer — CODE MERGED; completion blockers open
 
