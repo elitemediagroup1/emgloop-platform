@@ -10,7 +10,6 @@ import type { PrismaClient } from '@prisma/client';
 
 import { CustomerRepository } from './customer.repository';
 import { InteractionRepository } from './interaction.repository';
-import { BookingRepository } from './booking.repository';
 import { SignalRepository } from './signal.repository';
 import { DomainEventRepository } from './domain-event.repository';
 import { LoopEventRepository } from './loop-event.repository';
@@ -61,7 +60,6 @@ export {
   interactionActorName,
 } from './interaction.repository';
 export type { AuthenticatedActor } from './interaction.repository';
-export { BookingRepository } from './booking.repository';
 export { SignalRepository, signalTypeFromLabel } from './signal.repository';
 export { DomainEventRepository } from './domain-event.repository';
 export { LoopEventRepository } from './loop-event.repository';
@@ -367,7 +365,6 @@ export interface Repositories {
   cognitive: CognitiveRepositories;
   customers: CustomerRepository;
   interactions: InteractionRepository;
-  bookings: BookingRepository;
   signals: SignalRepository;
   domainEvents: DomainEventRepository;
   loopEvents: LoopEventRepository;
@@ -413,7 +410,6 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     cognitive: createCognitiveRepositories(prisma),
     customers: new CustomerRepository(prisma),
     interactions: new InteractionRepository(prisma),
-    bookings: new BookingRepository(prisma),
     signals: new SignalRepository(prisma),
     domainEvents: new DomainEventRepository(prisma),
     loopEvents: new LoopEventRepository(prisma),

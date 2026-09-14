@@ -52,31 +52,6 @@ export interface CreateInteractionInput {
   occurredAt?: Date;
 }
 
-export interface CreateBookingInput {
-  organizationId: string;
-  customerId?: string | null;
-  locationId?: string | null;
-  status?: BookingStatus;
-  title?: string | null;
-  startAt: Date;
-  endAt?: Date | null;
-  calendarProvider?: string | null;
-  calendarEventId?: string | null;
-  items?: unknown[];
-  attributes?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-}
-
-export interface UpdateBookingInput {
-  status?: BookingStatus;
-  calendarProvider?: string | null;
-  calendarEventId?: string | null;
-  startAt?: Date;
-  endAt?: Date | null;
-  attributes?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-}
-
 export interface CreateSignalInput {
   organizationId: string;
   customerId?: string | null;

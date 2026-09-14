@@ -1,9 +1,6 @@
 // Messaging repositories — Sprint 4 (Real Data Layer).
 //
-// In the canonical schema, a Message always belongs to a Conversation. The
-// Sprint 3 in-memory store flattened this; the real data layer restores it.
-// ConversationRepository lazily ensures a conversation exists for a customer
-// so the loop can persist SMS without managing conversation lifecycle itself.
+// In the canonical schema, a Message always belongs to a Conversation.
 
 import type {
   PrismaClient,
@@ -32,25 +29,6 @@ export class ConversationRepository {
     });
   }
 
-  /** Return the open conversation for a customer/channel, creating one if none. */
-  async ensureForCustomer(args: {
-    organizationId: string;
-    customerId: string;
-    channel: ChannelType;
-    subject?: string | null;
-  }): Promise<Conversation> {
-    const existing = await this.prisma.conversation.findFirst({
-      where: {
-        organizationId: args.organizationId,
-        customerId: args.customerId,
-        channel: args.channel,
-        status: 'OPEN',
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (existing) return existing;
-    return this.create(args);
-  }
 }
 
 export class MessageRepository {
