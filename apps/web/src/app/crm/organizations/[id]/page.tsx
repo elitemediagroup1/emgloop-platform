@@ -3,15 +3,15 @@ import { notFound } from 'next/navigation';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
 import { requirePermission } from '../../../../auth/guard';
 
-// Organization Detail — Phase 1 (Charlie/Lexi §10.2 scaffold).
+// Workspace Organization — Phase 1.
 //
-// The 360-degree commercial account view. Phase 1 shows what is real today:
-// organization profile, team members, and customers linked to this org.
-// Sections for Relationships, Opportunities, Campaigns and Activity are
-// scaffolded as empty states that explain what will live there in Phase 2+.
+// The signed-in tenant organization and its IAM members. This is NOT the
+// canonical commercial Company or Relationship surface (those arrive with the
+// Opportunity and Relationship domains in Phase 2+). It shows what is real
+// today: the workspace organization record, team membership, and people
+// linked through customer intake.
 //
-// This is the TENANT organization detail (the logged-in user's own org), not
-// a cross-org view. Cross-org Party is deferred per Phase 0 decision.
+// Tenant-local only — cross-org Party is deferred per Phase 0 decision.
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +62,7 @@ export default async function OrganizationDetailPage({
 
   return (
     <div className="crm-page">
-      {/* Organization Header */}
+      {/* Workspace Organization Header */}
       <div className="org-header">
         <div className="org-avatar" aria-hidden="true">
           {org.name.charAt(0).toUpperCase()}
@@ -70,7 +70,7 @@ export default async function OrganizationDetailPage({
         <div className="org-meta">
           <h1>{org.name}</h1>
           <p className="org-sub">
-            {org.industry || 'Industry not set'} &middot; {org.timezone} &middot; {org.status}
+            Workspace Organization &middot; {org.industry || 'Industry not set'} &middot; {org.timezone} &middot; {org.status}
           </p>
         </div>
       </div>
@@ -90,7 +90,7 @@ export default async function OrganizationDetailPage({
         {/* Left column: Organization details + Team */}
         <div>
           <div className="ds-card" style={{ marginBottom: '1rem' }}>
-            <div className="ds-card-head"><h3>Organization Details</h3></div>
+            <div className="ds-card-head"><h3>Workspace Details</h3></div>
             <div className="ds-card-body">
               <div className="org-field">
                 <span className="f-label">Legal Name</span>
@@ -184,10 +184,10 @@ export default async function OrganizationDetailPage({
             </div>
           </div>
 
-          {/* Pipeline summary */}
+          {/* Customer intake status — legacy Customer.status, not canonical Opportunity pipeline */}
           <div className="ds-card" style={{ marginBottom: '1rem' }}>
             <div className="ds-card-head">
-              <h3>Pipeline Summary</h3>
+              <h3>Intake Status</h3>
               <Link href="/crm/pipeline" className="more">Board →</Link>
             </div>
             <div className="ds-card-body">
@@ -199,6 +199,7 @@ export default async function OrganizationDetailPage({
                     <span className="cc-pipeline__count">{(statusCounts[s] ?? 0).toLocaleString()}</span>
                   </div>
                 ))}
+                <p className="cc-helper">Current intake statuses. Canonical Opportunity pipeline arrives with the Opportunity domain.</p>
               </div>
             </div>
           </div>
@@ -209,17 +210,17 @@ export default async function OrganizationDetailPage({
             <div className="ds-card-body">
               <div className="cc-upcoming">
                 <div className="cc-upcoming__item">
-                  <div className="cc-upcoming__label">Relationships</div>
+                  <div className="cc-upcoming__label">Commercial Companies &amp; Relationships</div>
                   <div className="cc-upcoming__desc">
-                    Commercial connections between this organization and others — buyer, brand, agency, vendor and partner roles.
-                    Not yet implemented. Relationships are a Phase 2 CRM domain.
+                    Canonical Company records and commercial relationships (buyer, brand, agency, vendor, partner) — distinct from this workspace organization.
+                    Arrives with the Relationship domain in Phase 2.
                   </div>
                 </div>
                 <div className="cc-upcoming__item">
                   <div className="cc-upcoming__label">Opportunities</div>
                   <div className="cc-upcoming__desc">
-                    Potential commercial outcomes with stage, value and participant tracking.
-                    Will be linked from this view once the Opportunity domain is built.
+                    Canonical opportunity pipeline with stage transitions, value tracking, and forecasts.
+                    Replaces the current intake statuses once the Opportunity domain is built.
                   </div>
                 </div>
                 <div className="cc-upcoming__item">

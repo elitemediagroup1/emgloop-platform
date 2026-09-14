@@ -233,7 +233,7 @@ export default async function Dashboard() {
           {/* CRM — Phase 1: real command center with org-scoped data */}
           <Tile title="CRM">
             <StatusWord tone="good" label="Active" />
-            <p className="tile__line">Phase 1 CRM is live with pipeline, people, conversations and activity.</p>
+            <p className="tile__line">Phase 1 CRM is live with people, conversations, intake status and activity.</p>
             <Link href="/crm" className="tile__action">Open CRM →</Link>
           </Tile>
 

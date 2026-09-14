@@ -5,7 +5,7 @@ import { requirePermission } from '../../auth/guard';
 // CRM Command Center — Phase 1 (Charlie/Lexi §10.1).
 //
 // The internal EMG operator's landing page. Every value is org-scoped and
-// real — customer counts, pipeline status breakdown, conversation volume,
+// real — customer counts, intake status breakdown, conversation volume,
 // recent activity. Where a capability is not yet built (Relationships,
 // Campaigns, Commercial Intelligence), the card shows an honest empty state.
 //
@@ -69,8 +69,8 @@ export default async function CrmCommandCenter() {
   const orgName = org?.name ?? 'Organization';
   const greeting = getGreeting();
 
-  // Pipeline summary from statusCounts
-  const activeLeads = (statusCounts.New ?? 0) + (statusCounts.Contacted ?? 0) + (statusCounts.Quoted ?? 0);
+  // Intake status summary from Customer.status (not canonical Opportunity pipeline).
+  const activeIntake = (statusCounts.New ?? 0) + (statusCounts.Contacted ?? 0) + (statusCounts.Quoted ?? 0);
   const booked = statusCounts.Booked ?? 0;
   const completed = statusCounts.Completed ?? 0;
 
@@ -88,9 +88,9 @@ export default async function CrmCommandCenter() {
           <h1 className="ds-title">{greeting}, {ctx.session.name}</h1>
           <p className="ds-subtitle">{orgName} &middot; {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
         </div>
-        <form className="cc-search" method="get" action="/crm/search" role="search">
-          <input type="search" name="q" className="crm-input cc-search__input" placeholder="Search people, organizations, conversations…" aria-label="Search" />
-        </form>
+        <div className="cc-search" role="search">
+          <input type="search" className="crm-input cc-search__input" placeholder="Search — coming in next Phase 1 slice" aria-label="Search" disabled />
+        </div>
       </div>
 
       {/* KPI Row */}
@@ -101,8 +101,8 @@ export default async function CrmCommandCenter() {
           <div className="k-trend">{weekCounts.newCustomers > 0 ? `+${weekCounts.newCustomers} this week` : 'No new this week'}</div>
         </div>
         <div className="ds-kpi">
-          <div className="k-label">Active Pipeline</div>
-          <div className="k-value">{fmtNum(activeLeads)}</div>
+          <div className="k-label">Intake Status</div>
+          <div className="k-value">{fmtNum(activeIntake)}</div>
           <div className="k-trend">{fmtNum(booked)} booked &middot; {fmtNum(completed)} completed</div>
         </div>
         <div className="ds-kpi">
@@ -120,15 +120,15 @@ export default async function CrmCommandCenter() {
       {/* Main Grid */}
       <div className="ds-grid cols-3">
 
-        {/* Pipeline Overview */}
+        {/* Customer Intake Status — legacy Customer.status, not canonical Opportunity pipeline */}
         <div className="ds-card">
           <div className="ds-card-head">
-            <h3>Pipeline Overview</h3>
+            <h3>Customer Intake</h3>
             <Link href="/crm/pipeline" className="more">View all →</Link>
           </div>
           <div className="ds-card-body">
             {customerCount === 0 ? (
-              <EmptyCard icon="columns" title="No pipeline data" line="People will appear here as they enter through intake, calls, or manual entry." />
+              <EmptyCard icon="columns" title="No intake data" line="People will appear here as they enter through intake, calls, or manual entry." />
             ) : (
               <div className="cc-pipeline">
                 {(['New', 'Contacted', 'Quoted', 'Booked', 'Completed'] as const).map((s) => (
@@ -138,6 +138,7 @@ export default async function CrmCommandCenter() {
                     <span className="cc-pipeline__count">{fmtNum(statusCounts[s] ?? 0)}</span>
                   </div>
                 ))}
+                <p className="cc-helper">Current intake statuses. Canonical Opportunity pipeline arrives with the Opportunity domain.</p>
               </div>
             )}
           </div>
@@ -181,16 +182,16 @@ export default async function CrmCommandCenter() {
             </Link>
             <Link href="/crm/pipeline" className="cc-action">
               <span className="cc-action__ico">📋</span>
-              <span>Pipeline Board</span>
+              <span>Intake Board</span>
             </Link>
             <Link href="/crm/conversations" className="cc-action">
               <span className="cc-action__ico">💬</span>
               <span>Conversations</span>
             </Link>
-            <Link href="/crm/search" className="cc-action">
+            <span className="cc-action" style={{ opacity: 0.5, pointerEvents: 'none' }}>
               <span className="cc-action__ico">🔍</span>
-              <span>Search</span>
-            </Link>
+              <span>Search (coming soon)</span>
+            </span>
           </div>
         </div>
       </div>
@@ -235,7 +236,7 @@ export default async function CrmCommandCenter() {
               <UpcomingItem label="Relationships" desc="First-class commercial relationships between organizations and people." />
               <UpcomingItem label="Campaigns" desc="Unified campaign management across call, creator, and owned property channels." />
               <UpcomingItem label="Commercial Intelligence" desc="Evidence-led investigations with governed findings and recommendations." />
-              <UpcomingItem label="Opportunities" desc="Pipeline stages with policy-controlled transitions and forecasts." />
+              <UpcomingItem label="Opportunities" desc="Canonical opportunity pipeline with stage transitions, value tracking, and forecasts." />
             </div>
           </div>
         </div>

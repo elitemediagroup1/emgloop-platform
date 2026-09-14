@@ -319,6 +319,9 @@ a.crm-card:hover, .crm-card.hoverable:hover {
 .cc-pipeline__label { color: var(--crm-muted); }
 .cc-pipeline__count { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
 
+/* Helper text under intake status / status cards */
+.cc-helper { font-size: 0.74rem; color: var(--crm-muted); margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--crm-border-soft); }
+
 /* Activity feed refinements */
 .cc-act__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-act__text strong { font-weight: 600; color: var(--crm-text); }
