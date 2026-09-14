@@ -122,10 +122,12 @@ export default async function WorkspaceShell({
           </nav>
           {shell.nav.some((g) => g.footer) ? (
             <nav className="loop-sb__adminarea" aria-label="Administration">
-              {shell.nav
-                .filter((g) => g.footer)
-                .flatMap((g) => g.items)
-                .map((item) => renderNavLink(item, permitted, active, workspace))}
+              {shell.nav.filter((g) => g.footer).map((group, gi) => (
+                <div key={group.label || `f${gi}`}>
+                  {group.label ? <div className="loop-sb__grouplabel">{group.label}</div> : null}
+                  {group.items.map((item) => renderNavLink(item, permitted, active, workspace))}
+                </div>
+              ))}
             </nav>
           ) : null}
           <div className="loop-sb__foot">

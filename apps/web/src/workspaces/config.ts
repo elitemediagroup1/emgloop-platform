@@ -109,24 +109,30 @@ export interface WorkspaceConfig extends ShellConfig {
 // deny-by-default matrix the CRM already uses (resource 'intelligence').
 // ---------------------------------------------------------------------------
 
-// Owner (ADMIN) sidebar — the global product navigation.
+// Owner (ADMIN) sidebar — the Loop home navigation.
 //
-// The global sidebar represents MAJOR BUSINESS OPERATING AREAS only — one flat,
-// icon+label list, no category headers, no product subpages. Each product owns
-// its OWN internal navigation inside its page area (e.g. CallGrid's Overview /
-// Buyers / Vendors / … subnav lives on the CallGrid pages, not here).
+// Grouped by operating area (Matt, 2026-09-14): Home, then CRM · Intelligence ·
+// Work OS · Creator Hub · Accounting, with Administration at the bottom. This
+// replaces the earlier flat one-item-per-product list. It is NAVIGATION ONLY:
+// every item links to a route that already exists, wherever it lives (/crm or
+// /app/admin); nothing moved. Moving the /crm routes under /app is a separate,
+// planned migration.
 //
-//   Dashboard · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting
-//   (Administration is separated at the bottom, permission-aware.)
+// Each item carries the permission its destination enforces, so a member is
+// never shown a link that refuses them. Server guards still decide on arrival.
 //
-// CRM, Creator Hub, Accounting and Administration are approved operating areas,
-// so they stay in the sidebar even though they are not built/connected: their
-// routes open an honest "unavailable" state (the /app/admin catch-all → ShellPage)
-// rather than being hidden. Nothing here shows fabricated data.
+// Boundaries the grouping must not blur:
+//   - Intake is the legacy Customer.status board; Relationships, Opportunities
+//     and Campaigns are Phase 2 CRM domains and stay `soon` until built.
+//   - "Your queue" is Commercial Intelligence's per-person attention queue and
+//     stays under Intelligence; Work OS "Queue" is the organization's work.
+//   - CRM Workflows are automation triggers, not Work OS execution, so they are
+//     not listed under Work OS. The Work OS workflow-template surface is not
+//     built yet and is `soon`.
 //
-// Active state is derived by the shell from the current path (longest-prefix), so
-// every child route (e.g. /app/admin/marketplace/buyers) keeps its top-level
-// product (CallGrid Intelligence) highlighted.
+// Creator Hub and Accounting open the honest "unavailable" shell (the
+// /app/admin catch-all → ShellPage). Active state is derived by the shell from
+// the current path (longest-prefix).
 const CALLGRID_INTEL = { resource: 'intelligence', action: 'view' } as const;
 const ADMIN_ONLY = { resource: 'users', action: 'view' } as const;
 const WORK_TYPES_ADMIN = { resource: 'settings', action: 'view' } as const;
@@ -134,6 +140,12 @@ const WORK_TYPES_ADMIN = { resource: 'settings', action: 'view' } as const;
 // the note in iam.repository.ts about why reading conclusions and authoring
 // intent are governed separately.
 const OBJECTIVES_VIEW = { resource: 'commercialIntelligence', action: 'view' } as const;
+const PEOPLE_VIEW = { resource: 'customers', action: 'view' } as const;
+const CONVERSATIONS_VIEW = { resource: 'inbox', action: 'view' } as const;
+const INTAKE_VIEW = { resource: 'pipeline', action: 'view' } as const;
+const ANALYTICS_VIEW = { resource: 'analytics', action: 'view' } as const;
+const SETTINGS_VIEW = { resource: 'settings', action: 'view' } as const;
+const AUDIT_VIEW = { resource: 'audit', action: 'view' } as const;
 
 const ADMIN_WORKSPACE: WorkspaceConfig = {
   role: 'ADMIN',
@@ -144,7 +156,24 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
     {
       label: '',
       items: [
-        { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
+        { href: '/app/admin', label: 'Home', icon: 'grid' },
+      ],
+    },
+    {
+      label: 'CRM',
+      items: [
+        { href: '/crm/customers', label: 'People', icon: 'users', requires: PEOPLE_VIEW },
+        { href: '/crm/relationships', label: 'Relationships', icon: 'flow', soon: true },
+        { href: '/crm/opportunities', label: 'Opportunities', icon: 'target', soon: true },
+        { href: '/crm/campaigns', label: 'Campaigns', icon: 'star', soon: true },
+        { href: '/crm/conversations', label: 'Conversations', icon: 'chat', requires: CONVERSATIONS_VIEW },
+        { href: '/crm/pipeline', label: 'Intake', icon: 'columns', requires: INTAKE_VIEW },
+        { href: '/crm/inbox', label: 'Activity', icon: 'activity', requires: PEOPLE_VIEW },
+      ],
+    },
+    {
+      label: 'Intelligence',
+      items: [
         // Stage 4. HEADLINES is the product noun Charlie and Lexi established;
         // the technical contracts keep their own names. Gated on the READ half
         // of commercialIntelligence, so a READ_ONLY member sees the intelligence
@@ -157,19 +186,36 @@ const ADMIN_WORKSPACE: WorkspaceConfig = {
         { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: OBJECTIVES_VIEW },
         { href: '/app/admin/brain', label: 'Brain', icon: 'brain', requires: CALLGRID_INTEL },
         { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: CALLGRID_INTEL },
-        { href: '/app/admin/crm', label: 'CRM', icon: 'users' },
+        { href: '/crm/analytics', label: 'Analytics', icon: 'chart', requires: ANALYTICS_VIEW },
+        { href: '/crm/traffic', label: 'Traffic', icon: 'chart', requires: ANALYTICS_VIEW },
+      ],
+    },
+    {
+      label: 'Work OS',
+      items: [
+        { href: '/app/admin/work', label: 'My Work', icon: 'check' },
+        { href: '/app/admin/work/team', label: 'Queue', icon: 'columns' },
+        { href: '/app/admin/work/workflows', label: 'Workflows', icon: 'flow', soon: true },
+        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: WORK_TYPES_ADMIN },
+      ],
+    },
+    {
+      // One item each until their own sections exist; a header over a single
+      // same-named link would only repeat it.
+      label: '',
+      items: [
         { href: '/app/admin/creator-hub', label: 'Creator Hub', icon: 'star' },
-        { href: '/app/admin/work', label: 'Work OS', icon: 'flow' },
         { href: '/app/admin/accounting', label: 'Accounting', icon: 'revenue' },
       ],
     },
     {
-      label: '',
+      label: 'Administration',
       footer: true,
       items: [
-        { href: '/app/admin/administration/team', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
-        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: WORK_TYPES_ADMIN },
+        { href: '/app/admin/administration/team', label: 'Team', icon: 'team', requires: ADMIN_ONLY },
+        { href: '/crm/settings', label: 'Settings', icon: 'cog', requires: SETTINGS_VIEW },
         { href: '/app/admin/administration/objectives', label: 'Objectives', icon: 'target', requires: OBJECTIVES_VIEW },
+        { href: '/crm/audit', label: 'Audit', icon: 'activity', requires: AUDIT_VIEW },
       ],
     },
   ],
