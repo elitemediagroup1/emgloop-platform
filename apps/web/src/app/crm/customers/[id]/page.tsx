@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
+import { loadOrFallback } from '../../../../demo/db-health';
+import { CrmLoadError } from '../../../../crm/load-error';
+import { SectionTabs } from '../../../../crm/section-tabs';
 import { crmRepos, requireCrmContext } from '../../../../crm/crm-data';
 import { requirePermission } from '../../../../auth/guard';
 import { PIPELINE_STATUSES, type AssigneeOptions } from '@emgloop/database';
@@ -156,7 +158,7 @@ export default async function CustomerWorkspace({
     return { ws, assignees, timeline };
   });
 
-  if (!result.ok) return <DbNotConfigured />;
+  if (!result.ok) return <CrmLoadError failure={result} surface="This person's record" />;
   if (!result.data.ws) return notFound();
 
   const ws = result.data.ws;
@@ -191,14 +193,16 @@ export default async function CustomerWorkspace({
 
   return (
     <>
-      <div style={{ marginBottom: '0.5rem' }}>
-        <Link href="/crm/customers" className="crm-faint" style={{ fontSize: '0.8rem' }}>
-          ← Customers
+      <div className="crm-record-back">
+        <Link href="/crm/customers" className="crm-faint">
+          <span aria-hidden="true">←</span> People
         </Link>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+      <div className="crm-record-head">
         <h1 className="crm-h1">{ws.name}</h1>
-        <span className={'crm-status ' + ws.status}>{ws.status}</span>
+        <span className={'crm-status ' + ws.status}>
+          <span className="crm-sr-only">Intake status: </span>{ws.status}
+        </span>
         {ws.customer.tags.map((t) => (
           <span className="crm-tag" key={t}>
             {t}
@@ -215,7 +219,7 @@ export default async function CustomerWorkspace({
         {/* Left rail */}
         <div>
           <div className="crm-card">
-            <h3>Customer attributes</h3>
+            <h2>Customer attributes</h2>
             <div className="crm-kv"><span className="k">Email</span><span className="v">{ws.customer.email || '—'}</span></div>
             <div className="crm-kv"><span className="k">Phone</span><span className="v">{ws.customer.phone || '—'}</span></div>
             <div className="crm-kv"><span className="k">Company</span><span className="v">{ws.company || '—'}</span></div>
@@ -231,10 +235,10 @@ export default async function CustomerWorkspace({
           </div>
 
           <div className="crm-card">
-            <h3>Pipeline status</h3>
+            <h2>Intake status</h2>
             <form action={setStatusAction} className="crm-form-row">
               <input type="hidden" name="customerId" value={cid} />
-              <select className="crm-select" name="status" defaultValue={ws.status} style={{ flex: 1 }}>
+              <select className="crm-select" name="status" defaultValue={ws.status} style={{ flex: 1 }} aria-label="Intake status">
                 {PIPELINE_STATUSES.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
@@ -244,11 +248,11 @@ export default async function CustomerWorkspace({
           </div>
 
           <div className="crm-card">
-            <h3>Assignments</h3>
-            <label className="crm-field-label">Human employee</label>
+            <h2>Assignments</h2>
+            <label className="crm-field-label" htmlFor="assign-human">Human employee</label>
             <form action={setAssignmentAction} className="crm-form-row">
               <input type="hidden" name="customerId" value={cid} />
-              <select className="crm-select" name="humanName" defaultValue={ws.assignedHumanName} style={{ flex: 1 }}>
+              <select id="assign-human" className="crm-select" name="humanName" defaultValue={ws.assignedHumanName} style={{ flex: 1 }}>
                 <option value="">— Unassigned —</option>
                 {humanNames.map((n) => (
                   <option key={n} value={n}>{n}</option>
@@ -256,10 +260,10 @@ export default async function CustomerWorkspace({
               </select>
               <button className="crm-btn" type="submit">Save</button>
             </form>
-            <label className="crm-field-label" style={{ marginTop: '0.5rem' }}>AI employee</label>
+            <label className="crm-field-label" htmlFor="assign-ai" style={{ marginTop: '0.5rem' }}>AI employee</label>
             <form action={setAssignmentAction} className="crm-form-row">
               <input type="hidden" name="customerId" value={cid} />
-              <select className="crm-select" name="aiName" defaultValue={ws.assignedAIName} style={{ flex: 1 }}>
+              <select id="assign-ai" className="crm-select" name="aiName" defaultValue={ws.assignedAIName} style={{ flex: 1 }}>
                 <option value="">— Unassigned —</option>
                 {aiNames.map((n) => (
                   <option key={n} value={n}>{n}</option>
@@ -275,7 +279,7 @@ export default async function CustomerWorkspace({
           </div>
 
           <div className="crm-card">
-            <h3>Tags</h3>
+            <h2>Tags</h2>
             <div className="crm-chips" style={{ marginBottom: '0.5rem' }}>
               {ws.customer.tags.length === 0 ? (
                 <span className="crm-faint" style={{ fontSize: '0.8rem' }}>No tags</span>
@@ -284,8 +288,8 @@ export default async function CustomerWorkspace({
                   <form action={removeTagAction} key={t} style={{ display: 'inline' }}>
                     <input type="hidden" name="customerId" value={cid} />
                     <input type="hidden" name="tag" value={t} />
-                    <button className="crm-chip active" type="submit" style={{ cursor: 'pointer' }} title="Remove tag">
-                      {t} ✕
+                    <button className="crm-chip active" type="submit" style={{ cursor: 'pointer' }} aria-label={`Remove tag ${t}`}>
+                      {t} <span aria-hidden="true">✕</span>
                     </button>
                   </form>
                 ))
@@ -293,7 +297,7 @@ export default async function CustomerWorkspace({
             </div>
             <form action={addTagAction} className="crm-form-row">
               <input type="hidden" name="customerId" value={cid} />
-              <input className="crm-input" name="tag" list="crm-tag-suggestions" placeholder="Add tag…" style={{ flex: 1 }} />
+              <input className="crm-input" name="tag" list="crm-tag-suggestions" placeholder="Add tag…" aria-label="Add tag" style={{ flex: 1 }} />
               <datalist id="crm-tag-suggestions">
                 {SUGGESTED_TAGS.map((t) => (
                   <option key={t} value={t} />
@@ -306,17 +310,14 @@ export default async function CustomerWorkspace({
 
         {/* Right: tabbed workspace */}
         <div>
-          <div className="crm-tabs">
-            {TABS.map((t) => (
-              <Link key={t} href={tabHref(t)} className={t === activeTab ? 'active' : ''}>
-                {t}
-              </Link>
-            ))}
-          </div>
+          <SectionTabs
+            label="Record sections"
+            tabs={TABS.map((t) => ({ label: t, href: tabHref(t), active: t === activeTab }))}
+          />
 
           {activeTab === 'Overview' ? (
             <div className="crm-card">
-              <h3>Overview</h3>
+              <h2>Overview</h2>
               <div className="crm-kv"><span className="k">Interactions</span><span className="v">{ws.interactions.length}</span></div>
               <div className="crm-kv"><span className="k">Website events</span><span className="v">{webEvents.length}</span></div>
               <div className="crm-kv"><span className="k">Messages</span><span className="v">{messages.length}</span></div>
@@ -331,7 +332,7 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Edit' ? (
             <div className="crm-card">
-              <h3>Edit customer</h3>
+              <h2>Edit customer</h2>
               <form action={updateCustomerFieldsAction}>
                 <input type="hidden" name="customerId" value={cid} />
                 <div className="crm-edit-grid">
@@ -355,7 +356,7 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Timeline' ? (
             <div className="crm-card">
-              <h3>Interaction timeline</h3>
+              <h2>Interaction timeline</h2>
               {ws.interactions.length === 0 ? (
                 <EmptyTimeline message="No interactions yet." />
               ) : (
@@ -373,9 +374,9 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Website' ? (
             <div className="crm-card">
-              <h3>Website activity</h3>
+              <h2>Website activity</h2>
               <p className="crm-faint" style={{ fontSize: '0.78rem', marginTop: '-0.3rem', marginBottom: '0.8rem' }}>
-                Pages, searches, downloads, forms, and CTA clicks captured by the Brain across EMG-owned websites.
+                Pages, searches, downloads, forms, and CTA clicks recorded from EMG-owned websites.
               </p>
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem', fontSize: '0.85rem' }}>
                 <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Total events</span><strong>{webEvents.length}</strong></div>
@@ -385,9 +386,9 @@ export default async function CustomerWorkspace({
                 <div><span className="crm-faint" style={{ display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>CTA clicks</span><strong>{webEvents.filter((i) => ['web.cta_click', 'web.phone_click', 'web.email_click'].includes(webEventType(i))).length}</strong></div>
               </div>
               {webEvents.length === 0 ? (
-                <p className="crm-faint">The Brain has not seen this customer on a website yet. As they browse EMG properties, their activity will appear here.</p>
+                <EmptyTimeline message="No website activity recorded for this person yet." />
               ) : (
-                <ul className="crm-timeline">
+                <ul className="crm-timeline" role="list">
                   {webEvents.map((i) => (
                     <li key={i.id}>
                       <span className="crm-tl-dot" style={{ background: 'var(--crm-blue)' }} />
@@ -406,12 +407,12 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Notes' ? (
             <div className="crm-card">
-              <h3>Internal notes</h3>
+              <h2>Internal notes</h2>
               <form action={addNoteAction} style={{ marginBottom: '1rem' }}>
                 <input type="hidden" name="customerId" value={cid} />
-                <textarea className="crm-textarea" name="body" placeholder="Write an internal note…" required />
+                <textarea className="crm-textarea" name="body" placeholder="Write an internal note…" aria-label="Internal note" required />
                 <div className="crm-form-row">
-                  <select className="crm-select" name="author" defaultValue="HUMAN_AGENT">
+                  <select className="crm-select" name="author" defaultValue="HUMAN_AGENT" aria-label="Note author">
                     <option value="HUMAN_AGENT">Human</option>
                     <option value="AI_AGENT">AI</option>
                     <option value="SYSTEM">System</option>
@@ -420,7 +421,7 @@ export default async function CustomerWorkspace({
                 </div>
               </form>
               {notes.length === 0 ? (
-                <p className="crm-faint">No notes yet.</p>
+                <EmptyTimeline message="No notes yet." />
               ) : (
                 notes.map((n) => {
                   const who = String(jsonVal<string>(n.payload, 'actorType') ?? 'SYSTEM');
@@ -441,7 +442,7 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Messages' ? (
             <div className="crm-card">
-              <h3>Messages</h3>
+              <h2>Messages</h2>
               {messages.length === 0 ? (
                 <EmptyTimeline message="No messages yet." />
               ) : (
@@ -469,7 +470,7 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Bookings' ? (
             <div className="crm-card">
-              <h3>Bookings</h3>
+              <h2>Bookings</h2>
               {ws.bookings.length === 0 ? (
                 <EmptyTimeline message="No bookings yet." />
               ) : (
@@ -494,12 +495,12 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Revenue' ? (
             <div className="crm-card">
-              <h3>Customer revenue timeline</h3>
+              <h2>Customer revenue timeline</h2>
               <p className="crm-faint" style={{ fontSize: '0.78rem', marginTop: '-0.3rem', marginBottom: '0.8rem' }}>
-                Website Visit → ZIP Search → CTA → Call → Booking → Revenue → Lifetime Value. Deterministic, evidence-backed — real Neon data only.
+                Website visit → ZIP search → CTA → call → booking → revenue → lifetime value, assembled from recorded events only.
               </p>
               {!timeline ? (
-                <p className="crm-faint">No revenue journey yet. As this customer browses, calls, books, and orders, the Brain will assemble their revenue story here.</p>
+                <EmptyTimeline message="No revenue journey recorded for this person yet." />
               ) : (
                 <>
                   <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem', fontSize: '0.85rem' }}>
@@ -518,9 +519,9 @@ export default async function CustomerWorkspace({
                     </div>
                   ) : null}
                   {timeline.entries.length === 0 ? (
-                    <p className="crm-faint">No revenue events recorded yet.</p>
+                    <EmptyTimeline message="No revenue events recorded yet." />
                   ) : (
-                    <ul className="crm-timeline">
+                    <ul className="crm-timeline" role="list">
                       {timeline.entries.map((e, idx) => (
                         <li key={e.kind + idx + e.at}>
                           <span className="crm-tl-dot" style={{ background: REVENUE_KIND_COLOR[e.kind] ?? 'var(--crm-faint)' }} />
@@ -547,7 +548,7 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'Signals' ? (
             <div className="crm-card">
-              <h3>Signals</h3>
+              <h2>Signals</h2>
               {ws.signals.length === 0 ? (
                 <EmptyTimeline message="No signals yet." />
               ) : (
@@ -571,7 +572,7 @@ export default async function CustomerWorkspace({
 
           {activeTab === 'AI Activity' ? (
             <div className="crm-card">
-              <h3>AI activity</h3>
+              <h2>AI activity</h2>
               {aiActivity.length === 0 ? (
                 <EmptyTimeline message="No AI activity yet." />
               ) : (
