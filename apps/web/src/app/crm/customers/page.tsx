@@ -233,7 +233,7 @@ export default async function CustomersPage({
         ))}
       </div>
 
-      <BulkBar tags={tags} />
+      <BulkBar tags={tags} statuses={PIPELINE_STATUSES} />
 
       <div className="crm-panel">
         <table className="crm-table crm-table-select">

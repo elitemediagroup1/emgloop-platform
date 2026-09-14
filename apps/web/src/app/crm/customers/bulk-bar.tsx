@@ -8,6 +8,11 @@
 // status, add a tag, assign a human / AI by name. Each action posts to a server
 // action with the selected ids (comma-joined in a hidden field). No client
 // data store — selection is pure DOM state; all persistence is server-side.
+//
+// It must not import @emgloop/database. That package's entry constructs a
+// PrismaClient when it loads, and in the browser Prisma throws on first touch,
+// so importing even a constant from it here crashed the whole People page on
+// the client ("Application error"). The statuses come from the server page.
 
 import { useEffect, useState } from 'react';
 import {
@@ -15,9 +20,8 @@ import {
   bulkAddTagAction,
   bulkAssignAction,
 } from '../../../crm/actions';
-import { PIPELINE_STATUSES } from '@emgloop/database';
 
-export function BulkBar({ tags }: { tags: string[] }) {
+export function BulkBar({ tags, statuses }: { tags: string[]; statuses: readonly string[] }) {
   const [selected, setSelected] = useState<string[]>([]);
 
   useEffect(() => {
@@ -68,7 +72,7 @@ export function BulkBar({ tags }: { tags: string[] }) {
           <option value="" disabled>
             Set status…
           </option>
-          {PIPELINE_STATUSES.map((s) => (
+          {statuses.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
