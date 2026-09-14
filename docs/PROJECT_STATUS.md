@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-08-19 (metric-definition correction in review)._
+_Last updated: 2026-09-14 (CRM Phase 1: PR D #230 in review; merge checkpoint)._
 
 ---
 
@@ -1161,14 +1161,35 @@ original `customerId`; the audit records counts only) and its header comment cla
 **NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
 schema**) as its own branch. Business Identity implementation has not begun.
 
-## CRM · Creator Hub · Accounting — NOT BUILT
-Approved operating areas, shown in the sidebar, but not built/connected. They render honest
-"Not Configured / unavailable" states and **never** show fabricated data. (CRM specifically
-must never surface CallGrid caller records as contacts — the `Customer` table is shared.)
-**CRM design may proceed now** — per the assessment's CRM design guidance (uncommitted; see the
-Business Identity block): 13 areas SAFE_TO_FINALIZE, 11 PROVISIONAL, 15 binding
-FORBIDDEN_ASSUMPTIONs. **CRM code may not begin until Business Identity Stage 2 lands.**
+## CRM Phase 1 — Shared Experience Layer — IN REVIEW (#230)
 
+_Last updated: 2026-09-14 (PR D open; merge checkpoint)._
+
+| PR | Scope | Status |
+|----|-------|--------|
+| A — Governed Search | Cross-entity search, Command Center search form | **MERGED** #227 |
+| B — Timeline + Audit Primitives | `src/crm/timeline.tsx`, Command Center adoption | **MERGED** #228 |
+| C — Shared Detail Experience | Customer tabs on primitives, org Activity tab | **MERGED** #229 |
+| D — UX / accessibility / responsive | Shell skip link + landmarks + phone nav strip; intake no longer labelled Opportunities/Pipeline; `SectionTabs`; `CrmLoadError`; `--crm-faint` to WCAG AA; timeline actor attribution fix | **IN REVIEW** #230 |
+| E — Completion / reconciliation | Only if the post-D audit finds concrete defects | **PENDING** — see blockers |
+
+**Next:** merge #230, then run the Phase 1 completion audit against fresh `main`.
+
+**Phase 1 completion blockers found during D (not fixed there — not UX):**
+1. `/crm` Command Center renders audit events with no `audit:view` check; EMPLOYEE and READ_ONLY
+   hold `audit: []`. Org-scoped role over-exposure in Phase 1 work. → PR E.
+2. `/crm/organizations` calls unscoped `listSummaries()` — every tenant's name, slug and counts to
+   OWNER/ADMIN/MANAGER of any org. Pre-existing (Sprint 7), reachable from the Phase 1 nav.
+3. Customer notes accept a client-chosen author (`AI_AGENT`/`SYSTEM`), so a human can post a note
+   attributed to AI. Needs a server-side fix, not a hidden select.
+
+**Test baseline:** run tests with the package command
+(`tsx --tsconfig tsconfig.test.json --test test/*.test.tsx`). Without the test tsconfig, JSX tests
+fail with `React is not defined` — that produced a false "86 failures" figure in #229's description.
+main after #229: 199/199. #230: 229/229.
+
+**Not browser-verified:** no DB or session in the dev environment; responsive layout, focus order
+and the phone nav strip need a deploy-preview check.
 ---
 
 ## Open threads / next steps
