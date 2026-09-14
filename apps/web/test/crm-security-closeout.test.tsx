@@ -150,7 +150,8 @@ describe('Audit authorization', () => {
   it('the Command Center resolves audit:view from the session before loading, and never reads audit itself', () => {
     const c = code(read('../src/app/crm/page.tsx'));
     const perm = c.indexOf("hasPermission('audit', 'view')");
-    assert.ok(perm > -1 && perm < c.indexOf('await loadOrFallback('));
+    const loader = c.indexOf('loadOrFallback(');
+    assert.ok(perm > -1 && loader > -1 && perm < loader);
     assert.match(c, /loadCommandCenter\(crmRepos, ctx\.organizationId, \{ canViewAudit \}\)/);
     assert.equal(/crmRepos\.audit/.test(c), false);
     assert.match(c, /\{recentAudit \? \(/);

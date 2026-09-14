@@ -5,8 +5,9 @@ import { hasPermission } from '../auth/guard';
 import { EmgLoopWordmark } from '../app/crm/_brand/Logos';
 import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
-import type { ShellConfig, NavItem } from './config';
-import { resolveActiveNav } from './config';
+import type { ShellConfig, NavItem, WorkspaceRole } from './config';
+import { navItemVisible, resolveActiveNav } from './config';
+import { resolveWorkspaceRole } from './role-router';
 
 // Loop OS — WorkspaceShell.
 //
@@ -28,12 +29,16 @@ function initials(name: string): string {
 
 // One nav link, shared by the main list and the footer (Administration) — the
 // sidebar has ONE link implementation, never per-route variants.
-function renderNavLink(item: NavItem, permitted: Map<string, boolean>, active: string | null) {
-  const allowed = permitted.get(item.href) ?? true;
-  // A permission-gated item the user is denied is HIDDEN, not greyed — we never
-  // render a control the user cannot use (e.g. Administration to a non-admin).
-  // Server guards still enforce access on arrival; this only removes the link.
-  if (item.requires && !allowed) return null;
+function renderNavLink(
+  item: NavItem,
+  permitted: Map<string, boolean>,
+  active: string | null,
+  workspace: WorkspaceRole,
+) {
+  // An item the user is denied, or whose workspace they are not in, is HIDDEN,
+  // not greyed — we never render a control the user cannot use. Server guards
+  // still enforce access on arrival; this only removes the link.
+  if (!navItemVisible(item, { permitted: permitted.get(item.href) ?? true, workspace })) return null;
   const disabled = Boolean(item.soon);
   const isActive = item.href === active;
   const className = 'loop-sb__link' + (isActive ? ' is-active' : '') + (disabled ? ' is-disabled' : '');
@@ -80,6 +85,7 @@ export default async function WorkspaceShell({
   const crumb = activeItem?.label ?? 'Overview';
   const active = activeItem?.href ?? null;
 
+  const workspace = resolveWorkspaceRole(session);
   const permitted = new Map<string, boolean>();
   await Promise.all(
     shell.nav.flatMap((group) =>
@@ -110,7 +116,7 @@ export default async function WorkspaceShell({
             {shell.nav.filter((g) => !g.footer).map((group, gi) => (
               <div className="loop-sb__group" key={group.label || `g${gi}`}>
                 {group.label ? <div className="loop-sb__grouplabel">{group.label}</div> : null}
-                {group.items.map((item) => renderNavLink(item, permitted, active))}
+                {group.items.map((item) => renderNavLink(item, permitted, active, workspace))}
               </div>
             ))}
           </nav>
@@ -119,7 +125,7 @@ export default async function WorkspaceShell({
               {shell.nav
                 .filter((g) => g.footer)
                 .flatMap((g) => g.items)
-                .map((item) => renderNavLink(item, permitted, active))}
+                .map((item) => renderNavLink(item, permitted, active, workspace))}
             </nav>
           ) : null}
           <div className="loop-sb__foot">
