@@ -19,12 +19,17 @@ const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const code = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
-const SEARCH = code(read('../src/app/crm/search/page.tsx'));
+const PAGE = code(read('../src/app/crm/search/page.tsx'));
+// The reads and result typing moved into src/crm/search-data.ts; the page keeps
+// authorization, URL handling and rendering. Both are held to this contract.
+const DATA = code(read('../src/crm/search-data.ts'));
+const SEARCH = PAGE + '\n' + DATA;
 
 test('1. search requires customers:view before reading data', () => {
-  const permIdx = SEARCH.indexOf("requirePermission('customers', 'view')");
-  const contextIdx = SEARCH.indexOf('requireCrmContext');
-  const repoIdx = SEARCH.indexOf('crmRepos.');
+  const permIdx = PAGE.indexOf("requirePermission('customers', 'view')");
+  const contextIdx = PAGE.indexOf('requireCrmContext');
+  const repoIdx = PAGE.indexOf('runSearch(crmRepos');
+  assert.notEqual(repoIdx, -1, 'the page hands the repositories to runSearch');
   assert.notEqual(permIdx, -1, 'requirePermission is called');
   assert.notEqual(contextIdx, -1, 'requireCrmContext is called');
   assert.ok(permIdx < repoIdx, 'permission check precedes data access');
@@ -42,13 +47,14 @@ test('3. organization results are gated on organizations:view', () => {
 
 test('4. every repository call uses organizationId from the session', () => {
   assert.match(SEARCH, /requireCrmContext\(\)/);
-  const customerCall = SEARCH.match(/listCustomers\(([^,)]+)/);
+  assert.match(PAGE, /runSearch\(crmRepos, organizationId,/, 'the page passes the session organization');
+  const customerCall = DATA.match(/listCustomers\(([^,)]+)/);
   assert.ok(customerCall, 'listCustomers is called');
   assert.match(customerCall![1]!, /organizationId/, 'customer search is org-scoped');
-  const convoCall = SEARCH.match(/listConversations\(([^,)]+)/);
+  const convoCall = DATA.match(/listConversations\(([^,)]+)/);
   assert.ok(convoCall, 'listConversations is called');
   assert.match(convoCall![1]!, /organizationId/, 'conversation search is org-scoped');
-  const orgCall = SEARCH.match(/findById\(([^)]+)\)/);
+  const orgCall = DATA.match(/findById\(([^)]+)\)/);
   assert.ok(orgCall, 'findById is called');
   assert.match(orgCall![1]!, /organizationId/, 'org lookup uses session org');
 });

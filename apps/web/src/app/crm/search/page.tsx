@@ -3,6 +3,7 @@ import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../auth/guard';
 import { loadOrFallback } from '../../../demo/db-health';
 import { CrmLoadError } from '../../../crm/load-error';
+import { kindLabel, normalizeQuery, runSearch } from '../../../crm/search-data';
 
 // CRM Governed Search — Phase 1.
 //
@@ -15,31 +16,12 @@ import { CrmLoadError } from '../../../crm/load-error';
 
 export const dynamic = 'force-dynamic';
 
-type ResultKind = 'person' | 'conversation' | 'organization';
-
-interface SearchResult {
-  id: string;
-  kind: ResultKind;
-  title: string;
-  subtitle: string;
-  href: string;
-  meta?: string;
-}
-
-function kindLabel(kind: ResultKind): string {
-  switch (kind) {
-    case 'person': return 'Person / Intake Record';
-    case 'conversation': return 'Conversation';
-    case 'organization': return 'Workspace Organization';
-  }
-}
-
 export default async function SearchPage({
   searchParams,
 }: {
   searchParams: { q?: string };
 }) {
-  const q = (searchParams?.q ?? '').trim();
+  const q = normalizeQuery(searchParams?.q);
 
   await requirePermission('customers', 'view');
   const { organizationId } = await requireCrmContext();
@@ -49,69 +31,9 @@ export default async function SearchPage({
 
   // Every repository call runs inside the loader, so a failed read renders the
   // failure state instead of an empty "no results" that would be untrue.
-  const loaded = await loadOrFallback(async () => {
-    const results: SearchResult[] = [];
-    if (!q) return results;
-    const searches: Promise<void>[] = [];
-
-    searches.push(
-      crmRepos.crm.listCustomers(organizationId, {
-        search: q,
-        pageSize: 20,
-        page: 1,
-      }).then((list) => {
-        for (const c of list.rows) {
-          results.push({
-            id: c.id,
-            kind: 'person',
-            title: c.name || 'Unnamed',
-            subtitle: [c.company, c.email, c.phone].filter(Boolean).join(' · ') || 'No contact details',
-            href: `/crm/customers/${c.id}`,
-            meta: c.status,
-          });
-        }
-      }),
-    );
-
-    if (canViewConversations) {
-      searches.push(
-        crmRepos.conversationsInbox.listConversations(organizationId, {
-          search: q,
-        }).then((list) => {
-          for (const c of list.rows.slice(0, 15)) {
-            results.push({
-              id: c.id,
-              kind: 'conversation',
-              title: c.subject || 'No subject',
-              subtitle: [c.customerName, c.channel, c.assigneeName].filter(Boolean).join(' · '),
-              href: `/crm/conversations/${c.id}`,
-              meta: c.status,
-            });
-          }
-        }),
-      );
-    }
-
-    if (canViewOrganizations) {
-      searches.push(
-        crmRepos.organizations.findById(organizationId).then((org) => {
-          if (org && org.name.toLowerCase().includes(q.toLowerCase())) {
-            results.push({
-              id: org.id,
-              kind: 'organization',
-              title: org.name,
-              subtitle: [org.industry, org.timezone, org.status].filter(Boolean).join(' · '),
-              href: `/crm/organizations/${org.id}`,
-              meta: 'Workspace',
-            });
-          }
-        }),
-      );
-    }
-
-    await Promise.all(searches);
-    return results;
-  });
+  const loaded = await loadOrFallback(() =>
+    runSearch(crmRepos, organizationId, q, { canViewConversations, canViewOrganizations }),
+  );
 
   if (!loaded.ok) return <CrmLoadError failure={loaded} surface="Search" />;
   const results = loaded.data;
