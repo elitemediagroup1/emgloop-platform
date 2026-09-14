@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import { crmRepos, requireCrmContext } from '../../crm/crm-data';
 import { requirePermission } from '../../auth/guard';
+import {
+  Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
+  fromInboxItem, fromAuditView,
+} from '../../crm/timeline';
 
 // CRM Command Center — Phase 1 (Charlie/Lexi §10.1).
 //
@@ -14,16 +18,6 @@ import { requirePermission } from '../../auth/guard';
 
 export const dynamic = 'force-dynamic';
 
-function relTime(iso: string | Date): string {
-  const t = typeof iso === 'string' ? new Date(iso).getTime() : iso.getTime();
-  const m = Math.round((Date.now() - t) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  const d = Math.round(h / 24);
-  return d === 1 ? 'yesterday' : d + 'd ago';
-}
 
 function fmtNum(n: number): string {
   return n.toLocaleString('en-US');
@@ -152,20 +146,13 @@ export default async function CrmCommandCenter() {
           </div>
           <div className="ds-card-body">
             {recentActivity.length === 0 ? (
-              <EmptyCard icon="activity" title="No activity yet" line="Interactions will appear here as they occur." />
+              <EmptyTimeline message="Interactions will appear here as they occur." />
             ) : (
-              <ul className="ds-activity">
+              <Timeline>
                 {recentActivity.slice(0, 6).map((a) => (
-                  <li key={a.id}>
-                    <span className={'adot adot--' + (a.direction === 'inbound' ? 'in' : 'out')} />
-                    <span className="cc-act__text">
-                      <strong>{a.customerName ?? 'Unknown'}</strong>{' '}
-                      {a.summary ?? a.kind}
-                    </span>
-                    <span className="awhen">{relTime(a.occurredAt)}</span>
-                  </li>
+                  <TimelineItem key={a.id} entry={fromInboxItem(a)} />
                 ))}
-              </ul>
+              </Timeline>
             )}
           </div>
         </div>
@@ -207,21 +194,13 @@ export default async function CrmCommandCenter() {
           </div>
           <div className="ds-card-body">
             {recentAudit.length === 0 ? (
-              <EmptyCard icon="activity" title="No audit events" line="Material actions will be logged here." />
+              <EmptyTimeline message="Material actions will be logged here." />
             ) : (
-              <ul className="ds-activity">
+              <Timeline>
                 {recentAudit.slice(0, 5).map((a) => (
-                  <li key={a.id}>
-                    <span className="adot" />
-                    <span className="cc-act__text">
-                      <strong>{a.actorName}</strong>{' '}
-                      {a.action.replace(/\./g, ' ')}
-                      {a.entityType ? ` on ${a.entityType}` : ''}
-                    </span>
-                    <span className="awhen">{relTime(a.createdAt)}</span>
-                  </li>
+                  <AuditEventRow key={a.id} entry={fromAuditView(a)} />
                 ))}
-              </ul>
+              </Timeline>
             )}
           </div>
         </div>
