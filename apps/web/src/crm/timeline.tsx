@@ -3,6 +3,7 @@
 // one coherent visual language while retaining source/type/provenance.
 
 import type { ReactNode } from 'react';
+import { interactionActorType, interactionActorName } from '@emgloop/database';
 import { relTime } from '../app/app/_loop-os/format';
 
 // ---------------------------------------------------------------------------
@@ -111,9 +112,8 @@ export function fromInteraction(item: {
   const payload = (item.payload && typeof item.payload === 'object')
     ? item.payload as Record<string, unknown>
     : {};
-  const actorType = typeof payload.actorType === 'string'
-    ? payload.actorType
-    : 'SYSTEM';
+  const actorType = interactionActorType(item.payload) ?? 'SYSTEM';
+  const actorName = interactionActorName(item.payload);
   const body = typeof payload.body === 'string' ? payload.body : undefined;
   const iso = typeof item.occurredAt === 'string'
     ? item.occurredAt
@@ -123,7 +123,7 @@ export function fromInteraction(item: {
     source: 'interaction',
     title: item.summary || item.kind,
     body,
-    actor: ACTOR_TYPE_LABELS[actorType] ?? actorType,
+    actor: actorName ?? ACTOR_TYPE_LABELS[actorType] ?? actorType,
     actorType,
     channel: item.channel,
     direction: item.direction,

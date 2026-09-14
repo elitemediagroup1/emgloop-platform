@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { crmRepos, requireCrmContext } from '../../crm/crm-data';
-import { requirePermission } from '../../auth/guard';
+import { hasPermission } from '../../auth/guard';
 import { loadOrFallback } from '../../demo/db-health';
+import { loadCommandCenter } from '../../crm/command-center-data';
 import { CrmLoadError } from '../../crm/load-error';
 import {
   Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
@@ -25,31 +26,19 @@ function fmtNum(n: number): string {
   return n.toLocaleString('en-US');
 }
 
-function weekStart(): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - 7);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 export default async function CrmCommandCenter() {
   const ctx = await requireCrmContext('/crm');
-  const orgId = ctx.organizationId;
+  // Resolved before any read: without audit:view the audit query is not issued.
+  const canViewAudit = await hasPermission('audit', 'view');
 
   // Parallel data loads — all org-scoped, all real.
-  const result = await loadOrFallback(() => Promise.all([
-    crmRepos.organizations.findById(orgId),
-    crmRepos.customers.countByOrganization(orgId),
-    crmRepos.crm.statusCounts(orgId),
-    crmRepos.crm.windowCounts(orgId, weekStart(), new Date()),
-    crmRepos.conversationsInbox.listConversations(orgId, {}),
-    crmRepos.crm.inboxFeed(orgId, 8),
-    crmRepos.audit.list(orgId, { take: 10 }),
-  ]));
+  const result = await loadOrFallback(() =>
+    loadCommandCenter(crmRepos, ctx.organizationId, { canViewAudit }),
+  );
 
   if (!result.ok) return <CrmLoadError failure={result} surface="The Command Center" />;
 
-  const [
+  const {
     org,
     customerCount,
     statusCounts,
@@ -57,7 +46,7 @@ export default async function CrmCommandCenter() {
     conversationCounts,
     recentActivity,
     recentAudit,
-  ] = result.data;
+  } = result.data;
 
   const orgName = org?.name ?? 'Organization';
   const clock = orgClock(org?.timezone);
@@ -183,26 +172,28 @@ export default async function CrmCommandCenter() {
       </div>
 
       {/* Second Row */}
-      <div className="ds-grid cols-2 cc-row">
+      <div className={'ds-grid cc-row' + (recentAudit ? ' cols-2' : '')}>
 
-        {/* Audit Trail */}
-        <section className="ds-card" aria-labelledby="cc-audit">
-          <div className="ds-card-head">
-            <h2 id="cc-audit">Recent Audit Events</h2>
-            <Link href="/crm/audit" className="more">Full log <span aria-hidden="true">→</span></Link>
-          </div>
-          <div className="ds-card-body">
-            {recentAudit.length === 0 ? (
-              <EmptyTimeline message="Material actions will be logged here." />
-            ) : (
-              <Timeline>
-                {recentAudit.slice(0, 5).map((a) => (
-                  <AuditEventRow key={a.id} entry={fromAuditView(a)} />
-                ))}
-              </Timeline>
-            )}
-          </div>
-        </section>
+        {/* Audit Trail — only for audit:view; recentAudit is null otherwise */}
+        {recentAudit ? (
+          <section className="ds-card" aria-labelledby="cc-audit">
+            <div className="ds-card-head">
+              <h2 id="cc-audit">Recent Audit Events</h2>
+              <Link href="/crm/audit" className="more">Full log <span aria-hidden="true">→</span></Link>
+            </div>
+            <div className="ds-card-body">
+              {recentAudit.length === 0 ? (
+                <EmptyTimeline message="Material actions will be logged here." />
+              ) : (
+                <Timeline>
+                  {recentAudit.slice(0, 5).map((a) => (
+                    <AuditEventRow key={a.id} entry={fromAuditView(a)} />
+                  ))}
+                </Timeline>
+              )}
+            </div>
+          </section>
+        ) : null}
 
         {/* Not-yet-built areas — honest scaffolds */}
         <section className="ds-card" aria-labelledby="cc-upcoming">

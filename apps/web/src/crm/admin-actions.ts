@@ -263,24 +263,6 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
 
 // --- Organizations -----------------------------------------------------
 
-export async function createOrganizationAction(formData: FormData): Promise<void> {
-  const session = await requirePermission('organizations', 'create');
-  const name = String(formData.get('name') ?? '').trim();
-  const timezone = String(formData.get('timezone') ?? 'UTC');
-  if (!name) return;
-  const org = await repositories.organizations.createOrganization({ name, timezone });
-  await repositories.audit.record({
-    organizationId: session.organizationId,
-    userId: session.userId,
-    actorName: session.name,
-    action: 'organization.created',
-    entityType: 'organization',
-    entityId: org.id,
-    metadata: { name, slug: org.slug },
-  });
-  revalidatePath('/crm/organizations');
-}
-
 export async function updateOrgProfileAction(formData: FormData): Promise<void> {
   const session = await requirePermission('organizations', 'update');
   // The organization ALWAYS comes from the signed session, never from the

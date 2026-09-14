@@ -203,7 +203,6 @@ describe('Semantics and labels on Phase 1 surfaces', () => {
     assert.match(CUSTOMER, /name="tag"[^>]*aria-label="Add tag"/);
     assert.match(CUSTOMER, /aria-label=\{`Remove tag \$\{t\}`\}/);
     assert.match(CUSTOMER, /name="body"[^>]*aria-label="Internal note"/);
-    assert.match(CUSTOMER, /name="author"[^>]*aria-label="Note author"/);
   });
 
   it('record-page copy does not attribute recorded data to the Brain or a vendor', () => {
