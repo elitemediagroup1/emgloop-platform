@@ -61,7 +61,7 @@ export default async function SetupPage() {
 
   // Completed organizations never see the wizard again.
   if (settings.onboarding?.completedAt) {
-    redirect('/crm');
+    redirect('/app');
   }
 
   const initial = {

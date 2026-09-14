@@ -1,17 +1,20 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '../auth/auth';
+import { LOOP_HOME, loginPathFor } from '../auth/landing';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Root entry point for EMG Loop.
  *
- * There is a single public login surface at /crm/login. Unauthenticated
- * visitors to the root are sent there. Authenticated visitors continue to
- * /app, which resolves their correct workspace home via the existing
- * role router (unchanged).
+ * Signed in: Loop Home (/app). Signed out: the login screen, keeping a safe
+ * requested destination so it survives sign-in.
  */
-export default async function RootEntry() {
+export default async function RootEntry({
+  searchParams,
+}: {
+  searchParams?: { next?: string };
+}) {
   const session = await getSession();
-  redirect(session ? '/app' : '/crm/login');
+  redirect(session ? LOOP_HOME : loginPathFor(searchParams?.next));
 }
