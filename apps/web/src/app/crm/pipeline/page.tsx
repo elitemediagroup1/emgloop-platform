@@ -57,8 +57,8 @@ export default async function PipelinePage() {
     <>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem' }}>
         <div>
-          <h1 className="crm-h1">Pipeline</h1>
-          <p className="crm-sub">{totalCards} customers across {PIPELINE_STATUSES.length} stages.</p>
+          <h1 className="crm-h1">Intake Board</h1>
+          <p className="crm-sub">{totalCards} people across {PIPELINE_STATUSES.length} intake statuses. This is customer intake, not the Opportunity pipeline.</p>
         </div>
         <span style={{ marginLeft: 'auto' }}>
           <Link className="crm-btn crm-btn-ghost" href="/crm/customers">
@@ -69,7 +69,7 @@ export default async function PipelinePage() {
 
       {totalCards === 0 ? (
         <div className="crm-panel crm-empty" style={{ marginTop: '1rem' }}>
-          No customers in the pipeline yet. Run an{' '}
+          No people in intake yet. Run an{' '}
           <Link href="/demo/intake" style={{ color: 'var(--crm-accent)' }}>
             intake
           </Link>{' '}
