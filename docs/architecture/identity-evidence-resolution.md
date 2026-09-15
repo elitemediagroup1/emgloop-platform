@@ -241,8 +241,9 @@ Party:
 - Writes may reference ESTABLISHED Parties only. **Participant may not reference an unestablished Party.**
 - Reads resolve SUPERSEDED forward; stored references are not rewritten.
 - Referencing never creates, establishes, links or reads evidence.
-- Capacities (buyer, vendor, source, creator, employee, contact) are held by a Party in a context for
-  a time. A capacity never decides Party type, and a Party type never implies a capacity.
+- Capacities are held by a Party in a context for a time. 2.0b starts from the five `party.ts` already
+  names (buyer, vendor, source, creator, employee); the full set is decided by the Relationship and
+  Participant architecture. A capacity never decides Party type, and a Party type never implies one.
 - `CaseParticipant` (Commercial Intelligence) is a User's participation in a Case. It is not a Party
   Participant and is not renamed by this work.
 
