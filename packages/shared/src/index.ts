@@ -333,6 +333,10 @@ export * from './demo-seed';
 // contract, not on persistence. See ./cognitive-context.ts.
 export * from './cognitive-context';
 
+// Intake Record provenance: how a legacy Customer row was created, classified at
+// read time only; never identity, never written back. See ./intake-provenance.ts.
+export * from './intake-provenance';
+
 // --- Party: the canonical identity contract over CognitiveIdentity (CRM P0.2a) ---
 // PERSON and COMPANY only; commercial capacities are roles, never Party types. A
 // party-typed row is a cognitive subject until a governed basis -- provenance, not
