@@ -431,3 +431,14 @@ export * from './member-expectation';
 export * from './provider-reconciliation';
 export * from './measurement-source';
 export * from './measurement-readiness';
+
+// --- Identity evidence and resolution: Slice 2.0 pure contracts ---
+// docs/architecture/identity-evidence-resolution.md. What identity evidence is and
+// how strong (ordered tiers, never a confidence number; frequency never raises a
+// tier; conflict overrides a match), which identity act needs which
+// identityResolution action (update never establishes; AI never acts), and the
+// per-class use policy that must be ACTIVE, human-activated and fully set before
+// any evidence is produced. Nothing produces, stores or reads evidence yet.
+export * from './identity-evidence';
+export * from './identity-authority';
+export * from './evidence-use-policy';
