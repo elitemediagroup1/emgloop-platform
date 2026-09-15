@@ -1181,7 +1181,7 @@ dates showed Sep 15 at 8:37 PM Eastern.
 
 **Next:** PD-1 implementation (Work OS targets) and PD-2 preference governance, each its own branch.
 
-## Identity ingestion boundary — SLICE 1 IN REVIEW (branch `fix/ingestion-records-facts-not-people`)
+## Identity ingestion boundary — SLICE 1 IN REVIEW (#239, branch `fix/ingestion-records-facts-not-people`)
 
 _Last updated: 2026-09-15._
 
