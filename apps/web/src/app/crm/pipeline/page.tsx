@@ -5,13 +5,14 @@ import { requirePermission } from '../../../auth/guard';
 import { PIPELINE_STATUSES } from '@emgloop/database';
 import { movePipelineAction } from '../../../crm/actions';
 
-// Pipeline kanban — Sprint 6 (Internal CRM, Phase 2).
+// Intake Board — customer intake statuses (Customer.attributes.pipelineStatus),
+// not the canonical Opportunity pipeline.
 //
-// Every customer grouped into its pipeline-status column, read from Neon via
-// crm.kanbanBoard(). Each card carries a compact status picker that posts the
-// movePipelineAction server action to move the customer between columns — no
-// client JS or drag library, consistent with the server-rendered CRM. The board
-// is the visual counterpart to the Customers list's status filter.
+// crm.kanbanBoard() gives each column an exact count of everyone in that status
+// and its most recently active people as cards. A column with more people than
+// cards says so; the count is never the number of cards. Each card carries a
+// compact status picker that posts movePipelineAction — no client JS or drag
+// library.
 
 export const dynamic = 'force-dynamic';
 
@@ -51,14 +52,14 @@ export default async function PipelinePage() {
   if (!result.ok) return <DbNotConfigured />;
 
   const columns = result.data.empty ? [] : result.data.columns;
-  const totalCards = columns.reduce((n, c) => n + c.count, 0);
+  const totalPeople = columns.reduce((n, c) => n + c.count, 0);
 
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem' }}>
         <div>
           <h1 className="crm-h1">Intake Board</h1>
-          <p className="crm-sub">{totalCards} people across {PIPELINE_STATUSES.length} intake statuses. This is customer intake, not the Opportunity pipeline.</p>
+          <p className="crm-sub">{totalPeople.toLocaleString('en-US')} people across {PIPELINE_STATUSES.length} intake statuses. This is customer intake, not the Opportunity pipeline.</p>
         </div>
         <span style={{ marginLeft: 'auto' }}>
           <Link className="crm-btn crm-btn-ghost" href="/crm/customers">
@@ -67,7 +68,7 @@ export default async function PipelinePage() {
         </span>
       </div>
 
-      {totalCards === 0 ? (
+      {totalPeople === 0 ? (
         <div className="crm-panel crm-empty" style={{ marginTop: '1rem' }}>
           No people in intake yet. People appear here as they arrive through calls,
           website forms, or manual entry.
@@ -82,8 +83,14 @@ export default async function PipelinePage() {
                   style={{ background: COLUMN_ACCENT[col.status] ?? 'var(--crm-faint)' }}
                 />
                 <span className="crm-col-name">{col.status}</span>
-                <span className="crm-col-count">{col.count}</span>
+                <span className="crm-col-count">{col.count.toLocaleString('en-US')}</span>
               </header>
+              {col.cards.length < col.count ? (
+                <p className="crm-faint crm-col-empty">
+                  Showing the {col.cards.length} most recently active of {col.count.toLocaleString('en-US')}.{' '}
+                  <Link href={'/crm/customers?status=' + encodeURIComponent(col.status)}>See all</Link>
+                </p>
+              ) : null}
               <div className="crm-col-body">
                 {col.cards.length === 0 ? (
                   <p className="crm-faint crm-col-empty">Empty</p>

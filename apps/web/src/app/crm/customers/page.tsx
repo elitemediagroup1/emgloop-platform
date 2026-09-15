@@ -119,7 +119,9 @@ export default async function CustomersPage({
         pageSize: 25,
       }),
       crmRepos.crm.listTags(organizationId),
-      crmRepos.crm.statusCounts(organizationId),
+      // Counted with the same search and tag as the list, so each status chip's
+      // number is exactly the total that chip opens.
+      crmRepos.crm.statusCounts(organizationId, { search: q, tag: tagFilter }),
     ]);
     return { empty: false as const, list, tags, counts };
   });

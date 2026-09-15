@@ -16,7 +16,8 @@
 // the real assignee picker (backed by the User and AIEmployee tables), the
 // activity inbox feed, and the pipeline kanban board — all through Prisma.
 
-import type { Prisma, PrismaClient, Customer } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { PrismaClient, Customer } from '@prisma/client';
 import { customerDisplayName } from './customer.repository';
 import { interactionActorType } from './interaction.repository';
 
@@ -106,7 +107,9 @@ export interface InboxItem {
 /** A single column of the pipeline kanban board. */
 export interface KanbanColumn {
   status: PipelineStatus;
+  /** Every person in this status: an exact count, not the number of cards. */
   count: number;
+  /** The most recently active people in this status, at most KANBAN_CARD_LIMIT. */
   cards: {
     id: string;
     name: string;
@@ -138,25 +141,49 @@ function readStatus(c: Pick<Customer, 'attributes'>): PipelineStatus {
   return 'New';
 }
 
+/** How a customer's intake status is read everywhere: a missing or unrecognised value is New. */
+export const readPipelineStatus = readStatus;
+
+/** Cards shown per Intake Board column. The column's count is always the full count. */
+export const KANBAN_CARD_LIMIT = 50;
+
+const STATUS_PATH = ['pipelineStatus'];
+const statusEquals = (status: PipelineStatus): Prisma.CustomerWhereInput => ({
+  attributes: { path: STATUS_PATH, equals: status },
+});
+
+/**
+ * The database filter for "customers whose intake status reads as `status`" --
+ * exactly the rows readPipelineStatus() maps to it, so a count, a filtered list
+ * and a board column can all be computed in the database and agree.
+ *
+ * Status is a JSON attribute. Every status but New is a positive match on its
+ * exact value. New is everything else, and that needs two branches: NOT(any
+ * other status) alone drops customers with no pipelineStatus key at all,
+ * because the JSON path is SQL NULL for them and NOT(NULL) is not true. So a
+ * missing path (DbNull) is matched explicitly. Checked against Postgres for an
+ * empty object, a JSON null, a lowercase value, a number, a nested object, an
+ * array and a bare string: see test/crm-intake-counts.test.ts.
+ */
+export function customerStatusWhere(status: PipelineStatus): Prisma.CustomerWhereInput {
+  if (status !== 'New') return statusEquals(status);
+  return {
+    OR: [
+      { NOT: { OR: PIPELINE_STATUSES.filter((s) => s !== 'New').map(statusEquals) } },
+      { attributes: { path: STATUS_PATH, equals: Prisma.DbNull } },
+    ],
+  };
+}
+
 export class CrmRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  /**
-   * Searchable, sortable, filterable, paginated customer list for an org.
-   * Search spans name (first/last), company, email, phone, city, state and
-   * externalId. Status and tag filters are applied in the database where the
-   * schema allows; status (a JSON attribute) is filtered in-process on the
-   * page slice's superset to keep the query portable.
-   */
-  async listCustomers(
+  /** The organization, search and tag part of a People query, shared by the list and its counts. */
+  private customerWhere(
     organizationId: string,
-    filters: CustomerListFilters = {},
-  ): Promise<CustomerListResult> {
-    const page = Math.max(1, filters.page ?? 1);
-    const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 25));
-
+    filters: Pick<CustomerListFilters, 'search' | 'tag'> = {},
+  ): Prisma.CustomerWhereInput {
     const and: Prisma.CustomerWhereInput[] = [{ organizationId }];
-
     const q = (filters.search ?? '').trim();
     if (q) {
       and.push({
@@ -169,72 +196,88 @@ export class CrmRepository {
         ],
       });
     }
+    if (filters.tag) and.push({ tags: { has: filters.tag } });
+    return { AND: and };
+  }
 
-    if (filters.tag) {
-      and.push({ tags: { has: filters.tag } });
-    }
-
-    const where: Prisma.CustomerWhereInput = { AND: and };
-
-    const wantsStatusFilter = Boolean(filters.status);
+  /**
+   * Searchable, sortable, filterable, paginated customer list for an org.
+   * Search spans name (first/last), email, phone and externalId; tag and status
+   * filter in the database. `total` is an exact count of every matching
+   * customer, never the size of a bounded read.
+   *
+   * Sorting by status walks the statuses in order with exact per-status counts
+   * and pages within each, so it is exact and bounded at any size. (It used to
+   * read the 2,000 newest customers and filter or sort those in memory, so a
+   * status filter reported a partial population as the whole one.)
+   */
+  async listCustomers(
+    organizationId: string,
+    filters: CustomerListFilters = {},
+  ): Promise<CustomerListResult> {
+    const page = Math.max(1, filters.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 25));
     const sort = filters.sort ?? 'createdAt';
     const direction = filters.direction ?? 'desc';
-
-    if (!wantsStatusFilter && sort !== 'status') {
-      const orderBy: Prisma.CustomerOrderByWithRelationInput =
-        sort === 'name'
-          ? { firstName: direction }
-          : sort === 'lastSeenAt'
-            ? { lastSeenAt: direction }
-            : { createdAt: direction };
-
-      const [total, customers] = await this.prisma.$transaction([
-        this.prisma.customer.count({ where }),
-        this.prisma.customer.findMany({
-          where,
-          orderBy,
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-        }),
-      ]);
-
-      const rows = await this.decorate(organizationId, customers);
-      return {
-        rows,
-        total,
-        page,
-        pageSize,
-        pageCount: Math.max(1, Math.ceil(total / pageSize)),
-      };
-    }
-
-    const all = await this.prisma.customer.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 2000,
-    });
-
-    let filtered = all;
-    if (filters.status) {
-      filtered = all.filter((c) => readStatus(c) === filters.status);
-    }
-    if (sort === 'status') {
-      const rank = (c: Customer) => PIPELINE_STATUSES.indexOf(readStatus(c));
-      filtered = [...filtered].sort((a, b) =>
-        direction === 'asc' ? rank(a) - rank(b) : rank(b) - rank(a),
-      );
-    }
-
-    const total = filtered.length;
-    const slice = filtered.slice((page - 1) * pageSize, page * pageSize);
-    const rows = await this.decorate(organizationId, slice);
-    return {
+    const base = this.customerWhere(organizationId, filters);
+    const result = (rows: CustomerListRow[], total: number): CustomerListResult => ({
       rows,
       total,
       page,
       pageSize,
       pageCount: Math.max(1, Math.ceil(total / pageSize)),
-    };
+    });
+
+    if (filters.status || sort !== 'status') {
+      // Within one status, a status sort has nothing to order by: newest first.
+      const orderBy: Prisma.CustomerOrderByWithRelationInput =
+        sort === 'name'
+          ? { firstName: direction }
+          : sort === 'lastSeenAt'
+            ? { lastSeenAt: direction }
+            : sort === 'createdAt'
+              ? { createdAt: direction }
+              : { createdAt: 'desc' };
+      const where: Prisma.CustomerWhereInput = filters.status
+        ? { AND: [base, customerStatusWhere(filters.status)] }
+        : base;
+      const [total, customers] = await this.prisma.$transaction([
+        this.prisma.customer.count({ where }),
+        this.prisma.customer.findMany({ where, orderBy, skip: (page - 1) * pageSize, take: pageSize }),
+      ]);
+      return result(await this.decorate(organizationId, customers), total);
+    }
+
+    const order = direction === 'asc' ? PIPELINE_STATUSES : [...PIPELINE_STATUSES].reverse();
+    const whereFor = (status: PipelineStatus): Prisma.CustomerWhereInput => ({
+      AND: [base, customerStatusWhere(status)],
+    });
+    const counts = await this.prisma.$transaction(
+      order.map((status) => this.prisma.customer.count({ where: whereFor(status) })),
+    );
+    const total = counts.reduce((n, c) => n + c, 0);
+
+    const slice: Customer[] = [];
+    let skip = (page - 1) * pageSize;
+    for (const [i, status] of order.entries()) {
+      const inStatus = counts[i] ?? 0;
+      if (slice.length >= pageSize) break;
+      if (skip >= inStatus) {
+        skip -= inStatus;
+        continue;
+      }
+      const take = Math.min(pageSize - slice.length, inStatus - skip);
+      slice.push(
+        ...(await this.prisma.customer.findMany({
+          where: whereFor(status),
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        })),
+      );
+      skip = 0;
+    }
+    return result(await this.decorate(organizationId, slice), total);
   }
 
   /** Attach last-interaction info to a page of customers (one extra query). */
@@ -299,20 +342,29 @@ export class CrmRepository {
     return [...set].sort((a, b) => a.localeCompare(b));
   }
 
-  /** Status counts for the pipeline filter chips. */
+  /**
+   * How many customers are in each intake status: one exact database COUNT per
+   * status, so the numbers sum to the organization's customer count at any
+   * size. Pass the list's search and tag and each count is exactly the total
+   * that status filter would show.
+   *
+   * (It used to read 5,000 customers in no particular order and count those, so
+   * past 5,000 every figure described an arbitrary sample while reading as the
+   * whole book.)
+   */
   async statusCounts(
     organizationId: string,
+    filters: Pick<CustomerListFilters, 'search' | 'tag'> = {},
   ): Promise<Record<PipelineStatus, number>> {
-    const rows = await this.prisma.customer.findMany({
-      where: { organizationId },
-      select: { attributes: true },
-      take: 5000,
-    });
-    const counts = Object.fromEntries(
-      PIPELINE_STATUSES.map((s) => [s, 0]),
+    const base = this.customerWhere(organizationId, filters);
+    const counts = await this.prisma.$transaction(
+      PIPELINE_STATUSES.map((status) =>
+        this.prisma.customer.count({ where: { AND: [base, customerStatusWhere(status)] } }),
+      ),
+    );
+    return Object.fromEntries(
+      PIPELINE_STATUSES.map((status, i) => [status, counts[i] ?? 0]),
     ) as Record<PipelineStatus, number>;
-    for (const r of rows) counts[readStatus(r as Pick<Customer, 'attributes'>)] += 1;
-    return counts;
   }
 
   /**
@@ -637,15 +689,31 @@ export class CrmRepository {
   }
 
   /**
-   * The pipeline kanban board: every customer in the org grouped into its
-   * pipeline-status column, with a lightweight card payload. Bounded read.
+   * The Intake Board: one column per intake status. Each column's `count` is an
+   * exact database count of everyone in that status; its cards are the
+   * KANBAN_CARD_LIMIT most recently active of them, so a column can show fewer
+   * cards than its count and the page says so.
+   *
+   * (It used to read the 2,000 most recently active customers and count those,
+   * so every column count and the board total described that slice.)
    */
   async kanbanBoard(organizationId: string): Promise<KanbanColumn[]> {
-    const customers = await this.prisma.customer.findMany({
-      where: { organizationId },
-      orderBy: { lastSeenAt: 'desc' },
-      take: 2000,
+    const whereFor = (status: PipelineStatus): Prisma.CustomerWhereInput => ({
+      AND: [{ organizationId }, customerStatusWhere(status)],
     });
+    const [counts, perStatus] = await Promise.all([
+      this.prisma.$transaction(PIPELINE_STATUSES.map((status) => this.prisma.customer.count({ where: whereFor(status) }))),
+      this.prisma.$transaction(
+        PIPELINE_STATUSES.map((status) =>
+          this.prisma.customer.findMany({
+            where: whereFor(status),
+            orderBy: { lastSeenAt: 'desc' },
+            take: KANBAN_CARD_LIMIT,
+          }),
+        ),
+      ),
+    ]);
+    const customers = perStatus.flat();
 
     const lastByCustomer = new Map<string, Date>();
     const ids = customers.map((c) => c.id);
@@ -662,30 +730,20 @@ export class CrmRepository {
       }
     }
 
-    const columns: KanbanColumn[] = PIPELINE_STATUSES.map((status) => ({
+    return PIPELINE_STATUSES.map((status, i) => ({
       status,
-      count: 0,
-      cards: [],
-    }));
-    const byStatus = new Map(columns.map((c) => [c.status, c]));
-
-    for (const c of customers) {
-      const col = byStatus.get(readStatus(c));
-      if (!col) continue;
-      col.count += 1;
-      if (col.cards.length < 50) {
+      count: counts[i] ?? 0,
+      cards: (perStatus[i] ?? []).map((c) => {
         const last = lastByCustomer.get(c.id);
-        col.cards.push({
+        return {
           id: c.id,
           name: customerDisplayName(c),
           company: attr<string>(c.attributes, 'company') ?? '',
           assignedHuman: attr<string>(c.attributes, 'assignedHumanName') ?? '',
           assignedAI: attr<string>(c.attributes, 'assignedAIName') ?? '',
           lastInteractionAt: last ? last.toISOString() : null,
-        });
-      }
-    }
-
-    return columns;
+        };
+      }),
+    }));
   }
 }
