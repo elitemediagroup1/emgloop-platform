@@ -1148,7 +1148,7 @@ dates showed Sep 15 at 8:37 PM Eastern.
 
 **Next:** PD-1 implementation (Work OS targets) and PD-2 preference governance, each its own branch.
 
-## Identity — SLICE 1 MERGED (#239) · AUDIT RUN (#240) · SLICE 2 DIRECTION APPROVED, NOT IMPLEMENTED
+## Identity — SLICE 1 MERGED (#239) · AUDIT RUN (#240) · RECORD MERGED (#241) · 2.0 CONTRACTS (#242) · 2.0b IN REVIEW (#243)
 
 _Last updated: 2026-09-15._
 
@@ -1193,16 +1193,17 @@ anonymous-history attribution, verification build, legacy remediation.
 **Separate operational cleanup (awaiting explicit approval):** deactivate the two inert seeded call
 workflows; resolve the workflow run stuck RUNNING since July.
 
-**Product/UI reconciliation passed (2026-09-15).** Open draft PRs, each at its merge checkpoint:
-- #241: decision record, specification and C-01–C-05. Docs only; merge first.
-- #242: Identity 2.0, pure evidence, authority and use-policy contracts.
-- #243: Identity 2.0b, Party Reference Contract and read-only resolver.
+**Product/UI reconciliation passed (2026-09-15).**
+- **#241 (merged, `8afac50`):** decision record, specification and C-01–C-05.
+- **#242:** Identity 2.0, pure evidence, authority and use-policy contracts. It updates the record's
+  status line.
+- **#243 (draft):** Identity 2.0b, Party Reference Contract and read-only resolver. Independent of #242.
 
-#242 and #243 are independent of each other and merge cleanly in either order. None needs a migration.
-After #242 merges, the record's status line gets a one-line update.
+None needs a migration. Product approved the six fail-closed contract readings on 2026-09-15 (see the
+record's decisions log).
 
-**Next:** merge review. Still authorized but not done: wording fixes to materially false People labels,
-and the `/crm/merge` disable. No 2.1 without new authorization.
+**Next:** #243 merge review. Still authorized but not done: wording fixes to materially false People
+labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

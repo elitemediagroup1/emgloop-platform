@@ -1,7 +1,9 @@
 # Identity Evidence & Resolution — decision record
 
 **Status:** direction approved by Product on 2026-09-15. **Nothing in this record is implemented yet
-except Slice 1** (#239, ingestion records facts only). Every planned item names the slice that builds
+except Slice 1** (#239, ingestion records facts only) **and the 2.0 pure contracts** (#242: evidence
+vocabulary and tiers, identity act authority, evidence use policy; nothing produces, stores or reads
+evidence). Every planned item names the slice that builds
 it; until that slice merges, the code is the authority and this record is the plan. When a slice
 lands, this record is updated in the same PR.
 
@@ -140,13 +142,18 @@ Machine matches exist only as read-time, non-persistent suggestions.
 **Frequency never raises a tier.** Twenty calls from one number are twenty WEAK observations. Counts
 may prioritize a review worklist and support a *proposed* flag; nothing else.
 
-**Contract readings (2.0, #242; fail closed, for Product review):**
-- Only matrix rows are evidence classes. PHONE/EMAIL `OPERATOR_RECORDED`, and NAME in any mode other
-  than `SUBJECT_PROVIDED`, cannot have a use policy or produce evidence.
-- VERIFIED and AUTHENTICATED classes are unavailable. They contribute no tier and establish nothing.
-- A name alone is WEAK.
-- An operator identification is WEAK until an authorized person confirms it.
-- Only ACTIVE flags conflict: SHARED, SUSPECT and RECYCLED always; BUSINESS_LINE only for a Person.
+**Contract readings (2.0, #242; fail closed):**
+- Only matrix rows are evidence classes.
+  - PHONE/EMAIL `OPERATOR_RECORDED` is not an approved class (approved, Product 2026-09-15).
+  - Nor is NAME in any mode other than `SUBJECT_PROVIDED`.
+  - Neither can have a use policy or produce evidence.
+- VERIFIED and AUTHENTICATED classes are unavailable. They contribute no tier and establish nothing
+  (required by the 2.0 authorization).
+- A name alone is WEAK (approved, Product 2026-09-15).
+- An operator identification is WEAK until an authorized person confirms it (approved, Product
+  2026-09-15).
+- Only ACTIVE flags conflict: SHARED, SUSPECT and RECYCLED always; BUSINESS_LINE only for a Person
+  (follows §8).
 
 **SSDI / form leads vs FE caller-ID-only traffic** differ only by the evidence they carry, through the
 same pipeline. An FE call yields one PHONE/NETWORK_ASSERTED observation (WEAK, stays unresolved). An
@@ -177,7 +184,7 @@ Grants are the existing `IDENTITY_RESOLUTION_GRANTS`; no grant change is require
 - A MANAGER may not confirm their own proposal (PD-I2-03); proposal and confirmation stay separate acts.
   In the 2.0 contract (#242), OWNER and ADMIN stay under the approved model. Any other role holding
   `update` only through a Permission row also cannot confirm its own proposal. A proposer may reject
-  (withdraw) their own proposal.
+  (withdraw) their own proposal (approved, Product 2026-09-15).
 - `approve` stays the only action that establishes, links, supersedes or confirms same-Party. The
   attribution confirmations held under `update` are recorded separately and are never read as an
   establishment or same-Party basis.
@@ -200,6 +207,9 @@ organization, before any evidence is produced:
   evidence row with the policy version it was produced under, and honours `expiresAt`.
 - `consentBasis` on an evidence row records only what the fact captured (e.g. consent collected with a
   lead); it is never defaulted to a legal basis.
+- **Legal-basis vocabulary (Product, 2026-09-15):** the existing `ConsentBasis` values other than NONE.
+  The organization records which one applies to a class, with its reference. Nothing defaults it, and a
+  policy with an UNSET basis produces nothing (`evidence-use-policy.ts`, #242).
 
 ## 8. Accumulation, ambiguity and supersession
 
@@ -309,11 +319,13 @@ Party:
   specification's "contextual roles" on a Person are these capacities.
 - `CaseParticipant` (Commercial Intelligence) is a User's participation in a Case. It is not a Party
   Participant and is not renamed by this work.
-- **Contract readings (2.0b, #243; fail closed, for Product review):**
-  - An archived Party resolves with `archived: true` and takes no new references.
+- **Contract readings (2.0b, #243; fail closed):**
+  - An archived Party resolves with `archived: true` and takes no new references (approved, Product
+    2026-09-15).
   - A supersession chain fails closed as NOT_FOUND on a cycle, beyond 8 hops, on a change of Party
-    type, or on a link out of the organization.
-  - A superseded id is refused for writes with its canonical id, never silently swapped.
+    type, or on a link out of the organization (for Product review).
+  - A superseded id is refused for writes with its canonical id, never silently swapped (for Product
+    review).
 
 ## 13. Audit and provenance
 
@@ -453,3 +465,4 @@ against the Party Reference Contract.
 | 2026-09-15 | C-03: CallGrid split by authority (operations / intelligence / credentials and integration governance); no duplicate tree; no route moves in 2.0/2.0b (`loop-application-structure.md` D3, D4) |
 | 2026-09-15 | C-04: D2 superseded. People = established non-superseded PERSON Parties; Companies = established non-superseded COMPANY Parties; Intake = entry into a commercial process; legacy Customers are Intake Records; `/app/crm/people` reserved; Customer ≠ Person ≠ Party; only minimal wording fixes; no delete, purge, migrate, relink or `customerId` rewrite (§10, §11) |
 | 2026-09-15 | C-05: no numeric identity confidence; "identity confidence" means governed identity posture (§11a) |
+| 2026-09-15 | Identity 2.0 fail-closed readings approved (§5, §6, §7, §12). Name alone = WEAK. Operator identification = WEAK until confirmed. Operator-entered phone/email is not automatically an approved evidence class. A proposer may reject/withdraw their own proposal. The current legal-basis vocabulary is `ConsentBasis` excluding NONE. Archived Parties accept no new references |
