@@ -91,12 +91,19 @@ Every normalized CallGrid event produces:
 3. **Signal** — Signal row where applicable (see mapping above)
 4. **DomainEvent** — triggers any EVENT workflows listening on integration.call.*
 
-Customer resolution: by customerPhone field (from CallGrid "from" number for
-inbound, "to" for outbound). Creates no new Customer if not found.
+No Customer. Ingestion never creates, looks up, attaches to or changes a
+Customer (a Person in People). The caller number CallGrid reports is kept on the
+event and the Interaction (`caller`, `fromNumber`) as a fact, and every row above
+carries no customer. A caller becomes a Person only through governed identity
+resolution, never because they called. A matching **MarketplaceCall** is
+projected for every call that is not test traffic.
 
 ---
 
 ## Workflow Trigger Opportunities
+
+Ingested calls carry no customer, so a workflow step that acts on a customer
+(tag, pipeline status, assignment, note) does not apply to them and is not run.
 
 | Trigger Event            | Recommended Workflow                      |
 |--------------------------|-------------------------------------------|
@@ -113,7 +120,7 @@ inbound, "to" for outbound). Creates no new Customer if not found.
 - utm_source/utm_campaign should be stored in Interaction.metadata for attribution
 - Recording URLs: store reference only, do not download/store audio
 - Transcripts (when available): store in Interaction.summary
-- Customer phone matching: normalize E.164 before lookup
+- The caller number is never matched against People
 
 **Not in scope for Sprint 10:** webhook endpoint, API client, recording fetcher.
 

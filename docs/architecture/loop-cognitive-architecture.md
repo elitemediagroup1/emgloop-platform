@@ -111,9 +111,9 @@ be simultaneously a `LEAD` and a `CONSUMER`; assigning a new role never rewrites
 the identity's `entityType`. This is why role is a separate table, not a column.
 
 `CognitiveIdentity` is **not** the CRM `Customer`. CRM/Customer rows *reference*
-the cognitive identity; the cognitive layer never depends on CRM. (Today's live
-`IngestionService.resolveCustomer` is the de-facto resolver that the cognitive
-identity will absorb — see Consolidation.)
+the cognitive identity; the cognitive layer never depends on CRM. (Live
+ingestion resolves no identity at all: `IngestionService.resolveCustomer`, which
+used to create or match a Customer for every event, has been removed.)
 
 ## Memory vs. Knowledge
 
@@ -225,7 +225,7 @@ This is **not** a parallel system. Classification of overlapping components:
 | `LoopEvent` gateway + store | **REUSE (ingress)** | Its idle `processed` flag becomes the Increment-2 consumer seam. No second HTTP receiver. |
 | `DomainEvent` (Executive Brain fact log) | **REUSE / coexist** | Complementary internal fact log. |
 | `IntegrationEvent` | **ADAPT** | External-webhook record; live ingestion runs through it, not LoopEvent. |
-| `Customer` + `IngestionService.resolveCustomer` | **ADAPT** | De-facto identity resolver the cognitive identity will absorb; Customer references CognitiveIdentity. |
+| `Customer` | **ADAPT** | Customer references CognitiveIdentity. Ingestion no longer creates or resolves Customers (`resolveCustomer` removed), so there is no live resolver to absorb. |
 | `packages/intelligence` (live Executive Brain) | **REUSE** | Hypotheses/decisions feed its sensor/observation model; do not fork it. |
 | `packages/brain` type contracts (`memory.ts`, `knowledge.ts`) | **REUSE (shapes)** | The type vocabulary these tables realize. |
 | `VerifiedKnowledge` (kg.v1) | **Coexist, do NOT extend** | External verbatim passthrough — a different contract from internal assertions. |

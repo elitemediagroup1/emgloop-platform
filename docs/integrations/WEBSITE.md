@@ -74,13 +74,18 @@ Error Encountered
 Each maps to a canonical \`web.*\` loop event type (see
 \`packages/providers/src/adapters/website.provider.ts\` → \`WEBSITE_EVENT_MAP\`).
 
-## Identity resolution
+## Identity
 
-Resolved (in priority order) by phone, email, then existing customer. When no
-identity is available, an **anonymous visitor profile** is created keyed on the
-visitor/session id (\`externalId = web-visitor:<id>\`). Later interactions merge
-automatically: a phone/email match wins, otherwise the same visitor id reuses
-the same profile so the journey stays continuous.
+Website activity creates no Customer (no Person in People). Anonymous activity
+stays anonymous: the visitor and session ids the site reports are kept on each
+event as facts, and journeys are counted per visitor (or per session when there is
+no visitor id). An email or phone submitted in a form is kept on that event too,
+and is never matched against People. Someone becomes a Person only through
+governed identity resolution.
+
+Customers created by earlier versions of ingestion (anonymous visitor profiles
+with \`externalId = web-visitor:<id>\`, and leads created from a form's email or
+phone) remain as they were; nothing merges into them.
 
 ## Signals
 
