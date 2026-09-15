@@ -16,6 +16,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
+// The context next/navigation's usePathname() reads: the client router's current path.
+import { PathnameContext } from 'next/dist/shared/lib/hooks-client-context.shared-runtime';
 import { matrixAllows, type Action, type Resource } from '@emgloop/database';
 import * as config from '../src/workspaces/config';
 import {
@@ -24,7 +26,7 @@ import {
 } from '../src/workspaces/config';
 import { resolveWorkspaceRole } from '../src/workspaces/role-router';
 import { runWorkspaceRoutingVerification } from '../src/workspaces/verification';
-import { ShellNav } from '../src/workspaces/ShellNav';
+import { ShellCrumb, ShellNav } from '../src/workspaces/ShellNav';
 import UnavailablePage from '../src/workspaces/UnavailablePage';
 import { ModuleHome } from '../src/app/app/_home/module-home';
 
@@ -34,6 +36,9 @@ const read = (p: string) => readFileSync(join(SRC, p), 'utf8');
 const code = (s: string) =>
   s.replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 const render = (el: unknown) => renderToStaticMarkup(el as never);
+/** Render as the client router would at `path`. */
+const renderAt = (path: string, el: React.ReactNode) =>
+  renderToStaticMarkup(<PathnameContext.Provider value={path}>{el}</PathnameContext.Provider>);
 const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => {
   const p = join(dir, n);
   return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(n) ? [p] : [];
@@ -114,7 +119,8 @@ describe('One shell, one registry', () => {
     const shell = code(read('workspaces/WorkspaceShell.tsx'));
     assert.match(shell, /export default async function WorkspaceShell\(\{\s*session,\s*children,\s*\}/);
     assert.equal(/shell\s*[:,}]/.test(shell.slice(shell.indexOf('export default'))), false, 'no shell prop');
-    assert.match(shell, /<ShellNav groups=\{groups\} active=\{activeItem\?\.href \?\? null\} label=\{LOOP_NAV\.label\} \/>/);
+    assert.match(shell, /<ShellNav groups=\{groups\} label=\{LOOP_NAV\.label\} \/>/);
+    assert.match(shell, /<ShellCrumb groups=\{groups\} \/>/);
   });
 
   it('every signed-in surface mounts that one shell, the CRM included', () => {
@@ -325,7 +331,7 @@ describe('The shell is about the person, not a role-branded workspace', () => {
   });
 
   it('draws only the items it is given, with Soon as a non-link and the Administration foot labelled', () => {
-    const html = render(<ShellNav groups={navForRole('READ_ONLY')} active="/crm/customers" label="Loop" />);
+    const html = renderAt('/crm/customers', <ShellNav groups={navForRole('READ_ONLY')} label="Loop" />);
     assert.match(html, /<nav class="loop-sb__scroll" aria-label="Loop">/);
     assert.match(html, /<a class="loop-sb__link is-active" aria-current="page" href="\/crm\/customers">/);
     assert.equal(html.includes('/app/admin'), false, 'nothing from a tree Read Only cannot open');
@@ -357,6 +363,58 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.equal(active('/app/admin/marketplace/buyers'), 'CallGrid Intelligence');
     assert.equal(active('/app/admin/headlines/h1'), 'Headlines');
     assert.equal(active('/app/admin/administration/work-types'), 'Work Types');
+  });
+});
+
+describe('The active item and breadcrumb follow the page actually shown', () => {
+  // Regression: the shell is mounted by persistent layouts (/crm, /app/admin),
+  // which Next does not re-render on client-side navigation. The active item and
+  // breadcrumb were computed there on the server, so they froze on the page that
+  // was hard-loaded: /crm/customers → Conversations → Intake Board → Inbox →
+  // Search kept "People", and /app/admin/headlines → My Work kept "Headlines".
+  // Rendering with the SAME server-resolved groups at different client paths is
+  // exactly that situation.
+  const owner = navForRole('OWNER');
+  const activeAt = (path: string) => {
+    const html = renderAt(path, <ShellNav groups={owner} label="Loop" />);
+    return [...html.matchAll(/aria-current="page" href="([^"]+)"/g)].map((m) => m[1]);
+  };
+  const crumbAt = (path: string) => renderAt(path, <ShellCrumb groups={owner} />);
+
+  it('the CRM chain from the audit highlights each page in turn, never the first', () => {
+    const chain: [string, string, string][] = [
+      ['/crm/customers', '/crm/customers', 'People'],
+      ['/crm/conversations', '/crm/conversations', 'Conversations'],
+      ['/crm/pipeline', '/crm/pipeline', 'Intake Board'],
+      ['/crm/inbox', '/crm/inbox', 'Inbox'],
+      ['/crm/search', '/crm/search', 'Search'],
+    ];
+    for (const [path, href, label] of chain) {
+      assert.deepEqual(activeAt(path), [href], path);
+      assert.equal(crumbAt(path), `<span aria-current="page">${label}</span>`, path);
+    }
+  });
+
+  it('Headlines → My Work in the /app/admin tree moves the highlight and the breadcrumb', () => {
+    assert.deepEqual(activeAt('/app/admin/headlines'), ['/app/admin/headlines']);
+    assert.equal(crumbAt('/app/admin/headlines'), '<span aria-current="page">Headlines</span>');
+    assert.deepEqual(activeAt('/app/admin/work'), ['/app/admin/work']);
+    assert.equal(crumbAt('/app/admin/work'), '<span aria-current="page">My Work</span>');
+  });
+
+  it('nested and unmatched paths resolve through the same rule', () => {
+    assert.deepEqual(activeAt('/crm/customers/c_1/activity'), ['/crm/customers']);
+    assert.deepEqual(activeAt('/app'), ['/app']);
+    assert.equal(crumbAt('/nowhere'), '<span aria-current="page">Overview</span>');
+  });
+
+  it('the path comes from the client router, never from a server value frozen in a layout', () => {
+    const nav = code(read('workspaces/ShellNav.tsx'));
+    assert.match(read('workspaces/ShellNav.tsx'), /^'use client';/);
+    assert.match(nav, /return resolveActiveNav\(\{ nav: \[\.\.\.groups\] \}, usePathname\(\)\);/);
+    assert.equal(/active\??:/.test(nav.slice(nav.indexOf('export function ShellNav'))), false, 'no active prop to freeze');
+    const shell = code(read('workspaces/WorkspaceShell.tsx'));
+    assert.equal(/headers\(|x-pathname|resolveActiveNav/.test(shell), false);
   });
 });
 

@@ -1,10 +1,26 @@
-import Link from 'next/link';
-import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
-import type { NavGroup, NavItem } from './config';
+'use client';
 
-// The Loop sidebar navigation, drawn from groups already resolved for one person
-// (see nav-access.ts). Presentation only: it renders exactly what it is given,
-// so it holds no permission logic and never becomes an authorization decision.
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
+import { resolveActiveNav, type NavGroup, type NavItem } from './config';
+
+// The Loop sidebar navigation and breadcrumb leaf, drawn from groups already
+// resolved for one person on the server (see nav-access.ts).
+//
+// WHY THESE ARE CLIENT LEAVES. The shell is mounted by persistent layouts
+// (/crm, /app/admin, ...). Next does not re-render a layout on client-side
+// navigation, so an active item computed on the server froze on whatever page
+// was hard-loaded: open People, click Conversations, and People stayed
+// highlighted. The current path is client state; reading it with usePathname
+// keeps the highlight and the breadcrumb on the page actually shown.
+//
+// Presentation only: they render exactly the groups they are given, hold no
+// permission logic, and never become an authorization decision.
+
+function useActiveItem(groups: readonly NavGroup[]): NavItem | null {
+  return resolveActiveNav({ nav: [...groups] }, usePathname());
+}
 
 // One nav link, shared by the main list and the Administration foot — the
 // sidebar has ONE link implementation, never per-route variants.
@@ -42,15 +58,8 @@ function Group({ group, active }: { group: NavGroup; active: string | null }) {
   );
 }
 
-export function ShellNav({
-  groups,
-  active,
-  label,
-}: {
-  groups: readonly NavGroup[];
-  active: string | null;
-  label: string;
-}) {
+export function ShellNav({ groups, label }: { groups: readonly NavGroup[]; label: string }) {
+  const active = useActiveItem(groups)?.href ?? null;
   const main = groups.filter((g) => !g.footer);
   const foot = groups.filter((g) => g.footer);
   return (
@@ -69,4 +78,9 @@ export function ShellNav({
       ) : null}
     </>
   );
+}
+
+/** The breadcrumb leaf: the item that owns the current path, never an empty crumb. */
+export function ShellCrumb({ groups }: { groups: readonly NavGroup[] }) {
+  return <span aria-current="page">{useActiveItem(groups)?.label ?? 'Overview'}</span>;
 }

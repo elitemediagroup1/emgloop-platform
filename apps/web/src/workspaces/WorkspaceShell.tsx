@@ -1,12 +1,11 @@
 import Link from 'next/link';
-import { headers } from 'next/headers';
 import { logoutAction } from '../auth/actions';
 import { EmgLoopWordmark } from '../app/crm/_brand/Logos';
 import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
-import { LOOP_NAV, myWorkHref, resolveActiveNav } from './config';
+import { LOOP_NAV, myWorkHref } from './config';
 import { navFor } from './nav-access';
-import { ShellNav } from './ShellNav';
+import { ShellCrumb, ShellNav } from './ShellNav';
 
 // Loop OS — the application shell.
 //
@@ -36,11 +35,11 @@ export default async function WorkspaceShell({
   session: AuthSession;
   children: React.ReactNode;
 }) {
+  // What this person may open is decided here, once, on the server. Which of
+  // those items is ACTIVE is decided in the browser (ShellNav, ShellCrumb): the
+  // layouts that mount this shell persist across client navigation, so a value
+  // computed here would freeze on the page that was hard-loaded.
   const groups = await navFor(session);
-  // Breadcrumb leaf and active item, from the path the middleware forwards, over
-  // the items this person can see. An unmatched path never renders an empty crumb.
-  const activeItem = resolveActiveNav({ nav: groups }, headers().get('x-pathname'));
-  const crumb = activeItem?.label ?? 'Overview';
   const workHref = myWorkHref(groups);
 
   return (
@@ -53,7 +52,7 @@ export default async function WorkspaceShell({
             <EmgLoopWordmark height={22} />
             <span className="loop-sb__os">OS</span>
           </div>
-          <ShellNav groups={groups} active={activeItem?.href ?? null} label={LOOP_NAV.label} />
+          <ShellNav groups={groups} label={LOOP_NAV.label} />
           <div className="loop-sb__foot">
             <div className="loop-sb__user">
               <span className="loop-sb__avatar">{initials(session.name)}</span>
@@ -77,7 +76,7 @@ export default async function WorkspaceShell({
                 <b>{session.name}</b>
               </Link>
               <span className="sep" aria-hidden="true">/</span>
-              <span aria-current="page">{crumb}</span>
+              <ShellCrumb groups={groups} />
             </nav>
             {/* Notifications live in the person's Work OS queue. No fake unread
                badge: AuthSession carries no unread count. Someone without a Work
