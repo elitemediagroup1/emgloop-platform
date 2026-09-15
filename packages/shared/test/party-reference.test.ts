@@ -103,9 +103,17 @@ test('depth: exactly PARTY_REFERENCE_MAX_DEPTH hops resolve; one more fails clos
   assert.deepEqual(walk('p0', chain(PARTY_REFERENCE_MAX_DEPTH + 1)), { state: 'NOT_FOUND' });
 });
 
-test('supersession never changes Party type', () => {
-  const graph = { person: node('person', { supersededByPartyId: 'company' }), company: node('company', { partyType: 'COMPANY' }) };
-  assert.deepEqual(walk('person', graph), { state: 'NOT_FOUND' });
+test('supersession never crosses Party type, in either direction (Product, 2026-09-15)', () => {
+  const personToCompany = { person: node('person', { supersededByPartyId: 'company' }), company: node('company', { partyType: 'COMPANY' }) };
+  assert.deepEqual(walk('person', personToCompany), { state: 'NOT_FOUND' });
+  const companyToPerson = { company: node('company', { partyType: 'COMPANY', supersededByPartyId: 'person' }), person: node('person') };
+  assert.deepEqual(walk('company', companyToPerson), { state: 'NOT_FOUND' });
+  const crossesLater = {
+    a: node('a', { supersededByPartyId: 'b' }),
+    b: node('b', { supersededByPartyId: 'c' }),
+    c: node('c', { partyType: 'COMPANY' }),
+  };
+  assert.deepEqual(walk('a', crossesLater), { state: 'NOT_FOUND' }, 'a type change anywhere in the chain');
 });
 
 test('a step must follow the link it was given', () => {

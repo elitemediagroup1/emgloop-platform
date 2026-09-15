@@ -143,6 +143,17 @@ test('supersession into another organization fails closed', async () => {
   assert.deepEqual(await w.refs.resolve(ORG_A, ours), { state: 'NOT_FOUND' });
 });
 
+test('a supersession chain that crosses PERSON and COMPANY is NOT_FOUND, in either direction', async () => {
+  const w = world();
+  const company = await w.party(ORG_A, { id: 'company', entityType: 'COMPANY' });
+  const person = await w.party(ORG_A, { id: 'person' });
+  await w.party(ORG_A, { id: 'person_old', supersededByIdentityId: company });
+  await w.party(ORG_A, { id: 'company_old', entityType: 'COMPANY', supersededByIdentityId: person });
+  assert.deepEqual(await w.refs.resolve(ORG_A, 'person_old'), { state: 'NOT_FOUND' });
+  assert.deepEqual(await w.refs.resolve(ORG_A, 'company_old'), { state: 'NOT_FOUND' });
+  assert.deepEqual(await w.refs.requireReferenceable(ORG_A, 'company_old'), { ok: false, resolution: { state: 'NOT_FOUND' } });
+});
+
 test('cycles fail closed', async () => {
   const w = world();
   await w.party(ORG_A, { id: 'self', supersededByIdentityId: 'self' });
