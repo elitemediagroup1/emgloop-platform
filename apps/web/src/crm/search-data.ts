@@ -5,7 +5,7 @@ import type { Repositories } from '@emgloop/database';
 // Authorization is resolved by the page from the signed session and passed in;
 // this function only honours it. A source the user may not see is never queried.
 // Every read is scoped to the organization it is given, bounded, and typed
-// honestly: a Customer is "Person / Intake Record", never an Opportunity, and the
+// honestly: a Customer is an "Intake Record" (never a Person, C-04), never an Opportunity, and the
 // only organization that can appear is the session's own workspace.
 
 export type ResultKind = 'person' | 'conversation' | 'organization';
@@ -30,7 +30,7 @@ export const SEARCH_LIMITS = { people: 20, conversations: 15, queryLength: 200 }
 
 export function kindLabel(kind: ResultKind): string {
   switch (kind) {
-    case 'person': return 'Person / Intake Record';
+    case 'person': return 'Intake Record';
     case 'conversation': return 'Conversation';
     case 'organization': return 'Workspace Organization';
   }

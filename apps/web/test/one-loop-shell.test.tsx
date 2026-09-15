@@ -158,7 +158,7 @@ describe('Grouping', () => {
     const crm = LOOP_NAV.nav.find((g) => g.label === 'CRM')!;
     assert.deepEqual(crm.items.map((i) => [i.label, i.href, Boolean(i.soon)]), [
       ['Command Center', '/crm', false],
-      ['People', '/crm/customers', false],
+      ['Intake Records', '/crm/customers', false],
       ['Relationships', '/crm/relationships', true],
       ['Opportunities', '/crm/opportunities', true],
       ['Campaigns', '/crm/campaigns', true],
@@ -264,7 +264,7 @@ describe('Navigation follows the authority each page enforces', () => {
     for (const role of ['EMPLOYEE', 'AI_EMPLOYEE']) {
       assert.deepEqual(labels(navForRole(role)), [
         ['', ['Home']],
-        ['CRM', ['Command Center', 'People', 'Relationships (soon)', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+        ['CRM', ['Command Center', 'Intake Records', 'Relationships (soon)', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
         ['Intelligence', ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites']],
         ['Work OS', ['My Work', 'Workflows (soon)']],
         ['Administration', ['AI Employees']],
@@ -276,7 +276,7 @@ describe('Navigation follows the authority each page enforces', () => {
   it('Read Only is not isolated in a placeholder: it sees what its permissions allow, and no Work OS it cannot open', () => {
     const expected = [
       ['', ['Home']],
-      ['CRM', ['Command Center', 'People', 'Relationships (soon)', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['CRM', ['Command Center', 'Intake Records', 'Relationships (soon)', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
       ['Intelligence', ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites']],
       ['Administration', ['AI Employees']],
     ];
@@ -298,7 +298,7 @@ describe('Navigation follows the authority each page enforces', () => {
       permitted: (item) => !(item.requires!.resource === 'customers' && item.requires!.action === 'view'),
     });
     const shown = nav.flatMap((g) => g.items).map((i) => i.label);
-    for (const hidden of ['People', 'Inbox', 'Search']) assert.equal(shown.includes(hidden), false, hidden);
+    for (const hidden of ['Intake Records', 'Inbox', 'Search']) assert.equal(shown.includes(hidden), false, hidden);
     for (const kept of ['Command Center', 'Conversations', 'Intake Board', 'Headlines']) assert.ok(shown.includes(kept), kept);
   });
 
@@ -354,7 +354,7 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     const active = (path: string) => resolveActiveNav(LOOP_NAV, path)?.label ?? null;
     assert.equal(active('/app'), 'Home');
     assert.equal(active('/crm'), 'Command Center');
-    assert.equal(active('/crm/customers/c_1/activity'), 'People');
+    assert.equal(active('/crm/customers/c_1/activity'), 'Intake Records');
     assert.equal(active('/crm/live/calls'), 'Live Calls');
     assert.equal(active('/crm/relationships'), 'Command Center', 'a Soon item is never active');
     assert.equal(active('/app/admin/work/abc123'), 'My Work');
@@ -371,7 +371,7 @@ describe('The active item and breadcrumb follow the page actually shown', () => 
   // which Next does not re-render on client-side navigation. The active item and
   // breadcrumb were computed there on the server, so they froze on the page that
   // was hard-loaded: /crm/customers → Conversations → Intake Board → Inbox →
-  // Search kept "People", and /app/admin/headlines → My Work kept "Headlines".
+  // Search kept "Intake Records", and /app/admin/headlines → My Work kept "Headlines".
   // Rendering with the SAME server-resolved groups at different client paths is
   // exactly that situation.
   const owner = navForRole('OWNER');
@@ -383,7 +383,7 @@ describe('The active item and breadcrumb follow the page actually shown', () => 
 
   it('the CRM chain from the audit highlights each page in turn, never the first', () => {
     const chain: [string, string, string][] = [
-      ['/crm/customers', '/crm/customers', 'People'],
+      ['/crm/customers', '/crm/customers', 'Intake Records'],
       ['/crm/conversations', '/crm/conversations', 'Conversations'],
       ['/crm/pipeline', '/crm/pipeline', 'Intake Board'],
       ['/crm/inbox', '/crm/inbox', 'Inbox'],

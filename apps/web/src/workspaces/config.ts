@@ -164,7 +164,7 @@ export const LOOP_NAV: ShellConfig = {
       label: 'CRM',
       items: [
         { href: '/crm', label: 'Command Center', icon: 'grid' },
-        { href: '/crm/customers', label: 'People', icon: 'users', requires: PEOPLE_VIEW },
+        { href: '/crm/customers', label: 'Intake Records', icon: 'users', requires: PEOPLE_VIEW },
         { href: '/crm/relationships', label: 'Relationships', icon: 'flow', soon: true },
         { href: '/crm/opportunities', label: 'Opportunities', icon: 'target', soon: true },
         { href: '/crm/campaigns', label: 'Campaigns', icon: 'star', soon: true },
@@ -296,8 +296,8 @@ export function isStandalonePath(pathname: string | null): boolean {
  *
  * Returns the nav item that owns `pathname` — the item whose href is the
  * LONGEST prefix of the path. Longest-match is what keeps an item selected
- * across its child routes: /crm/customers/c_1 resolves to People, never to
- * Command Center (/crm), because People's href is the longer prefix.
+ * across its child routes: /crm/customers/c_1 resolves to Intake Records, never to
+ * Command Center (/crm), because that href is the longer prefix.
  *
  * Both the sidebar active state AND the breadcrumb derive from this ONE function
  * — no page implements its own active-state logic.

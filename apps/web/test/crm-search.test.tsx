@@ -7,7 +7,7 @@
 // 3. Organization results are gated on organizations:view (soft check).
 // 4. All repository calls pass the organization from the session context.
 // 5. No result is labeled as Opportunity, Pipeline, commercial Company, or Relationship.
-// 6. Customer results are labeled as Person / Intake Record.
+// 6. Customer results are labeled as Intake Record (never Person, C-04).
 // 7. Organization results are labeled as Workspace Organization.
 // 8. The query is persisted in the URL (method=get, action=/crm/search).
 
@@ -67,8 +67,9 @@ test('5. no result is labeled as Opportunity, Pipeline, commercial Company or Re
   assert.equal(/kind.*['":].*relationship/i.test(SEARCH), false, 'no Relationship result kind');
 });
 
-test('6. customer results are labeled as Person / Intake Record', () => {
-  assert.match(SEARCH, /Person \/ Intake Record/);
+test('6. customer results are labeled as Intake Record, never Person (C-04)', () => {
+  assert.match(SEARCH, /'Intake Record'/);
+  assert.doesNotMatch(SEARCH, /Person \/ Intake Record/);
 });
 
 test('7. organization results are labeled as Workspace Organization', () => {

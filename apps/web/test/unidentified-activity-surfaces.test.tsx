@@ -6,7 +6,7 @@
 //
 //   - A call or visit with no Person is labelled as unidentified, not as an
 //     unknown customer or a blank.
-//   - The People count is labelled as what it is (People added), and nothing
+//   - The Intake Record count is labelled as what it is (Intake Records added), and nothing
 //     reads it as conversion: the Brain no longer compares it across windows,
 //     and no correlation rule reasons from it.
 //   - The seeded call workflows, which could only ever act on a Customer, are
@@ -27,9 +27,9 @@ const code = (s: string) =>
   s.replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
 describe('Activity with no Person is labelled as unidentified', () => {
-  it('Live Calls names the column Person and says Unidentified caller when there is none', () => {
+  it('Live Calls names the column Intake Record and says Unidentified caller when there is none', () => {
     const feed = code(read('apps/web/src/app/crm/live/LiveFeed.tsx'));
-    assert.match(feed, /<th>Person<\/th>/);
+    assert.match(feed, /<th>Intake Record<\/th>/);
     assert.doesNotMatch(feed, /<th>Customer<\/th>/);
     assert.match(feed, /'Unidentified caller'/);
   });
@@ -46,31 +46,31 @@ describe('Activity with no Person is labelled as unidentified', () => {
   });
 });
 
-describe('The People count is labelled as what it is, and is not read as conversion', () => {
-  it('the Command Center says People added, not new', () => {
+describe('The Intake Record count is labelled as what it is, and is not read as conversion', () => {
+  it('the Command Center says Intake Records added, not new', () => {
     const page = code(read('apps/web/src/app/crm/page.tsx'));
-    assert.match(page, /People Added This Week/);
+    assert.match(page, /Intake Records Added This Week/);
     assert.match(page, /added this week/);
     assert.doesNotMatch(page, /New This Week|No new this week/);
   });
 
-  it('Analytics says People Added, not New Customers', () => {
+  it('Analytics says Intake Records Added, not New Customers', () => {
     const page = code(read('apps/web/src/app/crm/analytics/page.tsx'));
-    assert.match(page, />People Added</);
+    assert.match(page, />Intake Records Added</);
     assert.doesNotMatch(page, /New Customers/);
   });
 
-  it('the Brain measures People added without comparing it to the prior window', () => {
+  it('the Brain measures Intake Records added without comparing it to the prior window', () => {
     const data = code(read('apps/web/src/app/app/admin/_executive/executive-brain-data.ts'));
     const line = data.split('\n').find((l) => l.includes("metricId: 'crm.new_customers'"));
     assert.ok(line, 'the metric is still reported');
-    assert.match(line!, /label: 'People added'/);
+    assert.match(line!, /label: 'Intake Records added'/);
     assert.doesNotMatch(line!, /trackChange:\s*true/, 'no period comparison');
     assert.doesNotMatch(line!, /prior:/, 'no prior window to compare with');
     assert.match(line!, /not leads or conversions/, 'the provenance says what the count is not');
   });
 
-  it('no correlation rule reasons from People added', () => {
+  it('no correlation rule reasons from Intake Records added', () => {
     assert.doesNotMatch(
       code(read('packages/intelligence/src/executive/correlation.ts')),
       /crm\.new_customers|sales-bottleneck/,

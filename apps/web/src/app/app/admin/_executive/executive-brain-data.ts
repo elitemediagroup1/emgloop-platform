@@ -149,19 +149,20 @@ export async function loadExecutiveBrain(
 
       // --- CRM ---------------------------------------------------------------
       const crmMetrics: DomainMetricInput[] = [
-        // Not compared across windows, and not conversion. Ingestion does not create
-        // People, so this counts records added in Loop; it once also counted every
+        // Not compared across windows, and not conversion. Ingestion creates no Intake
+        // Records (legacy Customer rows, which are not People: C-04), so this counts
+        // records added in Loop; it once also counted every
         // unmatched caller and anonymous visitor, and a window spanning that change
         // would report a fall no customer behaviour caused. (The metric id is kept.)
-        { metricId: 'crm.new_customers', label: 'People added', narrative: 'People added', observed: crmCur.newCustomers, total: null, provenance: prov('CRM — Customer', 'COUNT of People records created in the window. Ingestion does not create People, so this is records added in Loop, not leads or conversions; it is not compared with the prior window.') },
+        { metricId: 'crm.new_customers', label: 'Intake Records added', narrative: 'Intake Records added', observed: crmCur.newCustomers, total: null, provenance: prov('CRM — Customer', 'COUNT of Intake Records (legacy Customer records) created in the window. Ingestion creates none, so this is records added in Loop, not leads or conversions (and not People); it is not compared with the prior window.') },
         { metricId: 'crm.conversations', label: 'Conversations opened', narrative: 'Conversations opened', observed: crmCur.conversations, total: null, prior: crmPrior.conversations, trackChange: true, provenance: prov('CRM — Conversation', 'COUNT of conversations created in the window') },
         { metricId: 'crm.assigned', label: 'Assigned conversations', observed: crmCur.conversationsAssigned, total: crmCur.conversations, raiseCoverageGap: true, owner: 'operations', gapImpact: 'Unassigned conversations get slower first responses, where conversion leaks first.', gapRecommendation: 'Assign or auto-route open conversations so none waits without an owner.', provenance: prov('CRM — Conversation', 'COUNT of conversations with an assignee, over conversations opened') },
       ];
       const crm = buildDomainSensor({
         id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: WINDOW_LABEL.toLowerCase(),
         populationSize: crmCur.newCustomers + crmCur.conversations,
-        staleAfterMs: null, measuredAt, affectedArea: 'Sales pipeline',
-        emptyScopeReason: 'No People or conversations were added in this window, so there is nothing to measure. Unknown is not zero.',
+        staleAfterMs: null, measuredAt, affectedArea: 'Intake',
+        emptyScopeReason: 'No Intake Records or conversations were added in this window, so there is nothing to measure. Unknown is not zero.',
         metrics: crmMetrics,
       });
 

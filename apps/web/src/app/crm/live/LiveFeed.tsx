@@ -120,7 +120,7 @@ function renderCalls(items: Json[], clock: FeedClock) {
       <table className="crm-table">
         <thead>
           <tr>
-            <th>When</th><th>Caller</th><th>Person</th><th>Vendor</th><th>Source</th><th>Campaign</th>
+            <th>When</th><th>Caller</th><th>Intake Record</th><th>Vendor</th><th>Source</th><th>Campaign</th>
             <th>Qualified</th><th>Duration</th><th>Status</th><th>Provider</th><th>Event ID</th><th>Next best action</th>
           </tr>
         </thead>
