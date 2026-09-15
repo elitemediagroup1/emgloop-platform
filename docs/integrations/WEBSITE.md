@@ -105,8 +105,9 @@ sales-ready lead.
 
 ## Where it surfaces
 
-- **CRM** — website events appear in the customer Timeline and a dedicated
-  **Website** tab (recent pages, searches, forms, CTAs, sessions).
+- **CRM** — Live Websites (`/crm/live/websites`: recent pages, searches, forms,
+  CTAs, sessions), where activity with no Person reads "Unidentified visitor". Website
+  events are linked to no Person, so they do not appear on a person's timeline.
 - **Analytics** — Website Intelligence widgets: Top Landing Pages, Top Searches,
   Top CTAs, Session Sources, Top Cities, Top Categories, Most Common Journeys,
   Website Signal Breakdown — all derived from Brain events, not embedded GA.

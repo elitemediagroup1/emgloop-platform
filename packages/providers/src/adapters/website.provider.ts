@@ -194,7 +194,7 @@ export class WebsiteProvider implements IngestionProvider {
    * may carry ONE event ({ event, ... }) OR a BATCH ({ events: [...] }) so a
    * site can flush a whole session at once. Every raw attribute is preserved on
    * .payload (with a normalized "property") so the NormalizationEngine and the
-   * customer timeline keep the full website context (page, search, city,
+   * stored Interaction keep the full website context (page, search, city,
    * category, sessionId, visitorId, source, etc.).
    */
   async parseWebhook(
