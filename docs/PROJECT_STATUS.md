@@ -1161,7 +1161,7 @@ original `customerId`; the audit records counts only) and its header comment cla
 **NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
 schema**) as its own branch. Business Identity implementation has not begun.
 
-## Loop Time Authority — IN REVIEW
+## Loop Time Authority — IN REVIEW (#238)
 
 _Last updated: 2026-09-15._
 
