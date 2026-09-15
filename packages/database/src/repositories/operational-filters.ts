@@ -10,7 +10,9 @@
 //   3. Provide recency windows and canonical EMG property names.
 //
 // No schema changes: detection uses existing columns (tags, email, phone,
-// externalId) and Interaction.metadata only.
+// externalId) and Interaction.metadata only. An Interaction is judged by its own
+// identifiers first (isExcludedInteraction), because ingestion links it to no
+// Customer.
 
 // --- Recency windows (ms) -------------------------------------------------
 export const MINUTE = 60 * 1000;
@@ -90,6 +92,11 @@ export interface CustomerLike {
   lastName?: string | null;
 }
 
+function isTestEmail(email: string | null | undefined): boolean {
+  const e = (email ?? '').toLowerCase();
+  return Boolean(e) && TEST_EMAIL_DOMAINS.some((d) => e.endsWith('@' + d));
+}
+
 // True when a customer is an obvious demo / QA / E2E / test record that must
 // NOT appear in active operational views. Conservative: only excludes records
 // with explicit non-production signals.
@@ -97,8 +104,7 @@ export function isExcludedCustomer(c: CustomerLike | null | undefined): boolean 
   if (!c) return false;
   const tags = (c.tags ?? []).map((t) => String(t).toLowerCase());
   if (tags.some((t) => EXCLUDED_TAGS.has(t))) return true;
-  const email = (c.email ?? '').toLowerCase();
-  if (email && TEST_EMAIL_DOMAINS.some((d) => email.endsWith('@' + d))) return true;
+  if (isTestEmail(c.email)) return true;
   const ext = (c.externalId ?? '').toLowerCase();
   if (ext.startsWith('demo-') || ext.startsWith('e2e-') || ext.startsWith('test-') || ext.startsWith('qa-') || ext.startsWith('hotfix-verify')) return true;
   if (isPlaceholderPhone(c.phone)) return true;
@@ -112,6 +118,42 @@ export function isExcludedExternalId(externalId: string | null | undefined): boo
   if (!externalId) return false;
   const e = externalId.toLowerCase();
   return e.startsWith('e2e-') || e.startsWith('test-') || e.startsWith('qa-') || e.startsWith('hotfix-verify') || e.startsWith('demo-');
+}
+
+// The metadata keys under which the provider adapters keep what a source
+// reported about the caller or submitter: the CallGrid adapters write
+// `fromNumber` and `caller` beside the raw `callerId`, and the website adapter
+// keeps the form's own fields.
+const REPORTED_PHONE_KEYS = ['fromNumber', 'caller', 'callerId', 'phone', 'customer_phone', 'tel'];
+const REPORTED_EMAIL_KEYS = ['email', 'customer_email', 'user_email'];
+
+function reportedValues(metadata: unknown, keys: readonly string[]): string[] {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return [];
+  const m = metadata as Record<string, unknown>;
+  return keys.map((k) => m[k]).filter((v): v is string => typeof v === 'string' && v.trim() !== '');
+}
+
+export interface InteractionLike {
+  externalId?: string | null;
+  metadata?: unknown;
+  /** The Customer an older Interaction is already linked to, if any. */
+  customer?: CustomerLike | null;
+}
+
+// True when an Interaction is demo / QA / E2E / test traffic that must NOT appear
+// in active operational views.
+//
+// DECIDED FROM THE EVENT'S OWN FACTS. Ingestion links no Interaction to a
+// Customer, so a rule that only looked at the linked Customer would let every new
+// test call through. The event's external id and the phone and email the source
+// reported are held to the same rules isExcludedCustomer applies. A Customer an
+// older Interaction is already linked to still counts: its tags are how people
+// marked demo records.
+export function isExcludedInteraction(i: InteractionLike): boolean {
+  if (isExcludedExternalId(i.externalId)) return true;
+  if (reportedValues(i.metadata, REPORTED_PHONE_KEYS).some(isPlaceholderPhone)) return true;
+  if (reportedValues(i.metadata, REPORTED_EMAIL_KEYS).some(isTestEmail)) return true;
+  return isExcludedCustomer(i.customer);
 }
 
 // --- Fabricated attribution labels ----------------------------------------
