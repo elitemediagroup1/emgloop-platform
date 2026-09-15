@@ -8,8 +8,9 @@
 # Slice 1. It writes nothing, remediates nothing, and prints no name, email,
 # phone number, tag, record id or other identifying value.
 #
-# READ-ONLY IS ENFORCED BY THE DATABASE. The runner opens its connection with
-# default_transaction_read_only=on, so Postgres refuses any write (SQLSTATE 25006).
+# READ-ONLY TWICE. The runner has no write path, and it opens its connection
+# requesting default_transaction_read_only=on (Postgres then refuses any write,
+# SQLSTATE 25006) and a per-statement timeout.
 #
 # WHY IT EXISTS. Historical People remediation must be designed from evidence about
 # how ~24,574 records were produced, not inferred. This is that evidence.
@@ -110,7 +111,7 @@ jobs:
         run: |
           echo "### People population" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Nothing was written.** The session was read-only in the database, and every printed value is an aggregate count, a boolean, UNKNOWN or a UTC date bucket." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** The runner has no write path and requested a read-only database session. Every printed value is an aggregate count, a boolean, UNKNOWN or a UTC date bucket." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- \`PROVENANCE\` - where each record came from, by the marks its creator left (ingestion call, anonymous visitor, website lead, seed/demo, import, unmarked)." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`HUMAN_WORK\` - records a person demonstrably worked (conversation, booking, order, service request, human note, human audit entry, party link, merge) versus weaker signals and none." >> "$GITHUB_STEP_SUMMARY"

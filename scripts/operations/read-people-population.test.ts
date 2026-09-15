@@ -251,7 +251,7 @@ test('no name, email, phone number, tag, workflow name, event name or record id 
 test('the print guard accepts only counts, booleans, UNKNOWN and fixed shapes', () => {
   const slug = 'servicesinmycity-demo';
   assert.ok(printable('event=PROVENANCE CUSTOMERS=12 CLASS_INGESTION_CALL=7 MERGED_MARKER=UNKNOWN', slug));
-  assert.ok(printable('event=AUDIT_SCOPE organization=servicesinmycity-demo AS_OF=2026-09-15T18:00:00.000Z READ_ONLY_SESSION=true', slug));
+  assert.ok(printable('event=AUDIT_SCOPE organization=servicesinmycity-demo AS_OF=2026-09-15T18:00:00.000Z READ_ONLY_SESSION_REQUESTED=true', slug));
   assert.ok(printable('event=CREATION_DAY day=2026-08-11 CUSTOMERS=3', slug));
   for (const bad of [
     'event=PROVENANCE NAME=pat',
@@ -353,11 +353,11 @@ test('classification is fixed-vocabulary and exact', () => {
 test('the session is read-only in the database: the connection string forces it, and keeps what was there', () => {
   const url = new URL(readOnlySessionUrl('postgresql://u:p@db.example.neon.tech/loop?sslmode=require'));
   assert.equal(url.searchParams.get('sslmode'), 'require');
-  assert.equal(url.searchParams.get('options'), '-c default_transaction_read_only=on');
+  assert.equal(url.searchParams.get('options'), '-c default_transaction_read_only=on -c statement_timeout=120000');
   const extended = new URL(readOnlySessionUrl('postgres://u:p@h/db?options=' + encodeURIComponent('-c statement_timeout=60000')));
-  assert.equal(extended.searchParams.get('options'), '-c statement_timeout=60000 -c default_transaction_read_only=on');
+  assert.equal(extended.searchParams.get('options'), '-c statement_timeout=60000 -c default_transaction_read_only=on', 'a stricter existing timeout is kept');
   const again = readOnlySessionUrl(readOnlySessionUrl('postgresql://u:p@h/db'));
-  assert.equal(new URL(again).searchParams.get('options'), '-c default_transaction_read_only=on', 'idempotent');
+  assert.equal(new URL(again).searchParams.get('options'), '-c default_transaction_read_only=on -c statement_timeout=120000', 'idempotent');
   assert.throws(() => readOnlySessionUrl('mysql://u:p@h/db'), /not a PostgreSQL/);
 });
 

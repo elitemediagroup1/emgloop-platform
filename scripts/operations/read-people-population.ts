@@ -7,9 +7,13 @@
 // the identity-governance baseline, creation bursts, and exposure after identity
 // Slice 1 (#239). It changes nothing, remediates nothing and decides nothing.
 //
-// READ-ONLY IS ENFORCED BY THE DATABASE, not only by this code. The connection is
-// opened with `default_transaction_read_only=on`, so Postgres refuses any write
-// the process attempts (SQLSTATE 25006), whatever the code does.
+// READ-ONLY TWICE. The code has no write path: no mutation, no transaction, no raw
+// SQL. And the connection asks Postgres for `default_transaction_read_only=on`,
+// under which it refuses any write the process attempts (SQLSTATE 25006). Every
+// statement is also capped by `statement_timeout`, so no single query can run on
+// against production. The runner REQUESTS that session. It cannot confirm it
+// without raw SQL, so it prints READ_ONLY_SESSION_REQUESTED, not a claim it
+// cannot back.
 //
 // NOTHING IDENTIFYING IS PRINTED. Every line is `event=NAME KEY=value ...`, where
 // every key comes from a fixed vocabulary and every value is an integer, a
@@ -80,23 +84,26 @@ export function parseArgs(argv: readonly string[]): { organization: string; slic
   return { organization, slice1At };
 }
 
+/** The longest any single audit statement may run on production, in milliseconds. */
+export const STATEMENT_TIMEOUT_MS = 120_000;
+
 /**
- * The connection string with a read-only session forced on.
+ * The connection string with a read-only, time-bounded session requested.
  *
  * Postgres applies `-c default_transaction_read_only=on` to every transaction on
- * the connection, so a write fails in the database whatever issued it. An
- * `options` value already on the URL is kept and extended, never replaced.
+ * the connection, so a write fails in the database whatever issued it, and
+ * `-c statement_timeout` cancels any statement that runs too long. An `options`
+ * value already on the URL is kept and extended, never replaced.
  */
 export function readOnlySessionUrl(databaseUrl: string): string {
   const url = new URL(databaseUrl);
   if (url.protocol !== 'postgresql:' && url.protocol !== 'postgres:') {
     throw new Error('DATABASE_URL is not a PostgreSQL connection string');
   }
-  const flag = '-c default_transaction_read_only=on';
-  const existing = url.searchParams.get('options');
-  if (!existing?.includes('default_transaction_read_only=on')) {
-    url.searchParams.set('options', existing ? `${existing} ${flag}` : flag);
-  }
+  let options = url.searchParams.get('options') ?? '';
+  if (!options.includes('default_transaction_read_only=on')) options = `${options} -c default_transaction_read_only=on`;
+  if (!options.includes('statement_timeout=')) options = `${options} -c statement_timeout=${STATEMENT_TIMEOUT_MS}`;
+  url.searchParams.set('options', options.trim());
   return url.toString();
 }
 
@@ -185,7 +192,7 @@ export async function runPeoplePopulationAudit(
   const a = await deps.population.audit(org.id, asOf, slice1At);
   const identity = await deps.identities.footprint(org.id);
 
-  emit({ event: 'AUDIT_SCOPE', organization: org.slug, AS_OF: a.asOf, SLICE1_AT: a.slice1At, READ_ONLY_SESSION: true });
+  emit({ event: 'AUDIT_SCOPE', organization: org.slug, AS_OF: a.asOf, SLICE1_AT: a.slice1At, READ_ONLY_SESSION_REQUESTED: true });
 
   const prov = a.provenance;
   emit({
