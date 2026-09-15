@@ -11,6 +11,7 @@ import { getSession } from '../../../auth/auth';
 import { ensureCrmIdentity } from '../../../auth/bootstrap';
 import { EmgLoopWordmark } from '../_brand/Logos';
 import { RequestAccessModal } from './RequestAccessModal';
+import { TimeZoneSync } from '../../../time/TimeZoneSync';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,9 @@ export default async function LoginPage({
 
   return (
     <div className="loop-auth">
+      {/* Record the device's timezone before sign-in, so the first signed-in page
+          already shows dates where the person is. Nothing here to re-render. */}
+      <TimeZoneSync timeZone="UTC" source="fallback" refresh={false} />
       {/* Left — marketing / brand */}
       <aside className="loop-auth__brand">
         <div className="loop-auth__brand-top">

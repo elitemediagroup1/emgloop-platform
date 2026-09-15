@@ -6,6 +6,8 @@ import type { AuthSession } from '../auth/auth';
 import { LOOP_NAV, myWorkHref } from './config';
 import { navFor } from './nav-access';
 import { ShellCrumb, ShellNav } from './ShellNav';
+import { viewerTime } from '../time/viewer-time';
+import { TimeZoneSync } from '../time/TimeZoneSync';
 
 // Loop OS — the application shell.
 //
@@ -41,11 +43,15 @@ export default async function WorkspaceShell({
   // computed here would freeze on the page that was hard-loaded.
   const groups = await navFor(session);
   const workHref = myWorkHref(groups);
+  // The zone this page's dates were rendered in; TimeZoneSync corrects it to the
+  // device's zone on first visit or after travel. Presentation only.
+  const time = viewerTime();
 
   return (
     <div className="loop-os">
       {/* Without this, a keyboard user tabs through every nav item on every page. */}
       <a className="loop-skip" href="#loop-main">Skip to content</a>
+      <TimeZoneSync timeZone={time.timeZone} source={time.source} />
       <div className="loop-shell">
         <aside className="loop-sidebar">
           <div className="loop-sb__brand">
