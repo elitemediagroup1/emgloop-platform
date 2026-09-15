@@ -140,6 +140,14 @@ Machine matches exist only as read-time, non-persistent suggestions.
 **Frequency never raises a tier.** Twenty calls from one number are twenty WEAK observations. Counts
 may prioritize a review worklist and support a *proposed* flag; nothing else.
 
+**Contract readings (2.0, #242; fail closed, for Product review):**
+- Only matrix rows are evidence classes. PHONE/EMAIL `OPERATOR_RECORDED`, and NAME in any mode other
+  than `SUBJECT_PROVIDED`, cannot have a use policy or produce evidence.
+- VERIFIED and AUTHENTICATED classes are unavailable. They contribute no tier and establish nothing.
+- A name alone is WEAK.
+- An operator identification is WEAK until an authorized person confirms it.
+- Only ACTIVE flags conflict: SHARED, SUSPECT and RECYCLED always; BUSINESS_LINE only for a Person.
+
 **SSDI / form leads vs FE caller-ID-only traffic** differ only by the evidence they carry, through the
 same pipeline. An FE call yields one PHONE/NETWORK_ASSERTED observation (WEAK, stays unresolved). An
 SSDI lead yields SUBJECT_PROVIDED name, email and phone (MODERATE): a suggestion against an established
@@ -167,6 +175,9 @@ Grants are the existing `IDENTITY_RESOLUTION_GRANTS`; no grant change is require
 | Extract evidence from new facts | system projection, gated by active class policy | — | yes | no |
 
 - A MANAGER may not confirm their own proposal (PD-I2-03); proposal and confirmation stay separate acts.
+  In the 2.0 contract (#242), OWNER and ADMIN stay under the approved model. Any other role holding
+  `update` only through a Permission row also cannot confirm its own proposal. A proposer may reject
+  (withdraw) their own proposal.
 - `approve` stays the only action that establishes, links, supersedes or confirms same-Party. The
   attribution confirmations held under `update` are recorded separately and are never read as an
   establishment or same-Party basis.
@@ -324,7 +335,9 @@ All additive. Migrations reach production only through the manual `Deploy Prisma
   compare), source policy version, use policy id + version; unique (organization, fact type, fact id,
   class, value hash); index (organization, class, value hash). Production holds 0 rows, so the hash
   scheme changes without rotation.
-- `DataGovernancePolicy`: nullable evidence class it applies to, indexed.
+- `DataGovernancePolicy`: nullable evidence class it applies to, indexed; a nullable legal basis (a
+  `ConsentBasis` value other than NONE) and the organization's reference for it. Null is UNSET, and an
+  UNSET policy produces nothing (the 2.0 use-policy contract, #242).
 - New satellite `identity_identifier_flags`: organization, identifier kind, value hash, flag, state,
   proposed-by (system rule or user), set/dismissed/revoked by user with reasons and times; one active
   flag per (identifier, flag) via a nullable active-key unique (the `CustomerPartyLink` pattern).
