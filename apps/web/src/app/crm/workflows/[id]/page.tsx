@@ -11,6 +11,7 @@ import {
   toggleWorkflowActiveAction,
   runWorkflowAction,
 } from '../../../../crm/workflow-actions';
+import { viewerTime } from '../../../../time/viewer-time';
 
 // Workflow builder + run history — Sprint 9 (Workflows & Automation).
 //
@@ -40,11 +41,9 @@ const RUN_COLOR: Record<string, string> = {
   CANCELED: 'var(--crm-faint)',
 };
 
+// In the reader's timezone (Loop Time Authority).
 function fmt(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  });
+  return viewerTime().monthDayTime(iso) || '—';
 }
 
 function describeStep(type: string, config: Record<string, unknown>): string {

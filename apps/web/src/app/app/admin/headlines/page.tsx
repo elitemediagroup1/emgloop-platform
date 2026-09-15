@@ -33,13 +33,13 @@ import {
 } from '@emgloop/shared';
 
 import { hasPermission, requirePermission } from '../../../../auth/guard';
-import { greeting } from '../../_loop-os/format';
 import { ReadError } from '../../_loop-os/product-state';
 import { dismissHeadlineAction } from '../administration/objectives/actions';
 import { investigateHeadlineAction } from '../administration/objectives/investigate-actions';
 import { AttentionBanner, HeadlineCard } from './headline-ui';
 import { loadAttention, loadExistingCase } from './headlines-data';
 import { requireWorkspace } from '../../../../workspaces/guard';
+import { viewerTime } from '../../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +62,7 @@ export default async function HeadlinesPage({
       <header className="hl-page__head">
         <p className="hl-page__eyebrow">Commercial Intelligence</p>
         <h1 className="hl-page__title">
-          {greeting()}
+          {viewerTime().greeting()}
           {session.name ? ', ' + session.name.split(' ')[0] : ''}.
         </h1>
         {/* TRUTHFUL, because Loop does not know when this person last looked. */}

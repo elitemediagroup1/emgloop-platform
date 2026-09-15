@@ -1,4 +1,5 @@
 import type { Repositories } from '@emgloop/database';
+import { startOfZonedDay } from '@emgloop/shared';
 
 // Command Center reads.
 //
@@ -16,25 +17,32 @@ export interface CommandCenterAccess {
   canViewAudit: boolean;
 }
 
-function weekStart(now: Date): Date {
-  const d = new Date(now);
-  d.setDate(d.getDate() - 7);
-  d.setHours(0, 0, 0, 0);
-  return d;
+/** The reader's clock: the canonical instant, and the zone their "this week" is counted in. */
+export interface CommandCenterClock {
+  now: Date;
+  timeZone: string;
+}
+
+// "This week" is the last seven calendar days where the reader is: from the
+// start of their day seven days ago, until now. (It used to be seven days back
+// at the server's midnight, which in production is UTC midnight.)
+function weekStart({ now, timeZone }: CommandCenterClock): Date {
+  return startOfZonedDay(new Date(now.getTime() - 7 * 86_400_000), timeZone);
 }
 
 export async function loadCommandCenter(
   repos: CommandCenterRepos,
   organizationId: string,
   access: CommandCenterAccess,
-  now: Date = new Date(),
+  clock: CommandCenterClock,
 ) {
+  const { now } = clock;
   const [org, customerCount, statusCounts, weekCounts, conversationCounts, recentActivity, recentAudit] =
     await Promise.all([
       repos.organizations.findById(organizationId),
       repos.customers.countByOrganization(organizationId),
       repos.crm.statusCounts(organizationId),
-      repos.crm.windowCounts(organizationId, weekStart(now), now),
+      repos.crm.windowCounts(organizationId, weekStart(clock), now),
       repos.conversationsInbox.listConversations(organizationId, {}),
       repos.crm.inboxFeed(organizationId, 8),
       access.canViewAudit ? repos.audit.list(organizationId, { take: 10 }) : Promise.resolve(null),

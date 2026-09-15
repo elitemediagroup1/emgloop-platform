@@ -12,6 +12,7 @@ import {
   Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
   fromInboxItem, fromAuditView,
 } from '../../crm/timeline';
+import { viewerTime } from '../../time/viewer-time';
 
 // CRM Command Center — Phase 1 (Charlie/Lexi §10.1).
 //
@@ -36,6 +37,7 @@ function fmtNum(n: number): string {
 
 export default async function CrmCommandCenter() {
   const ctx = await requireCrmContext('/crm');
+  const time = viewerTime();
   // Resolved before any read: without audit:view the audit query is not issued,
   // and without access to Headlines no CI read is issued either.
   const [canViewAudit, showHeadlines] = await Promise.all([
@@ -45,7 +47,7 @@ export default async function CrmCommandCenter() {
 
   // Parallel data loads — all org-scoped, all real.
   const [result, attention] = await Promise.all([
-    loadOrFallback(() => loadCommandCenter(crmRepos, ctx.organizationId, { canViewAudit })),
+    loadOrFallback(() => loadCommandCenter(crmRepos, ctx.organizationId, { canViewAudit }, { now: time.now, timeZone: time.timeZone })),
     showHeadlines ? loadAttention(ctx.organizationId) : Promise.resolve(null),
   ]);
 
@@ -62,7 +64,8 @@ export default async function CrmCommandCenter() {
   } = result.data;
 
   const orgName = org?.name ?? 'Organization';
-  const clock = orgClock(org?.timezone);
+  // The reader's own clock, not the organization's or the server's (Loop Time Authority).
+  const clock = { greeting: time.greeting(), date: time.format(time.now, 'weekdayDate') };
 
   // Intake status summary from Customer.status (not canonical Opportunity pipeline).
   const activeIntake = (statusCounts.New ?? 0) + (statusCounts.Contacted ?? 0) + (statusCounts.Quoted ?? 0);
@@ -258,27 +261,6 @@ export default async function CrmCommandCenter() {
       </div>
     </div>
   );
-}
-
-// The server clock is UTC; greeting an Eastern operator with "Good evening" at
-// 3pm is wrong. Organization.timezone is free text, so an invalid zone falls
-// back to UTC rather than throwing.
-function orgClock(timeZone: string | undefined): { greeting: string; date: string } {
-  const now = new Date();
-  const zone = timeZone && isValidTimeZone(timeZone) ? timeZone : 'UTC';
-  const hour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: zone }).format(now));
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const date = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: zone });
-  return { greeting, date };
-}
-
-function isValidTimeZone(zone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function EmptyCard({ icon, title, line }: { icon: string; title: string; line: string }) {

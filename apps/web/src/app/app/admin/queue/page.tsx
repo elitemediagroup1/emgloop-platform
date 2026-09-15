@@ -16,10 +16,10 @@ import { PersonalPriorityService, prisma } from '@emgloop/database';
 import type { PersonalQueueView } from '@emgloop/database';
 
 import { requirePermission } from '../../../../auth/guard';
-import { greeting } from '../../_loop-os/format';
 import { ReadError } from '../../_loop-os/product-state';
 import { PersonalQueue } from './queue-ui';
 import { requireWorkspace } from '../../../../workspaces/guard';
+import { viewerTime } from '../../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +45,7 @@ export default async function QueuePage() {
       <header className="hl-page__head">
         <p className="hl-page__eyebrow">Your queue</p>
         <h1 className="hl-page__title">
-          {greeting()}
+          {viewerTime().greeting()}
           {session.name ? ', ' + session.name.split(' ')[0] : ''}.
         </h1>
         <p className="hl-page__sub">

@@ -5,9 +5,6 @@ export {
   moneyOrUnknown,
   numOrUnknown,
   UNKNOWN_DISPLAY,
-  greeting,
-  todayLabel,
-  relTime,
   clockDuration,
   sparkPath,
 } from "./format";

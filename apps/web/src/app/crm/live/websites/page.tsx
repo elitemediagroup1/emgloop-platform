@@ -1,6 +1,7 @@
 import { requirePermission } from '../../../../auth/guard';
 import { EMG_PROPERTIES } from '@emgloop/database';
 import LiveFeed from '../LiveFeed';
+import { viewerTime } from '../../../../time/viewer-time';
 
 // Live Operations — Live Website Feed (Sprint 15), real-data hotfix.
 //
@@ -16,6 +17,7 @@ const PROPERTIES = EMG_PROPERTIES.map((p) => ({ key: p.key, name: p.name }));
 
 export default async function LiveWebsitesPage() {
   await requirePermission('intelligence', 'view');
+  const time = viewerTime();
 
   return (
     <>
@@ -28,6 +30,8 @@ export default async function LiveWebsitesPage() {
 
       <div className="crm-panel">
         <LiveFeed
+          timeZone={time.timeZone}
+          timeZoneSource={time.source}
           endpoint="/api/live/websites"
           variant="websites"
           intervalMs={8000}

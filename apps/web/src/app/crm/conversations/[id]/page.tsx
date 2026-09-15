@@ -9,6 +9,7 @@ import {
   setConversationAssigneeAction,
 } from '../../../../crm/conversation-actions';
 import type { ConversationStatus } from '@emgloop/database';
+import { viewerTime } from '../../../../time/viewer-time';
 
 // Conversation workspace — Sprint 8 (Conversations, Phase 3).
 //
@@ -22,13 +23,9 @@ export const dynamic = 'force-dynamic';
 
 const STATUSES: ConversationStatus[] = ['OPEN', 'PENDING', 'SNOOZED', 'CLOSED'];
 
+// In the reader's timezone (Loop Time Authority).
 function fmt(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return viewerTime().monthDayTime(iso);
 }
 
 function actorClass(actorType: string): string {

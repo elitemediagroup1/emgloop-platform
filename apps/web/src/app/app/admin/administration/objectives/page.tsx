@@ -68,16 +68,27 @@ import {
   dismissHeadlineAction,
 } from './actions';
 import { requireWorkspace } from '../../../../../workspaces/guard';
+import { BUSINESS_TIME_ZONE, formatCalendarDate, formatInstant } from '@emgloop/shared';
 
 export const dynamic = 'force-dynamic';
 
+// An objective's effective dates are CALENDAR dates picked in a date input and
+// stored as that day's UTC midnight. They are the same day for every reader, so
+// they are not converted to anyone's timezone (Loop Time Authority).
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatCalendarDate(iso) || '—';
+}
+
+/**
+ * A measurement window as the calendar days it covers. Windows are CallGrid
+ * reporting days (Eastern midnight to Eastern midnight), so they are shown on
+ * that calendar, which owns them -- not converted to the reader's zone, which
+ * would move each boundary to the wrong day west of Eastern. The end boundary
+ * is exclusive, so the last day shown is the day before it.
+ */
+function fmtWindow(startIso: string, endIso: string): string {
+  const end = new Date(new Date(endIso).getTime() - 1);
+  return `${formatInstant(startIso, BUSINESS_TIME_ZONE, 'date')} – ${formatInstant(end, BUSINESS_TIME_ZONE, 'date')}`;
 }
 
 /** `YYYY-MM-DD` for `<input type="date">`, which accepts nothing else. */
@@ -91,14 +102,6 @@ function belongsTo(o: PerformanceObjectiveView, orgName: string): string {
   return o.scopeUserName ?? 'A former team member';
 }
 
-/** A window boundary as a date a reader can check against a calendar. */
-function fmtWindow(startIso: string, endIso: string): string {
-  // The end boundary is exclusive (half-open), so the last day a reader would
-  // recognise is the day before it. Showing the exclusive instant would put a
-  // date in the label that the measurement did not actually include.
-  const end = new Date(new Date(endIso).getTime() - 1);
-  return `${fmtDate(startIso)} – ${fmtDate(end.toISOString())}`;
-}
 
 /** Coverage as a percentage, or an explicit statement that it does not apply. */
 function fmtCoverage(coverage: number | null): string {

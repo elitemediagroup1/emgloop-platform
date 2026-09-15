@@ -9,6 +9,7 @@ import {
   Timeline, TimelineItem, AuditEventRow, EmptyTimeline,
   fromInboxItem, fromAuditView,
 } from '../../../../crm/timeline';
+import { viewerTime } from '../../../../time/viewer-time';
 
 // Workspace Organization — Phase 1.
 //
@@ -27,9 +28,9 @@ function initials(name: string | null): string {
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || '?';
 }
 
+// In the reader's timezone (Loop Time Authority).
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return viewerTime().date(iso) || '—';
 }
 
 function roleLabel(role: string): string {

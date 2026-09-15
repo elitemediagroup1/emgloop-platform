@@ -27,6 +27,7 @@ import { isAllClear } from '@emgloop/shared';
 import type { HeadlineView } from '@emgloop/shared';
 
 import { NotKnown, StateBadge, StateList } from '../../_loop-os/product-state';
+import { BUSINESS_TIME_ZONE, formatInstant } from '@emgloop/shared';
 
 // --- The morning ------------------------------------------------------------------------
 
@@ -126,12 +127,11 @@ function signedPct(v: number | null): string {
   return (n > 0 ? '+' : '') + n.toFixed(1) + '%';
 }
 
+// A measurement window boundary, on the calendar the window is defined on:
+// CallGrid's Eastern reporting days. It is a window's own zone, not the reader's
+// (Loop Time Authority, object-owned timezone).
 function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'America/New_York',
-  });
+  return formatInstant(iso, BUSINESS_TIME_ZONE, 'monthDay');
 }
 
 /**

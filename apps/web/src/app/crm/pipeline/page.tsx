@@ -4,6 +4,7 @@ import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { PIPELINE_STATUSES } from '@emgloop/database';
 import { movePipelineAction } from '../../../crm/actions';
+import { viewerTime } from '../../../time/viewer-time';
 
 // Intake Board — customer intake statuses (Customer.attributes.pipelineStatus),
 // not the canonical Opportunity pipeline.
@@ -26,15 +27,7 @@ const COLUMN_ACCENT: Record<string, string> = {
 };
 
 function relTime(iso: string | null): string {
-  if (!iso) return 'No activity';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  const days = Math.floor(hrs / 24);
-  return days + 'd ago';
+  return (iso && viewerTime().relative(iso)) || 'No activity';
 }
 
 export default async function PipelinePage() {

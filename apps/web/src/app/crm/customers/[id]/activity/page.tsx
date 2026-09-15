@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../../../demo/db-health';
 import { crmRepos } from '../../../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../../../auth/guard';
+import { viewerTime } from '../../../../../time/viewer-time';
 
 // Per-customer activity / audit view — Sprint 8 (Conversations, Phase 3).
 //
@@ -14,14 +15,9 @@ import { requirePermission, hasPermission } from '../../../../../auth/guard';
 
 export const dynamic = 'force-dynamic';
 
+// In the reader's timezone (Loop Time Authority).
 function fmt(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return viewerTime().dateTime(iso);
 }
 
 export default async function CustomerActivityPage({

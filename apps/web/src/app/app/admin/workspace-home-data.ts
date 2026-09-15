@@ -39,10 +39,10 @@ import type {
   AuditView,
 } from '@emgloop/database';
 
-import { startOfEasternDay, easternHour, BUSINESS_TIME_ZONE } from '@emgloop/shared';
 
 import { requireWorkspace } from '../../../workspaces/guard';
 import { hasPermission } from '../../../auth/guard';
+import { viewerTime } from '../../../time/viewer-time';
 
 const repos = createRepositories(prisma);
 
@@ -155,31 +155,7 @@ export interface WorkspaceHomeData {
 // ---------------------------------------------------------------------------
 // Small pure helpers (no I/O).
 // ---------------------------------------------------------------------------
-function timeGreeting(d: Date): string {
-  const h = easternHour(d); // time of day in the business timezone, not the server's
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
-}
-
-function longDate(d: Date): string {
-  return d.toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', timeZone: BUSINESS_TIME_ZONE,
-  });
-}
-
-function relTime(from: Date, now: Date): string {
-  const m = Math.round((now.getTime() - from.getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  const d = Math.round(h / 24);
-  if (d === 1) return 'yesterday';
-  return d + 'd ago';
-}
-
-/** Bare age ("6d", "3h") — the caller supplies the framing word. */
+/** Bare elapsed age ("6d", "3h") — a duration, not a date; the caller supplies the framing word. */
 function age(from: Date, now: Date): string {
   const m = Math.round((now.getTime() - from.getTime()) / 60000);
   if (m < 60) return Math.max(m, 1) + 'm';
@@ -266,9 +242,12 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
   const organizationId = session.organizationId;
 
   const work = repos.work;
-  const now = new Date();
-  // "Today" is the Eastern business day, not the server's local day.
-  const startOfDay = startOfEasternDay(now);
+  // The reader's clock (Loop Time Authority): greeting, date label and "today"
+  // are where the signed-in person is, not the server's or an EMG timezone.
+  const time = viewerTime();
+  const now = time.now;
+  // "Today" is the reader's calendar day.
+  const startOfDay = time.startOfDay();
   const stallCutoff = new Date(now.getTime() - STALL_HOURS * 3600 * 1000);
 
   // One round of parallel, organization-scoped reads.
@@ -387,10 +366,10 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
 
   // ----- Header -----
   const header: WorkspaceHomeHeader = {
-    greeting: timeGreeting(now),
+    greeting: time.greeting(),
     displayName: resolveDisplayName(actingUser, session.name, session.email),
     organizationName: organization?.name ?? 'Your organization',
-    dateLabel: longDate(now),
+    dateLabel: time.format(now, 'weekdayMonthDay'),
     roleLabel: session.roleLabel || roleLabel(session.systemRole),
   };
 
@@ -461,7 +440,7 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
       stageName: s.name,
       status: 'completed',
       verb: 'Review',
-      assignedLabel: s.completedAt ? 'Completed ' + relTime(new Date(s.completedAt), now) : 'Completed today',
+      assignedLabel: s.completedAt ? 'Completed ' + time.relative(s.completedAt) : 'Completed today',
       href: '/app/admin/work/' + s.workInstanceId,
     });
   }

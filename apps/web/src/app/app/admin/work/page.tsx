@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { loadWorkDashboard, type QueueRow } from './work-data';
 import { requireWorkspace } from '../../../../workspaces/guard';
+import { viewerTime } from '../../../../time/viewer-time';
 
 // Work OS — the operating surface for getting work done.
 //
@@ -11,14 +12,9 @@ import { requireWorkspace } from '../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
+// Relative to the reader's calendar (Loop Time Authority).
 function relTime(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  const d = Math.round(h / 24);
-  return d === 1 ? 'yesterday' : d + 'd ago';
+  return viewerTime().relative(iso);
 }
 
 function Tile({ title, children, wide }: { title: string; children: ReactNode; wide?: boolean }) {

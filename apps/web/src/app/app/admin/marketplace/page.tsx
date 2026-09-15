@@ -9,7 +9,7 @@ import { loadCallGridReport, type CallGridDimRow, type CallGridMetrics } from ".
 import { loadBidReport, bidSnapshotMatches, overallRejectRate, destinationRateLimitedShare } from "./bid-report";
 import { callGridIntelligence, bidIntelligence } from "./intelligence-data";
 import CallGridDateRange from "./CallGridDateRange";
-import { SnapshotNotice, easternClock } from "./dimension-ui";
+import { SnapshotNotice, updatedClock } from "./dimension-ui";
 import {
   MarketplaceRiskPanel, OpportunitiesSection, FindingList,
 } from "./intelligence-ui";
@@ -25,6 +25,7 @@ import { CallGridNav } from "./_CallGridNav";
 import { loadCallGridHistory } from "./callgrid-history-data";
 import type { Situation } from "@emgloop/shared";
 import { requireWorkspace } from "../../../../workspaces/guard";
+import { formatCalendarDate } from "@emgloop/shared";
 
 export const dynamic = "force-dynamic";
 
@@ -72,8 +73,10 @@ function count(n: number | null, available: boolean): string {
   if (n === null) return "Unknown";
   return num(n);
 }
+// A provider reporting day CallGrid was asked for in UTC: a calendar date in the
+// window's own zone, shown as that date to every reader (Loop Time Authority).
 function utcDate(d: Date): string {
-  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" }).format(d);
+  return formatCalendarDate(d);
 }
 
 // A per-tile comparison indicator. Null (→ "No valid comparison") whenever the
@@ -270,7 +273,7 @@ export default async function CallGridIntelligencePage({
           label={window.label}
           dayNav={dayNav}
           live={desc.live}
-          updatedLabel={easternClock(now)}
+          updatedLabel={updatedClock(now)}
         />
         {!window.isValid ? (
           <p className="cg-covnote">The requested date range was not valid, so Today is shown.</p>
@@ -300,7 +303,7 @@ export default async function CallGridIntelligencePage({
           operatorName={operatorName}
           periodLabel={desc.periodTitle}
           live={desc.live}
-          updatedLabel={easternClock(now)}
+          updatedLabel={updatedClock(now)}
           now={now}
           // The two facts that most change what an operator does first. Both are
           // findings the engine already ranked; neither is computed here, and
@@ -488,7 +491,7 @@ export default async function CallGridIntelligencePage({
         <p className="q-prov">
           {desc.headerLine}
           {desc.comparisonNote ? ` · ${desc.comparisonNote}` : ""}
-          {` · read ${easternClock(now)}`}
+          {` · read ${updatedClock(now)}`}
         </p>
       </div>
     </div>

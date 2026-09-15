@@ -8,13 +8,13 @@
 import Link from 'next/link';
 import { requirePermission } from '../../../auth/guard';
 import { repositories } from '@emgloop/database';
+import { viewerTime } from '../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
 
+// In the reader's timezone (Loop Time Authority). The stored instant is untouched.
 function fmt(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+  return viewerTime().monthDayTime(iso);
 }
 
 export default async function AuditPage({

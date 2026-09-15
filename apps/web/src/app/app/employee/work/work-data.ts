@@ -13,9 +13,9 @@ import 'server-only';
 
 import { prisma, createRepositories } from '@emgloop/database';
 import type { WorkInstance, WorkStage } from '@emgloop/database';
-import { startOfEasternDay } from '@emgloop/shared';
 
 import { requireWorkspace } from '../../../../workspaces/guard';
+import { viewerTime } from '../../../../time/viewer-time';
 
 export interface EmployeeActor {
   userId: string;
@@ -81,7 +81,8 @@ export async function listMyCompletedToday(
   userId: string,
   organizationId: string,
 ): Promise<(WorkInstance & { stages: WorkStage[] })[]> {
-  const start = startOfEasternDay(new Date());
+  // "Today" is the employee's calendar day where they are (Loop Time Authority).
+  const start = viewerTime().startOfDay();
   const stages = await prisma.workStage.findMany({
     where: {
       completedByUserId: userId,
