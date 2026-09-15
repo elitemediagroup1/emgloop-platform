@@ -1200,11 +1200,12 @@ workflows; resolve the workflow run stuck RUNNING since July.
   status line.
 
 None needs a migration. Product approved the six fail-closed contract readings on 2026-09-15 (see the
-record's decisions log). Three 2.0b readings still await Product: the 8-hop depth guard, NOT_FOUND on a
-Party type change, and refusing (not substituting) a superseded id on write.
+record's decisions log). Product approved the three 2.0b readings as implemented on 2026-09-15: the 8-hop
+depth guard, NOT_FOUND on a PERSON ↔ COMPANY chain, and refusing (never substituting) a superseded id on
+write. The rules for the 2.5b supersession writer are recorded in §8.
 
-**Next:** Product decision on those three, then #243 merge review. Relationship and Participant
-architecture may start once #243 merges. Still authorized but not done: wording fixes to materially false
+**Next:** merge #243, then verify it on `main` by content. After that, Relationship and Participant
+architecture proceeds (architecture first) against the Party Reference contract. Still authorized but not done: wording fixes to materially false
 People labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
