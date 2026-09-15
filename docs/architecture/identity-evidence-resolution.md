@@ -309,6 +309,11 @@ Party:
   specification's "contextual roles" on a Person are these capacities.
 - `CaseParticipant` (Commercial Intelligence) is a User's participation in a Case. It is not a Party
   Participant and is not renamed by this work.
+- **Contract readings (2.0b, #243; fail closed, for Product review):**
+  - An archived Party resolves with `archived: true` and takes no new references.
+  - A supersession chain fails closed as NOT_FOUND on a cycle, beyond 8 hops, on a change of Party
+    type, or on a link out of the organization.
+  - A superseded id is refused for writes with its canonical id, never silently swapped.
 
 ## 13. Audit and provenance
 

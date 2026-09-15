@@ -1193,9 +1193,16 @@ anonymous-history attribution, verification build, legacy remediation.
 **Separate operational cleanup (awaiting explicit approval):** deactivate the two inert seeded call
 workflows; resolve the workflow run stuck RUNNING since July.
 
-**Next:** after the documentation reconciliation passes, Identity 2.0 (pure contracts), then 2.0b (Party
-Reference Contract) from fresh `main` if independent. Wording fixes to materially false People labels and
-the `/crm/merge` disable are authorized but not yet done. No 2.1 without new authorization.
+**Product/UI reconciliation passed (2026-09-15).** Open draft PRs, each at its merge checkpoint:
+- #241: decision record, specification and C-01–C-05. Docs only; merge first.
+- #242: Identity 2.0, pure evidence, authority and use-policy contracts.
+- #243: Identity 2.0b, Party Reference Contract and read-only resolver.
+
+#242 and #243 are independent of each other and merge cleanly in either order. None needs a migration.
+After #242 merges, the record's status line gets a one-line update.
+
+**Next:** merge review. Still authorized but not done: wording fixes to materially false People labels,
+and the `/crm/merge` disable. No 2.1 without new authorization.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
