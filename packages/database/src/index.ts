@@ -116,6 +116,7 @@ export type {
   CustomerPartyLinkOutcome,
   CustomerPartyLinkResult,
   CustomerPartyLinkDeps,
+  CustomerPartyLinkActOptions,
 } from './services/customer-party-link.service';
 export type { PartyWriteOutcome, PartyWriteResult, PartyEstablishmentBasis, PartyServiceDeps } from './services/party.service';
 export type {
