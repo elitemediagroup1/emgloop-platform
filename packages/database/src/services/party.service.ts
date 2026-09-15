@@ -28,7 +28,10 @@
 // values, or reads the dormant resolver.
 //
 // The actor is always the session's user, established by the caller from the
-// session and never from input.
+// session and never from input. Audit rows name that user: the caller passes the
+// session's display name, and without one the member's name is read from the
+// organization's own User row. A human act is not recorded as "System" when either
+// is known.
 
 import { randomUUID } from 'crypto';
 import type { PrismaClient } from '@prisma/client';
@@ -57,8 +60,16 @@ export type PartyWriteResult =
   | { outcome: 'NOT_AUTHORIZED' | 'NOT_FOUND' }
   | { outcome: 'INVALID'; reason: 'NOT_A_PARTY_TYPE' | 'NOT_A_GOVERNED_BASIS' | 'ARCHIVED' };
 
+/**
+ * How the act is attributed on the audit trail. `actorName` is the display name of
+ * the session the caller already resolved; it names the actor and never authorizes.
+ */
+export interface PartyActOptions {
+  actorName?: string | null;
+}
+
 export interface PartyServiceDeps {
-  iam?: Pick<IamRepository, 'can'>;
+  iam?: Pick<IamRepository, 'can' | 'getUser'>;
   identities?: CognitiveIdentityRepository;
   parties?: PartyRepository;
   audit?: Pick<AuditRepository, 'record'>;
@@ -67,7 +78,7 @@ export interface PartyServiceDeps {
 const DISPLAY_NAME_MAX = 200;
 
 export class PartyService {
-  private readonly iam: Pick<IamRepository, 'can'>;
+  private readonly iam: Pick<IamRepository, 'can' | 'getUser'>;
   private readonly identities: CognitiveIdentityRepository;
   private readonly parties: PartyRepository;
   private readonly audit: Pick<AuditRepository, 'record'>;
@@ -94,6 +105,7 @@ export class PartyService {
     organizationId: string,
     actorUserId: string,
     input: { partyType: string; displayName?: string | null },
+    options: PartyActOptions = {},
   ): Promise<PartyWriteResult> {
     if (!isPartyType(input.partyType)) return { outcome: 'INVALID', reason: 'NOT_A_PARTY_TYPE' };
     if (!(await this.canCreate(organizationId, actorUserId))) return { outcome: 'NOT_AUTHORIZED' };
@@ -108,10 +120,11 @@ export class PartyService {
     const party = await this.parties.findParty(organizationId, row.id);
     if (!party) return { outcome: 'NOT_FOUND' };
 
-    // No name in the audit entry: the trail records the act, not the person.
+    // No Party name in the audit entry: the trail records the act, not the person.
     await this.audit.record({
       organizationId,
       userId: actorUserId,
+      actorName: await this.actorName(organizationId, actorUserId, options),
       action: 'party.created',
       entityType: 'party',
       entityId: row.id,
@@ -126,6 +139,7 @@ export class PartyService {
     actorUserId: string,
     partyId: string,
     basis: string,
+    options: PartyActOptions = {},
   ): Promise<PartyWriteResult> {
     if (!(PARTY_ESTABLISHMENT_BASES as readonly string[]).includes(basis)) {
       return { outcome: 'INVALID', reason: 'NOT_A_GOVERNED_BASIS' };
@@ -153,11 +167,21 @@ export class PartyService {
     await this.audit.record({
       organizationId,
       userId: actorUserId,
+      actorName: await this.actorName(organizationId, actorUserId, options),
       action: 'party.established',
       entityType: 'party',
       entityId: partyId,
       metadata: { basis },
     });
     return { outcome: 'RECORDED', party };
+  }
+
+  /** The session's display name when the caller has one; otherwise the member's recorded name. */
+  private async actorName(organizationId: string, actorUserId: string, options: PartyActOptions): Promise<string | undefined> {
+    const given = typeof options.actorName === 'string' ? options.actorName.trim() : '';
+    if (given.length > 0) return given;
+    const user = await this.iam.getUser(organizationId, actorUserId);
+    const name = user && typeof user.name === 'string' ? user.name.trim() : '';
+    return name.length > 0 ? name : undefined;
   }
 }

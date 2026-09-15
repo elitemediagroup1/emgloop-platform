@@ -342,6 +342,10 @@ export * from './party';
 // (organizationId, partyId) only. ESTABLISHED, NOT_ESTABLISHED, SUPERSEDED (resolved
 // forward) or NOT_FOUND; writes reference ESTABLISHED Parties only. See ./party-reference.ts.
 export * from './party-reference';
+// Party read models (identity slice P1): People and Companies are established,
+// non-superseded, non-archived Parties; a record's identity posture is stated,
+// never a number; no contact values. See ./party-read-model.ts.
+export * from './party-read-model';
 
 // --- Operational decision lifecycle (platform primitives) ---
 // The pure projection from an append-only observation log to the current state
