@@ -1212,33 +1212,41 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — ARCHITECTURE PROPOSED · BLOCKED ON PRODUCT DECISIONS
+## Foundation handoff — DECISIONS RECORDED · PARTIALLY READY
 
 _Last updated: 2026-09-15._
 
-**Handoff:** `docs/product/foundation-handoff.md`. It contains the readiness matrix, the Charlie/Lexi
-unblock matrix, the minimum backend finish line, and the ordered plan.
+**Handoff:** `docs/product/foundation-handoff.md`. **UI-track summary:** `docs/product/ui-track-handoff.md`.
 
-**Proposed records:**
-- `docs/architecture/relationship-participant.md`
-- `docs/architecture/universal-activity.md` (contract `activity.v1`)
-- `docs/architecture/commercial-opportunity-campaign.md` (readiness)
-- `docs/architecture/loop-ai-runtime.md` (architecture only; no SDK, secret or call)
+**Records:**
+- `relationship-participant.md` — locked
+- `commercial-opportunity-campaign.md` — locked for design
+- `universal-activity.md` — `activity.v1`
+- `loop-ai-runtime.md` — approved, with activation gates
 
-**Gate:** FOUNDATION HANDOFF BLOCKED — PRODUCT DECISIONS REQUIRED.
-- The GREEN and YELLOW surfaces may resume design.
-- Relationships, Opportunities, Campaigns and Creator administration stay RED until PD-F-01, PD-F-02,
-  PD-F-06 and PD-F-07 are decided.
-- PD-F-03, PD-F-04, PD-F-05, PD-F-08, PD-F-09 and PD-F-10 are listed in the handoff (§8).
+**Product decisions (2026-09-15):**
+- Approved: PD-F-01, -02, -03, -04, -06, -07, -08.
+- Deferred: PD-F-05, -09, -10.
+- Still needed (non-blocking for UI design):
+  - PD-F-11: Opportunity and Campaign grants.
+  - PD-F-12: confirm Opportunity categories and loss reasons, forecast amount and close date, Campaign
+    lifecycle states, provider-link exclusivity.
+  - AI activation values for gates G2–G6.
+
+**Gate:** FOUNDATION HANDOFF PARTIALLY READY — SPECIFIED SURFACES MAY RESUME.
+- Relationships, Opportunities and Campaigns moved RED → YELLOW.
+- Creator administration is YELLOW for the roster only.
+- Brain, creator execution and Universal Search stay RED.
 
 **Critical gap:** `PartyService.create` and `establish` have no production caller, and production holds 0
-established Parties. Slice P1 (governed Party write actions plus the People and Companies read models)
-is the first backend slice to authorize.
+established Parties. Slice P1 addresses this.
 
-**Security, urgent:** #244. The password-reset flow gave the reset link to whoever typed a user's email,
-which is account takeover. The fix is open for review. Whether the flow was abused is unknown; reading
-the `auth.reset_requested` and `auth.password_reset` audit rows is a production read that needs
-approval.
+**Security:** #244 (password-reset token exposure) is ready for review and merges first. No production
+abuse investigation without separate authorization.
+
+**Sequence:** handoff §9.
+- **Independent now:** P1, P1b, Intake, A1, R1, AI S0.
+- **Dependent:** A2, R2 → R3, the Opportunity and Campaign slices, AI S1.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

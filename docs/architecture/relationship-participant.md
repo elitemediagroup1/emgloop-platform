@@ -1,8 +1,8 @@
 # Relationship and Participant — architecture record
 
-**Status:** PROPOSED (2026-09-15). **Nothing here is implemented.** The architecture below is complete
-except for four Product decisions (§9). No schema, service or UI work starts until Product answers them
-and authorizes the implementation slices (§10).
+**Status:** ARCHITECTURE LOCKED (2026-09-15). Product approved PD-F-01 to PD-F-04 (§9). **Nothing here
+is implemented yet.** Implementation proceeds in the slice order in §10, each slice from fresh `main`
+with a merge checkpoint wherever the next slice depends on it.
 
 **Authority order:** the Engineering Constitution (`CLAUDE.md`, `docs/ENGINEERING_PRINCIPLES.md`) →
 locked decisions (`identity-evidence-resolution.md`, including PD-I2-01..09, C-01..C-05 and the Party
@@ -36,7 +36,7 @@ Verified on `main` `543c645`:
 | No Relationship, Participant, Opportunity, Campaign or Creator model exists. | Greenfield: no data migration of commercial records. |
 | `IdentityRelationship` and `IdentityRole` are dormant: no production writer, 0 rows in the demo organization. They carry a competing vocabulary (`CREATOR_REPRESENTED_BY`, `BUYER_OF`, `VENDOR_TO`, `PARTNER_OF`, `CONTACT_FOR`, `EMPLOYED_BY`; `LEAD`, `CLIENT`, `BUYER_CONTACT`), and `IdentityRelationship` has a `confidence` column. | Confined, not evolved (§8). The Prisma enum name `RelationshipStatus` is taken. |
 | `PartyService.create` and `establish` have **no production caller**, and production holds 0 established Parties. | No Relationship or Participant write can succeed until a governed Party write surface ships (prerequisite slice P1, §10). |
-| The tenant has no Party. A Party Reference resolves only PERSON/COMPANY `CognitiveIdentity` rows inside the organization. | "EMG represents Creator" has no referent for EMG's side (Product decision PD-F-01). |
+| The tenant has no Party. A Party Reference resolves only PERSON/COMPANY `CognitiveIdentity` rows inside the organization. | "EMG represents Creator" has no referent for EMG's side. Resolved by PD-F-01: the tenant is the implicit owning side of OWN Relationships and never a Party. |
 | No User ↔ Party association exists (allowed by Product, not built). External participant authentication is not authorized (C-02). | A Party Participant cannot be an authorization input yet (§7). |
 | `CaseParticipant` (a User on a Case): re-adding overwrites the row, and its two writes are not atomic. | A precedent for a participation log, not for row semantics. |
 | `CustomerPartyLink` shows the active-key unique pattern: a nullable active key, a CHECK, and P2002 → re-read. | The pattern to copy. It does not yet refuse archived Parties or return the canonical id (debt, §11). |
@@ -66,7 +66,7 @@ Parties that take part in it.
   created, taken from the signed session. Every Party it references resolves inside that organization;
   a cross-organization reference is NOT_FOUND.
 - **Kind and sides.** The kind comes from a governed vocabulary (PD-F-03). It declares:
-  - its **structure** (see PD-F-01);
+  - its **structure**: OWN or THIRD_PARTY (PD-F-01);
   - its **sides**, each with a label. For REPRESENTATION, side A *represents* and side B *is represented
     by*. A symmetric kind such as PARTNERSHIP has two sides with the same label;
   - the **Party types** each side permits.
@@ -100,7 +100,8 @@ Parties that take part in it.
   The reducer is pure, in `@emgloop/shared`, and each row carries a `projectionVersion`.
 - **No separate archive.** VOIDED covers "should not have existed" and ENDED covers "is over". Hiding
   old records is a view filter, not a state.
-- **No PROSPECTIVE state**, unless PD-F-02 decides a Relationship must come before an Opportunity.
+- **No PROSPECTIVE state.** PD-F-02 made Relationship optional for an Opportunity, so no placeholder or
+  prospective Relationship exists.
 
 ### 3.3 Mutability and history
 
@@ -207,8 +208,7 @@ exist.
 - **Role.** From a governed vocabulary (PD-F-03), in two families:
   - **Commercial capacities** (Product's list): BUYER, BRAND, AGENCY, PUBLISHER, SOURCE, CREATOR,
     PARTNER, VENDOR, plus EMPLOYEE from `party.ts`.
-  - **Engagement roles** (require Product approval): for example PRIMARY_CONTACT, DECISION_MAKER,
-    BILLING_CONTACT.
+  - **Engagement roles** (approved in PD-F-03): PRIMARY_CONTACT, DECISION_MAKER, BILLING_CONTACT.
 - **Role and Party type.** Each role declares the Party types it permits. Example: CREATOR → PERSON,
   following the specification's "a managed creator remains a Person".
   - A role **never decides** a Party's type, and a Party type never implies a role.
@@ -287,125 +287,102 @@ exist.
   - The new contract uses `CRM_RELATIONSHIP_*` / `CrmParticipant*` names rather than renaming existing
     enums.
 
-## 9. Product decisions required
+## 9. Product decisions (approved 2026-09-15)
 
-Implementation of §3–§7 is blocked on these four. The recommendations are engineering's; the decisions
-are Product's.
+### PD-F-01 — The tenant's own side of a Relationship: APPROVED
 
-### PD-F-01 — The tenant's own side of a Relationship
+**Decision.** The tenant is the implicit owning commercial side of an **OWN** Relationship. The tenant
+itself does **not** become a Party to satisfy the Relationship graph, and no self-Company Party is
+created for it. Tenant identity (the Workspace Organization) and commercial Party identity remain
+separate authorities.
 
-**Question.** How is the tenant represented when it is itself a side? Examples: "EMG represents
-Creator"; EMG's relationship with Nordstrom.
+**Kinds of Relationship:**
+- **OWN** — one commercial Party side, with the tenant as the implicit owning side.
+- **THIRD_PARTY** — commercial Party ↔ commercial Party, inside the tenant's CRM context.
 
-**Why locked decisions do not answer it.**
-- Party types are PERSON and COMPANY.
-- The Workspace Organization is explicitly not a Company Party (PD-I2-07).
-- A Party Reference is `(organizationId, partyId)` only.
-- Cross-organization Party is deferred.
-- No decision says whether the tenant can be a side.
+**Scoping.** Tenant ownership and organization scoping stay explicit on every row
+(`organizationId`, from the session).
 
-**Affected authority:** Relationship identity, uniqueness and sides; Participant sides; the seller side
-of Opportunity and Campaign; what the Relationships list means.
+### PD-F-02 — Relationship requirement for an Opportunity: APPROVED
 
-**Options:**
-- **A (recommended) — the tenant is the implicit owning side.**
-  - A kind is either **OWN** (the tenant and one counterparty side Party) or **THIRD_PARTY** (two Party
-    sides the tenant is not part of).
-  - The tenant is never a Party and never a Participant row; an OWN kind's definition names the tenant's
-    side.
-  - For: no Party that is also the tenant, which keeps PD-I2-07 and C-04 clean; nothing to establish for
-    the tenant; no premature cross-org identity hook; "our relationships" is a kind filter, not a Party
-    join.
-- **B — a governed self-COMPANY Party per tenant**, linked one-to-one to the Workspace Organization, so
-  every Relationship is Party ↔ Party.
-  - For: one uniform graph.
-  - Against: a Party that is also the tenant blurs Company vs Workspace; it must be established in every
-    organization; and it becomes a de facto cross-org identity anchor, which Product deferred.
-- **C — OWN Relationships only, for the first release.**
-  - For: simplest.
-  - Against: "Agency represents Brand" and "Person works at Company" cannot be represented.
+**Decision.** A Relationship is **optional** for an Opportunity. An Opportunity may exist before any
+formal Relationship. **No fake, placeholder, prospective or inferred Relationship** is created to
+satisfy a reference. Where a valid Relationship exists, the Opportunity may reference it. Creating a
+Relationship remains an explicit governed commercial act.
 
-**Blocked:** Relationship schema and service (R2); Relationship list and detail semantics (UI RED); the
-seller side of Opportunity and Campaign.
+**Consequence for this record.** Relationship has no PROSPECTIVE state. The lifecycle stays ACTIVE /
+ENDED / VOIDED.
 
-### PD-F-02 — Does commercial pursuit require a Relationship?
+### PD-F-03 — Initial vocabularies: APPROVED
 
-**Question.** Must every Opportunity belong to a Relationship, which would give Relationship a
-PROSPECTIVE state? Or may an Opportunity reference its Parties directly and a Relationship optionally?
+The starting vocabulary below is approved under these invariants, checked against every item:
+- Commercial roles (Buyer, Brand, Agency, Publisher, Source, Creator, Partner, Vendor and similar)
+  remain contextual roles and never become Party types. Party type is PERSON or COMPANY.
+- A Party may hold multiple contextual roles where valid.
+- Role validity may constrain allowed Party types, but never determines Party type.
+- The vocabulary is governed and versioned in `@emgloop/shared`, never scattered string literals.
 
-**Why locked decisions do not answer it.** "Person/Company → Relationship → Opportunity → Campaign" is the
-intended progression, but it is not stated as a mandatory reference. No decision covers prospecting a
-Party with no existing Relationship.
+**No item contradicts the invariants.** Every Party-type rule below is a constraint on a role or side.
+None assigns a type.
 
-**Affected authority:** Relationship lifecycle; Opportunity identity and associations.
+**Kinds**
 
-**Options:**
-- **Recommended — optional.**
-  - An Opportunity references Parties through Participants and may reference a Relationship.
-  - Relationship has no PROSPECTIVE state.
-  - Winning an Opportunity creates or reactivates a Relationship only by an explicit human act, never
-    automatically (Engineering Principles Rule 6).
-- **Alternative — required.** Relationship gains PROSPECTIVE, and every Opportunity must reference one.
-  Prospecting then always starts by creating a Relationship.
+| Kind | Structure | Sides |
+|---|---|---|
+| CLIENT | OWN | counterparty engages the tenant (e.g. Brand, Buyer, Agency) — PERSON or COMPANY |
+| SUPPLIER | OWN | counterparty supplies the tenant (e.g. Publisher, Source, Vendor) — PERSON or COMPANY |
+| TALENT_REPRESENTATION | OWN | the tenant represents the counterparty Creator — PERSON only |
+| PARTNER | OWN | counterparty is a commercial partner — PERSON or COMPANY |
+| REPRESENTATION | THIRD_PARTY | side A *represents* side B — PERSON or COMPANY each |
+| SUPPLY | THIRD_PARTY | side A *supplies* side B — PERSON or COMPANY each |
+| AFFILIATION | THIRD_PARTY | side A (PERSON) *is affiliated with* side B (COMPANY) |
+| PARTNERSHIP | THIRD_PARTY, symmetric | both sides *partner with* — PERSON or COMPANY each |
 
-**Blocked:** Relationship lifecycle reducer (R1); Opportunity architecture.
+**Participant roles**
 
-### PD-F-03 — Initial vocabularies
+| Family | Role | Permitted Party types |
+|---|---|---|
+| Commercial capacity | CREATOR, EMPLOYEE | PERSON |
+| Commercial capacity | BRAND, AGENCY, PUBLISHER, BUYER, VENDOR, SOURCE, PARTNER | PERSON or COMPANY |
+| Engagement | PRIMARY_CONTACT, DECISION_MAKER, BILLING_CONTACT | PERSON |
 
-**Question.** Approve the initial Relationship kinds (with side labels and permitted Party types), the
-Participant role families, and each role's permitted Party types.
+Kind and role names are separate vocabularies, so kind PARTNER and role PARTNER do not collide.
 
-**Why locked decisions do not answer it.** Product locked the commercial role list. It did not lock
-Relationship kinds, engagement roles such as contacts, or per-role Party-type rules.
+### PD-F-04 — Grants for Relationship and Participant acts: APPROVED (current release)
 
-**Affected authority:** the Relationship and Participant vocabularies. They are stored as strings, so
-later additions need no migration.
-
-**Recommended starting set** (assuming PD-F-01 option A):
-
-| Group | Values |
+| Act | Who |
 |---|---|
-| OWN kinds | CLIENT (the counterparty engages the tenant: Brand, Buyer, Agency); SUPPLIER (the counterparty supplies the tenant: Publisher, Source, Vendor); TALENT_REPRESENTATION (the tenant represents a Creator; PERSON only); PARTNER |
-| THIRD_PARTY kinds | REPRESENTATION (A represents B); SUPPLY (A supplies B); AFFILIATION (PERSON affiliated with COMPANY); PARTNERSHIP (symmetric) |
-| Engagement roles | PRIMARY_CONTACT, DECISION_MAKER, BILLING_CONTACT (PERSON only) |
-| Capacities, PERSON only | CREATOR, EMPLOYEE |
-| Capacities, PERSON or COMPANY | BRAND, AGENCY, PUBLISHER, BUYER, VENDOR, SOURCE, PARTNER |
+| View | All authorized **human** workspace roles (OWNER, ADMIN, MANAGER, EMPLOYEE, READ_ONLY), subject to tenant, object, purpose and sensitivity policy |
+| Create, update (details, owner, add or change a Participant) | EMPLOYEE and above |
+| End a Relationship, end a Participant role | MANAGER and above |
+| Void entered-in-error records | OWNER, ADMIN |
+| Any consequential Relationship or Participant write | **AI_EMPLOYEE hard-denied**, whatever a Permission row says |
 
-**Blocked:** R1 vocabularies; UI labels (the UI must not hard-code kinds before this decision).
+**Rules that come with the grants:**
+- UI visibility never replaces server authorization.
+- Object participation does not grant blanket CRM access in this release.
+- The external authorization evaluator architecture is preserved: identity, membership, role, object
+  participation, purpose, sensitivity, policy.
 
-### PD-F-04 — Grants for Relationship and Participant acts
+**Readings recorded with the grants.** Each is fail-closed and none broadens anything:
+1. **Reactivation of an ENDED Relationship** follows the end grant (MANAGER and above). It is the
+   inverse act, and the decision named only end.
+2. **AI_EMPLOYEE view.** AI_EMPLOYEE is not a human workspace role, so the view grant does not include
+   it. It is denied view until an AI principal policy says otherwise, matching `identityResolution`.
 
-**Question.** Who may view, create, update (details, participants, end, reactivate) and void?
+## 10. Implementation slices
 
-**Why locked decisions do not answer it.** This is a new RBAC resource, and adding grants is authority
-Product decides ("do not silently broaden permissions").
-
-**Affected authority:** the `iam.repository.ts` MATRIX; AI_EMPLOYEE policy.
-
-**Recommendation:**
-
-| Action | Roles |
-|---|---|
-| view | OWNER, ADMIN, MANAGER, EMPLOYEE, READ_ONLY |
-| create, update | OWNER, ADMIN, MANAGER, EMPLOYEE |
-| end, reactivate | OWNER, ADMIN, MANAGER |
-| void | OWNER, ADMIN |
-
-- AI_EMPLOYEE is hard-denied every write, whatever a Permission row says. Its view access is undecided
-  until the AI runtime policy.
-- All grants are organization-wide until a team model exists.
-
-**Blocked:** R2 authorization; UI action availability (the UI must not assume who can act).
-
-## 10. Implementation slices (each needs authorization; none started)
+**Split change.** Relative to the proposal, the slices are re-split to match Product's execution order.
+Persistence (schema, migration, repository) lands separately from services (authorization, events,
+audit). The schema then reviews and deploys on its own, and services review against real Prisma types.
 
 | Slice | Contents | Migration | Depends on |
 |---|---|---|---|
-| **P1** (identity track) | Governed Party write actions: server actions over `PartyService.create` / `establish`, using the session organization, identityResolution grants and audit actor names. People and Companies read models: established, non-superseded PERSON / COMPANY Parties, org-scoped and paginated, with identity posture per `identity-evidence-resolution.md` §11a. An unestablished-Party review read model for OWNER/ADMIN. | no | authorization only (authority settled) |
-| **P1b** | `CustomerPartyLinkService` adopts `PartyReferenceRepository.requireReferenceable`: it refuses archived Parties and returns the canonical id on supersession, per the approved readings. | no | authorization only |
-| **R1** | Pure contracts in `@emgloop/shared`: kind and role vocabularies, lifecycle reducer, event vocabulary, invariant checks, a confinement fence for `IdentityRelationship` / `IdentityRole`, and `PARTY_CAPACITIES` decoupling. | no | PD-F-01..03 |
-| **R2** | Schema: `crm_relationships`, `crm_relationship_events`, and `crm_participants` (exclusive arc, active keys, CHECKs, real organization FKs). `OutboxSubjectType.RELATIONSHIP`. The RBAC resource. Repository and service writing audit and outbox in one transaction. Tests: cross-org, superseded, archived, unestablished, duplicates, uniqueness races, AI_EMPLOYEE denial, no-contact-value fences. | **yes** (manual deploy) | R1, PD-F-04, P1 |
-| **R3** | Read models for the UI: Relationship list and detail with Party-resolved sides, participants, lifecycle history and the duplicate diagnostic; Relationships on a Person or Company. | no | R2 |
+| **P1** (identity track) | Governed Party write actions over `PartyService.create` / `establish` with session organization, grants and actor names on audit rows; People and Companies read models (established, non-superseded PERSON / COMPANY Parties, organization-scoped, keyset-paginated, identity posture per §11a); unestablished-Party review read model | no | — |
+| **P1b** | `CustomerPartyLinkService` uses `PartyReferenceRepository.requireReferenceable` (archived refused; canonical id returned on supersession) | no | — |
+| **R1** | Pure contracts in `@emgloop/shared`: kinds and structures, role families and permitted Party types, lifecycle reducer and transitions, event vocabulary, grant map, invariants; `PARTY_CAPACITIES` decoupled from `CognitiveEntityType` names; confinement fence for `IdentityRelationship` / `IdentityRole` | no | — |
+| **R2** | Persistence: `crm_relationships`, `crm_relationship_events`, `crm_participants` (exclusive arc with `relationshipId` now, active-key uniques, CHECKs, organization FKs); `OutboxSubjectType.RELATIONSHIP`; repositories with the uniqueness-race and constraint tests | **yes** (manual deploy) | R1 merged |
+| **R3** | Services: `relationships` RBAC resource and grants; create, update, end, reactivate, void and participant acts through the Party Reference contract; one-transaction event, projection, outbox and audit; AI_EMPLOYEE denial; UI read models (list and detail with Party-resolved sides, participants, history, duplicate diagnostic; Relationships of a Person or Company) | no | R2 merged |
 
 ## 11. Invariants
 
@@ -430,3 +407,15 @@ Product decides ("do not silently broaden permissions").
 12. CRM Relationship and Participant code never reads or writes `IdentityRelationship` or `IdentityRole`.
 13. Known debt: `CustomerPartyLinkService` does not yet apply the archived and canonical-id readings
     (slice P1b).
+14. The tenant is never a Party. OWN Relationships carry the tenant only as their implicit owning side
+    (PD-F-01).
+15. No placeholder or inferred Relationship is ever created to satisfy another record (PD-F-02).
+
+## 12. Decisions log
+
+| Date | Decision |
+|---|---|
+| 2026-09-15 | PD-F-01 approved: tenant is the implicit owning side of OWN Relationships; THIRD_PARTY Relationships are Party ↔ Party; no self-Company Party |
+| 2026-09-15 | PD-F-02 approved: Relationship optional for Opportunity; no placeholder or prospective Relationship |
+| 2026-09-15 | PD-F-03 approved: starting kinds and roles (§9) under the role/type invariants; no item contradicts them |
+| 2026-09-15 | PD-F-04 approved: view for human roles; create/update EMPLOYEE+; end MANAGER+; void OWNER/ADMIN; AI_EMPLOYEE hard-denied writes. Readings: reactivate follows end; AI_EMPLOYEE view denied |

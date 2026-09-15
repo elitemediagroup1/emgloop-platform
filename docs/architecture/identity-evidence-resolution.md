@@ -323,7 +323,7 @@ Party:
   names (buyer, vendor, source, creator, employee); the full set is decided by the Relationship and
   Participant architecture. A capacity never decides Party type, and a Party type never implies one.
   That architecture is proposed in `docs/architecture/relationship-participant.md` §6: a role contract
-  decoupled from `CognitiveEntityType` names, pending PD-F-03.
+  decoupled from `CognitiveEntityType` names (PD-F-03 approved 2026-09-15).
 - The dormant `IdentityRole` table (written only by the ungoverned `IdentityRoleRepository`, reached only
   from the dormant resolver) is not the capacity authority, and 2.0b neither reads nor writes it. The
   proposed Participant architecture confines it together with `IdentityRelationship`; retirement is

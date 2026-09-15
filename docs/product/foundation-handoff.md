@@ -1,7 +1,8 @@
 # Foundation Handoff — backend truth for the Loop redesign
 
-**Status:** 2026-09-15, against `main` `543c645`. **Audience:** Charlie and Lexi (UI track), Product,
-and engineering. This is the single handoff describing which backend truth exists, which contracts are
+**Status:** 2026-09-15, against `main` `543c645`. **Product decisions recorded:** PD-F-01, -02, -03,
+-04, -06, -07 and -08 approved. PD-F-05, -09 and -10 deferred. **Audience:** Charlie and Lexi (UI track),
+Product, and engineering. The UI-track summary is `docs/product/ui-track-handoff.md`. This is the single handoff describing which backend truth exists, which contracts are
 locked, what is missing, and which surfaces the redesign may build now.
 
 **The shared rule:** the interface may project and explain truth; it may not create truth for
@@ -9,10 +10,10 @@ presentation convenience.
 
 **Companion records**
 - `docs/architecture/identity-evidence-resolution.md` — identity, Party, Intake, posture. Locked.
-- `docs/architecture/relationship-participant.md` — proposed; four Product decisions.
-- `docs/architecture/universal-activity.md` — proposed contract `activity.v1`.
-- `docs/architecture/commercial-opportunity-campaign.md` — readiness; Product decisions.
-- `docs/architecture/loop-ai-runtime.md` — proposed; architecture only.
+- `docs/architecture/relationship-participant.md` — architecture locked (PD-F-01..04 approved).
+- `docs/architecture/universal-activity.md` — contract `activity.v1` (backend-owned; authoritative when this merges).
+- `docs/architecture/commercial-opportunity-campaign.md` — contract locked for design (PD-F-02, -06, -07 approved).
+- `docs/architecture/loop-ai-runtime.md` — architecture approved (PD-F-08); activation gates §17.
 - `docs/architecture/loop-application-structure.md` — five areas, C-01..C-04. Locked.
 - `docs/product/loop-product-ui-architecture-v1.0.md` — the controlling UI specification.
 
@@ -65,7 +66,7 @@ presentation convenience.
 
 | | |
 |---|---|
-| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Profile attributes and contact points: **PRODUCT DECISION REQUIRED** (PD-F-05, non-blocking). |
+| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Profile attributes and contact points: **DEFERRED** (PD-F-05). The UI may show linked Intake contact data labeled Intake-derived. |
 | Canonical authority | Party contract over `CognitiveIdentity` (type PERSON); `PartyService`; `PartyRepository` |
 | Identifier | `(organizationId, partyId)` |
 | Tenant | Organization-local. Cross-organization Party deferred. |
@@ -103,7 +104,7 @@ presentation convenience.
 
 | | |
 |---|---|
-| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Company attributes: **PRODUCT DECISION REQUIRED** (PD-F-05, non-blocking). |
+| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Company attributes: **DEFERRED** (PD-F-05). |
 | Canonical authority | Party contract, type COMPANY |
 | Identifier | `(organizationId, partyId)` |
 | Tenant | Organization-local. **The Company is never the Workspace Organization** (PD-I2-07). |
@@ -164,26 +165,31 @@ presentation convenience.
 
 | | |
 |---|---|
-| Classification | **PRODUCT DECISION REQUIRED** (PD-F-01..04) and **AUTHORITY MISSING** |
+| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING** (PD-F-01..04 approved; slices R1–R3) |
 | Canonical authority | New CRM authority (PD-I2-06); architecture in `relationship-participant.md` |
 | Identifier | `(organizationId, relationshipId)` |
 | Tenant | Organization-local; every Party referenced resolves in the same organization |
 | Read contract | Not built (R3): list and detail with Party-resolved sides, participants, lifecycle history, duplicate diagnostic |
 | Write contract | Not built (R2): create with sides, edit details and owner, end, reactivate, void; RBAC resource `relationships` (grants: PD-F-04) |
 | Party Reference | Writes need ESTABLISHED, non-archived Parties; superseded ids refused with canonical id; reads forward; ids never rewritten |
-| Lifecycle | ACTIVE / ENDED / VOIDED (proposed). PROSPECTIVE only if PD-F-02 requires it. |
+| Lifecycle | ACTIVE / ENDED / VOIDED. No PROSPECTIVE state (PD-F-02). |
 | Audit | Append-only Relationship event log plus AuditLog |
 | Events | Outbox subject RELATIONSHIP (enum migration) |
-| Permission inputs | Identity, membership, role and permissions; AI_EMPLOYEE hard-denied writes; organization-wide until a team model exists |
+| Permission inputs | Identity, membership, role and permissions. View: human roles. Create/update: EMPLOYEE+. End and reactivate: MANAGER+. Void: OWNER/ADMIN. AI_EMPLOYEE denied (PD-F-04). Organization-wide until a team model exists. |
 | Activity | RELATIONSHIP is a reserved `activity.v1` subject until built |
 | Intelligence | CI Findings attach by reference (health is interpretation, never a CRM field) |
 | Existing UI routes | None ("Soon" nav item; tenant-page tabs) |
 | Legacy projections | Dormant `IdentityRelationship` (confined, not the authority) |
-| Known conflicts | The tenant is not a Party (PD-F-01); no Party can be established in production yet (P1) |
+| Known conflicts | No Party can be established in production yet (P1). The tenant is the implicit owning side of OWN kinds and never a Party (PD-F-01). |
 
-**Minimum contract to design against:** kind, sides (with labels), participants (role, side, dates,
-state), lifecycle and history, owner (a User), business dates, duplicate diagnostic, `availableActions`.
-Exact kinds and structure are pending PD-F-01 and PD-F-03.
+**Minimum contract to design against:**
+- kind: approved kinds with OWN / THIRD_PARTY structure and side labels (`relationship-participant.md` §9);
+- sides, with the tenant implicit for OWN kinds;
+- participants (role, side, dates, state);
+- lifecycle ACTIVE / ENDED / VOIDED and its history;
+- owner (a User) and business dates;
+- duplicate diagnostic;
+- `availableActions` (server-decided).
 
 **UI must NOT assume:**
 - the tenant appears as a Company;
@@ -196,7 +202,7 @@ Exact kinds and structure are pending PD-F-01 and PD-F-03.
 
 | | |
 |---|---|
-| Classification | **PRODUCT DECISION REQUIRED** (PD-F-03, PD-F-04) and **AUTHORITY MISSING** |
+| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING** (PD-F-03, -04 approved; R1–R3) |
 | Canonical authority | One CRM Participant authority (exclusive arc across Relationship, then Opportunity and Campaign) |
 | Identifier | `(organizationId, participantId)` |
 | Read / write contract | Not built (R2/R3). Add, change, end or void. Rows are never deleted. |
@@ -221,12 +227,12 @@ roleFamily: CAPACITY | ENGAGEMENT, side | actsForSide, effectiveFrom, effectiveT
 
 | | |
 |---|---|
-| Classification | **PRODUCT DECISION REQUIRED** (PD-F-02, PD-F-06) and **AUTHORITY MISSING** |
+| Classification | **CONTRACT LOCKED FOR DESIGN / IMPLEMENTATION MISSING** (PD-F-02, -06 approved). Service grants and reading confirmations: PD-F-11, PD-F-12 (non-blocking for design). |
 | Canonical authority | New CRM authority (not intake status, not `ServiceRequest`) |
 | Identifier | `(organizationId, opportunityId)` |
 | Read / write contract | Not built |
 | Party Reference | Participants through the CRM Participant authority |
-| Lifecycle | Append-only transitions. Categories and stages pending PD-F-06. |
+| Lifecycle | Append-only transitions. Categories OPEN / CLOSED_WON / CLOSED_LOST; organization-configured stages within OPEN; governed loss reasons. |
 | Audit / events | Own log, AuditLog, outbox subject (migration) |
 | Permission inputs | New resource `opportunities`; AI_EMPLOYEE hard-denied writes |
 | Activity | Reserved `activity.v1` subject |
@@ -248,12 +254,12 @@ roleFamily: CAPACITY | ENGAGEMENT, side | actsForSide, effectiveFrom, effectiveT
 
 | | |
 |---|---|
-| Classification | **PRODUCT DECISION REQUIRED** (PD-F-07) and **AUTHORITY MISSING**. Participation: **DEFERRED**. |
+| Classification | **CONTRACT LOCKED FOR DESIGN / IMPLEMENTATION MISSING** (PD-F-07 approved). Participation: **DEFERRED** until activated. Lifecycle vocabulary and grants: PD-F-11, PD-F-12. |
 | Canonical authority | New CRM authority for the agreed commercial program |
 | Identifier | `(organizationId, campaignId)` |
 | Read / write contract | Not built. Provider campaign links are human-declared and effective-dated, keyed by provider external id. |
 | Party Reference | Participants when un-deferred |
-| Lifecycle | Commercial lifecycle, pending PD-F-07 |
+| Lifecycle | CRM-owned, human-declared commercial lifecycle (proposed DRAFT / AGREED / ACTIVE / PAUSED / ENDED / CANCELLED); never inferred from traffic |
 | Audit / events | As Opportunity |
 | Permission inputs | New resource; AI_EMPLOYEE hard-denied writes |
 | Activity | Reserved subject. Execution activity is composed from CallGrid and Creators. |
@@ -299,19 +305,26 @@ roleFamily: CAPACITY | ENGAGEMENT, side | actsForSide, effectiveFrom, effectiveT
 
 ## 3. Opportunity and Campaign readiness (summary)
 
-**Opportunity**
-- **Locked:** a new governed CRM authority; append-only lifecycle; Party Reference participants; human
-  forecast only; Intake separate; Work by reference; Activity projection; AI never closes.
-- **Missing:** everything built.
-- **Undecided:** whether a Relationship is required (PD-F-02); stages and categories, outcomes and loss
-  reasons, forecast fields, close authority, Opportunity from Intake, grants (PD-F-06).
+**Opportunity: locked for design** (PD-F-02, PD-F-06).
+- The canonical CRM pursuit.
+- Relationship optional, with no placeholder Relationship.
+- Fixed categories with organization-configured stages; append-only history.
+- Human-authored forecast probability with attribution and time.
+- Closed-won / closed-lost with governed loss reasons; no close approval at launch.
+- Explicit creation from Intake, requiring an established Party. Intake stays Intake.
+- AI recommends but never authors stage, forecast, close or outcome.
 
-**Campaign**
-- **Locked:** a new CRM authority for the agreed program; execution and measurement composed; provider
-  campaigns linked by external id; human-declared commercial state; participation deferred.
-- **Missing:** everything built; multi-tenant ingestion for customer #2.
-- **Undecided:** lifecycle, commercial terms location, link cardinality and who declares links,
-  participation un-deferral, Opportunity association, Objectives scoping (PD-F-07).
+**Still to confirm before its service slice:** grants (PD-F-11); the categories and loss-reason list,
+and the amount and expected-close fields (PD-F-12).
+
+**Campaign: locked for design** (PD-F-07).
+- CRM owns identity, lifecycle, agreed terms, participants (when activated) and associations.
+- Accounting owns transactions, invoices, payment and settlement.
+- Multiple provider campaigns over time.
+- No automatic Campaign on win; lifecycle never inferred from traffic.
+
+**Still to confirm before its service slice:** lifecycle vocabulary and the one-CRM-Campaign-per-provider-
+campaign-per-period rule (PD-F-12); grants (PD-F-11).
 
 Full detail: `docs/architecture/commercial-opportunity-campaign.md`.
 
@@ -338,7 +351,7 @@ Full detail: `docs/architecture/commercial-opportunity-campaign.md`.
   services. There is no second approval system.
 - **Provenance** is recorded per invocation. Prompts are versioned templates. Memory maps to existing
   authorities.
-- **No SDK, secret or call** until PD-F-08.
+- **Architecture approved (PD-F-08).** No live call until activation gates G1–G6 hold (§17 of the record).
 
 **Current state:**
 - No LLM exists.
@@ -350,156 +363,127 @@ Full detail: `docs/architecture/commercial-opportunity-campaign.md`.
 **First slice after approval:** read-only Case Explanation on `/app/admin/cases/[id]`. Full detail:
 `docs/architecture/loop-ai-runtime.md`.
 
-## 6. Charlie and Lexi unblock matrix
+## 6. Charlie and Lexi unblock matrix (after the 2026-09-15 decisions)
 
-| Surface | Status | Authority relied on | Stable contract | Missing implementation | Product decision | UI may safely assume | UI must NOT imply |
-|---|---|---|---|---|---|---|---|
-| Loop Shell | **GREEN** | `WorkspaceShell`, `LOOP_NAV`, membership authority | One shell; nav filtered by server-resolved authority | — | — | Items the person can open; an honest unavailable state | Nav visibility is authorization; a second shell |
-| Loop Home | **YELLOW** | CI attention and personal queue; Work OS; CallGrid scorecard; AuditLog (with `audit:view`) | Five sections from the specification; Needs You from authorities at their boundary; Loop Noticed from **governed CI only** | Home composition read model; last-visit instant for What Changed; removing canned "Business Status" | — | Governed sources exist for Needs You, My Work, Pulse | Numeric confidence; Executive Brain as Loop Noticed; canned system status; fake AI |
-| Global Navigation | **GREEN** | C-01 five areas; `LOOP_NAV` | Home, CRM, Work, Intelligence, Operations | Route-transition proposal (Charlie/Lexi) approved by Product before routes move | Approval of their proposal | Current routes stay until the proposal is approved | Moved routes before approval; a second registry |
-| Universal Search | **RED** (universal) / GREEN (CRM search redesign) | CRM search over Intake, conversations, the tenant | CRM-scoped search only | Governed universal search over Party, Activity, Work | PD-F-10 | CRM search results are Intake Records | Searching People/Parties or activity that search does not cover |
-| Universal Activity | **YELLOW** | Source authorities | `activity.v1` | A1 contract code; A2 adapters; Known Party after 2.5 | PD-F-09 (non-blocking) | Unresolved and anonymous states; provenance; filters | Known Party activity before 2.5; inline raw contact values or bodies |
-| People | **YELLOW** | Party contract | People = established, non-superseded PERSON Parties | P1 read model and Party write actions | — | An empty list is correct today | Intake Records as People; counts from Customer |
-| Person Detail | **YELLOW** | Party contract; CPL; posture §11a | `PersonRecordV1` | P1; relationships after R3; activity after A2/2.5 | PD-F-05 (contact points, non-blocking) | Display name, establishment posture, linked Intake Records | Contact points; identity confidence numbers; merge |
-| Companies | **YELLOW** | Party contract (COMPANY) | Companies = established, non-superseded COMPANY Parties | P1 | — | Empty is correct today | The tenant or CallGrid buyers as Companies |
-| Company Detail | **YELLOW** | Party contract | `CompanyRecordV1` | P1; R3 for people and relationships | PD-F-05 | As Person Detail | As Companies; commercial tabs on the tenant page |
-| Relationships | **RED** | — (authority missing) | Proposed only | R1–R3 | PD-F-01..04 | Prototype with unavailable states | Any real relationship data or the tenant as a side |
-| Relationship Detail | **RED** | — | Proposed only | R1–R3 | PD-F-01..04 | Prototype only | Health scores; merge; automatic creation |
-| Intake | **GREEN** (provenance segment YELLOW) | Customer as Intake authority | `IntakeRecordV1`; C-04 naming | Intake Records read model with provenance segment; intake history; wording fixes; merge disable | — | Existing list, detail, status board and link actions | People/Person framing; intake status as stage; merge |
-| Opportunities | **RED** | — | Readiness shape only | Everything | PD-F-02, PD-F-06 | Prototype only | Intake status as pipeline; probabilities; CallGrid findings as Opportunities |
-| Opportunity Detail | **RED** | — | §3.4 shape | Everything | PD-F-02, PD-F-06 | Prototype only | As Opportunities |
-| Campaigns | **RED** | — | Readiness shape only | Everything | PD-F-07 | Prototype only | CallGrid campaigns as CRM Campaigns |
-| Campaign Detail | **RED** | — | §4.4 shape | Everything | PD-F-07 | Prototype only | Traffic as commercial status; copied metrics |
-| Work | **GREEN** | Work OS | Blueprints, instances, stages, assignments | Work Types consolidation (D4); subject links (`relatedRecord` is null); `requiresApproval` not wired | — | Execution state and assignment | Approvals or record links that don't exist |
-| Intelligence | **GREEN** | Commercial Intelligence; Decision Engine | Headlines, Queue, Cases, Findings (DEVELOPING/ESTABLISHED), Recommendations (select/dismiss/revise), Monitoring | Case list route; Decision Center route; permission consistency | — | Governed semantic states and evidence counts | Numeric confidence; ungoverned Executive Brain output as governed intelligence |
-| Brain | **RED** | — (AI runtime not approved) | `loop-ai-runtime.md` (proposed) | S0–S4 | PD-F-08 | Design exploration only | That an LLM exists; "AI" labels on rules; live Brain status |
-| Operations | **GREEN** | C-01 area over existing authorities | Area grouping | Route-transition proposal | Approval of the proposal | Grouping of CallGrid and future modules | A new operational authority |
-| CallGrid | **GREEN** | CallGrid execution, measurement and reconciliation | C-03 split | Remove the decision write on page render; convert numeric confidence | C-03 Activity/Bids classification (UI/Product call) | Operational and analytical surfaces with honest Unknowns | Numeric confidence as truth; provider campaigns as CRM Campaigns |
-| Creator administration | **RED** | — (no creator authority) | C-02: Operations → Creators; creator is a Person with participation | Creator participation (Participant, PD-F-03) and capability authority | PD-F-01, PD-F-03 | Prototype with unavailable states | A second creator app; creator as a Party type; upload or AI critique |
-| Context drawers | **GREEN** | — (interaction pattern) | Context chain is navigation state only | — | — | Restore prior subject and state | That the context chain creates relationships |
-| Record grammar | **GREEN** | Specification | Identity, State, Context, Activity, Intelligence and Action | Per-subject readiness above | — | The grammar | Sections filled with data that does not exist |
-| Responsive / mobile | **GREEN** | — | Specification density and priority rules | — | — | — | — |
+**Changes from the previous matrix:**
+- Relationships, Relationship Detail, Opportunities, Opportunity Detail, Campaigns and Campaign Detail
+  move **RED → YELLOW**. Their contracts are locked strongly enough to design without inventing truth.
+- Creator administration moves to **YELLOW for the roster only.** The roster is TALENT_REPRESENTATION
+  Relationships with the CREATOR role. Creator execution stays RED.
+- Brain stays **RED.** The approved AI slice is Case Explanation, inside Intelligence, not the Brain
+  conversation.
 
-## 7. Minimum backend finish line
+| Surface | Status | Contract to design against | Honest empty / loading / unavailable until implementation |
+|---|---|---|---|
+| Loop Shell | **GREEN** | `WorkspaceShell`, `LOOP_NAV`, server-resolved authority | — |
+| Loop Home | **YELLOW** | Needs You (CI attention, personal queue, Work OS unowned stages); What Changed (AuditLog with `audit:view`); Loop Noticed (governed CI Headlines only); My Work (Work OS); Operating Pulse (CallGrid scorecard) | "What Changed since you last looked" until a last-visit instant exists; no Executive Brain confidence |
+| Navigation | **GREEN** | C-01 five areas; route-transition proposal approved by Product before routes move | — |
+| Record grammar | **GREEN** | Specification grammar | Sections whose authority is missing render unavailable |
+| Context drawers | **GREEN** | Context chain is navigation state only | — |
+| Responsive / mobile | **GREEN** | Specification density and priority rules | — |
+| People | **YELLOW** | `PersonRecordV1` list: established, non-superseded PERSON Parties (P1) | Empty list today (0 established Parties) with an honest explanation; no Intake rows |
+| Person Detail | **YELLOW** | `PersonRecordV1`: display name, establishment posture, reference state, linked Intake Records | Contact info only from linked Intake Records, **labeled Intake-derived** (PD-F-05); Relationships after R3; Activity after A2 (Intake context) and identity 2.5 (attributed) |
+| Companies | **YELLOW** | `CompanyRecordV1` list (P1) | Empty today; never the tenant; never CallGrid buyers |
+| Company Detail | **YELLOW** | `CompanyRecordV1` | As Person Detail; company profile fields unavailable (PD-F-05) |
+| Intake | **GREEN** (provenance segment YELLOW) | Existing Customer authority under Intake Records naming; `IntakeRecordV1` | Provenance segment until the Intake Records read model lands; no merge action |
+| Universal Activity | **YELLOW** | `activity.v1` | Known Party / Known Company lanes empty until identity 2.5; adapters land progressively (Case, Work, Intake, organization feed) |
+| Relationships | **YELLOW** | `relationship-participant.md` §3 and §9: kinds (OWN / THIRD_PARTY), sides, lifecycle, grants | Empty until R3 and until Parties can be established (P1); actions shown only when the server allows |
+| Relationship Detail | **YELLOW** | Sides, participants (roles, sides, dates, states), history, owner, duplicate diagnostic | Unavailable until R3; no health score (CI Findings by reference only) |
+| Opportunities | **YELLOW** | `commercial-opportunity-campaign.md` §3.4 | Empty until the Opportunity slices land; stage labels come from organization configuration, so design for arbitrary labels |
+| Opportunity Detail | **YELLOW** | §3.4: category, stage, human forecast with author and time, outcome and loss reason, participants, optional Relationship, Intake refs | AI recommendations shown as recommendations only; amount and expected close pending (PD-F-12); actions server-decided (PD-F-11) |
+| Campaigns | **YELLOW** | §4.4 | Empty until the Campaign slices land |
+| Campaign Detail | **YELLOW** | §4.4: lifecycle, terms, Relationship and Opportunity refs, provider campaign links with composed execution and measurement | Participants unavailable (deferred); invoices and payments unavailable (Accounting not built) |
+| Work | **GREEN** | Work OS | Record links (`relatedRecord` null) and approvals (not wired) unavailable |
+| Intelligence | **GREEN** | CI Headlines, Queue, Cases, Findings, Recommendations, Monitoring; Decision Center. Case Explanation panel: **YELLOW** against `loop-ai-runtime.md` §16. | Case Explanation "not configured" until gates G1–G6 hold |
+| Operations | **GREEN** | C-01 area over existing authorities | — |
+| CallGrid | **GREEN** | CallGrid execution, measurement and reconciliation (C-03) | No numeric confidence as truth |
+| Creator administration | **YELLOW** (roster) / **RED** (execution) | Roster: TALENT_REPRESENTATION Relationships with CREATOR participants (R3) | Deliverables, earnings, uploads and AI critique: unavailable (no creator execution authority) |
+| Brain | **RED** | Design exploration only | No Brain conversation; no "AI" labels on rules |
+| Universal Search | **RED** (deferred, PD-F-10) | CRM-scoped search redesign only | — |
 
-### Must land before UI resumes
+## 7. Minimum backend finish line (updated)
 
-1. **This handoff and its four architecture records, reviewed and merged**, so the contracts are
-   authoritative. Documentation only.
-2. **For the Relationship, Opportunity, Campaign and Creator cluster only:** Product decisions
-   **PD-F-01, PD-F-02, PD-F-06, PD-F-07**. Without them those surfaces stay RED. Every other surface is
-   unaffected.
+**Must land before UI resumes:**
+1. **This handoff (#245) merged.** The contracts above become authoritative.
 
-**Nothing else is required** for the GREEN and YELLOW surfaces to resume.
+**Nothing else.** No backend implementation blocks the GREEN or YELLOW surfaces. The security fix #244
+is independent and merges first.
 
-**Separately and urgently, whatever the UI track does:** merge the password-reset security fix (#244).
+**Contract sufficient — UI proceeds in parallel.** All implementation slices in §9.
 
-### Contract sufficient — UI proceeds in parallel
+**Can wait:**
+- identity 2.1a–2.6;
+- Activity A3–A5;
+- numeric-confidence conversion before AI output shares those surfaces;
+- universal search;
+- multi-tenant ingestion (gates customer #2);
+- legacy cleanup.
+
+## 8. Product decisions
+
+**Approved (2026-09-15)**
+
+| ID | Decision |
+|---|---|
+| PD-F-01 | The tenant is the implicit owning side of OWN Relationships; THIRD_PARTY is Party ↔ Party; no self-Company Party |
+| PD-F-02 | Relationship optional for Opportunity; no placeholder Relationship |
+| PD-F-03 | Starting kinds and roles approved under the role/type invariants. No item contradicts them. |
+| PD-F-04 | View: human roles. Create/update: EMPLOYEE+. End: MANAGER+. Void: OWNER/ADMIN. AI_EMPLOYEE hard-denied. Readings: reactivate follows end; AI_EMPLOYEE view denied. |
+| PD-F-06 | Opportunity policy (`commercial-opportunity-campaign.md` §3.3) |
+| PD-F-07 | Campaign policy (§4.3) |
+| PD-F-08 | AI runtime architecture approved; Case Explanation first; no AI domain writes; activation gates |
+
+**Deferred, non-blocking:**
+- **PD-F-05 (Party contact points).** The UI may show contact information from linked Intake Records,
+  labeled Intake-derived and never implied verified.
+- **PD-F-09 (raw caller and message visibility).** Its own security slice.
+- **PD-F-10 (universal search).** Deferred until the Party and Activity read models exist.
+
+**Still needed** (non-blocking for UI design; blocks only the named service slices):
+
+| ID | Question | Recommendation | Blocks |
+|---|---|---|---|
+| PD-F-11 | Grants for `opportunities` and `campaigns` | Mirror PD-F-04: view for human roles; create/update (including Opportunity stage, forecast and close) EMPLOYEE+; reopen, Campaign lifecycle transitions and provider link declarations MANAGER+; void OWNER/ADMIN; AI_EMPLOYEE denied | Opportunity and Campaign services |
+| PD-F-12 | Confirm readings: categories OPEN / CLOSED_WON / CLOSED_LOST with WITHDRAWN as a loss reason; starting loss reasons; forecast amount and expected close date; Campaign lifecycle states; one CRM Campaign per provider campaign per period | Confirm as written | Opportunity and Campaign contract slices |
+| AI activation | Values for gates G2–G6: provider terms confirmation, model ids, budgets, organization flag | Product and operations supply them at activation | Live Case Explanation only |
+
+## 9. Implementation sequence (authorized)
+
+**Independent now** (each from fresh `main`, a separate PR, none dependent on another):
 
 | Slice | Contents |
 |---|---|
-| P1 | Party write actions; People and Companies read models; establishment review |
-| P1b | `CustomerPartyLinkService` applies the archived and canonical-id readings |
-| Intake Records | Read model with provenance segment; minimal C-04 wording fixes; `/crm/merge` disable |
-| A1/A2 | `activity.v1` code and adapters (Case, Work, Intake, organization feed) |
-| Loop Home | Composition read model and last-visit instant |
-| Authorization debt | CallGrid decision write on render; Command Center and tenant page read Customer data without `customers:view`; Home and Work activity without `audit:view`; conversation assignee repository without org scope |
+| **#244** | Security fix (merge first) |
+| **#245** | This handoff |
+| **P1** | Party write actions; People and Companies read models; unestablished-Party review read model; human actor names on Party audit rows |
+| **P1b** | Customer→Party link applies the Party Reference readings |
+| **Intake** | Minimal C-04 wording corrections; `/crm/merge` disabled; Intake Records read model with read-time provenance segment |
+| **A1** | `activity.v1` pure contract and fences |
+| **R1** | Relationship and Participant pure contracts |
+| **AI S0** | Provider-neutral runtime foundation: contracts, adapters with recorded fixtures, routing, budgets and validation skeleton, fences; no live calls |
 
-### Can wait
+**Dependent** (each waits for a merge checkpoint):
 
-- Identity slices 2.1a–2.6.
-- Relationship R1–R3, until decisions are in.
-- Opportunity and Campaign implementation.
-- AI runtime S0–S4, until PD-F-08.
-- Numeric-confidence conversion and fake-AI text removal. Required before any AI output shares those
-  surfaces.
-- Universal search.
-- Activity A3–A5.
-- Multi-tenant ingestion. It gates customer #2, not the UI.
-- Legacy cleanup: dead Brain harnesses, `marketplace-intelligence`, `work-os`.
+| Slice | Waits for | Contents |
+|---|---|---|
+| **A2** | A1 | Activity adapters (Case/Decision, Work item, Intake Record, organization feed); retire replaced shapes |
+| **R2** | R1 | Relationship and Participant persistence and migration |
+| **R3** | R2 | Services, authorization, events, audit, read models |
+| **Opportunity contract** | R1 | Pure contract: categories, stage sets, transitions reducer, forecast history, loss reasons, participant subset. Also PD-F-12. |
+| **Opportunity persistence and services** | R2, Opportunity contract, PD-F-11 | Adds `opportunityId` to the Participant exclusive arc (migration) |
+| **Campaign contract, then persistence and services** | R1 / R2, PD-F-11, PD-F-12 | Opportunity refs added once Opportunity persistence exists |
+| **AI S1** | S0 | Case Explanation, built to activate when gates G1–G6 hold |
 
-## 8. Product decisions required
+**Changes from Product's suggested order, and why:**
+1. **AI S0 moves to "independent now."** It depends on no CRM slice, so waiting idles it.
+2. **The Opportunity pure contract can follow R1** (in parallel with R2/R3). Its persistence needs R2,
+   because Opportunity participants extend the single Participant table.
+3. **R2 is persistence (schema, migration, repositories) and R3 is services (authorization, events,
+   audit, read models).** Schema then reviews and deploys on its own.
+4. **P1 is sequenced before R3 in practice.** It isn't a code dependency, but no Relationship write can
+   succeed until a Party can be established.
 
-| ID | Question | Blocks | Record |
-|---|---|---|---|
-| **PD-F-01** | How is the tenant represented as a side of a Relationship? | Relationship schema; Relationships UI; seller side of Opportunity/Campaign | `relationship-participant.md` §9 |
-| **PD-F-02** | Must an Opportunity belong to a Relationship (PROSPECTIVE state)? | Relationship lifecycle; Opportunity | same |
-| **PD-F-03** | Initial Relationship kinds, Participant roles, and Party types per role | R1; labels | same |
-| **PD-F-04** | Grants for Relationship and Participant acts | R2 | same |
-| **PD-F-05** (non-blocking) | Which authority holds Person/Company profile attributes and contact points before verification exists? | Contact info and communication actions on Person/Company; profile editing | §8.1 below |
-| **PD-F-06** | Opportunity policy: stages and categories, outcomes, forecast fields, close authority, from-Intake act, grants | Opportunity | `commercial-opportunity-campaign.md` §3.3 |
-| **PD-F-07** | Campaign policy: lifecycle, terms location, provider-campaign links, participation, Opportunity association, Objectives scope | Campaign | same, §4.3 |
-| **PD-F-08** | AI runtime approval; data classes sent to providers; provider terms; body retention; first slice, invokers, budgets; routing primary | All AI runtime work | `loop-ai-runtime.md` §17 |
-| **PD-F-09** (non-blocking) | Who may see raw contact identifiers and communication content? | A later security slice | `universal-activity.md` §8 |
-| **PD-F-10** (non-blocking) | Authorize governed universal search (scope and sources) | Universal Search | — |
-
-### 8.1 PD-F-05 — Party profile and contact points
-
-**Why locked decisions do not answer it.**
-- The identity record §16 marks contact points and profile editing **AUTHORITY MISSING**.
-- Verification is deferred.
-- `IdentityEvidence` is hash-only and exists for resolution, not communication.
-
-**Affected authority:** the Party record's Identity section; communication actions; Company attributes.
-
-**Recommendation.** A governed Party profile authority:
-- human-entered display name and legal name, edited under `identityResolution:update` with history;
-- a minimal Company profile (legal name, website domain).
-
-Contact points are held separately (e.g. `PartyContactPoint`):
-- raw value, kind, assertion mode OPERATOR_RECORDED or SUBJECT_PROVIDED, verification UNVERIFIED, source
-  reference, effective dates;
-- sensitivity CONTACT_IDENTIFIER, purpose-limited to communication;
-- **never used to match identity** (suggestions stay limited to verified points, none of which exist).
-
-**Alternatives:**
-- (i) No Party-level contact data until verification exists; the UI shows contact values only from
-  linked Intake Records, labeled as Intake data. This is honest, and is the default if undecided.
-- (ii) Raw contact values on `IdentityEvidence`. Rejected: evidence is hash-only.
-
-**Blocked:** Party contact points and profile editing only. The UI can use alternative (i) meanwhile.
-
-## 9. Implementation plan (ordered; each slice needs authorization unless stated)
-
-**Backend authority and contracts**
-0. **#244 security fix:** merge first. It is ready for review.
-1. **Foundation handoff docs:** this PR.
-2. **P1:** governed Party write actions, People and Companies read models, establishment review read
-   model.
-3. **P1b:** `CustomerPartyLinkService` applies the Party Reference readings.
-4. **Intake Records:** read model with provenance segment, C-04 wording fixes, `/crm/merge` disable
-   (these two are already authorized: C-04 / PD-I2-05 / PD-I2-08).
-5. **A1 then A2:** `activity.v1` contract and adapters.
-6. **Authorization and security debt:**
-   - CallGrid decision write on render and page `requirePermission`;
-   - `customers:view` on the Command Center and tenant page;
-   - `audit:view` on Home and Work activity;
-   - conversation assignee organization scope;
-   - timing-safe compare on `/api/v1/events`.
-7. **Relationship R1 → R2 → R3**, after PD-F-01..04 (R2 needs migration approval).
-8. **Identity 2.1a** (retire the dormant resolver; decide the retirement of `IdentityRelationship` and
-   `IdentityRole`), then 2.1b–2.6 as authorized.
-9. **Opportunity** decision record and implementation after PD-F-02 and PD-F-06; **Campaign** after
-   PD-F-07.
-
-**AI runtime**
-1. PD-F-08.
-2. Convert numeric confidences to semantic states; remove fake-AI text.
-3. S0 contracts and adapters (recorded fixtures, no live calls in CI).
-4. S1 runtime and Case Explanation behind a flag.
-5. S2 `ai_invocations`.
-6. S3 Decision Engine approval gaps.
-7. S4 read tools and further tasks.
-
-**Charlie and Lexi track**
-1. UI 0 primitives, record grammar, context drawers, responsive system (GREEN).
-2. Five-area navigation and the route-transition proposal (GREEN; Product approves the proposal).
-3. Loop Home against governed sources (YELLOW).
-4. Intake Records (GREEN); People, Person, Companies, Company against the P1 contract (YELLOW).
-5. Universal Activity against `activity.v1` (YELLOW).
-6. Intelligence, Work, Operations and CallGrid redesign (GREEN).
-7. Relationships, Opportunities, Campaigns, Creator administration after decisions (RED today).
-8. Brain after the AI runtime (RED today).
+**Charlie and Lexi track (in parallel):** see `docs/product/ui-track-handoff.md`.
 
 ## 10. Deferred (not done; do not mistake for completed)
 
@@ -565,8 +549,18 @@ Contact points are held separately (e.g. `PartyContactPoint`):
 
 ## 12. Phase gate
 
-**FOUNDATION HANDOFF BLOCKED — PRODUCT DECISIONS REQUIRED**
+**FOUNDATION HANDOFF PARTIALLY READY — SPECIFIED SURFACES MAY RESUME**
 
-The GREEN and YELLOW surfaces above may resume design now, against the contracts in this handoff. The
-canonical commercial core (Relationships, Opportunities, Campaigns, Creator administration) stays RED
-until Product decides PD-F-01, PD-F-02, PD-F-06 and PD-F-07, and this handoff is merged.
+**May resume** (GREEN now; YELLOW against the named contracts once #245 merges):
+- Loop Shell, Navigation, Record grammar, Context drawers, Responsive/mobile;
+- Loop Home, Intake;
+- People, Person Detail, Companies, Company Detail;
+- Universal Activity;
+- Relationships, Relationship Detail, Opportunities, Opportunity Detail, Campaigns, Campaign Detail;
+- Work, Intelligence (with the Case Explanation panel), Operations, CallGrid;
+- Creator administration (roster only).
+
+**Not yet:**
+- Brain;
+- creator execution capabilities;
+- Universal Search.

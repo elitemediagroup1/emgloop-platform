@@ -1,8 +1,9 @@
 # Opportunity and Campaign — readiness record
 
-**Status:** READINESS ASSESSMENT (2026-09-15). **Neither authority exists and none is authorized to be
-built.** This record separates what is locked, what is only missing, and what needs Product. It gives
-the UI the minimum stable contract to design against, and lists what the UI must not assume.
+**Status:** CONTRACT LOCKED FOR DESIGN (2026-09-15). Product approved PD-F-02, PD-F-06 and PD-F-07.
+**Neither authority is implemented.** Implementation follows the Relationship and Participant slices
+(`relationship-participant.md` §10). Two small confirmations (PD-F-11, PD-F-12, §6) are needed before
+the Opportunity and Campaign *service* slices, not before UI design.
 
 ---
 
@@ -81,40 +82,58 @@ CRM composes these through governed references and projections. It never copies 
 - A governed Party write surface (slice P1).
 - A non-colliding shared type name (§5).
 
-### 3.3 Product decisions
+### 3.3 Product decisions (approved 2026-09-15)
 
-**PD-F-02** (in `relationship-participant.md` §9): must an Opportunity belong to a Relationship?
+**PD-F-02 — Relationship optional.** An Opportunity may exist before any formal Relationship. No fake,
+placeholder, prospective or inferred Relationship is created. Where a valid Relationship exists, the
+Opportunity may reference it.
 
-**PD-F-06 — Opportunity policy.** Locked decisions fix the form (append-only, attributed, never
-invented) but not the content:
+**PD-F-06 — Opportunity policy.** Opportunity is the canonical CRM commercial pursuit.
 
-| Sub-question | Recommendation | Main alternative |
-|---|---|---|
-| (a) Stage vocabulary | Platform-fixed **lifecycle categories** OPEN, WON, LOST, WITHDRAWN. **Organization-configured ordered stages** within OPEN, owned by OWNER/ADMIN and versioned, because no vertical stage names may live in a shared layer. | One platform-fixed stage list |
-| (b) Outcomes | Outcome equals the closed category, with a required closed loss reason list (PRICE, TIMING, NO_DECISION, COMPETITOR, NOT_QUALIFIED, OTHER with note). Reopen allowed with a reason. | Free-text reasons (rejected: Rule 4 needs comparable outcomes) |
-| (c) Forecast fields | Human-entered amount (integer minor units plus ISO currency); human probability 0–100 with author and time, append-only; expected close date as a calendar date. **No stage-implied default probability, no machine forecast.** CI interpretation, if any, is a separate Finding. | Stage-weighted probability |
-| (d) Close authority | Any holder of `opportunities:update` may close. No approval at launch: no team model exists and no commercial `approve` action exists. Decision Engine not used. | MANAGER approval (needs a team model first) |
-| (e) Opportunity from Intake | An explicit human act. It references the Intake Record, **does not change intake status**, and requires at least one established Party participant. Intake-only leads stay in Intake until identity is established. | Allow zero-participant Opportunities keyed only to Intake (rejected: pursuit keyed by Customer again) |
-| (f) Grants | New resource `opportunities`, mirroring PD-F-04, AI_EMPLOYEE hard-denied | — |
+| Element | Decision |
+|---|---|
+| Categories | Governed, fixed Opportunity categories |
+| Stages | Organization-configurable stages within the governed lifecycle |
+| History | Append-only stage and state transition history |
+| Forecast | Explicitly human-authored forecast probability, with attribution and timestamp on every change |
+| Outcomes | Governed closed-won / closed-lost outcomes, with governed loss reasons |
+| Close approval | None at launch, unless another existing authority already requires one (none does today) |
+| Creation from Intake | An explicit act. It requires a governed, established Party. Intake remains Intake and is never transformed into an Opportunity. |
+| What AI may do | Summarize; identify evidence; recommend stage, forecast or next action |
+| What AI may not do | Silently author or modify stage, human forecast, close state or commercial outcome |
+| Prohibited | Using `Customer.status` / `pipelineStatus` as the canonical pipeline; reusing the CallGrid/shared `Opportunity` finding type as the CRM authority |
 
-**Blocked by PD-F-02 and PD-F-06:** the Opportunity schema, service and UI beyond a prototype.
+**Readings recorded with the decision** (fail-closed; confirm or change in PD-F-12):
+1. **Lifecycle categories are OPEN, CLOSED_WON and CLOSED_LOST.** The decision names only closed-won and
+   closed-lost outcomes, so the proposed WITHDRAWN category is not adopted. A withdrawn pursuit closes
+   as CLOSED_LOST with loss reason WITHDRAWN.
+2. **Starting governed loss reasons:** PRICE, TIMING, NO_DECISION, COMPETITOR, NOT_QUALIFIED, WITHDRAWN,
+   OTHER (a note is required).
+3. **Stage configuration** is organizational settings authority (`settings:update`, OWNER/ADMIN today).
+   Stage sets are versioned, and a transition records the stage-set version it used.
+4. **Reopening a closed Opportunity** requires a reason and is an appended transition. Grants are in
+   PD-F-11.
+5. **The forecast** is human-authored probability plus attribution and time. The decision names only
+   probability. Amount (integer minor units and ISO currency) and expected close date stay proposed
+   human-entered fields until confirmed (PD-F-12).
 
 ### 3.4 Minimum contract the UI may design against (shape only; not built)
 
 | Part | Content |
 |---|---|
 | Identity | `(organizationId, opportunityId)`, title |
-| Context | Participants (Party refs + roles + sides); optional Relationship ref (per PD-F-02); Intake Record refs; Campaign refs |
-| State | Lifecycle category + stage label (vocabulary pending); human forecast (amount, probability, expected close) with author and time, or Unknown |
-| Activity | `activity.v1` (reserved until built) |
-| Intelligence and Action | CI Findings and Recommendations linked by reference; Work references; close and reopen actions shown only when the server says the viewer may act |
+| State | `category`: OPEN / CLOSED_WON / CLOSED_LOST; `stage`: an organization-configured label within OPEN, from a versioned stage set; `outcome` and `lossReason` when closed; human forecast probability with `authoredBy` and `authoredAt` (or Unknown); forecast history. Amount and expected close date shown as pending fields. |
+| Context | Participants (established Party refs + roles + sides) through the CRM Participant authority; an **optional** Relationship ref; Intake Record refs (the Intake it was created from, if any); Campaign refs |
+| Activity | `activity.v1` (OPPORTUNITY reserved until built) |
+| Intelligence and Action | CI Findings and Recommendations by reference. AI *recommendations* for stage, forecast or next action are shown as recommendations with evidence, never applied. Work references. Actions (advance stage, update forecast, close, reopen) appear only when the server says the viewer may act. |
 
 **The UI must not:**
-- present intake status or `ServiceRequest` as Opportunity stage;
-- compute or default a probability;
+- present intake status or `ServiceRequest` as stages;
+- compute or default a probability, or present an AI recommendation as the forecast;
 - label CallGrid "opportunity" findings as Opportunities;
 - show participants that are not established Parties;
-- assume who can close.
+- require or fabricate a Relationship;
+- assume who may close or reopen.
 
 ## 4. Campaign
 
@@ -138,36 +157,47 @@ invented) but not the content:
   Today ingestion resolves `LIVE_ORG_SLUG` and `marketplace_calls` is globally unique on
   `(provider, externalId)`. This does not block single-tenant use; it blocks customer #2.
 
-### 4.3 Product decisions
+### 4.3 Product decisions (approved 2026-09-15)
 
-**PD-F-07 — Campaign policy:**
+**PD-F-07 — Campaign policy.** CRM owns canonical commercial Campaign truth.
 
-| Sub-question | Recommendation | Alternative |
-|---|---|---|
-| (a) Lifecycle | DRAFT, AGREED, ACTIVE, PAUSED, ENDED, CANCELLED; human-declared, effective-dated transitions | Mirror provider campaign status (rejected: execution state is not commercial state) |
-| (b) Commercial terms | **CRM Campaign holds agreed terms** as human-declared, effective-dated agreement facts: rate basis, caps, payout basis, dates. The specification defines Campaign as "what was sold, agreed". **Accounting owns** invoices, transactions and payments. **CallGrid owns** its execution configuration. | Terms owned by Accounting, referenced from CRM |
-| (c) Provider campaign links | One CRM Campaign links to many provider campaigns over effective-dated periods. A provider campaign links to at most one CRM Campaign per period. Buyer, source and vendor links follow the same pattern when needed. Declared by MANAGER+. | One-to-one |
-| (d) Participation | Un-defer when Campaign is built, using the CRM Participant authority (exclusive arc) | Keep deferred; Campaign shows only Relationship- and Opportunity-derived Parties |
-| (e) Opportunity → Campaign | A Campaign may reference won Opportunities. Created only by an explicit human act, never automatically on win (Rule 6). | Automatic creation on win |
-| (f) Objectives scoped to a Campaign | Defer until Campaign exists; objectives stay organization- or user-scoped | Allow now (impossible: no entity) |
+| Owner | Owns |
+|---|---|
+| **CRM** | Campaign identity; commercial lifecycle; agreed commercial terms or their reference; commercial participants *when that capability is activated*; association to Relationships and Opportunities |
+| **Accounting** | Transactions, invoices, payment and settlement |
+| **Execution domains** | Their execution truth (CallGrid calls, creator deliverables, …) |
+| **Measurement** | Governed outcome and performance facts |
 
-**Blocked by PD-F-07:** the Campaign schema, service and UI beyond a prototype.
+**Rules:**
+- A CRM Campaign may reference **multiple provider or execution campaigns over time**.
+- Execution truth is never duplicated into CRM.
+- Winning an Opportunity **does not** create a Campaign. Campaign creation is an explicit governed act.
+- Campaign lifecycle is **never inferred** from traffic or provider activity.
+
+**Readings recorded with the decision** (fail-closed; confirm or change in PD-F-12):
+1. **Lifecycle states (proposed):** DRAFT, AGREED, ACTIVE, PAUSED, ENDED, CANCELLED. Human-declared,
+   effective-dated transitions.
+2. **One provider campaign links to at most one CRM Campaign in any effective period.** This prevents
+   one provider campaign's measurement being composed into two commercial programs at once.
+3. **Participation stays deferred** until activated. The UI shows an honest unavailable state.
+4. **Objectives scoped to a Campaign stay deferred.**
 
 ### 4.4 Minimum contract the UI may design against (shape only; not built)
 
 | Part | Content |
 |---|---|
 | Identity | `(organizationId, campaignId)`, name |
-| State | Commercial lifecycle (vocabulary pending); effective dates |
-| Context | Relationship and Opportunity refs; participants (deferred); agreed terms (pending PD-F-07b) |
-| Execution | Composed provider campaign links with their CallGrid execution and measurement facts, each labeled with its owning authority |
-| Activity | `activity.v1` (reserved until built) |
+| State | Commercial lifecycle state (proposed vocabulary, §4.3), with effective dates and transition history |
+| Context | Relationship refs; Opportunity refs; agreed commercial terms (human-declared, effective-dated) or a reference to them; participants: **unavailable** until activated |
+| Execution | Provider campaign links (provider, external id, effective period, declared by, declared at), with composed CallGrid execution and measurement facts each labeled with its owning authority; invoices and payments shown only from Accounting when it exists (unavailable today) |
+| Activity | `activity.v1` (CAMPAIGN reserved until built) |
 
 **The UI must not:**
 - present the CallGrid Campaigns dimension as CRM Campaigns;
-- show provider traffic as commercial status;
+- show provider traffic as commercial state;
 - copy measurement into Campaign fields;
-- host Campaigns on the Workspace Organization page (PD-I2-07).
+- create a Campaign on Opportunity win;
+- host Campaigns on the Workspace Organization page.
 
 ## 5. Conflicts and non-destructive reconciliation
 
@@ -201,3 +231,19 @@ invented) but not the content:
    never its tables or outcomes, for commercial state.
 7. **AI authority.** New commercial resources hard-deny AI_EMPLOYEE writes instead of inheriting the
    READ_ONLY fallback.
+
+## 6. Confirmations still needed (non-blocking for UI design)
+
+| ID | Question | Recommendation | Blocks |
+|---|---|---|---|
+| **PD-F-11** | Grants for the new `opportunities` and `campaigns` resources | View: all human workspace roles. Create/update (Opportunity stage, forecast, close; Campaign details and terms): EMPLOYEE+. Reopen an Opportunity, transition Campaign lifecycle, declare provider campaign links: MANAGER+. Void: OWNER/ADMIN. AI_EMPLOYEE hard-denied writes and view (as PD-F-04). | Opportunity and Campaign service slices |
+| **PD-F-12** | Confirm the readings in §3.3 and §4.3: categories OPEN / CLOSED_WON / CLOSED_LOST with WITHDRAWN as a loss reason; starting loss reasons; forecast amount and expected close date; Campaign lifecycle states; one CRM Campaign per provider campaign per period | Confirm as written | Opportunity and Campaign contract slices |
+
+## 7. Decisions log
+
+| Date | Decision |
+|---|---|
+| 2026-09-15 | PD-F-02 approved: Relationship optional for Opportunity; no placeholder Relationship |
+| 2026-09-15 | PD-F-06 approved: fixed categories, organization-configurable stages, append-only history, human-authored attributed forecast probability, closed-won/closed-lost with governed loss reasons, no close approval at launch, explicit creation from Intake requiring an established Party, AI recommends but never authors stage, forecast, close or outcome |
+| 2026-09-15 | PD-F-07 approved: CRM owns Campaign identity, lifecycle, terms, participants (when activated) and associations; Accounting owns transactions, invoices, payment and settlement; multiple provider campaigns over time; no automatic Campaign on win; lifecycle never inferred from traffic |
+

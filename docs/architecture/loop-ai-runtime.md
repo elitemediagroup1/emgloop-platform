@@ -1,8 +1,9 @@
 # Loop AI Runtime — architecture record
 
-**Status:** PROPOSED (2026-09-15). **Architecture only.** Nothing in this record exists in code. No
-provider SDK, secret, model call or model-triggered write may be added until Product approves this
-architecture and the provider and security decisions in §17 (PD-F-08).
+**Status:** ARCHITECTURE APPROVED (PD-F-08, 2026-09-15). **Nothing in this record exists in code yet.**
+Case Explanation is approved as the first governed use case once the runtime foundation is ready. **No
+AI-generated domain write is authorized.** Provider SDKs and HTTP stay behind provider adapters. No
+production data is sent to any provider until the activation gates in §17 hold.
 
 **Position.** Loop owns intelligence and governance. Anthropic and OpenAI are interchangeable reasoning
 engines underneath it. Neither is Loop's authority, memory or brain.
@@ -245,7 +246,8 @@ The model receives a `ContextPackage` built by Loop. It never queries the databa
 | WORKFORCE_PII | not sent |
 | SSDI and other sensitive fields, secrets | never |
 
-  Whether any sensitive class may leave Loop is PD-F-08(b).
+  Adopted default (§17): only OPERATIONAL data leaves Loop. Anything more needs a separate Product and
+  security review.
 - **Tenancy.** A package is bound to one organization. The runtime asserts every item's
   `organizationId` equals the invocation's, and aborts on mismatch (fence test). Nothing is cached
   across organizations.
@@ -344,8 +346,7 @@ Every invocation writes an **AI invocation record**, organization-scoped, append
 - Artifacts (summary, draft, proposal) reference their `invocationId`.
 - Evidence snapshots follow Engineering Principles Rule 3: a stored AI-proposed recommendation keeps its
   context manifest and limitations.
-- Storing full prompt and response *bodies* is PD-F-08(d). The recommendation for launch is not to
-  persist bodies in production.
+- Full prompt and response *bodies* are not persisted in production (adopted default, §17).
 
 ## 10. F8 — Prompt management
 
@@ -411,7 +412,7 @@ No vague global AI memory. Each kind maps to an existing or proposed authority:
 
 **Provider terms, residency and incidents**
 - Before any production data is sent, Product and legal confirm per provider: no training on
-  submissions, retention and zero-retention eligibility, and processing region (PD-F-08(c)). The
+  submissions, retention and zero-retention eligibility, and processing region (activation gate G2, §17). The
   runtime records the provider and region on each invocation.
 - Incident handling:
   - kill switches (§4);
@@ -532,16 +533,38 @@ facts". Its follow-on (`CaseRecommendationService.record` with author MODEL) alr
 | S3 | Decision Engine approval gaps (§8); `recommendation.propose` with author MODEL | possibly (actor type) |
 | S4 | Read tools and the broker; further tasks | no |
 
-## 17. Product decisions required (PD-F-08)
+## 17. Approval (PD-F-08) and activation gates
 
-| # | Question | Recommendation |
+**Approved 2026-09-15:** this architecture, including provider adapters, governed routing, authorized
+context assembly, structured output, provenance, independent tool authorization, the Decision Engine
+approval boundary, cost and usage governance, prompt versioning, evaluation, privacy and security gates,
+and primary/fallback capability. Case Explanation is the first use case.
+
+**Not authorized:**
+- any AI-generated domain write;
+- direct provider calls outside adapters;
+- a global AI memory;
+- provider conversation state as Loop memory.
+
+**Defaults adopted with the architecture** (the privacy and security gates):
+- **Data classes:** only OPERATIONAL data is sent to providers. Contact identifiers, communication
+  content, workforce PII and sensitive fields are not sent (§7).
+- **Bodies:** prompt and response bodies are not persisted in production. Manifests and validated
+  artifacts are (§9).
+- **Case Explanation access:** OWNER/ADMIN with `commercialIntelligence:view`, behind an organization
+  flag (§16).
+
+**Activation gates.** A live call to a provider happens only when **every** gate holds. Until then the
+task reports an honest "not configured" state and makes no call.
+
+| Gate | What must be true | Where it lives |
 |---|---|---|
-| (a) | Approve this architecture: placement, taxonomy, broker, approval boundary, provenance | Approve |
-| (b) | Which data classes may be sent to external model providers at launch | OPERATIONAL only. No contact identifiers, communication content, workforce PII or sensitive fields until a separate review. |
-| (c) | Provider approval and contractual terms: no training, retention or zero-retention, processing region | Both providers, only after legal confirms terms. Record region per invocation. |
-| (d) | Persist prompt and response bodies? | Not in production at launch. Persist manifests and validated output artifacts only. |
-| (e) | First slice, who may invoke, budgets | Case Explanation; OWNER/ADMIN plus `commercialIntelligence:view`; an organization flag; conservative token and daily caps set by Product |
-| (f) | Initial routing primary | Policy data; either provider may be primary. A commercial preference, not an architecture constraint. |
+| G1 Credentials | `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` present in the server environment. Never `NEXT_PUBLIC`, never logged, never echoed. | Deployment environment (Netlify) |
+| G2 Provider terms | Provider security and data terms (no training on submissions, retention or zero-retention, processing region) confirmed for the environment. Recorded as configuration: absent means disabled. | Deployment environment |
+| G3 Models and routing | Model identifiers configured for the task's routing policy. No model id is hard-coded in domain code. | Deployment environment + routing policy |
+| G4 Budgets | Per-request token ceilings and a per-organization daily cap configured. Absent means disabled. | Deployment environment |
+| G5 Kill switches | Global and per-task switches not engaged | Deployment environment |
+| G6 Organization flag | The Case Explanation flag is enabled for the organization | Organization settings |
 
-**Blocked until decided:** slices S0 to S4, and any provider SDK, secret, model call or model-originated
-write.
+**If credentials are missing,** everything is built up to the adapter boundary and tested with recorded
+fixtures, so the task can activate once G1–G6 are supplied.
