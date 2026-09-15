@@ -105,10 +105,14 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // ---------------------------------------------------------------------------
 // LOOP_NAV — the one navigation registry.
 //
-// Grouped by operating area (D3): Home, CRM, Intelligence, Work OS, Creator Hub
-// and Accounting, with Administration at the foot. It is NAVIGATION ONLY: every
-// item opens a route that already exists, wherever it lives today (/crm or
-// /app/admin). Module URLs move under /app in later PRs; the nav follows them.
+// Grouped as the 2026-09-14 D3 placed surfaces: Home, CRM, Intelligence, Work
+// OS, Creator Hub and Accounting, with Administration at the foot. D1/D3/D4/D5
+// have since been amended (Product C-01 to C-04, 2026-09-15): five operating
+// areas (Home, CRM, Work, Intelligence, Operations), no peer Creator Hub,
+// Accounting or Administration, CallGrid split by authority. Regrouping follows
+// Charlie and Lexi's approved navigation and route-transition proposal; this
+// registry has not been regrouped yet. It is NAVIGATION ONLY: every item opens a
+// route that already exists, wherever it lives today (/crm or /app/admin).
 //
 // Each item carries the authority its destination enforces: `requires` for the
 // page's requirePermission, `workspace` for its route tree's requireWorkspace.
