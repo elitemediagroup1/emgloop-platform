@@ -4,7 +4,7 @@
 //
 // Mutations for the unified inbox + conversation workspace. Every action
 // enforces a deny-by-default permission check via the guard (inbox for
-// conversation operations, customers for merge), persists through the
+// conversation operations), persists through the
 // @emgloop/database repository layer, and writes an immutable AuditLog entry.
 // Composing a message is a DB/timeline write only: it creates a Message row,
 // it does NOT send through any real provider. No mocks, no fake data.
@@ -123,35 +123,5 @@ export async function removeSavedViewAction(formData: FormData): Promise<void> {
   const viewId = String(formData.get('viewId') ?? '').trim();
   if (!viewId) return;
   await repositories.conversationsInbox.removeSavedView(session.userId, viewId);
-  revalidatePath('/crm/conversations');
-}
-
-// --- Customer merge ----------------------------------------------------
-
-/**
- * Merge a duplicate customer into a canonical one. Requires the elevated
- * customers:delete permission because it consolidates records. Writes an
- * audit entry describing what was moved.
- */
-export async function mergeCustomersAction(formData: FormData): Promise<void> {
-  const session = await requirePermission('customers', 'delete');
-  const canonicalId = String(formData.get('canonicalId') ?? '').trim();
-  const mergedId = String(formData.get('mergedId') ?? '').trim();
-  if (!canonicalId || !mergedId || canonicalId === mergedId) return;
-  const result = await repositories.conversationsInbox.mergeCustomers({
-    organizationId: session.organizationId,
-    canonicalId,
-    mergedId,
-  });
-  await repositories.audit.record({
-    organizationId: session.organizationId,
-    userId: session.userId,
-    actorName: session.name,
-    action: 'customer.merged',
-    entityType: 'customer',
-    entityId: canonicalId,
-    metadata: { mergedId, moved: result.moved },
-  });
-  revalidatePath('/crm/customers');
   revalidatePath('/crm/conversations');
 }
