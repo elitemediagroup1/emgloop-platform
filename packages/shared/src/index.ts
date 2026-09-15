@@ -343,6 +343,12 @@ export * from './party';
 // forward) or NOT_FOUND; writes reference ESTABLISHED Parties only. See ./party-reference.ts.
 export * from './party-reference';
 
+// --- Universal Activity: the activity.v1 item contract (slice A1) ---
+// A reference to a record a source domain owns, with an explanation. Identity is
+// derived at read time and never invented; no raw values; no confidence. See
+// ./activity.ts and docs/architecture/universal-activity.md.
+export * from './activity';
+
 // --- Operational decision lifecycle (platform primitives) ---
 // The pure projection from an append-only observation log to the current state
 // of a priority, plus the operational history and decision-activity statistics
