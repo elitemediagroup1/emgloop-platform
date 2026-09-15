@@ -1181,7 +1181,7 @@ dates showed Sep 15 at 8:37 PM Eastern.
 
 **Next:** PD-1 implementation (Work OS targets) and PD-2 preference governance, each its own branch.
 
-## Identity ingestion boundary — SLICE 1 IN REVIEW (#239, branch `fix/ingestion-records-facts-not-people`)
+## Identity ingestion boundary — SLICE 1 MERGED (#239, verified on `main` by content) · PEOPLE AUDIT IN REVIEW (#240)
 
 _Last updated: 2026-09-15._
 
@@ -1210,7 +1210,15 @@ establishment); Party / CustomerPartyLink services and their fences.
 is always required; automated verification; whether anonymous history attaches after resolution.
 Historical People remediation is designed separately, starting with read-only aggregate analysis.
 
-**Next:** merge review of Slice 1. Do not start Slice 2 before it merges.
+**People population audit (#240, not dispatched):** read-only, aggregate-only runner
+`read-people-population` (workflow_dispatch). It covers provenance, anonymous-visitor residue, withheld
+callers, duplicate phones, interaction attachment (incl. last-7-only calls), human-worked records, workflow
+damage, the governance baseline, creation bursts and Slice 1 exposure. It prints fixed-vocabulary counts only
+(each line checked before printing), requests `default_transaction_read_only=on`, and has no write path.
+Set `slice1_at` to when #239 actually reached production, not the merge instant.
+
+**Next:** Matt reviews and merges #240, then dispatches it once for `servicesinmycity-demo`. Remediation
+design starts from that output. Do not start Slice 2 or any cleanup before then.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
