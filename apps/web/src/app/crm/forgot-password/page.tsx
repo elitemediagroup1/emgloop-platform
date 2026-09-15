@@ -1,6 +1,7 @@
-// CRM Forgot Password — Sprint 7. Requests a password-reset token. Because
-// email delivery is out of scope, on success the reset link is displayed
-// in-app (via the ?token query param) so reviewers can complete the flow.
+// CRM Forgot Password. Requests a password reset. The reset link is delivered
+// only by email to the account's own address; this page never receives, reads
+// or renders a token, and shows the same confirmation whether or not an account
+// exists.
 
 import Link from 'next/link';
 import { requestResetAction } from '../../../auth/actions';
@@ -10,10 +11,9 @@ export const dynamic = 'force-dynamic';
 export default function ForgotPasswordPage({
   searchParams,
 }: {
-  searchParams: { sent?: string; token?: string };
+  searchParams: { sent?: string };
 }) {
   const sent = Boolean(searchParams.sent);
-  const token = searchParams.token;
   return (
     <div className="crm-auth-wrap">
       <div className="crm-auth-card">
@@ -22,13 +22,6 @@ export default function ForgotPasswordPage({
         {sent ? (
           <div className="crm-auth-ok">
             If an account exists for that email, a reset link has been generated.
-          </div>
-        ) : null}
-        {token ? (
-          <div className="crm-auth-hint">
-            No email service is configured in this environment, so here is your
-            one-time reset link:{' '}
-            <Link href={'/crm/reset-password?token=' + token}>Set a new password</Link>
           </div>
         ) : null}
         {!sent ? (
