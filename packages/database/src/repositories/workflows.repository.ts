@@ -40,6 +40,32 @@ export const WORKFLOW_STEP_TYPES = [
 
 export type WorkflowStepType = (typeof WORKFLOW_STEP_TYPES)[number];
 
+/**
+ * The record each step acts on, or null when it acts on none.
+ *
+ * A STEP WHOSE RECORD IS ABSENT DOES NOT APPLY. It is not run, writes nothing,
+ * and is recorded as not applicable rather than failed. Ingested events carry no
+ * customer (ingestion never decides who someone is), so an event workflow built
+ * from customer steps applies to none of them -- which is exactly right, and must
+ * not read as a stream of failures.
+ */
+const STEP_SUBJECT: Record<WorkflowStepType, 'customer' | 'conversation' | null> = {
+  add_tag: 'customer',
+  set_pipeline_status: 'customer',
+  assign: 'customer',
+  create_note: 'customer',
+  set_conversation_status: 'conversation',
+  emit_event: null,
+};
+
+/** Whether a step has the record it acts on in this run's context. */
+export function stepApplies(step: Pick<WorkflowStep, 'type'>, context: RunContext): boolean {
+  const subject = STEP_SUBJECT[step.type];
+  if (subject === 'customer') return Boolean(context.customerId);
+  if (subject === 'conversation') return Boolean(context.conversationId);
+  return true;
+}
+
 export interface WorkflowStep {
   type: WorkflowStepType;
   // Free-form, step-specific config. Validated per-type by the executor.
@@ -106,6 +132,9 @@ export interface WorkflowRunView {
 export interface StepResult {
   index: number;
   type: string;
+  /** Whether the step ran. False when the record it acts on was absent. */
+  applicable: boolean;
+  /** Whether the step ran and succeeded. Always false for a step that did not apply. */
   ok: boolean;
   detail: string;
 }
@@ -233,15 +262,22 @@ export class WorkflowsRepository {
       stepResults.push({
         index: typeof o.index === 'number' ? o.index : stepResults.length,
         type: typeof o.type === 'string' ? o.type : 'unknown',
+        // Runs recorded before steps could be not applicable ran every step.
+        applicable: o.applicable !== false,
         ok: o.ok === true,
         detail: typeof o.detail === 'string' ? o.detail : '',
       });
     }
-    const okCount = stepResults.filter((s) => s.ok).length;
+    const applied = stepResults.filter((s) => s.applicable);
+    const notApplicable = stepResults.length - applied.length;
+    const okCount = applied.filter((s) => s.ok).length;
     const summary =
       stepResults.length === 0
         ? 'No steps executed'
-        : okCount + ' of ' + stepResults.length + ' steps succeeded';
+        : applied.length === 0
+          ? 'No step applied (' + notApplicable + ' not applicable)'
+          : okCount + ' of ' + applied.length + ' steps succeeded' +
+            (notApplicable > 0 ? ' · ' + notApplicable + ' not applicable' : '');
     return {
       id: r.id,
       workflowId: r.workflowId,
@@ -329,10 +365,13 @@ export class WorkflowsRepository {
   /**
    * Execute a workflow's steps in order against the given context, recording
    * a WorkflowRun. Each step is an internal data mutation routed through the
-   * existing tables; a step that cannot apply (e.g. needs a customer but none
-   * was provided) is recorded as a failed step but does not abort the run.
-   * The run is marked SUCCEEDED only if every step succeeded, FAILED if any
-   * step failed, and the whole thing is wrapped so an unexpected throw is
+   * existing tables. A step whose record is absent from the context (a customer
+   * step with no customer) does not apply: it is recorded as not applicable,
+   * never run, and never counted as a failure.
+   *
+   * The run is SUCCEEDED when every step that applied succeeded, FAILED when one
+   * of them failed, and CANCELED when the workflow has steps but none applied,
+   * so nothing ran. The whole thing is wrapped so an unexpected throw is
    * captured on the run row rather than bubbling to the caller.
    */
   async runWorkflow(args: {
@@ -367,15 +406,30 @@ export class WorkflowsRepository {
       for (let i = 0; i < def.steps.length; i++) {
         const step = def.steps[i];
         if (!step) continue;
+        if (!stepApplies(step, context)) {
+          stepResults.push({
+            index: i,
+            type: step.type,
+            applicable: false,
+            ok: false,
+            detail: 'Not applicable: no ' + STEP_SUBJECT[step.type] + ' in this run.',
+          });
+          continue;
+        }
         const result = await this.executeStep(organizationId, step, context);
-        stepResults.push({ index: i, type: step.type, ok: result.ok, detail: result.detail });
+        stepResults.push({ index: i, type: step.type, applicable: true, ok: result.ok, detail: result.detail });
       }
     } catch (err) {
       runError = err instanceof Error ? err.message : 'Unknown execution error';
     }
 
-    const allOk = runError === null && stepResults.every((s) => s.ok);
-    const status: WorkflowRunStatus = allOk ? 'SUCCEEDED' : 'FAILED';
+    const applied = stepResults.filter((s) => s.applicable);
+    const nothingApplied = runError === null && def.steps.length > 0 && applied.length === 0;
+    const status: WorkflowRunStatus = nothingApplied
+      ? 'CANCELED'
+      : runError === null && applied.every((s) => s.ok)
+        ? 'SUCCEEDED'
+        : 'FAILED';
 
     const finished = await this.prisma.workflowRun.update({
       where: { id: run.id },
@@ -383,7 +437,7 @@ export class WorkflowsRepository {
         status,
         finishedAt: new Date(),
         output: { stepResults } as object,
-        error: runError,
+        error: nothingApplied ? 'Nothing ran: no step applies to this run.' : runError,
       },
     });
 
@@ -392,9 +446,15 @@ export class WorkflowsRepository {
 
   /**
    * Event-trigger binding: given a domain event that just fired, run every
-   * ACTIVE workflow whose trigger is EVENT and whose configured eventName
-   * matches. Returns the run outcomes. Failures are isolated per workflow so
-   * one broken workflow cannot stop the others.
+   * ACTIVE workflow whose trigger is EVENT, whose configured eventName matches,
+   * and at least one of whose steps applies to the event's context. Returns the
+   * run outcomes. Failures are isolated per workflow so one broken workflow
+   * cannot stop the others.
+   *
+   * A workflow none of whose steps applies starts no run. Nobody asked for it to
+   * run against this event -- the trigger matched, the records it acts on are not
+   * there -- so a run row would only be noise in its history. The DomainEvent
+   * that fired is still recorded. (A manual run always records, see runWorkflow.)
    */
   async runWorkflowsForEvent(args: {
     organizationId: string;
@@ -407,7 +467,9 @@ export class WorkflowsRepository {
       where: { organizationId, isActive: true, trigger: 'EVENT' },
     });
     const matching = candidates.filter(
-      (w) => readTriggerConfig(w.triggerConfig).eventName === eventName,
+      (w) =>
+        readTriggerConfig(w.triggerConfig).eventName === eventName &&
+        readDefinition(w.definition).steps.some((s) => stepApplies(s, context)),
     );
     const outcomes: { workflowId: string; status: WorkflowRunStatus }[] = [];
     for (const w of matching) {
