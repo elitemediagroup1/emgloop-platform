@@ -25,7 +25,11 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — ALIGNED THROUGH CI STAGE 2 (verified 2026-08-16)
+## Production migration state — ALIGNED THROUGH CRM P0.2e (33 migrations; verified 2026-09-15)
+
+**Latest:** the `Deploy Prisma Migrations` run of 2026-09-13 found 33 migrations and applied
+`20260916000000_crm_p0_2e_customer_party_link`. `main` has added no migration since (#239–#243). The
+2026-08-16 narrative below is kept as history.
 
 **Production is, and has been since 2026-07-09, under Prisma Migrate management.** The long-standing
 claim that it has no `_prisma_migrations` ledger and that no migration has ever been applied through
@@ -1204,9 +1208,37 @@ record's decisions log). Product approved the three 2.0b readings as implemented
 depth guard, NOT_FOUND on a PERSON ↔ COMPANY chain, and refusing (never substituting) a superseded id on
 write. The rules for the 2.5b supersession writer are recorded in §8.
 
-**Next:** merge #243, then verify it on `main` by content. After that, Relationship and Participant
-architecture proceeds (architecture first) against the Party Reference contract. Still authorized but not done: wording fixes to materially false
-People labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
+#243 merged as `543c645` and was verified on `main` by content.
+
+**Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
+
+## Foundation handoff — ARCHITECTURE PROPOSED · BLOCKED ON PRODUCT DECISIONS
+
+_Last updated: 2026-09-15._
+
+**Handoff:** `docs/product/foundation-handoff.md`. It contains the readiness matrix, the Charlie/Lexi
+unblock matrix, the minimum backend finish line, and the ordered plan.
+
+**Proposed records:**
+- `docs/architecture/relationship-participant.md`
+- `docs/architecture/universal-activity.md` (contract `activity.v1`)
+- `docs/architecture/commercial-opportunity-campaign.md` (readiness)
+- `docs/architecture/loop-ai-runtime.md` (architecture only; no SDK, secret or call)
+
+**Gate:** FOUNDATION HANDOFF BLOCKED — PRODUCT DECISIONS REQUIRED.
+- The GREEN and YELLOW surfaces may resume design.
+- Relationships, Opportunities, Campaigns and Creator administration stay RED until PD-F-01, PD-F-02,
+  PD-F-06 and PD-F-07 are decided.
+- PD-F-03, PD-F-04, PD-F-05, PD-F-08, PD-F-09 and PD-F-10 are listed in the handoff (§8).
+
+**Critical gap:** `PartyService.create` and `establish` have no production caller, and production holds 0
+established Parties. Slice P1 (governed Party write actions plus the People and Companies read models)
+is the first backend slice to authorize.
+
+**Security, urgent:** #244. The password-reset flow gave the reset link to whoever typed a user's email,
+which is account takeover. The fix is open for review. Whether the flow was abused is unknown; reading
+the `auth.reset_requested` and `auth.password_reset` audit rows is a production read that needs
+approval.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

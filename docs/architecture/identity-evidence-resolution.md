@@ -322,10 +322,13 @@ Party:
 - Capacities are held by a Party in a context for a time. 2.0b starts from the five `party.ts` already
   names (buyer, vendor, source, creator, employee); the full set is decided by the Relationship and
   Participant architecture. A capacity never decides Party type, and a Party type never implies one.
-- The dormant `IdentityRole` table (written only by the ungoverned `CognitiveIdentityRepository`) is
-  not the capacity authority, and 2.0b neither reads nor writes it. Whether it is evolved or confined is
-  decided with the Participant architecture, as PD-I2-06 decided for `IdentityRelationship`. The
-  specification's "contextual roles" on a Person are these capacities.
+  That architecture is proposed in `docs/architecture/relationship-participant.md` §6: a role contract
+  decoupled from `CognitiveEntityType` names, pending PD-F-03.
+- The dormant `IdentityRole` table (written only by the ungoverned `IdentityRoleRepository`, reached only
+  from the dormant resolver) is not the capacity authority, and 2.0b neither reads nor writes it. The
+  proposed Participant architecture confines it together with `IdentityRelationship`; retirement is
+  decided with 2.1a (`relationship-participant.md` §8). The specification's "contextual roles" on a
+  Person are these capacities.
 - `CaseParticipant` (Commercial Intelligence) is a User's participation in a Case. It is not a Party
   Participant and is not renamed by this work.
 - **Contract readings (2.0b, #243; fail closed):**
@@ -359,7 +362,9 @@ Party:
 | Supersession | user, time, reason, canonical id |
 | Policy activation / change | user, class, version, time |
 
-Identity writes publish `OutboxSubjectType.IDENTITY` state changes on the existing outbox. No new bus.
+Identity writes are to publish `OutboxSubjectType.IDENTITY` state changes on the existing outbox (no
+new bus). **Not built yet:** `PartyService` and `CustomerPartyLinkService` write audit rows only, and
+record no actor display name (the rows read "System").
 Audit rows never contain names or contact values.
 
 ## 14. Planned schema changes
@@ -410,6 +415,10 @@ attribution, automatic anonymous-history attribution, verification (VERIFIED_EMA
 legacy remediation, raw sensitive-data policy.
 
 ## 16. Parallel work and backend contracts
+
+> The current, cross-domain readiness matrix and UI unblock matrix are in
+> `docs/product/foundation-handoff.md` (2026-09-15). This section is kept for the identity-specific
+> contract history.
 
 **Charlie and Lexi (parallel UI track, C-01 to C-05)** may design the global navigation, Loop Home, CRM
 information architecture, People, Companies, Intake Records, Relationship, Opportunity, Campaign,
