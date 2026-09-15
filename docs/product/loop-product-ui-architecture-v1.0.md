@@ -3,9 +3,32 @@
 > **Source of record.** Verbatim transcription of *Elite Media Group — Loop Product and UI Architecture
 > v1.0* (12-page PDF, dated September 15 2026, prepared by Charlie Brugnolotti and Elite Media Group),
 > supplied by Matt Dunn on 2026-09-15 as the controlling Product/UI architecture. The text and tables
-> below are the document's own wording; only the layout was converted to Markdown. Nothing was added,
-> removed or reinterpreted. Where this document and a locked platform decision disagree, the
-> disagreement is recorded and taken to Product. It is not resolved silently here.
+> below are the document's own wording; only the layout was converted to Markdown. Nothing in the
+> transcription was added, removed or reinterpreted. Where this document and a locked platform decision
+> disagree, the disagreement is recorded and taken to Product. It is not resolved silently here.
+>
+> **Product annotations.** Blocks headed *Product annotation* are not part of the source document. They
+> record Product's resolution of a disagreement and say how a phrase is read in Loop. They do not change
+> the document's wording or its UX intent.
+
+> **Product annotation — conflict resolutions C-01 to C-05 (Product, 2026-09-15).** Five disagreements
+> between this document and the locked application-structure decisions were resolved:
+>
+> - **C-01.** The five operating areas win. Administration capabilities are system/workspace settings or
+>   contextual administration. Accounting stays its own domain, surfaced contextually. This is
+>   information architecture only: no route migration during Identity 2.0/2.0b.
+> - **C-02.** Creator Hub is not a peer area. Creator administration is Operations → Creators, and
+>   `/app/creator` may stay transitional. External participant authentication, memberships, portals and
+>   multi-org sign-in are not authorized.
+> - **C-03.** CallGrid is split by authority. Operational surfaces go to Operations → CallGrid,
+>   analytical surfaces to Intelligence, and credentials, connection state and integration governance to
+>   system/workspace administration. There is no duplicate tree.
+> - **C-04.** People are established, non-superseded PERSON Parties. Companies are established,
+>   non-superseded COMPANY Parties. Legacy Customer records are Intake Records.
+> - **C-05.** "Identity confidence" means governed identity posture, never a number.
+>
+> Recorded in `docs/architecture/loop-application-structure.md` (D1–D5 and its decisions log) and
+> `docs/architecture/identity-evidence-resolution.md` (§2, §10, §11, §11a and the decisions log).
 
 *Canonical product design and implementation handoff*
 
@@ -58,6 +81,15 @@ The redesigned product must feel coherent while remaining architecturally honest
 | Intelligence | Investigate governed understanding | Investigations, Findings, Recommendations, Decisions, Monitoring |
 | Operations | Operate specialized business capabilities | CallGrid, Creator Management, and future operational modules |
 
+> **Product annotation (C-01, C-03).** Administrative capabilities (Workspace, Team, Settings, Setup,
+> Audit, AI Employees, Integrations, permissions and governance) are system/workspace settings or
+> contextual administration, not an operating area. Accounting is its own domain, surfaced contextually.
+> Under Operations, CallGrid holds only operational surfaces: live execution, routing, operational
+> configuration, reconciliation, diagnostics and health. CallGrid's analytical surfaces belong to
+> Intelligence. Its credentials, connection state and integration governance belong to system/workspace
+> administration. No route moves during Identity 2.0/2.0b. Charlie and Lexi own the route-transition
+> proposal.
+
 ### Responsive Participant Experiences
 
 Creator Hub and customer-facing screens remain part of Loop, but they are not peer operating areas. They are responsive projections composed for a participant according to identity, membership, participation, and permissions.
@@ -69,6 +101,11 @@ Creator Hub and customer-facing screens remain part of Loop, but they are not pe
 | Partner or source | Context-specific status, reporting, messages, and actions | Relevant CRM or Operations authority |
 
 Global Loop navigation describes operating authority. Responsive experiences describe participation. Contextual navigation describes the subject currently being operated on.
+
+> **Product annotation (C-02).** Internal creator administration is Operations → Creators. `/app/creator`
+> may remain as a transitional route, and there is no second Creator application. External participant
+> authentication, participant memberships, participant portals and multi-org sign-in are not authorized.
+> The participant experiences above are direction, not an authorization to build them.
 
 ## Navigation and Context
 
@@ -129,6 +166,13 @@ The Command Center answers where business is moving, where it is stuck, which re
 | Campaign | What was sold, agreed, or commercially intended | Execution and performance remain composed from their owners |
 | Intake | What entered the commercial intake process | Intake is not identity and does not automatically create a Person |
 
+> **Product annotation (C-04).**
+> - People are established, non-superseded PERSON Parties. Companies are established, non-superseded
+>   COMPANY Parties. Intake is entry into a commercial process.
+> - Legacy Customer records are **Intake Records**. `/app/crm/people` is reserved for PERSON Parties.
+> - Customer ≠ Person ≠ Party. An Interaction, a caller ID, an anonymous visitor and an Intake record are
+>   each not a Person. FACT ≠ IDENTITY ≠ INTAKE.
+
 ## Canonical Record Experience
 
 Every serious Loop record uses a shared five-part grammar. The user learns one interaction language even when the underlying objects differ.
@@ -142,6 +186,19 @@ Every serious Loop record uses a shared five-part grammar. The user learns one i
 ### Person
 
 A Person record shows identity confidence, contextual roles, communication actions, relationships, active opportunities and campaigns, open work, activity, and relevant intelligence. A managed creator remains a Person with creator participation and capability. Creator is not a Party type.
+
+> **Product annotation (C-05).** "Identity confidence" means **governed identity posture**. It is made up of:
+>
+> - establishment state and basis;
+> - CONFIRMED_SAME_PARTY, POSSIBLE_MATCH or UNRESOLVED;
+> - evidence tier;
+> - provenance;
+> - freshness;
+> - limitations;
+> - conflicting evidence.
+>
+> It is never a 0–1 score, a percentage, an AI confidence number or a weighted frequency score.
+> Definition: `docs/architecture/identity-evidence-resolution.md` §11a.
 
 An unresolved caller is not a Person. Selecting unidentified activity opens the Activity or Event context until governed identity resolution establishes a Party.
 
@@ -184,6 +241,10 @@ The timeline becomes a core Loop primitive and a contextual projection of author
 ### Progressive Detail
 
 The collapsed timeline state shows the human-readable event. Expanded detail reveals evidence, confidence, provenance, actor, timestamp, and owning authority as appropriate. Normal users read the story; investigators and auditors can reach the underlying evidence without changing interfaces.
+
+> **Product annotation (C-05).** For identity, "confidence" here is read as governed identity posture,
+> never a number. This annotation decides nothing for other authorities. Each shows only what its owning
+> authority defines; for a Finding, that is the evidence state and evidence count in the table above.
 
 ### Unidentified Activity
 

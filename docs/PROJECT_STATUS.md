@@ -1156,10 +1156,16 @@ _Last updated: 2026-09-15._
 PD-I2-01–09). Charlie and Lexi's Loop Product and UI Architecture v1.0 controls UI/product architecture
 alongside the Constitution: `docs/product/loop-product-ui-architecture-v1.0.md`.
 
-**⚠️ Open conflict, awaiting Product:** the specification's five operating areas (Home, CRM, Work,
-Intelligence, Operations), Creator Hub as a participant experience, CallGrid under Operations and "People =
-canonical People only" contradict locked decisions D1–D5 in `docs/architecture/loop-application-structure.md`.
-No implementation proceeds across them until Product decides.
+**Specification conflicts resolved (Product C-01–C-05, 2026-09-15):**
+- C-01: five operating areas. Administration and Accounting are not peer areas.
+- C-02: Creator Hub is not a peer area; Operations → Creators.
+- C-03: CallGrid is split by authority.
+- C-04: People are established PERSON Parties, Companies are established COMPANY Parties, and legacy
+  Customers are Intake Records.
+- C-05: identity posture, never a confidence number.
+
+These are recorded in `loop-application-structure.md` (D1–D5 amended) and the decision record. They are
+information architecture only, with no route move in Identity 2.0/2.0b.
 
 **Slice 1 (#239, verified in production):** ingestion records facts and never creates, selects, attaches
 to or modifies a Customer. Production audit after deploy: 0 People created, 0 provider interactions
@@ -1187,21 +1193,24 @@ anonymous-history attribution, verification build, legacy remediation.
 **Separate operational cleanup (awaiting explicit approval):** deactivate the two inert seeded call
 workflows; resolve the workflow run stuck RUNNING since July.
 
-**Next:** Product review of the decision record PR. No Slice 2 code before that checkpoint.
+**Next:** after the documentation reconciliation passes, Identity 2.0 (pure contracts), then 2.0b (Party
+Reference Contract) from fresh `main` if independent. Wording fixes to materially false People labels and
+the `/crm/merge` disable are authorized but not yet done. No 2.1 without new authorization.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
 _Last updated: 2026-09-15._
 
 Decisions D1–D8 and the authorization invariant are locked in
-`docs/architecture/loop-application-structure.md` (approved by Matt 2026-09-14). One application under
-`/app`: one shell, one nav registry, `/app/<module>` routes, deliberate redirects.
+`docs/architecture/loop-application-structure.md` (approved by Matt 2026-09-14; D1–D5 amended by Product
+C-01–C-04 on 2026-09-15). One application under `/app`: one shell, one nav registry, five operating areas
+(Home, CRM, Work, Intelligence, Operations), deliberate redirects.
 
 | PR | Scope | Status |
 |----|-------|--------|
 | 1 + 2 | Sign-in lands on Loop; one shell, one `LOOP_NAV`; CRM inside the shell; explicit guard on every role-guarded page | **MERGED** #237 (verified on `main` by content) |
 | 3 | Route authority, redirect table (incl. `/app/admin/crm`, role homes, catch-alls), public auth routes | Not started |
-| 4–7 | Administration, Intelligence, Work OS, CRM → canonical routes | Not started |
+| 4–7 | Canonical routes per area | Awaiting Charlie/Lexi's route-transition proposal (C-01); PR 4's Administration prefix superseded |
 | Final | Retire role trees, phantom Business/Creator authority, placeholders; docs | Not started |
 
 #235 and #236 remain open as superseded candidates; close them when directed.
@@ -1257,12 +1266,10 @@ it; a broader Headlines route/access policy is a separate future decision.
    manual by design, so any branch adding a table is still code-complete until somebody dispatches
    `Deploy Prisma Migrations`. The open follow-up is a read-only signal when `main` carries
    migrations production has not applied — eight sat unapplied for three weeks and nothing warned.
-7. **Business Identity approval packet — 19 decisions, none accepted.** Blocks CRM v1 code (not CRM
-   design). Answer **Q2** first to unblock the most downstream work; **Q1** is the only one where
-   "yes in principle, no date" leaves the project worse off than a clear "not yet". See the
-   Business Identity block above; the decision log itself (§5-6) is one of the uncommitted artifacts.
-8. **`/crm/merge` defects** — unread `mergedInto` filter, irreversible re-pointing, false
-   "soft-archived" comment. Own ticket, outside the Business Identity project (Q10).
+7. **Business Identity approval packet — superseded.** See the Identity block and
+   `docs/architecture/identity-evidence-resolution.md`.
+8. **`/crm/merge`** — Product decided to disable it, not adapt it (PD-I2-05). It needs its own small PR,
+   and historical records are not deleted.
 9. **The Decision Center sequence (Matt, 2026-07-31).** Architecture follows actual reuse, never
    speculation — each step earns the next:
    1. ~~Merge #156.~~ **Done**; #157 (event contract + drain) also merged.

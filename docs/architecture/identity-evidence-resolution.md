@@ -8,7 +8,9 @@ lands, this record is updated in the same PR.
 **Authority order:** the Engineering Constitution (`CLAUDE.md`, `docs/ENGINEERING_PRINCIPLES.md`) →
 the locked decisions below → the rest of this record. Charlie and Lexi's **Loop Product and UI
 Architecture v1.0** (2026-09-15, `docs/product/loop-product-ui-architecture-v1.0.md`) is the
-controlling UI/product architecture alongside it.
+controlling UI/product architecture alongside it. Product's resolutions C-01 to C-05 (2026-09-15) apply
+to it: C-01–C-04 in `docs/architecture/loop-application-structure.md`, and C-04 (identity semantics) and
+C-05 (identity posture) here.
 
 **Supersedes:** the "Business Identity Architecture v1" assessment in `docs/PROJECT_STATUS.md`
 (KEEP_SEPARATE cognitive identity, Customer as a DomainProjection, 19 open decisions). Those were
@@ -52,6 +54,14 @@ service requests; it does not delete them.
 - Person and Company are canonical Party experiences.
 - Relationship is a first-class commercial subject.
 - UI may compose authority but cannot create or transfer it.
+
+**Product resolutions (C-04, C-05, 2026-09-15):**
+- People are established, non-superseded PERSON Parties. Companies are established, non-superseded
+  COMPANY Parties. Intake is entry into a commercial process.
+- Customer is transitional Intake infrastructure. Customer ≠ Person ≠ Party. An Interaction, a caller
+  ID, an anonymous visitor and an Intake record are each not a Person. **FACT ≠ IDENTITY ≠ INTAKE.**
+- There is no numeric identity confidence. The specification's "identity confidence" means governed
+  identity posture (§11a).
 
 **Already locked in code:** the Party contract (`packages/shared/src/party.ts`), PartyService
 (#224, Option D), CustomerPartyLinkService (#225), the identityResolution grant table and the
@@ -103,7 +113,7 @@ an establishment basis (§6, fence in 2.0).
 policy is configured per class (§7).
 
 **Tiers:** ANONYMOUS < WEAK < MODERATE < STRONG, plus CONFLICTING. Ordered labels, never numbers. No
-confidence value is computed, stored or read.
+confidence value is computed, stored or read (C-05, §11a).
 
 **Identifier flags:** SHARED, BUSINESS_LINE, SUSPECT, RECYCLED; state PROPOSED / ACTIVE / DISMISSED / REVOKED.
 
@@ -229,6 +239,13 @@ Amended Product decision 8 and PD-I2-04 (2026-09-15). **Fact ≠ Identity ≠ In
 - The 24,590 legacy Intake records are classified **at read time** by the provenance marks the audit
   used (`metadata.createdFrom`, the `web-visitor:` external id, tags). No classification is written
   back. No record is deleted, hidden in storage, merged, relinked or backfilled.
+- **Naming and routes (C-04).**
+  - Legacy Customer records are **Intake Records**. Their exact route is set by Charlie and Lexi's
+    route-transition proposal.
+  - `/app/crm/people` is reserved for PERSON Parties.
+  - Until the redesign, an existing screen that falsely presents Customer rows as People may receive
+    only the smallest semantic wording correction (PD-I2-08). No record is deleted, purged, migrated or
+    relinked, and no `customerId` system is rewritten.
 
 ## 11. People projection (2.6)
 
@@ -237,7 +254,29 @@ Amended Product decision 8 and PD-I2-04 (2026-09-15). **Fact ≠ Identity ≠ In
 - **Intake Records** remain separately accessible and separately counted to authorized users, with the
   read-time provenance segment. Achieved by reads only; no Intake record is mutated.
 - A PERSON row that is not established, or an anonymous cognitive subject, never appears in People.
-- Companies are canonical Company experiences, not People.
+- **Companies** are established, non-superseded COMPANY Parties (C-04). They are not People, and they
+  are not the tenant, which is the Workspace Organization (PD-I2-07).
+
+## 11a. Identity posture (C-05)
+
+The specification says a Person record "shows identity confidence". **In Loop that phrase means
+governed identity posture, never a number.**
+
+**Posture is composed of:**
+- establishment state and basis (`MANUAL` / `EXPLICIT_LINK` today);
+- resolution posture: CONFIRMED_SAME_PARTY, POSSIBLE_MATCH or UNRESOLVED;
+- evidence tier (§4), including CONFLICTING;
+- provenance (who or what asserted it, under which policy);
+- freshness (when the supporting evidence was observed);
+- limitations (for example, caller ID is spoofable and verification is not built);
+- conflicting evidence.
+
+**Never shown, computed or stored:** a 0–1 score, a percentage, an AI confidence number or a weighted
+frequency score. The legacy `IdentityResolutionLink.confidence` column stays unread (§14).
+
+**Fence.** The 2.0 contracts carry no numeric confidence field, and a test fails if one appears.
+
+The broader UX intent is unchanged: identity posture is visible on the record and expands progressively.
 
 ## 12. Party Reference Contract (2.0b)
 
@@ -300,7 +339,7 @@ All additive. Migrations reach production only through the manual `Deploy Prisma
 
 | Slice | Contents | Migration | Production write |
 |---|---|---|---|
-| 2.0 | Pure contracts and fences (§4–6); this record kept current | no | no |
+| 2.0 | Pure contracts and fences (§4–6, §11a); this record kept current | no | no |
 | 2.0b | Party Reference Contract + capacity vocabulary + read-only reference resolver | no | no |
 | — | *Relationship + Participant architecture may proceed in parallel from here* | | |
 | 2.1a | Retire the dormant cognitive resolver as an independent resolver | no | no |
@@ -318,10 +357,13 @@ legacy remediation, raw sensitive-data policy.
 
 ## 16. Parallel work and backend contracts
 
-Charlie/Lexi may proceed now with UI 0, reusable record grammar, layout primitives, the responsive
-system, activity presentation, route/IA assessment and UX designs for canonical records. After 2.0b,
-Relationship and Participant architecture may proceed against the Party Reference Contract. No UI work
-may invent backend authority that does not exist.
+**Charlie and Lexi (parallel UI track, C-01 to C-05)** may design the global navigation, Loop Home, CRM
+information architecture, People, Companies, Intake Records, Relationship, Opportunity, Campaign,
+Activity, Operations → Creators and Operations → CallGrid, and the route-transition proposal. Their
+screens consume backend authority. Claude owns backend authority, contracts and read models. **Neither
+track creates a temporary competing implementation to unblock the other.** No UI work invents backend
+authority that does not exist. After 2.0b, Relationship and Participant architecture may proceed
+against the Party Reference Contract.
 
 | Area | Classification | Available now | Needed |
 |---|---|---|---|
@@ -331,7 +373,8 @@ may invent backend authority that does not exist.
 | Relationship | AUTHORITY MISSING | dormant `IdentityRelationship` (ungoverned, not authoritative) | governed Relationship authority designed on 2.0b |
 | Opportunity | AUTHORITY MISSING | nothing (intake status is not Opportunity) | Opportunity + Participant authority on 2.0b |
 | Campaign | AUTHORITY MISSING | campaign attribution facts on `MarketplaceCall` | Campaign authority; campaign participation DEFERRED |
-| Intake → Party identity state | CONTRACT NEEDED | Intake records; `CustomerPartyLinkService` link/reverse/history | Intake identity-state read model with read-time provenance segment; governed action contract for the UI |
+| Intake Records → Party identity state | CONTRACT NEEDED | Intake records; `CustomerPartyLinkService` link/reverse/history (PERSON or COMPANY target, established only) | Intake identity-state read model with read-time provenance segment and identity posture (§11a); governed action contract for the UI |
+| Operations → Creators | AUTHORITY MISSING | nothing: no creator model; `CREATOR` is only a contextual role name in `party.ts` | creator participation and capability around an established Person, designed with Participant after 2.0b; creator is never a Party type |
 
 ## 17. Known conflicts with current code (resolved in the named slice)
 
@@ -339,8 +382,14 @@ may invent backend authority that does not exist.
 - `IdentityResolutionLink` links identities only and records no governed actor (`confirm()` has no
   actor; `establishedBy` is free text) → 2.5.
 - The dormant resolver would mint anonymous PERSON subjects and write evidence on its own terms → 2.1a.
-- `/crm/customers` is labelled People, and the Command Center, Analytics, search and the
-  `crm.new_customers` metric ("People added", Slice 1) count Intake records → relabel to Intake in 2.6.
+- Several surfaces present Intake records as People (C-04):
+  - `/crm/customers` is labelled People.
+  - The record page's eyebrow reads "Person / Intake Record".
+  - The Command Center, Analytics, search and the `crm.new_customers` metric ("People added", Slice 1)
+    count Intake records.
+
+  Remedy: the smallest wording correction is permitted now (PD-I2-08) but not yet done; the redesign
+  belongs to Charlie/Lexi; the People and Intake Record counts come in 2.6.
 - `/crm/merge` repoints facts between Intake records irreversibly with counts-only audit → to be disabled
   (PD-I2-05).
 - The CRM `organizations` route is the tenant organization, not a canonical Company → "Workspace" /
@@ -377,3 +426,8 @@ may invent backend authority that does not exist.
 | 2026-09-15 | PD-I2-07: "Company" is a commercial COMPANY Party; the tenant is "Workspace" / "Workspace Organization"; no model renames for wording |
 | 2026-09-15 | PD-I2-08: Claude owns backend authority, contracts and read models; Charlie/Lexi own the redesigned UI; only minimal wording fixes to materially false existing labels |
 | 2026-09-15 | PD-I2-09: the Loop Product and UI Architecture v1.0 is committed at `docs/product/loop-product-ui-architecture-v1.0.md` |
+| 2026-09-15 | C-01: five operating areas (Home, CRM, Work, Intelligence, Operations); Administration and Accounting are not peer areas; IA only, no route migration in 2.0/2.0b; Charlie/Lexi own the route-transition proposal (`loop-application-structure.md` D1, D3) |
+| 2026-09-15 | C-02: Creator Hub is not a peer area; internal creator administration is Operations → Creators; `/app/creator` transitional; external participant auth, memberships, portals and multi-org sign-in not authorized (`loop-application-structure.md` D5) |
+| 2026-09-15 | C-03: CallGrid split by authority (operations / intelligence / credentials and integration governance); no duplicate tree; no route moves in 2.0/2.0b (`loop-application-structure.md` D3, D4) |
+| 2026-09-15 | C-04: D2 superseded. People = established non-superseded PERSON Parties; Companies = established non-superseded COMPANY Parties; Intake = entry into a commercial process; legacy Customers are Intake Records; `/app/crm/people` reserved; Customer ≠ Person ≠ Party; only minimal wording fixes; no delete, purge, migrate, relink or `customerId` rewrite (§10, §11) |
+| 2026-09-15 | C-05: no numeric identity confidence; "identity confidence" means governed identity posture (§11a) |
