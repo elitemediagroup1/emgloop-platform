@@ -10,9 +10,11 @@
 //     reporting day, so Loop's figures line up with the provider's reports;
 //   - Commercial Intelligence measurement windows, which are built on those
 //     CallGrid days;
-//   - Work OS target dates, which are entered and stored as Eastern wall time
-//     with `dueTimezone` recorded on the work item (an object-owned zone). Which
-//     zone a newly entered target should use is an open Product question.
+//   - Work OS target dates, TODAY ONLY and as a legacy default: entered times are
+//     read as Eastern wall time. Product decision PD-1 (loop-time-authority.md)
+//     replaces this with the entering user's effective timezone, calendar-only
+//     targets kept as calendar dates, and instants stored with their originating
+//     zone. It is not a reason to use this zone for anything user-entered.
 // Any other use is presentation and belongs to the Time Authority.
 //
 // The zone math is the Time Authority's (zonedParts, zonedWallTimeToUtc); these

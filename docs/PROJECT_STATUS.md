@@ -1171,9 +1171,15 @@ device IANA zone. There is no EMG business timezone, and the fallback is UTC, la
 `@emgloop/shared` `loop-time.ts` plus `apps/web/src/time/`. Fixes the verified 2026-09-14 defect where
 dates showed Sep 15 at 8:37 PM Eastern.
 
-**Open Product questions (recorded as debt in the ADR):**
-- which zone a newly entered Work OS target date uses (Eastern today, stored as `dueTimezone`);
-- whether the setup wizard's stored user timezone becomes the T-04 preference.
+**Product decisions recorded (PD-1, PD-2; ADR amended):**
+- **Work OS targets:** use the entering user's effective timezone. Calendar-only targets stay calendar
+  dates; instant targets persist as UTC plus their originating IANA zone; never an Eastern default.
+  Implementation is a follow-up, not part of #238. Today, entry is Eastern, a date-only target becomes
+  5 PM ET, and no originating zone is persisted.
+- **Setup wizard timezone:** it is the explicit user preference (outranks the device). Its legacy values
+  are not read until audited. Until then: validated device zone, then labelled UTC.
+
+Approved for merge from the Product side.
 
 **Next:** merge the Time Authority PR → verify on `main` by content → Part B (Charlie/Lexi reconciliation),
 which needs the authoritative Charlie/Lexi specification document.
