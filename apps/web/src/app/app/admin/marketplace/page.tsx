@@ -24,6 +24,7 @@ import { repositories } from "@emgloop/database";
 import { CallGridNav } from "./_CallGridNav";
 import { loadCallGridHistory } from "./callgrid-history-data";
 import type { Situation } from "@emgloop/shared";
+import { requireWorkspace } from "../../../../workspaces/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -166,6 +167,7 @@ export default async function CallGridIntelligencePage({
 }: {
   searchParams?: { range?: string; s?: string; e?: string };
 }) {
+  await requireWorkspace("ADMIN");
   const { organizationId: org, session } = await requireCrmContext();
 
   const now = new Date();

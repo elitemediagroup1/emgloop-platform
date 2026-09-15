@@ -155,7 +155,11 @@ const ZERO_COERCION_DEBT: Readonly<Record<string, number>> = {
 };
 
 function findZeroCoercions(): Map<string, Violation[]> {
-  const files = walk(join(REPO_ROOT, 'apps/web/src/app/app/admin'));
+  // Executive surfaces: the admin workspace and Loop Home's content (_home).
+  const files = [
+    ...walk(join(REPO_ROOT, 'apps/web/src/app/app/admin')),
+    ...walk(join(REPO_ROOT, 'apps/web/src/app/app/_home')),
+  ];
   // `something.revenueCents ?? 0`, `traffic.totalCalls || 0`
   const coercion =
     /([a-zA-Z0-9_.?[\]]*(?:cents|amount|revenue|payout|cost|rate|count|total|calls|orders|bookings|qualified|margin|score|percent|pct|duration|seconds|volume|spend)[a-zA-Z0-9_.?[\]]*)\s*(\?\?|\|\|)\s*0\b/i;
@@ -207,7 +211,8 @@ test('migrated surfaces stay at zero coercions and never regress', () => {
     'apps/web/src/app/app/admin/marketplace/page.tsx',
     'apps/web/src/app/app/admin/marketplace/marketplace-coverage-data.ts',
     'apps/web/src/app/app/admin/marketplace/_MarketplaceCoverage.tsx',
-    'apps/web/src/app/app/admin/page.tsx',
+    // The operational home moved from app/admin/page.tsx when it began rendering at /app.
+    'apps/web/src/app/app/_home/admin-home.tsx',
   ];
   for (const file of migrated) {
     assert.equal(

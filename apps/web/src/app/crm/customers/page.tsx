@@ -7,7 +7,7 @@ import {
   type PipelineStatus,
   type CustomerSortKey,
 } from '@emgloop/database';
-import { BulkBar } from './bulk-bar';
+import { BulkBar, BulkSelection, RowCheckbox, SelectAllCheckbox } from './bulk-bar';
 
 // Customers list — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
 //
@@ -119,7 +119,9 @@ export default async function CustomersPage({
         pageSize: 25,
       }),
       crmRepos.crm.listTags(organizationId),
-      crmRepos.crm.statusCounts(organizationId),
+      // Counted with the same search and tag as the list, so each status chip's
+      // number is exactly the total that chip opens.
+      crmRepos.crm.statusCounts(organizationId, { search: q, tag: tagFilter }),
     ]);
     return { empty: false as const, list, tags, counts };
   });
@@ -233,14 +235,17 @@ export default async function CustomersPage({
         ))}
       </div>
 
-      <BulkBar tags={tags} />
+      {/* Keyed by the rows on screen: a new page, filter or sort starts with
+          nothing selected, so a bulk action only ever posts visible rows. */}
+      <BulkSelection key={list.rows.map((c) => c.id).join(',')} rowIds={list.rows.map((c) => c.id)}>
+      <BulkBar tags={tags} statuses={PIPELINE_STATUSES} />
 
       <div className="crm-panel">
         <table className="crm-table crm-table-select">
           <thead>
             <tr>
               <th className="crm-checkcol">
-                <input type="checkbox" data-bulk-all aria-label="Select all" />
+                <SelectAllCheckbox />
               </th>
               <th>{sortLink('name', 'Customer')}</th>
               <th>Company</th>
@@ -265,12 +270,7 @@ export default async function CustomersPage({
               list.rows.map((c) => (
                 <tr key={c.id}>
                   <td className="crm-checkcol">
-                    <input
-                      type="checkbox"
-                      data-bulk-row
-                      value={c.id}
-                      aria-label={'Select ' + c.name}
-                    />
+                    <RowCheckbox id={c.id} name={c.name} />
                   </td>
                   <td>
                     <Link href={'/crm/customers/' + c.id} className="crm-cell-name">
@@ -318,6 +318,7 @@ export default async function CustomersPage({
           </tbody>
         </table>
       </div>
+      </BulkSelection>
 
       <div className="crm-pagination">
         <span className="crm-muted">

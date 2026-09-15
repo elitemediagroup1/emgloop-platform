@@ -1,18 +1,29 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '../../auth/auth';
-import { resolveHomeRoute } from '../../workspaces/role-router';
+import { LOOP_HOME, loginPathFor } from '../../auth/landing';
+import WorkspaceShell from '../../workspaces/WorkspaceShell';
+import { navFor } from '../../workspaces/nav-access';
+import { resolveWorkspaceRole } from '../../workspaces/role-router';
+import { AdminHome } from './_home/admin-home';
+import { ModuleHome } from './_home/module-home';
+
+// Loop Home — the first destination after sign-in, for every role.
+//
+// It renders here rather than redirecting to a role-specific URL, inside the one
+// Loop shell. What the home shows follows authority, never a different address:
+// Owner, Admin and Manager see the operational overview (which enforces that
+// authority itself); everyone else sees the areas of Loop they can open.
 
 export const dynamic = 'force-dynamic';
 
-// Loop OS — Role Router entry (/app) (Phase 2, PR #47).
-//
-// Not a page a user lingers on: it resolves the caller's Workspace home from
-// their session (config-driven) and redirects. Unauthenticated callers go to
-// the universal login (/). This is the ONE place post-login routing happens, so
-// adding a role never means touching a redirect anywhere else.
-
-export default async function AppRouter() {
+export default async function LoopHome() {
   const session = await getSession();
-  if (!session) redirect('/');
-  redirect(resolveHomeRoute(session));
+  if (!session) redirect(loginPathFor(LOOP_HOME));
+
+  const role = resolveWorkspaceRole(session);
+  return (
+    <WorkspaceShell session={session}>
+      {role === 'ADMIN' ? <AdminHome /> : <ModuleHome name={session.name} groups={await navFor(session)} />}
+    </WorkspaceShell>
+  );
 }

@@ -21,15 +21,17 @@ import {
 } from './auth';
 import { ensureCrmIdentity } from './bootstrap';
 import { sendPasswordResetEmail } from '../lib/email/email-service';
+import { loginPathFor, postLoginDestination } from './landing';
 
 export async function loginAction(formData: FormData): Promise<void> {
   await ensureCrmIdentity();
   const email = String(formData.get('email') ?? '');
   const password = String(formData.get('password') ?? '');
   const remember = formData.get('remember') != null;
+  const requestedNext = formData.get('next');
   const result = await login({ email, password, remember });
   if (!result.ok) {
-    redirect('/crm/login?error=' + encodeURIComponent(result.error ?? 'Login failed'));
+    redirect(loginPathFor(requestedNext, { error: result.error ?? 'Login failed' }));
   }
   const session = await getSession();
   if (session) {
@@ -42,7 +44,9 @@ export async function loginAction(formData: FormData): Promise<void> {
       entityId: session.userId,
     });
   }
-  redirect('/crm');
+  // Loop Home, unless a safe deep link was requested before signing in. The
+  // destination enforces its own authorization on arrival.
+  redirect(postLoginDestination(requestedNext));
 }
 
 export async function logoutAction(): Promise<void> {

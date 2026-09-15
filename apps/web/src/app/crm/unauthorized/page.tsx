@@ -26,7 +26,7 @@ export default async function UnauthorizedPage({
           Contact an organization administrator if you believe you should have access.
         </div>
         <div className="crm-inline-actions">
-          <Link className="crm-btn-sm" href="/crm">Back to dashboard</Link>
+          <Link className="crm-btn-sm" href="/app">Back to Loop Home</Link>
         </div>
       </div>
     </div>

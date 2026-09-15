@@ -12,6 +12,7 @@ import {
   completeCurrentStageAction,
   markNotificationReadAction,
 } from './actions';
+import { requireWorkspace } from '../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,7 @@ function StageLine({ label, value }: { label: string; value: string }) {
 }
 
 export default async function EmployeeWorkPage() {
+  await requireWorkspace('EMPLOYEE');
   const { actor, nextAction, myQueue, waiting, completedToday, notifications } =
     await loadEmployeeWork();
 

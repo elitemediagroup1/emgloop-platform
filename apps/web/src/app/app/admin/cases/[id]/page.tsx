@@ -46,6 +46,7 @@ import {
   WorkSection,
 } from '../case-sections';
 import { loadCase } from '../case-data';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,7 @@ export default async function CaseWorkspacePage({
   params: { id: string };
   searchParams?: { notice?: string; error?: string };
 }) {
+  await requireWorkspace('ADMIN');
   // READ is the broad grant. Every control below requires the narrower AUTHORING
   // grant, checked separately -- and each server action checks it again for
   // itself, because hiding a control is not access control.

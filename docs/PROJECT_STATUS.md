@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-14 (CRM Phase 1: #234 final reconciliation and #233 demo footprint runner in review)._
+_Last updated: 2026-09-14 (Loop application structure: PR 1 in review; CRM Phase 1 blockers open)._
 
 ---
 
@@ -1161,21 +1161,44 @@ original `customerId`; the audit records counts only) and its header comment cla
 **NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
 schema**) as its own branch. Business Identity implementation has not begun.
 
-## CRM Phase 1 — Shared Experience Layer — IN REVIEW (#234, final reconciliation)
+## Loop Application Structure — IN PROGRESS (PR 1 + 2 in review, one PR)
 
-_Last updated: 2026-09-14 (#234 and #233 open; merge checkpoints)._
+_Last updated: 2026-09-14._
+
+Decisions D1–D8 and the authorization invariant are locked in
+`docs/architecture/loop-application-structure.md` (approved by Matt 2026-09-14). One application under
+`/app`: one shell, one nav registry, `/app/<module>` routes, deliberate redirects.
+
+PR 1 (#236) was not merged standalone. Landing on `/app` before the single shell existed left Employee and
+Read Only with no path to the CRM, so its commits were carried unchanged into the shell PR, cut from `main`.
+#235 and #236 close as superseded once that PR is verified.
+
+| PR | Scope | Status |
+|----|-------|--------|
+| 1 + 2 | Sign-in lands on Loop; one shell, one `LOOP_NAV`; CRM inside the shell; explicit guard on every role-guarded page | **IN REVIEW** #237 |
+| 3 | Route authority, redirect table (incl. `/app/admin/crm`, role homes, catch-alls), public auth routes | Not started |
+| 4–7 | Administration, Intelligence, Work OS, CRM → canonical routes | Not started |
+| Final | Retire role trees, phantom Business/Creator authority, placeholders; docs | Not started |
+
+**Next:** merge the combined PR → verify on `main` by content → close #235/#236 → cut PR 3 from fresh `main`.
+
+## CRM Phase 1 — Shared Experience Layer — CODE MERGED; completion blockers open
+
+_Last updated: 2026-09-14 (all Phase 1 PRs merged; see blockers below)._
 
 | PR | Scope | Status |
 |----|-------|--------|
 | A–D | Search, timeline primitives, detail experience, UX/a11y/responsive | **MERGED** #227 #228 #229 #230 |
 | E — Security closeout | Tenant-local orgs, `audit:view` gating, server-derived note provenance, Workspace nav | **MERGED** #231 |
 | — /demo removal | Public PII read + fabricated-record write surface deleted | **MERGED** #232 — production verified 404 (GET and server-action POST) 2026-09-14 16:39Z |
-| — Demo footprint runner | Read-only `workflow_dispatch` runner for records the /demo generators left | **IN REVIEW** #233 |
-| F — Final reconciliation | Derived signals, AI Activity, Inbox nav, permission-aware record, intake framing, activity link, deterministic ordering, search/timeline tests, governed Headlines | **IN REVIEW** #234 |
+| — Demo footprint runner | Read-only `workflow_dispatch` runner for records the /demo generators left | **MERGED** #233 — run 2026-09-14 17:15Z: 3 suspects (1 /demo journey), 0 orphans |
+| F — Final reconciliation | Derived signals, AI Activity, Inbox nav, permission-aware record, intake framing, activity link, deterministic ordering, search/timeline tests, governed Headlines | **MERGED** #234 |
 
-**Next:** merge #234 → run the Phase 1 completion audit against fresh `main`. Merge #233 → dispatch
-**Read Demo Footprint** (`servicesinmycity-demo`) → review suspects before any cleanup (production
-writes need explicit authorization).
+**Open completion blockers (final audit, 2026-09-14):** (1) fabricated /demo journey
+`cmqsza1v40002awufuvq9zkrt` and fixture `demo-cust-0001` in production lists — needs a quarantine-or-delete
+decision and write authorization; (2) People list bulk bar and Intake Board move form shown without
+update permission; (3) customer activity page uses the legacy failure notice and renders an empty page
+for an unknown id.
 
 **/demo exposure — what is and is not known.** Closed on production (verified). Whether it was
 accessed is **unknown**: no Netlify credentials or request logs are reachable from the dev

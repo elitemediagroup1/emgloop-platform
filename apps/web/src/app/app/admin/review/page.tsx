@@ -66,6 +66,7 @@ import {
   RecommendationControls,
 } from '../cases/case-controls';
 import { PatternCard } from './pattern-ui';
+import { requireWorkspace } from '../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,6 +94,7 @@ function State({ name, note, children }: { name: string; note?: string; children
 }
 
 export default async function ReviewPage() {
+  await requireWorkspace('ADMIN');
   // GUARDED LIKE EVERY OTHER SURFACE. A review page is still a page.
   await requirePermission('commercialIntelligence', 'view');
 

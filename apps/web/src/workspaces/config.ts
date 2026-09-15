@@ -1,30 +1,23 @@
-// Loop OS — Workspace configuration (Phase 2, PR #47).
+// Loop OS — navigation registry and role authority.
 //
-// Phase 2 turns EMG Loop from a CRM into a Business Operating System. Every
-// external platform is a Sensor; the Brain (PR #29–#46) is the operating
-// system; everything a human sees is a Workspace. This file is the SINGLE,
-// configuration-driven source of truth that maps a user's role to:
+// EMG Loop is one application (docs/architecture/loop-application-structure.md).
+// This file holds the ONE navigation registry every signed-in page renders,
+// LOOP_NAV, and the role authority table the route guards use. It is data, not
+// code branches: moving a nav item is an edit here, never a new shell.
 //
-//   - the Workspace they land in,
-//   - the navigation shell they see,
-//   - the home route they are routed to after login, and
-//   - the resource:action permission each destination requires.
-//
-// It is deliberately data, not code branches. Adding a future role (e.g.
-// PARTNER, VENDOR) or moving a nav item is a config edit here — never a routing
-// rewrite. Nothing in this file computes intelligence, touches the Brain, the
-// database schema, or IAM internals; it only DESCRIBES the shell. Authorization
-// remains enforced server-side by the existing guards + IAM matrix
-// (packages/database) — this config never becomes the security boundary.
+// Nothing here is the security boundary. Each item DESCRIBES the authority its
+// destination enforces, so nobody is shown a link that refuses them; every page
+// still enforces that authority itself, server-side, on arrival.
 
 import type { Resource, Action } from '@emgloop/database';
 import { pickActiveHref } from '@emgloop/shared';
 
 // ---------------------------------------------------------------------------
-// Workspace roles — a PRODUCT concept layered on top of the existing, unchanged
-// SystemRole enum (OWNER/ADMIN/MANAGER/EMPLOYEE/AI_EMPLOYEE/READ_ONLY). We do
-// NOT add DB enum values or change the schema; role-router.ts maps a session's
-// systemRole onto one of these workspace roles.
+// Role authority. A PRODUCT concept over the unchanged SystemRole enum
+// (OWNER/ADMIN/MANAGER/EMPLOYEE/AI_EMPLOYEE/READ_ONLY); role-router.ts maps a
+// session onto one of these. It is authority, not a separate application: it
+// decides which role-guarded route trees (/app/admin, /app/employee, ...) a
+// person may open, and every role shares the same shell and the same LOOP_NAV.
 // ---------------------------------------------------------------------------
 export const WORKSPACE_ROLES = [
   'ADMIN',
@@ -39,27 +32,24 @@ export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 // ---------------------------------------------------------------------------
 // Navigation model. 'icon' names map to the existing SidebarIcon set; unknown
 // names degrade gracefully to the default glyph, so new items never crash.
-// 'requires' is the resource:action the destination enforces server-side; when
-// omitted, the route only requires an authenticated session in this workspace.
-// 'soon' marks a shell that exists but has no functionality yet (Phase 2 ships
-// shells only — no feature implementation inside the workspaces).
 // ---------------------------------------------------------------------------
 export interface NavItem {
   href: string;
   label: string;
   icon: string;
+  /** The resource:action a person must hold to be offered the item: the one its destination enforces. */
   requires?: { resource: Resource; action: Action };
+  /** Not built: rendered as a disabled "Soon" item, never a link. */
   soon?: boolean;
   /**
-   * The workspace whose routes this item opens, when that differs from the
-   * shell it appears in. Its layout redirects any other workspace home, so the
-   * item is shown only to sessions that resolve to it -- never a link that
-   * bounces the user somewhere else.
+   * The role authority the destination enforces with requireWorkspace, when it
+   * lives in a role-guarded route tree (/app/admin → ADMIN). Anyone else would
+   * be sent back to Loop Home, so the item is shown only to that authority.
    */
   workspace?: WorkspaceRole;
 }
 
-/** Whether a nav item is offered: its permission, if any, and its workspace, if any. */
+/** Whether a nav item is offered: its permission, if any, and its role authority, if any. */
 export function navItemVisible(
   item: Pick<NavItem, 'requires' | 'workspace'>,
   ctx: { permitted: boolean; workspace: WorkspaceRole },
@@ -72,343 +62,214 @@ export function navItemVisible(
 export interface NavGroup {
   label: string;
   items: NavItem[];
-  /** Renders separated at the bottom of the sidebar (e.g. Administration). */
+  /** Renders separated at the bottom of the sidebar (Administration). */
   footer?: boolean;
 }
 
-/**
- * Sprint 29B — the contract EVERY shell surface is described by.
- *
- * A shell is "a sidebar + a header + a nav tree over a base path". A Workspace
- * is one KIND of shell (a role-scoped one), and the CRM is another (a
- * surface-scoped one). Separating ShellConfig from WorkspaceConfig lets both
- * render through the SAME WorkspaceShell without inventing a fake workspace
- * role for the CRM — the role vocabulary stays exactly as it is.
- */
+/** A navigation tree the shell renders. LOOP_NAV is the only one. */
 export interface ShellConfig {
-  /** Human label for the surface, shown as the breadcrumb root. */
+  /** Names the navigation landmark. */
   label: string;
-  /** Route prefix that scopes every page in this shell. */
+  /** Route prefix of the application. */
   basePath: string;
-  /** Where the user lands when hitting the shell root. */
+  /** Where the breadcrumb root leads: Loop Home. */
   home: string;
-  /** The grouped navigation the shell renders. */
+  /** The grouped navigation. */
   nav: NavGroup[];
 }
 
-export interface WorkspaceConfig extends ShellConfig {
+// ---------------------------------------------------------------------------
+// Role authority table. `basePath` is the route tree requireWorkspace(role)
+// guards; `home` is where a person is sent when they open a tree their role
+// does not hold. Every home is Loop Home: one application, one home.
+// ---------------------------------------------------------------------------
+export interface WorkspaceConfig {
   role: WorkspaceRole;
+  basePath: string;
+  home: string;
 }
 
-// ---------------------------------------------------------------------------
-// The five workspaces. Navigation mirrors the Phase 2 brief exactly. Each links
-// to a shell page under the workspace basePath; every item is marked 'soon'
-// because Phase 2 builds the operating system, not the functionality that will
-// live inside it. Permission requirements reuse the EXISTING IAM resources so a
-// destination that needs, say, Marketplace Intelligence is gated by the same
-// deny-by-default matrix the CRM already uses (resource 'intelligence').
-// ---------------------------------------------------------------------------
-
-// Owner (ADMIN) sidebar — the global product navigation.
-//
-// The global sidebar represents MAJOR BUSINESS OPERATING AREAS only — one flat,
-// icon+label list, no category headers, no product subpages. Each product owns
-// its OWN internal navigation inside its page area (e.g. CallGrid's Overview /
-// Buyers / Vendors / … subnav lives on the CallGrid pages, not here).
-//
-//   Dashboard · CallGrid Intelligence · CRM · Creator Hub · Work OS · Accounting
-//   (Administration is separated at the bottom, permission-aware.)
-//
-// CRM, Creator Hub, Accounting and Administration are approved operating areas,
-// so they stay in the sidebar even though they are not built/connected: their
-// routes open an honest "unavailable" state (the /app/admin catch-all → ShellPage)
-// rather than being hidden. Nothing here shows fabricated data.
-//
-// Active state is derived by the shell from the current path (longest-prefix), so
-// every child route (e.g. /app/admin/marketplace/buyers) keeps its top-level
-// product (CallGrid Intelligence) highlighted.
-const CALLGRID_INTEL = { resource: 'intelligence', action: 'view' } as const;
-const ADMIN_ONLY = { resource: 'users', action: 'view' } as const;
-const WORK_TYPES_ADMIN = { resource: 'settings', action: 'view' } as const;
-// Commercial Intelligence Stage 1. Its own resource, not 'intelligence' — see
-// the note in iam.repository.ts about why reading conclusions and authoring
-// intent are governed separately.
-const OBJECTIVES_VIEW = { resource: 'commercialIntelligence', action: 'view' } as const;
-
-const ADMIN_WORKSPACE: WorkspaceConfig = {
-  role: 'ADMIN',
-  label: 'Admin',
-  basePath: '/app/admin',
-  home: '/app/admin',
-  nav: [
-    {
-      label: '',
-      items: [
-        { href: '/app/admin', label: 'Dashboard', icon: 'grid' },
-        // Stage 4. HEADLINES is the product noun Charlie and Lexi established;
-        // the technical contracts keep their own names. Gated on the READ half
-        // of commercialIntelligence, so a READ_ONLY member sees the intelligence
-        // and the surface itself offers them no authoring control.
-        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: OBJECTIVES_VIEW },
-        // The same intelligence, ordered for one person. Deliberately a separate
-        // destination: "nothing is waiting on me" and "nothing needs the
-        // organization's attention" are different questions, and one nav item
-        // answering both would let the first read as the second.
-        { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: OBJECTIVES_VIEW },
-        { href: '/app/admin/brain', label: 'Brain', icon: 'brain', requires: CALLGRID_INTEL },
-        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: CALLGRID_INTEL },
-        { href: '/app/admin/crm', label: 'CRM', icon: 'users' },
-        { href: '/app/admin/creator-hub', label: 'Creator Hub', icon: 'star' },
-        { href: '/app/admin/work', label: 'Work OS', icon: 'flow' },
-        { href: '/app/admin/accounting', label: 'Accounting', icon: 'revenue' },
-      ],
-    },
-    {
-      label: '',
-      footer: true,
-      items: [
-        { href: '/app/admin/administration/team', label: 'Administration', icon: 'cog', requires: ADMIN_ONLY },
-        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: WORK_TYPES_ADMIN },
-        { href: '/app/admin/administration/objectives', label: 'Objectives', icon: 'target', requires: OBJECTIVES_VIEW },
-      ],
-    },
-  ],
-};
-
-const EMPLOYEE_WORKSPACE: WorkspaceConfig = {
-  role: 'EMPLOYEE',
-  label: 'Employee',
-  basePath: '/app/employee',
-  home: '/app/employee',
-  nav: [
-    {
-      label: 'My Work',
-      items: [
-        { href: '/app/employee', label: 'Dashboard', icon: 'grid' },
-        { href: '/app/employee/work', label: 'Work OS', icon: 'flow' },
-        { href: '/app/employee/businesses', label: 'Assigned Businesses', icon: 'building' },
-        { href: '/app/employee/creators', label: 'Assigned Creators', icon: 'star' },
-        { href: '/app/employee/campaigns', label: 'Assigned Campaigns', icon: 'flow' },
-        { href: '/app/employee/tasks', label: 'Tasks', icon: 'columns' },
-      ],
-    },
-    {
-      label: 'Signals',
-      items: [
-        { href: '/app/employee/brain-alerts', label: 'Brain Alerts', icon: 'brain' },
-        { href: '/app/employee/messages', label: 'Messages', icon: 'chat' },
-        { href: '/app/employee/calendar', label: 'Calendar', icon: 'calendar' },
-      ],
-    },
-  ],
-};
-
-const BUSINESS_WORKSPACE: WorkspaceConfig = {
-  role: 'BUSINESS_OWNER',
-  label: 'Business',
-  basePath: '/app/business',
-  home: '/app/business',
-  nav: [
-    {
-      label: 'Overview',
-      items: [
-        { href: '/app/business', label: 'Dashboard', icon: 'grid' },
-        { href: '/app/business/calls', label: 'Calls', icon: 'chat' },
-        { href: '/app/business/leads', label: 'Leads', icon: 'users' },
-        { href: '/app/business/revenue', label: 'Revenue', icon: 'revenue' },
-      ],
-    },
-    {
-      label: 'Intelligence',
-      items: [
-        { href: '/app/business/brain-insights', label: 'Brain Insights', icon: 'brain' },
-        { href: '/app/business/recommendations', label: 'Recommendations', icon: 'star' },
-        { href: '/app/business/reports', label: 'Reports', icon: 'chart' },
-      ],
-    },
-    {
-      label: 'Workspace',
-      items: [
-        { href: '/app/business/messages', label: 'Messages', icon: 'chat' },
-        { href: '/app/business/settings', label: 'Settings', icon: 'cog' },
-      ],
-    },
-  ],
-};
-
-const CREATOR_WORKSPACE: WorkspaceConfig = {
-  role: 'CREATOR',
-  label: 'Creator',
-  basePath: '/app/creator',
-  home: '/app/creator',
-  nav: [
-    {
-      label: 'Studio',
-      items: [
-        { href: '/app/creator', label: 'Dashboard', icon: 'grid' },
-        { href: '/app/creator/content-calendar', label: 'Content Calendar', icon: 'calendar' },
-        { href: '/app/creator/upload', label: 'Upload Video', icon: 'activity' },
-        { href: '/app/creator/review-queue', label: 'Content Review Queue', icon: 'columns' },
-        { href: '/app/creator/ai-critiques', label: 'AI Critiques', icon: 'brain' },
-      ],
-    },
-    {
-      label: 'Business',
-      items: [
-        { href: '/app/creator/brand-deals', label: 'Brand Deals', icon: 'star' },
-        { href: '/app/creator/contracts', label: 'Contracts', icon: 'columns' },
-        { href: '/app/creator/payments', label: 'Payments', icon: 'revenue' },
-        { href: '/app/creator/analytics', label: 'Analytics', icon: 'chart' },
-      ],
-    },
-    {
-      label: 'Workspace',
-      items: [
-        { href: '/app/creator/messages', label: 'Messages', icon: 'chat' },
-        { href: '/app/creator/settings', label: 'Settings', icon: 'cog' },
-      ],
-    },
-  ],
-};
-
-const CLIENT_WORKSPACE: WorkspaceConfig = {
-  role: 'CLIENT',
-  label: 'Client',
-  basePath: '/app/client',
-  home: '/app/client',
-  nav: [
-    {
-      label: 'Overview',
-      items: [
-        { href: '/app/client', label: 'Dashboard', icon: 'grid' },
-        { href: '/app/client/messages', label: 'Messages', icon: 'chat' },
-        { href: '/app/client/settings', label: 'Settings', icon: 'cog' },
-      ],
-    },
-  ],
-};
-
-// ---------------------------------------------------------------------------
-// The registry. Config-driven: a router/shell reads this map; it never hard-
-// codes role branches. Adding a workspace is one entry here plus its shell.
-// ---------------------------------------------------------------------------
 export const WORKSPACES: Record<WorkspaceRole, WorkspaceConfig> = {
-  ADMIN: ADMIN_WORKSPACE,
-  EMPLOYEE: EMPLOYEE_WORKSPACE,
-  BUSINESS_OWNER: BUSINESS_WORKSPACE,
-  CREATOR: CREATOR_WORKSPACE,
-  CLIENT: CLIENT_WORKSPACE,
+  ADMIN: { role: 'ADMIN', basePath: '/app/admin', home: '/app' },
+  EMPLOYEE: { role: 'EMPLOYEE', basePath: '/app/employee', home: '/app' },
+  BUSINESS_OWNER: { role: 'BUSINESS_OWNER', basePath: '/app/business', home: '/app' },
+  CREATOR: { role: 'CREATOR', basePath: '/app/creator', home: '/app' },
+  CLIENT: { role: 'CLIENT', basePath: '/app/client', home: '/app' },
 };
 
-/** Look up a workspace by role. */
+/** Look up a role's authority entry. */
 export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
   return WORKSPACES[role];
 }
 
 // ---------------------------------------------------------------------------
-// Sprint 29B — the CRM shell.
+// LOOP_NAV — the one navigation registry.
 //
-// This nav was previously a hardcoded NAV const inside app/crm/layout.tsx,
-// which meant the platform had two navigation systems that shared no code. It
-// now lives here so there is exactly ONE nav registry and ONE shell component.
+// Grouped by operating area (D3): Home, CRM, Intelligence, Work OS, Creator Hub
+// and Accounting, with Administration at the foot. It is NAVIGATION ONLY: every
+// item opens a route that already exists, wherever it lives today (/crm or
+// /app/admin). Module URLs move under /app in later PRs; the nav follows them.
 //
-// The items, their order, their labels, their icons and the two 'soon'
-// placeholders are carried over VERBATIM from the old layout: this sprint
-// unifies the MECHANISM, not the policy.
+// Each item carries the authority its destination enforces: `requires` for the
+// page's requirePermission, `workspace` for its route tree's requireWorkspace.
+// The shell hides what a person cannot open. Never less than the page enforces;
+// the one item that asks for more (CallGrid Intelligence) says so below.
 //
-// Deliberately NO `requires` on any item. The CRM sidebar has never been
-// permission-gated — every item renders for every signed-in member, and each
-// destination enforces its own server-side gate on arrival. Adding `requires`
-// here would silently remove items from people's sidebars, which is a product
-// decision, not a refactor. Gate them in a later sprint, one at a time.
+// Boundaries the grouping must not blur:
+//   - CRM entries open the real CRM under /crm, inside this same shell. There is
+//     no second CRM and no second sidebar.
+//   - The intake board is the legacy Customer.status board, never an
+//     Opportunity pipeline. Relationships, Opportunities and Campaigns are
+//     Phase 2 CRM domains and stay `soon` until built.
+//   - CRM Automations (automation triggers) and Work OS Workflows (human work
+//     execution, not built) are different authorities under different groups.
+//   - "Your queue" is Commercial Intelligence's per-person attention queue, not
+//     Work OS work.
+//   - Two Brain surfaces exist until they are consolidated (D4); each keeps its
+//     own page name and authority rather than sharing one ambiguous label.
+//   - The signed-in tenant's own Workspace Organization is administration, not
+//     a commercial Relationship.
 // ---------------------------------------------------------------------------
-// Phase 1 — CRM navigation aligned with the Charlie/Lexi Product Specification
-// (§10 Screen Specifications). The groups map to the approved internal screen
-// families: Command Center, Relationships, Pipeline, Campaigns, Operations,
-// Intelligence. Existing working routes are preserved; new families that don't
-// have full backend support yet render honest empty states on arrival.
-//
-// CRM items still carry no `requires` — see note above. The one exception is an
-// item that opens a governed surface outside the CRM (Headlines): it carries
-// that surface's own permission and workspace, because showing it to someone
-// the destination would redirect is a dead end, not a policy choice.
-export const CRM_SHELL: ShellConfig = {
-  label: 'CRM',
-  basePath: '/crm',
-  home: '/crm',
+const PEOPLE_VIEW = { resource: 'customers', action: 'view' } as const;
+const CONVERSATIONS_VIEW = { resource: 'inbox', action: 'view' } as const;
+const INTAKE_VIEW = { resource: 'pipeline', action: 'view' } as const;
+const AUTOMATIONS_VIEW = { resource: 'workflows', action: 'view' } as const;
+const ANALYTICS_VIEW = { resource: 'analytics', action: 'view' } as const;
+const INTELLIGENCE_VIEW = { resource: 'intelligence', action: 'view' } as const;
+// Commercial Intelligence has its own resource, not 'intelligence' — see the
+// note in iam.repository.ts about why reading conclusions and authoring intent
+// are governed separately.
+const CI_VIEW = { resource: 'commercialIntelligence', action: 'view' } as const;
+const USERS_VIEW = { resource: 'users', action: 'view' } as const;
+const ORGANIZATION_VIEW = { resource: 'organizations', action: 'view' } as const;
+const SETTINGS_VIEW = { resource: 'settings', action: 'view' } as const;
+const AUDIT_VIEW = { resource: 'audit', action: 'view' } as const;
+const AI_EMPLOYEES_VIEW = { resource: 'aiEmployees', action: 'view' } as const;
+const INTEGRATIONS_VIEW = { resource: 'integrations', action: 'view' } as const;
+
+export const LOOP_NAV: ShellConfig = {
+  label: 'Loop',
+  basePath: '/app',
+  home: '/app',
   nav: [
     {
       label: '',
+      items: [{ href: '/app', label: 'Home', icon: 'grid' }],
+    },
+    {
+      label: 'CRM',
       items: [
         { href: '/crm', label: 'Command Center', icon: 'grid' },
-      ],
-    },
-    {
-      label: 'Relationships',
-      items: [
-        { href: '/crm/customers', label: 'People', icon: 'users' },
-        // Canonical Relationship records are a Phase 2 CRM domain. No route
-        // exists yet; `soon` renders a non-link item, so nothing 404s.
+        { href: '/crm/customers', label: 'People', icon: 'users', requires: PEOPLE_VIEW },
         { href: '/crm/relationships', label: 'Relationships', icon: 'flow', soon: true },
-      ],
-    },
-    {
-      // /crm/pipeline is the legacy Customer.status intake board. It is not the
-      // canonical Opportunity pipeline and must not be labelled as one.
-      label: 'Intake & Revenue',
-      items: [
-        { href: '/crm/pipeline', label: 'Intake Board', icon: 'columns' },
-        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue' },
-      ],
-    },
-    {
-      label: 'Operations',
-      items: [
-        { href: '/crm/conversations', label: 'Conversations', icon: 'chat' },
-        { href: '/crm/live/activity', label: 'Live Activity', icon: 'activity' },
-        { href: '/crm/live/calls', label: 'Calls', icon: 'chat' },
-        { href: '/crm/live/websites', label: 'Websites', icon: 'grid' },
+        { href: '/crm/opportunities', label: 'Opportunities', icon: 'target', soon: true },
+        { href: '/crm/campaigns', label: 'Campaigns', icon: 'star', soon: true },
+        { href: '/crm/conversations', label: 'Conversations', icon: 'chat', requires: CONVERSATIONS_VIEW },
+        { href: '/crm/pipeline', label: 'Intake Board', icon: 'columns', requires: INTAKE_VIEW },
         // An activity inbox, not a calendar: no calendar surface exists.
-        { href: '/crm/inbox', label: 'Inbox', icon: 'activity' },
-        { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot' },
-        { href: '/crm/workflows', label: 'Workflows', icon: 'flow' },
+        { href: '/crm/inbox', label: 'Inbox', icon: 'activity', requires: PEOPLE_VIEW },
+        { href: '/crm/search', label: 'Search', icon: 'search', requires: PEOPLE_VIEW },
+        { href: '/crm/workflows', label: 'Automations', icon: 'flow', requires: AUTOMATIONS_VIEW },
       ],
     },
     {
       label: 'Intelligence',
       items: [
-        // Commercial Intelligence's governed Headlines -- CI's route and CI's
-        // authority, linked, never copied into the CRM.
-        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: OBJECTIVES_VIEW, workspace: 'ADMIN' },
-        { href: '/crm/intelligence', label: 'Brain', icon: 'brain' },
-        { href: '/crm/analytics', label: 'Analytics', icon: 'chart' },
-        { href: '/crm/traffic', label: 'Traffic', icon: 'chart' },
-        { href: '/crm/integrations', label: 'Integration OS', icon: 'plug' },
+        // HEADLINES is the product noun Charlie and Lexi established. Gated on the
+        // READ half of commercialIntelligence plus the route tree's authority.
+        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: CI_VIEW, workspace: 'ADMIN' },
+        // The same intelligence, ordered for one person: "nothing is waiting on
+        // me" and "nothing needs the organization's attention" are different
+        // questions, so they are different destinations.
+        { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: CI_VIEW, workspace: 'ADMIN' },
+        { href: '/app/admin/brain', label: 'Brain', icon: 'brain', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
+        { href: '/crm/intelligence', label: 'Intelligence Flow', icon: 'brain', requires: INTELLIGENCE_VIEW },
+        // Its pages enforce ADMIN authority only. The item also asks for the
+        // intelligence read grant, as this sidebar entry always has, so an explicit
+        // DENY on intelligence hides it. Every ADMIN-authority role holds the grant.
+        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
+        { href: '/crm/analytics', label: 'Analytics', icon: 'chart', requires: ANALYTICS_VIEW },
+        { href: '/crm/traffic', label: 'Traffic', icon: 'chart', requires: ANALYTICS_VIEW },
+        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue', requires: ANALYTICS_VIEW },
+        { href: '/crm/live/activity', label: 'Live Operations', icon: 'activity', requires: INTELLIGENCE_VIEW },
+        { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat', requires: INTELLIGENCE_VIEW },
+        { href: '/crm/live/websites', label: 'Websites', icon: 'grid', requires: INTELLIGENCE_VIEW },
       ],
     },
     {
+      // Work OS has no RBAC resource; its authority is the role. Owner, Admin and
+      // Manager run the organization's work; Employees work their own queue.
+      label: 'Work OS',
+      items: [
+        { href: '/app/admin/work', label: 'My Work', icon: 'check', workspace: 'ADMIN' },
+        { href: '/app/employee/work', label: 'My Work', icon: 'check', workspace: 'EMPLOYEE' },
+        { href: '/app/admin/work/team', label: 'Team Work', icon: 'columns', workspace: 'ADMIN' },
+        { href: '/app/work/workflows', label: 'Workflows', icon: 'flow', soon: true },
+        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: SETTINGS_VIEW, workspace: 'ADMIN' },
+      ],
+    },
+    {
+      // One item each until their own sections exist; a header over a single
+      // same-named link would only repeat it. Both open the honest "not built"
+      // page in the /app/admin tree.
       label: '',
+      items: [
+        { href: '/app/admin/creator-hub', label: 'Creator Hub', icon: 'star', workspace: 'ADMIN' },
+        { href: '/app/admin/accounting', label: 'Accounting', icon: 'revenue', workspace: 'ADMIN' },
+      ],
+    },
+    {
+      label: 'Administration',
       footer: true,
       items: [
-        // The signed-in tenant's own Workspace Organization — not a commercial
-        // Company or Relationship, so it sits with workspace administration.
-        { href: '/crm/organizations', label: 'Workspace', icon: 'building' },
-        { href: '/app/admin/administration/team', label: 'Team', icon: 'team' },
-        { href: '/crm/settings', label: 'Settings', icon: 'cog' },
-        { href: '/crm/audit', label: 'Audit Log', icon: 'activity' },
+        { href: '/app/admin/administration/team', label: 'Team', icon: 'team', requires: USERS_VIEW, workspace: 'ADMIN' },
+        { href: '/crm/organizations', label: 'Workspace', icon: 'building', requires: ORGANIZATION_VIEW },
+        { href: '/crm/settings', label: 'Settings', icon: 'cog', requires: SETTINGS_VIEW },
+        { href: '/app/admin/administration/objectives', label: 'Objectives', icon: 'target', requires: CI_VIEW, workspace: 'ADMIN' },
+        { href: '/crm/audit', label: 'Audit Log', icon: 'activity', requires: AUDIT_VIEW },
+        { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot', requires: AI_EMPLOYEES_VIEW },
+        { href: '/crm/integrations', label: 'Integration OS', icon: 'plug', requires: INTEGRATIONS_VIEW },
       ],
     },
   ],
 };
 
+/**
+ * The navigation one person is offered: the items whose authority they hold.
+ * A group is dropped when nothing in it can be opened, so no one sees a header
+ * over only "Soon" items or over nothing at all.
+ */
+export function visibleNav(
+  nav: readonly NavGroup[],
+  access: { permitted: (item: NavItem) => boolean; workspace: WorkspaceRole },
+): NavGroup[] {
+  return nav
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        navItemVisible(item, {
+          permitted: item.requires ? access.permitted(item) : true,
+          workspace: access.workspace,
+        }),
+      ),
+    }))
+    .filter((group) => group.items.some((item) => !item.soon));
+}
+
+/** Where this person's work notifications live, if they have a Work OS queue. */
+export function myWorkHref(groups: readonly NavGroup[]): string | null {
+  const item = groups.flatMap((g) => g.items).find((i) => i.label === 'My Work' && !i.soon);
+  return item?.href ?? null;
+}
+
 // ---------------------------------------------------------------------------
-// Sprint 29B — public auth screens.
+// Public auth screens.
 //
 // These render standalone (no shell): the caller has no session yet. This list
 // is the single source of truth and MUST stay in sync with PUBLIC_PATHS in
 // apps/web/src/middleware.ts. They drifted apart once and made the entire
 // invite flow unreachable (fixed in Sprint 29A); keeping the list here, next to
-// the shell config, is what makes the two reviewable together.
+// the navigation, is what makes the two reviewable together.
 // ---------------------------------------------------------------------------
 export const STANDALONE_PREFIXES: readonly string[] = [
   '/crm/login',
@@ -427,24 +288,23 @@ export function isStandalonePath(pathname: string | null): boolean {
 }
 
 /**
- * THE centralized route-to-product resolver.
+ * THE centralized route-to-item resolver.
  *
- * Returns the top-level nav item that owns `pathname` — the item whose href is
- * the LONGEST prefix of the path. Longest-match is what keeps a product selected
- * across all its child routes: /app/admin/work/new, /app/admin/work/[id], … all
- * resolve to the Work OS item (/app/admin/work), never to Dashboard (/app/admin),
- * because Work OS's href is the longer prefix.
+ * Returns the nav item that owns `pathname` — the item whose href is the
+ * LONGEST prefix of the path. Longest-match is what keeps an item selected
+ * across its child routes: /crm/customers/c_1 resolves to People, never to
+ * Command Center (/crm), because People's href is the longer prefix.
  *
  * Both the sidebar active state AND the breadcrumb derive from this ONE function
  * — no page implements its own active-state logic.
  */
-export function resolveActiveNav(shell: ShellConfig, pathname: string | null): NavItem | null {
-  const items = shell.nav.flatMap((g) => g.items);
+export function resolveActiveNav(shell: Pick<ShellConfig, 'nav'>, pathname: string | null): NavItem | null {
+  const items = shell.nav.flatMap((g) => g.items).filter((i) => !i.soon);
   const activeHref = pickActiveHref(items.map((i) => i.href), pathname);
   return activeHref ? items.find((i) => i.href === activeHref) ?? null : null;
 }
 
-/** The active product's label (breadcrumb leaf), via the one resolver. */
-export function resolveNavLabel(shell: ShellConfig, pathname: string | null): string | null {
+/** The active item's label (breadcrumb leaf), via the one resolver. */
+export function resolveNavLabel(shell: Pick<ShellConfig, 'nav'>, pathname: string | null): string | null {
   return resolveActiveNav(shell, pathname)?.label ?? null;
 }

@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { requirePermission } from '../../../../../../auth/guard';
 import { loadAuctionPageData } from './diagnostics-data';
 import { ReconciliationPanel } from './reconciliation-panel';
+import { requireWorkspace } from '../../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,7 @@ export default async function CallGridDiagnosticsPage({
 }: {
   searchParams?: Record<string, string | undefined>;
 }) {
+  await requireWorkspace('ADMIN');
   const session = await requirePermission('settings', 'view');
   const data = await loadAuctionPageData(session.organizationId);
 

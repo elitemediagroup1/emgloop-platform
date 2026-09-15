@@ -29,6 +29,7 @@ import {
   customerBelongsToOrg,
 } from './crm-data';
 import { requirePermission } from '../auth/guard';
+import { parseBulkIds } from './bulk-selection';
 import { PIPELINE_STATUSES, type PipelineStatus, crmNotePayload } from '@emgloop/database';
 
 function refresh(customerId: string) {
@@ -43,12 +44,10 @@ function refreshLists() {
 }
 
 /** Parse a repeated "ids" field (comma-joined) into a clean string array. */
+// The selection a bulk form posts, read with the same model the People list
+// wrote it with (src/crm/bulk-selection.ts): each ID once, nothing empty.
 function parseIds(formData: FormData): string[] {
-  const raw = String(formData.get('ids') ?? '');
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return parseBulkIds(formData.get('ids'));
 }
 
 /**

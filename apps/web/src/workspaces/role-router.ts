@@ -1,10 +1,10 @@
-// Loop OS — Role Router (Phase 2, PR #47).
+// Loop OS — Role Router.
 //
-// The single place that decides "given who is signed in, which Workspace do
-// they belong to and where should they land?" It is configuration-driven: the
-// mapping from the EXISTING SystemRole (packages/database, unchanged) to a
-// Phase 2 WorkspaceRole is a data table, not a chain of if/else, so a future
-// role is one row.
+// The single place that decides "given who is signed in, which role authority
+// do they hold?" It is table-driven: the mapping from the EXISTING SystemRole
+// (packages/database, unchanged) to a WorkspaceRole is data, not a chain of
+// if/else, so a future role is one row. Every role uses the same application,
+// shell and navigation; the authority only decides what they may open.
 //
 // This module intentionally reuses the existing AuthSession (src/auth/auth.ts)
 // and the existing SystemRole vocabulary. It creates NO new auth, NO new
@@ -23,9 +23,10 @@ import {
 // AI_EMPLOYEE/READ_ONLY) is a fixed, unchanged foundation; Phase 2 layers the
 // product's workspace roles on top of it WITHOUT touching the schema:
 //
-//   - OWNER / ADMIN / MANAGER  -> ADMIN workspace (full operating system)
-//   - EMPLOYEE / AI_EMPLOYEE    -> EMPLOYEE workspace (only assigned work)
-//   - READ_ONLY                 -> CLIENT workspace (isolated, minimal)
+//   - OWNER / ADMIN / MANAGER  -> ADMIN (the organization's operating trees)
+//   - EMPLOYEE / AI_EMPLOYEE    -> EMPLOYEE (their own assigned work)
+//   - READ_ONLY                 -> CLIENT (no role-guarded tree; sees what its
+//                                  permissions allow, like everyone else)
 //
 // BUSINESS_OWNER and CREATOR are product roles that today's SystemRole enum has
 // no dedicated value for. Rather than change the DB (out of scope, no schema
@@ -44,8 +45,8 @@ export const SYSTEM_ROLE_TO_WORKSPACE: Record<string, WorkspaceRole> = {
   READ_ONLY: 'CLIENT',
 };
 
-/** Default workspace when a systemRole is unknown/missing — the most isolated,
- * least-privileged workspace, never the admin one. Fail closed. */
+/** Default authority when a systemRole is unknown/missing — the least-privileged
+ * one, never ADMIN. Fail closed. */
 export const DEFAULT_WORKSPACE_ROLE: WorkspaceRole = 'CLIENT';
 
 /**
@@ -83,8 +84,7 @@ export function resolveWorkspace(
   return WORKSPACES[resolveWorkspaceRole(session)];
 }
 
-/** Resolve the post-login home route for a session (config-driven, never a
- * hard-coded '/crm'). */
+/** Resolve the home route for a session: Loop Home for every role. */
 export function resolveHomeRoute(
   session: Pick<AuthSession, 'systemRole'> & { workspaceRole?: string },
 ): string {

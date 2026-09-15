@@ -22,6 +22,7 @@ import {
 } from '@emgloop/database';
 import { loadCommandCenter, type CommandCenterRepos } from '../src/crm/command-center-data';
 import { fromInteraction } from '../src/crm/timeline';
+import { LOOP_NAV } from '../src/workspaces/config';
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const code = (s: string) =>
@@ -271,22 +272,20 @@ describe('Actor provenance — notes', () => {
 // ---------------------------------------------------------------------------
 
 describe('CRM navigation semantics', () => {
-  const CONFIG = read('../src/workspaces/config.ts');
-  const shell = CONFIG.slice(CONFIG.indexOf('export const CRM_SHELL'), CONFIG.indexOf('\n};', CONFIG.indexOf('export const CRM_SHELL')));
+  const items = LOOP_NAV.nav.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label, footer: Boolean(g.footer) })));
 
-  function group(label: string): string {
-    const start = shell.indexOf(`label: '${label}'`);
-    assert.notEqual(start, -1, label);
-    return shell.slice(start, shell.indexOf('],', start));
-  }
-
-  it('the workspace organization is not presented as a Relationship', () => {
-    assert.equal(group('Relationships').includes('/crm/organizations'), false);
-    assert.equal(/label: 'Organizations'/.test(shell), false);
+  it('the workspace organization is not presented as a Relationship or a CRM record', () => {
+    const org = items.filter((i) => i.href === '/crm/organizations');
+    assert.equal(org.length, 1);
+    assert.notEqual(org[0]!.group, 'CRM');
+    assert.equal(items.some((i) => i.label === 'Organizations'), false);
   });
 
   it('the workspace organization sits with workspace administration', () => {
-    const footer = shell.slice(shell.indexOf('footer: true'));
-    assert.match(footer, /\{ href: '\/crm\/organizations', label: 'Workspace', icon: 'building' \}/);
+    const org = items.find((i) => i.href === '/crm/organizations')!;
+    assert.equal(org.label, 'Workspace');
+    assert.equal(org.group, 'Administration');
+    assert.equal(org.footer, true);
+    assert.deepEqual(org.requires, { resource: 'organizations', action: 'view' });
   });
 });

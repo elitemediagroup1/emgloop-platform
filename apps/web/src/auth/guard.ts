@@ -12,13 +12,14 @@ import { redirect } from 'next/navigation';
 import { getSession, type AuthSession } from './auth';
 import { repositories } from '@emgloop/database';
 import type { Resource, Action } from '@emgloop/database';
+import { loginPathFor } from './landing';
+import { requestedPath } from './request-path';
 
-/** Require an authenticated session, or redirect to the login page. */
+/** Require an authenticated session, or redirect to login carrying the requested page. */
 export async function requireSession(returnTo?: string): Promise<AuthSession> {
   const session = await getSession();
   if (!session) {
-    const suffix = returnTo ? '?next=' + encodeURIComponent(returnTo) : '';
-    redirect('/crm/login' + suffix);
+    redirect(loginPathFor(requestedPath() ?? returnTo));
   }
   return session!;
 }

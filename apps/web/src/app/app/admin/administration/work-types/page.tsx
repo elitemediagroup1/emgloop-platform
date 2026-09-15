@@ -19,6 +19,7 @@ import {
   reorderWorkTypeAction,
   installStarterWorkTypesAction,
 } from './actions';
+import { requireWorkspace } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,7 @@ export default async function WorkTypesPage({
 }: {
   searchParams?: { notice?: string; error?: string };
 }) {
+  await requireWorkspace('ADMIN');
   const session = await requirePermission('settings', 'view');
   const canManage = await hasPermission('settings', 'update');
   const types = await repositories.work.listWorkTypes(session.organizationId, { includeInactive: true });

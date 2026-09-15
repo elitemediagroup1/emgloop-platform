@@ -33,6 +33,9 @@ const PUBLIC_PATHS = [
 function withPathname(req: NextRequest) {
   const headers = new Headers(req.headers);
   headers.set('x-pathname', req.nextUrl.pathname);
+  // Lets a server guard send an expired or missing session back to exactly the
+  // page that was requested, query included.
+  headers.set('x-search', req.nextUrl.search);
   return NextResponse.next({ request: { headers } });
 }
 
@@ -57,7 +60,8 @@ export function middleware(req: NextRequest) {
   if (hasSession) return withPathname(req);
   const url = req.nextUrl.clone();
   url.pathname = '/crm/login';
-  url.search = '?next=' + encodeURIComponent(pathname);
+  // The full requested path, query included, so a deep link survives sign-in.
+  url.search = '?next=' + encodeURIComponent(pathname + req.nextUrl.search);
   return NextResponse.redirect(url);
 }
 

@@ -296,6 +296,47 @@ export class IamRepository {
     return matrixAllows(role, resource, action);
   }
 
+  /**
+   * Many permission questions about one member of one organization, answered by
+   * exactly the rules of can() above, in the same order: membership authority,
+   * then a user DENY, then a role DENY, then a user ALLOW, then the capability
+   * matrix. The membership and the Permission rows are read once, so a caller
+   * asking a dozen questions (the navigation) does not issue a dozen rounds of
+   * queries.
+   *
+   * It decides what to SHOW. Enforcement stays with can(): every page and action
+   * still asks can() itself. test/iam-can-each.test.ts pins the two together.
+   */
+  async canEach(
+    organizationId: string,
+    userId: string,
+    checks: readonly { resource: Resource; action: Action }[],
+  ): Promise<boolean[]> {
+    if (checks.length === 0) return [];
+    const authority = await membershipAuthority(this.prisma, organizationId, userId);
+    if (!authority.granted) return checks.map(() => false);
+    const role = authority.systemRole;
+
+    const rules = await this.prisma.permission.findMany({
+      where: {
+        organizationId,
+        resource: { in: [...new Set(checks.map((c) => c.resource))] },
+        action: { in: [...new Set(checks.map((c) => c.action))] },
+        OR: [{ userId }, { systemRole: role as SystemRole }],
+      },
+      select: { userId: true, systemRole: true, resource: true, action: true, effect: true },
+    });
+
+    return checks.map(({ resource, action }) => {
+      if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
+      const applicable = rules.filter((r) => r.resource === resource && r.action === action);
+      if (applicable.some((r) => r.userId === userId && r.effect === 'DENY')) return false;
+      if (applicable.some((r) => r.systemRole === role && r.effect === 'DENY')) return false;
+      if (applicable.some((r) => r.userId === userId && r.effect === 'ALLOW')) return true;
+      return matrixAllows(role, resource, action);
+    });
+  }
+
 
   // -- User management ------------------------------------------------------
 

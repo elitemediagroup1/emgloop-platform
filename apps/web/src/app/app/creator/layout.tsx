@@ -1,14 +1,14 @@
 import WorkspaceShell from '../../../workspaces/WorkspaceShell';
 import { requireWorkspace } from '../../../workspaces/guard';
-import { workspaceFor } from '../../../workspaces/config';
 
 export const dynamic = 'force-dynamic';
 
-// Loop OS — CREATOR workspace layout (Phase 2, PR #47).
+// The creator route tree (CREATOR role authority).
 //
-// Guards the workspace (server-side, fail-closed via requireWorkspace) and wraps
-// every page in the shared WorkspaceShell with THIS workspace's config. Same
-// design language as the operating system; nav + permissions come from config.
+// Guards the tree server-side and renders the one Loop shell. The guard here is
+// defence in depth, not the boundary: every page in this tree also enforces
+// requireWorkspace('CREATOR') itself, because a layout is never the only thing
+// standing between a request and a page's data.
 
 export default async function CREATORLayout({
   children,
@@ -16,9 +16,5 @@ export default async function CREATORLayout({
   children: React.ReactNode;
 }) {
   const session = await requireWorkspace('CREATOR');
-  return (
-    <WorkspaceShell shell={workspaceFor('CREATOR')} session={session}>
-      {children}
-    </WorkspaceShell>
-  );
+  return <WorkspaceShell session={session}>{children}</WorkspaceShell>;
 }

@@ -6,6 +6,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { loginAction } from '../../../auth/actions';
+import { postLoginDestination, safeNextPath } from '../../../auth/landing';
 import { getSession } from '../../../auth/auth';
 import { ensureCrmIdentity } from '../../../auth/bootstrap';
 import { EmgLoopWordmark } from '../_brand/Logos';
@@ -23,7 +24,8 @@ export default async function LoginPage({
 }) {
   await ensureCrmIdentity();
   const session = await getSession();
-  if (session) redirect('/crm');
+  if (session) redirect(postLoginDestination(searchParams.next));
+  const next = safeNextPath(searchParams.next);
 
   return (
     <div className="loop-auth">
@@ -68,6 +70,7 @@ export default async function LoginPage({
             ) : null}
 
             <form action={loginAction}>
+              {next ? <input type="hidden" name="next" value={next} /> : null}
               <label className="crm-field">
                 <span>Email</span>
                 <input className="crm-input" type="email" name="email" autoComplete="email" required />

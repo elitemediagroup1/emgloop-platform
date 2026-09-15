@@ -198,7 +198,7 @@ export function SetupWizard({ initial }: { initial: Initial }) {
         return;
       }
       setTimeout(() => {
-        router.push('/crm');
+        router.push('/app');
       }, 1000);
     } catch {
       setError('We could not complete setup. Please try again.');

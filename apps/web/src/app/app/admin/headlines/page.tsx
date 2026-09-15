@@ -39,6 +39,7 @@ import { dismissHeadlineAction } from '../administration/objectives/actions';
 import { investigateHeadlineAction } from '../administration/objectives/investigate-actions';
 import { AttentionBanner, HeadlineCard } from './headline-ui';
 import { loadAttention, loadExistingCase } from './headlines-data';
+import { requireWorkspace } from '../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +48,7 @@ export default async function HeadlinesPage({
 }: {
   searchParams?: { notice?: string; error?: string };
 }) {
+  await requireWorkspace('ADMIN');
   // READ is the broad grant; the two controls below require the narrower
   // authoring grant independently. A READ_ONLY member sees the intelligence and
   // is offered nothing to press.

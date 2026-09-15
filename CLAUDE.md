@@ -72,8 +72,9 @@ These are not aspirations. They are enforced in review.
    already does this well (`revenue/page.tsx`); match that standard.
 5. **Delete dead code instead of hiding it.** We carry ~9,000 lines with zero importers. Every one of
    them was "kept just in case." Deleting is cheaper than the confusion. Git remembers.
-6. **One source of truth.** We have three workflow systems, two shells, three nav configs, and two
-   token sets. Each one started as "just for now."
+6. **One source of truth.** We have three workflow systems and two token sets. Each one started as "just
+   for now." (Two shells and three nav configs did too; they became one shell and one registry,
+   `LOOP_NAV`, only once the plan was written down.)
 7. **Simplicity over cleverness.** The `_loop-os` primitives are good because they are boring.
 8. **Production-first.** Code that only works because one tenant exists is not production code.
 9. **Comments describe *now*, not intent-at-writing.** This repo's comments drift badly and people make
@@ -164,11 +165,19 @@ the membership is derived from it. **Always merge, never replace** that bag (see
 Rules). `Invitation.systemRole` is a real column that nothing reads — the role is in metadata.
 
 ### WorkspaceShell & routing
-`/` → `/crm/login` → `/crm` → setup gate → `/app` → role home. `/app/page.tsx` is the *only* place
-post-login routing happens.
+Sign-in lands on Loop Home: `/` → `/crm/login` → `/app`, and a safe requested deep link survives
+sign-in. Every landing decision goes through `apps/web/src/auth/landing.ts`; `/app` renders Loop Home
+and never redirects by role. The target structure (one shell, `/app/<module>` routes, redirects) is
+locked in `docs/architecture/loop-application-structure.md` and is being implemented PR by PR.
 
-`workspaces/config.ts` is data, not code branches. Adding a role is a row. `WorkspaceShell` takes
-`{workspace, session}` and has zero role branching — keep it that way.
+`workspaces/config.ts` is data, not code branches. It holds the ONE navigation registry, `LOOP_NAV`,
+and the role authority table. `WorkspaceShell` takes only `{session}`, always renders `LOOP_NAV`
+filtered to what that person can open, and has zero role branching — keep it that way. Never add a
+second registry or a per-module sidebar: a module is a group in `LOOP_NAV`.
+
+Nav visibility is not authorization. Each item states the authority its destination enforces, and
+**every page in a role-guarded tree calls `requireWorkspace(role)` itself** before any read. The tree
+layouts guard as well, but a layout is never a page's only boundary.
 
 ⚠️ `BUSINESS_OWNER` and `CREATOR` resolve only via a `session.workspaceRole` hint that **nothing sets**.
 Those two workspaces are unreachable. Don't build into them without fixing the hint first.
@@ -424,8 +433,9 @@ The order matters. Each unlocks the next.
    200-on-failure contract so providers redeliver. Give `LoopEvent` a consumer or delete the gateway.
 4. **Unified shell.** Move `/crm`'s 36 real routes into `/app`'s better shell — it is config-driven,
    permission-aware, and fail-closed. This is a migration *into* `/app`, not a meeting in the middle.
-   Prerequisites: one nav config, one guard family, one token set, and the phantom workspaces resolved.
-   **Write the plan down first** — no plan exists today.
+   Prerequisites: one guard family, one token set, and the phantom workspaces resolved. The plan is
+   written and locked in `docs/architecture/loop-application-structure.md`; one shell and one nav
+   registry (`LOOP_NAV`) are done. Follow that sequence; do not improvise around it.
 5. **Production Brain.** Replace `demonstrateBrainActivityFlow` — the current live briefing path — with
    a real envelope author over real signals. Implement the `BrainService` sub-services that are
    currently names.
