@@ -13,8 +13,9 @@ import { mayAllowUnsigned, toVerificationDiagnostic, hostOf } from '../../../../
 // 3. Verify signature + timestamp + replay via the CallGrid adapter (shared helper).
 // 4. Parse the payload into provider-agnostic InboundEvents.
 // 5. Hand them to the IngestionService, which runs the full Loop pipeline
-//    (IntegrationEvent -> Customer -> Interaction -> Signal -> DomainEvent ->
-//    Workflow -> enrichment -> Next Best Action) with idempotency + retry.
+//    (IntegrationEvent -> Interaction -> MarketplaceCall -> Signal -> DomainEvent
+//    -> Workflow -> enrichment -> Next Best Action) with idempotency + retry. It
+//    creates and matches no Customer: the caller number is kept as a fact.
 //
 // Sprint 17 security rule: PRODUCTION NEVER ACCEPTS UNSIGNED TRAFFIC. The route
 // fails closed when the signing secret is missing on the live deploy. Only a
@@ -133,7 +134,6 @@ export async function POST(req: Request) {
       externalId: r.externalId,
       status: r.status,
       interactionId: r.interactionId,
-      customerId: r.customerId,
       nextBestActions: r.nextBestActions,
     })),
   });

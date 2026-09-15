@@ -1161,7 +1161,7 @@ original `customerId`; the audit records counts only) and its header comment cla
 **NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
 schema**) as its own branch. Business Identity implementation has not begun.
 
-## Loop Time Authority — IN REVIEW (#238)
+## Loop Time Authority — MERGED (#238, verified on `main` by content)
 
 _Last updated: 2026-09-15._
 
@@ -1179,10 +1179,38 @@ dates showed Sep 15 at 8:37 PM Eastern.
 - **Setup wizard timezone:** it is the explicit user preference (outranks the device). Its legacy values
   are not read until audited. Until then: validated device zone, then labelled UTC.
 
-Approved for merge from the Product side.
+**Next:** PD-1 implementation (Work OS targets) and PD-2 preference governance, each its own branch.
 
-**Next:** merge the Time Authority PR → verify on `main` by content → Part B (Charlie/Lexi reconciliation),
-which needs the authoritative Charlie/Lexi specification document.
+## Identity ingestion boundary — SLICE 1 IN REVIEW (#239, branch `fix/ingestion-records-facts-not-people`)
+
+_Last updated: 2026-09-15._
+
+Locked architecture: Source → Event / Interaction → Identity Evidence → Governed Resolution → Party /
+Person. There is no separate Charlie/Lexi specification document. The authorities are the locked ADRs,
+the Phase 0 decisions, Product decisions recorded on `main`, and the Charlie/Lexi requirements Matt gave
+directly. Confirmed defect: `IngestionService.resolveCustomer`, plus a second resolver in
+`NormalizationEngine`, created or matched a Customer for every event (caller ID last-7-digit match, a
+new Customer per withheld caller, anonymous visitor profiles), and the seeded call workflows then reset
+the matched Customer's intake status. That is how People reached ~24,574 rows.
+
+**Slice 1 (approved 2026-09-15):** ingestion records facts and never creates, selects, attaches to or
+modifies a Customer. Interactions, MarketplaceCalls, signals and domain events persist with no
+customer. Customer steps in workflows are not applicable (not failed). Test traffic is excluded by the
+event's own identifiers. Labels say "Unidentified caller/visitor". Journeys are keyed by visitor or
+session. `crm.new_customers` is "People added", not compared across windows, and the sales-bottleneck
+correlation is removed. No migration.
+
+**Accepted operational consequence (Matt):** until Slice 2, genuine new leads do not appear in People or
+the Intake Board; they are visible as facts in Live Calls, Inbox and marketplace calls.
+
+**Untouched:** the existing Customer population (no delete, merge, relink, suppress, backfill or Party
+establishment); Party / CustomerPartyLink services and their fences.
+
+**Not Product-locked yet (Slice 2+):** which evidence strength permits matching; whether human approval
+is always required; automated verification; whether anonymous history attaches after resolution.
+Historical People remediation is designed separately, starting with read-only aggregate analysis.
+
+**Next:** merge review of Slice 1. Do not start Slice 2 before it merges.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

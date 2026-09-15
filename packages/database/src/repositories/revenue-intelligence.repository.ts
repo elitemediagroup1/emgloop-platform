@@ -7,8 +7,9 @@
 // the NormalizationEngine. Every revenue figure is traceable to its evidence.
 //
 // Sprint 15 real-data hotfix:
-//  - Demo / QA / E2E / test customers are EXCLUDED (never deleted) from active
-//    intelligence via operational-filters.isExcludedCustomer.
+//  - Demo / QA / E2E / test records are EXCLUDED (never deleted) from active
+//    intelligence: customers via isExcludedCustomer, calls from their own
+//    identifiers via isExcludedInteraction (ingestion links calls to no Customer).
 //  - Fabricated attribution labels become honest 'Unknown ...' via realAttr.
 //  - Revenue is reported as realized vs pending vs opportunity, so the page is
 //    honest when there are calls/visits but no realized orders.
@@ -36,7 +37,7 @@
 // lands and proves parity, these caps stay and `coverage` stays truthful.
 
 import type { PrismaClient, Prisma } from '@prisma/client';
-import { isExcludedCustomer, realAttr, UNKNOWN, since, TRAFFIC_DEFAULT_WINDOW_MS } from './operational-filters';
+import { isExcludedCustomer, isExcludedInteraction, realAttr, UNKNOWN, since, TRAFFIC_DEFAULT_WINDOW_MS } from './operational-filters';
 import {
   measure,
   success,
@@ -549,6 +550,7 @@ export class RevenueIntelligenceRepository {
       orderBy: { occurredAt: 'desc' },
       take: CAPS.calls + 1,
       select: {
+        externalId: true,
         metadata: true,
         customer: {
           select: {
@@ -583,7 +585,7 @@ export class RevenueIntelligenceRepository {
       );
     }
 
-    const calls = allCalls.filter((i) => !isExcludedCustomer(i.customer));
+    const calls = allCalls.filter((i) => !isExcludedInteraction(i));
 
     interface Acc {
       calls: number;

@@ -8,7 +8,9 @@
 // Sprint 15 real-data hotfix:
 //  - Active views are time-windowed (recent only) so 'live' means live.
 //  - Demo / QA / E2E / test records are filtered OUT of active views (never
-//    deleted) via operational-filters.isExcludedCustomer / isExcludedExternalId.
+//    deleted). An Interaction is judged from its own identifiers
+//    (isExcludedInteraction), since ingestion links it to no Customer; bookings
+//    and customers by isExcludedCustomer.
 //  - Fabricated attribution labels (e.g. 'Vendor A') are shown honestly as
 //    missing (null) rather than as a fake partner.
 //  - Rows carry traceability: provider, externalId, processed time.
@@ -20,6 +22,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import {
   isExcludedCustomer,
   isExcludedExternalId,
+  isExcludedInteraction,
   realAttr,
   propertyNameOf,
   propertyKeyOf,
@@ -223,8 +226,7 @@ export class LiveOperationsRepository {
     }
 
     for (const i of interactions) {
-      if (isExcludedCustomer(i.customer)) continue;
-      if (isExcludedExternalId(i.externalId)) continue;
+      if (isExcludedInteraction(i)) continue;
       const et = jsonVal(i.metadata, 'eventType') ?? '';
       const kind: LiveActivityKind = et.startsWith(WEBSITE_EVENT_PREFIX)
         ? 'website'
@@ -296,7 +298,7 @@ export class LiveOperationsRepository {
     });
 
     return rows
-      .filter((i) => !isExcludedCustomer(i.customer) && !isExcludedExternalId(i.externalId))
+      .filter((i) => !isExcludedInteraction(i))
       .slice(0, limit)
       .map((i) => {
         const md = i.metadata;
@@ -346,7 +348,7 @@ export class LiveOperationsRepository {
     });
 
     const flat: LiveWebsiteRow[] = rows
-      .filter((i) => !isExcludedCustomer(i.customer) && !isExcludedExternalId(i.externalId))
+      .filter((i) => !isExcludedInteraction(i))
       .map((i) => {
         const md = i.metadata;
         const et = jsonVal(md, 'eventType');
@@ -415,7 +417,7 @@ export class LiveOperationsRepository {
     });
 
     const mapped: BrainCallWindowRow[] = rows
-      .filter((i) => !isExcludedCustomer(i.customer) && !isExcludedExternalId(i.externalId))
+      .filter((i) => !isExcludedInteraction(i))
       .map((i) => {
         const md = i.metadata;
         const durRaw = jsonVal(md, 'durationSeconds');

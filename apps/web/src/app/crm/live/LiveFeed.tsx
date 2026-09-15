@@ -120,7 +120,7 @@ function renderCalls(items: Json[], clock: FeedClock) {
       <table className="crm-table">
         <thead>
           <tr>
-            <th>When</th><th>Caller</th><th>Customer</th><th>Vendor</th><th>Source</th><th>Campaign</th>
+            <th>When</th><th>Caller</th><th>Person</th><th>Vendor</th><th>Source</th><th>Campaign</th>
             <th>Qualified</th><th>Duration</th><th>Status</th><th>Provider</th><th>Event ID</th><th>Next best action</th>
           </tr>
         </thead>
@@ -132,9 +132,10 @@ function renderCalls(items: Json[], clock: FeedClock) {
                 <td title={exactTime(it.at, clock)}>{relativeTime(it.at, clock)}</td>
                 <td>{it.caller ? String(it.caller) : '—'}</td>
                 <td>
+                  {/* Ingestion never decides who a caller is, so most calls have no Person. */}
                   {it.customerId ? (
                     <Link href={'/crm/customers/' + String(it.customerId)} className="crm-link">{String(it.customerName ?? 'View')}</Link>
-                  ) : (String(it.customerName ?? '—'))}
+                  ) : ('Unidentified caller')}
                 </td>
                 <td>{attr(it.vendor, 'Unknown vendor')}</td>
                 <td>{attr(it.source, 'Unknown source')}</td>
@@ -170,7 +171,7 @@ function renderWebsites(items: Json[], clock: FeedClock) {
                 {s.website ? String(s.website) : 'Website session'}
                 {s.customerId ? (
                   <>{' · '}<Link href={'/crm/customers/' + String(s.customerId)} className="crm-link">{String(s.customerName ?? 'View customer')}</Link></>
-                ) : s.customerName ? ' · ' + String(s.customerName) : ''}
+                ) : ' · Unidentified visitor'}
               </div>
               <span className="crm-tl-meta">{events.length} event{events.length === 1 ? '' : 's'} · {relativeTime(s.lastAt, clock)}</span>
             </div>

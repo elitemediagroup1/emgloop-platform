@@ -218,7 +218,6 @@ export async function POST(req: Request) {
       externalId: r.externalId,
       status: r.status,
       interactionId: r.interactionId,
-      customerId: r.customerId,
       nextBestActions: r.nextBestActions,
     })),
   });

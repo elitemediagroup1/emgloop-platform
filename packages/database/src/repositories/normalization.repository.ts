@@ -9,6 +9,12 @@
 // Idempotency: externalId on Interaction prevents duplicate records
 // if the same event is replayed.
 //
+// NO PERSON. Every Interaction, Signal and DomainEvent written here carries no
+// customer, and nothing here reads the Customer table. What a source reported
+// about who was involved (a caller number, a form's email) is in the metadata as
+// a fact; it is never matched against People. (This engine used to attach each
+// event to the first Customer whose email or phone equalled the reported one.)
+//
 // Sprint 14 (Website Intelligence) extends the lookup tables below with the
 // web.* event family so EMG-owned website activity becomes Interactions,
 // Signals, and DomainEvents through this SAME engine — the Brain's second
@@ -210,21 +216,6 @@ export class NormalizationEngine {
       wasIdempotent: false,
     };
 
-    // Resolve customer from email/phone if not directly provided
-    let customerId: string | null = event.customerId ?? null;
-    if (!customerId && (event.customerEmail || event.customerPhone)) {
-      const customer = await this.prisma.customer.findFirst({
-        where: {
-          organizationId: event.organizationId,
-          OR: [
-            ...(event.customerEmail ? [{ email: event.customerEmail }] : []),
-            ...(event.customerPhone ? [{ phone: event.customerPhone }] : []),
-          ],
-        },
-      });
-      if (customer) customerId = customer.id;
-    }
-
     // 1. Create Interaction (idempotent by externalId)
     if (INTERACTION_EVENTS.has(event.eventType)) {
       const channel = EVENT_CHANNEL[event.eventType] ?? ChannelType.OTHER;
@@ -246,7 +237,6 @@ export class NormalizationEngine {
         const interaction = await this.prisma.interaction.create({
           data: {
             organizationId: event.organizationId,
-            customerId: customerId ?? undefined,
             channel,
             kind,
             direction,
@@ -271,7 +261,6 @@ export class NormalizationEngine {
       const signal = await this.prisma.signal.create({
         data: {
           organizationId: event.organizationId,
-          customerId: customerId ?? undefined,
           type: signalType,
           key: event.eventType,
           source: event.source,
@@ -299,7 +288,6 @@ export class NormalizationEngine {
             source: event.source,
             externalId: event.externalId,
             eventType: event.eventType,
-            customerId,
             interactionId: result.interactionId,
             signalIds: result.signalIds,
             ...event.metadata,
@@ -308,12 +296,13 @@ export class NormalizationEngine {
       });
       result.domainEventId = domainEvent.id;
 
-      // Fire any EVENT-triggered workflows
+      // Fire any EVENT-triggered workflows. The context names no customer or
+      // conversation, so a step that needs one does not apply and is not run.
       try {
         await this.workflows.runWorkflowsForEvent({
           organizationId: event.organizationId,
           eventName: domainEventName,
-          context: { customerId: customerId ?? undefined },
+          context: {},
           triggeredBy: 'normalization-engine',
         });
       } catch {

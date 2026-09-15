@@ -248,12 +248,12 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
       emptyScopeReason: 'No CRM records in the window. Unknown is not zero.',
       measuredAt: NOW.toISOString(), affectedArea: 'Sales pipeline',
       metrics: [
-        { metricId: 'crm.new_customers', label: 'New customers', observed: 40, total: null, prior: 60, trackChange: true, provenance: src('crm-db') },
+        { metricId: 'crm.conversations', label: 'Conversations opened', observed: 40, total: null, prior: 60, trackChange: true, provenance: src('crm-db') },
         { metricId: 'crm.assigned', label: 'Assigned conversations', observed: 30, total: 50, raiseCoverageGap: true, provenance: src('crm-db'), owner: 'operations' },
       ],
     });
     const out = runExecutiveBrain([crm], NOW);
-    const changed = out.whatChanged.find((o) => o.change?.metricId === 'crm.new_customers');
+    const changed = out.whatChanged.find((o) => o.change?.metricId === 'crm.conversations');
     assert(!!changed, 'a two-window movement becomes a What-Changed observation');
     assert(changed!.change!.direction === 'down' && changed!.change!.prior === 60 && changed!.change!.current === 40, 'the change carries the real prior/current values');
     assert(changed!.confidence > 0 && changed!.evidence.length > 0, 'a change is evidence-backed with real confidence, not a bare delta');
@@ -269,7 +269,7 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
       populationSize: 0, staleAfterMs: null,
       emptyScopeReason: 'No CRM records in the window. Unknown is not zero.',
       measuredAt: NOW.toISOString(),
-      metrics: [{ metricId: 'crm.new_customers', label: 'New customers', observed: 0, total: null, prior: 60, trackChange: true, provenance: src('crm-db') }],
+      metrics: [{ metricId: 'crm.conversations', label: 'Conversations opened', observed: 0, total: null, prior: 60, trackChange: true, provenance: src('crm-db') }],
     });
     const out = runExecutiveBrain([crmEmpty], NOW);
     assert(out.whatChanged.length === 0, 'no change is claimed when the metric was withheld (empty window) — a delta is not evidence on its own');
@@ -277,6 +277,37 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
   }
 
   // --- SPRINT 26: cross-sensor correlation is evidence-gated ----------------
+  {
+    const marketplace = buildDomainSensor({
+      id: 'marketplace', label: 'Marketplace', domain: 'marketplace', scopeLabel: 'last 7 days',
+      populationSize: 500, staleAfterMs: null, emptyScopeReason: 'No calls.', measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'calls', label: 'Calls', observed: 500, total: null, prior: 300, trackChange: true, provenance: src('call-db') }],
+    });
+    const crm = buildDomainSensor({
+      id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 'last 7 days',
+      populationSize: 100, staleAfterMs: null, emptyScopeReason: 'No CRM records.', measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'crm.assigned', label: 'Assigned conversations', observed: 30, total: 50, raiseCoverageGap: true, provenance: src('crm-db'), owner: 'operations' }],
+    });
+
+    const out = runExecutiveBrain([marketplace, crm], NOW);
+    const corr = out.correlations.find((o) => o.id === 'correlation:lead-response-capacity');
+    assert(!!corr, 'the correlation fires when BOTH underlying observations exist (calls up + assignment gap)');
+    assert(corr!.evidence.length >= 2, 'and it cites the observations it correlated as its evidence');
+    assert(corr!.confidence > 0 && corr!.confidence <= 0.9, 'its confidence is derived (weakest-link) from the joined observations, in [0,1]');
+    assert(corr!.source.domain === 'cross-sensor', 'a correlation is attributed to the cross-sensor reasoner, not a single sensor');
+
+    const onlyMarketplace = runExecutiveBrain([marketplace], NOW);
+    assert(
+      !onlyMarketplace.correlations.some((o) => o.id === 'correlation:lead-response-capacity'),
+      'and it does NOT fire when only one side is present — a correlation cannot invent the signal it lacks',
+    );
+    checks.push('cross-sensor correlation fires only when both evidenced observations exist, and cites both');
+  }
+
+  // --- People added is not conversion ----------------------------------------
+  // Ingestion does not create People, so a fall in People added while traffic
+  // rises is operators adding fewer records, not visitors failing to convert.
+  // Even fed as a tracked change, it must not become a cross-sensor finding.
   {
     const website = buildDomainSensor({
       id: 'website', label: 'Website', domain: 'website', scopeLabel: 'last 7 days',
@@ -286,22 +317,11 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
     const crm = buildDomainSensor({
       id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 'last 7 days',
       populationSize: 100, staleAfterMs: null, emptyScopeReason: 'No CRM records.', measuredAt: NOW.toISOString(),
-      metrics: [{ metricId: 'crm.new_customers', label: 'New customers', observed: 40, total: null, prior: 60, trackChange: true, provenance: src('crm-db') }],
+      metrics: [{ metricId: 'crm.new_customers', label: 'People added', observed: 0, total: null, prior: 900, trackChange: true, provenance: src('crm-db') }],
     });
-
     const out = runExecutiveBrain([website, crm], NOW);
-    const corr = out.correlations.find((o) => o.id === 'correlation:sales-bottleneck');
-    assert(!!corr, 'the correlation fires when BOTH underlying observations exist (traffic up + customers down)');
-    assert(corr!.evidence.length >= 2, 'and it cites the observations it correlated as its evidence');
-    assert(corr!.confidence > 0 && corr!.confidence <= 0.9, 'its confidence is derived (weakest-link) from the joined observations, in [0,1]');
-    assert(corr!.source.domain === 'cross-sensor', 'a correlation is attributed to the cross-sensor reasoner, not a single sensor');
-
-    const onlyWebsite = runExecutiveBrain([website], NOW);
-    assert(
-      !onlyWebsite.correlations.some((o) => o.id === 'correlation:sales-bottleneck'),
-      'and it does NOT fire when only one side is present — a correlation cannot invent the signal it lacks',
-    );
-    checks.push('cross-sensor correlation fires only when both evidenced observations exist, and cites both');
+    assert(out.correlations.length === 0, 'traffic up and People added down is not reported as a sales bottleneck');
+    checks.push('no correlation reads People added as conversion');
   }
 
   // --- SPRINT 26: Evidence Coverage status is derived, never authored -------
@@ -309,7 +329,7 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
     const healthy = buildDomainSensor({
       id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 's', populationSize: 100, staleAfterMs: null,
       emptyScopeReason: 'x', measuredAt: NOW.toISOString(),
-      metrics: [{ metricId: 'crm.new_customers', label: 'New customers', observed: 40, total: null, provenance: src('crm-db') }],
+      metrics: [{ metricId: 'crm.conversations', label: 'Conversations opened', observed: 40, total: null, provenance: src('crm-db') }],
     });
     const connectedEmpty = buildDomainSensor({
       id: 'website', label: 'Website', domain: 'website', scopeLabel: 's', populationSize: 0, staleAfterMs: null,

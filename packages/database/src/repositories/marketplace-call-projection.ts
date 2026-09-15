@@ -17,7 +17,7 @@
 
 import { realAttr } from './operational-filters';
 import type { CustomerLike } from './operational-filters';
-import { isExcludedCustomer } from './operational-filters';
+import { isExcludedInteraction } from './operational-filters';
 
 /** The minimal Interaction view the mapper needs (keeps it Prisma-free/testable). */
 export interface InteractionForProjection {
@@ -28,6 +28,7 @@ export interface InteractionForProjection {
   channel: string;
   occurredAt: Date;
   metadata: unknown;
+  /** Set only by a rebuild over older Interactions that are linked to a Customer. */
   customer?: CustomerLike | null;
 }
 
@@ -99,7 +100,8 @@ function centsOrNull(v: unknown): number | null {
 /**
  * Project an Interaction into a MarketplaceCall. Returns null when the row is
  * not a projectable call: not a phone interaction, no provider/externalId to be
- * idempotent on, or an excluded demo/QA record. Null is a skip, never an error.
+ * idempotent on, or demo/QA traffic, judged from the call's own identifiers.
+ * Null is a skip, never an error.
  */
 export function projectInteractionToMarketplaceCall(
   it: InteractionForProjection,
@@ -108,7 +110,7 @@ export function projectInteractionToMarketplaceCall(
   const provider = strOrNull(it.provider);
   const externalId = strOrNull(it.externalId);
   if (!provider || !externalId) return null;
-  if (isExcludedCustomer(it.customer)) return null;
+  if (isExcludedInteraction(it)) return null;
 
   const m = obj(it.metadata);
 

@@ -79,32 +79,14 @@ export interface CorrelationRule {
  * The correlation rules that reason over the sensors instrumented today. Each
  * references only real metric ids; a rule whose sensors are not both present
  * simply returns null. Adding a rule is adding an entry here — no engine change.
+ *
+ * NO RULE READS PEOPLE ADDED (`crm.new_customers`) AS CONVERSION. Ingestion does
+ * not create People, so that count is records added in Loop, not visitors or
+ * callers becoming customers. A rule that read "traffic up, People added down" as
+ * a sales bottleneck used to live here; its premise ended when ingestion stopped
+ * creating People.
  */
 export const CORRELATION_RULES: readonly CorrelationRule[] = [
-  {
-    id: 'sales-bottleneck',
-    label: 'Sales process bottleneck',
-    affectedArea: 'Sales pipeline',
-    detect(lookup) {
-      const trafficUp = lookup.changeIn('website', 'website.sessions', 'up');
-      const customersDown = lookup.changeIn('crm', 'crm.new_customers', 'down');
-      if (!trafficUp || !customersDown) return null;
-      return {
-        observation:
-          'Website traffic is rising while new customers created are falling — visitors are arriving but fewer are converting.',
-        businessImpact:
-          'Demand is up but conversion is not keeping pace, which points to a bottleneck between arrival and customer creation rather than a traffic-supply problem.',
-        recommendation: {
-          action: 'Review lead intake and follow-up for a capacity or process gap before spending more on traffic.',
-          expectedImpact: 'Recovers conversion of the incremental traffic already being paid for.',
-          owner: 'sales',
-        },
-        severity: 'high',
-        owner: 'sales',
-        from: [trafficUp, customersDown],
-      };
-    },
-  },
   {
     id: 'lead-response-capacity',
     label: 'Lead response capacity risk',

@@ -197,7 +197,7 @@ export class CallGridProvider implements IngestionProvider {
   /**
      * Parse a verified CallGrid webhook body into one InboundEvent.
      * CallGrid delivers a single call event per webhook. The full raw payload is
-     * preserved on .payload so the NormalizationEngine and the customer timeline
+     * preserved on .payload so the NormalizationEngine and the stored Interaction
      * keep every CallGrid attribute (recording, transcript, campaign, etc.).
      *
      * PR #41: reads the CONFIRMED canonical CallGrid webhook body first (id,

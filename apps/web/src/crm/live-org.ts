@@ -7,11 +7,14 @@ import 'server-only';
 // existing seeded org (slug "servicesinmycity-demo", created by the Sprint 7
 // identity bootstrap) so all existing identity, CRM data and intake keep working,
 // and layers on the production profile: branding, Organization DNA, a default AI
-// Employee, default workflows, default CRM settings, and a default pipeline.
+// Employee, default CRM settings, and a default pipeline.
 //
-// It deliberately does NOT create customers — live customers arrive only through
-// the CallGrid webhook and the live intake (Phases 2-3). All writes go through
-// the repository layer / Prisma; nothing is mocked.
+// It deliberately does NOT create customers, and neither does anything that
+// ingests a provider event: ingestion records calls and website activity as
+// facts and never creates or changes a Person. It seeds no event workflows
+// either. The call workflows it used to seed were customer steps (tag, stage,
+// note), and no ingested call carries a customer for them to act on. All writes
+// go through the repository layer / Prisma; nothing is mocked.
 
 import { prisma, repositories } from '@emgloop/database';
 
@@ -140,52 +143,6 @@ export async function ensureLiveOrganization(): Promise<{ organizationId: string
     title: 'Front Desk AI Employee',
   });
 
-  // 4. Default workflows bound to live CallGrid events. Idempotent by name.
-  await ensureWorkflow(org.id, {
-    name: 'New inbound call — first touch',
-    description: 'Tag and stage every inbound call as a new lead.',
-    eventName: 'integration.call.inbound',
-    steps: [
-      { type: 'add_tag', config: { tag: 'inbound-call' } },
-      { type: 'set_pipeline_status', config: { status: 'New' } },
-    ],
-  });
-  await ensureWorkflow(org.id, {
-    name: 'Missed call — recovery',
-    description: 'Flag missed calls for prompt callback.',
-    eventName: 'integration.call.missed',
-    steps: [
-      { type: 'add_tag', config: { tag: 'missed-call' } },
-      { type: 'set_pipeline_status', config: { status: 'Contacted' } },
-      { type: 'create_note', config: { text: 'Missed inbound call — return promptly.' } },
-    ],
-  });
-
   promoted = true;
   return { organizationId: org.id };
-}
-
-async function ensureWorkflow(
-  organizationId: string,
-  args: {
-    name: string;
-    description: string;
-    eventName: string;
-    steps: { type: string; config: Record<string, unknown> }[];
-  },
-): Promise<void> {
-  const existing = await prisma.workflow.findFirst({
-    where: { organizationId, name: args.name },
-    select: { id: true },
-  });
-  if (existing) return;
-  const wf = await repositories.workflows.createWorkflow({
-    organizationId,
-    name: args.name,
-    description: args.description,
-    trigger: 'EVENT',
-    triggerConfig: { eventName: args.eventName },
-    definition: { steps: args.steps as { type: any; config: Record<string, unknown> }[] },
-  });
-  await repositories.workflows.setActive(organizationId, wf.id, true);
 }
