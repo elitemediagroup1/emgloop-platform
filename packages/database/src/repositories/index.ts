@@ -108,6 +108,8 @@ export {
 export type { RemovedMarkerAssessment, RepairRefusalReason } from './removed-marker-repair.repository';
 export { CustomerPartyLinkRepository } from './customer-party-link.repository';
 export type { CreateCustomerPartyLinkInput } from './customer-party-link.repository';
+export { PartyReferenceRepository } from './party-reference.repository';
+export type { PartyReferenceRequirement, PartyReferenceRepositoryDeps } from './party-reference.repository';
 export { OrganizationRepository } from './organization.repository';
 export {
   DemoFootprintRepository,

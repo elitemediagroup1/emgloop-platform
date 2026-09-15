@@ -1148,7 +1148,7 @@ dates showed Sep 15 at 8:37 PM Eastern.
 
 **Next:** PD-1 implementation (Work OS targets) and PD-2 preference governance, each its own branch.
 
-## Identity — SLICE 1 MERGED (#239) · AUDIT RUN (#240) · RECORD MERGED (#241) · 2.0 CONTRACTS (#242) · 2.0b IN REVIEW (#243)
+## Identity — SLICE 1 MERGED (#239) · AUDIT RUN (#240) · RECORD MERGED (#241) · 2.0 MERGED (#242) · 2.0b PARTY REFERENCE (#243)
 
 _Last updated: 2026-09-15._
 
@@ -1195,15 +1195,18 @@ workflows; resolve the workflow run stuck RUNNING since July.
 
 **Product/UI reconciliation passed (2026-09-15).**
 - **#241 (merged, `8afac50`):** decision record, specification and C-01–C-05.
-- **#242:** Identity 2.0, pure evidence, authority and use-policy contracts. It updates the record's
+- **#242 (merged, `c0a17fa`):** Identity 2.0, pure evidence, authority and use-policy contracts.
+- **#243:** Identity 2.0b, Party Reference Contract and read-only resolver. It updates the record's
   status line.
-- **#243 (draft):** Identity 2.0b, Party Reference Contract and read-only resolver. Independent of #242.
 
 None needs a migration. Product approved the six fail-closed contract readings on 2026-09-15 (see the
-record's decisions log).
+record's decisions log). Product approved the three 2.0b readings as implemented on 2026-09-15: the 8-hop
+depth guard, NOT_FOUND on a PERSON ↔ COMPANY chain, and refusing (never substituting) a superseded id on
+write. The rules for the 2.5b supersession writer are recorded in §8.
 
-**Next:** #243 merge review. Still authorized but not done: wording fixes to materially false People
-labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
+**Next:** merge #243, then verify it on `main` by content. After that, Relationship and Participant
+architecture proceeds (architecture first) against the Party Reference contract. Still authorized but not done: wording fixes to materially false
+People labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

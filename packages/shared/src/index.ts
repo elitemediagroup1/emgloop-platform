@@ -338,6 +338,10 @@ export * from './cognitive-context';
 // party-typed row is a cognitive subject until a governed basis -- provenance, not
 // a method name and never a confidence number -- establishes it. See ./party.ts.
 export * from './party';
+// Party Reference (Identity 2.0b): every other domain refers to a Party by
+// (organizationId, partyId) only. ESTABLISHED, NOT_ESTABLISHED, SUPERSEDED (resolved
+// forward) or NOT_FOUND; writes reference ESTABLISHED Parties only. See ./party-reference.ts.
+export * from './party-reference';
 
 // --- Operational decision lifecycle (platform primitives) ---
 // The pure projection from an append-only observation log to the current state

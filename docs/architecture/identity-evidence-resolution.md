@@ -3,7 +3,7 @@
 **Status:** direction approved by Product on 2026-09-15. **Nothing in this record is implemented yet
 except Slice 1** (#239, ingestion records facts only) **and the 2.0 pure contracts** (#242: evidence
 vocabulary and tiers, identity act authority, evidence use policy; nothing produces, stores or reads
-evidence). Every planned item names the slice that builds
+evidence) **and the 2.0b Party Reference Contract** (#243: a pure contract and a read-only resolver). Every planned item names the slice that builds
 it; until that slice merges, the code is the authority and this record is the plan. When a slice
 lands, this record is updated in the same PR.
 
@@ -230,6 +230,15 @@ organization, before any evidence is produced:
   no suggestion; a human decides with a reason.
 - **Evidence supersession:** evidence is revoked or expires; it is never deleted.
 - **Party supersession:** records resolve forward; nothing pointing at the superseded Party is rewritten.
+  The 2.5b supersession writer must (Product, 2026-09-15):
+  - prevent cyclic or invalid supersession chains;
+  - refuse superseding into an already-superseded Party where that would create an invalid chain;
+  - prohibit cross-type (PERSON ↔ COMPANY) supersession;
+  - provide governed diagnostics for abnormal or over-depth chains;
+  - not rewrite historical pointers merely to shorten an otherwise valid chain.
+
+  **Correcting a misclassified Party is not supersession** and is never inferred into it. If Party-type
+  correction is needed, it is designed as its own governed operation.
 
 ## 9. Anonymous history
 
@@ -322,10 +331,21 @@ Party:
 - **Contract readings (2.0b, #243; fail closed):**
   - An archived Party resolves with `archived: true` and takes no new references (approved, Product
     2026-09-15).
-  - A supersession chain fails closed as NOT_FOUND on a cycle, beyond 8 hops, on a change of Party
-    type, or on a link out of the organization (for Product review).
-  - A superseded id is refused for writes with its canonical id, never silently swapped (for Product
-    review).
+  - A supersession chain fails closed as NOT_FOUND on a cycle or on a link out of the organization
+    (required by the 2.0b authorization).
+  - **Depth guard (approved, Product 2026-09-15).** Reads follow at most 8 supersession hops. A longer
+    chain fails closed as NOT_FOUND. It never guesses, silently continues or returns an uncertain
+    canonical Party.
+  - **No cross-type chains (approved, Product 2026-09-15).** A chain may not cross between PERSON and
+    COMPANY. A read that meets PERSON → COMPANY or COMPANY → PERSON returns NOT_FOUND.
+  - **Writes are refused, never substituted (approved, Product 2026-09-15).** A write that references
+    a superseded Party:
+    - is refused and returns the canonical Party id (in the caller's organization);
+    - requires the caller or user to retry explicitly against the current Party.
+
+    Writes keep the exact subject of the authorized act and never silently change it. Reads resolve
+    forward. A UI may explain that a record was superseded and offer "Use current record". That action
+    is a new, explicit attempt against the canonical Party, never a rewrite of the original action.
 
 ## 13. Audit and provenance
 
@@ -382,7 +402,7 @@ All additive. Migrations reach production only through the manual `Deploy Prisma
 | 2.3 | New-fact evidence extraction projection; starts at policy activation; no historical backfill | no | evidence rows |
 | 2.4 | Review read models: unresolved identifiers, read-time suggestions, activity subject state, Intake identity state | no | no |
 | 2.5 | Governed resolution: propose, confirm/reject/reverse, flags, continuity attribution | yes | human acts |
-| 2.5b | Governed supersession (`PartyService`) | no | human acts |
+| 2.5b | Governed supersession (`PartyService`), under the §8 writer rules | no | human acts |
 | 2.6 | People projection and Intake Records read models; counts | no | no |
 
 **Gated or deferred:** historical evidence backfill (separate Product checkpoint), machine
@@ -465,4 +485,5 @@ against the Party Reference Contract.
 | 2026-09-15 | C-03: CallGrid split by authority (operations / intelligence / credentials and integration governance); no duplicate tree; no route moves in 2.0/2.0b (`loop-application-structure.md` D3, D4) |
 | 2026-09-15 | C-04: D2 superseded. People = established non-superseded PERSON Parties; Companies = established non-superseded COMPANY Parties; Intake = entry into a commercial process; legacy Customers are Intake Records; `/app/crm/people` reserved; Customer ≠ Person ≠ Party; only minimal wording fixes; no delete, purge, migrate, relink or `customerId` rewrite (§10, §11) |
 | 2026-09-15 | C-05: no numeric identity confidence; "identity confidence" means governed identity posture (§11a) |
+| 2026-09-15 | Identity 2.0b Party Reference readings approved (§8, §12). Reads follow at most 8 supersession hops and fail closed beyond. PERSON ↔ COMPANY chains are NOT_FOUND. A write naming a superseded Party is refused, returns the canonical Party, and needs an explicit retry; it is never silently substituted. 2.5b writer: no cyclic, invalid or cross-type chains; governed diagnostics for abnormal chains; no pointer rewrites to shorten chains. Party-type correction is not supersession |
 | 2026-09-15 | Identity 2.0 fail-closed readings approved (§5, §6, §7, §12). Name alone = WEAK. Operator identification = WEAK until confirmed. Operator-entered phone/email is not automatically an approved evidence class. A proposer may reject/withdraw their own proposal. The current legal-basis vocabulary is `ConsentBasis` excluding NONE. Archived Parties accept no new references |
