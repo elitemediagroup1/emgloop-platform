@@ -1152,9 +1152,14 @@ dates showed Sep 15 at 8:37 PM Eastern.
 
 _Last updated: 2026-09-15._
 
-**Authority:** `docs/architecture/identity-evidence-resolution.md` (decision record, 2026-09-15). Charlie
-and Lexi's Loop Product and UI Architecture v1.0 (2026-09-15) controls UI/product architecture alongside
-the Constitution; it is not in this repository.
+**Authority:** `docs/architecture/identity-evidence-resolution.md` (decision record, 2026-09-15, including
+PD-I2-01–09). Charlie and Lexi's Loop Product and UI Architecture v1.0 controls UI/product architecture
+alongside the Constitution: `docs/product/loop-product-ui-architecture-v1.0.md`.
+
+**⚠️ Open conflict, awaiting Product:** the specification's five operating areas (Home, CRM, Work,
+Intelligence, Operations), Creator Hub as a participant experience, CallGrid under Operations and "People =
+canonical People only" contradict locked decisions D1–D5 in `docs/architecture/loop-application-structure.md`.
+No implementation proceeds across them until Product decides.
 
 **Slice 1 (#239, verified in production):** ingestion records facts and never creates, selects, attaches
 to or modifies a Customer. Production audit after deploy: 0 People created, 0 provider interactions

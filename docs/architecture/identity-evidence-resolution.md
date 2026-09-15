@@ -7,9 +7,8 @@ lands, this record is updated in the same PR.
 
 **Authority order:** the Engineering Constitution (`CLAUDE.md`, `docs/ENGINEERING_PRINCIPLES.md`) →
 the locked decisions below → the rest of this record. Charlie and Lexi's **Loop Product and UI
-Architecture v1.0** (2026-09-15) is the controlling UI/product architecture alongside it. That
-document is not in this repository; the principles it states that bear on identity are recorded in
-§2 as Product relayed them, and this record claims nothing else about it.
+Architecture v1.0** (2026-09-15, `docs/product/loop-product-ui-architecture-v1.0.md`) is the
+controlling UI/product architecture alongside it.
 
 **Supersedes:** the "Business Identity Architecture v1" assessment in `docs/PROJECT_STATUS.md`
 (KEEP_SEPARATE cognitive identity, Customer as a DomainProjection, 19 open decisions). Those were
@@ -45,7 +44,7 @@ service requests; it does not delete them.
 - An unidentified caller is never required to be resolved. UNRESOLVED is a legal, permanent state.
 - There is one identity-resolution authority. No third identity system.
 
-**Loop Product and UI Architecture v1.0 (Charlie/Lexi, as relayed):**
+**Loop Product and UI Architecture v1.0 (`docs/product/loop-product-ui-architecture-v1.0.md`):**
 - Intake is not identity and never automatically creates a Person.
 - An unresolved caller is not a Person.
 - Activity supports Known Party, Known Company, Unresolved and Anonymous states.
@@ -148,15 +147,16 @@ Grants are the existing `IDENTITY_RESOLUTION_GRANTS`; no grant change is require
 | Record operator identification; propose attribution; propose continuity attribution | create | EMPLOYEE, MANAGER, OWNER, ADMIN | no | no |
 | Create an unestablished Party (`PartyService.create`) | create | EMPLOYEE+ | no | no |
 | Confirm / reject an attribution (incl. continuity) | update | MANAGER, OWNER, ADMIN | no | no |
-| Reverse a confirmed attribution *(proposed; not yet decided)* | update | MANAGER, OWNER, ADMIN | no | no |
+| Reverse a confirmed attribution — reason required; the confirmation is kept (PD-I2-02) | update | MANAGER, OWNER, ADMIN | no | no |
 | Set, dismiss or revoke an identifier flag | update | MANAGER+ | propose only | no |
 | Establish a Party (`PartyService.establish`) | approve | OWNER, ADMIN | no | no |
 | Link / reverse Intake → Party (`CustomerPartyLinkService`) | approve | OWNER, ADMIN | no | no |
 | Confirm same Party / supersede | approve | OWNER, ADMIN | no | no |
 | Activate a machine policy (deferred) | approve | OWNER, ADMIN | no | no |
-| Activate or change an evidence use policy *(proposed; not yet decided)* | approve | OWNER, ADMIN | no | no |
+| Activate or change an evidence use policy (PD-I2-01) | approve | OWNER, ADMIN | no | no |
 | Extract evidence from new facts | system projection, gated by active class policy | — | yes | no |
 
+- A MANAGER may not confirm their own proposal (PD-I2-03); proposal and confirmation stay separate acts.
 - `approve` stays the only action that establishes, links, supersedes or confirms same-Party. The
   attribution confirmations held under `update` are recorded separately and are never read as an
   establishment or same-Party basis.
@@ -173,7 +173,8 @@ organization, before any evidence is produced:
 - Stored in the existing `DataGovernancePolicy` (one policy authority), extended with the evidence
   class it applies to (2.1b). `retentionDays`, allowed/denied purposes, `requiresConsent` and
   `requiresHumanApproval` already exist there.
-- Activating or changing a class policy is an audited act; approve-level is proposed, not yet decided (2.1b).
+- Activating or changing a class policy requires `identityResolution:approve` (OWNER/ADMIN), is audited, and
+  can never be done by a machine or AI (PD-I2-01, 2.1b).
 - The extractor (2.3) writes nothing for a class without an ACTIVE policy (fail closed), stamps each
   evidence row with the policy version it was produced under, and honours `expiresAt`.
 - `consentBasis` on an evidence row records only what the fact captured (e.g. consent collected with a
@@ -209,7 +210,7 @@ attribution is deferred.**
 
 ## 10. Intake (Customer)
 
-Amended Product decision 8 (2026-09-15):
+Amended Product decision 8 and PD-I2-04 (2026-09-15). **Fact ≠ Identity ≠ Intake.**
 
 - **Customer is Intake authority.** An Intake record is never identity evidence or identity authority,
   and nothing reads its contact values to decide identity (already locked in CustomerPartyLinkService).
@@ -217,6 +218,14 @@ Amended Product decision 8 (2026-09-15):
 - Governed Person and Company experiences **compose** linked Intake records through `CustomerPartyLink`.
 - Existing `customerId`-based systems (conversations, bookings, orders, service requests, workflows)
   are preserved as they are. Identity Slice 2 does not rewrite them around Party.
+- Intake and Identity are separate authorities. An Interaction does not create Intake; a Person does not
+  create Intake; Intake does not create or establish a Person. A Person may exist without Intake, Intake
+  without a resolved Person, and several Intake records may relate to one established Party.
+- Intake may be created only by an explicit authorized human intake action, or by a source event that
+  satisfies a governed Intake policy showing a real commercial intake occurred. Caller ID alone, a ringing
+  phone, anonymous traffic, a session or ordinary activity never qualifies. **The Intake creation authority
+  is a separate contract, not built by the identity slices.**
+- `/crm/merge` is to be disabled, not adapted (PD-I2-05). Customer merge is never Party resolution.
 - The 24,590 legacy Intake records are classified **at read time** by the provenance marks the audit
   used (`metadata.createdFrom`, the `web-visitor:` external id, tags). No classification is written
   back. No record is deleted, hidden in storage, merged, relinked or backfilled.
@@ -332,10 +341,10 @@ may invent backend authority that does not exist.
 - The dormant resolver would mint anonymous PERSON subjects and write evidence on its own terms → 2.1a.
 - `/crm/customers` is labelled People, and the Command Center, Analytics, search and the
   `crm.new_customers` metric ("People added", Slice 1) count Intake records → relabel to Intake in 2.6.
-- `/crm/merge` repoints facts between Intake records irreversibly with counts-only audit — it transfers
-  what the UI architecture says UI must not transfer → needs a separate decision before canonical records
-  compose Intake.
-- The CRM `organizations` route is the tenant organization, not a canonical Company → naming for IA.
+- `/crm/merge` repoints facts between Intake records irreversibly with counts-only audit → to be disabled
+  (PD-I2-05).
+- The CRM `organizations` route is the tenant organization, not a canonical Company → "Workspace" /
+  "Workspace Organization" (PD-I2-07); UI application by Charlie/Lexi.
 
 ## 18. Decisions log
 
@@ -359,3 +368,12 @@ may invent backend authority that does not exist.
 | 2026-09-15 | Legacy provenance definitions approved for read-time classification only |
 | 2026-09-15 | Historical evidence backfill not authorized |
 | 2026-09-15 | Dormant cognitive resolver retired as an independent resolver; one resolution authority |
+| 2026-09-15 | PD-I2-01: only OWNER/ADMIN (`approve`) activate an evidence use policy; machine/AI never; no evidence for a class without an authorized active policy |
+| 2026-09-15 | PD-I2-02: MANAGER/OWNER/ADMIN (`update`) reverse a confirmed attribution with a mandatory reason; history kept |
+| 2026-09-15 | PD-I2-03: a MANAGER may not confirm their own proposal; confirmation is never establishment |
+| 2026-09-15 | PD-I2-04: Intake is a separate authority (Fact ≠ Identity ≠ Intake); creation only by an authorized human intake action or a governed Intake policy; customerId systems preserved |
+| 2026-09-15 | PD-I2-05: disable `/crm/merge`; historical records are not deleted |
+| 2026-09-15 | PD-I2-06: canonical commercial Relationship is a new governed CRM authority; `IdentityRelationship` is not evolved into it and is eventually retired or confined |
+| 2026-09-15 | PD-I2-07: "Company" is a commercial COMPANY Party; the tenant is "Workspace" / "Workspace Organization"; no model renames for wording |
+| 2026-09-15 | PD-I2-08: Claude owns backend authority, contracts and read models; Charlie/Lexi own the redesigned UI; only minimal wording fixes to materially false existing labels |
+| 2026-09-15 | PD-I2-09: the Loop Product and UI Architecture v1.0 is committed at `docs/product/loop-product-ui-architecture-v1.0.md` |
