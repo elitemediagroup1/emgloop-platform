@@ -292,6 +292,10 @@ Party:
 - Capacities are held by a Party in a context for a time. 2.0b starts from the five `party.ts` already
   names (buyer, vendor, source, creator, employee); the full set is decided by the Relationship and
   Participant architecture. A capacity never decides Party type, and a Party type never implies one.
+- The dormant `IdentityRole` table (written only by the ungoverned `CognitiveIdentityRepository`) is
+  not the capacity authority, and 2.0b neither reads nor writes it. Whether it is evolved or confined is
+  decided with the Participant architecture, as PD-I2-06 decided for `IdentityRelationship`. The
+  specification's "contextual roles" on a Person are these capacities.
 - `CaseParticipant` (Commercial Intelligence) is a User's participation in a Case. It is not a Party
   Participant and is not renamed by this work.
 
