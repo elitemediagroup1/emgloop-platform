@@ -3,7 +3,7 @@
 **Status:** direction approved by Product on 2026-09-15. **Nothing in this record is implemented yet
 except Slice 1** (#239, ingestion records facts only) **and the 2.0 pure contracts** (#242: evidence
 vocabulary and tiers, identity act authority, evidence use policy; nothing produces, stores or reads
-evidence). Every planned item names the slice that builds
+evidence) **and the 2.0b Party Reference Contract** (#243: a pure contract and a read-only resolver). Every planned item names the slice that builds
 it; until that slice merges, the code is the authority and this record is the plan. When a slice
 lands, this record is updated in the same PR.
 
@@ -322,8 +322,10 @@ Party:
 - **Contract readings (2.0b, #243; fail closed):**
   - An archived Party resolves with `archived: true` and takes no new references (approved, Product
     2026-09-15).
-  - A supersession chain fails closed as NOT_FOUND on a cycle, beyond 8 hops, on a change of Party
-    type, or on a link out of the organization (for Product review).
+  - A supersession chain fails closed as NOT_FOUND on a cycle or on a link out of the organization
+    (required by the 2.0b authorization).
+  - The depth guard is 8 supersession hops; a longer chain is NOT_FOUND (for Product review).
+  - A chain that changes Party type is NOT_FOUND (for Product review).
   - A superseded id is refused for writes with its canonical id, never silently swapped (for Product
     review).
 

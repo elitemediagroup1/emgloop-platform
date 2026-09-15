@@ -1148,7 +1148,7 @@ dates showed Sep 15 at 8:37 PM Eastern.
 
 **Next:** PD-1 implementation (Work OS targets) and PD-2 preference governance, each its own branch.
 
-## Identity — SLICE 1 MERGED (#239) · AUDIT RUN (#240) · RECORD MERGED (#241) · 2.0 CONTRACTS (#242) · 2.0b IN REVIEW (#243)
+## Identity — SLICE 1 MERGED (#239) · AUDIT RUN (#240) · RECORD MERGED (#241) · 2.0 MERGED (#242) · 2.0b PARTY REFERENCE (#243)
 
 _Last updated: 2026-09-15._
 
@@ -1195,15 +1195,17 @@ workflows; resolve the workflow run stuck RUNNING since July.
 
 **Product/UI reconciliation passed (2026-09-15).**
 - **#241 (merged, `8afac50`):** decision record, specification and C-01–C-05.
-- **#242:** Identity 2.0, pure evidence, authority and use-policy contracts. It updates the record's
+- **#242 (merged, `c0a17fa`):** Identity 2.0, pure evidence, authority and use-policy contracts.
+- **#243:** Identity 2.0b, Party Reference Contract and read-only resolver. It updates the record's
   status line.
-- **#243 (draft):** Identity 2.0b, Party Reference Contract and read-only resolver. Independent of #242.
 
 None needs a migration. Product approved the six fail-closed contract readings on 2026-09-15 (see the
-record's decisions log).
+record's decisions log). Three 2.0b readings still await Product: the 8-hop depth guard, NOT_FOUND on a
+Party type change, and refusing (not substituting) a superseded id on write.
 
-**Next:** #243 merge review. Still authorized but not done: wording fixes to materially false People
-labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
+**Next:** Product decision on those three, then #243 merge review. Relationship and Participant
+architecture may start once #243 merges. Still authorized but not done: wording fixes to materially false
+People labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
