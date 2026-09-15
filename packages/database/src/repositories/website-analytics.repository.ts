@@ -7,6 +7,10 @@
 //
 // It does NOT change the existing AnalyticsRepository; it is an additive sibling
 // so the Analytics page can render website widgets alongside the core dashboard.
+//
+// Journeys follow a VISITOR, not a Customer. Website activity is recorded with
+// the visitor and session ids the site reported and is linked to no Person, so a
+// journey is one visitor's (or, without a visitor id, one session's) sequence.
 
 import type { PrismaClient } from '@prisma/client';
 
@@ -42,6 +46,18 @@ function str(meta: Record<string, unknown>, key: string): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
 
+/**
+ * Whose journey a website event belongs to: the visitor the site reported, or
+ * failing that the session. Null when the event carries neither, and then it
+ * belongs to no journey.
+ */
+export function journeyKey(meta: Record<string, unknown>): string | null {
+  const visitor = str(meta, 'visitorId');
+  if (visitor) return 'visitor:' + visitor;
+  const session = str(meta, 'sessionId');
+  return session ? 'session:' + session : null;
+}
+
 function rank(map: Map<string, number>, limit = 8): WebsiteRankedItem[] {
   return [...map.entries()]
     .map(([label, count]) => ({ label, count }))
@@ -66,7 +82,7 @@ export class WebsiteAnalyticsRepository {
     const [interactions, signals] = await Promise.all([
       this.prisma.interaction.findMany({
         where: { organizationId, provider: 'website', occurredAt: { gte: start, lte: end } },
-        select: { customerId: true, occurredAt: true, metadata: true },
+        select: { occurredAt: true, metadata: true },
         orderBy: { occurredAt: 'asc' },
         take: 5000,
       }),
@@ -94,7 +110,7 @@ export class WebsiteAnalyticsRepository {
     const cities = new Map<string, number>();
     const categories = new Map<string, number>();
     const eventTypes = new Map<string, number>();
-    const journeysByCustomer = new Map<string, string[]>();
+    const journeysByVisitor = new Map<string, string[]>();
 
     let sessions = 0;
     let searchCount = 0;
@@ -126,18 +142,19 @@ export class WebsiteAnalyticsRepository {
       bump(cities, str(meta, 'city'));
       bump(categories, str(meta, 'category'));
 
-      // Build per-customer journeys from the event-type sequence.
-      if (i.customerId) {
+      // Build per-visitor journeys from the event-type sequence.
+      const visitor = journeyKey(meta);
+      if (visitor) {
         const step = eventType.replace(/^web\./, '');
-        const arr = journeysByCustomer.get(i.customerId) ?? [];
+        const arr = journeysByVisitor.get(visitor) ?? [];
         if (arr[arr.length - 1] !== step) arr.push(step);
-        journeysByCustomer.set(i.customerId, arr);
+        journeysByVisitor.set(visitor, arr);
       }
     }
 
     // Summarize the most common 3-step journey patterns.
     const journeyPatterns = new Map<string, number>();
-    for (const steps of journeysByCustomer.values()) {
+    for (const steps of journeysByVisitor.values()) {
       if (steps.length < 2) continue;
       const pattern = steps.slice(0, 4).join(' → ');
       bump(journeyPatterns, pattern);

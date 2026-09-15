@@ -123,7 +123,7 @@ export default async function BrainPage() {
                   {liveCalls.slice(0, 5).map((c: any) => (
                     <li className="loop-feed__item" key={c.id}>
                       <span className="loop-feed__phone" />
-                      <span className="loop-feed__label">{c.customerName || c.caller}</span>
+                      <span className="loop-feed__label">{c.customerName || c.caller || 'Unidentified caller'}</span>
                       <span className="loop-feed__time">{clockDuration(c.durationSeconds)}</span>
                     </li>
                   ))}

@@ -135,6 +135,17 @@ function nameFromParts(
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Customer';
 }
 
+/**
+ * Who an Interaction with no Person was, said honestly: nobody has been
+ * identified. It is not an "unknown customer" -- ingestion never decides who a
+ * caller or visitor is, so most calls and website activity carry no Person.
+ */
+export function unidentifiedSubjectLabel(i: { channel: string; provider: string | null }): string {
+  if (i.channel === 'PHONE') return 'Unidentified caller';
+  if (i.provider === 'website') return 'Unidentified visitor';
+  return 'No person linked';
+}
+
 function readStatus(c: Pick<Customer, 'attributes'>): PipelineStatus {
   const s = attr<string>(c.attributes, 'pipelineStatus');
   if (s && (PIPELINE_STATUSES as string[]).includes(s)) return s as PipelineStatus;
@@ -372,8 +383,10 @@ export class CrmRepository {
    * never hydrates rows — over the half-open window `[since, until)`, org-scoped.
    * Pipeline status is deliberately NOT counted here: it lives in the JSON
    * `attributes` bag and cannot be a cheap COUNT, so this method reports only
-   * facts that trace to real columns (new customers, conversations opened, and
-   * how many of those carried an assignee — a real coverage signal).
+   * facts that trace to real columns (People records added, conversations
+   * opened, and how many of those carried an assignee — a real coverage signal).
+   * `newCustomers` counts records created in Loop: ingestion does not create
+   * People, so it is not a count of new callers, visitors or leads.
    */
   async windowCounts(
     organizationId: string,
@@ -672,7 +685,7 @@ export class CrmRepository {
 
     return interactions.map((i) => {
       const c = i.customer;
-      const name = c ? nameFromParts(c) : 'Unknown customer';
+      const name = c ? nameFromParts(c) : unidentifiedSubjectLabel(i);
       const actorType = interactionActorType(i.payload) ?? 'SYSTEM';
       return {
         id: i.id,
