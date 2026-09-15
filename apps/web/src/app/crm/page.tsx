@@ -91,12 +91,14 @@ export default async function CrmCommandCenter() {
         </form>
       </div>
 
-      {/* KPI Row — counts, not trends: only a positive weekly delta is coloured. */}
+      {/* KPI Row — counts, not trends: only a positive weekly delta is coloured.
+          "Added" is People records created, not new leads: ingestion does not
+          create People, so callers and visitors are not counted here. */}
       <div className="ds-kpis">
         <div className="ds-kpi">
           <div className="k-label">Total People</div>
           <div className="k-value">{fmtNum(customerCount)}</div>
-          <div className={'k-trend' + (weekCounts.newCustomers > 0 ? '' : ' neutral')}>{weekCounts.newCustomers > 0 ? `+${weekCounts.newCustomers} this week` : 'No new this week'}</div>
+          <div className={'k-trend' + (weekCounts.newCustomers > 0 ? '' : ' neutral')}>{weekCounts.newCustomers > 0 ? `+${weekCounts.newCustomers} added this week` : 'None added this week'}</div>
         </div>
         <div className="ds-kpi">
           <div className="k-label">Active Intake</div>
@@ -109,7 +111,7 @@ export default async function CrmCommandCenter() {
           <div className="k-trend neutral">{fmtNum(totalConvos)} total</div>
         </div>
         <div className="ds-kpi">
-          <div className="k-label">New This Week</div>
+          <div className="k-label">People Added This Week</div>
           <div className="k-value">{fmtNum(weekCounts.newCustomers)}</div>
           <div className="k-trend neutral">{fmtNum(weekCounts.conversations)} conversations</div>
         </div>
