@@ -1,0 +1,121 @@
+# Read people population.
+#
+# READ-ONLY, AGGREGATE COUNTS ONLY. For one organization, prints how the existing
+# People (Customer) population was produced and what happened to it: provenance,
+# anonymous-visitor residue, withheld callers, duplicate phone patterns,
+# interaction attachment, human-worked records, workflow damage, the
+# identity-governance baseline, creation bursts and exposure after identity
+# Slice 1. It writes nothing, remediates nothing, and prints no name, email,
+# phone number, tag, record id or other identifying value.
+#
+# READ-ONLY IS ENFORCED BY THE DATABASE. The runner opens its connection with
+# default_transaction_read_only=on, so Postgres refuses any write (SQLSTATE 25006).
+#
+# WHY IT EXISTS. Historical People remediation must be designed from evidence about
+# how ~24,574 records were produced, not inferred. This is that evidence.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is
+# still touching production, and a human should be the one asking.
+
+name: Read People Population
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      slice1_at:
+        description: 'UTC instant identity Slice 1 reached production (ISO 8601, e.g. 2026-09-15T13:49:40Z). Defaults to the #239 merge.'
+        required: false
+        default: '2026-09-15T13:49:40Z'
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-people-population
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read people population
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, printed or written to the summary.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested inputs
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SLICE1_AT: ${{ inputs.slice1_at }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if ! printf '%s' "${SLICE1_AT}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{3})?)?Z$'; then
+            echo "::error::slice1_at must be a UTC ISO 8601 instant ending in Z."
+            exit 1
+          fi
+          echo "Validated organization ${ORG_SLUG} and Slice 1 instant ${SLICE1_AT}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write or print anything identifying
+        # RUN BEFORE THE DATABASE CREDENTIAL IS USED, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Read
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          SLICE1_AT: ${{ inputs.slice1_at }}
+        run: |
+          set -euo pipefail
+          npm run read:people-population -- --organization "${ORG_SLUG}" --slice1-at "${SLICE1_AT}"
+
+      - name: How to read the output
+        if: always()
+        run: |
+          echo "### People population" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** The session was read-only in the database, and every printed value is an aggregate count, a boolean, UNKNOWN or a UTC date bucket." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`PROVENANCE\` - where each record came from, by the marks its creator left (ingestion call, anonymous visitor, website lead, seed/demo, import, unmarked)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`HUMAN_WORK\` - records a person demonstrably worked (conversation, booking, order, service request, human note, human audit entry, party link, merge) versus weaker signals and none." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`CALL_ATTACHMENT\` - \`CALLER_LAST7_ONLY\` counts calls attached to a record whose phone matched only on the last seven digits." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`SLICE1_EXPOSURE\` - \`INGESTION_CUSTOMERS_CREATED_AFTER\` should be 0 for any instant after Slice 1 reached production." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`UNKNOWN\` - a bound was exceeded (\`EXCEEDED_BOUND=true\`). Do not act on an UNKNOWN answer." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Run once per organization. An unknown organization is a red run; a large or messy population is an answer, not a failure." >> "$GITHUB_STEP_SUMMARY"

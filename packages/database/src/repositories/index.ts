@@ -119,6 +119,11 @@ export type {
   DemoOrphanArtifact,
   DemoAttribution,
 } from './demo-footprint.repository';
+export {
+  PeoplePopulationAuditRepository,
+  AUDIT_BOUNDS as PEOPLE_AUDIT_BOUNDS,
+} from './people-population-audit.repository';
+export type { PeoplePopulationAudit } from './people-population-audit.repository';
 export type { OrgBranding, OrgCrmDefaults } from './organization.repository';
 export { AuditRepository } from './audit.repository';
 export type { AuditView } from './audit.repository';
