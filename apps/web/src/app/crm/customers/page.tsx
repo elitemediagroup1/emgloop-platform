@@ -7,7 +7,7 @@ import {
   type PipelineStatus,
   type CustomerSortKey,
 } from '@emgloop/database';
-import { BulkBar } from './bulk-bar';
+import { BulkBar, BulkSelection, RowCheckbox, SelectAllCheckbox } from './bulk-bar';
 
 // Customers list — Sprint 5 (Phase 1) + Sprint 6 (Phase 2).
 //
@@ -235,6 +235,9 @@ export default async function CustomersPage({
         ))}
       </div>
 
+      {/* Keyed by the rows on screen: a new page, filter or sort starts with
+          nothing selected, so a bulk action only ever posts visible rows. */}
+      <BulkSelection key={list.rows.map((c) => c.id).join(',')} rowIds={list.rows.map((c) => c.id)}>
       <BulkBar tags={tags} statuses={PIPELINE_STATUSES} />
 
       <div className="crm-panel">
@@ -242,7 +245,7 @@ export default async function CustomersPage({
           <thead>
             <tr>
               <th className="crm-checkcol">
-                <input type="checkbox" data-bulk-all aria-label="Select all" />
+                <SelectAllCheckbox />
               </th>
               <th>{sortLink('name', 'Customer')}</th>
               <th>Company</th>
@@ -267,12 +270,7 @@ export default async function CustomersPage({
               list.rows.map((c) => (
                 <tr key={c.id}>
                   <td className="crm-checkcol">
-                    <input
-                      type="checkbox"
-                      data-bulk-row
-                      value={c.id}
-                      aria-label={'Select ' + c.name}
-                    />
+                    <RowCheckbox id={c.id} name={c.name} />
                   </td>
                   <td>
                     <Link href={'/crm/customers/' + c.id} className="crm-cell-name">
@@ -320,6 +318,7 @@ export default async function CustomersPage({
           </tbody>
         </table>
       </div>
+      </BulkSelection>
 
       <div className="crm-pagination">
         <span className="crm-muted">
