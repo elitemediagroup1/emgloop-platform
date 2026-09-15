@@ -7,14 +7,32 @@
 //     (idempotent on provider + externalId). This durably captures the
 //     delivery before any processing, so a crash mid-pipeline leaves a
 //     retryable row rather than a lost event.
-//  2. Transition the event to PROCESSING, then resolve or create the Customer
-//     (so they appear immediately in the CRM).
+//  2. Transition the event to PROCESSING.
 //  3. Build a provider-agnostic NormalizedEvent and run it through the
-//     NormalizationEngine -> Interaction + Signal + DomainEvent + Workflow.
+//     NormalizationEngine -> Interaction + Signal + DomainEvent + Workflow,
+//     then project a call into MarketplaceCall.
 //  4. Enrich the Brain via the SignalRegistry (Phase 4 signals).
 //  5. Run the rules-based NextBestActionService (Phase 7).
 //  6. Mark the IntegrationEvent PROCESSED, or FAILED with the error so the
 //     admin retry queue can replay it.
+//
+// INGESTION RECORDS FACTS. IT NEVER DECIDES WHO SOMEONE IS.
+//
+// Nothing on this path creates, looks up, attaches to or changes a Customer. A
+// caller number, a form's email or phone, a website visitor or session id: each
+// is what a source REPORTED, and it stays on the event and the Interaction as a
+// fact. Every row written here carries no customer. A Person is established only
+// through governed identity resolution (packages/shared/src/party.ts), which this
+// path must not reach either. ingestion-identity-boundary.test.ts fences the
+// Customer table; party-contract.test.ts and customer-party-link.test.ts fence
+// resolution and linking.
+//
+// (Ingestion used to resolve a Customer for every event. A caller number matched
+// whichever Customer shared its last seven digits, an email matched the first
+// Customer holding it, a withheld caller ID created a new Customer on every call,
+// and every anonymous website visitor became one. Event workflows then reset the
+// matched Customer's intake status. That is how People filled with callers and
+// visitors nobody had identified.)
 //
 // Status lifecycle: RECEIVED -> PROCESSING -> PROCESSED | FAILED. A FAILED (or
 // orphaned RECEIVED) row is retryable: re-delivering the same externalId reuses
@@ -26,8 +44,8 @@
 // produces InboundEvents the same way and flows through this identical pipeline.
 //
 // Sprint 14 (Website Intelligence) makes this same spine carry the web.* event
-// family â the Brain's second sense â by recognizing web.* canonical types and
-// resolving anonymous website visitors. No new pipeline; just more event types.
+// family â the Brain's second sense â by recognizing web.* canonical types. No
+// new pipeline; just more event types.
 
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
@@ -71,7 +89,6 @@ export interface IngestResult {
   externalId: string;
   status: 'processed' | 'duplicate' | 'failed';
   integrationEventId: string | null;
-  customerId: string | null;
   interactionId: string | null;
   signalIds: string[];
   domainEventId: string | null;
@@ -118,17 +135,6 @@ export interface IngestInput {
    * the one place it knows the answer, and a new caller cannot forget.
    */
   observationSource: ObservationSource;
-}
-
-function digits(s?: string): string | undefined {
-  if (!s) return undefined;
-  const d = s.replace(/[^0-9]/g, '');
-  return d.length >= 7 ? d : undefined;
-}
-
-function asString(payload: Record<string, unknown>, key: string): string | undefined {
-  const v = payload[key];
-  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
 
 /**
@@ -313,7 +319,6 @@ export class IngestionService {
       externalId: ev.externalId,
       status: 'failed',
       integrationEventId: null,
-      customerId: null,
       interactionId: null,
       signalIds: [],
       domainEventId: null,
@@ -429,24 +434,18 @@ export class IngestionService {
     });
 
     try {
-      // 3. Resolve or create the Customer so they show up in the CRM at once.
-      const customerId = await this.resolveCustomer(organizationId, provider, ev);
-      base.customerId = customerId;
-
       const canonicalType = (LOOP_EVENT_TYPES_SET.has(eventType)
         ? eventType
         : (provider === 'website' ? 'web.page_view' : 'call.inbound')) as LoopEventType;
 
-      // 4. Build the provider-agnostic NormalizedEvent and normalize it.
+      // 3. Build the provider-agnostic NormalizedEvent and normalize it. What the
+      // source reported about who was involved travels in the payload, as a fact.
       const normalized: NormalizedEvent = {
         organizationId,
         source: provider,
         externalId: ev.externalId,
         eventType: canonicalType,
         occurredAt: ev.occurredAt,
-        customerId: customerId ?? undefined,
-        customerEmail: ev.customerEmail,
-        customerPhone: ev.customerPhone,
         durationSeconds: numberFrom(ev.payload, ['durationSeconds', 'duration', 'duration_seconds', 'billable_duration']),
         summary: summaryFor(canonicalType, ev.payload),
         metadata: { ...ev.payload, eventType: canonicalType },
@@ -456,7 +455,7 @@ export class IngestionService {
       base.domainEventId = normResult.domainEventId;
       base.signalIds = [...normResult.signalIds];
 
-      // 4b. Project the call into MarketplaceCall — the canonical operational
+      // 3b. Project the call into MarketplaceCall — the canonical operational
       // read model.
       //
       // This was the gap that made the read model empty. Ingestion wrote the
@@ -471,6 +470,9 @@ export class IngestionService {
       // failure must never fail ingestion — that would turn a read-model bug
       // into lost provider data, and the webhook would return non-2xx and
       // trigger CallGrid retries for an event we already stored.
+      //
+      // Test traffic is recognised from the call's own identifiers (see
+      // isExcludedInteraction), never from a Customer record.
       if (normResult.interactionId) {
         try {
           const row = await this.prisma.interaction.findUnique({
@@ -478,9 +480,6 @@ export class IngestionService {
             select: {
               id: true, organizationId: true, provider: true, externalId: true,
               channel: true, occurredAt: true, metadata: true,
-              customer: {
-                select: { tags: true, email: true, phone: true, externalId: true, firstName: true, lastName: true },
-              },
             },
           });
           if (row) await this.marketplaceCalls.projectInteraction(row);
@@ -497,15 +496,16 @@ export class IngestionService {
         }
       }
 
-      // 5. SignalRegistry enrichment (Phase 4). Append-only, advisory.
-      if (customerId && !normResult.wasIdempotent) {
+      // 4. SignalRegistry enrichment (Phase 4). Append-only, advisory. A signal
+      // describes the event, so it is written for every new event and names the
+      // Interaction it came from; it is not a fact about a person.
+      if (!normResult.wasIdempotent) {
         const derived = deriveSignals(normalized);
         for (const d of derived) {
           try {
             const s = await this.prisma.signal.create({
               data: {
                 organizationId,
-                customerId,
                 type: d.type,
                 key: d.key,
                 label: d.label,
@@ -513,7 +513,11 @@ export class IngestionService {
                 valueNumber: d.valueNumber ?? null,
                 confidence: d.confidence ?? null,
                 source: 'signal-registry',
-                metadata: { externalId: ev.externalId, eventType: canonicalType } as object,
+                metadata: {
+                  externalId: ev.externalId,
+                  eventType: canonicalType,
+                  interactionId: normResult.interactionId,
+                } as object,
               },
             });
             base.signalIds.push(s.id);
@@ -523,18 +527,13 @@ export class IngestionService {
         }
       }
 
-      // 6. Next Best Action (Phase 7) â rules-based recommendations.
+      // 5. Next Best Action (Phase 7) - rules-based recommendations. There is no
+      // person, so there is no accumulated signal pool to read: the rules see this
+      // interaction alone.
       if (base.interactionId) {
-        const allSignals = customerId
-          ? await this.prisma.signal.findMany({
-              where: { organizationId, customerId },
-              select: { type: true, key: true, label: true },
-              take: 100,
-            })
-          : [];
         const nba = await this.nextBestAction.run({
           organizationId,
-          customerId,
+          customerId: null,
           interaction: {
             id: base.interactionId,
             channel: channelFor(canonicalType),
@@ -544,7 +543,7 @@ export class IngestionService {
             occurredAt: normalized.occurredAt,
             metadata: { eventType: canonicalType },
           },
-          signals: allSignals,
+          signals: [],
         });
         base.nextBestActions = nba.actions.map((a) => a.kind);
         // Surface the top recommendation on the interaction itself so the
@@ -577,7 +576,7 @@ export class IngestionService {
         }
       }
 
-      // 7. Done â mark PROCESSED.
+      // 6. Done - mark PROCESSED.
       await this.prisma.integrationEvent.update({
         where: { id: record.id },
         data: { status: 'PROCESSED', processedAt: new Date(), error: null },
@@ -593,71 +592,6 @@ export class IngestionService {
       });
       return { ...base, status: 'failed', error: message };
     }
-  }
-
-  /** Resolve a customer by phone/email within the org, creating one if needed so
-      the contact is immediately visible in the CRM. Website events frequently
-      arrive without phone/email â those are tracked as anonymous visitor
-      profiles keyed on the visitor/session id so later identified interactions
-      merge by the same visitor id. */
-  private async resolveCustomer(
-    organizationId: string,
-    provider: string,
-    ev: InboundEvent,
-  ): Promise<string | null> {
-    const phone = ev.customerPhone ?? undefined;
-    const email = ev.customerEmail ?? undefined;
-    const phoneDigits = digits(phone);
-
-    if (phoneDigits) {
-      const found = await this.prisma.customer.findFirst({
-        where: { organizationId, phone: { contains: phoneDigits.slice(-7) } },
-      });
-      if (found) return found.id;
-    }
-    if (email) {
-      const found = await this.prisma.customer.findFirst({
-        where: { organizationId, email },
-      });
-      if (found) return found.id;
-    }
-
-    // Website anonymous-visitor resolution: reuse the same visitor profile so a
-    // returning anonymous visitor accumulates one continuous journey, and merges
-    // automatically once they later identify (phone/email match above wins).
-    const payload = ev.payload as Record<string, unknown>;
-    const visitorId = asString(payload, 'visitorId') ?? asString(payload, 'sessionId');
-    if (!phone && !email && visitorId) {
-      const visitorExternalId = 'web-visitor:' + visitorId;
-      const existingVisitor = await this.prisma.customer.findFirst({
-        where: { organizationId, externalId: visitorExternalId },
-      });
-      if (existingVisitor) return existingVisitor.id;
-      const createdVisitor = await this.prisma.customer.create({
-        data: {
-          organizationId,
-          externalId: visitorExternalId,
-          tags: ['anonymous-visitor'],
-          attributes: { pipelineStatus: 'New', firstSource: provider, anonymous: true } as object,
-          metadata: { createdFrom: provider, visitorId } as object,
-        },
-      });
-      return createdVisitor.id;
-    }
-
-    if (!phone && !email) return null;
-
-    const created = await this.prisma.customer.create({
-      data: {
-        organizationId,
-        phone: phone ?? null,
-        email: email ?? null,
-        tags: ['lead'],
-        attributes: { pipelineStatus: 'New', firstSource: provider } as object,
-        metadata: { createdFrom: provider } as object,
-      },
-    });
-    return created.id;
   }
 }
 

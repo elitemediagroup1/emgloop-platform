@@ -159,9 +159,9 @@ export interface NormalizedEvent {
   externalId: string; // stable id in source system (idempotency key)
   eventType: LoopEventType;
   occurredAt: Date;
-  customerId?: string; // resolved from email/phone if available
-  customerEmail?: string;
-  customerPhone?: string;
+  // No person. Normalization records what happened; who it was is decided only
+  // by governed identity resolution, never here. What the source reported about
+  // the caller or submitter stays in `metadata`.
   durationSeconds?: number;
   summary?: string;
   metadata: Metadata; // full source payload context

@@ -73,7 +73,6 @@ function ingestResult(over: Partial<IngestResult> & { externalId: string }): Ing
   return {
     status: 'processed',
     integrationEventId: 'evt_1',
-    customerId: null,
     interactionId: null,
     signalIds: [],
     domainEventId: null,
