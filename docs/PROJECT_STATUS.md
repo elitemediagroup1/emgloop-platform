@@ -1109,57 +1109,24 @@ buckets empty over a wide range, would mean Loop never persisted them at all.
 Stage 3 UI remain out of scope until separately authorized. The buyer-report join identity is still
 **UNRESOLVED**.
 
-## Business Identity Architecture v1 — ASSESSMENT COMPLETE, AWAITING APPROVAL (no branch, no code)
-The prerequisite before CRM v1 can be designed against a real identity layer. This batch produced a
-repository-impact assessment **only**: ten artifacts audited at `main` = `1b71715` (post-#157).
-**No branch, no schema, no migration, no implementation, no PR.**
+## Business Identity Architecture v1 — SUPERSEDED. Do not use as authority.
 
-⚠️ **THE TEN ARTIFACTS ARE NOT IN THIS REPOSITORY.** They exist only in the authoring workspace as
-untracked files under `docs/architecture/business-identity-assessment/`, and nothing in this
-document links to a file a reader can open. Committing them is a separate documentation change,
-deliberately not folded into the Commercial Intelligence branch. Every filename cited in this block
-refers to one of those uncommitted artifacts — treat the summary below as the record until they land.
+_Last updated: 2026-09-15._
 
-**What the audit changes about the plan:**
-- **The cognitive identity layer is real, tested, and has ZERO production callers.** `apps/web/src`
-  contains no reference to any cognitive symbol; `CognitiveIdentity`/`IdentityRole`/`IdentityEvidence`/
-  `IdentityResolutionLink`/`IdentityRelationship` are touched only by their own repositories and by
-  `cognitive-core.test.ts` / `cognitive-pipeline.test.ts`. (The outbox/drain half of
-  `services/cognitive/` **is** production-reachable — same folder, different half.)
-- **It cannot be reused, for semantic reasons not naming ones.** `IdentityEvidence` stores
-  `normalizedValueHash` only, so no contact value can ever be displayed; `entityType` is inside
-  `CognitiveIdentity`'s unique key, so a record can never change type; `IdentityRelationship` collapses
-  Affiliation + StructuralLink + CommercialRelationship + Event + OpportunityParticipant into one edge
-  table. Disposition: **KEEP_SEPARATE**, with an optional one-directional link later.
-- **`Customer` is ingestion-owned and semantically mixed** — anonymous website visitors (no name/email/
-  phone, tagged `anonymous-visitor`), caller-ID leads and hand-edited CRM records in one table, all
-  listed together at `/crm/customers`. It becomes a **DomainProjection**, never a Party, and must not
-  be auto-backfilled.
-- **There is no Opportunity model.** The CRM "pipeline" is a string in `Customer.attributes`. Every
-  multi-party opportunity concept is a clean slate.
-- **The best prior art is orphaned.** `KnowledgeAssertion`'s supersession, `IdentityResolutionStatus`'s
-  lifecycle and `IdentityResolutionLink`'s reversal fields are close to the approved design and none of
-  them run. Copy the shapes; do not reuse the tables.
-- **Events need no new infrastructure.** `OutboxSubjectType.IDENTITY` already exists; the contract is a
-  separate file on the existing outbox. Net cost is one additive enum member on `ActiveStateDomain`.
-- **Recommended foundation is smaller than proposed:** 8 before-code capabilities, 5 proposed items
-  demoted, **4 additive migrations rather than 12** (fewer manual production operations is safer
-  regardless — each one is a human-dispatched workflow run).
+This block used to record an unmerged assessment (ten artifacts never committed, 19 open decisions). Its
+conclusions were overtaken and **must not be treated as current architecture**:
 
-**⚠️ GATE — 19 open approval decisions, none accepted.** Bucketed A (10, before Stage 1 contracts) /
-B (4, before schema) / C (2, before CRM production) / D (3, deferrable). Roots are **Q1** (production
-migration deployment — scheduled, not merely agreed) and **Q2** (may `packages/business-identity` be
-created). Four need Charlie and Lexi: Q4, concern 11, Q6, Q8. Gates G1, G2, G3, G7, G9, G11, G12 are
-groupable without further debate; G5 and G8 carry named carve-outs; G4 and G6 cannot be grouped.
+| Superseded claim | What is authoritative instead |
+|---|---|
+| The cognitive identity layer "cannot be reused"; KEEP_SEPARATE | A Party is a governed reading of `CognitiveIdentity`; there is no Party table (`packages/shared/src/party.ts`, #219) |
+| No governed establishment existed | `PartyService.create/establish` with provenance, OWNER/ADMIN approve (#224) |
+| Customer becomes a DomainProjection | Customer is **Intake** authority; `CustomerPartyLink` composes it with an established Party (#225; Product decision 8 amended 2026-09-15) |
+| 19 open approval decisions | Replaced by the #219–#225 decisions and the 2026-09-15 decisions in `docs/architecture/identity-evidence-resolution.md` |
 
-**Live defect found, deliberately NOT folded in (Q10).** `/crm/merge` writes `metadata.mergedInto` and
-**nothing reads it** — merged customers stay in every list, search and count, and `findDuplicates()`
-re-proposes the same pair indefinitely. The merge is also irreversible (`updateMany` destroys the
-original `customerId`; the audit records counts only) and its header comment claiming "soft-archived
-(kept for audit)" is false. Needs its own ticket, outside this project.
-
-**NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
-schema**) as its own branch. Business Identity implementation has not begun.
+**Still open from that assessment:** there is no Opportunity model (the CRM "pipeline" is an Intake
+status string). `/crm/merge` still repoints facts between Intake records irreversibly with a counts-only
+audit; merged-away records stay in lists, search and counts. `CustomerPartyLinkService` now refuses a
+merged-away record, but the merge itself needs its own decision.
 
 ## Loop Time Authority — MERGED (#238, verified on `main` by content)
 
@@ -1181,44 +1148,41 @@ dates showed Sep 15 at 8:37 PM Eastern.
 
 **Next:** PD-1 implementation (Work OS targets) and PD-2 preference governance, each its own branch.
 
-## Identity ingestion boundary — SLICE 1 MERGED (#239, verified on `main` by content) · PEOPLE AUDIT IN REVIEW (#240)
+## Identity — SLICE 1 MERGED (#239) · AUDIT RUN (#240) · SLICE 2 DIRECTION APPROVED, NOT IMPLEMENTED
 
 _Last updated: 2026-09-15._
 
-Locked architecture: Source → Event / Interaction → Identity Evidence → Governed Resolution → Party /
-Person. There is no separate Charlie/Lexi specification document. The authorities are the locked ADRs,
-the Phase 0 decisions, Product decisions recorded on `main`, and the Charlie/Lexi requirements Matt gave
-directly. Confirmed defect: `IngestionService.resolveCustomer`, plus a second resolver in
-`NormalizationEngine`, created or matched a Customer for every event (caller ID last-7-digit match, a
-new Customer per withheld caller, anonymous visitor profiles), and the seeded call workflows then reset
-the matched Customer's intake status. That is how People reached ~24,574 rows.
+**Authority:** `docs/architecture/identity-evidence-resolution.md` (decision record, 2026-09-15). Charlie
+and Lexi's Loop Product and UI Architecture v1.0 (2026-09-15) controls UI/product architecture alongside
+the Constitution; it is not in this repository.
 
-**Slice 1 (approved 2026-09-15):** ingestion records facts and never creates, selects, attaches to or
-modifies a Customer. Interactions, MarketplaceCalls, signals and domain events persist with no
-customer. Customer steps in workflows are not applicable (not failed). Test traffic is excluded by the
-event's own identifiers. Labels say "Unidentified caller/visitor". Journeys are keyed by visitor or
-session. `crm.new_customers` is "People added", not compared across windows, and the sales-bottleneck
-correlation is removed. No migration.
+**Slice 1 (#239, verified in production):** ingestion records facts and never creates, selects, attaches
+to or modifies a Customer. Production audit after deploy: 0 People created, 0 provider interactions
+attached, 0 workflow runs, interactions still stored.
 
-**Accepted operational consequence (Matt):** until Slice 2, genuine new leads do not appear in People or
-the Intake Board; they are visible as facts in Live Calls, Inbox and marketplace calls.
+**People population audit (#240, run 34986946619):** 24,590 Customers; 24,579 (99.96%) CallGrid caller-ID
+residue; 2 with names; 24,585 with no human-work evidence; 0 Parties, IdentityEvidence, resolution links
+or CustomerPartyLinks; 274 calls attached on last-seven-digit match only; 319 attached calls with a
+different caller number. Dispatched with the default `slice1_at` (merge instant), not the approved
+13:52:00Z; the zero counts still hold. Nothing was remediated.
 
-**Untouched:** the existing Customer population (no delete, merge, relink, suppress, backfill or Party
-establishment); Party / CustomerPartyLink services and their fences.
+**Slice 2 direction approved (2026-09-15), not implemented:** evidence tiers (caller ID stays WEAK at any
+frequency); no machine attribution at launch; EMPLOYEE proposes and creates unestablished Parties,
+MANAGER confirms attribution and sets flags, OWNER/ADMIN establish, link and supersede; hash-only
+unresolved evidence with per-class retention/use policy configured before any evidence is produced;
+People = established, non-superseded PERSON Parties (starts at 0); Customer is Intake authority and
+`customerId` systems are preserved; dormant cognitive resolver retired as an independent resolver.
 
-**Not Product-locked yet (Slice 2+):** which evidence strength permits matching; whether human approval
-is always required; automated verification; whether anonymous history attaches after resolution.
-Historical People remediation is designed separately, starting with read-only aggregate analysis.
+**Sequence:** 2.0 pure contracts → 2.0b Party Reference Contract (then Relationship/Participant may
+proceed in parallel) → 2.1a retire resolver → 2.1b evidence schema → 2.2 source policies → 2.3 new-fact
+extraction → 2.4 review read models → 2.5 governed resolution → 2.5b supersession → 2.6 People / Intake
+projection. **Not authorized:** historical evidence backfill, machine attribution, automatic
+anonymous-history attribution, verification build, legacy remediation.
 
-**People population audit (#240, not dispatched):** read-only, aggregate-only runner
-`read-people-population` (workflow_dispatch). It covers provenance, anonymous-visitor residue, withheld
-callers, duplicate phones, interaction attachment (incl. last-7-only calls), human-worked records, workflow
-damage, the governance baseline, creation bursts and Slice 1 exposure. It prints fixed-vocabulary counts only
-(each line checked before printing), requests `default_transaction_read_only=on`, and has no write path.
-Set `slice1_at` to when #239 actually reached production, not the merge instant.
+**Separate operational cleanup (awaiting explicit approval):** deactivate the two inert seeded call
+workflows; resolve the workflow run stuck RUNNING since July.
 
-**Next:** Matt reviews and merges #240, then dispatches it once for `servicesinmycity-demo`. Remediation
-design starts from that output. Do not start Slice 2 or any cleanup before then.
+**Next:** Product review of the decision record PR. No Slice 2 code before that checkpoint.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
