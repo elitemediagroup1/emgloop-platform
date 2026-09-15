@@ -186,7 +186,7 @@ Those two workspaces are unreachable. Don't build into them without fixing the h
 
 ## Coding Standards
 
-- **Server Components first.** Only 5 `'use client'` files exist, all leaves. Zero client layouts,
+- **Server Components first.** Only a handful of `'use client'` files exist (nine on 2026-09-15), all leaves. Zero client layouts,
   zero client pages. This is the strongest property of the frontend — do not erode it. If you need
   `'use client'`, push it to the smallest possible leaf.
 - **Repository pattern.** Feature code never touches `prisma.*` directly. Go through a repository.
@@ -199,6 +199,12 @@ Those two workspaces are unreachable. Don't build into them without fixing the h
 - **Defensive programming.** Fail closed. Unknown role → least privilege. Missing scope → deny.
   Return `null` for not-found rather than throwing into a server action.
 - **No new CSS files.** Especially not sprint-numbered ones. Use the tokens in `design-system.css`.
+- **Time goes through the Loop Time Authority** (`docs/architecture/loop-time-authority.md`). Instants
+  are stored UTC and stamped by the server or database clock, never the browser. A human-facing date is
+  formatted with `viewerTime()` (server) or `@emgloop/shared` `formatInstant`/`relativeTime` with an
+  explicit zone (client) — never `toLocale*String` or `getHours()` on the server clock, which is UTC in
+  production. There is no EMG business timezone: `BUSINESS_TIME_ZONE` is CallGrid's reporting calendar,
+  not a display zone.
 
 ---
 

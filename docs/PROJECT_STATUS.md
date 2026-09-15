@@ -1161,26 +1161,45 @@ original `customerId`; the audit records counts only) and its header comment cla
 **NEXT: Matt's decisions on the approval packet.** Then Stage 1 (contracts + terminology, **no
 schema**) as its own branch. Business Identity implementation has not begun.
 
-## Loop Application Structure — IN PROGRESS (PR 1 + 2 in review, one PR)
+## Loop Time Authority — IN REVIEW (#238)
 
-_Last updated: 2026-09-14._
+_Last updated: 2026-09-15._
+
+Product decision T-01–T-12 locked in `docs/architecture/loop-time-authority.md`: UTC instants, the
+server clock for anything consequential, and every human-facing date in the signed-in person's current
+device IANA zone. There is no EMG business timezone, and the fallback is UTC, labelled. One authority:
+`@emgloop/shared` `loop-time.ts` plus `apps/web/src/time/`. Fixes the verified 2026-09-14 defect where
+dates showed Sep 15 at 8:37 PM Eastern.
+
+**Product decisions recorded (PD-1, PD-2; ADR amended):**
+- **Work OS targets:** use the entering user's effective timezone. Calendar-only targets stay calendar
+  dates; instant targets persist as UTC plus their originating IANA zone; never an Eastern default.
+  Implementation is a follow-up, not part of #238. Today, entry is Eastern, a date-only target becomes
+  5 PM ET, and no originating zone is persisted.
+- **Setup wizard timezone:** it is the explicit user preference (outranks the device). Its legacy values
+  are not read until audited. Until then: validated device zone, then labelled UTC.
+
+Approved for merge from the Product side.
+
+**Next:** merge the Time Authority PR → verify on `main` by content → Part B (Charlie/Lexi reconciliation),
+which needs the authoritative Charlie/Lexi specification document.
+
+## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
+
+_Last updated: 2026-09-15._
 
 Decisions D1–D8 and the authorization invariant are locked in
 `docs/architecture/loop-application-structure.md` (approved by Matt 2026-09-14). One application under
 `/app`: one shell, one nav registry, `/app/<module>` routes, deliberate redirects.
 
-PR 1 (#236) was not merged standalone. Landing on `/app` before the single shell existed left Employee and
-Read Only with no path to the CRM, so its commits were carried unchanged into the shell PR, cut from `main`.
-#235 and #236 close as superseded once that PR is verified.
-
 | PR | Scope | Status |
 |----|-------|--------|
-| 1 + 2 | Sign-in lands on Loop; one shell, one `LOOP_NAV`; CRM inside the shell; explicit guard on every role-guarded page | **IN REVIEW** #237 |
+| 1 + 2 | Sign-in lands on Loop; one shell, one `LOOP_NAV`; CRM inside the shell; explicit guard on every role-guarded page | **MERGED** #237 (verified on `main` by content) |
 | 3 | Route authority, redirect table (incl. `/app/admin/crm`, role homes, catch-alls), public auth routes | Not started |
 | 4–7 | Administration, Intelligence, Work OS, CRM → canonical routes | Not started |
 | Final | Retire role trees, phantom Business/Creator authority, placeholders; docs | Not started |
 
-**Next:** merge the combined PR → verify on `main` by content → close #235/#236 → cut PR 3 from fresh `main`.
+#235 and #236 remain open as superseded candidates; close them when directed.
 
 ## CRM Phase 1 — Shared Experience Layer — CODE MERGED; completion blockers open
 

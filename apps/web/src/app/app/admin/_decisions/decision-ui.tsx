@@ -34,6 +34,8 @@ import type {
 } from '@emgloop/shared';
 import { PRIORITY_STATES, priorClosure } from '@emgloop/shared';
 import type { OperationalObservation, OperationalPriority } from '@emgloop/database';
+import { viewerTime } from '../../../../time/viewer-time';
+import { relativeTime, timeOfDayGreeting } from '@emgloop/shared';
 
 /** Someone who can own a decision. */
 export interface QueueMember {
@@ -106,18 +108,13 @@ export function nameOf(members: QueueMember[], userId: string | null): string | 
   return m?.name?.trim() || m?.email || 'Someone no longer on the team';
 }
 
-/** Elapsed time in the plainest possible words. */
+/**
+ * How long ago, in plain words, on the reader's calendar (Loop Time Authority),
+ * so "yesterday" agrees with the date beside it. Nothing for a future instant.
+ */
 export function since(from: Date | null, now: Date): string | null {
-  if (!from) return null;
-  const ms = now.getTime() - from.getTime();
-  if (ms < 0) return null;
-  const hours = Math.floor(ms / 3_600_000);
-  if (hours < 1) return 'less than an hour ago';
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
-  const months = Math.floor(days / 30);
-  return `${months} month${months === 1 ? '' : 's'} ago`;
+  if (!from || from.getTime() > now.getTime()) return null;
+  return relativeTime(from, now, viewerTime().timeZone, { style: 'long' });
 }
 
 export function duration(ms: number | null): string | null {
@@ -128,31 +125,17 @@ export function duration(ms: number | null): string | null {
   return `${days} day${days === 1 ? '' : 's'}`;
 }
 
+/** When something happened, in the reader's timezone (Loop Time Authority). */
 export function stamp(d: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  }).format(d);
+  return viewerTime().monthDayTime(d);
 }
 
 /**
- * Time-of-day greeting in the operator's business timezone.
- *
- * Deliberately NOT `_loop-os/greeting()`, which reads `new Date().getHours()` on
- * the server. Production runs UTC, so that function greets a Florida operator
- * with "Good morning" at 8pm. Every other timestamp on this surface is Eastern;
- * this one matches.
+ * Time-of-day greeting where the reader is (Loop Time Authority) -- not the
+ * server's clock, which is UTC in production, and not a fixed business zone.
  */
 export function greetingAt(now: Date): string {
-  const hour = Number(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York', hour: 'numeric', hour12: false,
-    }).format(now),
-  );
-  if (!Number.isFinite(hour)) return 'Good day';
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
+  return timeOfDayGreeting(now, viewerTime().timeZone);
 }
 
 // --- The mission brief --------------------------------------------------------

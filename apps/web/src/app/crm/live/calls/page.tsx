@@ -1,5 +1,6 @@
 import { requirePermission } from '../../../../auth/guard';
 import LiveFeed from '../LiveFeed';
+import { viewerTime } from '../../../../time/viewer-time';
 
 // Live Operations — Live Call Feed (Sprint 15), real-data hotfix.
 //
@@ -13,6 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function LiveCallsPage() {
   await requirePermission('intelligence', 'view');
+  const time = viewerTime();
 
   return (
     <>
@@ -25,6 +27,8 @@ export default async function LiveCallsPage() {
 
       <div className="crm-panel">
         <LiveFeed
+          timeZone={time.timeZone}
+          timeZoneSource={time.source}
           endpoint="/api/live/calls"
           variant="calls"
           intervalMs={8000}

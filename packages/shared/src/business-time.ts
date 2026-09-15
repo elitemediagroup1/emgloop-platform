@@ -1,21 +1,31 @@
-// EMG Loop — the authoritative business timezone.
+// The Eastern (America/New_York) reporting calendar.
 //
-// Every business-reporting boundary (today/yesterday, start/end of day, reporting
-// windows, dashboard + CallGrid metric periods, activity/completion dates as they
-// are attributed to a business day) MUST be derived here. This is the ONE source
-// of truth — no page, service, provider, query, or component may pick its own
-// timezone for reporting.
+// NOT A PRESENTATION TIMEZONE, and not an EMG-wide business timezone: Loop has
+// none (docs/architecture/loop-time-authority.md). How a person sees an instant
+// is the Loop Time Authority's job (loop-time.ts), in that person's own zone.
 //
-// The identifier is an IANA zone, never a fixed offset: Eastern alternates between
-// EST (UTC-5) and EDT (UTC-4) across daylight saving. DST is handled by the
-// platform's Intl/ICU timezone database — never computed by hand here.
+// What this module governs is the calendar certain subsystems are DEFINED on:
+//   - CallGrid economics and reconciliation: reporting days, windows, the
+//     observation ledger and business dates follow CallGrid's Eastern
+//     reporting day, so Loop's figures line up with the provider's reports;
+//   - Commercial Intelligence measurement windows, which are built on those
+//     CallGrid days;
+//   - Work OS target dates, TODAY ONLY and as a legacy default: entered times are
+//     read as Eastern wall time. Product decision PD-1 (loop-time-authority.md)
+//     replaces this with the entering user's effective timezone, calendar-only
+//     targets kept as calendar dates, and instants stored with their originating
+//     zone. It is not a reason to use this zone for anything user-entered.
+// Any other use is presentation and belongs to the Time Authority.
 //
-// UTC remains the persistence format for timestamps. These helpers convert those
-// UTC instants into Eastern to decide which business day they belong to.
+// The zone math is the Time Authority's (zonedParts, zonedWallTimeToUtc); these
+// are that math with the Eastern reporting zone applied. UTC remains the
+// persistence format for timestamps. DST comes from ICU, never by hand.
+
+import { zonedParts, zonedWallTimeToUtc } from './loop-time';
 
 export const BUSINESS_TIME_ZONE = 'America/New_York';
 
-/** Human-facing label. UI copy may say this; all math uses BUSINESS_TIME_ZONE. */
+/** Human-facing label for the Eastern reporting calendar. All math uses BUSINESS_TIME_ZONE. */
 export const BUSINESS_TIME_ZONE_LABEL = 'Eastern Time';
 
 export interface EasternYmd {
@@ -30,27 +40,6 @@ export interface DayWindow {
   end: Date;
 }
 
-// The offset (minutes east of UTC) that `timeZone` is at `instant`. Intl/ICU
-// knows DST, so this returns -300 during EST and -240 during EDT automatically.
-function offsetMinutes(instant: Date, timeZone: string): number {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-  const p: Record<string, number> = {};
-  for (const part of dtf.formatToParts(instant)) {
-    if (part.type !== 'literal') p[part.type] = Number(part.value);
-  }
-  const wallAsUtc = Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!);
-  return Math.round((wallAsUtc - instant.getTime()) / 60000);
-}
-
 /** The UTC instant of a given Eastern wall-clock date/time, DST-aware. */
 export function easternWallTimeToUtc(
   year: number,
@@ -61,28 +50,13 @@ export function easternWallTimeToUtc(
   second = 0,
   ms = 0,
 ): Date {
-  const naive = Date.UTC(year, month - 1, day, hour, minute, second, ms);
-  const off1 = offsetMinutes(new Date(naive), BUSINESS_TIME_ZONE);
-  let utc = naive - off1 * 60000;
-  // Re-check at the candidate: on a DST-transition day the offset can differ.
-  const off2 = offsetMinutes(new Date(utc), BUSINESS_TIME_ZONE);
-  if (off2 !== off1) utc = naive - off2 * 60000;
-  return new Date(utc);
+  return zonedWallTimeToUtc(BUSINESS_TIME_ZONE, year, month, day, hour, minute, second, ms);
 }
 
 /** The Eastern calendar date an instant falls on. */
 export function easternYmd(instant: Date): EasternYmd {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: BUSINESS_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const p: Record<string, number> = {};
-  for (const part of dtf.formatToParts(instant)) {
-    if (part.type !== 'literal') p[part.type] = Number(part.value);
-  }
-  return { year: p.year!, month: p.month!, day: p.day! };
+  const { year, month, day } = zonedParts(instant, BUSINESS_TIME_ZONE);
+  return { year, month, day };
 }
 
 /** The Eastern wall-clock time of day at `instant`. */
@@ -104,28 +78,8 @@ export interface EasternTimeOfDay {
  * millisecond carry straight through because zone offsets are whole minutes.
  */
 export function easternTimeOfDay(instant: Date): EasternTimeOfDay {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: BUSINESS_TIME_ZONE,
-    hourCycle: 'h23',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-  const p: Record<string, number> = {};
-  for (const part of dtf.formatToParts(instant)) {
-    if (part.type !== 'literal') p[part.type] = Number(part.value);
-  }
-  return { hour: p.hour!, minute: p.minute!, second: p.second!, ms: instant.getUTCMilliseconds() };
-}
-
-/** The Eastern wall-clock hour (0-23) at `instant` — for time-of-day greetings. */
-export function easternHour(instant: Date): number {
-  const s = new Intl.DateTimeFormat('en-US', {
-    timeZone: BUSINESS_TIME_ZONE,
-    hour: '2-digit',
-    hourCycle: 'h23',
-  }).format(instant);
-  return Number(s);
+  const { hour, minute, second } = zonedParts(instant, BUSINESS_TIME_ZONE);
+  return { hour, minute, second, ms: instant.getUTCMilliseconds() };
 }
 
 /** 00:00:00.000 Eastern of the business day `instant` belongs to (as a UTC instant). */

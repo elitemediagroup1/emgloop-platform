@@ -91,14 +91,14 @@ describe('Timeline primitives — component contract', () => {
     assert.equal(auditMatch![1], 'audit', 'Audit views must have source=audit');
   });
 
-  it('uses relTime from _loop-os instead of defining its own', () => {
+  it('formats time through the Loop Time Authority instead of its own helper', () => {
     assert.ok(
-      TIMELINE_SRC.includes("from '../app/app/_loop-os/format'"),
-      'Must import relTime from _loop-os/format',
+      TIMELINE_SRC.includes("from '../time/viewer-time'"),
+      'Must read the reader\'s time from the Time Authority',
     );
     assert.ok(
-      !TIMELINE_SRC.includes('function relTime'),
-      'Must not define its own relTime (the 9th copy)',
+      !TIMELINE_SRC.includes('function relTime') && !/toLocale(Date|Time)?String\(/.test(TIMELINE_SRC),
+      'Must not define its own relative time or format dates on the server clock',
     );
   });
 

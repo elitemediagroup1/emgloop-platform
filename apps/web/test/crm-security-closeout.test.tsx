@@ -129,9 +129,11 @@ describe('Audit authorization', () => {
     return { repos, calls };
   }
 
+  const READER_CLOCK = { now: new Date('2026-09-15T00:37:00Z'), timeZone: 'America/New_York' };
+
   it('denied: the Command Center never issues the audit read, and still loads everything else', async () => {
     const { repos, calls } = fakeCommandCenterRepos();
-    const data = await loadCommandCenter(repos, ORG_A, { canViewAudit: false });
+    const data = await loadCommandCenter(repos, ORG_A, { canViewAudit: false }, READER_CLOCK);
     assert.equal(calls.some((c) => c.name === 'audit.list'), false, 'audit.list was called');
     assert.equal(data.recentAudit, null);
     assert.equal(data.customerCount, 3);
@@ -140,7 +142,7 @@ describe('Audit authorization', () => {
 
   it('allowed: the Command Center reads audit for the session organization only', async () => {
     const { repos, calls } = fakeCommandCenterRepos();
-    const data = await loadCommandCenter(repos, ORG_A, { canViewAudit: true });
+    const data = await loadCommandCenter(repos, ORG_A, { canViewAudit: true }, READER_CLOCK);
     const audit = calls.filter((c) => c.name === 'audit.list');
     assert.equal(audit.length, 1);
     assert.deepEqual(audit[0]!.args, [ORG_A, { take: 10 }]);
@@ -153,7 +155,7 @@ describe('Audit authorization', () => {
     const perm = c.indexOf("hasPermission('audit', 'view')");
     const loader = c.indexOf('loadOrFallback(');
     assert.ok(perm > -1 && loader > -1 && perm < loader);
-    assert.match(c, /loadCommandCenter\(crmRepos, ctx\.organizationId, \{ canViewAudit \}\)/);
+    assert.match(c, /loadCommandCenter\(crmRepos, ctx\.organizationId, \{ canViewAudit \}, \{ now: time\.now, timeZone: time\.timeZone \}\)/);
     assert.equal(/crmRepos\.audit/.test(c), false);
     assert.match(c, /\{recentAudit \? \(/);
   });

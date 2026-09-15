@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { formatInstant, relativeTime as sharedRelativeTime, type TimeZoneSource } from '@emgloop/shared';
 
 // LiveFeed — Sprint 15 (Live Operations), real-data hotfix.
 //
@@ -30,26 +31,29 @@ export interface LiveFeedProps {
   emptyText: string;
   windowLabel?: string;
   properties?: PropertyOption[];
+  /** The reader's display timezone, resolved on the server (Loop Time Authority). */
+  timeZone: string;
+  timeZoneSource: TimeZoneSource;
 }
 
-function fmtTime(at: unknown): string {
-  if (typeof at !== 'string') return '';
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+/** How this feed shows time: the reader's zone, named when it is the UTC fallback. */
+interface FeedClock {
+  timeZone: string;
+  withZone: boolean;
 }
 
-export function relativeTime(at: unknown): string {
+// Formatting goes through the Loop Time Authority with the zone the server
+// resolved for this reader, so the feed agrees with every server-rendered date.
+// The browser's clock only animates "how long ago" between polls; the instants
+// themselves come from the server.
+function relativeTime(at: unknown, clock: FeedClock): string {
   if (typeof at !== 'string') return '';
-  const d = new Date(at).getTime();
-  if (Number.isNaN(d)) return '';
-  const secs = Math.max(0, Math.round((Date.now() - d) / 1000));
-  if (secs < 60) return secs + 's ago';
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  return fmtTime(at);
+  return sharedRelativeTime(at, new Date(), clock.timeZone);
+}
+
+function exactTime(at: unknown, clock: FeedClock): string {
+  if (typeof at !== 'string') return '';
+  return formatInstant(at, clock.timeZone, 'full');
 }
 
 function dur(seconds: unknown): string {
@@ -83,7 +87,7 @@ const KIND_COLOR: Record<string, string> = {
 
 interface WebEvent { id?: unknown; eventType?: unknown; label?: unknown; journeyStage?: unknown; provider?: unknown; externalId?: unknown; at?: unknown; }
 
-function renderActivity(items: Json[]) {
+function renderActivity(items: Json[], clock: FeedClock) {
   return (
     <ul className="crm-timeline">
       {items.map((it) => {
@@ -100,7 +104,7 @@ function renderActivity(items: Json[]) {
                 {it.externalId ? ' · id ' + shortId(it.externalId) : ''}
                 {it.status ? ' · ' + String(it.status) : ''}
                 {' · '}
-                {relativeTime(it.at)}
+                {relativeTime(it.at, clock)}
               </div>
             </div>
           </li>
@@ -110,7 +114,7 @@ function renderActivity(items: Json[]) {
   );
 }
 
-function renderCalls(items: Json[]) {
+function renderCalls(items: Json[], clock: FeedClock) {
   return (
     <div className="crm-table-wrap" style={{ overflowX: 'auto' }}>
       <table className="crm-table">
@@ -125,7 +129,7 @@ function renderCalls(items: Json[]) {
             const qualified = it.qualified;
             return (
               <tr key={String(it.id)}>
-                <td title={String(it.at ?? '')}>{relativeTime(it.at)}</td>
+                <td title={exactTime(it.at, clock)}>{relativeTime(it.at, clock)}</td>
                 <td>{it.caller ? String(it.caller) : '—'}</td>
                 <td>
                   {it.customerId ? (
@@ -154,7 +158,7 @@ function renderCalls(items: Json[]) {
   );
 }
 
-function renderWebsites(items: Json[]) {
+function renderWebsites(items: Json[], clock: FeedClock) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
       {items.map((s) => {
@@ -168,7 +172,7 @@ function renderWebsites(items: Json[]) {
                   <>{' · '}<Link href={'/crm/customers/' + String(s.customerId)} className="crm-link">{String(s.customerName ?? 'View customer')}</Link></>
                 ) : s.customerName ? ' · ' + String(s.customerName) : ''}
               </div>
-              <span className="crm-tl-meta">{events.length} event{events.length === 1 ? '' : 's'} · {relativeTime(s.lastAt)}</span>
+              <span className="crm-tl-meta">{events.length} event{events.length === 1 ? '' : 's'} · {relativeTime(s.lastAt, clock)}</span>
             </div>
             <ul className="crm-timeline" style={{ marginTop: '0.6rem' }}>
               {events.map((e) => (
@@ -181,7 +185,7 @@ function renderWebsites(items: Json[]) {
                       {e.journeyStage ? ' · ' + String(e.journeyStage) : ''}
                       {e.externalId ? ' · id ' + shortId(e.externalId) : ''}
                       {' · '}
-                      {relativeTime(e.at)}
+                      {relativeTime(e.at, clock)}
                     </div>
                   </div>
                 </li>
@@ -194,16 +198,17 @@ function renderWebsites(items: Json[]) {
   );
 }
 
-function renderVariant(variant: LiveFeedVariant, items: Json[]) {
+function renderVariant(variant: LiveFeedVariant, items: Json[], clock: FeedClock) {
   switch (variant) {
-    case 'calls': return renderCalls(items);
-    case 'websites': return renderWebsites(items);
+    case 'calls': return renderCalls(items, clock);
+    case 'websites': return renderWebsites(items, clock);
     case 'activity':
-    default: return renderActivity(items);
+    default: return renderActivity(items, clock);
   }
 }
 
-export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyText, windowLabel, properties }: LiveFeedProps) {
+export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyText, windowLabel, properties, timeZone, timeZoneSource }: LiveFeedProps) {
+  const clock: FeedClock = { timeZone, withZone: timeZoneSource === 'fallback' };
   const [items, setItems] = useState<Json[]>([]);
   const [status, setStatus] = useState<'loading' | 'live' | 'error' | 'unconfigured'>('loading');
   const [lastSync, setLastSync] = useState<string | null>(null);
@@ -223,7 +228,7 @@ export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyTe
       const next = Array.isArray(raw) ? (raw as Json[]) : [];
       setItems(next);
       setStatus('live');
-      setLastSync(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }));
+      setLastSync(formatInstant(new Date(), timeZone, 'timeWithSeconds', { withZone: timeZoneSource === 'fallback' }));
     } catch { if (mounted.current) setStatus('error'); }
   }, [endpoint, property]);
 
@@ -266,7 +271,7 @@ export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyTe
       {items.length === 0 ? (
         <p className="crm-empty" style={{ margin: 0 }}>{status === 'loading' ? 'Loading…' : emptyForProperty}</p>
       ) : (
-        renderVariant(variant, items)
+        renderVariant(variant, items, clock)
       )}
     </div>
   );

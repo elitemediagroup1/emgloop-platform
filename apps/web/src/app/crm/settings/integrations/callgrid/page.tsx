@@ -3,6 +3,7 @@ import { loadOrFallback, DbNotConfigured } from '../../../../../demo/db-health';
 import { crmRepos } from '../../../../../crm/crm-data';
 import { requireCrmContext } from '../../../../../crm/crm-data';
 import { requirePermission } from '../../../../../auth/guard';
+import { viewerTime } from '../../../../../time/viewer-time';
 
 // CallGrid admin — Sprint 11 (First Live Integration, Phase 8).
 //
@@ -16,13 +17,9 @@ export const dynamic = 'force-dynamic';
 
 const WEBHOOK_PATH = '/api/webhooks/callgrid';
 
+// In the reader's timezone (Loop Time Authority).
 function fmt(ts: string | null): string {
-  if (!ts) return '—';
-  try {
-    return new Date(ts).toLocaleString();
-  } catch {
-    return ts;
-  }
+  return viewerTime().dateTime(ts) || '—';
 }
 
 export default async function CallGridAdminPage() {

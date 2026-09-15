@@ -222,10 +222,10 @@ describe('Semantics and labels on Phase 1 surfaces', () => {
     assert.equal(SEARCH.includes('crm-btn-primary'), false, 'the full-width login button class is not used');
   });
 
-  it('greets the operator in the organization timezone, not the server clock', () => {
-    assert.equal(/getHours\(\)/.test(COMMAND), false);
-    assert.match(COMMAND, /orgClock\(org\?\.timezone\)/);
-    assert.match(COMMAND, /timeZone: zone/);
+  it('greets the reader in their own timezone, not the server clock or an organization zone', () => {
+    assert.equal(/getHours\(\)|orgClock|org\?\.timezone/.test(COMMAND), false);
+    assert.match(COMMAND, /const time = viewerTime\(\);/);
+    assert.match(COMMAND, /const clock = \{ greeting: time\.greeting\(\), date: time\.format\(time\.now, 'weekdayDate'\) \};/);
   });
 });
 

@@ -33,18 +33,13 @@ import {
   type EntityHistoryItem,
   type EntityRelatedItem,
 } from '../../../_loop-os';
+import { viewerTime } from '../../../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
 
+// Relative to the reader's calendar (Loop Time Authority).
 function relTime(d: Date | null): string {
-  if (!d) return '';
-  const m = Math.round((Date.now() - d.getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  const days = Math.round(h / 24);
-  return days === 1 ? 'yesterday' : days + 'd ago';
+  return viewerTime().relative(d);
 }
 
 function ownerName(

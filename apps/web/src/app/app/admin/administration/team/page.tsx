@@ -18,12 +18,13 @@ import {
   revokeInvitationAction,
 } from '../../../../../crm/admin-actions';
 import { requireWorkspace } from '../../../../../workspaces/guard';
+import { viewerTime } from '../../../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
 
+// In the reader's timezone (Loop Time Authority).
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return viewerTime().date(iso) || '—';
 }
 
 export default async function AdminTeamPage({

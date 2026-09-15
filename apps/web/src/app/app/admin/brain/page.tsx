@@ -3,10 +3,11 @@ import { loadOrFallback } from "../../../../demo/db-health";
 import { crmRepos, requireCrmContext } from "../../../../crm/crm-data";
 import { requireWorkspacePermission } from "../../../../workspaces/guard";
 import { loadProviderCards, computeSystemHealth } from "../../../../crm/integration-os";
-import { num, todayLabel, clockDuration, greeting, IntegrationStatusPanel } from "../../_loop-os";
+import { num, clockDuration, IntegrationStatusPanel } from "../../_loop-os";
 import { ExecutiveBrainView } from "../_executive/ExecutiveBrainView";
 import { loadExecutiveBrain } from "../_executive/executive-brain-data";
 import type { ExecutiveBrainReport } from "@emgloop/intelligence";
+import { viewerTime } from "../../../../time/viewer-time";
 
 export const dynamic = "force-dynamic";
 
@@ -74,12 +75,12 @@ export default async function BrainPage() {
         <header className="loop-os__brief">
           <div className="loop-os__brief-main">
             <p className="loop-os__brief-lead">Brain</p>
-            <p className="loop-os__brief-title">{greeting()}. Here is today&rsquo;s business health.</p>
+            <p className="loop-os__brief-title">{viewerTime().greeting()}. Here is today&rsquo;s business health.</p>
             <p className="loop-os__brief-body">{takeaway}</p>
           </div>
           <div className="loop-os__brief-cta">
             <span className={"mkt-intel__health mkt-intel__health--" + band.tone}>{band.label}</span>
-            <span className="loop-os__brief-chip loop-os__brief-chipdate">{todayLabel()}</span>
+            <span className="loop-os__brief-chip loop-os__brief-chipdate">{viewerTime().date(new Date())}</span>
           </div>
         </header>
 

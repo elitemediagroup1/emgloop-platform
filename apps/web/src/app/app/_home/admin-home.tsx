@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { loadDashboard, type DayScore } from '../admin/dashboard-data';
 import { requireWorkspace } from '../../../workspaces/guard';
 import { trend, trendLabel, metricValue, type TrendResult } from '@emgloop/shared';
+import { viewerTime } from '../../../time/viewer-time';
 
 // The Operational Home of Elite Media Group.
 //
@@ -13,20 +14,16 @@ import { trend, trendLabel, metricValue, type TrendResult } from '@emgloop/share
 //
 // CONSTITUTIONAL: Loop never fabricates business reality. Every value is real
 // org-scoped data or an honest Unknown / Unavailable. Money is never estimated.
-// Day boundaries are Eastern (America/New_York) via @emgloop/shared. The CRM
+// CallGrid figures use CallGrid's Eastern reporting days (@emgloop/shared);
+// greetings, dates and relative times are the reader's (Loop Time Authority). The CRM
 // shows nothing off the shared Customer table. No developer vocabulary.
 
 
 type Tone = 'good' | 'warn' | 'crit' | 'info' | 'idle';
 
+// Relative to the reader's calendar (Loop Time Authority).
 function relTime(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  const d = Math.round(h / 24);
-  return d === 1 ? 'yesterday' : d + 'd ago';
+  return viewerTime().relative(iso);
 }
 
 function joinAnd(items: string[]): string {

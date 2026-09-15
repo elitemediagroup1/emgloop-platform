@@ -6,17 +6,19 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { describeCallGridWindow, callGridDayNav, type CallGridWindow } from '@emgloop/shared';
+import { describeCallGridWindow, callGridDayNav, formatCalendarDate, formatInstant, type CallGridWindow } from '@emgloop/shared';
 import { CallGridNav, type CallGridNavKey } from './_CallGridNav';
 import CallGridDateRange from './CallGridDateRange';
 import type { Trend } from './dimension-metrics';
+import { viewerTime } from '../../../../time/viewer-time';
 
-/** Eastern time-of-day clock for the "last updated" indicator, e.g. "2:31 PM ET". */
-export function easternClock(d: Date): string {
-  return (
-    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(d) +
-    ' ET'
-  );
+/**
+ * The "last updated" time, e.g. "2:31 PM EDT": in the reader's timezone, with
+ * its zone named. It is an instant, so it follows the reader (Loop Time
+ * Authority); the reporting WINDOW beside it stays on CallGrid's Eastern days.
+ */
+export function updatedClock(d: Date): string {
+  return formatInstant(d, viewerTime().timeZone, 'time', { withZone: true });
 }
 
 // The page shell — identical chrome on every CallGrid tab. It owns the header
@@ -64,7 +66,7 @@ export function DimensionShell({
           label={window.label}
           dayNav={dayNav}
           live={desc.live}
-          updatedLabel={easternClock(now)}
+          updatedLabel={updatedClock(now)}
         />
         {children}
       </div>
@@ -224,14 +226,13 @@ export function DetailPanel({
 // The honesty banner for snapshot-only bid data: it does NOT honor the calendar
 // range, so it says so and shows the provenance (snapshot date, last sync,
 // provider window). Never fabricates historical bid reporting.
-function easternDateTime(d: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  }).format(d);
+function syncedAt(d: Date): string {
+  return formatInstant(d, viewerTime().timeZone, 'dateTime', { withZone: true });
 }
+// A provider reporting day CallGrid was asked for in UTC: a calendar date in the
+// window's own zone, shown as that date to every reader (Loop Time Authority).
 function utcDate(d: Date): string {
-  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(d);
+  return formatCalendarDate(d);
 }
 
 export function SnapshotNotice({
@@ -252,7 +253,7 @@ export function SnapshotNotice({
       </p>
       <dl className="cg-snapnotice__grid">
         <div><dt>Latest snapshot date</dt><dd>{utcDate(windowStart)}</dd></div>
-        <div><dt>Last synchronization</dt><dd>{easternDateTime(fetchedAt)} ET</dd></div>
+        <div><dt>Last synchronization</dt><dd>{syncedAt(fetchedAt)}</dd></div>
         <div><dt>Provider reporting window</dt><dd>{utcDate(windowStart)} – {utcDate(windowEnd)}{reportTimezone ? ` (${reportTimezone}, as requested)` : ''}</dd></div>
         {selectedPeriodLabel ? <div><dt>Selected CallGrid period</dt><dd>{selectedPeriodLabel}</dd></div> : null}
       </dl>

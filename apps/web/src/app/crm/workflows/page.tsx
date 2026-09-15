@@ -3,6 +3,7 @@ import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../auth/guard';
 import { toggleWorkflowActiveAction } from '../../../crm/workflow-actions';
+import { viewerTime } from '../../../time/viewer-time';
 
 // Workflows list — Sprint 9 (Workflows & Automation, CRM Phase 4).
 //
@@ -22,14 +23,7 @@ const RUN_COLOR: Record<string, string> = {
 };
 
 function relTime(iso: string | null): string {
-  if (!iso) return 'never';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  return Math.floor(hrs / 24) + 'd ago';
+  return (iso && viewerTime().relative(iso)) || 'never';
 }
 
 export default async function WorkflowsPage() {

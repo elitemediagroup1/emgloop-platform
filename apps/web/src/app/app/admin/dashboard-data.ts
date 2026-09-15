@@ -5,9 +5,10 @@ import 'server-only';
 // The CRM is NOT wired here (the Customer table is shared with CallGrid call
 // ingestion). The CRM tile is a static "Not Configured".
 //
-// CallGrid scorecard: real economics per BUSINESS DAY. Day boundaries come from
-// the one authoritative business timezone (America/New_York) — never server-local
-// or UTC calendar days. Yesterday is the previous COMPLETED Eastern day; Today is
+// CallGrid scorecard: real economics per CallGrid REPORTING DAY. Day boundaries
+// are CallGrid's Eastern reporting calendar (business-time.ts), so the figures
+// match the provider's reports — never server-local or UTC calendar days. This is
+// the window's own calendar, not a display timezone (Loop Time Authority). Yesterday is the previous COMPLETED Eastern day; Today is
 // the LIVE, in-progress Eastern day up to now. A metric is a real number, or
 // UNKNOWN (calls occurred but carried no economics), or UNAVAILABLE (the read
 // failed). Money is never estimated; profit = revenue − payout − cost (derived).

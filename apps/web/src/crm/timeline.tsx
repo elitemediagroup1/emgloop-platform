@@ -4,7 +4,7 @@
 
 import type { ReactNode } from 'react';
 import { interactionActorType, interactionActorName } from '@emgloop/database';
-import { relTime } from '../app/app/_loop-os/format';
+import { viewerTime } from '../time/viewer-time';
 
 // ---------------------------------------------------------------------------
 // Unified entry type
@@ -262,14 +262,13 @@ export function ProvenanceDisplay({ source }: { source: TimelineSource }) {
   );
 }
 
+// Relative time, with the exact instant in the reader's timezone (and its zone
+// name) on hover. Both come from the one Time Authority, so they agree.
 export function Timestamp({ iso }: { iso: string }) {
+  const time = viewerTime();
   return (
-    <time
-      className="tl-time"
-      dateTime={iso}
-      title={new Date(iso).toLocaleString()}
-    >
-      {relTime(iso)}
+    <time className="tl-time" dateTime={time.iso(iso) || iso} title={time.full(iso)}>
+      {time.relative(iso)}
     </time>
   );
 }

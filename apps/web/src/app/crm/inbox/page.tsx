@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
+import { viewerTime } from '../../../time/viewer-time';
 
 // Activity inbox — Sprint 6 (Internal CRM, Phase 2).
 //
@@ -41,24 +42,14 @@ function actorLabel(a: string): string {
   }
 }
 
+// In the reader's timezone, from the one Time Authority, so the relative time
+// and the date beside it always agree.
 function fmt(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return viewerTime().monthDayTime(iso);
 }
 
 function relTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  const days = Math.floor(hrs / 24);
-  return days + 'd ago';
+  return viewerTime().relative(iso);
 }
 
 export default async function InboxPage({
@@ -135,7 +126,7 @@ export default async function InboxPage({
                     ) : (
                       <span className="crm-cell-name">{i.customerName}</span>
                     )}
-                    <span className="crm-feed-when" title={fmt(i.occurredAt)}>
+                    <span className="crm-feed-when" title={viewerTime().full(i.occurredAt)}>
                       {relTime(i.occurredAt)}
                     </span>
                   </div>

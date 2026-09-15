@@ -36,32 +36,9 @@ export function numOrUnknown(n: number | null | undefined): string {
   return typeof n === "number" && Number.isFinite(n) ? num(n) : UNKNOWN_DISPLAY;
 }
 
-export function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
-}
-
-export function todayLabel(): string {
-  try {
-    return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return "";
-  }
-}
-
-export function relTime(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const mins = Math.round((Date.now() - t) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return mins + "m ago";
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return hrs + "h ago";
-  return Math.round(hrs / 24) + "d ago";
-}
+// Greetings, dates and relative times are not formatted here: they depend on the
+// reader's timezone and come from the Loop Time Authority (src/time/viewer-time.ts,
+// @emgloop/shared loop-time). A server-local clock is UTC in production.
 
 export function clockDuration(seconds: number | null | undefined): string {
   const s = typeof seconds === "number" && !Number.isNaN(seconds) ? Math.max(0, Math.round(seconds)) : 0;

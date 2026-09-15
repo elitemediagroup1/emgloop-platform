@@ -29,8 +29,8 @@
 import 'server-only';
 
 import { prisma, createRepositories } from '@emgloop/database';
-import { startOfEasternDay } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
+import { viewerTime } from '../../../../time/viewer-time';
 
 export interface WorkActor {
   userId: string;
@@ -110,8 +110,8 @@ export async function loadWorkDashboard(): Promise<WorkDashboard> {
   const actor = await requireWorkActor();
   const work = workRepo();
   const now = new Date();
-  // "Today" is the Eastern business day, not the server's local day.
-  const startOfDay = startOfEasternDay(now);
+  // "Today" is the reader's calendar day (Loop Time Authority).
+  const startOfDay = viewerTime().startOfDay(now);
 
   const [nextAction, myQueue, unassigned, auditRows, blueprints, blockedStages, completedStages] =
     await Promise.all([

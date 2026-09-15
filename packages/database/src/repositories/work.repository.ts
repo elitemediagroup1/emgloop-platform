@@ -28,7 +28,6 @@ import type {
   WorkNotification,
   WorkComment,
 } from '@prisma/client';
-import { startOfEasternDay } from '@emgloop/shared';
 import {
   dedupeActiveMembers,
   resolveStepOwner,
@@ -1232,15 +1231,6 @@ export class WorkRepository {
       },
       include: { workInstance: true },
       orderBy: { startedAt: 'asc' },
-    });
-  }
-
-  async listCompletedToday(organizationId: string): Promise<WorkInstance[]> {
-    // "Today" is the Eastern business day (America/New_York), not server-local.
-    const start = startOfEasternDay(new Date());
-    return this.prisma.workInstance.findMany({
-      where: { organizationId, status: 'completed', completedAt: { gte: start } },
-      orderBy: { completedAt: 'desc' },
     });
   }
 

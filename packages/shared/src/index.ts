@@ -175,9 +175,13 @@ export interface NormalizedEvent {
 // enforces it rather than asking engineers to remember. See docs/TRUTH_STATES.md.
 export * from './truth';
 
-// --- The authoritative business timezone (America/New_York) ---
-// The single source of truth for every business-reporting day boundary. No page,
-// service, provider, or query may choose its own timezone for reporting.
+// --- The Loop Time Authority ---
+// UTC instants, shown in each reader's own timezone. The one place a timezone is
+// validated and an instant is formatted. See docs/architecture/loop-time-authority.md.
+export * from './loop-time';
+// --- The Eastern reporting calendar (America/New_York) ---
+// The calendar CallGrid reporting, CI measurement windows and Work OS targets are
+// defined on. Not a presentation timezone; see business-time.ts.
 export * from './business-time';
 export * from './observation-source';
 export * from './provider-fact-convergence';

@@ -22,6 +22,7 @@ import {
 import {
   Timeline, TimelineItem, EmptyTimeline, fromInteraction, fromDerivedSignal,
 } from '../../../../crm/timeline';
+import { viewerTime } from '../../../../time/viewer-time';
 
 // Customer workspace — Sprint 5 (Phase 1) + Sprint 6 (Phase 2)
 // + Sprint 14 (Website Intelligence — Website tab)
@@ -59,16 +60,9 @@ const SUGGESTED_TAGS = [
   'Residential',
 ];
 
+// Every date on the record, in the reader's timezone (Loop Time Authority).
 function fmt(d: Date | string | null | undefined): string {
-  if (!d) return '—';
-  const date = typeof d === 'string' ? new Date(d) : d;
-  return date.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return viewerTime().dateTime(d) || '—';
 }
 
 function money(cents: number | null | undefined): string {

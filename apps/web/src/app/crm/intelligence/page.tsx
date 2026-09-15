@@ -2,6 +2,7 @@ import * as React from 'react';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
+import { viewerTime } from '../../../time/viewer-time';
 
 // Loop Intelligence — Sprint 10 engine, re-skinned as the signature Brain
 // page in Sprint 13. The 3-layer intelligence report logic below is UNCHANGED
@@ -95,7 +96,7 @@ export default async function IntelligencePage() {
           </p>
         </div>
         <div style={{ fontSize: '0.7rem', color: 'var(--crm-faint)', textAlign: 'right' }}>
-          Generated {new Date(report.generatedAt).toLocaleString()}<br />
+          Generated {viewerTime().dateTime(report.generatedAt)}<br />
           Period: last 30 days
         </div>
       </div>

@@ -2,6 +2,7 @@ import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { mergeCustomersAction } from '../../../crm/conversation-actions';
+import { viewerTime } from '../../../time/viewer-time';
 
 // Customer merge — Sprint 8 (Conversations, Phase 3).
 //
@@ -70,7 +71,7 @@ export default async function MergePage() {
                       </td>
                       <td className="crm-cell-name">{c.name}</td>
                       <td className="crm-cell-muted">
-                        {new Date(c.createdAt).toLocaleDateString('en-US')}
+                        {viewerTime().date(c.createdAt)}
                       </td>
                     </tr>
                   ))}

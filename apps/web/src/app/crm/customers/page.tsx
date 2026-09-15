@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
+import { viewerTime } from '../../../time/viewer-time';
 import {
   PIPELINE_STATUSES,
   type PipelineStatus,
@@ -38,28 +39,6 @@ const SAVED_VIEWS: { label: string; sp: Partial<SP> }[] = [
   { label: 'Recently active', sp: { sort: 'lastSeenAt', dir: 'desc' } },
 ];
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function relTime(iso: string | null): string {
-  if (!iso) return 'No activity';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  const days = Math.floor(hrs / 24);
-  return days + 'd ago';
-}
-
 function buildQuery(base: SP, override: Partial<SP>): string {
   const merged = { ...base, ...override };
   const params = new URLSearchParams();
@@ -85,6 +64,7 @@ export default async function CustomersPage({
   // member of the organization saw the whole customer book.
   await requirePermission('customers', 'view');
   const { organizationId } = await requireCrmContext();
+  const time = viewerTime();
   const sp = searchParams ?? {};
   const q = sp.q ?? '';
   const statusFilter = (PIPELINE_STATUSES as string[]).includes(sp.status ?? '')
@@ -304,14 +284,18 @@ export default async function CustomersPage({
                     <span className={'crm-status ' + c.status}>{c.status}</span>
                   </td>
                   <td>
-                    {relTime(c.lastInteractionAt)}
+                    {c.lastInteractionAt ? time.relative(c.lastInteractionAt) : 'No activity'}
                     {c.lastInteractionLabel ? (
                       <div className="crm-cell-sub">{c.lastInteractionLabel}</div>
                     ) : null}
                   </td>
                   <td>{c.assignedAI || <span className="crm-faint">—</span>}</td>
                   <td>{c.assignedHuman || <span className="crm-faint">—</span>}</td>
-                  <td>{fmtDate(c.createdAt)}</td>
+                  <td>
+                    <time dateTime={time.iso(c.createdAt)} title={time.full(c.createdAt)}>
+                      {time.date(c.createdAt) || '—'}
+                    </time>
+                  </td>
                 </tr>
               ))
             )}
