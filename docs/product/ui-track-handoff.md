@@ -1,7 +1,7 @@
 # UI Track Handoff — what Charlie and Lexi can build now
 
-**Date:** 2026-09-16, against `main` `b8bc560`, with two open PRs noted where they change a status
-(#264 operator surface, #265 AI usage ledger). **For:** Charlie and Lexi. **Owner of this page:** the
+**Date:** 2026-09-16, against `main` `f6b6b0d` (#264 and #265 merged; production at 35 migrations), with
+the AI activation PRs #266–#270 noted where they change a status. **For:** Charlie and Lexi. **Owner of this page:** the
 backend and authority track. **This table is the current status**; the matrix in
 `foundation-handoff.md` §6 records the 2026-09-15 decision point.
 
@@ -92,11 +92,11 @@ waiting on the redesign.
 | Campaigns | YELLOW | See Campaigns detail below | Empty until the Campaign slices land |
 | Campaign Detail | YELLOW | See Campaigns detail below | Participants unavailable (not activated); invoices and payments unavailable (Accounting not built) |
 | Work | GREEN | Work OS | Links from work to records, and approvals, do not exist yet |
-| Intelligence | GREEN | CI Headlines, Queue, Cases, Findings (Developing / Established + evidence count), Recommendations (select, dismiss, revise), Monitoring; Decision Center | **Case Explanation panel is YELLOW**; see Intelligence detail below. The "AI resolution rate" is deleted; do not reintroduce it. |
+| Intelligence | GREEN | CI Headlines, Queue, Cases, Findings (Developing / Established + evidence count), Recommendations (select, dismiss, revise), Monitoring; Decision Center | **Case Explanation panel: YELLOW — built and switched off (#270)**; see Intelligence detail below. The "AI resolution rate" is deleted; do not reintroduce it. |
 | Operations | GREEN | Area grouping of CallGrid and future operational modules | — |
 | CallGrid | GREEN | CallGrid execution, measurement and reconciliation, split per C-03 | Confidence is shown as semantic strength, and a test fails if a percentage comes back. |
 | Creator administration | YELLOW (roster) / RED (execution) | The roster is TALENT_REPRESENTATION Relationships with CREATOR participants. The authority exists; the list read needs a filter by kind first (a small backend slice) | Deliverables, earnings, uploads and critiques: unavailable. No separate creator app. |
-| Brain / AI | RED | Exploration only | No conversational Brain; no "AI" label on rules. Provider adapters exist but run only against test fixtures. No credential is read, no live request exists, and the runtime is not switched on. The usage ledger (#265) is not deployed. |
+| Brain / AI | RED | Exploration only | No conversational Brain; no "AI" label on rules. The only AI task is Case Explanation (below). The runtime is off, no live request has been made, and the usage ledger is deployed but empty. |
 | Universal Search | RED | CRM-scoped search only | Universal search is deferred |
 
 ### Loop Home detail
@@ -206,10 +206,36 @@ changes the Opportunity.
 
 ### Intelligence detail: the Case Explanation panel
 
-- On-demand, read-only explanation of a Case.
-- Every statement cites its source.
-- No confidence number.
-- Shows "not configured" until the runtime's activation gates hold.
+**Built and switched off (#266–#270).** The panel on `/app/admin/cases/[id]` uses the Case page's existing
+styles. Its **states and wording are the contract**; its look is yours to redesign.
+
+- **What it is.** On-demand and read-only. An OWNER or ADMIN presses "Explain this investigation". MANAGER
+  is pending a Product decision.
+- **What comes back.** A summary, then claims in three groups, then limitations:
+  - "What the evidence shows"
+  - "Why it may matter"
+  - "Worth looking into"
+- **Citations.** Every claim carries citation chips: Evidence `<id>`, Headline, Finding, This
+  investigation, Monitoring, Outcome.
+- **No numbers of its own.** No confidence number, and no number, figure or date that the cited evidence
+  does not contain. An answer that breaks a rule is **not shown at all**; the panel says why instead.
+- **Self-labelling.** It says it was written by an AI model from the evidence, is not a finding, decision
+  or recommendation, and changes nothing.
+- **What it reports about itself:**
+  - what was *not* sent (for example "2 evidence people reported");
+  - the label key for names (`buyer #1 = …`);
+  - the model and versions;
+  - that the answer is not stored.
+- **States to design:**
+  - not enabled;
+  - paused;
+  - not configured;
+  - owners and admins only;
+  - explaining (pending);
+  - answered;
+  - not shown, with a reason: rules broken, model declined, allowance used up, provider unavailable, or
+    not found.
+- **No real-data sample exists yet.** Nothing is recorded, and answers are never stored.
 
 ## 3. Blockers you will hit
 
@@ -226,7 +252,47 @@ changes the Opportunity.
 Until it is: no "link to Person" action on Intake Records, and Activity on Person and Company renders as
 unavailable.
 
-## 4. Rules that apply to every surface
+A concrete proposal for that workflow, and the narrowest fence change it would need, is in
+`docs/product/intake-party-linking-recommendation.md`.
+
+## 4. What is still missing before your redesign can be implemented
+
+The backend truth above is ready. **The visual redesign itself cannot yet be built from anything in the
+repository.** As of 2026-09-16 the repository holds:
+- no design files;
+- no exported mockups or screen designs;
+- no Storybook;
+- no written visual specification.
+
+`docs/product/loop-product-ui-architecture-v1.0.md` (Charlie Brugnolotti and EMG, 2026-09-15) is the one
+document from your track. It is an information-architecture and interaction specification, and its visual
+direction is qualitative. It has:
+- no colour or status palette;
+- no type scale;
+- no spacing, grid or breakpoints;
+- no component specifications;
+- no screen layouts.
+
+To implement the redesign, engineering needs:
+
+1. **The visual design deliverable.** Either screen designs (Figma or equivalent, or exported frames) or a
+   written visual specification covering:
+   - a semantic colour and status system;
+   - a type scale;
+   - spacing, grid and breakpoints;
+   - component specs for the UI 0 primitives: shell, context header, tabs, states, attention, rail,
+     drawer, activity item.
+2. **Your route-transition proposal.** Per `loop-application-structure.md`, no route moves until Product
+   approves it.
+3. **The "Product Definition" the code already cites.** `design-system.css` and `app/crm/page.tsx`
+   reference "Charlie/Lexi §10.1 / §10.2", and PR #226 cites "§18 screen families". No document with
+   those sections is in the repository.
+
+**The two temporary engineering screens should be replaced by your designs, not restyled:**
+- `/crm/parties` and `/crm/relationships` (operator surface, #264);
+- the Case Explanation panel's current look (#270).
+
+## 5. Rules that apply to every surface
 
 1. **Names:**
    - "People" means identified Parties only;
