@@ -16,8 +16,10 @@ import {
   PARTY_REFERENCE_MAX_DEPTH,
   PARTY_REFERENCE_NOT_FOUND,
   PARTY_CAPACITIES,
+  PARTY_WRITE_REFUSALS,
   isPartyReference,
   isPartyCapacity,
+  partyReferenceForWrite,
   partyReferenceStep,
   partyReferenceWritable,
   type PartyReferenceNode,
@@ -129,12 +131,53 @@ test('writes reference ESTABLISHED, non-archived Parties only', () => {
   assert.equal(partyReferenceWritable(PARTY_REFERENCE_NOT_FOUND), false);
 });
 
-test('a capacity is never a Party type, and the vocabulary is party.ts\'s own', () => {
-  assert.equal(PARTY_CAPACITIES, CONTEXTUAL_ROLE_ENTITY_TYPES);
-  assert.deepEqual([...PARTY_CAPACITIES], ['EMPLOYEE', 'CREATOR', 'BUYER', 'VENDOR', 'SOURCE']);
+test('a capacity is never a Party type, and the vocabulary is its own (PD-F-03)', () => {
+  // Product approved these nine on 2026-09-15. Adding one is a reviewed contract
+  // change here, never a Prisma enum edit somewhere else.
+  assert.deepEqual([...PARTY_CAPACITIES], ['CREATOR', 'EMPLOYEE', 'BRAND', 'AGENCY', 'PUBLISHER', 'BUYER', 'VENDOR', 'SOURCE', 'PARTNER']);
+  // DELIBERATELY NOT party.ts's list. That one states which `CognitiveEntityType`
+  // members are not Party types; this one states what a Party may be commercially.
+  // Tying them made the capacity vocabulary hostage to a Prisma enum's names.
+  assert.notEqual(PARTY_CAPACITIES as readonly string[], CONTEXTUAL_ROLE_ENTITY_TYPES as readonly string[]);
+  for (const excluded of CONTEXTUAL_ROLE_ENTITY_TYPES) {
+    assert.ok((PARTY_CAPACITIES as readonly string[]).includes(excluded), `${excluded} is still a capacity`);
+  }
   for (const t of PARTY_TYPES) assert.equal(isPartyCapacity(t), false);
   for (const c of PARTY_CAPACITIES) assert.ok(!(PARTY_TYPES as readonly string[]).includes(c));
   assert.equal(isPartyCapacity('CONTACT'), false);
+  assert.equal(isPartyCapacity('HOUSEHOLD'), false);
+});
+
+test('a write is refused with the canonical id, never given it (approved reading, 2026-09-15)', () => {
+  assert.deepEqual([...PARTY_WRITE_REFUSALS], ['NOT_FOUND', 'NOT_ESTABLISHED', 'SUPERSEDED', 'ARCHIVED']);
+
+  const ok = partyReferenceForWrite(walk('p1', { p1: node('p1') }));
+  assert.deepEqual(ok, { ok: true, partyId: 'p1', partyType: 'PERSON' });
+
+  // The superseded id is refused. The canonical id rides along so the writer can
+  // choose to retry; nothing here writes it, and `partyId` is not swapped for it.
+  const superseded = partyReferenceForWrite(walk('p0', chain(2)));
+  assert.deepEqual(superseded, { ok: false, refusal: 'SUPERSEDED', canonicalPartyId: 'p2' });
+
+  assert.deepEqual(partyReferenceForWrite(walk('p1', { p1: node('p1', { archived: true }) })), { ok: false, refusal: 'ARCHIVED' });
+  assert.deepEqual(partyReferenceForWrite(walk('p1', { p1: node('p1', { established: false }) })), { ok: false, refusal: 'NOT_ESTABLISHED' });
+  assert.deepEqual(partyReferenceForWrite(walk('p1', { p1: node('p1', { established: false, archived: true }) })), { ok: false, refusal: 'NOT_ESTABLISHED' });
+  assert.deepEqual(partyReferenceForWrite(PARTY_REFERENCE_NOT_FOUND), { ok: false, refusal: 'NOT_FOUND' });
+});
+
+test('writability has one definition: the classifier admits exactly what partyReferenceWritable admits', () => {
+  const resolutions: PartyReferenceResolution[] = [
+    walk('p1', { p1: node('p1') }),
+    walk('c1', { c1: node('c1', { partyType: 'COMPANY' }) }),
+    walk('p1', { p1: node('p1', { archived: true }) }),
+    walk('p1', { p1: node('p1', { established: false }) }),
+    walk('p0', chain(1)),
+    walk('p0', chain(PARTY_REFERENCE_MAX_DEPTH + 1)),
+    PARTY_REFERENCE_NOT_FOUND,
+  ];
+  for (const r of resolutions) {
+    assert.equal(partyReferenceForWrite(r).ok, partyReferenceWritable(r), JSON.stringify(r));
+  }
 });
 
 test('fence: the contract is pure, never reads a capacity, and knows no contact values', () => {

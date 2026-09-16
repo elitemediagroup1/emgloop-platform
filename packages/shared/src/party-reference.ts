@@ -35,15 +35,15 @@
 // links or supersedes a Party, and never reads evidence to decide anything.
 //
 // A CAPACITY IS NOT A PARTY TYPE. A Party holds a capacity in a context, for a
-// time. The vocabulary starts from the five `party.ts` already names. The full
-// set, and where a capacity is held, is decided by the Relationship and
-// Participant architecture. A capacity never decides Party type, a Party type
-// never implies a capacity, and resolution never consults one.
+// time. The set is Product's approved commercial capacities (PD-F-03, 2026-09-15);
+// where a capacity is held, and which Party types may hold it, is the CRM
+// Participant contract (`crm-participant.ts`). A capacity never decides Party type,
+// a Party type never implies a capacity, and resolution never consults one.
 //
 // PURE. No clock, no I/O. The repository loads one record at a time and asks
 // `partyReferenceStep` what to do next, so the walk has exactly one definition.
 
-import { CONTEXTUAL_ROLE_ENTITY_TYPES, type PartyType } from './party';
+import type { PartyType } from './party';
 
 export const PARTY_REFERENCE_STATES = ['ESTABLISHED', 'NOT_ESTABLISHED', 'SUPERSEDED', 'NOT_FOUND'] as const;
 export type PartyReferenceState = (typeof PARTY_REFERENCE_STATES)[number];
@@ -163,13 +163,60 @@ export function partyReferenceWritable(resolution: PartyReferenceResolution): bo
   return resolution.state === 'ESTABLISHED' && resolution.archived === false;
 }
 
+export const PARTY_WRITE_REFUSALS = ['NOT_FOUND', 'NOT_ESTABLISHED', 'SUPERSEDED', 'ARCHIVED'] as const;
+export type PartyWriteRefusal = (typeof PARTY_WRITE_REFUSALS)[number];
+
+export type PartyReferenceForWrite =
+  | { readonly ok: true; readonly partyId: string; readonly partyType: PartyType }
+  | {
+      readonly ok: false;
+      readonly refusal: PartyWriteRefusal;
+      /**
+       * Present only for SUPERSEDED: the id the writer may retry with, having
+       * decided to. Naming it is not using it.
+       */
+      readonly canonicalPartyId?: string;
+    };
+
+/**
+ * What a writer may do with a resolved reference. REFUSAL, NEVER SUBSTITUTION: a
+ * superseded id comes back refused, carrying its canonical id so the caller can
+ * retry explicitly (approved reading, 2026-09-15). An archived or unestablished
+ * Party takes no new reference. Writability itself stays defined in exactly one
+ * place, `partyReferenceWritable`, so this classifies a refusal and never widens
+ * what is allowed.
+ */
+export function partyReferenceForWrite(resolution: PartyReferenceResolution): PartyReferenceForWrite {
+  if (partyReferenceWritable(resolution) && resolution.state === 'ESTABLISHED') {
+    return { ok: true, partyId: resolution.partyId, partyType: resolution.partyType };
+  }
+  if (resolution.state === 'SUPERSEDED') {
+    return { ok: false, refusal: 'SUPERSEDED', canonicalPartyId: resolution.canonicalPartyId };
+  }
+  if (resolution.state === 'NOT_ESTABLISHED') return { ok: false, refusal: 'NOT_ESTABLISHED' };
+  if (resolution.state === 'ESTABLISHED') return { ok: false, refusal: 'ARCHIVED' };
+  return { ok: false, refusal: 'NOT_FOUND' };
+}
+
 // --- Capacity --------------------------------------------------------------------
 
 /**
- * The capacities a Party may hold in a context. The five `party.ts` names, reused
- * rather than restated, so the two can never drift.
+ * The commercial capacities a Party may hold in a context (PD-F-03). Deliberately
+ * not `party.ts`'s CONTEXTUAL_ROLE_ENTITY_TYPES: that list states which cognitive
+ * entity types are not Party types, and a capacity vocabulary must not be tied to
+ * a Prisma enum's names.
  */
-export const PARTY_CAPACITIES = CONTEXTUAL_ROLE_ENTITY_TYPES;
+export const PARTY_CAPACITIES = [
+  'CREATOR',
+  'EMPLOYEE',
+  'BRAND',
+  'AGENCY',
+  'PUBLISHER',
+  'BUYER',
+  'VENDOR',
+  'SOURCE',
+  'PARTNER',
+] as const;
 export type PartyCapacity = (typeof PARTY_CAPACITIES)[number];
 
 export function isPartyCapacity(value: unknown): value is PartyCapacity {
