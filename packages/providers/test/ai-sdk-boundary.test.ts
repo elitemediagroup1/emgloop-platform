@@ -62,8 +62,11 @@ test('nothing imports either SDK yet, anywhere', () => {
       }
     }
   }
-  // When S1 adds the adapters this assertion changes to "only under
-  // packages/providers/src/ai/adapters/" -- deliberately, in that PR, not silently.
+  // The adapters now EXIST and still import nothing: they are typed structurally
+  // against the shape of each SDK's response, and take an injected client. So the
+  // SDK is needed only where a client is CONSTRUCTED -- which is slice S1, under the
+  // activation gates, and which must live under packages/providers/src/ai/adapters/.
+  // When that arrives this assertion narrows to that directory, in that PR, visibly.
   assert.deepEqual(offenders, [], 'an installed SDK is not an activated provider');
   assert.ok(scanned > 200, `the scan covered the repository (${scanned} files)`);
 });
