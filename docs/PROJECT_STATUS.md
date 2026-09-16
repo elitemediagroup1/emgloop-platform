@@ -1225,6 +1225,18 @@ deployed: none of the eight touches the schema.
 contracts (#251). No Relationship table, service or screen exists; production still holds 0 established
 Parties, and no page imports P1's Party write actions.
 
+**Production migration cleared (2026-09-16):** run 35047357515 applied
+`20260917000000_crm_r2_relationship_participant` from `main`. 34 migrations, schema up to date, zero
+failed or rolled back. `crm_relationships`, `crm_relationship_events` and `crm_participants` exist and
+are empty; the two Universal Activity indexes are live.
+
+**Planning records added (no code, no production access):** `docs/product/ai-honesty-inventory.md`
+(one fabricated AI metric, one misleading heading, two numeric-confidence renders — with the correction
+PR sequence C1–C4, which must land before AI S1 reaches a screen);
+`docs/product/legacy-intake-retirement-plan.md` (six-segment classification of the 24,590 legacy
+records; nothing deletable, ~24,500 must remain permanently unresolved);
+`docs/architecture/google-workspace-connection.md`; `docs/architecture/meeting-intelligence.md`.
+
 **In review:** A2 — Universal Activity read-time adapters (channel facts, marketplace calls, Case /
 Decision observations, Intake conversations, audit acts), keyset composition and per-item authorization.
 No migration, no writes, no UI. Work OS is excluded from A2: it has no RBAC resource for an item to
