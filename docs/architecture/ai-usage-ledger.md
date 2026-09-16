@@ -1,9 +1,10 @@
 # The AI usage ledger
 
-**Status (2026-09-16): implemented, NOT deployed.** The table, its migration
-(`20260918000000_ai_usage_ledger`), `AiUsageLedgerRepository` and `DurableAiUsageLedger` exist on their
-own branch. **Nothing writes the table** and the migration has not been dispatched. The AI runtime is
-still `activated: false`, no provider credential is read, and no live model request exists anywhere.
+**Status (2026-09-16): table deployed; gateway wired (AI-1); runtime OFF.** The migration
+`20260918000000_ai_usage_ledger` is applied in production (run `35103219698`, 35 migrations). The
+gateway now reserves every provider call in this table before making it (§4). **Nothing writes the table
+yet**, because the runtime is off: activation is an allowlist that is empty by default, no provider
+credential is read by the runtime, and no live model request exists anywhere.
 
 This record exists because the S1 gateway reads budgets from an interface, and an interface cannot stop
 a runaway bill. The durable counter behind it needed a table, a table needs a migration, and a migration
@@ -44,9 +45,9 @@ input tokens cost money; a refusal is a fact about the system. Both are recorded
 | `outcome` | text | `IN_FLIGHT` while reserved; then ANSWERED / REFUSED_BY_MODEL / REJECTED_BY_LOOP / FAILED / CANCELLED |
 | `failureClass` | text, null | Loop's taxonomy, never a provider's prose |
 | `rejectionCodes` | text[] | Which contract rules the answer broke |
-| `fellBackFrom` | text, null | The provider tried first, when one was |
-| `attemptCount` | int | Retries inside the attempt |
-| `requestedAt`, `completedAt` | timestamptz | **Server clock, Loop Time Authority.** Never a browser's, never a provider's |
+| `fellBackFrom` | text, null | `provider/model` this call stands in for: set on a fallback call, and on a first call when the policy's primary was killed or not enabled. Null on a retry of the same model |
+| `attemptCount` | int | **Which call of its invocation this row is** (1, 2, …). See §4: every provider call is its own row |
+| `requestedAt`, `completedAt` | `timestamp(3)` (no time zone) | **Server clock, stored as UTC, Loop Time Authority.** Never a browser's, never a provider's. The repository convention for every instant is Prisma's `timestamp(3)`, written in UTC; there is no `timestamptz` column anywhere in the schema. (This record previously said `timestamptz`; that was wrong. The applied migration's header comment carries the same wording and is deliberately left unedited, because changing an applied migration file changes its checksum.) |
 | `latencyMs` | int | |
 | `businessDate` | date | The organization's reporting day (`Organization.timezone`, default UTC), so a "daily cap" means a day somebody recognises. Used for the budget and nothing else |
 
@@ -64,24 +65,35 @@ record names the evidence; the evidence is read from its own authority under its
 
 ## 4. How a budget is actually enforced
 
-1. **Before dispatch:** `spentOn(organizationId, businessDate)` — one indexed read of that day's rows.
-   Tokens count **report over estimate**: a reconciled row counts what the provider said, an in-flight
-   row counts what Loop reserved.
-2. **Reserve, then reconcile.** `reserve` inserts the row **before** the call with the estimate;
-   `reconcile` writes the reported usage after it. A crash between them leaves a row that over-counts
-   slightly — the safe direction. Counting only after the call would let N concurrent requests each read
-   a spend-to-date of zero; a test proves ten concurrent reserves are all visible to the budget.
-3. **A retry is one row.** A second `reserve` for the same `(organizationId, invocationId)` is refused by
-   the unique index and returns `false`; the reservation exists exactly once. The index — not a
-   read-then-write — is what holds this, and mutation testing confirms it.
-4. **Caps are evaluated by the pure `admitAiInvocation`**, which already exists and is already tested.
-   This table only supplies the number it reads.
+The gateway (`services/ai-runtime/gateway.ts`) follows one sequence for every invocation: the principal
+is the session's person in the session's organization, they may invoke the task, the context is valid,
+the runtime is activated for this organization, task and provider, no kill switch applies, a route
+exists, and a cheap budget check passes. Only then:
 
-**Not yet wired.** The gateway still calls only `spentToday` and the post-hoc `record`.
-`DurableAiUsageLedger.record` reconciles a reserved row, or writes and reconciles one if no reserve was
-made, so the ledger is correct after the fact either way — but **only a gateway that calls `reserve`
-before dispatch closes the concurrent-read window.** That wiring is its own slice, and it must land
-before activation.
+1. **Every provider call is its own row.** A retry is a second call and a fallback is a second call.
+   Each spends money, so each is reserved before it is made and reconciled after. The first call's key
+   is the invocation id; later calls append `.2`, `.3`, …
+2. **Reserve inside a serializable transaction.** `DurableAiUsageLedger.reserve` reads the spend and
+   inserts the row in **one** `SERIALIZABLE` transaction. Postgres aborts one of two conflicting
+   reservations; the loser re-reads (up to three attempts) and is refused if there is no longer room —
+   or refused as `RESERVATION_CONTENDED` if it keeps losing. No raw SQL, no advisory lock.
+   *Proven against real Postgres* (`ai-usage-ledger.postgres.test.ts`, opt-in, local only): 30
+   concurrent reservations from six connections against a cap of five never admit more than five.
+   Under `READ COMMITTED` the same test admitted 11–15.
+3. **No reservation, no call.** A refused or failed reservation means the provider is not touched —
+   including for a fallback.
+4. **Report over estimate.** A reconciled row counts what the provider reported; an in-flight row, or a
+   failed call the provider reported nothing for, keeps counting its reserve. Nothing is ever recorded
+   as zero because it was unreported.
+5. **A call whose spend cannot be recorded is not shown.** If reconciliation fails, the answer is
+   withheld (`LEDGER_UNAVAILABLE`); the reserve still counts, which is the safe direction.
+6. **What "room" means** is the pure `aiBudgetRefusals`: one more call of this size must fit — the call
+   being asked for is included — in the per-call limits, the task's daily cap, the organization's daily
+   cap and the global cap. A missing budget, an unknown budget class, or a cap of zero refuses.
+
+**The windows.** Organization and task caps use the organization's business day
+(`Organization.timezone`). The global cap is a **trailing 24 hours** across every organization the
+runtime is enabled for, because business days differ between organizations.
 
 ## 5. Retention
 
