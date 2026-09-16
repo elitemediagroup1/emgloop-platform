@@ -97,8 +97,11 @@ export async function requestResetAction(formData: FormData): Promise<void> {
     // Absolute URL from the one canonical app origin — never a relative path.
     const resetUrl = passwordResetUrl(token);
     await sendPasswordResetEmail({ to: user.email, name: user.name ?? undefined, resetUrl });
-    redirect('/crm/forgot-password?sent=1&token=' + token);
   }
+  // The token reaches only the account's own inbox. Both branches land on the
+  // same page with the same parameters, so the response never carries the reset
+  // link and never reveals whether the account exists. A token in this redirect
+  // gave the reset link to whoever typed the email address.
   redirect('/crm/forgot-password?sent=1');
 }
 
