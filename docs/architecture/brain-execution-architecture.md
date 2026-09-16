@@ -1,7 +1,10 @@
 # Brain execution architecture — decision record
 
-**Status:** the direction was approved by Matt on 2026-09-16. **None of it is built.** Only §2
-describes what exists in code today. No AWS resource exists and no Netlify setting has changed.
+**Status:** the direction was approved by Matt on 2026-09-16.
+- **B2 implemented the provider-independent contracts** as pure code in `packages/shared/src/ai/` (§2).
+- **Nothing executes them yet.** No AWS resource exists, no Netlify setting has changed, and AI is not
+  activated.
+- **Where to look:** §2 separates what exists from what does not; §12 shows each step's status.
 
 This record approves architecture only. It does not approve implementation, provisioning or
 production use:
@@ -55,7 +58,7 @@ happened; it does not own the artifact.
 A separate product decision made the same day, **provider specialization by capability route**, is
 recorded in §5a. It is approved, but it is not implemented and does not change today's routing policy.
 
-## 2. What exists today (`main` `7f33d3f`)
+## 2. What exists today (as of B2)
 
 - **The built runtime.** AI-1 to AI-5 (#266–#270) built the governed runtime and Case Explanation:
   - gateway, reservation ledger, adapters, model catalog, routing and budget policy;
@@ -67,9 +70,24 @@ recorded in §5a. It is approved, but it is not implemented and does not change 
   - Provider credentials are read only by `apps/web/src/ai/ai-environment.ts`.
   - Activation is the `LOOP_AI_*` environment gates in `loop-ai-runtime.md` §17.
 - **State.** It is switched off. **Zero Anthropic and zero OpenAI requests have been made.**
+- **Contracts (B2), implemented, pure, and not yet called by anything:**
+
+  | File | Contract |
+  |---|---|
+  | `capability.ts` | Capability routes, the provider-specialization policy type, routing conformance, and the ledger reader for the capability column |
+  | `brain-execution.ts` | Execution classes, the interactive and durable envelopes, and the deadline/promotion decision |
+  | `brain-result.ts` | Result types, the ownership table, the result envelope and its commit check, and the Activity event and its check |
+  | `brain-job.ts` | Job states and transitions, submission parsing, access and idempotency, and progress |
+  | `brain-step.ts` | Step policies, checkpoint and call keys, retry and resume decisions, and fallback provenance |
+  | `brain-trust.ts` | The doorbell claim and body check, stored commands and their disposition, and the access re-check at each boundary |
+  | `brain-executor.ts` | The executor port and its obligations |
+
+  The provider-specialization policy data is
+  `packages/providers/src/ai/policy/provider-specialization.ts`.
 - **Not built:**
   - Brain job, step, command or control tables;
-  - any orchestrator;
+  - any executor or orchestrator adapter;
+  - the doorbell endpoint and its token signing or verification;
   - any AWS account resource;
   - any Brain API beyond that one action.
 - **An older route.** `apps/web/src/app/api/brain/call-handling-briefing` is an unlinked,
@@ -113,25 +131,48 @@ Neon: jobs · steps/checkpoints · waits · commands · controls · ai_invocatio
 **Starting a job.** Netlify never holds a request open for a model. It starts the job, returns
 `jobId`, and the browser polls status.
 
-**Over budget.** When an interactive job exceeds its latency budget, the work is **not** handed
-over or run again, because it is already a durable execution. The interface switches to a
-background presentation, and a `PROMOTED` transition is recorded. A task that declares
-itself DURABLE-capable may continue as a durable job that reuses its checkpoints.
+**Two separate budgets (implemented in B2 as `BrainExecutionContract`).** Neither is a hosting
+limit, and the contract names none.
+- **Presentation budget.** When it passes, a surface shows the job as working in the background
+  (`brainPresentation`). The job itself does not change.
+- **Interactive execution deadline.** When it passes (`brainDeadlineDecision`):
+  - if the task also supports DURABLE, the same job is **promoted**: a `PROMOTED` transition, its
+    completed steps kept, nothing re-run;
+  - otherwise the job **fails** with `DEADLINE_EXCEEDED`.
+- **Durable envelope.** It carries a whole-job deadline (time spent waiting for a person is not
+  counted) and the longest single wait. `null` means the task never asks.
 
-**Output is shown whole.** A validated result is shown in full, as today. Raw token streaming is
-not planned: an answer that breaks its contract is refused whole, so provisional text would show
-content Loop may reject. Progress is shown at the step level.
+**Case Explanation declares:**
+- interactive only;
+- a 20 s presentation budget and a 75 s interactive deadline, both proposals for Charlie and Lexi
+  to confirm;
+- streaming `NONE`.
+
+It is not promotable until a reviewed change adds DURABLE.
+
+**Output is shown whole.** A validated result is shown in full, as today.
+- **Streaming options:** `NONE` or `PROGRESS` (named steps).
+- **`PROVISIONAL_TEXT`:** allowed only for result types listed in `BRAIN_PROVISIONAL_TEXT_RESULT_TYPES`.
+  That list is empty until Product approves one, because an answer that breaks its contract is
+  refused whole and provisional text would show content Loop may reject.
+- **Progress:** a named step plus a completed count. A fraction is reported only when the plan is
+  fixed; there is never an estimated percentage.
 
 ## 5. Semantic result types
 
-Every result carries one envelope:
-- `resultType` and `schemaId@version`;
-- the subject;
-- claims with citations to supplied source refs;
-- limitations;
-- `authority`: `NON_AUTHORITATIVE` or `PROPOSED`, never established;
-- provenance: job, invocations, template, and routing and budget versions, plus the context
-  manifest hash.
+Every result carries one envelope (`BrainResultEnvelope`, B2):
+- `resultType` and `schemaId`;
+- organization, subject and **owner**;
+- claims with citations to supplied source refs, the sorted union of those refs (`evidenceRefs`), and
+  limitations;
+- `standing`: `NON_AUTHORITATIVE` or `PROPOSED`, and nothing stronger;
+- provenance:
+  - the job;
+  - every ledger call key;
+  - the served models and the model a fallback stood in for;
+  - task and template versions;
+  - capability route, specialization and routing policy versions;
+  - the context manifest hash.
 
 No numeric confidence is attached.
 
@@ -143,6 +184,35 @@ No numeric confidence is attached.
 | RECOMMENDATION | Options with rationale | `CaseRecommendationService`, author `MODEL` | Be selected or dismissed by a model |
 | PROPOSED_ACTION | A tool, typed input, justification, impact bound and idempotency key | A Decision Engine approval item, once the gaps in `loop-ai-runtime.md` §8 close | Execute |
 
+**Ownership rules (`BRAIN_OWNERSHIP_RULES`).**
+
+| Result type | Owner, about | Standing |
+|---|---|---|
+| ANSWER | Brain conversations, a conversation | NON_AUTHORITATIVE |
+| ANALYSIS | Commercial Intelligence (a Case), Relationships (a Relationship), or Campaigns (a Campaign) | NON_AUTHORITATIVE |
+| FINDING | Commercial Intelligence, a Case | PROPOSED |
+| RECOMMENDATION | Commercial Intelligence, a Case | PROPOSED |
+| PROPOSED_ACTION | Decision Engine, a Decision | PROPOSED |
+
+- **Anything else is refused.** Any other pairing is refused, and Activity, Brain execution and a
+  model provider can never own a result.
+- **The stores behind these paths are not built.**
+
+**The commit check (`brainCommitRefusals`) refuses a result that:**
+- crosses organization, job, subject, type or owner;
+- claims a standing its rule does not give;
+- has an uncited claim or cites evidence Loop did not supply;
+- declares evidence refs that differ from what its claims cite;
+- is not an ANSWER and has no evidence;
+- cites a model's earlier output (a `brain-result:` ref) as a governed fact;
+- lacks full provenance.
+
+**Activity events (`BrainJobEvent`).** An event says that a job changed state, who caused it and where
+its results now live. Its fields are an allowlist, so an event that carries content, or names a
+non-owner, is refused.
+
+**Not yet decided:** where a communication **draft** belongs. The runtime taxonomy has a Draft
+artifact, but the five approved result types have no DRAFT.
 **The job is not the artifact.**
 - Job state belongs to Brain execution.
 - A completed result belongs to its domain.
@@ -150,9 +220,9 @@ No numeric confidence is attached.
 
 ## 5a. Capability routes: provider specialization
 
-**Status:** an approved product decision (Matt and Charlie, 2026-09-16). **NOT IMPLEMENTED.** B0 records
-it only. It is incorporated in the post-B0 master-roadmap reconciliation, and no routing policy was
-changed or activated.
+**Status:** an approved product decision (Matt and Charlie, 2026-09-16). **Implemented in B2 as contract
+and versioned policy data; not activated.** The reviewed routing policy `routing.2026-09-16.2` is
+unchanged.
 
 Brain uses **provider specialization**, not one universal primary/fallback order. This is a routing
 policy decision. It is **not** a claim that either provider is better in general.
@@ -184,17 +254,48 @@ Anthropic.
 - **A route names a provider preference, not a model.** Model ids stay in the catalog and the policy,
   and each one is verified against the provider's current official documentation when it is chosen.
 
-**Still to reconcile (post-B0 master roadmap):**
-- **The existing `profile` concept.** Task definitions already carry a capability `profile`
-  (`AiCapabilityProfile`: EXPLANATION, EXTRACTION, CLASSIFICATION, DRAFTING), and every `ai_invocations`
-  row records the profile it was routed on. The capability route must **extend or replace** that
-  concept, not sit beside it.
-- **Case Explanation's route.** Its capability route, and any resulting routing-policy change, are to be
-  recommended there. Today's policy (`routing.2026-09-16.2`: Claude Opus 5 primary, GPT-6 Astra fallback)
-  is unchanged and still switched off.
-- **The COMMUNICATION models.** Which OpenAI model serves as COMMUNICATION primary, and which model is its
-  governed fallback, will be verified against current official documentation at that time. Nothing is
-  chosen here.
+**How B2 reconciled the existing `profile`: it is REPLACED.**
+- **What `profile` was.** Before B2 a task carried `profile` (EXPLANATION, EXTRACTION, CLASSIFICATION,
+  DRAFTING), and the gateway copied it into `ai_invocations.profile`.
+  - It was **read by nothing**: not routing, not a template, not the evaluation.
+  - It was a declared label answering "what kind of capability does this task need?", the route's
+    question, so the two could not coexist.
+- **Now:**
+  - The task field is `capabilityRoute`.
+  - The retired type is deleted.
+  - The gateway records the route in the same `ai_invocations.profile` column. The name is kept
+    because renaming a column needs a migration, and the column is free text, so no migration was
+    needed.
+- **Old rows stay readable.** `aiLedgerCapabilityOf` reads a pre-B2 row as `RETIRED_PROFILE` and
+  never maps it onto a route it did not record.
+
+**The policy (B2):**
+- **Data.** `AI_PROVIDER_SPECIALIZATION_POLICY` (`specialization.2026-09-16.1`) holds the table above
+  as data.
+- **Departures.** `AiTaskRoutePolicy.providerChoiceReason` is where a routing entry says why it
+  departs from its route's preference.
+- **Conformance.** `aiRoutingConformance` finds, per task:
+  - an unknown route;
+  - a missing entry;
+  - a task version the entry was not reviewed against;
+  - a departure without a reason;
+  - a no-default route without a reason;
+  - a fallback that duplicates the primary.
+- **Enforcement.** The providers test suite requires the shipped routing policy to conform for
+  every task. A non-conforming policy cannot land; the runtime does not re-check it on each call yet.
+
+**Case Explanation:**
+- Its route is **TECHNICAL_ANALYSIS**: evidence synthesis about an investigation.
+- The preferred provider is Anthropic, and the reviewed primary is Claude Opus 5, so it **conforms
+  with no change**.
+- Its OpenAI fallback is availability behaviour, not a departure.
+- No routing change is recommended for it.
+
+**Still open:**
+- **The COMMUNICATION models.** Which OpenAI model serves COMMUNICATION, and its governed fallback,
+  are chosen and verified against current official documentation when the first communication task
+  is defined.
+- **Recording the specialization version.** It enters job provenance when persistence exists.
 
 ## 6. Trust: how Netlify starts AWS work
 
@@ -235,6 +336,26 @@ retire the old key.
 - **A public function URL checked by a shared HMAC.** Every abusive request would still run
   code.
 
+**Implemented as contract (B2), not as infrastructure (`brain-trust.ts`):**
+- **`brainDoorbellCheck`** checks a verified token's claims and the ring's body:
+  - issuer, caller, audience and scope;
+  - token id, validity window, and a lifetime of at most 120 s including skew;
+  - a body with exactly one `commandId`. Any organization, principal, job or role in the body is
+    refused.
+- **`brainCommandDisposition`** acts on a stored command only when it and the job agree:
+  - same organization and generation;
+  - START and RESUME issued by the principal;
+  - CANCEL issued by a person or a named policy, never an anonymous system.
+
+  A repeat is acknowledged, not re-run.
+- **`brainBoundaryRefusals`** re-decides access against the job at each consequential boundary. The
+  decision must be at most 30 s old and cover the same organization, principal and task; the
+  principal must be human and active.
+- **`BrainRequestIdentities`** keeps caller, principal, organization, access decision, job and
+  invocation apart.
+- **Not built:** signing, signature verification, key custody, key publication, replay tracking and
+  the HTTP endpoint (B3 onward).
+
 ## 7. Credentials and controls
 
 **Provider keys.**
@@ -261,22 +382,53 @@ activation allowlists and kill switches become versioned, audited controls that 
 
 ## 8. Job lifecycle
 
-The states are **QUEUED, RUNNING, WAITING_FOR_USER, COMPLETED, FAILED and CANCELLED.**
-- A cancellation request is a field (`cancelRequestedAt`) while a step is in flight, not a state.
-- An expired wait is CANCELLED with reason `EXPIRED`.
+**Implemented in B2** (`brain-job.ts`, `brain-step.ts`). The states are:
+
+| State | Meaning |
+|---|---|
+| **ACCEPTED** | Authorized and recorded; not yet handed to an executor |
+| **QUEUED** | An executor acknowledged it |
+| **RUNNING** | A step has begun |
+| **WAITING_FOR_USER** | Paused on a question |
+| **SUCCEEDED** | Its result is committed |
+| **FAILED** | It ended without its result |
+| **CANCELLED** | It was stopped |
+
+- **Changes from B0.** ACCEPTED is new: a job stuck there is a dispatch problem, one stuck in QUEUED a
+  capacity problem. SUCCEEDED was COMPLETED. No further state was needed.
+- **Cancellation while running.** The request is a field (`cancelRequest`) while a step is in flight,
+  not a state. The first request stands.
+- **Expiry.** An expired wait is CANCELLED with reason `WAIT_EXPIRED`.
+- **No connection events.** No state or event describes a client, a session or a connection, and a
+  compile-time guard fails the build if one is added.
 - Promotion is a transition, not a state.
 - Status is a projection of an append-only transitions table (Engineering Principles Rules 1–2).
 - Terminal states never change. "Resume" creates a new job linked by `resumesJobId`, which reuses
   valid checkpoints.
 
-| From → To | Trigger | Guard or effect |
+| From → To | Event | Guard or effect |
 |---|---|---|
-| QUEUED → RUNNING | The first step starts | Not cancelled; controls on; principal still authorized |
-| RUNNING → WAITING_FOR_USER | A question is committed | The question and the state change are one transaction; notification comes after it |
-| WAITING_FOR_USER → RUNNING | An authorized, schema-valid reply is stored | Controls on |
-| RUNNING → COMPLETED | The governed result is committed | Every COMPLETED job references at least one result |
-| RUNNING → FAILED | A non-retryable failure, or retries are exhausted | Typed reason, for example `MODEL_REFUSED`, `OUTPUT_REJECTED`, `PROVIDER_UNAVAILABLE`, `BUDGET_REFUSED`, `AUTHORIZATION_REVOKED`, `PROVIDER_RESULT_LOST`, `INTERNAL` |
-| QUEUED, RUNNING or WAITING → CANCELLED | A person, an admin, a kill switch, or expiry | A step already running settles and is reconciled; its result is kept but not applied |
+| ACCEPTED → QUEUED | `DISPATCHED` | An executor acknowledged the start |
+| QUEUED → RUNNING | `STARTED` | Controls on; principal still permitted (boundary check) |
+| ACCEPTED, QUEUED or RUNNING, as INTERACTIVE | `PROMOTED` | Only if the task supports DURABLE, and only once; the job becomes DURABLE, keeps its id and state, and emits `brain.job.promoted` |
+| RUNNING → WAITING_FOR_USER | `USER_INPUT_REQUESTED` | DURABLE only; the task must allow waits; refused while a cancel is pending |
+| WAITING_FOR_USER → RUNNING | `USER_INPUT_RECEIVED` | The same wait id; the responder is the principal, with access re-checked just now |
+| WAITING_FOR_USER → CANCELLED | `WAIT_EXPIRED` | The same wait id; reason `WAIT_EXPIRED` |
+| ACCEPTED, QUEUED or WAITING → CANCELLED | `CANCEL_REQUESTED` | Immediate: nothing is in flight |
+| RUNNING (stays RUNNING) | `CANCEL_REQUESTED` | Records the request; the first one stands |
+| RUNNING → CANCELLED | `CANCEL_SETTLED` | Only after a request; in-flight work was reconciled |
+| RUNNING → SUCCEEDED | `RESULT_COMMITTED` | At least one owner's result ref; refused while a cancel is pending (the result is kept, never applied) |
+| any live state → FAILED | `FAILED` | Typed reason: `MODEL_REFUSED`, `OUTPUT_REJECTED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_LOST`, `BUDGET_REFUSED`, `ACCESS_WITHDRAWN`, `CONTEXT_UNAVAILABLE`, `RETRIES_EXHAUSTED`, `DEADLINE_EXCEEDED`, `COMMIT_REFUSED` or `INTERNAL` |
+
+**Submission (implemented).**
+- **Parsing.** `parseBrainSubmission` accepts only task, subject, execution class, idempotency key and
+  scalar input. An organization, principal or role anywhere in the body, including inside `input`,
+  is refused (`CLIENT_SUPPLIED_AUTHORITY`).
+- **Who may submit.** `brainSubmissionRefusals` admits only an active, permitted **person**. An AI
+  Employee or a service is refused, and anyone not permitted learns only `NOT_PERMITTED`.
+- **Idempotency.** An idempotency key is unique per (organization, principal, task). The same request
+  returns the existing job; a different request under a used key is refused.
+- **Accepted jobs.** `brainAcceptedJob` takes organization and principal only from the submitter.
 
 **Every step:**
 1. Return the Loop checkpoint `(jobId, stepKey, inputHash)` if one exists.
@@ -288,7 +440,16 @@ The organization and the principal always come from Neon, never from the orchest
 
 **Model calls:**
 - Each provider attempt, primary or fallback, is its own step.
-- The ledger call key is `jobId:stepKey:attempt`.
+- The ledger call key is `jobId:stepKey:attempt`, plus `.n` for a fallback target (`brainCallKey`), so
+  a real retry is always a new row.
+- **Step policies** (`BRAIN_DEFAULT_STEP_POLICIES`) bound retries by failure class and attempts.
+  - A model call is **paid**, at most 2 paid attempts; the second exists only to recover a result lost
+    after payment.
+  - Validation is never retried.
+- **Resuming a step** (`brainStepResumeDecision`) looks for its checkpoint **first**.
+- **Fallback provenance** (`brainModelStepProvenance`, `brainFallbackRefusals`) always records the
+  model a fallback stood in for and why. Nothing may follow a refusal, a rejected answer, an
+  authentication failure or an unclassified error.
 - The reservation happens before dispatch, as today. Reconciliation and the checkpoint commit are
   **one** Neon transaction.
 - A long call streams internally. The installed Anthropic SDK refuses non-streaming calls that may
@@ -393,20 +554,24 @@ The organization and the principal always come from Neon, never from the orchest
   encrypted, organization-scoped, and purged on a schedule still to be decided. This amends the
   "bodies are not persisted" default for checkpoints only; the default still holds everywhere else.
 
-## 12. Implementation sequence (not started)
+## 12. Implementation sequence
 
 Each step is a separate draft PR with its own review. No step activates AI.
 
 | Step | Scope | Migration |
 |---|---|---|
-| B0 | Documentation corrections and this record | none |
-| B1 | Schema-only alignment of the seven recorded drift items (`schema-drift-2026-09-16.md`), so the next migration contains only intended changes | none |
-| B2 | Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
+| B0 | Documentation corrections and this record. **Merged (#272).** | none |
+| B1 | Schema-only alignment of the seven recorded drift items (`schema-drift-2026-09-16.md`), so the next migration contains only intended changes. **Merged (#273).** | none |
+| B2 | **In review.** Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
 | B3 | Persistence: jobs, transitions, steps and checkpoints, waits, command outbox, stored AI controls, plus job and step references on `ai_invocations` | one additive migration, not dispatched |
 | B4 | Brain core; an in-process orchestrator for tests and local development only; the Netlify Brain API; doorbell token issuing; stored-control reads; retirement of the old `/api/brain` route | none |
 | B5 | AWS foundation in staging, switched off: the worker, dispatcher, doorbell API, sweeper, reconciler, secret-reader fence, KMS, alarms and budgets; GitHub OIDC deploys. **This adds a second deployable and infrastructure-as-code, which needs explicit approval of layout and tool.** | none |
 | B6 | Case Explanation on AWS: a two-phase panel, waits, cancellation, resume, paid-attempt handling. The first live request happens in staging with a synthetic Case and staging keys; production follows, and then Netlify's provider keys are removed. | none |
 | B7 | The first DURABLE task, with its domain artifact and interface; outbox events to Activity and notifications (needs the outbox drain working); a Fargate long-step worker only if needed | artifact migration |
+
+**Sequence to confirm.** Matt's B2 instruction (2026-09-16) describes **B3** as the AWS trust and
+security boundary and the infrastructure-specific design. In the table above, B3 is persistence. The
+order of the remaining steps is confirmed before B3 starts, and this table is then updated.
 
 ## 13. Open decisions
 
@@ -424,10 +589,16 @@ Each step is a separate draft PR with its own review. No step activates AI.
 - still open from PD-F-08: MANAGER as an invoker; Opus 5 vs Fable 5.1; GPT-6 Astra vs GPT-5.6
   Sol.
 
-**Master-roadmap reconciliation (post-B0), from §5a:**
-- how capability route and `profile` fit together;
-- Case Explanation's capability route and its resulting routing policy;
-- the COMMUNICATION primary and fallback models, verified when chosen.
+**Resolved in B2:**
+- capability route replaces `profile`;
+- Case Explanation is TECHNICAL_ANALYSIS and conforms, with no routing change.
+
+**Still open from §5a and B2:**
+- the COMMUNICATION primary and fallback models, verified when chosen;
+- where a communication draft belongs (no DRAFT result type);
+- whether anyone besides the principal may answer a waiting question;
+- whether routing conformance is also enforced at run time;
+- the B3 sequencing above.
 
 **Charlie:** the infrastructure-as-code tool (TypeScript CDK is recommended) and ownership of the
 AWS runbook.
@@ -439,16 +610,15 @@ AWS runbook.
 - whether any live token streaming is ever wanted;
 - how each result type is presented, and conversation retention.
 
-## 14. Open items carried forward — NOT resolved
+## 14. Open items carried forward
 
 1. **The outbox drain does not run in production.** Every scheduled "Drain outbox" run since at
    least 2026-09-14 fails because the repository secrets `OUTBOX_DRAIN_URL` and
    `OUTBOX_DRAIN_SECRET` are unset. Nothing delivers `state_change_outbox` events. Brain's
    event and notification step (B7) depends on fixing this.
-2. **Schema drift must be aligned before the next migration.** Seven pre-existing differences
-   (six index names, one column default) are recorded in `schema-drift-2026-09-16.md`. B1 aligns
-   them without a migration; until then, `prisma migrate dev` would try to fold "fixes" into the
-   next migration.
+2. **Schema drift: RESOLVED by B1 (#273, merged).** The Prisma schema now describes the database the
+   35 migrations build, and a clean replay diffs empty. The migrations and the database were not
+   changed. A CI replay check that would prevent a recurrence is **not built**.
 3. **Anthropic effort is undecided.** Anthropic's documentation says to start Claude Opus 5 at
    effort `high` and lower it once evaluations show quality holds. The reviewed routing policy
    (`routing.2026-09-16.2`) uses `medium`, which has never been evaluated against the live model.
