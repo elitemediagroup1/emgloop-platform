@@ -349,3 +349,17 @@ export {
   type FactRevisionView,
   type RecordFactRevisionInput,
 } from './repositories/provider-fact-revision.repository';
+
+// The Loop AI runtime gateway (slice B5, AI S1 preparation). It invokes whatever
+// providers are registered with it; the only implementation that exists replays
+// recorded fixtures. No SDK, no credential, and `activated` defaults to false.
+// See ./services/ai-runtime/gateway.ts.
+export { AiRuntimeGateway, InMemoryAiUsageLedger } from './services/ai-runtime/gateway';
+export type { AiProviderPort, AiUsageLedger, AiRuntimeConfig, AiRuntimeDeps, AiRunRequest, AiRunResult } from './services/ai-runtime/gateway';
+export {
+  CASE_EXPLANATION_SCHEMA,
+  CASE_EXPLANATION_SCHEMA_ID,
+  CASE_EXPLANATION_TEMPLATE_ID,
+  CASE_EXPLANATION_TEMPLATE_VERSION,
+  renderCaseExplanationInstructions,
+} from './services/ai-runtime/templates/case-explanation';
