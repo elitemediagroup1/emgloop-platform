@@ -134,6 +134,11 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 //   - The signed-in tenant's own Workspace Organization is administration, not
 //     a commercial Relationship.
 // ---------------------------------------------------------------------------
+// Canonical identity (identityResolution:view) and the commercial Relationship area
+// (relationships:view). Nav visibility is not authorization: each destination calls
+// requirePermission itself, and the read services check again before reading.
+const IDENTITY_VIEW = { resource: 'identityResolution', action: 'view' } as const;
+const RELATIONSHIPS_VIEW = { resource: 'relationships', action: 'view' } as const;
 const PEOPLE_VIEW = { resource: 'customers', action: 'view' } as const;
 const CONVERSATIONS_VIEW = { resource: 'inbox', action: 'view' } as const;
 const INTAKE_VIEW = { resource: 'pipeline', action: 'view' } as const;
@@ -165,7 +170,10 @@ export const LOOP_NAV: ShellConfig = {
       items: [
         { href: '/crm', label: 'Command Center', icon: 'grid' },
         { href: '/crm/customers', label: 'Intake Records', icon: 'users', requires: PEOPLE_VIEW },
-        { href: '/crm/relationships', label: 'Relationships', icon: 'flow', soon: true },
+        // Canonical identity: established PERSON and COMPANY Parties, and the
+        // governed act that establishes one. NOT Intake Records, which are above.
+        { href: '/crm/parties', label: 'Parties', icon: 'users', requires: IDENTITY_VIEW },
+        { href: '/crm/relationships', label: 'Relationships', icon: 'flow', requires: RELATIONSHIPS_VIEW },
         { href: '/crm/opportunities', label: 'Opportunities', icon: 'target', soon: true },
         { href: '/crm/campaigns', label: 'Campaigns', icon: 'star', soon: true },
         { href: '/crm/conversations', label: 'Conversations', icon: 'chat', requires: CONVERSATIONS_VIEW },

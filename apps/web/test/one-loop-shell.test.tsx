@@ -159,7 +159,10 @@ describe('Grouping', () => {
     assert.deepEqual(crm.items.map((i) => [i.label, i.href, Boolean(i.soon)]), [
       ['Command Center', '/crm', false],
       ['Intake Records', '/crm/customers', false],
-      ['Relationships', '/crm/relationships', true],
+      // Parties and Relationships are BUILT now (identity P1, R3). The Relationships
+      // slot was reserved here as `soon` before the authority existed; it is real.
+      ['Parties', '/crm/parties', false],
+      ['Relationships', '/crm/relationships', false],
       ['Opportunities', '/crm/opportunities', true],
       ['Campaigns', '/crm/campaigns', true],
       ['Conversations', '/crm/conversations', false],
@@ -261,14 +264,27 @@ describe('Navigation follows the authority each page enforces', () => {
   });
 
   it('Employees get the CRM, the intelligence they can read, their own work queue, and nothing administrative they cannot open', () => {
+    const intelligence = ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites'];
+    // A PERSON employee reaches canonical identity and the commercial area; an AI
+    // principal reaches NEITHER. `identityResolution` has its own grant table with no
+    // READ_ONLY fallback, and `relationships` hard-denies AI_EMPLOYEE because PD-F-04
+    // grants view to human workspace roles and it is not one. Those two denials are
+    // the whole reason these roles are asserted separately rather than in one loop.
+    assert.deepEqual(labels(navForRole('EMPLOYEE')), [
+      ['', ['Home']],
+      ['CRM', ['Command Center', 'Intake Records', 'Parties', 'Relationships', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['Intelligence', intelligence],
+      ['Work OS', ['My Work', 'Workflows (soon)']],
+      ['Administration', ['AI Employees']],
+    ]);
+    assert.deepEqual(labels(navForRole('AI_EMPLOYEE')), [
+      ['', ['Home']],
+      ['CRM', ['Command Center', 'Intake Records', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['Intelligence', intelligence],
+      ['Work OS', ['My Work', 'Workflows (soon)']],
+      ['Administration', ['AI Employees']],
+    ]);
     for (const role of ['EMPLOYEE', 'AI_EMPLOYEE']) {
-      assert.deepEqual(labels(navForRole(role)), [
-        ['', ['Home']],
-        ['CRM', ['Command Center', 'Intake Records', 'Relationships (soon)', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
-        ['Intelligence', ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites']],
-        ['Work OS', ['My Work', 'Workflows (soon)']],
-        ['Administration', ['AI Employees']],
-      ], role);
       assert.equal(myWorkHref(navForRole(role)), '/app/employee/work', role);
     }
   });
@@ -276,12 +292,21 @@ describe('Navigation follows the authority each page enforces', () => {
   it('Read Only is not isolated in a placeholder: it sees what its permissions allow, and no Work OS it cannot open', () => {
     const expected = [
       ['', ['Home']],
-      ['CRM', ['Command Center', 'Intake Records', 'Relationships (soon)', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      // READ_ONLY holds identityResolution:view and relationships:view, and may
+      // perform no act through either -- capabilities decide that, not the nav.
+      ['CRM', ['Command Center', 'Intake Records', 'Parties', 'Relationships', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
       ['Intelligence', ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites']],
       ['Administration', ['AI Employees']],
     ];
     assert.deepEqual(labels(navForRole('READ_ONLY')), expected);
-    assert.deepEqual(labels(navForRole('SOMETHING_NEW')), expected, 'an unknown role gets the least, never more');
+    // An unknown role falls back to READ_ONLY in the matrix -- but identityResolution
+    // has no such fallback, so it does NOT see Parties. Least, never more.
+    assert.deepEqual(labels(navForRole('SOMETHING_NEW')), [
+      ['', ['Home']],
+      ['CRM', ['Command Center', 'Intake Records', 'Relationships', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['Intelligence', ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites']],
+      ['Administration', ['AI Employees']],
+    ], 'an unknown role gets the least, never more');
     assert.equal(myWorkHref(navForRole('READ_ONLY')), null);
   });
 
@@ -304,7 +329,7 @@ describe('Navigation follows the authority each page enforces', () => {
 
   it('a group with nothing a person can open is not drawn, even if it holds Soon items', () => {
     const nav = visibleNav(LOOP_NAV.nav, { workspace: 'CLIENT', permitted: () => false });
-    assert.deepEqual(labels(nav), [['', ['Home']], ['CRM', ['Command Center', 'Relationships (soon)', 'Opportunities (soon)', 'Campaigns (soon)']]]);
+    assert.deepEqual(labels(nav), [['', ['Home']], ['CRM', ['Command Center', 'Opportunities (soon)', 'Campaigns (soon)']]]);
   });
 
   it('the shell resolves permissions for the signed session, in one read, with the rules pages enforce', () => {
@@ -336,8 +361,10 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.match(html, /<a class="loop-sb__link is-active" aria-current="page" href="\/crm\/customers">/);
     assert.equal(html.includes('/app/admin'), false, 'nothing from a tree Read Only cannot open');
     assert.equal(html.includes('Work OS'), false);
-    assert.match(html, /<span class="loop-sb__link is-disabled" aria-disabled="true">.*?Relationships.*?Soon<\/span><\/span>/);
-    assert.equal(/href="\/crm\/relationships"/.test(html), false);
+    // Opportunities is still Soon; Relationships is built and is a real link now.
+    assert.match(html, /<span class="loop-sb__link is-disabled" aria-disabled="true">.*?Opportunities.*?Soon<\/span><\/span>/);
+    assert.equal(/href="\/crm\/opportunities"/.test(html), false);
+    assert.match(html, /href="\/crm\/relationships"/, 'Relationships is reachable now');
     assert.match(html, /<nav class="loop-sb__adminarea" aria-label="Administration"><div class="loop-sb__group"><div class="loop-sb__grouplabel">Administration<\/div>/);
   });
 
@@ -356,7 +383,10 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.equal(active('/crm'), 'Command Center');
     assert.equal(active('/crm/customers/c_1/activity'), 'Intake Records');
     assert.equal(active('/crm/live/calls'), 'Live Calls');
-    assert.equal(active('/crm/relationships'), 'Command Center', 'a Soon item is never active');
+    assert.equal(active('/crm/relationships'), 'Relationships');
+    assert.equal(active('/crm/relationships/r_1'), 'Relationships', 'and on its nested routes');
+    assert.equal(active('/crm/parties/p_1'), 'Parties');
+    assert.equal(active('/crm/opportunities'), 'Command Center', 'a Soon item is never active');
     assert.equal(active('/app/admin/work/abc123'), 'My Work');
     assert.equal(active('/app/admin/work/team'), 'Team Work');
     assert.equal(active('/app/employee/work/abc123'), 'My Work');
@@ -428,10 +458,12 @@ describe('Loop Home', () => {
   it('greets the person and links only to what they can open', () => {
     const html = render(<ModuleHome name="Charlie Reyes" groups={navForRole('EMPLOYEE')} />);
     assert.match(html, /<h1 class="loop-title">Welcome, Charlie Reyes<\/h1>/);
-    for (const href of ['/crm', '/crm/customers', '/crm/intelligence', '/app/employee/work', '/crm/ai-employees']) {
+    // Relationships and Parties are built and an employee can open both, so Home
+    // links to them. It was in the absent list only while they were `soon`.
+    for (const href of ['/crm', '/crm/customers', '/crm/parties', '/crm/relationships', '/crm/intelligence', '/app/employee/work', '/crm/ai-employees']) {
       assert.ok(html.includes(`href="${href}"`), href);
     }
-    for (const absent of ['/app/admin', '/crm/relationships', '/app/work/workflows', 'href="/app"', 'Workspace']) {
+    for (const absent of ['/app/admin', '/crm/opportunities', '/app/work/workflows', 'href="/app"', 'Workspace']) {
       assert.equal(html.includes(absent), false, absent);
     }
     assert.match(html, /<section class="loop-card" aria-label="CRM">/);
