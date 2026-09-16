@@ -7,18 +7,22 @@
 // has no field for it, the tool shape refuses a tool that writes, and the governance
 // gate refuses a request carrying one.
 //
-// LOOP OWNS ROUTING. A task names a capability profile; policy maps it to models. No
-// behaviour branches on a vendor's name, and a fence over the source proves it --
-// because "Claude does X, OpenAI does Y" is the sentence that ends provider
-// neutrality, and it always arrives as a convenience.
+// LOOP OWNS ROUTING. A reviewed, versioned policy maps each task version to an exact
+// primary and fallback model. No behaviour branches on a vendor's name, and a fence
+// over the source proves it -- because "Claude does X, OpenAI does Y" is the sentence
+// that ends provider neutrality, and it always arrives as a convenience.
 //
 // AN ANSWER IS REJECTED WHOLE. An uncited claim, a citation nobody supplied, a
 // figure the facts do not contain, a self-scored confidence, or a recommendation
 // from a read-only task: any one of them rejects the answer. There is no partial
 // display, because a reader cannot tell which half was invented.
 //
-// IT IS OFF UNTIL SOMEBODY TURNS IT ON. `activated: false` refuses every
-// invocation, and so does any of four kill-switch scopes.
+// IT IS OFF UNTIL SOMEBODY TURNS IT ON, FOUR TIMES. The global switch, the
+// organization, the task and the provider are each an allowlist, and a credential is
+// none of them. Any of five kill-switch scopes stops what it names.
+//
+// A BUDGET INCLUDES THE CALL BEING ASKED FOR. "Is there room for one more of this
+// size" -- not "is anything left" -- or the call that crosses the line is admitted.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,7 +34,13 @@ import {
   AI_PROVIDER_IDS,
   AI_TASKS,
   AI_TASK_CASE_EXPLANATION,
+  AI_ACTIVATION_OFF,
+  AI_NO_SPEND,
   admitAiInvocation,
+  aiBudgetRefusals,
+  aiCostMicros,
+  estimateAiInputTokens,
+  parseAiTaskOutput,
   aiContextSourceRefs,
   aiProvenanceOf,
   aiSensitivityRank,
@@ -40,7 +50,9 @@ import {
   validateAiContextPackage,
   validateAiTaskOutput,
   type AiAdmissionRequest,
+  type AiBudgetPolicy,
   type AiContextPackage,
+  type AiRoutingPolicy,
   type AiTaskOutputV1,
 } from '../src/index';
 
@@ -67,22 +79,62 @@ function contextPackage(patch: Partial<AiContextPackage> = {}): AiContextPackage
   };
 }
 
+const TARGET_A = { providerId: 'anthropic', modelId: 'model-a', reasoningEffort: 'medium', timeoutMs: 30_000, maxOutputTokens: 2000, pricing: null } as const;
+const TARGET_B = { providerId: 'openai', modelId: 'model-b', reasoningEffort: 'medium', timeoutMs: 30_000, maxOutputTokens: 2000, pricing: null } as const;
+
+function policy(patch: Partial<AiRoutingPolicy['tasks'][string]> = {}): AiRoutingPolicy {
+  return {
+    version: 'routing.test.1',
+    tasks: {
+      'case.explanation': {
+        taskId: 'case.explanation',
+        taskVersion: '1.0.0',
+        primary: TARGET_A,
+        fallback: TARGET_B,
+        fallbackPermitted: true,
+        budgetClass: 'standard',
+        ...patch,
+      },
+    },
+  };
+}
+
+const BUDGET: AiBudgetPolicy = {
+  version: 'budget.test.1',
+  classes: {
+    standard: {
+      maxInputTokensPerCall: 20_000,
+      maxOutputTokensPerCall: 4000,
+      taskDaily: { maxInvocations: 50, maxInputTokens: 500_000, maxOutputTokens: 50_000 },
+    },
+  },
+  organizationDaily: { maxInvocations: 100, maxInputTokens: 1_000_000, maxOutputTokens: 100_000 },
+  globalDaily: { maxInvocations: 1000, maxInputTokens: 10_000_000, maxOutputTokens: 1_000_000 },
+};
+
+const ON = { enabled: true, organizations: [ORG], tasks: ['case.explanation'], providers: ['anthropic', 'openai'] } as const;
+
 function admission(patch: Partial<AiAdmissionRequest> = {}): AiAdmissionRequest {
   return {
     taskId: 'case.explanation',
-    profile: 'EXPLANATION',
+    taskVersion: '1.0.0',
     organizationId: ORG,
-    policy: { routes: { EXPLANATION: [{ providerId: 'anthropic', modelId: 'model-a' }, { providerId: 'openai', modelId: 'model-b' }] } },
+    authorized: true,
+    activation: ON,
+    policy: policy(),
     killSwitches: [],
-    budget: { maxInvocationsPerDay: 100, maxInputTokensPerDay: 1_000_000, maxOutputTokensPerDay: 100_000, maxOutputTokensPerInvocation: 2000 },
-    spentToday: { invocations: 0, inputTokens: 0, outputTokens: 0 },
+    budget: BUDGET,
+    spend: { organization: AI_NO_SPEND, task: AI_NO_SPEND, global: AI_NO_SPEND },
+    estimatedInputTokens: 5000,
     registeredProviders: ['anthropic', 'openai'],
-    requestedMaxOutputTokens: 1200,
     contextRefusals: [],
     tools: [],
-    activated: true,
     ...patch,
   };
+}
+
+function refusalsOf(result: ReturnType<typeof admitAiInvocation>): readonly string[] {
+  return result.ok ? [] : result.refusals;
 }
 
 function output(patch: Partial<AiTaskOutputV1> = {}): AiTaskOutputV1 {
@@ -107,6 +159,9 @@ test('the first task is read-only, operational, structured, and tool-free', () =
   assert.deepEqual([...task.tools], [], 'no tools at launch');
   assert.equal(task.outputSchemaId, 'case-explanation.v1', 'structured output only');
   assert.deepEqual([...task.requires], [{ resource: 'commercialIntelligence', action: 'view' }]);
+  // Reading the evidence and paying to have it explained are different acts.
+  assert.deepEqual([...task.invokerRoles], ['OWNER', 'ADMIN']);
+  for (const t of AI_TASKS) assert.ok(!t.invokerRoles.includes('AI_EMPLOYEE'), `${t.taskId} is never invoked by a machine`);
   assert.equal(aiTask('anything.else'), null);
   // No task may write. The vocabulary allows a proposing task later; none exists.
   for (const t of AI_TASKS) assert.equal(t.consequence, 'READ_ONLY', t.taskId);
@@ -134,6 +189,34 @@ test('a context package is refused whole when anything about it is wrong', () =>
 
   const otherOrg = contextPackage({ items: [{ ...contextPackage().items[0]!, blockId: 'org_b::block_9' }] });
   assert.ok(validateAiContextPackage(otherOrg).includes('CROSS_ORGANIZATION_BLOCK'));
+
+  // An id that simply omits the organization used to skip the check entirely.
+  const unprefixed = contextPackage({ items: [{ ...contextPackage().items[0]!, blockId: 'block_9' }] });
+  assert.ok(validateAiContextPackage(unprefixed).includes('CROSS_ORGANIZATION_BLOCK'));
+  const prefixTrick = contextPackage({ items: [{ ...contextPackage().items[0]!, blockId: `${ORG}x::block_9` }] });
+  assert.ok(validateAiContextPackage(prefixTrick).includes('CROSS_ORGANIZATION_BLOCK'), 'org_ax is not org_a');
+  const noOrg = contextPackage({ organizationId: '' });
+  assert.ok(validateAiContextPackage(noOrg).includes('CROSS_ORGANIZATION_BLOCK'));
+});
+
+test('an answer that is not the shape asked for is not read as one', () => {
+  const good = output();
+  assert.deepEqual(parseAiTaskOutput(JSON.parse(JSON.stringify(good))), good);
+  for (const bad of [
+    null,
+    [],
+    'text',
+    { ...good, claims: 'none' },
+    { ...good, summary: 7 },
+    { ...good, limitations: [3] },
+    { ...good, claims: [{ statement: 'x', figures: [] }] },
+    { ...good, claims: [{ statement: 'x', citations: [7], figures: [] }] },
+    { ...good, claims: [{ statement: 'x', citations: [], figures: [{ label: 'n', value: '4200' }] }] },
+    { ...good, claims: [{ statement: 'x', citations: [], figures: [{ label: 'n', value: Number.NaN }] }] },
+    { ...good, claims: [null] },
+  ]) {
+    assert.equal(parseAiTaskOutput(bad), null, JSON.stringify(bad));
+  }
 });
 
 test('an unclassified sensitivity is treated as the most sensitive thing there is', () => {
@@ -146,11 +229,24 @@ test('an unclassified sensitivity is treated as the most sensitive thing there i
 
 // --- 3. Admission -----------------------------------------------------------------
 
-test('nothing runs until somebody activates it', () => {
-  const off = admitAiInvocation(admission({ activated: false }));
-  assert.equal(off.ok, false);
-  if (!off.ok) assert.ok(off.refusals.includes('NOT_ACTIVATED'));
+test('nothing runs until somebody activates it -- globally, for the organization, the task and the provider', () => {
   assert.equal(admitAiInvocation(admission()).ok, true);
+  assert.ok(refusalsOf(admitAiInvocation(admission({ activation: AI_ACTIVATION_OFF }))).includes('NOT_ACTIVATED'));
+  assert.ok(refusalsOf(admitAiInvocation(admission({ activation: { ...ON, enabled: false } }))).includes('NOT_ACTIVATED'));
+  assert.ok(refusalsOf(admitAiInvocation(admission({ activation: { ...ON, organizations: ['org_other'] } }))).includes('ORGANIZATION_NOT_ENABLED'));
+  assert.ok(refusalsOf(admitAiInvocation(admission({ activation: { ...ON, tasks: [] } }))).includes('TASK_NOT_ENABLED'));
+  assert.ok(refusalsOf(admitAiInvocation(admission({ activation: { ...ON, providers: [] } }))).includes('PROVIDER_NOT_ENABLED'));
+
+  // "Enabled" means exactly true. A truthy string from an environment variable is not a yes.
+  assert.equal(admitAiInvocation(admission({ activation: { ...ON, enabled: 'true' as unknown as boolean } })).ok, false);
+  // The off constant is frozen, lists included, so nobody can switch the default on by mutation.
+  assert.ok(Object.isFrozen(AI_ACTIVATION_OFF));
+  assert.ok(Object.isFrozen(AI_ACTIVATION_OFF.organizations) && Object.isFrozen(AI_ACTIVATION_OFF.providers));
+});
+
+test('an unauthorized caller learns only that they are not authorized', () => {
+  const denied = admitAiInvocation(admission({ authorized: false, activation: AI_ACTIVATION_OFF, killSwitches: [{ scope: 'GLOBAL' }] }));
+  assert.deepEqual(refusalsOf(denied), ['NOT_AUTHORIZED'], 'not whether the runtime is on, nor what is killed');
 });
 
 test('each kill-switch scope stops exactly what it names', () => {
@@ -161,61 +257,96 @@ test('each kill-switch scope stops exactly what it names', () => {
   assert.equal(stopped([{ scope: 'TASK', value: 'some.other.task' }]).ok, true, 'and nothing it does not name');
   assert.equal(stopped([{ scope: 'ORGANIZATION', value: 'org_b' }]).ok, true);
 
-  // Stopping one provider falls through to the next, rather than stopping the task.
+  // Stopping one provider leaves the permitted fallback -- and says so, so the
+  // provider never changes silently.
   const oneProvider = stopped([{ scope: 'PROVIDER', value: 'anthropic' }]);
   assert.equal(oneProvider.ok, true);
-  if (oneProvider.ok) assert.deepEqual(oneProvider.route, { providerId: 'openai', modelId: 'model-b' });
+  if (oneProvider.ok) {
+    assert.equal(oneProvider.route.providerId, 'openai');
+    assert.deepEqual(oneProvider.skipped, [{ target: { providerId: 'anthropic', modelId: 'model-a' }, reason: 'KILL_SWITCH' }]);
+  }
   const oneModel = stopped([{ scope: 'MODEL', value: 'model-a' }]);
   if (oneModel.ok) assert.equal(oneModel.route.modelId, 'model-b');
   // Stopping both leaves no route at all.
-  assert.equal(stopped([{ scope: 'PROVIDER', value: 'anthropic' }, { scope: 'PROVIDER', value: 'openai' }]).ok, false);
+  const both = stopped([{ scope: 'PROVIDER', value: 'anthropic' }, { scope: 'PROVIDER', value: 'openai' }]);
+  assert.ok(refusalsOf(both).includes('KILL_SWITCH'));
 });
 
-test('budgets refuse before anything is sent, and one request cannot spend the day', () => {
-  const spent = (patch: Partial<AiAdmissionRequest['spentToday']>) =>
-    admitAiInvocation(admission({ spentToday: { invocations: 0, inputTokens: 0, outputTokens: 0, ...patch } }));
-  const invocations = spent({ invocations: 100 });
-  assert.equal(invocations.ok, false);
-  if (!invocations.ok) assert.ok(invocations.refusals.includes('BUDGET_INVOCATIONS_EXHAUSTED'));
-  const tokens = spent({ outputTokens: 100_000 });
-  if (!tokens.ok) assert.ok(tokens.refusals.includes('BUDGET_TOKENS_EXHAUSTED'));
+test('fallback is used only where the policy permits it', () => {
+  const noFallback = admitAiInvocation(admission({ policy: policy({ fallbackPermitted: false }), killSwitches: [{ scope: 'PROVIDER', value: 'anthropic' }] }));
+  assert.equal(noFallback.ok, false, 'a killed primary with no permitted fallback is a refusal, not a silent switch');
+  const ok = admitAiInvocation(admission({ policy: policy({ fallbackPermitted: false }) }));
+  if (ok.ok) assert.deepEqual(ok.fallbacks, []);
+  const withFallback = admitAiInvocation(admission());
+  if (withFallback.ok) assert.deepEqual(withFallback.fallbacks.map((t) => t.modelId), ['model-b']);
+});
 
-  const tooBig = admitAiInvocation(admission({ requestedMaxOutputTokens: 5000 }));
-  assert.equal(tooBig.ok, false);
-  if (!tooBig.ok) assert.ok(tooBig.refusals.includes('OUTPUT_LIMIT_ABOVE_POLICY'));
+test('budgets include the call being asked for, and every window is checked', () => {
+  const spend = (patch: Partial<AiAdmissionRequest['spend']>) =>
+    refusalsOf(admitAiInvocation(admission({ spend: { organization: AI_NO_SPEND, task: AI_NO_SPEND, global: AI_NO_SPEND, ...patch } })));
+  // 99 of 100 spent: exactly one more fits.
+  assert.deepEqual(spend({ organization: { invocations: 99, inputTokens: 0, outputTokens: 0 } }), []);
+  assert.ok(spend({ organization: { invocations: 100, inputTokens: 0, outputTokens: 0 } }).includes('BUDGET_ORGANIZATION_EXHAUSTED'));
+  // Room in the count, but not for THIS call's tokens.
+  assert.ok(spend({ organization: { invocations: 0, inputTokens: 996_000, outputTokens: 0 } }).includes('BUDGET_ORGANIZATION_EXHAUSTED'));
+  assert.ok(spend({ task: { invocations: 50, inputTokens: 0, outputTokens: 0 } }).includes('BUDGET_TASK_EXHAUSTED'));
+  assert.ok(spend({ global: { invocations: 0, inputTokens: 0, outputTokens: 999_000 } }).includes('BUDGET_GLOBAL_EXHAUSTED'));
+
+  assert.ok(refusalsOf(admitAiInvocation(admission({ estimatedInputTokens: 20_001 }))).includes('INPUT_LIMIT_ABOVE_POLICY'));
+  const bigOutput = policy({ primary: { ...TARGET_A, maxOutputTokens: 4001 }, fallback: null });
+  assert.ok(refusalsOf(admitAiInvocation(admission({ policy: bigOutput }))).includes('OUTPUT_LIMIT_ABOVE_POLICY'));
+
+  // Absent means disabled, and so does a zero or nonsense cap.
+  assert.ok(refusalsOf(admitAiInvocation(admission({ budget: null }))).includes('BUDGET_NOT_CONFIGURED'));
+  assert.ok(refusalsOf(admitAiInvocation(admission({ policy: policy({ budgetClass: 'unheard-of' }) }))).includes('BUDGET_CLASS_UNKNOWN'));
+  const zero = { ...BUDGET, organizationDaily: { maxInvocations: 0, maxInputTokens: 1, maxOutputTokens: 1 } };
+  assert.ok(aiBudgetRefusals(zero, 'standard', { inputTokens: 0, outputTokens: 0 }, { organization: AI_NO_SPEND, task: AI_NO_SPEND, global: AI_NO_SPEND }).includes('BUDGET_ORGANIZATION_EXHAUSTED'));
+  const nan = { ...BUDGET, globalDaily: { maxInvocations: Number.NaN, maxInputTokens: 1e9, maxOutputTokens: 1e9 } };
+  assert.ok(aiBudgetRefusals(nan, 'standard', { inputTokens: 0, outputTokens: 0 }, { organization: AI_NO_SPEND, task: AI_NO_SPEND, global: AI_NO_SPEND }).includes('BUDGET_GLOBAL_EXHAUSTED'));
+});
+
+test('estimates err high, and cost is priced from a versioned list or not at all', () => {
+  const text = 'x'.repeat(4000);
+  // Real tokenizers manage roughly 3-4 characters per token on English. Two is pessimistic by design.
+  assert.ok(estimateAiInputTokens([text]) >= 2000 + 1024);
+  assert.equal(estimateAiInputTokens([]), 1024);
+  const pricing = { listVersion: 'list.test', inputMicrosPerToken: 5, outputMicrosPerToken: 25 };
+  assert.equal(aiCostMicros(pricing, { inputTokens: 1000, outputTokens: 100 }), 7500);
+  assert.equal(aiCostMicros(null, { inputTokens: 1000, outputTokens: 100 }), null, 'unpriced is unknown, not free');
+  assert.equal(aiCostMicros(pricing, { inputTokens: null, outputTokens: 100 }), null, 'unreported is unknown, not free');
 });
 
 test('a writing tool, a refused context and an unregistered provider each refuse the invocation', () => {
   const writing = admitAiInvocation(admission({ tools: [{ writes: true }] }));
-  assert.equal(writing.ok, false);
-  if (!writing.ok) assert.ok(writing.refusals.includes('WRITING_TOOL_REQUESTED'));
+  assert.ok(refusalsOf(writing).includes('WRITING_TOOL_REQUESTED'));
   // A tool that forgot to say is not assumed harmless.
   assert.equal(aiToolsAdmissible([{}]), false);
   assert.equal(aiToolsAdmissible([{ writes: false }]), true);
 
   const badContext = admitAiInvocation(admission({ contextRefusals: ['ABOVE_SENSITIVITY_CEILING'] }));
-  assert.equal(badContext.ok, false, 'a package the context contract refused is never sent');
-  if (!badContext.ok) assert.ok(badContext.refusals.includes('CONTEXT_REFUSED'));
+  assert.ok(refusalsOf(badContext).includes('CONTEXT_REFUSED'), 'a package the context contract refused is never sent');
 
   const none = admitAiInvocation(admission({ registeredProviders: [] }));
-  assert.equal(none.ok, false);
-  if (!none.ok) assert.ok(none.refusals.includes('PROVIDER_NOT_REGISTERED'));
+  assert.ok(refusalsOf(none).includes('PROVIDER_NOT_REGISTERED'));
 
-  const noProfile = admitAiInvocation(admission({ policy: { routes: {} } }));
-  if (!noProfile.ok) assert.deepEqual(noProfile.refusals, ['NO_ROUTE_FOR_PROFILE']);
+  const noRoute = admitAiInvocation(admission({ policy: { version: 'empty', tasks: {} } }));
+  assert.ok(refusalsOf(noRoute).includes('NO_ROUTE_FOR_TASK'));
+
+  // A task version the routing policy was not reviewed against is not guessed at.
+  const newer = admitAiInvocation(admission({ taskVersion: '2.0.0' }));
+  assert.ok(refusalsOf(newer).includes('ROUTE_TASK_VERSION_MISMATCH'));
 });
 
 test('routing is policy: the same task reaches a different provider by configuration alone', () => {
   const anthropicFirst = admitAiInvocation(admission());
-  const openaiFirst = admitAiInvocation(
-    admission({ policy: { routes: { EXPLANATION: [{ providerId: 'openai', modelId: 'model-b' }, { providerId: 'anthropic', modelId: 'model-a' }] } } }),
-  );
+  const openaiFirst = admitAiInvocation(admission({ policy: policy({ primary: TARGET_B, fallback: TARGET_A }) }));
   assert.ok(anthropicFirst.ok && openaiFirst.ok);
   if (anthropicFirst.ok && openaiFirst.ok) {
     assert.equal(anthropicFirst.route.providerId, 'anthropic');
     assert.equal(openaiFirst.route.providerId, 'openai');
-    assert.deepEqual(anthropicFirst.fallbacks, [{ providerId: 'openai', modelId: 'model-b' }]);
-    assert.deepEqual(openaiFirst.fallbacks, [{ providerId: 'anthropic', modelId: 'model-a' }]);
+    assert.deepEqual(anthropicFirst.fallbacks.map((t) => t.providerId), ['openai']);
+    assert.deepEqual(openaiFirst.fallbacks.map((t) => t.providerId), ['anthropic']);
+    assert.equal(anthropicFirst.routingPolicyVersion, 'routing.test.1', 'which table chose it is recorded');
   }
   // Both vendors are data in one list, neither is special.
   assert.deepEqual([...AI_PROVIDER_IDS], ['anthropic', 'openai']);
@@ -232,6 +363,7 @@ test('the runtime owns every retry decision, and an unknown failure is not retri
   assert.equal(providerFailurePolicy('OUTPUT_INVALID').repair, true);
   assert.equal(providerFailurePolicy('OUTPUT_INVALID').fallback, false);
   assert.deepEqual(providerFailurePolicy('SOMETHING_NEW'), { retry: false, fallback: false, repair: false, alert: true });
+  assert.deepEqual(providerFailurePolicy('UNCLASSIFIED'), { retry: false, fallback: false, repair: false, alert: true });
 });
 
 // --- 5. The answer -------------------------------------------------------------------
@@ -290,10 +422,12 @@ test('provenance records who asked, what was sent and what answered -- including
     taskVersion: '1.0.0',
     templateId: 'case-explanation',
     templateVersion: '1',
+    routingPolicyVersion: 'routing.test.1',
     requestedModel: { providerId: 'anthropic', modelId: 'model-a' },
     servedModel: 'model-a-20260101',
     providerRequestId: 'req_9',
     usage: { inputTokens: 900, outputTokens: 240 },
+    calls: 1,
     latencyMs: 1200,
     outcome: 'ANSWERED',
     recordedAt: '2026-09-16T10:00:00.000Z',
@@ -305,6 +439,8 @@ test('provenance records who asked, what was sent and what answered -- including
 
   const refused = aiProvenanceOf(pkg, { ...record, outcome: 'REFUSED_BY_MODEL' });
   assert.equal(refused.outcome, 'REFUSED_BY_MODEL', 'a refusal is recorded as much as an answer');
+  const failed = aiProvenanceOf(pkg, { ...record, usage: null, outcome: 'FAILED' });
+  assert.equal(failed.usage, null, 'a failure nobody reported usage for is unknown, not free');
 });
 
 // --- 6. Fences -------------------------------------------------------------------------

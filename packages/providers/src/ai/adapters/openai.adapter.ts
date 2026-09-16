@@ -63,7 +63,6 @@ export class OpenAiAdapter implements ModelProvider {
       instructions: request.instructions,
       input: request.input.map(asBlock).join('\n\n'),
       max_output_tokens: request.limits.maxOutputTokens,
-      ...(request.sampling?.temperature !== undefined ? { temperature: request.sampling.temperature } : {}),
       ...(structured && request.output.kind === 'JSON_SCHEMA'
         ? {
             text: {
