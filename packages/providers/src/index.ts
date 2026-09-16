@@ -245,3 +245,12 @@ export type {
 // and docs/architecture/loop-ai-runtime.md.
 export { RecordedModelProvider, ModelProviderError, unconfirmedCapabilities } from './ai/model-provider';
 export type { ModelProvider, RecordedInvocation } from './ai/model-provider';
+// The two real adapters (slice B5). NOT ACTIVATED: each takes an injected client, so
+// nothing here reads a credential or builds one, and no call can happen until S1
+// supplies one under the activation gates. These files, and only these, may import a
+// model SDK -- a repository-wide fence asserts it.
+export { AnthropicAdapter, ANTHROPIC_PROVIDER_ID } from './ai/adapters/anthropic.adapter';
+export type { AnthropicAdapterDeps, AnthropicMessagesClient } from './ai/adapters/anthropic.adapter';
+export { OpenAiAdapter, OPENAI_PROVIDER_ID } from './ai/adapters/openai.adapter';
+export type { OpenAiAdapterDeps, OpenAiResponsesClient } from './ai/adapters/openai.adapter';
+export { classifyProviderError, retryAfterMs as providerRetryAfterMs } from './ai/adapters/failure-mapping';
