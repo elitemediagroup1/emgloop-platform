@@ -68,6 +68,7 @@ const RESOURCES: readonly Resource[] = [
   'intelligence',
   'commercialIntelligence',
   'identityResolution',
+  'work',
 ];
 
 function isResource(value: string): value is Resource {
@@ -139,14 +140,13 @@ export class ActivityService {
   private async grants(viewer: ActivityViewer, adapters: readonly ActivityAdapter[]): Promise<Map<string, boolean>> {
     const wanted = new Map<string, { resource: string; action: Action }>();
     for (const adapter of adapters) {
-      for (const subjectKind of ['ORGANIZATION', 'INTAKE_RECORD', 'CASE'] as const) {
-        const subject = (
-          subjectKind === 'ORGANIZATION'
-            ? { kind: 'ORGANIZATION' }
-            : subjectKind === 'INTAKE_RECORD'
-              ? { kind: 'INTAKE_RECORD', customerId: 'probe' }
-              : { kind: 'CASE', priorityId: 'probe' }
-        ) as ActivitySubject;
+      for (const probe of [
+        { kind: 'ORGANIZATION' },
+        { kind: 'INTAKE_RECORD', customerId: 'probe' },
+        { kind: 'CASE', priorityId: 'probe' },
+        { kind: 'WORK_ITEM', workInstanceId: 'probe' },
+      ] as ActivitySubject[]) {
+        const subject = probe;
         if (!adapter.supports(subject)) continue;
         for (const r of adapter.requiresFor(subject)) wanted.set(key(r.resource, r.action), { resource: r.resource, action: r.action });
       }

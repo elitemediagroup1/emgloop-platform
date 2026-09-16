@@ -43,6 +43,7 @@ import { InteractionActivityAdapter } from './activity/interaction.adapter';
 import { MarketplaceCallActivityAdapter } from './activity/marketplace-call.adapter';
 import { MessageActivityAdapter } from './activity/message.adapter';
 import { ObservationActivityAdapter } from './activity/observation.adapter';
+import { WorkActivityAdapter } from './activity/work.adapter';
 
 export { ActivityCursorError } from './activity/adapter';
 export type { ActivityAdapter, ActivitySubject } from './activity/adapter';
@@ -69,6 +70,7 @@ export class ActivityReadModelRepository {
         new ObservationActivityAdapter(prisma),
         new MessageActivityAdapter(prisma),
         new AuditActivityAdapter(prisma),
+        new WorkActivityAdapter(prisma),
       ];
   }
 
