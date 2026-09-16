@@ -293,9 +293,11 @@ review, because the safe call and the unsafe call look identical at the call sit
 5. **Draft PR.** Always `--draft`. The body states: what changed, why, what was validated, what was
    deliberately excluded, and whether a migration is needed.
 6. **Never merge.** Not ever, not "it's obviously fine." Matt merges.
-7. **Never commit `package-lock.json` casually.** It is currently untracked by convention. Committing
-   it is a deliberate decision, not a side effect. (It *should* be committed — but as its own change,
-   with CI adjusted from `npm install` to `npm ci` in the same PR.)
+7. **`package-lock.json` is committed.** It was, deliberately, and it is tracked now — the older
+   rule here said it was untracked and that was wrong for long enough to be quoted back. Changing a
+   dependency means committing the lockfile change with it, in the same PR, as its own reviewable
+   concern. CI still installs with `npm install`, not `npm ci`, to match every workflow; moving to
+   `npm ci` is a separate decision nobody has taken.
 8. **Revert generated churn.** `next-env.d.ts` regenerates on every build/lint and will pollute your
    diff. `git checkout -- apps/web/next-env.d.ts` before committing.
 9. Verify a merge actually landed before deleting a branch. GitHub squash-merges here, so your commit
