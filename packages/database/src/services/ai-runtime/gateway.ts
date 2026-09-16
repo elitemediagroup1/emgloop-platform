@@ -532,7 +532,13 @@ export class AiRuntimeGateway {
     await this.reconcile(organizationId, {
       ...base,
       outcome: accepted ? 'ANSWERED' : 'REJECTED_BY_LOOP',
-      failureClass: accepted ? null : result.stopReason === 'MAX_TOKENS' ? 'OUTPUT_TRUNCATED' : 'OUTPUT_INVALID',
+      failureClass: accepted
+        ? null
+        : result.stopReason === 'MAX_TOKENS'
+          ? 'OUTPUT_TRUNCATED'
+          : result.stopReason === 'END'
+            ? 'OUTPUT_INVALID'
+            : 'OUTPUT_INCOMPLETE',
       rejectionCodes: rejections,
     });
 

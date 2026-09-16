@@ -628,6 +628,16 @@ test('a truncated answer is rejected even if what arrived happens to parse', asy
   assert.equal(ledger.calls[0]!.reconciliation?.failureClass, 'OUTPUT_TRUNCATED');
 });
 
+test('an unfinished answer is rejected as incomplete, and is not fallen back from', async () => {
+  const p1 = fixture('p1', answer({}, { stopReason: 'INCOMPLETE' }));
+  const p2 = fixture('p2', answer());
+  const ledger = new InMemoryAiUsageLedger();
+  const result = await world([p1, p2], { ledger }).runtime.run(PRINCIPAL, request());
+  assert.equal(result.outcome, 'REJECTED_OUTPUT');
+  assert.equal(ledger.calls[0]!.reconciliation?.failureClass, 'OUTPUT_INCOMPLETE');
+  assert.equal(p2.calls, 0);
+});
+
 test('a refusal stops: Loop does not ask another provider until one agrees', async () => {
   for (const stopReason of ['REFUSAL', 'CONTENT_FILTERED'] as const) {
     const p1 = fixture('p1', answer({}, { stopReason }));
