@@ -8,9 +8,9 @@ import { kindLabel, normalizeQuery, runSearch } from '../../../crm/search-data';
 // CRM Governed Search — Phase 1.
 //
 // Cross-entity search across currently authoritative sources:
-// People (Customer intake), Conversations, and Workspace Organization.
+// Intake Records (legacy Customer), Conversations, and Workspace Organization.
 // Each source is permission-gated independently. Results are typed
-// honestly — a Customer is "Person / Intake Record", never "Opportunity".
+// honestly — a Customer is an "Intake Record" (never a Person), never "Opportunity".
 //
 // Organization-scoped, server-authorized, fail-closed.
 

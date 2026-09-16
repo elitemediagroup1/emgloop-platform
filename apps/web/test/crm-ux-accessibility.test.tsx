@@ -86,7 +86,8 @@ describe('Shell and navigation', () => {
     assert.match(code(PIPELINE), /<h1 className="crm-h1">Intake Board<\/h1>/);
     assert.equal(/<h1[^>]*>Pipeline</.test(PIPELINE), false);
     assert.equal(/<h1[^>]*>Customers</.test(PEOPLE), false);
-    assert.match(CUSTOMER, /<span aria-hidden="true">←<\/span> People/);
+    assert.match(CUSTOMER, /<span aria-hidden="true">←<\/span> Intake Records/);
+    assert.match(code(PEOPLE), /<h1 className="crm-h1">Intake Records<\/h1>/);
   });
 });
 

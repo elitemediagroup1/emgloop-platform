@@ -87,16 +87,17 @@ export default async function CrmCommandCenter() {
           <p className="ds-subtitle">{orgName} &middot; {clock.date}</p>
         </div>
         <form className="cc-search" method="get" action="/crm/search" role="search">
-          <input type="search" name="q" className="crm-input cc-search__input" placeholder="Search people, conversations, organizations…" aria-label="Search the CRM" />
+          <input type="search" name="q" className="crm-input cc-search__input" placeholder="Search intake records and conversations…" aria-label="Search the CRM" />
         </form>
       </div>
 
       {/* KPI Row — counts, not trends: only a positive weekly delta is coloured.
-          "Added" is People records created, not new leads: ingestion does not
-          create People, so callers and visitors are not counted here. */}
+          "Added" is Intake Records created, not new leads: ingestion creates none,
+          so callers and visitors are not counted here. Intake Records are not
+          People (C-04). */}
       <div className="ds-kpis">
         <div className="ds-kpi">
-          <div className="k-label">Total People</div>
+          <div className="k-label">Total Intake Records</div>
           <div className="k-value">{fmtNum(customerCount)}</div>
           <div className={'k-trend' + (weekCounts.newCustomers > 0 ? '' : ' neutral')}>{weekCounts.newCustomers > 0 ? `+${weekCounts.newCustomers} added this week` : 'None added this week'}</div>
         </div>
@@ -111,7 +112,7 @@ export default async function CrmCommandCenter() {
           <div className="k-trend neutral">{fmtNum(totalConvos)} total</div>
         </div>
         <div className="ds-kpi">
-          <div className="k-label">People Added This Week</div>
+          <div className="k-label">Intake Records Added This Week</div>
           <div className="k-value">{fmtNum(weekCounts.newCustomers)}</div>
           <div className="k-trend neutral">{fmtNum(weekCounts.conversations)} conversations</div>
         </div>
@@ -160,7 +161,7 @@ export default async function CrmCommandCenter() {
           </div>
           <div className="ds-card-body">
             {customerCount === 0 ? (
-              <EmptyCard icon="columns" title="No intake data" line="People will appear here as they enter through intake, calls, or manual entry." />
+              <EmptyCard icon="columns" title="No intake data" line="No intake records yet." />
             ) : (
               <div className="cc-pipeline">
                 {(['New', 'Contacted', 'Quoted', 'Booked', 'Completed'] as const).map((s) => (
@@ -203,7 +204,7 @@ export default async function CrmCommandCenter() {
           <div className="ds-card-body cc-actions">
             <Link href="/crm/customers" className="cc-action">
               <span className="cc-action__ico" aria-hidden="true">👤</span>
-              <span>View People</span>
+              <span>View Intake Records</span>
             </Link>
             <Link href="/crm/pipeline" className="cc-action">
               <span className="cc-action__ico" aria-hidden="true">📋</span>

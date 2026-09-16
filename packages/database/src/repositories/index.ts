@@ -139,8 +139,6 @@ export type {
   ThreadMessage,
   ConversationWorkspace,
   SavedView,
-  MergeResult,
-  DuplicateGroup,
 } from './conversations.repository';
 export { WorkflowsRepository, WORKFLOW_TRIGGERS, WORKFLOW_STEP_TYPES } from './workflows.repository';
 export type {

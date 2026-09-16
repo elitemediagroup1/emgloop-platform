@@ -250,7 +250,7 @@ export default async function AnalyticsPage() {
             <span style={{ fontSize: '1.5rem', fontWeight: 700 }}>{summary.pipeline.newLeads}</span>
           </div>
           <div>
-            <span style={{ color: 'var(--crm-faint)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '0.3rem' }}>People Added</span>
+            <span style={{ color: 'var(--crm-faint)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '0.3rem' }}>Intake Records Added</span>
             <span style={{ fontSize: '1.5rem', fontWeight: 700 }}>{summary.pipeline.activeCustomers}</span>
           </div>
           <div>

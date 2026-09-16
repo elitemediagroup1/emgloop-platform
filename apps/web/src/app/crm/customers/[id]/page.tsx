@@ -167,7 +167,7 @@ export default async function CustomerWorkspace({
     return { ws, assignees, timeline, workspaceName: org?.name ?? null };
   });
 
-  if (!result.ok) return <CrmLoadError failure={result} surface="This person's record" />;
+  if (!result.ok) return <CrmLoadError failure={result} surface="This intake record" />;
   if (!result.data.ws) return notFound();
 
   const ws = result.data.ws;
@@ -205,10 +205,10 @@ export default async function CustomerWorkspace({
     <>
       <div className="crm-record-back">
         <Link href="/crm/customers" className="crm-faint">
-          <span aria-hidden="true">←</span> People
+          <span aria-hidden="true">←</span> Intake Records
         </Link>
       </div>
-      <p className="ds-eyebrow crm-record-type">Person / Intake Record</p>
+      <p className="ds-eyebrow crm-record-type">Intake Record</p>
       <div className="crm-record-head">
         <h1 className="crm-h1">{ws.name}</h1>
         <span className={'crm-status ' + ws.status}>

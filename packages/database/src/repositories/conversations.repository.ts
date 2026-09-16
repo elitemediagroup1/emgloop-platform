@@ -83,26 +83,6 @@ export interface SavedView {
   channel?: string | null;
 }
 
-export interface MergeResult {
-  canonicalId: string;
-  mergedId: string;
-  moved: {
-    conversations: number;
-    interactions: number;
-    bookings: number;
-    orders: number;
-    serviceRequests: number;
-    signals: number;
-  };
-}
-
-export interface DuplicateGroup {
-  key: string;
-  field: 'email' | 'phone';
-  value: string;
-  customers: { id: string; name: string; createdAt: string }[];
-}
-
 function nameFromParts(
   c: { firstName: string | null; lastName: string | null } | null,
 ): string {
@@ -371,149 +351,11 @@ export class ConversationsRepository {
     });
   }
 
-  // --- Duplicate detection & customer merge --------------------------
-
-  /** Detect duplicate customers in an org by shared email or phone. */
-  async findDuplicates(organizationId: string): Promise<DuplicateGroup[]> {
-    const customers = await this.prisma.customer.findMany({
-      where: { organizationId },
-      select: {
-        id: true, firstName: true, lastName: true,
-        email: true, phone: true, createdAt: true,
-      },
-      take: 5000,
-    });
-
-    const byEmail = new Map<string, typeof customers>();
-    const byPhone = new Map<string, typeof customers>();
-    for (const c of customers) {
-      const email = (c.email ?? '').toLowerCase().trim();
-      const phone = (c.phone ?? '').replace(/[^0-9]/g, '');
-      if (email) {
-        const arr = byEmail.get(email) ?? [];
-        arr.push(c);
-        byEmail.set(email, arr);
-      }
-      if (phone && phone.length >= 7) {
-        const arr = byPhone.get(phone) ?? [];
-        arr.push(c);
-        byPhone.set(phone, arr);
-      }
-    }
-
-    const groups: DuplicateGroup[] = [];
-    const emit = (
-      field: 'email' | 'phone',
-      map: Map<string, typeof customers>,
-    ) => {
-      for (const [value, arr] of map) {
-        if (arr.length < 2) continue;
-        groups.push({
-          key: field + ':' + value,
-          field,
-          value,
-          customers: arr.map((c) => ({
-            id: c.id,
-            name: nameFromParts(c),
-            createdAt: c.createdAt.toISOString(),
-          })),
-        });
-      }
-    };
-    emit('email', byEmail);
-    emit('phone', byPhone);
-    return groups;
-  }
-
-  /**
-   * Merge the `mergedId` customer into the `canonicalId` customer. All
-   * related rows (conversations, interactions, bookings, orders, service
-   * requests, signals) are re-pointed to the canonical customer; tags are
-   * unioned; the merged customer's row is soft-archived (kept for audit,
-   * never hard-deleted) with a pointer to the canonical id. Runs in a
-   * single transaction so a partial merge can never occur.
-   */
-  async mergeCustomers(args: {
-    organizationId: string;
-    canonicalId: string;
-    mergedId: string;
-  }): Promise<MergeResult> {
-    const { organizationId, canonicalId, mergedId } = args;
-    if (canonicalId === mergedId) {
-      throw new Error('Cannot merge a customer into itself.');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const canonical = await tx.customer.findFirst({
-        where: { id: canonicalId, organizationId },
-      });
-      const merged = await tx.customer.findFirst({
-        where: { id: mergedId, organizationId },
-      });
-      if (!canonical || !merged) {
-        throw new Error('Both customers must exist in the organization.');
-      }
-
-      const scope = { organizationId, customerId: mergedId };
-      const target = { customerId: canonicalId };
-
-      const conversations = await tx.conversation.updateMany({
-        where: scope, data: target,
-      });
-      const interactions = await tx.interaction.updateMany({
-        where: scope, data: target,
-      });
-      const bookings = await tx.booking.updateMany({
-        where: scope, data: target,
-      });
-      const orders = await tx.order.updateMany({
-        where: scope, data: target,
-      });
-      const serviceRequests = await tx.serviceRequest.updateMany({
-        where: scope, data: target,
-      });
-      const signals = await tx.signal.updateMany({
-        where: scope, data: target,
-      });
-
-      const unionTags = Array.from(
-        new Set([...(canonical.tags ?? []), ...(merged.tags ?? [])]),
-      ).filter(Boolean);
-      await tx.customer.update({
-        where: { id: canonicalId },
-        data: { tags: unionTags },
-      });
-
-      const mergedMeta =
-        merged.metadata && typeof merged.metadata === 'object'
-          ? (merged.metadata as Record<string, unknown>)
-          : {};
-      await tx.customer.update({
-        where: { id: mergedId },
-        data: {
-          tags: [],
-          metadata: {
-            ...mergedMeta,
-            mergedInto: canonicalId,
-            mergedAt: new Date().toISOString(),
-          } as object,
-        },
-      });
-
-      return {
-        canonicalId,
-        mergedId,
-        moved: {
-          conversations: conversations.count,
-          interactions: interactions.count,
-          bookings: bookings.count,
-          orders: orders.count,
-          serviceRequests: serviceRequests.count,
-          signals: signals.count,
-        },
-      };
-    });
-  }
+  // Customer duplicate detection and merge were removed (PD-I2-05, 2026-09-15). A
+  // merge repointed a record's history onto another irreversibly, keyed on shared
+  // email or phone -- contact values are not identity -- and is never Party
+  // resolution. Historical `metadata.mergedInto` markers are kept, and
+  // CustomerPartyLinkService still refuses a merged-away record.
 
   // --- Per-customer activity / audit view ----------------------------
 

@@ -111,11 +111,10 @@ export default async function CustomersPage({
   if (result.data.empty || !result.data.list) {
     return (
       <>
-        <h1 className="crm-h1">People</h1>
+        <h1 className="crm-h1">Intake Records</h1>
         <p className="crm-sub">Internal operations console.</p>
         <div className="crm-panel crm-empty" style={{ marginTop: '1rem' }}>
-          No customers yet. Customers appear here as they are captured for
-          your organization.
+          No intake records yet.
         </div>
       </>
     );
@@ -139,7 +138,7 @@ export default async function CustomersPage({
     <>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem' }}>
         <div>
-          <h1 className="crm-h1">People</h1>
+          <h1 className="crm-h1">Intake Records</h1>
           <p className="crm-sub">
             {list.total} total · page {list.page} of {list.pageCount}
           </p>

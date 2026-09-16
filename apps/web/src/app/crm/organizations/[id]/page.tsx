@@ -223,17 +223,16 @@ export default async function OrganizationDetailPage({
 
         {/* Right column: People summary + Intake status + Upcoming */}
         <div className="org-col">
-          {/* People linked to this org */}
+          {/* Intake Records in this workspace */}
           <section className="ds-card" aria-labelledby="org-people">
             <div className="ds-card-head">
-              <h2 id="org-people">People ({totalCustomers})</h2>
+              <h2 id="org-people">Intake Records ({totalCustomers})</h2>
               <Link href="/crm/customers" className="more">View all <span aria-hidden="true">→</span></Link>
             </div>
             <div className="ds-card-body">
               {totalCustomers === 0 ? (
                 <div className="ds-empty">
-                  <div className="et">No people yet</div>
-                  <div>People will appear as they enter through intake, calls, or manual entry.</div>
+                  <div className="et">No intake records yet</div>
                 </div>
               ) : (
                 <>

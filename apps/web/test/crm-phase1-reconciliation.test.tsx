@@ -236,7 +236,7 @@ describe('The customer record offers only the controls a user may use', () => {
 
 describe('The customer record is framed as a legacy intake record in a workspace', () => {
   it('names the record type, the workspace from the session, and what its status is not', () => {
-    assert.match(CUSTOMER, /<p className="ds-eyebrow crm-record-type">Person \/ Intake Record<\/p>/);
+    assert.match(CUSTOMER, /<p className="ds-eyebrow crm-record-type">Intake Record<\/p>/);
     assert.match(CUSTOMER, /crmRepos\.organizations\.findById\(organizationId\)/);
     assert.match(CUSTOMER, /Legacy customer intake record/);
     assert.match(CUSTOMER, /not an Opportunity stage/);
@@ -388,7 +388,7 @@ describe('Governed search', () => {
       assert.ok(r.kind in routes, r.kind);
       assert.match(r.href, routes[r.kind]);
     }
-    assert.deepEqual(['person', 'conversation', 'organization'].map((k) => kindLabel(k as never)), ['Person / Intake Record', 'Conversation', 'Workspace Organization']);
+    assert.deepEqual(['person', 'conversation', 'organization'].map((k) => kindLabel(k as never)), ['Intake Record', 'Conversation', 'Workspace Organization']);
   });
 
   it('dangerous and special strings reach the repositories verbatim, as bound values, and are length-capped', async () => {

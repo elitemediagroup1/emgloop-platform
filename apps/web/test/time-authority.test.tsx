@@ -180,7 +180,7 @@ describe('Surfaces present time through the authority', () => {
       'app/crm/customers/[id]/activity/page.tsx', 'app/crm/inbox/page.tsx', 'app/crm/audit/page.tsx',
       'app/crm/page.tsx', 'app/crm/conversations/[id]/page.tsx', 'app/crm/conversations/page.tsx',
       'app/crm/workflows/[id]/page.tsx', 'app/crm/workflows/page.tsx', 'app/crm/organizations/[id]/page.tsx',
-      'app/crm/merge/page.tsx', 'app/crm/intelligence/page.tsx', 'crm/integration-os.ts',
+      'app/crm/intelligence/page.tsx', 'crm/integration-os.ts',
       'app/crm/settings/integrations/callgrid/page.tsx', 'app/crm/pipeline/page.tsx',
       'app/crm/live/calls/page.tsx', 'app/crm/live/activity/page.tsx', 'app/crm/live/websites/page.tsx',
       'app/app/admin/workspace-home-data.ts', 'app/app/_home/admin-home.tsx', 'app/app/admin/brain/page.tsx',
