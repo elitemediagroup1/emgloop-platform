@@ -4,7 +4,11 @@
 // THE PRODUCT RULES THIS ENFORCES (locked 2026-09-13):
 //
 //   1-2. Creating and reversing a link both require identityResolution:approve.
-//   3.   The target Party must already be ESTABLISHED.
+//   3.   The target Party must already be ESTABLISHED, and referenceable under the
+//        Party Reference contract (identity record §12, readings approved
+//        2026-09-15): an archived Party takes no new link, and a superseded Party is
+//        refused with its canonical id so the actor retries explicitly -- never
+//        silently substituted.
 //   4.   Linking never establishes a Party -- not implicitly, not as a side effect.
 //   5.   Legacy Customer data is not identity authority: nothing here reads a
 //        Customer's email, phone, name or external id to decide anything.
@@ -18,7 +22,9 @@
 //
 // AUTHORIZE BEFORE LOOKING. Authority is checked before any Customer or Party is
 // read, so a person without it cannot use this service to learn whether either
-// exists. Writes are audited only when they happened.
+// exists. Writes are audited only when they happened, naming the acting member
+// (the session name the caller passes, else the member's recorded name) and, for
+// a reversal, the reason.
 //
 // NOT CALLABLE FROM INGESTION. Webhook and sync routes resolve their organization
 // from a hard-coded slug; a link written there would land in one tenant. No
@@ -31,8 +37,8 @@ import type { CustomerPartyLink, PrismaClient } from '@prisma/client';
 
 import { IamRepository } from '../repositories/iam.repository';
 import { AuditRepository } from '../repositories/audit.repository';
-import { PartyRepository } from '../repositories/cognitive/party.repository';
 import { CustomerPartyLinkRepository } from '../repositories/customer-party-link.repository';
+import { PartyReferenceRepository } from '../repositories/party-reference.repository';
 
 export const CUSTOMER_PARTY_LINK_OUTCOMES = [
   'LINKED',
@@ -42,6 +48,7 @@ export const CUSTOMER_PARTY_LINK_OUTCOMES = [
   'NOT_FOUND',
   'PARTY_NOT_ESTABLISHED',
   'PARTY_SUPERSEDED',
+  'PARTY_ARCHIVED',
   'CUSTOMER_MERGED',
   'CONFLICTING_ACTIVE_LINK',
   'NO_ACTIVE_LINK',
@@ -56,16 +63,23 @@ export type CustomerPartyLinkResult =
         | 'NOT_AUTHORIZED'
         | 'NOT_FOUND'
         | 'PARTY_NOT_ESTABLISHED'
-        | 'PARTY_SUPERSEDED'
+        | 'PARTY_ARCHIVED'
         | 'CUSTOMER_MERGED'
         | 'CONFLICTING_ACTIVE_LINK'
         | 'NO_ACTIVE_LINK';
     }
+  /** The Party was found to be the same as another. Retry explicitly against the canonical one. */
+  | { outcome: 'PARTY_SUPERSEDED'; canonicalPartyId: string }
   | { outcome: 'INVALID'; reason: 'NOT_A_GOVERNED_BASIS' | 'REASON_REQUIRED' };
 
+/** How the act is attributed on the audit trail. Names the actor; never authorizes. */
+export interface CustomerPartyLinkActOptions {
+  actorName?: string | null;
+}
+
 export interface CustomerPartyLinkDeps {
-  iam?: Pick<IamRepository, 'can'>;
-  parties?: PartyRepository;
+  iam?: Pick<IamRepository, 'can' | 'getUser'>;
+  references?: Pick<PartyReferenceRepository, 'requireReferenceable'>;
   links?: CustomerPartyLinkRepository;
   audit?: Pick<AuditRepository, 'record'>;
 }
@@ -78,14 +92,14 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 export class CustomerPartyLinkService {
-  private readonly iam: Pick<IamRepository, 'can'>;
-  private readonly parties: PartyRepository;
+  private readonly iam: Pick<IamRepository, 'can' | 'getUser'>;
+  private readonly references: Pick<PartyReferenceRepository, 'requireReferenceable'>;
   private readonly links: CustomerPartyLinkRepository;
   private readonly audit: Pick<AuditRepository, 'record'>;
 
   constructor(prisma: PrismaClient, deps: CustomerPartyLinkDeps = {}) {
     this.iam = deps.iam ?? new IamRepository(prisma);
-    this.parties = deps.parties ?? new PartyRepository(prisma);
+    this.references = deps.references ?? new PartyReferenceRepository(prisma);
     this.links = deps.links ?? new CustomerPartyLinkRepository(prisma);
     this.audit = deps.audit ?? new AuditRepository(prisma);
   }
@@ -100,6 +114,7 @@ export class CustomerPartyLinkService {
     organizationId: string,
     actorUserId: string,
     input: { customerId: string; partyId: string; basis?: string },
+    options: CustomerPartyLinkActOptions = {},
   ): Promise<CustomerPartyLinkResult> {
     const basis = input.basis ?? 'MANUAL';
     if (!(CUSTOMER_PARTY_LINK_BASES as readonly string[]).includes(basis)) {
@@ -111,10 +126,15 @@ export class CustomerPartyLinkService {
     if (!customer) return { outcome: 'NOT_FOUND' };
     if (customer.mergedInto) return { outcome: 'CUSTOMER_MERGED' };
 
-    const party = await this.parties.findParty(organizationId, input.partyId);
-    if (!party) return { outcome: 'NOT_FOUND' };
-    if (party.supersededByIdentityId) return { outcome: 'PARTY_SUPERSEDED' };
-    if (!party.establishment.established) return { outcome: 'PARTY_NOT_ESTABLISHED' };
+    const target = await this.references.requireReferenceable(organizationId, input.partyId);
+    if (!target.ok) {
+      const r = target.resolution;
+      if (r.state === 'SUPERSEDED') return { outcome: 'PARTY_SUPERSEDED', canonicalPartyId: r.canonicalPartyId };
+      if (r.state === 'NOT_ESTABLISHED') return { outcome: 'PARTY_NOT_ESTABLISHED' };
+      if (r.state === 'ESTABLISHED') return { outcome: 'PARTY_ARCHIVED' };
+      return { outcome: 'NOT_FOUND' };
+    }
+    const party = { id: target.reference.partyId };
 
     const active = await this.links.findActive(organizationId, customer.id);
     if (active) {
@@ -144,6 +164,7 @@ export class CustomerPartyLinkService {
     await this.audit.record({
       organizationId,
       userId: actorUserId,
+      actorName: await this.actorName(organizationId, actorUserId, options),
       action: 'customer.party_linked',
       entityType: 'customer',
       entityId: customer.id,
@@ -157,6 +178,7 @@ export class CustomerPartyLinkService {
     organizationId: string,
     actorUserId: string,
     input: { customerId: string; reason: string },
+    options: CustomerPartyLinkActOptions = {},
   ): Promise<CustomerPartyLinkResult> {
     const reason = typeof input.reason === 'string' ? input.reason.trim().slice(0, REASON_MAX) : '';
     if (reason.length === 0) return { outcome: 'INVALID', reason: 'REASON_REQUIRED' };
@@ -177,10 +199,11 @@ export class CustomerPartyLinkService {
     await this.audit.record({
       organizationId,
       userId: actorUserId,
+      actorName: await this.actorName(organizationId, actorUserId, options),
       action: 'customer.party_link_reversed',
       entityType: 'customer',
       entityId: customer.id,
-      metadata: { linkId: reversed.id, partyId: reversed.partyId },
+      metadata: { linkId: reversed.id, partyId: reversed.partyId, reason },
     });
     return { outcome: 'REVERSED', link: reversed };
   }
@@ -195,5 +218,18 @@ export class CustomerPartyLinkService {
     const customer = await this.links.customerState(organizationId, customerId);
     if (!customer) return null;
     return this.links.history(organizationId, customer.id);
+  }
+
+  /** The session's display name when the caller has one; otherwise the member's recorded name. */
+  private async actorName(
+    organizationId: string,
+    actorUserId: string,
+    options: CustomerPartyLinkActOptions,
+  ): Promise<string | undefined> {
+    const given = typeof options.actorName === 'string' ? options.actorName.trim() : '';
+    if (given.length > 0) return given;
+    const user = await this.iam.getUser(organizationId, actorUserId);
+    const name = user && typeof user.name === 'string' ? user.name.trim() : '';
+    return name.length > 0 ? name : undefined;
   }
 }

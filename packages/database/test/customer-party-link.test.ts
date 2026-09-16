@@ -117,12 +117,18 @@ test('linking to an established Party writes nothing to the Party', async () => 
   assert.equal(JSON.stringify(w.fake.cognitiveIdentity.__rows), partyBefore);
 });
 
-test('superseded Parties and merged-away Customers are refused', async () => {
+test('superseded Parties are refused with their canonical id; merged-away Customers are refused', async () => {
   const w = await world();
   const partyId = await w.established();
+  const canonical = await w.established();
   const customerId = await w.customer();
-  w.fake.cognitiveIdentity.__rows.find((x: any) => x.id === partyId).supersededByIdentityId = 'someone-else';
-  assert.equal((await w.links.link(ORG_A, w.owner, { customerId, partyId })).outcome, 'PARTY_SUPERSEDED');
+  w.fake.cognitiveIdentity.__rows.find((x: any) => x.id === partyId).supersededByIdentityId = canonical;
+  assert.deepEqual(await w.links.link(ORG_A, w.owner, { customerId, partyId }), { outcome: 'PARTY_SUPERSEDED', canonicalPartyId: canonical },
+    'never silently substituted: the actor retries against the canonical Party');
+  // A supersession chain that cannot be followed fails closed.
+  const dangling = await w.established();
+  w.fake.cognitiveIdentity.__rows.find((x: any) => x.id === dangling).supersededByIdentityId = 'someone-else';
+  assert.deepEqual(await w.links.link(ORG_A, w.owner, { customerId, partyId: dangling }), { outcome: 'NOT_FOUND' });
   const live = await w.established();
   const merged = await w.customer(ORG_A, { metadata: { mergedInto: customerId } });
   assert.equal((await w.links.link(ORG_A, w.owner, { customerId: merged, partyId: live })).outcome, 'CUSTOMER_MERGED');
@@ -302,3 +308,32 @@ test('the migration is additive, ASCII, and enforces a consistent, governed, app
   assert.match(body, /\("reversedAt" IS NULL\) = \("activeCustomerId" IS NOT NULL\)/);
   assert.match(body, /"basis" IN \('MANUAL', 'EXPLICIT_LINK'\)/);
 });
+
+// ---- Party Reference readings and attribution (slice P1b) ---------------------------
+
+test('an archived Party takes no new link, and nothing is written', async () => {
+  const w = await world();
+  const partyId = await w.established();
+  const customerId = await w.customer();
+  Object.assign(w.fake.cognitiveIdentity.__rows.find((x: any) => x.id === partyId), { status: 'ARCHIVED', archivedAt: new Date() });
+  const before = snapshot(w.fake);
+  assert.deepEqual(await w.links.link(ORG_A, w.owner, { customerId, partyId }), { outcome: 'PARTY_ARCHIVED' });
+  assert.equal(snapshot(w.fake), before);
+});
+
+test('link and reversal audit rows name the acting member, and the reversal records its reason', async () => {
+  const w = await world();
+  const partyId = await w.established();
+  const customerId = await w.customer();
+  assert.equal((await w.links.link(ORG_A, w.owner, { customerId, partyId }, { actorName: '  Olive Owner ' })).outcome, 'LINKED');
+  w.fake.user.__rows.find((u: any) => u.id === w.owner).name = 'Olive O.';
+  assert.equal((await w.links.reverse(ORG_A, w.owner, { customerId, reason: 'Wrong person' })).outcome, 'REVERSED');
+  const rows = w.fake.auditLog.__rows.filter((e: any) => e.entityId === customerId);
+  const linked = rows.find((e: any) => e.action === 'customer.party_linked');
+  const reversed = rows.find((e: any) => e.action === 'customer.party_link_reversed');
+  assert.equal(linked.metadata.actorName, 'Olive Owner', 'the session name the caller passed');
+  assert.equal(reversed.metadata.actorName, 'Olive O.', 'the member name when the caller passes none');
+  assert.equal(reversed.metadata.reason, 'Wrong person');
+  assert.doesNotMatch(JSON.stringify(rows), /pat@example\.com|5550100/, 'no contact values in the trail');
+});
+
