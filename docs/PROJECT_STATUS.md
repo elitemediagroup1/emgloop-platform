@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-16 (AI runtime #266–#271 merged, switched off; Brain-on-AWS direction approved, not built; see the Foundation handoff block)._
+_Last updated: 2026-09-16 (AI runtime #266–#271 merged, switched off; B0 and B1 merged; B2 Brain execution contracts in review; AWS not built; see the Foundation handoff block)._
 
 ---
 
@@ -37,9 +37,9 @@ The AI activation PRs #266–#270 and the docs PR #271 add **no** migration.
 
 `migrate status` does not detect schema drift. Seven pre-existing, cosmetic differences between the
 migration history and `schema.prisma` are recorded in `docs/architecture/schema-drift-2026-09-16.md`.
-**B1 (in review) aligns `schema.prisma` to the database.** It changes no migration and no database, and
-no migration is needed. After it, `prisma migrate diff` from a clean replay of all 35 migrations reports
-"No difference detected".
+**B1 (#273, merged) aligned `schema.prisma` to the database.** It changed no migration and no database,
+and no migration was needed. `prisma migrate diff` from a clean replay of all 35 migrations reports
+"No difference detected" (re-checked on `c3ac3f2`).
 
 The 2026-08-16 narrative below is kept as history.
 
@@ -1228,11 +1228,11 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN ON AWS APPROVED AS DIRECTION, NOT BUILT
+## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN ON AWS APPROVED · B2 CONTRACTS IN REVIEW, NOTHING EXECUTES THEM
 
-_Last updated: 2026-09-16._ `main` is `71006dd`. #244–#272 are merged and were verified by content.
+_Last updated: 2026-09-16._ `main` is `c3ac3f2`. #244–#273 are merged and were verified by content.
 - Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
-  #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`.
+  #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`, #273 (B1, schema) `c3ac3f2`.
 - Full validation on that `main` is green. The only failures are the known baselines:
   `marketplace-intelligence` typecheck, and lint, which was never configured.
 - Production has 35 migrations; nothing has been dispatched since run `35103219698`.
@@ -1262,7 +1262,7 @@ _Last updated: 2026-09-16._ `main` is `71006dd`. #244–#272 are merged and were
 - **#271:** the schema-drift record, the Intake → Party linking recommendation, and the Charlie/Lexi
   handoff.
 
-**Brain execution: direction approved 2026-09-16, NOT BUILT.** See
+**Brain execution: direction approved 2026-09-16. B2 contracts in review; nothing executes them.** See
 `docs/architecture/brain-execution-architecture.md`.
 - **The split:** Netlify stays the product, auth boundary and Brain API. Neon stays authoritative. AWS
   runs every Brain step and every provider call, for INTERACTIVE and DURABLE alike, behind a Loop-owned
@@ -1275,36 +1275,65 @@ _Last updated: 2026-09-16._ `main` is `71006dd`. #244–#272 are merged and were
   changed.
 - **Sequence (§12 of the record), one reviewed PR each:**
   - B0: docs, merged (#272);
-  - B1: schema-only drift alignment, in review (no migration);
-  - B2: pure contracts;
+  - B1: schema-only drift alignment, merged (#273), no migration;
+  - B2: pure contracts, **in review** (details below);
   - B3: persistence (one additive migration, not dispatched);
   - B4: Brain core and the Netlify Brain API;
   - B5: AWS foundation in staging, switched off (needs approval of the second deployable and the
     infrastructure-as-code tool);
   - B6: Case Explanation on AWS, with the first live request in staging on a synthetic Case;
   - B7: the first DURABLE task.
+  - **Sequence to confirm:** Matt's B2 instruction describes **B3** as the AWS trust and security
+    boundary and the infrastructure-specific design. The table above lists persistence as B3.
+
+**B2 (in review): provider-independent Brain contracts. Pure code; no migration; nothing activated.**
+- **Execution class** (INTERACTIVE, DURABLE). Presentation budget and interactive deadline are separate:
+  - the presentation budget only moves the job to a background presentation;
+  - the deadline promotes the job if the task supports DURABLE, and otherwise fails it by name;
+  - no hosting limit is part of the contract.
+- **Semantic result type** (ANSWER, ANALYSIS, FINDING, RECOMMENDATION, PROPOSED_ACTION).
+  - Each type has an ownership table.
+  - Standing is only NON_AUTHORITATIVE or PROPOSED.
+  - A commit check covers organization, job, subject, owner, citations, evidence refs, model output
+    cited as fact, and provenance.
+  - Activity events are pointers only.
+- **Capability route replaces `profile`.** The ledger column keeps its name and now records the route;
+  pre-B2 rows stay readable.
+  - The provider-specialization policy is versioned data, with a conformance check enforced by tests.
+  - Case Explanation is TECHNICAL_ANALYSIS and conforms, so `routing.2026-09-16.2` is unchanged.
+- **Job state machine:** ACCEPTED, QUEUED, RUNNING, WAITING_FOR_USER, SUCCEEDED, FAILED, CANCELLED.
+  - There are no connection events, and a compile-time guard enforces it.
+  - Idempotent submission.
+  - Resume only by the principal, whose access is re-checked, for the matching wait.
+  - Attributed cancellation.
+  - A result that arrives after a cancel is never applied.
+  - Progress is named steps, with a fraction only for a fixed plan.
+- **Steps:** checkpoint-first resume; paid model calls at most once per attempt (2 paid attempts);
+  bounded retries by failure class; fallback provenance that refuses shopping for an answer.
+- **Trust:** the doorbell claim and body check, stored-command disposition, and an access re-check
+  against the job at every boundary. There is no signing, verification or endpoint yet.
+- **Executor port** with twelve named obligations. No infrastructure product is named in the contract.
+- **Tests:** 41 new shared contract tests and 6 provider-specialization tests. **76 of 76 planted
+  defects were caught**; the two initial survivors were real test gaps and were closed.
 
 **Open items — NOT resolved:**
 1. **Outbox drain is broken in production.** Every scheduled "Drain outbox" run since at least
    2026-09-14 fails because the repository secrets `OUTBOX_DRAIN_URL` and `OUTBOX_DRAIN_SECRET` are
    unset. Nothing delivers `state_change_outbox` events. It needs Matt, and it blocks B7.
-2. **Schema drift: aligned in B1, which is in review.** It stays open until B1 merges.
-   - **Migration history:** unchanged. 35 migrations; no file added or edited.
-   - **Database:** unchanged. There was no production access, and no DDL anywhere except in a throwaway
-     local replay.
-   - **Prisma schema:** aligned. The six index and unique declarations now carry the names the migrations
-     created (`map:`), and `IntegrationEvent.observedSources` declares its `@default([])`.
-   - **Replay drift:** zero. From a clean replay (PostgreSQL 18.6 and 16.15) to the schema,
-     `prisma migrate diff` reports "No difference detected" (exit 0).
-   - **Still missing:** the CI replay check that would stop a recurrence. It is not built.
-
-   See `docs/architecture/schema-drift-2026-09-16.md`.
+2. **Schema drift: RESOLVED by B1 (#273, merged).** The migration history and the database are unchanged,
+   the Prisma schema is aligned, and replay drift is zero (re-checked on `c3ac3f2`). The CI replay check
+   that would stop a recurrence is **not built**. See `docs/architecture/schema-drift-2026-09-16.md`.
 3. **Anthropic effort.** Anthropic says to start Claude Opus 5 at `high`; the reviewed routing uses
    `medium`, never evaluated live. Decide before the first live request, ideally after a staging effort
    sweep.
 4. **First live request venue.** Recommended: AWS staging with a synthetic Case (B6). The earlier plan was
    Netlify production for one organization. Matt to confirm.
 5. **Region.** AWS must use Neon's region, which is not recorded in the repo. Matt to confirm.
+6. **Open B2 contract questions:**
+   - where a communication **draft** belongs (there is no DRAFT result type);
+   - whether anyone besides the principal may answer a waiting question;
+   - whether routing conformance should also be enforced at run time;
+   - Case Explanation's proposed budgets (20 s presentation, 75 s interactive).
 
 **Blocked on a decision:** web-side Intake → Party linking. The recommendation and the narrowest fence
 change are in `docs/product/intake-party-linking-recommendation.md`.
@@ -1320,8 +1349,8 @@ decisions for Charlie and Lexi.
   - the Brain execution direction (2026-09-16), including stored AI controls in Neon.
   - provider specialization by capability route (2026-09-16). COMMUNICATION defaults to OpenAI
     primary, TECHNICAL_ANALYSIS to Anthropic primary, and GENERAL_REASONING is named per task.
-    Fallback stays governed and recorded. **Not implemented**; the routing policy is unchanged. See
-    `brain-execution-architecture.md` §5a.
+    Fallback stays governed and recorded. **Contracts and policy data in B2 (in review); not
+    activated**; the routing policy is unchanged. See `brain-execution-architecture.md` §5a.
 - **Deferred:** PD-F-05, -09, -10.
 - **Still needed:**
   - PD-F-11 and PD-F-12;
@@ -1338,14 +1367,10 @@ decisions for Charlie and Lexi.
   - the web linking decision.
 
 **Next:**
-1. Merge B1 (schema description only, no migration).
-2. Post-B0 master-roadmap reconciliation. It incorporates provider specialization: capability route vs
-   the existing `profile`, Case Explanation's route and resulting routing policy, and the COMMUNICATION
-   models, verified when chosen.
+1. Review and merge B2 (contracts only, no migration).
+2. Confirm the B3 scope and the order of the remaining steps (Matt). B3 is not started.
 3. Fix the outbox drain secrets (Matt).
-4. Then B2 onward, in order, each as its own reviewed PR. B2 must reconcile the capability route with the
-   existing task `profile`, not add a second dimension beside it.
-5. Unrelated to AI:
+4. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.
 

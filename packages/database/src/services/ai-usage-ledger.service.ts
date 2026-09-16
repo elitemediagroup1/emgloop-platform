@@ -127,7 +127,7 @@ export class DurableAiUsageLedger implements AiUsageLedger {
                 principalUserId: reservation.principalUserId,
                 taskId: reservation.taskId,
                 taskVersion: reservation.taskVersion,
-                profile: reservation.profile,
+                capabilityRoute: reservation.capabilityRoute,
                 providerId: reservation.target.providerId,
                 requestedModelId: reservation.target.modelId,
                 routingPolicyVersion: reservation.routingPolicyVersion,

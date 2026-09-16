@@ -5123,7 +5123,9 @@ model AiInvocation {
 
   taskId      String
   taskVersion String
-  /// The capability profile that was routed on.
+  /// The capability route the task declared (B2): COMMUNICATION, TECHNICAL_ANALYSIS or
+  /// GENERAL_REASONING. The column keeps the name of the vocabulary it replaced; rows written
+  /// before B2 hold those retired words. Read with `aiLedgerCapabilityOf`.
   profile     String
 
   providerId           String

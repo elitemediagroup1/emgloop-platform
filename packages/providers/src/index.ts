@@ -269,3 +269,6 @@ export {
   AI_MAX_ATTEMPTS_PER_TARGET,
   AI_PLATFORM_REQUEST_LIMIT_MS,
 } from './ai/policy/routing-policy';
+// Provider specialization by capability route (B2): which provider each route prefers,
+// as versioned data the routing policy must conform to.
+export { AI_PROVIDER_SPECIALIZATION_POLICY, AI_PROVIDER_SPECIALIZATION_POLICY_VERSION } from './ai/policy/provider-specialization';

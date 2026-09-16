@@ -13,11 +13,17 @@
 // web request, Opus 5 is the appropriate choice; moving to Fable 5.1 would be a
 // Product decision with a retention consequence.
 //
-// FALLBACK: GPT-6 Astra (OpenAI), OpenAI's documented flagship for complex reasoning,
+// FALLBACK: GPT-6 Astra (OpenAI), which OpenAI documents as its most capable model,
 // so a fallback answer is held to a comparable standard. Fallback is AVAILABILITY
 // behaviour only: it serves when the primary is unavailable, rate limited or timed
 // out -- never after a refusal, a rejected answer, an authentication failure or a bad
 // request, and never to get a second opinion.
+//
+// PROVIDER SPECIALIZATION (B2). Case Explanation declares the TECHNICAL_ANALYSIS
+// capability route, whose preferred provider is Anthropic
+// (provider-specialization.ts). The primary above follows that preference, so this
+// entry needs no `providerChoiceReason`. This version's models, efforts, deadlines and
+// limits are exactly as reviewed; B2 changed only this comment.
 //
 // THE DEADLINES FIT THE PLATFORM. Netlify runs a server action inside a synchronous
 // function with a fixed 60-second limit. The primary's 25 seconds plus the fallback's

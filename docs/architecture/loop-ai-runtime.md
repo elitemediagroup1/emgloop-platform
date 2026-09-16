@@ -6,10 +6,13 @@ Explanation is the first governed use case. **No AI-generated domain write is au
 and HTTP stay behind provider adapters. No production data is sent to any provider until the activation
 gates in §17 hold.
 
-**Where it executes (amended 2026-09-16, approved direction, not built).** Brain execution, including every
-provider call, moves to AWS. Netlify stays the product and the Brain API front door, and Neon stays
-authoritative. See `brain-execution-architecture.md`. Until that is built, the runtime described here runs
-inside the Netlify app, as §16 and §17 say.
+**Where it executes (amended 2026-09-16, approved direction).** Brain execution, including every provider
+call, moves to AWS. Netlify stays the product and the Brain API front door, and Neon stays authoritative.
+See `brain-execution-architecture.md`.
+- **Built so far (B2):** the provider-independent execution contracts (§6a), and nothing that executes
+  them.
+- **Until the rest is built:** the runtime described here runs inside the Netlify app, as §16 and §17
+  say.
 
 **Position.** Loop owns intelligence and governance. Anthropic and OpenAI are interchangeable reasoning
 engines underneath it. Neither is Loop's authority, memory or brain.
@@ -82,7 +85,7 @@ Activity" tab, catalog "Turn on the AI features…".
 
 | Component | Location | Responsibility |
 |---|---|---|
-| **AI contracts** | `packages/shared/src/ai/` (pure) | Task definitions and versions; output schemas; the intelligence taxonomy; `ContextPackage` manifest types; provenance record type; routing policy types; error taxonomy; tool definition types |
+| **AI contracts** | `packages/shared/src/ai/` (pure) | Task definitions and versions; output schemas; the intelligence taxonomy; `ContextPackage` manifest types; provenance record type; routing policy types; error taxonomy; tool definition types. **Since B2, also:** capability routes and routing conformance; Brain execution classes; result types and ownership; the job state machine; step, retry and checkpoint policy; the doorbell and command trust contract; the executor port |
 | **Provider adapters** | `packages/providers/src/ai/` | `ModelProvider` implementations (Anthropic, OpenAI) evolved from `AIProvider`. **The only code that imports an SDK or calls a model host.** |
 | **Runtime (gateway)** | `packages/database/src/services/ai-runtime/` | Task execution: context assembly through repositories; governance gate; routing; budgets; invocation with retry, timeout, cancellation and fallback; output validation; tool broker; provenance and usage recording |
 | **Prompt templates** | `packages/database/src/services/ai-runtime/templates/` | Versioned template modules reviewed by PR (§10) |
@@ -207,12 +210,21 @@ considered, reasons for skipping, and the one chosen.
   (§13). Per-organization overrides are deferred.
 - **Adding a provider or model** is an adapter plus policy rows. Domain semantics never change.
 - **No hard-coded "provider X does task Y"** outside this policy.
-- **Provider specialization (approved product decision 2026-09-16, NOT implemented).** Each task will
-  declare a capability route (COMMUNICATION, TECHNICAL_ANALYSIS or GENERAL_REASONING). The defaults are
-  OpenAI primary for COMMUNICATION and Anthropic primary for TECHNICAL_ANALYSIS; GENERAL_REASONING has no
-  global default and is named per task. The preference lives in this policy, never in code branches.
-  Fallback stays governed and recorded. See `brain-execution-architecture.md` §5a. Today's policy is
-  unchanged.
+- **Provider specialization (approved product decision 2026-09-16; implemented in B2 as contract and
+  policy data; not activated).**
+  - **One declaration per task.** Each task declares one capability route: COMMUNICATION,
+    TECHNICAL_ANALYSIS or GENERAL_REASONING. The route **replaced** the old, unread `profile` field.
+  - **Where the preferences live.** `AI_PROVIDER_SPECIALIZATION_POLICY` (`specialization.2026-09-16.1`):
+    OpenAI for COMMUNICATION, Anthropic for TECHNICAL_ANALYSIS, and no default for GENERAL_REASONING.
+  - **Departures.** A routing entry that departs from its route's preference says why in
+    `providerChoiceReason`.
+  - **Enforcement.** `aiRoutingConformance` checks every shipped task, and the providers test suite
+    fails on any finding.
+  - **Fallback** stays governed and recorded.
+  - **Unchanged.** `routing.2026-09-16.2` is unchanged, because Case Explanation (TECHNICAL_ANALYSIS)
+    already conforms.
+
+  See `brain-execution-architecture.md` §5a.
 
 ## 6. F3 — Intelligence taxonomy
 
@@ -230,6 +242,24 @@ considered, reasons for skipping, and the one chosen.
 | **Work** | Work OS | proposes only | A proposal becomes work only through approval (§8). |
 | **Proposed action** | none until approved | yes (as a proposal) | A typed `ActionProposal` naming the tool, input and justification. Authorization and approval are separate acts. |
 | Fact / identity / human decision | their authorities | **never** | Model output alone never establishes them (specification Brain table). |
+
+### 6a. Brain result types (B2)
+
+The Brain execution contracts (`brain-execution-architecture.md` §5) give every result one of five
+**semantic result types**, independent of how the work executes and which capability it needs.
+
+| Result type | Taxonomy object(s) above | Owner and standing |
+|---|---|---|
+| ANSWER | Summary, in a conversation | Brain conversations; NON_AUTHORITATIVE |
+| ANALYSIS | Summary of one subject | Commercial Intelligence (Case), Relationships or Campaigns; NON_AUTHORITATIVE |
+| FINDING | Hypothesis | Commercial Intelligence, through `CaseFindingService`; PROPOSED |
+| RECOMMENDATION | Recommendation | Commercial Intelligence, through `CaseRecommendationService`; PROPOSED |
+| PROPOSED_ACTION | Proposed action | Decision Engine approval item; PROPOSED |
+
+- **Draft has no result type yet.** It is an open decision.
+- **Signal, Decision, Work, facts and identity** stay outside what a model may produce.
+- **Standing and ownership.** No result is ever more than PROPOSED, and Activity, Brain execution and a
+  provider never own one.
 
 ## 7. F4 — Context and evidence packaging
 
@@ -542,7 +572,13 @@ Case for the person viewing it. **Prepared and switched off.** No live provider 
   - One AuditLog row `ai.case_explanation` per attempt that reached a provider (ids, versions, outcome, no
     content).
   - Answers are not stored.
-- **Routing.** `routing.2026-09-16.2`:
+- **Declarations (B2).**
+  - Capability route **TECHNICAL_ANALYSIS**; `ai_invocations.profile` now records this route instead of
+    the retired `EXPLANATION`.
+  - Result type **ANALYSIS**, owned by Commercial Intelligence (Case).
+  - Execution **INTERACTIVE** only: a 20 s presentation budget and a 75 s interactive deadline (both
+    proposals), with streaming `NONE`.
+- **Routing.** `routing.2026-09-16.2`, which conforms to the specialization policy with no change:
   - Claude Opus 5 primary, GPT-6 Astra fallback.
   - Fallback only on UNAVAILABLE, TIMEOUT or RATE_LIMITED; never after a refusal or a rejected answer.
   - One attempt per target, within Netlify's 60 s request.
