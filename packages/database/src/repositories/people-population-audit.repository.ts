@@ -26,7 +26,14 @@
 // one.
 
 import type { PrismaClient } from '@prisma/client';
-import { OBSERVATION_SOURCES } from '@emgloop/shared';
+import {
+  INGESTION_PROVENANCE_SEGMENTS,
+  INTAKE_PROVENANCE_SEGMENTS,
+  OBSERVATION_SOURCES,
+  intakeProvenanceSegment,
+  type IntakeProvenanceInput,
+  type IntakeProvenanceSegment,
+} from '@emgloop/shared';
 import { isExcludedCustomer, isExcludedInteraction, isPlaceholderPhone, type CustomerLike } from './operational-filters';
 import { PIPELINE_STATUSES } from './crm.repository';
 
@@ -48,22 +55,11 @@ export const AUDIT_BOUNDS = {
 
 // --- Fixed vocabularies. Nothing outside these ever labels an output. ---------------
 
-export const PROVENANCE_CLASSES = [
-  'INGESTION_CALL',
-  'INGESTION_WEB_VISITOR',
-  'INGESTION_WEB_LEAD',
-  'INGESTION_OTHER_SOURCE',
-  'SEED_OR_DEMO',
-  'EXTERNAL_IMPORT',
-  'UNMARKED',
-] as const;
-export type ProvenanceClass = (typeof PROVENANCE_CLASSES)[number];
-const INGESTION_CLASSES: ReadonlySet<ProvenanceClass> = new Set([
-  'INGESTION_CALL',
-  'INGESTION_WEB_VISITOR',
-  'INGESTION_WEB_LEAD',
-  'INGESTION_OTHER_SOURCE',
-]);
+// Provenance classes are Intake Record provenance segments: one definition, in
+// `@emgloop/shared` intake-provenance.ts, shared with the CRM intake reads.
+export const PROVENANCE_CLASSES = INTAKE_PROVENANCE_SEGMENTS;
+export type ProvenanceClass = IntakeProvenanceSegment;
+const INGESTION_CLASSES: ReadonlySet<ProvenanceClass> = new Set(INGESTION_PROVENANCE_SEGMENTS);
 
 export const PHONE_CLASSES = ['ABSENT', 'NO_DIGITS', 'SHORT_DIGITS', 'NANP', 'OTHER_LENGTH', 'OVERLONG'] as const;
 export type PhoneClass = (typeof PHONE_CLASSES)[number];
@@ -192,25 +188,10 @@ export function withheldForm(raw: string | null | undefined): WithheldForm {
   return 'OTHER_TEXT';
 }
 
-export interface ProvenanceInput {
-  externalId: string | null;
-  tags: string[] | null;
-  metadata: unknown;
-}
+export type ProvenanceInput = IntakeProvenanceInput;
 
-/** Where a Customer came from, by the marks each creator left. Precedence is top-down. */
-export function provenanceClass(c: ProvenanceInput): ProvenanceClass {
-  const ext = (c.externalId ?? '').toLowerCase();
-  const tags = (c.tags ?? []).map((t) => String(t).toLowerCase());
-  if (ext.startsWith('web-visitor:') || tags.includes('anonymous-visitor')) return 'INGESTION_WEB_VISITOR';
-  const createdFrom = text(obj(c.metadata).createdFrom);
-  if (createdFrom === 'callgrid') return 'INGESTION_CALL';
-  if (createdFrom === 'website') return 'INGESTION_WEB_LEAD';
-  if (createdFrom) return 'INGESTION_OTHER_SOURCE';
-  if (['sic-demo-', 'demo-', 'e2e-', 'test-', 'qa-', 'hotfix-verify'].some((p) => ext.startsWith(p))) return 'SEED_OR_DEMO';
-  if (ext) return 'EXTERNAL_IMPORT';
-  return 'UNMARKED';
-}
+/** Where a Customer came from, by the marks each creator left. See `intakeProvenanceSegment`. */
+export const provenanceClass: (c: ProvenanceInput) => ProvenanceClass = intakeProvenanceSegment;
 
 export function countBucket(n: number): CountBucket {
   if (n <= 0) return '0';

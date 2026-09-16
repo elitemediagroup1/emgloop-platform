@@ -310,3 +310,25 @@ test('bulk writes touch exactly the posted IDs that belong to the organization, 
     assert.deepEqual(touched, [['c0001', 1], ['c0002', 1]], `${op}: only the selection, once each, never another organization's row`);
   }
 });
+
+test('each intake row carries its read-time provenance segment, from the one shared classifier', async () => {
+  const { intakeProvenanceSegment } = await import('@emgloop/shared');
+  const rows: Row[] = [
+    { id: 'call', metadata: { createdFrom: 'callgrid' }, externalId: null, tags: [] },
+    { id: 'visitor', metadata: {}, externalId: 'web-visitor:abc', tags: [] },
+    { id: 'lead', metadata: { createdFrom: 'website' }, externalId: null, tags: [] },
+    { id: 'demo', metadata: {}, externalId: 'demo-1', tags: [] },
+    { id: 'plain', metadata: {}, externalId: null, tags: [] },
+  ].map((r, i) => ({ ...r, organizationId: ORG, firstName: r.id, lastName: null, email: null, phone: null, attributes: {}, createdAt: new Date(2026, 0, 1 + i), lastSeenAt: null }));
+  const { db } = makeDb(rows);
+  const repo = new CrmRepository(db);
+  const list = await repo.listCustomers(ORG, { pageSize: 100 });
+  const bySegment = Object.fromEntries(list.rows.map((r) => [r.id, r.provenanceSegment]));
+  assert.deepEqual(bySegment, { call: 'INGESTION_CALL', visitor: 'INGESTION_WEB_VISITOR', lead: 'INGESTION_WEB_LEAD', demo: 'SEED_OR_DEMO', plain: 'UNMARKED' });
+  for (const r of rows) {
+    assert.equal(bySegment[r.id], intakeProvenanceSegment({ externalId: r.externalId, tags: r.tags, metadata: r.metadata }));
+  }
+  // Read-time only: classifying a page writes nothing back.
+  assert.equal(rows.some((r) => 'updates' in r), false);
+});
+

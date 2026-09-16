@@ -18,6 +18,7 @@
 
 import { Prisma } from '@prisma/client';
 import type { PrismaClient, Customer } from '@prisma/client';
+import { intakeProvenanceSegment, type IntakeProvenanceSegment } from '@emgloop/shared';
 import { customerDisplayName } from './customer.repository';
 import { interactionActorType } from './interaction.repository';
 
@@ -69,6 +70,8 @@ export interface CustomerListRow {
   createdAt: string;
   lastInteractionAt: string | null;
   lastInteractionLabel: string | null;
+  /** How this Intake Record was created, classified at read time. Provenance, never identity. */
+  provenanceSegment: IntakeProvenanceSegment;
 }
 
 export interface CustomerListResult {
@@ -337,6 +340,7 @@ export class CrmRepository {
         createdAt: c.createdAt.toISOString(),
         lastInteractionAt: last ? last.occurredAt.toISOString() : null,
         lastInteractionLabel: last ? last.summary ?? last.kind : null,
+        provenanceSegment: intakeProvenanceSegment({ externalId: c.externalId, tags: c.tags, metadata: c.metadata }),
       };
     });
   }
@@ -452,6 +456,11 @@ export class CrmRepository {
       source: attr<string>(customer.attributes, 'source') ?? '',
       assignedAIName: attr<string>(customer.attributes, 'assignedAIName') ?? '',
       assignedHumanName: attr<string>(customer.attributes, 'assignedHumanName') ?? '',
+      provenanceSegment: intakeProvenanceSegment({
+        externalId: customer.externalId,
+        tags: customer.tags,
+        metadata: customer.metadata,
+      }),
       interactions,
       bookings,
       signals,
