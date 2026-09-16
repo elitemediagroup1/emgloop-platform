@@ -1,8 +1,11 @@
 # Universal Activity — architecture record
 
-**Status:** PROPOSED (2026-09-15). **Nothing here is implemented.** This record defines what Universal
-Activity is, where authority stays, and the minimum item contract (`activity.v1`) the UI can design
-against. It needs no Product decision to proceed. One non-blocking visibility question is in §8.
+**Status:** CONTRACT ON `main`; ADAPTERS IN REVIEW (2026-09-16). Slice A1 (the `activity.v1` item
+contract) merged as #250. Slice A2 (read-time adapters, keyset composition and per-item authorization)
+is open for review; **no adapter is wired to a screen, so nothing here is on a user's page yet.** Slices
+A3 to A5 are not implemented. This record defines what Universal Activity is, where authority stays, and
+the minimum item contract the UI can design against. It needs no Product decision to proceed. One
+non-blocking visibility question is in §8.
 
 **Governing rule:** the interface may project and explain truth; it may not create truth for
 presentation convenience. Activity does not require identity (UI Constitution 3), and ingestion must not
@@ -211,7 +214,7 @@ type ActivitySubjectRef =
 | Subject | Sources | Available |
 |---|---|---|
 | Case / Decision | OperationalObservation, DecisionEvidence | **now** (adapter A2) |
-| Work item | WorkStageEvent, work stage columns (marked derived) | **now**, with the gap noted: transitions are barely logged |
+| Work item | WorkStageEvent, work stage columns (marked derived) | **not yet**: the shape is right and the rows are barely written, but the blocker is authorization — Work OS is guarded by workspace role alone and states no `resource:action` for an item to carry (see §7, A2) |
 | Intake Record | Interactions and conversations by `customerId`, AuditLog `customer`, notes; basis INTAKE_LINK_CONTEXT | **now**. Intake status changes have **no history** until slice A3 adds it |
 | Organization operational feed | Interaction + MarketplaceCall (deduplicated against IntegrationEvent), classified UNRESOLVED / ANONYMOUS / NOT_APPLICABLE | **now** |
 | Unresolved identifier / anonymous journey | Per fact, by key presence | per fact **now**; grouping across facts waits for identity slices 2.1b, 2.3, 2.4 |
@@ -237,8 +240,8 @@ type ActivitySubjectRef =
 
 | Slice | Contents | Migration |
 |---|---|---|
-| **A1** | `activity.v1` contract, category mapping, subject refs, fences (no confidence, no raw values, reserved kinds, total mapping) | no |
-| **A2** | Adapters for subjects with authority today: Case/Decision, Work item, Intake Record, organization operational feed; keyset composition; per-item authorization | no |
+| **A1** | `activity.v1` contract, category mapping, subject refs, fences (no confidence, no raw values, reserved kinds, total mapping) — **merged, #250** | no |
+| **A2** | Adapters for subjects with authority today: Case/Decision, Intake Record, organization operational feed; keyset composition; per-item authorization — **in review**. **Work item is NOT included:** Work OS has no RBAC resource, and `activity.v1` requires every item to state at least one `resource:action` a server re-checks. Closing that needs either a `work` resource in the IAM matrix or a contract amendment making workspace authority a first-class requirement — both decisions, not adapters | no |
 | **A3** | The source fixes in §6 | the Intake history table needs one |
 | **A4** | Person/Company activity from governed attributions | after identity 2.5 |
 | **A5** | Derived reference index, only if a measured subject needs it | yes |

@@ -1214,7 +1214,21 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 ## Foundation handoff — DECISIONS RECORDED · PARTIALLY READY
 
-_Last updated: 2026-09-15._
+_Last updated: 2026-09-16._
+
+**Merged since the decisions (all verified on `main` by content):** #244 security · #245 the records ·
+#250 A1 `activity.v1` · #251 R1 CRM Relationship / Participant contracts · #247 P1b · #246 P1 · #248
+Intake wording and merge removal · #249 Intake provenance. `main` is `4123b10`. No migration was
+deployed: none of the eight touches the schema.
+
+**Contract only, and not on any screen:** `activity.v1` (#250) and the CRM Relationship / Participant
+contracts (#251). No Relationship table, service or screen exists; production still holds 0 established
+Parties, and no page imports P1's Party write actions.
+
+**In review:** A2 — Universal Activity read-time adapters (channel facts, marketplace calls, Case /
+Decision observations, Intake conversations, audit acts), keyset composition and per-item authorization.
+No migration, no writes, no UI. Work OS is excluded from A2: it has no RBAC resource for an item to
+state, which is a decision, not an adapter.
 
 **Handoff:** `docs/product/foundation-handoff.md`. **UI-track summary:** `docs/product/ui-track-handoff.md`.
 
@@ -1245,8 +1259,13 @@ established Parties. Slice P1 addresses this.
 abuse investigation without separate authorization.
 
 **Sequence:** handoff §9.
-- **Independent now:** P1, P1b, Intake, A1, R1, AI S0.
-- **Dependent:** A2, R2 → R3, the Opportunity and Campaign slices, AI S1.
+- **Done:** P1, P1b, Intake, A1, R1.
+- **In review:** A2.
+- **Next, unstarted:** R2 (first migration of the Relationship track) → R3; then the Opportunity and
+  Campaign slices. AI S0 is independent and may run in parallel; AI S1 needs gates G1–G6.
+- **Still blocked on a decision:** a Work OS activity adapter (no RBAC resource); any web surface for
+  Intake → Party links (the P0.2e fence forbids `apps/web` naming `CustomerPartyLink`, and revising it
+  is a deliberate act, not a side effect — A3 or the P1 UI slice should propose it).
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
