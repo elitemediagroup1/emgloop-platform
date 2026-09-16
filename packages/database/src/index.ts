@@ -114,13 +114,6 @@ export { PartyRecordService } from './services/party-record.service';
 // See ./services/crm-relationship.service.ts.
 export { CrmRelationshipService } from './services/crm-relationship.service';
 export type { CrmRelationshipActor, CrmRelationshipServiceResult, CrmRelationshipServiceDeps } from './services/crm-relationship.service';
-// Authorized Relationship reads (slice R3-A3). Separate from the write service, as
-// PartyRecordService is from PartyService. Capabilities come back with the data.
-// See ./services/crm-relationship-read.service.ts.
-export { CrmRelationshipReadService } from './services/crm-relationship-read.service';
-export type { CrmRelationshipViewer, CrmRelationshipReadResult, CrmRelationshipReadServiceDeps } from './services/crm-relationship-read.service';
-export { CrmRelationshipReadModelRepository, CrmRelationshipCursorError } from './repositories/crm-relationship-read-model.repository';
-export type { CrmRelationshipListOptions, CrmRelationshipReadModelDeps } from './repositories/crm-relationship-read-model.repository';
 export { ActivityService } from './services/activity.service';
 export type { ActivityViewer, ActivityReadResult, ActivityServiceDeps } from './services/activity.service';
 // CRM P0.2e: governed Customer -> Party links (identityResolution:approve; target must be established).
@@ -370,3 +363,11 @@ export {
   CASE_EXPLANATION_TEMPLATE_VERSION,
   renderCaseExplanationInstructions,
 } from './services/ai-runtime/templates/case-explanation';
+
+// Authorized Relationship reads (slice R3-A3). Separate from the write service, as
+// PartyRecordService is from PartyService. Capabilities come back with the data.
+// See ./services/crm-relationship-read.service.ts.
+export { CrmRelationshipReadService } from './services/crm-relationship-read.service';
+export type { CrmRelationshipViewer, CrmRelationshipReadResult, CrmRelationshipReadServiceDeps } from './services/crm-relationship-read.service';
+export { CrmRelationshipReadModelRepository, CrmRelationshipCursorError } from './repositories/crm-relationship-read-model.repository';
+export type { CrmRelationshipListOptions, CrmRelationshipReadModelDeps } from './repositories/crm-relationship-read-model.repository';
