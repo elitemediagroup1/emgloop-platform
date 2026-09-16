@@ -234,6 +234,14 @@ function rangeBound(value: any, fallback: number): number {
 
 // A delegate may carry more than one unique. Prisma enforces each independently.
 const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
+  // CRM slice R2. The natural key binds exactly the NON-VOIDED Relationships: it is
+  // held while ACTIVE or ENDED and NULL once voided, and NULLs are distinct in
+  // Postgres, so voiding releases the key without a partial index. The participant
+  // active key works the same way, so holding a role again later is a NEW row rather
+  // than a collision with the row that recorded holding it before.
+  crmRelationship: [['organizationId', 'nonVoidedNaturalKey']],
+  crmRelationshipEvent: [['relationshipId', 'sequence']],
+  crmParticipant: [['organizationId', 'activeKey']],
   operationalObservation: [
     ['priorityId', 'sequence'],
     ['priorityId', 'detectionKey'],
@@ -642,6 +650,10 @@ export interface CognitivePrismaFake {
  */
 export const OPTIONAL_DELEGATES = [
   'customer',
+  // CRM slice R2, requested by the Relationship suite.
+  'crmRelationship',
+  'crmRelationshipEvent',
+  'crmParticipant',
   'conversation',
   'message',
   'workflow',
