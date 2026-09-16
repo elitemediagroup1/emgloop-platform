@@ -533,6 +533,23 @@ test('a Party\'s Relationships are found through its active participations only'
 
 // --- 5. Fences --------------------------------------------------------------------------
 
+test('fence: every write composes into the caller\'s transaction rather than opening its own', () => {
+  const src = readFileSync(join(__dirname, '..', 'src', 'repositories', 'crm-relationship.repository.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  // Prisma has no nested transactions, so a repository that always opened its own
+  // could never be part of one governed act -- the row would commit and the audit
+  // and outbox rows would be a separate bet. The in-memory double cannot roll back,
+  // so this is asserted structurally: one helper, used by every write.
+  assert.match(src, /return tx \? fn\(tx\) : this\.prisma\.\$transaction\(fn\);/, 'the caller\'s transaction is used when given');
+  const directTransactions = [...src.matchAll(/this\.prisma\.\$transaction\(/g)].length;
+  assert.equal(directTransactions, 1, 'exactly one place opens a transaction, and only when nobody supplied one');
+  for (const method of ['async create(', 'async addParticipant(', 'async closeParticipant(', 'async transition(']) {
+    const body = src.slice(src.indexOf(method));
+    assert.match(body.slice(0, 2600), /this\.inTransaction\(tx,/, `${method} composes`);
+  }
+});
+
 test('fence: persistence infers nothing, matches nobody, and writes no identity', () => {
   const src = readFileSync(join(__dirname, '..', 'src', 'repositories', 'crm-relationship.repository.ts'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')

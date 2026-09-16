@@ -109,6 +109,11 @@ export { PartyService, PARTY_WRITE_OUTCOMES, PARTY_ESTABLISHMENT_BASES } from '.
 export { PartyRecordService } from './services/party-record.service';
 // Universal Activity reads, authorized (slice A2). Every source is read under its
 // own guard; the service grants nothing. See ./services/activity.service.ts.
+// The governed CRM Relationship authority (slice R3-A1). Every consequential write
+// puts the row, its event, its audit entry and its outbox row in ONE transaction.
+// See ./services/crm-relationship.service.ts.
+export { CrmRelationshipService } from './services/crm-relationship.service';
+export type { CrmRelationshipActor, CrmRelationshipServiceResult, CrmRelationshipServiceDeps } from './services/crm-relationship.service';
 export { ActivityService } from './services/activity.service';
 export type { ActivityViewer, ActivityReadResult, ActivityServiceDeps } from './services/activity.service';
 // CRM P0.2e: governed Customer -> Party links (identityResolution:approve; target must be established).

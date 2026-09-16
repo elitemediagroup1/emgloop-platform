@@ -98,6 +98,14 @@ export interface CrmRelationshipRepositoryDeps {
   references?: Pick<PartyReferenceRepository, 'requireReferenceable' | 'resolve'>;
 }
 
+/**
+ * A caller's open transaction, when it has one. Passing it is what lets the
+ * governed service put the Relationship write, its event, its audit row and its
+ * outbox row inside ONE transaction -- so a reader can never find an audited act
+ * that did not happen, or a published change nobody recorded.
+ */
+export type CrmRelationshipTx = Prisma.TransactionClient;
+
 const P2002 = 'P2002';
 
 function isUniqueViolation(err: unknown): boolean {
@@ -170,6 +178,7 @@ export class CrmRelationshipRepository {
   async create(
     organizationId: string,
     input: CrmRelationshipCreateInput,
+    tx?: CrmRelationshipTx,
   ): Promise<CrmRelationshipWriteResult<{ relationship: CrmRelationship; participants: CrmParticipant[] }>> {
     const definition = crmRelationshipKind(input.kind);
     if (!organizationId?.trim() || !input.actorUserId?.trim()) return { outcome: 'INVALID', violations: ['MISSING_ACTOR'] };
@@ -201,7 +210,7 @@ export class CrmRelationshipRepository {
 
     const naturalKey = crmRelationshipNaturalKey(input.kind, assignments);
     try {
-      const value = await this.prisma.$transaction(async (tx) => {
+      const value = await this.inTransaction(tx, async (tx) => {
         const relationship = await tx.crmRelationship.create({
           data: {
             organizationId,
@@ -261,6 +270,7 @@ export class CrmRelationshipRepository {
   async addParticipant(
     organizationId: string,
     input: CrmParticipantAddInput,
+    tx?: CrmRelationshipTx,
   ): Promise<CrmRelationshipWriteResult<CrmParticipant>> {
     const relationship = await this.findById(organizationId, input.relationshipId);
     if (!relationship) return { outcome: 'NOT_FOUND' };
@@ -281,7 +291,7 @@ export class CrmRelationshipRepository {
     if (violations.length > 0) return { outcome: 'INVALID', violations };
 
     try {
-      const value = await this.prisma.$transaction(async (tx) => {
+      const value = await this.inTransaction(tx, async (tx) => {
         const participant = await tx.crmParticipant.create({
           data: this.participantData(organizationId, relationship.id, {
             partyId: input.partyId,
@@ -318,6 +328,7 @@ export class CrmRelationshipRepository {
     organizationId: string,
     participantId: string,
     input: { readonly to: 'ENDED' | 'VOIDED'; readonly actorUserId: string; readonly occurredAt: Date; readonly reason: string; readonly effectiveTo?: Date | null },
+    tx?: CrmRelationshipTx,
   ): Promise<CrmRelationshipWriteResult<CrmParticipant>> {
     if (!input.reason?.trim()) return { outcome: 'REASON_REQUIRED' };
     const participant = await this.prisma.crmParticipant.findFirst({ where: { id: participantId, organizationId } });
@@ -327,7 +338,7 @@ export class CrmRelationshipRepository {
     const relationship = await this.findById(organizationId, participant.relationshipId);
     if (!relationship) return { outcome: 'NOT_FOUND' };
 
-    const value = await this.prisma.$transaction(async (tx) => {
+    const value = await this.inTransaction(tx, async (tx) => {
       const updated = await tx.crmParticipant.update({
         where: { id: participant.id },
         data: {
@@ -361,6 +372,7 @@ export class CrmRelationshipRepository {
     organizationId: string,
     relationshipId: string,
     input: { readonly to: CrmRelationshipState; readonly actorUserId: string; readonly occurredAt: Date; readonly reason?: string | null; readonly businessEndDate?: Date | null },
+    tx?: CrmRelationshipTx,
   ): Promise<CrmRelationshipWriteResult<CrmRelationship>> {
     const relationship = await this.findById(organizationId, relationshipId);
     if (!relationship) return { outcome: 'NOT_FOUND' };
@@ -371,7 +383,7 @@ export class CrmRelationshipRepository {
       return { outcome: 'REASON_REQUIRED' };
     }
 
-    const value = await this.prisma.$transaction(async (tx) => {
+    const value = await this.inTransaction(tx, async (tx) => {
       const updated = await tx.crmRelationship.update({
         where: { id: relationship.id },
         data: {
@@ -409,6 +421,15 @@ export class CrmRelationshipRepository {
   }
 
   // --- Internals --------------------------------------------------------------------
+
+  /**
+   * Run the writes in the caller's transaction when there is one, otherwise in a
+   * transaction of our own. Prisma has no nested transactions, so a repository that
+   * always opened its own could never be composed into a larger governed act.
+   */
+  private inTransaction<T>(tx: CrmRelationshipTx | undefined, fn: (client: CrmRelationshipTx) => Promise<T>): Promise<T> {
+    return tx ? fn(tx) : this.prisma.$transaction(fn);
+  }
 
   /**
    * Resolve every Party through the Party Reference contract. Refusals are collected

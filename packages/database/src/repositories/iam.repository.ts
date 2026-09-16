@@ -51,6 +51,17 @@ export type Resource =
   // and reusing one resource for both would have silently handed every
   // READ_ONLY user a write capability the day the first form shipped.
   | 'commercialIntelligence'
+  // SEEING THE COMMERCIAL RELATIONSHIP AREA AT ALL -- the coarse gate, granted to
+  // every authorized human role (PD-F-04: view is for all of them).
+  //
+  // IT GOVERNS `view` AND NOTHING ELSE. Creating, ending, reactivating and voiding a
+  // Relationship are governed by `CRM_RELATIONSHIP_ACT_ROLES` in `@emgloop/shared`,
+  // which Product approved act by act and which R1 already ships. Mapping four
+  // authority levels onto this matrix's five actions would have meant `delete`
+  // standing for "void" -- an act that deletes nothing -- and a second grant
+  // vocabulary to keep in step with the first. A Permission row adding
+  // `relationships:manage` therefore grants no act; a test says so.
+  | 'relationships'
   // THE ORGANIZATION'S WORK EXECUTION AS A WHOLE: seeing and administering every
   // work item in the organization, its blueprints and its team queues -- the
   // capability the `/app/admin/work` tree carries today.
@@ -145,6 +156,9 @@ export const IDENTITY_RESOLUTION_GRANTS: Readonly<Record<string, readonly Action
 /** Roles that may never hold identity-resolution authority, whatever a Permission row says. */
 const IDENTITY_RESOLUTION_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
+/** Roles that may never see the commercial Relationship area (PD-F-04's recorded reading). */
+const RELATIONSHIP_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
+
 // The capability matrix. Deny-by-default: anything not listed is denied.
 // Sprint 10 adds analytics/integrations/intelligence columns.
 const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
@@ -152,13 +166,13 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ALL, aiEmployees: ALL, settings: ALL, audit: ALL,
     analytics: ALL, integrations: ALL, intelligence: ALL,
-    commercialIntelligence: ALL, work: ALL,
+    commercialIntelligence: ALL, work: ALL, relationships: RO,
   },
   ADMIN: {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ['view', 'update'], aiEmployees: ALL, settings: ALL, audit: ['view'],
     analytics: ALL, integrations: ALL, intelligence: ALL,
-    commercialIntelligence: ALL, work: ALL,
+    commercialIntelligence: ALL, work: ALL, relationships: RO,
   },
   MANAGER: {
     customers: RW, pipeline: RW, inbox: RW, workflows: RW, users: ['view'],
@@ -166,6 +180,7 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     analytics: RO, integrations: ['view'], intelligence: RO,
     // NARROWED DELIBERATELY -- see the note above the matrix.
     commercialIntelligence: RO,
+    relationships: RO,
     // MANAGER resolves to the ADMIN workspace, so it opens the whole work tree
     // today. Granting less here would take away access it already has.
     work: ALL,
@@ -174,10 +189,11 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     customers: RW, pipeline: RW, inbox: RW, workflows: RO, users: [],
     organizations: [], aiEmployees: RO, settings: [], audit: [],
     analytics: RO, integrations: [], intelligence: RO,
-    commercialIntelligence: RO,
+    commercialIntelligence: RO, relationships: RO,
   },
   READ_ONLY: {
     customers: RO, pipeline: RO, inbox: RO, workflows: RO, users: [],
+    relationships: RO,
     organizations: [], aiEmployees: RO, settings: [], audit: [],
     analytics: RO, integrations: [], intelligence: RO,
     commercialIntelligence: RO,
@@ -195,6 +211,13 @@ export function matrixAllows(role: string, resource: Resource, action: Action): 
   if (resource === 'identityResolution') {
     return (IDENTITY_RESOLUTION_GRANTS[role] ?? []).includes(action);
   }
+  // PD-F-04 grants Relationship view to every authorized HUMAN workspace role, and
+  // the recorded reading denies AI_EMPLOYEE because it is not one. Without this it
+  // would hold view anyway: AI_EMPLOYEE is absent from the matrix and falls back to
+  // READ_ONLY, which does hold it. That fallback is a separate Product decision and
+  // is NOT changed here -- this denies one resource to one role, the same device
+  // `identityResolution` already uses.
+  if (resource === 'relationships' && RELATIONSHIP_FORBIDDEN_ROLES.includes(role)) return false;
   const grants = MATRIX[role] ?? MATRIX.READ_ONLY ?? {};
   const allowed = grants[resource] ?? [];
   if (allowed.includes('manage')) return true;
