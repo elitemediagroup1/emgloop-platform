@@ -125,11 +125,26 @@ export function evidenceStrengthOf(finding: CallGridFinding): EvidenceStrength {
 
   // Coverage caps strength: a conclusion drawn over half-priced rows cannot be
   // high-confidence however tight the arithmetic is.
-  const effective = Math.min(finding.confidence, 0.35 + 0.65 * worstCoverage);
+  return evidenceStrengthFromDerivedConfidence(Math.min(finding.confidence, 0.35 + 0.65 * worstCoverage));
+}
 
-  if (effective >= 0.8) return 'HIGH';
-  if (effective >= 0.62) return 'MODERATE';
-  if (effective >= 0.45) return 'LOW';
+/**
+ * A DERIVED coverage figure, stated as the semantic strength a reader can act on.
+ *
+ * The number this takes is the Evidence Engine's: coverage, sample size, staleness
+ * and contradictions. It is NOT a probability that the conclusion is true, and it is
+ * never a model's self-assessment. Rendering it as "87%" invites exactly that
+ * reading -- a reader cannot tell "87% of the sample was covered" from "87% likely" --
+ * which is why the platform states a strength and its basis instead (C-05, and the
+ * AI honesty inventory of 2026-09-16).
+ *
+ * One threshold table, here, so two surfaces cannot disagree about what HIGH means.
+ */
+export function evidenceStrengthFromDerivedConfidence(confidence: number): EvidenceStrength {
+  if (!Number.isFinite(confidence)) return 'INSUFFICIENT';
+  if (confidence >= 0.8) return 'HIGH';
+  if (confidence >= 0.62) return 'MODERATE';
+  if (confidence >= 0.45) return 'LOW';
   return 'INSUFFICIENT';
 }
 

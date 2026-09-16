@@ -25,6 +25,7 @@ import {
   HEALTH_BAND_LABEL, healthByUrgency,
   REVIEW_URGENCY_LABEL, REVIEW_CATEGORY_LABEL, EVIDENCE_STRENGTH_LABEL,
   RELATION_LABEL, RELATION_DEFINITION, STABILITY_LABEL,
+  evidenceStrengthOf, evidenceStrengthFromDerivedConfidence,
 } from '@emgloop/shared';
 
 const SEV_LABEL: Record<Severity, string> = {
@@ -87,7 +88,10 @@ export function EvidenceDrawer({ finding }: { finding: CallGridFinding }) {
           <div><dt>Selected period</dt><dd>{finding.currentWindow}</dd></div>
           <div><dt>Comparison period</dt><dd>{finding.comparisonWindow ?? 'None'}</dd></div>
           <div><dt>Rule</dt><dd>{finding.ruleId} · {finding.ruleVersion}</dd></div>
-          <div><dt>Confidence</dt><dd>{Math.round(finding.confidence * 100)}%</dd></div>
+          {/* A STRENGTH, NOT A PERCENTAGE. The underlying figure is the Evidence
+              Engine's coverage measure, not a probability that the finding is true --
+              and "87%" cannot be told apart from one by anybody reading it. */}
+          <div><dt>Evidence</dt><dd>{EVIDENCE_STRENGTH_LABEL[evidenceStrengthOf(finding)]}</dd></div>
         </dl>
 
         <div className="adm-tablewrap">
@@ -459,8 +463,8 @@ function BriefItem({ item, rank }: { item: ScoredFinding; rank: number }) {
 
         <dl className="cg-brief__meta">
           <div>
-            <dt>Confidence</dt>
-            <dd>{Math.round(f.confidence * 100)}%</dd>
+            <dt>Evidence</dt>
+            <dd>{EVIDENCE_STRENGTH_LABEL[evidenceStrengthOf(f)]}</dd>
           </div>
           <div>
             <dt>Basis</dt>
@@ -723,8 +727,8 @@ function OpportunityCard({ item }: { item: Opportunity }) {
           <dd>{item.lever}</dd>
         </div>
         <div>
-          <dt>Confidence</dt>
-          <dd>{Math.round(f.confidence * 100)}%</dd>
+          <dt>Evidence</dt>
+          <dd>{EVIDENCE_STRENGTH_LABEL[evidenceStrengthOf(f)]}</dd>
         </div>
       </dl>
 
@@ -1041,7 +1045,9 @@ function ReasoningClusterView({ cluster }: { cluster: ReasoningCluster }) {
                     <span className={'cg-sev cg-sev--' + RELATION_CLASS[r.kind]}>
                       {RELATION_LABEL[r.kind]}
                     </span>
-                    <span className="cg-relation__conf">{Math.round(r.confidence * 100)}% confidence</span>
+                    <span className="cg-relation__conf">
+                      {EVIDENCE_STRENGTH_LABEL[evidenceStrengthFromDerivedConfidence(r.confidence)]}
+                    </span>
                   </div>
                   <p className="cg-relation__def">{RELATION_DEFINITION[r.kind]}</p>
                   <p className="cg-relation__basis">{r.basis}</p>

@@ -44,7 +44,6 @@ export interface AnalyticsSummary {
     conversationsStarted: number;
     conversationsEnded: number;
     escalations: number;
-    resolutionRate: number;
   };
 }
 
@@ -57,7 +56,6 @@ export interface VelocityMetrics {
   pipelineVelocityHours: number | null;
   avgResponseTimeSeconds: number | null;
   bookingRatePct: number;
-  aiResolutionRatePct: number;
 }
 
 // ---- Time-series -----------------------------------------------------------
@@ -154,9 +152,12 @@ export class AnalyticsRepository {
       (signals.filter((s) => (s.type as string) === 'ai.conversation_end').length);
     const aiEscalations =
       (signals.filter((s) => s.type === SignalType.SENTIMENT).length);
-    const aiResolutionRate = aiConversationsEnded > 0
-      ? (1 - aiEscalations / aiConversationsEnded) * 100
-      : 0;
+    // "AI resolution rate" WAS COMPUTED HERE and is deleted (Product, 2026-09-16).
+    // It was (1 - sentiment signals / conversation-end signals) x 100, presented as an
+    // AI performance metric. No AI resolves anything in this platform, the inputs are
+    // behavioural Signal rows, and with no such rows it read 0% -- a zero dressed as
+    // data about a capability that does not exist. If the underlying counts become
+    // useful they return under a truthful name with their own semantic contract.
 
     return {
       organizationId,
@@ -193,7 +194,6 @@ export class AnalyticsRepository {
         conversationsStarted: aiConversationsStarted,
         conversationsEnded: aiConversationsEnded,
         escalations: aiEscalations,
-        resolutionRate: Math.round(aiResolutionRate * 10) / 10,
       },
     };
   }
@@ -248,7 +248,6 @@ export class AnalyticsRepository {
       pipelineVelocityHours: null, // Requires booking-to-intent join — future
       avgResponseTimeSeconds,
       bookingRatePct: Math.round(bookingRate * 10) / 10,
-      aiResolutionRatePct: 0, // Derived in getSummary, not duplicated here
     };
   }
 

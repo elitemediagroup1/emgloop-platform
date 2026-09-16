@@ -235,9 +235,6 @@ export default async function AnalyticsPage() {
             </div>
             <span className="crm-analytics-bar-value">{summary.aiActivity.escalations}</span>
           </div>
-          <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--crm-faint)' }}>
-            AI resolution rate: {summary.aiActivity.resolutionRate}%
-          </div>
         </div>
       </div>
 

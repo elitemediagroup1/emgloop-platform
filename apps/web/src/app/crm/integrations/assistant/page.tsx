@@ -5,7 +5,12 @@ import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
 import { loadProviderCard, webhookUrlFor, connectionLabel } from '../../../../crm/integration-os';
 import { listProviders } from '@emgloop/database';
 
-// AI Setup Assistant  -  Sprint 16 (deterministic, no external AI).
+// Setup Assistant  -  Sprint 16 (deterministic, no external AI).
+//
+// RENAMED from "AI Setup Assistant" (Product, 2026-09-16). The heading said AI and
+// the subtitle directly beneath it said "no external AI required"; a reader believes
+// the heading. Nothing about the behaviour changed -- it resolves an intent to a
+// provider deterministically, as it always did.
 //
 // Type or click a 'Connect <provider>' intent; the assistant resolves it to a
 // catalog provider and replies with the generated webhook, required events,
@@ -58,7 +63,7 @@ export default async function AssistantPage({
           <p className="crm-sub" style={{ marginBottom: '0.25rem' }}>
             <Link href="/crm/integrations" className="crm-link">Integration OS</Link> / Setup Assistant
           </p>
-          <h1 className="crm-h1">AI Setup Assistant</h1>
+          <h1 className="crm-h1">Setup Assistant</h1>
           <p className="crm-sub">Describe what you want to connect. Deterministic today  -  no external AI required.</p>
         </div>
       </div>
