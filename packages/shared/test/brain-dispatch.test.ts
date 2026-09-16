@@ -137,6 +137,22 @@ test('the run-time routing gate refuses a route that no longer conforms, with a 
     reason: 'ROUTING_NOT_CONFORMANT',
     findings: ['NO_ROUTE_FOR_TASK'],
   });
+  const unnamedFallback: AiRoutingPolicy = {
+    ...ROUTING,
+    tasks: { 'case.explanation': { ...ROUTING.tasks['case.explanation']!, fallbackPermitted: true, fallback: null } },
+  };
+  assert.deepEqual(brainRouteGate(task, unnamedFallback, SPECIALIZATION), {
+    ok: false,
+    reason: 'ROUTING_NOT_CONFORMANT',
+    findings: ['FALLBACK_PERMITTED_WITHOUT_TARGET'],
+  });
+  // A communication task on its preferred provider runs, whether it produces a draft or not:
+  // the gate reads the route, never the result type.
+  const comms: AiRoutingPolicy = {
+    ...ROUTING,
+    tasks: { 'reply.draft': { ...ROUTING.tasks['case.explanation']!, taskId: 'reply.draft', taskVersion: '1.0.0', primary: { ...primary, providerId: 'openai' } } },
+  };
+  assert.deepEqual(brainRouteGate({ taskId: 'reply.draft', version: '1.0.0', capabilityRoute: 'COMMUNICATION' }, comms, SPECIALIZATION), { ok: true });
   assert.ok((BRAIN_FAILURE_REASONS as readonly string[]).includes('ROUTING_NOT_CONFORMANT'));
 });
 

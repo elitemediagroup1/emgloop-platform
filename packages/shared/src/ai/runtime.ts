@@ -74,8 +74,11 @@ export interface AiTaskRoutePolicy {
   readonly primary: AiRouteTargetPolicy;
   readonly fallback: AiRouteTargetPolicy | null;
   /**
-   * Fallback is AVAILABILITY behaviour. It serves when the primary is unavailable --
-   * never to get a second opinion, and never after a refusal.
+   * This task's explicit permission to use its named `fallback`, which may be another
+   * approved provider. There is no platform-wide fallback order: a task without this
+   * permission is served by its primary or not at all. Fallback is AVAILABILITY
+   * behaviour. It serves when the primary is unavailable -- never to get a second
+   * opinion, and never after a refusal.
    */
   readonly fallbackPermitted: boolean;
   /** Which budget class limits this task. */

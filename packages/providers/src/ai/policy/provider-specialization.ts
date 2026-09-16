@@ -10,7 +10,12 @@
 //
 // PREFERENCE DECIDES THE PRIMARY ONLY. Fallback stays availability behaviour under the
 // failure policy, is recorded on every call, and never happens because another
-// provider's output is preferred.
+// provider's output is preferred. Neither provider is the other's standing fallback:
+// each task's routing entry permits, and names, its own (reaffirmed 2026-09-16, after
+// B3; the table below did not change, so neither did its version).
+//
+// A PREFERENCE IS ABOUT CAPABILITY, NOT RESULT OR EXECUTION. A durable job and an
+// interactive one on the same route prefer the same provider, whatever they produce.
 //
 // CHANGING A PREFERENCE IS A NEW VERSION of this file, reviewed like any policy.
 

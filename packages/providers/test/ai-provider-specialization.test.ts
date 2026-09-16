@@ -10,6 +10,10 @@
 // PREFERENCE IS NOT FALLBACK. A technical task whose fallback is another provider still
 // conforms: the preference decides the primary only.
 //
+// NO UNIVERSAL FALLBACK ORDER. Neither policy has a platform-wide fallback. A task is
+// served by another provider only when its own entry permits it AND names the target,
+// in either direction; a task that permits nothing is served by its primary alone.
+//
 // NO PROVIDER NAME HIDES IN TASK OR RUNTIME CODE. A fence proves the provider ids appear
 // only at the provider boundary, the settings catalog and the environment boundary.
 
@@ -127,6 +131,35 @@ test('an unknown route, a missing entry, a version the policy was not reviewed a
       .findings,
     ['FALLBACK_DUPLICATES_PRIMARY'],
   );
+});
+
+test('there is no universal fallback order: each task permits, and names, its own', () => {
+  assert.deepEqual(Object.keys(AI_ROUTING_POLICY).sort(), ['tasks', 'version'], 'no policy-wide primary or fallback');
+  for (const route of AI_CAPABILITY_ROUTES) {
+    assert.deepEqual(Object.keys(AI_PROVIDER_SPECIALIZATION_POLICY.routes[route]).sort(), ['preferredProviderId', 'rationale'], `${route} names no fallback`);
+  }
+  const comms = { taskId: 'message.draft', version: '2.0.0', capabilityRoute: 'COMMUNICATION' };
+  const technical = { taskId: 'case.explanation', version: '2.0.0', capabilityRoute: 'TECHNICAL_ANALYSIS' };
+  const conforms = (t: typeof comms, policy: AiRoutingPolicy) => aiRoutingConformance([t], policy, AI_PROVIDER_SPECIALIZATION_POLICY)[0]!.findings;
+
+  // Either direction is fine when the task's own entry says so...
+  const commsToAnthropic = withEntry('message.draft', { primary: target('openai', 'model-x'), fallback: target('anthropic', 'model-y'), fallbackPermitted: true });
+  assert.deepEqual(conforms(comms, commsToAnthropic), []);
+  const technicalToOpenai = withEntry('case.explanation', { primary: target('anthropic', 'model-a'), fallback: target('openai', 'model-b'), fallbackPermitted: true });
+  assert.deepEqual(conforms(technical, technicalToOpenai), []);
+  // ...and a task that permits no fallback conforms and is simply served by its primary.
+  const primaryOnly = withEntry('message.draft', { primary: target('openai', 'model-x'), fallback: null, fallbackPermitted: false });
+  assert.deepEqual(conforms(comms, primaryOnly), []);
+  // A permission that names nobody is not an explicit permission.
+  const unnamed = withEntry('message.draft', { primary: target('openai', 'model-x'), fallback: null, fallbackPermitted: true });
+  assert.deepEqual(conforms(comms, unnamed), ['FALLBACK_PERMITTED_WITHOUT_TARGET']);
+  // A named target the entry does not permit is a switched-off fallback, not a finding.
+  const disabled = withEntry('message.draft', { primary: target('openai', 'model-x'), fallback: target('anthropic', 'model-y'), fallbackPermitted: false });
+  assert.deepEqual(conforms(comms, disabled), []);
+  // The shipped entry permits, and names, its fallback.
+  const shipped = AI_ROUTING_POLICY.tasks['case.explanation']!;
+  assert.equal(shipped.fallbackPermitted, true);
+  assert.ok(shipped.fallback);
 });
 
 function sourceFiles(root: string): string[] {

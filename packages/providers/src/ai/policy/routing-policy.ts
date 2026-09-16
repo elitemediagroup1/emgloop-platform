@@ -5,7 +5,12 @@
 // every call. A new model, a different effort, a longer deadline or a looser budget
 // is a new version of this file, reviewed like any other change.
 //
-// PRIMARY: Claude Opus 5 (Anthropic). The models overview recommends it as the
+// EVERY ENTRY IS ONE TASK'S DECISION. There is no platform-wide primary and no
+// universal fallback order: each task version names its own primary, and may be served
+// by another approved provider only when its own entry says `fallbackPermitted` and
+// names that target. The choices below are Case Explanation's.
+//
+// CASE EXPLANATION'S PRIMARY: Claude Opus 5 (Anthropic). The models overview recommends it as the
 // starting point for most workloads, and it is strong on the reasoning this task
 // needs. It is also eligible for Zero Data Retention, which Claude Fable 5.1 -- the
 // more capable, slower and twice as expensive tier -- is not, because Fable 5.1
@@ -13,8 +18,9 @@
 // web request, Opus 5 is the appropriate choice; moving to Fable 5.1 would be a
 // Product decision with a retention consequence.
 //
-// FALLBACK: GPT-6 Astra (OpenAI), which OpenAI documents as its most capable model,
-// so a fallback answer is held to a comparable standard. Fallback is AVAILABILITY
+// CASE EXPLANATION'S FALLBACK: GPT-6 Astra (OpenAI), which OpenAI documents as its most
+// capable model, so a fallback answer is held to a comparable standard. It is this
+// task's permitted fallback, not OpenAI's standing role behind Anthropic. Fallback is AVAILABILITY
 // behaviour only: it serves when the primary is unavailable, rate limited or timed
 // out -- never after a refusal, a rejected answer, an authentication failure or a bad
 // request, and never to get a second opinion.
