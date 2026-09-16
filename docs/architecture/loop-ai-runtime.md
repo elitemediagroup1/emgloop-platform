@@ -535,7 +535,8 @@ Case for the person viewing it. **Prepared and switched off.** No live provider 
   - the per-call, per-task, per-organization and global caps (`budget.2026-09-16.1-proposed`);
   - kill switches at five scopes;
   - no streaming, no tools.
-- **Evaluation.** 21 synthetic scenarios (`packages/database/test/ai-case-explanation.eval.test.ts`)
+- **Evaluation.** 20 synthetic scenarios, numbered 1–18 plus 7b and 7c
+  (`packages/database/test/ai-case-explanation.eval.test.ts`),
   drive the real adapters with scripted clients and gate the slice.
 
 **Why this surface.** The Case workspace is already authorized, org-scoped, deterministic, read-only, and

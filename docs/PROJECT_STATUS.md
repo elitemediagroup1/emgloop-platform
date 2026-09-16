@@ -1254,7 +1254,7 @@ squash merges the next one must be rebased onto `main` (its content unchanged) b
 5. **#270 AI-5:** Case Explanation.
    - The context builder sends structured facts only and withholds human text, names and ids.
    - Validation v2 checks figures against each claim's own sources, and numbers and dates in prose.
-   - A 21-scenario evaluation.
+   - A 20-scenario evaluation (scenarios 1–18, plus 7b and 7c).
    - An honest, switched-off panel.
 
 **Found and fixed on the way:**
