@@ -960,8 +960,8 @@ model ProviderFactRevision {
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   integrationEvent IntegrationEvent? @relation(fields: [integrationEventId], references: [id], onDelete: SetNull)
 
-  @@index([organizationId, provider, externalId])
-  @@index([organizationId, decision, observedAt])
+  @@index([organizationId, provider, externalId], map: "provider_fact_revisions_org_provider_external_idx")
+  @@index([organizationId, decision, observedAt], map: "provider_fact_revisions_org_decision_observedAt_idx")
   @@map("provider_fact_revisions")
 }
 
@@ -997,7 +997,7 @@ model IntegrationEvent {
   /// has at most three answers, so a child observation table would record ~192
   /// rows per call for a poller re-reading a 48-hour overlap every fifteen
   /// minutes -- storage spent on repetition.
-  observedSources String[]
+  observedSources String[] @default([])
 
   /// When the provider most recently CONFIRMED this event. Advances on every
   /// observation, including one that changed nothing.
@@ -1610,7 +1610,7 @@ model WorkDependency {
   /// two different external waits on one stage are legitimate.
   @@unique([workStageId, dependsOnWorkInstanceId], map: "work_dependencies_stage_depends_on_key")
   @@index([organizationId, workStageId, resolvedAt])
-  @@index([organizationId, dependsOnWorkInstanceId, resolvedAt])
+  @@index([organizationId, dependsOnWorkInstanceId, resolvedAt], map: "work_dependencies_organizationId_dependsOn_resolvedAt_idx")
   @@map("work_dependencies")
 }
 
@@ -4266,7 +4266,7 @@ model ProviderObservationDay {
   /// (provider, externalId) GLOBALLY and cannot be fixed in callers; this table
   /// does not repeat that mistake, so one organization's certification can never
   /// satisfy another's measurement gate.
-  @@unique([organizationId, provider, stream, businessDate], name: "observation_day_identity")
+  @@unique([organizationId, provider, stream, businessDate], name: "observation_day_identity", map: "observation_day_identity")
   @@index([organizationId, provider, stream, businessDate])
   @@map("provider_observation_days")
 }
@@ -4907,7 +4907,7 @@ model ProviderPollCheckpoint {
 
   /// Tenant-first identity, matching provider_observation_days. One organization's
   /// proven coverage can never satisfy another organization's poll.
-  @@unique([organizationId, provider, stream], name: "poll_checkpoint_identity")
+  @@unique([organizationId, provider, stream], name: "poll_checkpoint_identity", map: "poll_checkpoint_identity")
   @@map("provider_poll_checkpoints")
 }
 
@@ -5024,7 +5024,7 @@ model CrmRelationshipEvent {
   actor        User?           @relation("CrmRelationshipEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@unique([relationshipId, sequence])
-  @@index([organizationId, relationshipId, sequence])
+  @@index([organizationId, relationshipId, sequence], map: "crm_relationship_events_organizationId_relationshipId_sequen_id")
   @@index([organizationId, type, occurredAt])
   @@map("crm_relationship_events")
 }
