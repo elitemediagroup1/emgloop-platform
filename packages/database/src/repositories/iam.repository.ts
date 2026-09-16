@@ -51,6 +51,21 @@ export type Resource =
   // and reusing one resource for both would have silently handed every
   // READ_ONLY user a write capability the day the first form shipped.
   | 'commercialIntelligence'
+  // THE ORGANIZATION'S WORK EXECUTION AS A WHOLE: seeing and administering every
+  // work item in the organization, its blueprints and its team queues -- the
+  // capability the `/app/admin/work` tree carries today.
+  //
+  // DELIBERATELY NOT "acting on my own assigned work". An employee completing the
+  // stage they were assigned does not hold this resource and never needed to: that
+  // flows from ASSIGNMENT, through their own queue, and is guarded by the employee
+  // tree exactly as it was. Collapsing the two would hand every employee a view of
+  // all of the organization's work, which no role has today outside this tree.
+  //
+  // Added in the Work IAM slice so an authority that governs work can be STATED --
+  // `activity.v1` requires every item to name a resource:action a server re-checks,
+  // and a workspace role is not one. Route guards are unchanged; this is granted to
+  // exactly the roles the ADMIN workspace already admits.
+  | 'work'
   // CRM Phase Zero P0.2. Creating Party records, establishing them as canonical
   // identity, and asserting that two records are the same real-world Party.
   // Deliberately NOT `customers:update`: editing a contact and asserting canonical
@@ -137,13 +152,13 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ALL, aiEmployees: ALL, settings: ALL, audit: ALL,
     analytics: ALL, integrations: ALL, intelligence: ALL,
-    commercialIntelligence: ALL,
+    commercialIntelligence: ALL, work: ALL,
   },
   ADMIN: {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ['view', 'update'], aiEmployees: ALL, settings: ALL, audit: ['view'],
     analytics: ALL, integrations: ALL, intelligence: ALL,
-    commercialIntelligence: ALL,
+    commercialIntelligence: ALL, work: ALL,
   },
   MANAGER: {
     customers: RW, pipeline: RW, inbox: RW, workflows: RW, users: ['view'],
@@ -151,6 +166,9 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     analytics: RO, integrations: ['view'], intelligence: RO,
     // NARROWED DELIBERATELY -- see the note above the matrix.
     commercialIntelligence: RO,
+    // MANAGER resolves to the ADMIN workspace, so it opens the whole work tree
+    // today. Granting less here would take away access it already has.
+    work: ALL,
   },
   EMPLOYEE: {
     customers: RW, pipeline: RW, inbox: RW, workflows: RO, users: [],

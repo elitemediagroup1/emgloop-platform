@@ -61,7 +61,8 @@ export function decodeActivityCursor(raw: string): ActivityCursorV1 {
 export type ActivitySubject =
   | { readonly kind: 'ORGANIZATION' }
   | { readonly kind: 'INTAKE_RECORD'; readonly customerId: string }
-  | { readonly kind: 'CASE'; readonly priorityId: string };
+  | { readonly kind: 'CASE'; readonly priorityId: string }
+  | { readonly kind: 'WORK_ITEM'; readonly workInstanceId: string };
 
 export interface ActivityAdapterRequest {
   readonly organizationId: string;

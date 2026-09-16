@@ -214,7 +214,7 @@ type ActivitySubjectRef =
 | Subject | Sources | Available |
 |---|---|---|
 | Case / Decision | OperationalObservation, DecisionEvidence | **now** (adapter A2) |
-| Work item | WorkStageEvent, work stage columns (marked derived) | **not yet**: the shape is right and the rows are barely written, but the blocker is authorization — Work OS is guarded by workspace role alone and states no `resource:action` for an item to carry (see §7, A2) |
+| Work item | WorkStageEvent, work stage columns (marked derived) | **now**, per work item, since the Work IAM slice gave Work a real resource. Requires `work:view` and the ADMIN workspace — exactly the admin work tree. The gap noted in §6 stands: transitions are barely logged, and the lane says so |
 | Intake Record | Interactions and conversations by `customerId`, AuditLog `customer`, notes; basis INTAKE_LINK_CONTEXT | **now**. Intake status changes have **no history** until slice A3 adds it |
 | Organization operational feed | Interaction + MarketplaceCall (deduplicated against IntegrationEvent), classified UNRESOLVED / ANONYMOUS / NOT_APPLICABLE | **now** |
 | Unresolved identifier / anonymous journey | Per fact, by key presence | per fact **now**; grouping across facts waits for identity slices 2.1b, 2.3, 2.4 |
@@ -241,7 +241,7 @@ type ActivitySubjectRef =
 | Slice | Contents | Migration |
 |---|---|---|
 | **A1** | `activity.v1` contract, category mapping, subject refs, fences (no confidence, no raw values, reserved kinds, total mapping) — **merged, #250** | no |
-| **A2** | Adapters for subjects with authority today: Case/Decision, Intake Record, organization operational feed; keyset composition; per-item authorization — **in review**. **Work item is NOT included:** Work OS has no RBAC resource, and `activity.v1` requires every item to state at least one `resource:action` a server re-checks. Closing that needs either a `work` resource in the IAM matrix or a contract amendment making workspace authority a first-class requirement — both decisions, not adapters | no |
+| **A2** | Adapters for subjects with authority today: Case/Decision, Intake Record, organization operational feed; keyset composition; per-item authorization — **merged, #252**. The Work item adapter followed in the Work IAM slice, once Work had a resource an item could state | no |
 | **A3** | The source fixes in §6 | the Intake history table needs one |
 | **A4** | Person/Company activity from governed attributions | after identity 2.5 |
 | **A5** | Derived reference index, only if a measured subject needs it | yes |
