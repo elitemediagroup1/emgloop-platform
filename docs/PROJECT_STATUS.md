@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-16 (AI runtime #266–#271 merged, switched off; B0–B3 merged; B3.1 DRAFT and provider-specialization reconciliation in review; B4 not started; nothing provisioned; see the Foundation handoff block)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B3.1 merged; B4 Brain durable persistence in review with one migration NOT dispatched (production stays at 35, main will carry 36); nothing provisioned; see the Foundation handoff block)._
 
 ---
 
@@ -34,6 +34,13 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 - The hand-written SQL matches `prisma migrate diff` statement for statement.
 
 The AI activation PRs #266–#270 and the docs PR #271 add **no** migration.
+
+**Pending once B4 merges: migration 36, `20260919000000_brain_durable_persistence`, NOT dispatched.**
+- **What it does:** it is additive (eight Brain tables, plus three nullable columns on
+  `ai_invocations`).
+- **Evidence:** a fresh PostgreSQL 18 replay of all 36 shows no drift.
+- **Dossier:** `docs/architecture/brain-persistence.md` §12.
+- **Dispatch is Matt's.** After it, production is at 36.
 
 `migrate status` does not detect schema drift. Seven pre-existing, cosmetic differences between the
 migration history and `schema.prisma` are recorded in `docs/architecture/schema-drift-2026-09-16.md`.
@@ -1228,12 +1235,12 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN CONTRACTS AND AWS DESIGN ON MAIN · B3.1 IN REVIEW, NOTHING PROVISIONED
+## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN CONTRACTS AND DESIGN ON MAIN · B4 PERSISTENCE IN REVIEW (MIGRATION NOT DISPATCHED), NOTHING PROVISIONED
 
-_Last updated: 2026-09-16._ `main` is `6fdab5e`. #244–#275 are merged and were verified by content.
+_Last updated: 2026-09-17._ `main` is `5d73d46`. #244–#276 are merged and were verified by content.
 - Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
   #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`, #273 (B1, schema) `c3ac3f2`,
-  #274 (B2, contracts) `c85911a`, #275 (B3, AWS design) `6fdab5e`.
+  #274 (B2, contracts) `c85911a`, #275 (B3, AWS design) `6fdab5e`, #276 (B3.1, DRAFT and fallback) `5d73d46`.
 - Full validation on that `main` is green. The only failures are the known baselines:
   `marketplace-intelligence` typecheck, and lint, which was never configured.
 - Production has 35 migrations; nothing has been dispatched since run `35103219698`.
@@ -1264,8 +1271,8 @@ _Last updated: 2026-09-16._ `main` is `6fdab5e`. #244–#275 are merged and were
 - **#271:** the schema-drift record, the Intake → Party linking recommendation, and the Charlie/Lexi
   handoff.
 
-**Brain execution: direction approved 2026-09-16. B2 contracts and B3 design merged; B3.1 in review; nothing
-executes them and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md` and
+**Brain execution: direction approved 2026-09-16. B2 contracts, B3 design and B3.1 merged; B4 persistence in
+review (migration not dispatched); nothing executes them and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md` and
 `docs/architecture/brain-execution-infrastructure.md`.
 - **The split:** Netlify stays the product, auth boundary and Brain API. Neon stays authoritative. AWS
   runs every Brain step and every provider call, for INTERACTIVE and DURABLE alike, behind a Loop-owned
@@ -1281,16 +1288,56 @@ executes them and nothing is provisioned.** See `docs/architecture/brain-executi
   - B1: schema-only drift alignment, merged (#273), no migration;
   - B2: pure contracts, merged (#274);
   - B3: AWS trust, security and infrastructure **design**, merged (#275);
-  - B3.1: DRAFT and provider-specialization reconciliation, **in review** (details below);
-  - B4: persistence (one additive migration, not dispatched); **not started, needs Matt's
-    authorization.** Scope in `brain-execution-infrastructure.md` §25;
+  - B3.1: DRAFT and provider-specialization reconciliation, merged (#276);
+  - B4: durable persistence, **in review** (details below); one additive migration, **not
+    dispatched**;
   - B5: the Loop side (Brain API, internal Brain API, ring signing, in-process runner);
   - B6: AWS foundation in staging, switched off (needs approval of the second deployable and the IaC
     tool);
   - B7: Case Explanation on AWS, with the first live request in staging on a synthetic Case;
   - B8: the first DURABLE task, the outbox repair and notifications.
 
-**B3.1 (in review): DRAFT and "no universal fallback", reconciled. Pure contracts, tests and docs; no migration.**
+**B4 (in review): Brain durable persistence. One additive migration, NOT dispatched; nothing calls it; AI OFF.**
+- **Record and dossier:** `docs/architecture/brain-persistence.md`.
+- **Tables:** `brain_jobs`, `brain_job_transitions`, `brain_job_steps`, `brain_job_waits`,
+  `brain_commands`, `brain_events`, `ai_controls` and `ai_control_current`.
+- **`ai_invocations` gains** nullable `brainJobId`, `brainStepKey` and `specializationPolicyVersion`.
+- **Four declarations, four sets of columns:**
+  - capability route;
+  - result type, owner and subject;
+  - execution class (only promotion changes it).
+
+  There is no provider or model on any Brain table, and vocabularies are text, not enums.
+- **Tenancy in the database:**
+  - composite `(organizationId, jobId)` keys on every child row;
+  - the principal is bound to a membership in the job's organization;
+  - resumed jobs and ledger rows are tied to the same organization.
+
+  Every repository method takes the organization first. The executor's reference lookups are the one
+  unscoped path, and they return identities only.
+- **Repositories:**
+  - jobs: accept (idempotent), transitions, cancel, leases;
+  - waits: open, one reply, expire, resume;
+  - steps: checkpoint-first resume, sealed checkpoints, lost paid calls counted;
+  - commands and events;
+  - stored controls (append-only, versioned, never stale);
+  - references.
+- **Activity:** the Brain-events adapter is built but not composed until the migration is deployed.
+- **Restricted roles:** `scripts/operations/brain-database-roles.sql` and
+  `docs/runbooks/brain-database-roles.md`. They are verified on local PostgreSQL 18 only; the worker
+  cannot change what a job is.
+- **Pure contracts added:** `brain-wait.ts`, `ai-controls.ts` and `brainCommandDedupeKey`.
+- **Tests:**
+  - 29 fake-backed tests;
+  - 4 opt-in real-Postgres tests (constraints, 12-writer concurrency, rollback, deletion);
+  - 1 opt-in roles test;
+  - 6 shared contract tests.
+- **Mutation testing:** 57 of 57 planted defects caught, against a green baseline.
+  - An earlier 57-of-57 run is void: a broken test file failed every mutant.
+  - The first valid run caught 53. Its four survivors were real test gaps, now closed: the retry
+    write, resume before a reply, another step's in-flight calls, and another organization's events.
+
+**B3.1 (merged #276): DRAFT and "no universal fallback", reconciled. Pure contracts, tests and docs; no migration.**
 - **DRAFT is a sixth result type:** ANSWER, ANALYSIS, FINDING, RECOMMENDATION, DRAFT, PROPOSED_ACTION.
   - **Standing is fixed by type.** DRAFT is NON_AUTHORITATIVE (`BRAIN_RESULT_TYPE_STANDING`), so a
     DRAFT task is READ_ONLY.
@@ -1430,8 +1477,10 @@ decisions for Charlie and Lexi.
   - the web linking decision.
 
 **Next:**
-1. Review and merge B3.1 (pure contracts, tests and docs; no migration).
-2. Then B4 persistence, only when Matt authorizes it (scope: `brain-execution-infrastructure.md` §25).
+1. Review and merge B4.
+2. Matt dispatches migration 36 from `main`, following `brain-persistence.md` §12. Production then
+   has 36 migrations.
+3. B5 (the Loop-side Brain API, internal API and in-process runner), only when Matt authorizes it.
 3. Fix the outbox drain secrets (Matt). This is a prerequisite for B8's notifications.
 4. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);

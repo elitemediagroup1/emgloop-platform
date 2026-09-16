@@ -50,6 +50,8 @@ input tokens cost money; a refusal is a fact about the system. Both are recorded
 | `requestedAt`, `completedAt` | `timestamp(3)` (no time zone) | **Server clock, stored as UTC, Loop Time Authority.** Never a browser's, never a provider's. The repository convention for every instant is Prisma's `timestamp(3)`, written in UTC; there is no `timestamptz` column anywhere in the schema. (This record previously said `timestamptz`; that was wrong. The applied migration's header comment carries the same wording and is deliberately left unedited, because changing an applied migration file changes its checksum.) |
 | `latencyMs` | int | |
 | `businessDate` | date | The organization's reporting day (`Organization.timezone`, default UTC), so a "daily cap" means a day somebody recognises. Used for the budget and nothing else |
+| `brainJobId`, `brainStepKey` | text, null (B4) | The Brain job and step a call served. Both or neither; the job is in the same organization (composite FK), and `invocationId` is then `brainCallKey(job, step, attempt)` (CHECK). Null for calls outside a Brain job. See `brain-persistence.md` §8 |
+| `specializationPolicyVersion` | text, null (B4) | The provider-specialization policy version the call's routing conformed to. Null for rows recorded before B4 and for callers that do not report it yet |
 
 **Deliberately absent: the prompt and the response.** Storing bodies "for observability" would put
 customer data and model output into a table with different retention and access rules from the sources
