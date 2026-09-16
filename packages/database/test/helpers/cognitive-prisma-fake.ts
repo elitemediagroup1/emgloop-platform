@@ -192,6 +192,9 @@ const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
   operationalObservation: ['recordedAt'],
   // `occurredAt` is @default(now()) and callers that do not name it mean "now".
   workStageEvent: ['occurredAt'],
+  // Same shape as operationalObservation: the Relationship log records when Loop
+  // learned about an act, and the repository leaves it to the database default.
+  crmRelationshipEvent: ['recordedAt'],
 };
 
 /**
