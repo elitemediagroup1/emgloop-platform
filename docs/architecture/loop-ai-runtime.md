@@ -9,8 +9,9 @@ gates in §17 hold.
 **Where it executes (amended 2026-09-16, approved direction).** Brain execution, including every provider
 call, moves to AWS. Netlify stays the product and the Brain API front door, and Neon stays authoritative.
 See `brain-execution-architecture.md`.
-- **Built so far (B2, B3, B3.1):** the provider-independent execution and dispatch contracts (§6a),
-  including the DRAFT result type, and nothing that executes them.
+- **Built so far (B2, B3, B3.1, B4):** the provider-independent execution and dispatch contracts
+  (§6a), including the DRAFT result type, and the durable persistence they need
+  (`brain-persistence.md`; migration not dispatched). Nothing executes them.
 - **Designed (B3, not provisioned):** how work reaches AWS and runs there. See
   `brain-execution-infrastructure.md`:
   - an authenticated doorbell;

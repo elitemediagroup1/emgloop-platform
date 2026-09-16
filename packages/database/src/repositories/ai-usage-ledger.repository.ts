@@ -75,6 +75,14 @@ export interface AiInvocationReserveInput {
   readonly fellBackFrom?: string | null;
   /** Which call of its invocation this is: 1 for the first, 2 for the next. */
   readonly attemptCount?: number;
+  /**
+   * B4. The Brain job and step this call serves, when it serves one. Both or neither,
+   * and `invocationId` is then `brainCallKey(job, step, attempt)`; the database checks it.
+   */
+  readonly brainJobId?: string | null;
+  readonly brainStepKey?: string | null;
+  /** B4. The provider-specialization policy version the call's routing conformed to. */
+  readonly specializationPolicyVersion?: string | null;
 }
 
 export interface AiInvocationReconcileInput {
@@ -169,7 +177,14 @@ export class AiUsageLedgerRepository {
         businessDate: aiBudgetDateAsUtcDate(input.businessDate),
         fellBackFrom: input.fellBackFrom ?? null,
         attemptCount: input.attemptCount ?? 1,
+        brainJobId: input.brainJobId ?? null,
+        brainStepKey: input.brainStepKey ?? null,
+        specializationPolicyVersion: input.specializationPolicyVersion ?? null,
       },
+      // Only the id comes back. Returning every column would make this insert depend on
+      // columns a database migration adds, so code deployed ahead of its migration
+      // would fail here instead of simply not using them.
+      select: { id: true },
     });
   }
 

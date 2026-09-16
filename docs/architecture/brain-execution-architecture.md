@@ -6,7 +6,10 @@
   which revises §9's executor. None of it is provisioned. **Merged (#275).**
 - **B3.1 reconciled two post-B3 decisions** (Matt and Charlie, 2026-09-16): **DRAFT** is a sixth
   result type, distinct from PROPOSED_ACTION (§5), and there is **no universal fallback order**
-  between providers (§5a). Pure contracts and tests only.
+  between providers (§5a). Pure contracts and tests only. **Merged (#276).**
+- **B4 built the durable persistence** (`brain-persistence.md`): the Brain tables, their
+  repositories, the stored-control log and the restricted-roles runbook. Its one additive
+  migration is **not dispatched**, and nothing calls the repositories yet.
 - **Nothing executes them yet.** No AWS resource exists, no Netlify setting has changed, and AI is not
   activated.
 - **Where to look:** §2 separates what exists from what does not; §12 shows each step's status.
@@ -91,8 +94,9 @@ B3. It does not change today's routing policy, and nothing executes it yet.
 
   The provider-specialization policy data is
   `packages/providers/src/ai/policy/provider-specialization.ts`.
+- **Built in B4, not wired:** the Brain job, transition, step, wait, command, event and stored-control
+  tables and their repositories (`brain-persistence.md`). The migration is not dispatched.
 - **Not built:**
-  - Brain job, step, command or control tables;
   - any executor or orchestrator adapter;
   - the doorbell endpoint and its token signing or verification;
   - any AWS account resource;
@@ -602,8 +606,8 @@ Each step is a separate draft PR with its own review. No step activates AI.
 | B1 | Schema-only alignment of the seven recorded drift items (`schema-drift-2026-09-16.md`), so the next migration contains only intended changes. **Merged (#273).** | none |
 | B2 | **Merged (#274).** Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
 | B3 | **Merged (#275).** AWS trust, security and infrastructure **design** (`brain-execution-infrastructure.md`), plus the pure dispatch contracts (`brain-dispatch.ts`). Nothing is provisioned. | none |
-| B3.1 | **In review.** Reconciles DRAFT (sixth result type) and "no universal fallback" with the contracts: type standing, the Communications owner, the ownership-table check, the job's result owner and commit expectation, and a fallback-permission finding. | none |
-| B4 | Persistence (scope in `brain-execution-infrastructure.md` §25): jobs with the four declarations as separate columns (capability route; result type, owner and subject; execution class), lease and version; transitions, steps and checkpoints, waits and replies, commands, Brain events, stored AI controls; job, step and specialization-version columns on `ai_invocations`; the Brain-events Activity adapter; the restricted-roles runbook | one additive migration, not dispatched |
+| B3.1 | **Merged (#276).** Reconciles DRAFT (sixth result type) and "no universal fallback" with the contracts: type standing, the Communications owner, the ownership-table check, the job's result owner and commit expectation, and a fallback-permission finding. | none |
+| B4 | **In review; migration not dispatched** (`brain-persistence.md`). Persistence (scope in `brain-execution-infrastructure.md` §25): jobs with the four declarations as separate columns (capability route; result type, owner and subject; execution class), lease and version; transitions, steps and checkpoints, waits and replies, commands, Brain events, stored AI controls; job, step and specialization-version columns on `ai_invocations`; the Brain-events Activity adapter; the restricted-roles runbook | one additive migration, not dispatched |
 | B5 | Loop side: the Brain API, the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner; retirement of the old `/api/brain` route | none |
 | B6 | AWS foundation in staging, switched off (CDK; authorizer, dispatcher, worker, sweeper, queues, DynamoDB, KMS, secrets, alarms, budgets; GitHub OIDC). **Adds a second deployable: needs approval of layout and tool.** | none |
 | B7 | Case Explanation on AWS in staging, then production; the first live request on a synthetic Case after the effort decision; removal of Netlify's provider keys | none |

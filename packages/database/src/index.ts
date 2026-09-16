@@ -427,3 +427,59 @@ export type {
 } from './repositories/ai-usage-ledger.repository';
 export { DurableAiUsageLedger, isSerializationFailure } from './services/ai-usage-ledger.service';
 export type { DurableAiUsageLedgerDeps } from './services/ai-usage-ledger.service';
+
+// --- Brain durable execution (B4) ---
+// Neon as the only authority for Brain work: jobs and their history, steps and sealed
+// checkpoints, questions and their one reply, commands, events, and stored AI controls.
+// Nothing in the product calls these yet (B5), and none of it chooses a provider or a
+// model. See docs/architecture/brain-persistence.md.
+export { BrainJobRepository, BRAIN_ACCEPT_REFUSALS } from './repositories/brain/brain-job.repository';
+export type {
+  BrainJobAcceptance,
+  BrainAcceptOutcome,
+  BrainAcceptRefusal,
+  BrainJobRecord,
+  BrainTransitionRecord,
+  BrainLeaseOutcome,
+  BrainCancelOutcome,
+} from './repositories/brain/brain-job.repository';
+export { BrainWaitRepository } from './repositories/brain/brain-wait.repository';
+export type {
+  BrainWaitQuestion,
+  BrainWaitOpenOutcome,
+  BrainWaitAnswerOutcome,
+  BrainWaitExpireOutcome,
+  BrainWaitResumeOutcome,
+  BrainWaitView,
+} from './repositories/brain/brain-wait.repository';
+export { BrainStepRepository } from './repositories/brain/brain-step.repository';
+export type {
+  BrainCheckpointRef,
+  BrainStepResumeState,
+  BrainStepBeginOutcome,
+  BrainCheckpointOutcome,
+  BrainStepSummary,
+} from './repositories/brain/brain-step.repository';
+export { BrainCommandRepository, BrainEventRepository } from './repositories/brain/brain-command.repository';
+export type { BrainCommandRecord, BrainEventRecord } from './repositories/brain/brain-command.repository';
+export { BrainExecutionReferences } from './repositories/brain/brain-execution-references';
+export type { BrainJobReference, BrainCommandReference, BrainWaitReference } from './repositories/brain/brain-execution-references';
+export { AiControlRepository } from './repositories/brain/ai-control.repository';
+export type { AiControlRecordOutcome, AiControlChange } from './repositories/brain/ai-control.repository';
+export {
+  BrainRecordUnreadable,
+  BrainPersistenceInvariantError,
+  brainSealedPayloadRefusals,
+  BRAIN_SEALED_PAYLOAD_REFUSALS,
+  BRAIN_CHECKPOINT_MAX_BYTES,
+} from './repositories/brain/brain-records';
+export type {
+  BrainSealedPayload,
+  BrainPayloadSealer,
+  BrainPayloadSealingContext,
+  BrainSealedPayloadRefusal,
+  BrainTaskInput,
+} from './repositories/brain/brain-records';
+export type { BrainTransitionOutcome, BrainWriteRefusal } from './repositories/brain/brain-job-writes';
+// Not composed into the live Activity feed until the migration is deployed (B5).
+export { BrainEventActivityAdapter } from './repositories/activity/brain-event.adapter';

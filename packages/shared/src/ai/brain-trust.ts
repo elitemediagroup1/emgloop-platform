@@ -202,6 +202,28 @@ export function brainCommandDisposition(
   }
 }
 
+/**
+ * The one identity a command may be stored under, so storing it twice stores it once.
+ * One START and one CANCEL per job generation, and one RESUME per wait in a generation:
+ * a repeated request, a retried transaction or two people pressing Stop together all
+ * land on the same command, and ringing for it again is harmless.
+ */
+export function brainCommandDedupeKey(command: Pick<BrainCommand, 'type' | 'jobId' | 'generation' | 'waitId'>): string {
+  if (!COMMAND_ID.test(command.jobId)) throw new Error('invalid job id');
+  if (!Number.isInteger(command.generation) || command.generation < 1) throw new Error('generation starts at 1');
+  switch (command.type) {
+    case 'START':
+    case 'CANCEL':
+      if (command.waitId !== null) throw new Error(`${command.type} names no wait`);
+      return `${command.type.toLowerCase()}:${command.jobId}:${command.generation}`;
+    case 'RESUME':
+      if (typeof command.waitId !== 'string' || !COMMAND_ID.test(command.waitId)) throw new Error('RESUME names its wait');
+      return `resume:${command.jobId}:${command.generation}:${command.waitId}`;
+    default:
+      throw new Error('unknown command type');
+  }
+}
+
 // --- Access at every consequential boundary ---------------------------------------------
 
 /** An access decision, made from Loop's records, with what it covered and when. */

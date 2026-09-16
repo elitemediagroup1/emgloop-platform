@@ -412,6 +412,9 @@ workflow:
 - `loop_brain_dispatcher` (read commands and jobs, update `dispatchedAt`);
 - `loop_brain_sweeper` (read Brain tables).
 
+**B4 prepared them** in `scripts/operations/brain-database-roles.sql`, with the runbook
+`docs/runbooks/brain-database-roles.md`; they are verified locally and applied nowhere shared.
+
 **Create them with SQL, not in Neon's console.** Neon gives console- or API-created roles
 `neon_superuser`, while SQL-created roles get only default privileges plus explicit GRANTs. The roles
 and grants are applied per environment by a reviewed operations script, **not** by a Prisma
@@ -765,14 +768,14 @@ remaining draft questions above.
 
 | Step | Scope | Migration |
 |---|---|---|
-| **B4** | Brain persistence (detail below). | one additive migration, **not dispatched** |
+| **B4** | Brain persistence (detail below). **Built; see `brain-persistence.md`.** | one additive migration (`20260919000000_brain_durable_persistence`), **not dispatched** |
 | B5 | Loop side: the Brain API (submit, status, respond, cancel), the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner for tests and development, and retirement of `/api/brain/call-handling-briefing` | none |
 | B6 | AWS foundation in staging, **off**: CDK; the authorizer, dispatcher, worker, sweeper, queues and DLQs; DynamoDB; KMS; Secrets Manager; SSM parameters; alarms; budgets; GitHub OIDC deploys. **Second deployable: needs approval.** | none |
 | B7 | Case Explanation on AWS in staging: the two-phase panel; the first live request on a synthetic Case with staging keys (only after the effort decision). Then production, and removal of Netlify's provider keys. | none |
 | B8 | The first DURABLE task, its owned artifact and interface; the outbox repair (prerequisite) and notifications; ECS long steps only if needed | artifact migration |
 
-**B4 in detail (revised in B3.1).** These are the tables and columns B4 proposes; exact names are
-settled in B4's review.
+**B4 in detail (revised in B3.1; built in B4 as `brain-persistence.md` records, which is now the
+authority on the exact tables, columns, keys and checks).**
 - **`brain_jobs`.** Each of the four declarations is its own column, fixed at acceptance unless
   marked:
   - what the work needs: `capabilityRoute`;

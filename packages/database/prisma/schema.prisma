@@ -272,6 +272,15 @@ model Organization {
   crmRelationshipEvents CrmRelationshipEvent[]
   crmParticipants       CrmParticipant[]
   aiInvocations         AiInvocation[]
+  // --- Brain durable execution (B4) ---
+  brainJobs             BrainJob[]
+  brainJobTransitions   BrainJobTransition[]
+  brainJobSteps         BrainJobStep[]
+  brainJobWaits         BrainJobWait[]
+  brainCommands         BrainCommand[]
+  brainEvents           BrainEvent[]
+  aiControls            AiControl[]
+  aiControlCurrent      AiControlCurrent[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -399,6 +408,14 @@ model User {
   crmParticipantsEnded    CrmParticipant[]       @relation("CrmParticipantEnder")
   crmParticipantsVoided   CrmParticipant[]       @relation("CrmParticipantVoider")
   aiInvocations           AiInvocation[]         @relation("AiInvocationPrincipal")
+  /// Brain durable execution (B4). Attribution only; a job's principal is bound
+  /// through its organization membership, not here.
+  brainJobsCancelled      BrainJob[]             @relation("BrainJobCancelActor")
+  brainJobTransitions     BrainJobTransition[]   @relation("BrainJobTransitionActor")
+  brainJobWaitsAnswered   BrainJobWait[]         @relation("BrainJobWaitResponder")
+  brainCommandsIssued     BrainCommand[]         @relation("BrainCommandIssuer")
+  brainEvents             BrainEvent[]           @relation("BrainEventActor")
+  aiControlsRecorded      AiControl[]            @relation("AiControlActor")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -454,9 +471,12 @@ model OrganizationMembership {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User         @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
-  invitedBy    User?        @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user          User           @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy     User?          @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  /// B4. Brain work runs on a membership's authority: a job's principal must hold one here.
+  brainJobs     BrainJob[]     @relation("BrainJobPrincipal")
+  brainJobWaits BrainJobWait[] @relation("BrainJobWaitPrincipal")
 
   @@unique([userId, organizationId])
   @@index([organizationId, status])
@@ -5188,12 +5208,326 @@ model AiInvocation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// B4. The Brain job and step this call served, for calls made by Brain work. Both or
+  /// neither; `invocationId` is then `brainCallKey(job, step, attempt)` (checked).
+  brainJobId                  String?
+  brainStepKey                String?
+  /// B4. The provider-specialization policy version this call's routing conformed to.
+  /// NULL for calls recorded before B4 and for callers that do not report it yet.
+  specializationPolicyVersion String?
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   principal    User?        @relation("AiInvocationPrincipal", fields: [principalUserId], references: [id], onDelete: SetNull)
+  brainJob     BrainJob?    @relation(fields: [organizationId, brainJobId], references: [organizationId, id], onDelete: NoAction)
 
   @@unique([organizationId, invocationId])
   @@index([organizationId, businessDate])
   @@index([organizationId, taskId, requestedAt])
   @@index([organizationId, outcome, requestedAt])
+  @@index([organizationId, brainJobId, brainStepKey])
   @@map("ai_invocations")
+}
+
+// ---------------------------------------------------------------------------
+// Brain durable execution (B4). docs/architecture/brain-persistence.md
+//
+// Neon is the only authority for Brain work: a job, its history, its steps and
+// checkpoints, the questions it asks, the commands that move it and the events it
+// tells the rest of Loop. An executor holds a reference and nothing else.
+//
+// FOUR DECLARATIONS, FOUR SETS OF COLUMNS. What the work needs (capabilityRoute),
+// what it produces and who holds it (resultType, resultOwnerAuthority,
+// resultSubject*), and how it runs (executionClass, which only promotion changes)
+// are never collapsed into one. NO PROVIDER OR MODEL IS PART OF A JOB: routing
+// chooses per call, and each call records its choice on ai_invocations.
+//
+// VOCABULARIES ARE TEXT, validated by @emgloop/shared. Adding a result type, a
+// route or an owner is a reviewed contract change, never a migration. CHECK
+// constraints in the migration pin only what is structural.
+// ---------------------------------------------------------------------------
+
+/// One piece of accepted Brain work, as Loop records it. The executor sees only its
+/// id and generation.
+model BrainJob {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  /// The person on whose authority the work runs. Fixed at acceptance from a verified
+  /// session, and bound to a membership of THIS organization by a composite key.
+  principalUserId       String
+  taskId                String
+  taskVersion           String
+  /// What the work needs: COMMUNICATION, TECHNICAL_ANALYSIS or GENERAL_REASONING.
+  capabilityRoute       String
+  /// What the work produces, who will hold it, and what it is about.
+  resultType            String
+  resultOwnerAuthority  String
+  resultSubjectType     String
+  resultSubjectId       String
+  /// How the work runs. Only promotion changes it, once, INTERACTIVE to DURABLE.
+  executionClass        String
+  promotedAt            DateTime?
+  state                 String
+  /// Increments when the same job is handed to an executor again.
+  generation            Int       @default(1)
+  /// Optimistic concurrency: every write names the version it read.
+  version               Int       @default(0)
+  /// The sequence of the last transition written; the next one is this plus one.
+  lastSequence          Int       @default(0)
+  leaseHolder           String?
+  leaseExpiresAt        DateTime?
+  cancelRequestedAt     DateTime?
+  cancelActorKind       String?
+  cancelActorUserId     String?
+  cancelActorPolicy     String?
+  cancelReason          String?
+  endReason             String?
+  /// The open question, while and only while the job is WAITING_FOR_USER.
+  currentWaitId         String?
+  currentWaitExpiresAt  DateTime?
+  /// Pointers to where the owner holds the results. Never the results.
+  resultRefs            Json      @default("[]")
+  /// The task parameters the submission carried: scalars only, never authority.
+  input                 Json      @default("{}")
+  idempotencyKey        String
+  /// SHA-256 of the canonical submission, so a retried request is the same job.
+  submissionFingerprint String
+  /// The job whose checkpoints this one reuses, in the same organization.
+  resumesJobId          String?
+  acceptedAt            DateTime  @default(now())
+  startedAt             DateTime?
+  endedAt               DateTime?
+  /// Time spent executing, excluding time spent waiting for a person.
+  activeElapsedMs       Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  principalMembership OrganizationMembership @relation("BrainJobPrincipal", fields: [principalUserId, organizationId], references: [userId, organizationId], onDelete: NoAction)
+  cancelActor         User?                  @relation("BrainJobCancelActor", fields: [cancelActorUserId], references: [id], onDelete: SetNull)
+  resumes             BrainJob?              @relation("BrainJobResumes", fields: [organizationId, resumesJobId], references: [organizationId, id], onDelete: NoAction)
+  resumedBy           BrainJob[]             @relation("BrainJobResumes")
+  transitions         BrainJobTransition[]
+  steps               BrainJobStep[]
+  waits               BrainJobWait[]
+  commands            BrainCommand[]
+  events              BrainEvent[]
+  aiInvocations       AiInvocation[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, principalUserId, taskId, idempotencyKey])
+  @@index([organizationId, principalUserId, state])
+  @@index([organizationId, resultSubjectType, resultSubjectId, state])
+  @@index([state, leaseExpiresAt])
+  @@map("brain_jobs")
+}
+
+/// The ordered history of a job's state. Append-only; sequence 1 is its acceptance.
+model BrainJobTransition {
+  id             String   @id @default(cuid())
+  organizationId String
+  jobId          String
+  sequence       Int
+  /// ACCEPTED, or the transition event that was applied.
+  kind           String
+  fromState      String?
+  toState        String
+  /// The execution class after the transition, so a promotion is visible in history.
+  executionClass String
+  actorKind      String
+  actorUserId    String?
+  actorPolicy    String?
+  reason         String?
+  waitId         String?
+  occurredAt     DateTime
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          BrainJob     @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
+  actor        User?        @relation("BrainJobTransitionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, sequence])
+  @@index([organizationId, jobId, sequence])
+  @@map("brain_job_transitions")
+}
+
+/// One step of a job, and its checkpoint. A step whose checkpoint exists never runs
+/// again. The payload is SEALED before it reaches this table; no plaintext, no
+/// credential and no raw prompt or response is ever stored here.
+model BrainJobStep {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  jobId                 String
+  stepKey               String
+  kind                  String
+  state                 String
+  /// A different input for the same step key is refused, never silently re-run.
+  inputFingerprint      String
+  attempts              Int       @default(0)
+  paidAttempts          Int       @default(0)
+  /// Loop's failure class for the last failed attempt. Never a provider's text.
+  lastFailureClass      String?
+  checkpointSealed      Bytes?
+  checkpointKeyRef      String?
+  checkpointSealVersion String?
+  checkpointSizeBytes   Int?
+  checkpointedAt        DateTime?
+  startedAt             DateTime?
+  endedAt               DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          BrainJob     @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([jobId, stepKey])
+  @@index([organizationId, jobId])
+  @@map("brain_job_steps")
+}
+
+/// A question a durable job asked its principal, and the one reply it accepted.
+model BrainJobWait {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  jobId                 String
+  /// The only person who may answer: the job's principal.
+  principalUserId       String
+  /// OPEN, ANSWERED, EXPIRED or CLOSED.
+  status                String
+  /// The job id while OPEN and NULL otherwise, so a job has at most one open question.
+  openJobKey            String?
+  questionSchemaId      String
+  questionSchemaVersion String
+  /// The minimal structured question. Never context, evidence or a model transcript.
+  question              Json
+  expiresAt             DateTime
+  requestedAt           DateTime
+  responderUserId       String?
+  /// The validated reply. Recorded once.
+  reply                 Json?
+  replyFingerprint      String?
+  answeredAt            DateTime?
+  closedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job                 BrainJob               @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
+  principalMembership OrganizationMembership @relation("BrainJobWaitPrincipal", fields: [principalUserId, organizationId], references: [userId, organizationId], onDelete: NoAction)
+  responder           User?                  @relation("BrainJobWaitResponder", fields: [responderUserId], references: [id], onDelete: SetNull)
+  commands            BrainCommand[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, openJobKey])
+  @@index([status, expiresAt])
+  @@index([organizationId, jobId])
+  @@map("brain_job_waits")
+}
+
+/// An instruction the Brain API stored with the change it accompanies: START, RESUME
+/// or CANCEL. The only thing a doorbell ring can point at.
+model BrainCommand {
+  id               String    @id @default(cuid())
+  organizationId   String
+  jobId            String
+  type             String
+  generation       Int
+  /// RESUME only: the wait whose recorded reply wakes the job.
+  waitId           String?
+  /// One command per identity (`brainCommandDedupeKey`), so storing twice stores once.
+  dedupeKey        String
+  issuerKind       String
+  issuerUserId     String?
+  issuerPolicy     String?
+  issuedAt         DateTime
+  /// First handed to the executor. NULL is what the sweeper looks for.
+  dispatchedAt     DateTime?
+  lastDispatchedAt DateTime?
+  dispatchCount    Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          BrainJob      @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
+  wait         BrainJobWait? @relation(fields: [organizationId, waitId], references: [organizationId, id], onDelete: Cascade)
+  issuer       User?         @relation("BrainCommandIssuer", fields: [issuerUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, dedupeKey])
+  @@index([dispatchedAt, issuedAt])
+  @@index([organizationId, jobId])
+  @@map("brain_commands")
+}
+
+/// What a job told the rest of Loop: that its state changed, who caused it, and where
+/// its results now live. The allowlisted fields of `BrainJobEvent` and nothing else:
+/// no summary, no claim, no model text. Activity reads it; it never owns a result.
+model BrainEvent {
+  /// `brainEventId(jobId, sequence)`: unique, and derived from the transition it reports.
+  id             String   @id
+  organizationId String
+  jobId          String
+  sequence       Int
+  name           String
+  taskId         String
+  resultType     String
+  occurredAt     DateTime
+  actorKind      String
+  actorUserId    String?
+  actorPolicy    String?
+  resultRefs     Json     @default("[]")
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          BrainJob     @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
+  actor        User?        @relation("BrainEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, sequence])
+  @@index([organizationId, occurredAt, id])
+  @@map("brain_events")
+}
+
+/// The append-only log of stored AI controls: recorded authority to run or stop AI
+/// work. Never a copy of environment configuration. NULL organization = platform.
+model AiControl {
+  id             String   @id @default(cuid())
+  /// `aiControlKey(target)`; the migration checks the derivation.
+  controlKey     String
+  version        Int
+  scope          String
+  organizationId String?
+  value          String?
+  /// ACTIVE or KILLED.
+  state          String
+  reason         String
+  /// HUMAN (a person in an organization) or OPERATIONS (a reviewed operations run).
+  actorKind      String
+  actorUserId    String?
+  actorReference String?
+  recordedAt     DateTime
+  createdAt      DateTime @default(now())
+
+  organization Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?              @relation("AiControlActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  currentViews AiControlCurrent[]
+
+  @@unique([controlKey, version])
+  @@index([organizationId, recordedAt])
+  @@map("ai_controls")
+}
+
+/// The current version of each control. It points at its log entry, so it can never
+/// claim a state the log does not hold; it is written in the same transaction.
+model AiControlCurrent {
+  controlKey     String   @id
+  version        Int
+  scope          String
+  organizationId String?
+  value          String?
+  updatedAt      DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entry        AiControl     @relation(fields: [controlKey, version], references: [controlKey, version], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("ai_control_current")
 }

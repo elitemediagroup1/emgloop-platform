@@ -240,7 +240,15 @@ styles. Its **states and wording are the contract**; its look is yours to redesi
 ### Brain: what the approved architecture means for your design (B3, 2026-09-16, not built)
 
 Brain work will run on AWS; this page and your screens stay on Netlify. The details are in
-`docs/architecture/brain-execution-infrastructure.md`. This section covers behaviour, not visuals:
+`docs/architecture/brain-execution-infrastructure.md`.
+
+**B4 (2026-09-17) stored the records these behaviours read, but nothing serves them yet.** See
+`docs/architecture/brain-persistence.md`.
+- **Stored:** jobs, their named steps, the questions they ask, and the one reply each accepts.
+- **Not built:** there is no API yet (B5), and the migration is not deployed. Design against the
+  behaviour below, not against data you can load today.
+
+This section covers behaviour, not visuals:
 the look is yours. **None of it is built**, and today's Explanation panel is unchanged and OFF.
 
 - **Quick (interactive) Brain.** Work the person watches, such as today's Case explanation.

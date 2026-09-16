@@ -126,6 +126,48 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   // A participant is ACTIVE exactly when `releasedAt` is null, so a row born
   // without the column reads `undefined` and every participant looks released.
   caseParticipant: { releasedAt: null, releasedByUserId: null },
+  // Brain durable execution (B4): the defaults and the nullable columns each row is
+  // born with, so a read here sees what Postgres would return.
+  brainJob: {
+    generation: 1,
+    version: 0,
+    lastSequence: 0,
+    promotedAt: null,
+    leaseHolder: null,
+    leaseExpiresAt: null,
+    cancelRequestedAt: null,
+    cancelActorKind: null,
+    cancelActorUserId: null,
+    cancelActorPolicy: null,
+    cancelReason: null,
+    endReason: null,
+    currentWaitId: null,
+    currentWaitExpiresAt: null,
+    resultRefs: [],
+    input: {},
+    resumesJobId: null,
+    startedAt: null,
+    endedAt: null,
+    activeElapsedMs: 0,
+  },
+  brainJobStep: {
+    attempts: 0,
+    paidAttempts: 0,
+    lastFailureClass: null,
+    checkpointSealed: null,
+    checkpointKeyRef: null,
+    checkpointSealVersion: null,
+    checkpointSizeBytes: null,
+    checkpointedAt: null,
+    startedAt: null,
+    endedAt: null,
+  },
+  brainJobWait: { openJobKey: null, responderUserId: null, reply: null, replyFingerprint: null, answeredAt: null, closedAt: null },
+  brainCommand: { waitId: null, issuerUserId: null, issuerPolicy: null, dispatchedAt: null, lastDispatchedAt: null, dispatchCount: 0 },
+  brainEvent: { resultRefs: [], actorUserId: null, actorPolicy: null, reason: null },
+  aiControl: { organizationId: null, value: null, actorUserId: null, actorReference: null },
+  aiControlCurrent: { organizationId: null, value: null },
+  aiInvocation: { brainJobId: null, brainStepKey: null, specializationPolicyVersion: null },
   stateChangeOutbox: { status: 'PENDING', attemptCount: 0, subjectType: 'ACTIVE_STATE' },
   stateChangeDelivery: { status: 'PENDING', attemptCount: 0, required: false },
   stateChangeSubscription: { status: 'ACTIVE', required: false, eventTypes: [] },
@@ -195,6 +237,7 @@ const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
   // Same shape as operationalObservation: the Relationship log records when Loop
   // learned about an act, and the repository leaves it to the database default.
   crmRelationshipEvent: ['recordedAt'],
+  brainJob: ['acceptedAt'],
 };
 
 /**
@@ -249,6 +292,25 @@ const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
   // is what makes a retried attempt update one row instead of consuming an
   // organization's daily cap several times over.
   aiInvocation: [['organizationId', 'invocationId']],
+  // Brain durable execution (B4). The idempotency key, the composite (organization, id)
+  // key children reference, a job's transition sequence, one row per step key, one open
+  // question per job, one command per identity, one event per transition, and one log
+  // row per control version. The primary keys set explicitly (an event id, a control
+  // key) are unique too.
+  brainJob: [
+    ['organizationId', 'principalUserId', 'taskId', 'idempotencyKey'],
+    ['organizationId', 'id'],
+  ],
+  brainJobTransition: [['jobId', 'sequence']],
+  brainJobStep: [['jobId', 'stepKey']],
+  brainJobWait: [
+    ['organizationId', 'openJobKey'],
+    ['organizationId', 'id'],
+  ],
+  brainCommand: [['organizationId', 'dedupeKey']],
+  brainEvent: [['id'], ['jobId', 'sequence']],
+  aiControl: [['controlKey', 'version']],
+  aiControlCurrent: [['controlKey']],
   operationalObservation: [
     ['priorityId', 'sequence'],
     ['priorityId', 'detectionKey'],
@@ -538,6 +600,24 @@ function makeDelegate(name: string) {
       rows.push(row);
       return { ...row };
     },
+    /**
+     * Bulk insert. With `skipDuplicates`, a row that would violate a unique is skipped
+     * rather than raised -- Postgres' ON CONFLICT DO NOTHING -- which is what makes an
+     * idempotent insert safe inside a transaction.
+     */
+    async createMany({ data, skipDuplicates }: { data: Row[] | Row; skipDuplicates?: boolean }): Promise<{ count: number }> {
+      let count = 0;
+      for (const d of Array.isArray(data) ? data : [data]) {
+        try {
+          await this.create({ data: d });
+          count += 1;
+        } catch (err) {
+          if (skipDuplicates && (err as { code?: string }).code === 'P2002') continue;
+          throw err;
+        }
+      }
+      return { count };
+    },
     async findFirst(
       { where, orderBy, select }: { where?: Row; orderBy?: any; select?: Row } = {},
     ): Promise<Row | null> {
@@ -673,6 +753,15 @@ export const OPTIONAL_DELEGATES = [
   'customerPartyLink',
   // The durable AI usage ledger.
   'aiInvocation',
+  // Brain durable execution (B4), requested by the Brain persistence suites.
+  'brainJob',
+  'brainJobTransition',
+  'brainJobStep',
+  'brainJobWait',
+  'brainCommand',
+  'brainEvent',
+  'aiControl',
+  'aiControlCurrent',
 ] as const;
 
 export function makeCognitivePrisma(
