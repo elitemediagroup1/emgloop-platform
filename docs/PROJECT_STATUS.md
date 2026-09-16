@@ -25,7 +25,11 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — ALIGNED THROUGH CI STAGE 2 (verified 2026-08-16)
+## Production migration state — ALIGNED THROUGH CRM P0.2e (33 migrations; verified 2026-09-15)
+
+**Latest:** the `Deploy Prisma Migrations` run of 2026-09-13 found 33 migrations and applied
+`20260916000000_crm_p0_2e_customer_party_link`. `main` has added no migration since (#239–#243). The
+2026-08-16 narrative below is kept as history.
 
 **Production is, and has been since 2026-07-09, under Prisma Migrate management.** The long-standing
 claim that it has no `_prisma_migrations` ledger and that no migration has ever been applied through
@@ -1204,9 +1208,45 @@ record's decisions log). Product approved the three 2.0b readings as implemented
 depth guard, NOT_FOUND on a PERSON ↔ COMPANY chain, and refusing (never substituting) a superseded id on
 write. The rules for the 2.5b supersession writer are recorded in §8.
 
-**Next:** merge #243, then verify it on `main` by content. After that, Relationship and Participant
-architecture proceeds (architecture first) against the Party Reference contract. Still authorized but not done: wording fixes to materially false
-People labels, and the `/crm/merge` disable. No 2.1a or later slice without new authorization.
+#243 merged as `543c645` and was verified on `main` by content.
+
+**Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
+
+## Foundation handoff — DECISIONS RECORDED · PARTIALLY READY
+
+_Last updated: 2026-09-15._
+
+**Handoff:** `docs/product/foundation-handoff.md`. **UI-track summary:** `docs/product/ui-track-handoff.md`.
+
+**Records:**
+- `relationship-participant.md` — locked
+- `commercial-opportunity-campaign.md` — locked for design
+- `universal-activity.md` — `activity.v1`
+- `loop-ai-runtime.md` — approved, with activation gates
+
+**Product decisions (2026-09-15):**
+- Approved: PD-F-01, -02, -03, -04, -06, -07, -08.
+- Deferred: PD-F-05, -09, -10.
+- Still needed (non-blocking for UI design):
+  - PD-F-11: Opportunity and Campaign grants.
+  - PD-F-12: confirm Opportunity categories and loss reasons, forecast amount and close date, Campaign
+    lifecycle states, provider-link exclusivity.
+  - AI activation values for gates G2–G6.
+
+**Gate:** FOUNDATION HANDOFF PARTIALLY READY — SPECIFIED SURFACES MAY RESUME.
+- Relationships, Opportunities and Campaigns moved RED → YELLOW.
+- Creator administration is YELLOW for the roster only.
+- Brain, creator execution and Universal Search stay RED.
+
+**Critical gap:** `PartyService.create` and `establish` have no production caller, and production holds 0
+established Parties. Slice P1 addresses this.
+
+**Security:** #244 (password-reset token exposure) is ready for review and merges first. No production
+abuse investigation without separate authorization.
+
+**Sequence:** handoff §9.
+- **Independent now:** P1, P1b, Intake, A1, R1, AI S0.
+- **Dependent:** A2, R2 → R3, the Opportunity and Campaign slices, AI S1.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

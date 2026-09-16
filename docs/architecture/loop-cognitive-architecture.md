@@ -11,6 +11,13 @@ section marks what is live today vs. planned.
 > **Not production-ready** until the migration blocker is resolved — see
 > `docs/architecture/migration-remediation-plan.md`.
 
+> **Superseded in part (2026-09-15).** Ingestion no longer resolves an identity for every event (identity
+> Slice 1, #239). Identity is decided only through governed resolution:
+> `docs/architecture/identity-evidence-resolution.md`. `IdentityRelationship` and `IdentityRole` are
+> **not** the canonical commercial Relationship or Participant authorities (PD-I2-06;
+> `docs/architecture/relationship-participant.md`). The processor, resolver and evaluators described here
+> have no production caller.
+
 > This is the canonical implementation document for the cognitive foundation.
 > Where it disagrees with older `docs/` (EVENT_BUS.md, DATA_MODEL.md), this file
 > and the code win. Do not claim the Brain or aggregate intelligence exist — they
