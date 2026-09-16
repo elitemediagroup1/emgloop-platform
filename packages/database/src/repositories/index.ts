@@ -113,6 +113,18 @@ export type { CreateCustomerPartyLinkInput } from './customer-party-link.reposit
 export { ActivityReadModelRepository, ActivityCursorError } from './activity-read-model.repository';
 export type { ActivityAdapter, ActivitySubject, ActivityReadOptions } from './activity-read-model.repository';
 export { PartyReferenceRepository } from './party-reference.repository';
+// CRM Relationship and Participant persistence (slice R2). Persistence only: the
+// governed services, authorization, audit and outbox land in R3, so this is not a
+// security boundary. See ./crm-relationship.repository.ts.
+export { CrmRelationshipRepository, CRM_RELATIONSHIP_PROJECTION_VERSION } from './crm-relationship.repository';
+export type {
+  CrmRelationshipCreateInput,
+  CrmRelationshipSideInput,
+  CrmParticipantAddInput,
+  CrmRelationshipWriteResult,
+  CrmPartyRefusal,
+  CrmRelationshipRepositoryDeps,
+} from './crm-relationship.repository';
 export type { PartyReferenceRequirement, PartyReferenceRepositoryDeps } from './party-reference.repository';
 export { PartyReadModelRepository, PartyListCursorError } from './party-read-model.repository';
 export type { PartyListOptions, PartyReadModelRepositoryDeps } from './party-read-model.repository';
