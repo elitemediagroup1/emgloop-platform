@@ -41,17 +41,17 @@ model conflicts with Loop's rule that a refusal is an outcome.
 | Display name | GPT-6 Astra |
 | API model id | `gpt-6-astra` |
 | Pinned? | The model page lists `gpt-6-astra` as its only snapshot. Aliases such as `gpt-5.6` are not used. Every call records the model OpenAI reports serving. |
-| Status | Current flagship ("our flagship model for complex reasoning and coding") |
+| Status | Current; listed first among OpenAI's flagship models as "Our most capable model, built for the hardest end-to-end work". Not on the deprecations page (checked 2026-09-16). |
 | Context / max output | 1.05M tokens (922K max input) / 128K tokens |
 | Knowledge cutoff | 2026-04-30 |
-| Pricing (list `openai-api-pricing-2026-09-16`) | $10 / MTok input, $50 / MTok output (cached input $1; prompts above 272K input cost more — Loop's per-call ceiling is 40K) |
+| Pricing (list `openai-api-pricing-2026-09-16`) | $10 / MTok input, $50 / MTok output (cached input $1). Prompts above 272K input tokens are priced at 2x input and cache and 1.5x output for the whole request; Loop's per-call ceiling is 40K. |
 | Structured output | Supported; Responses API `text.format` JSON schema, `strict: true` |
 | Reasoning | `reasoning.effort` `low`…`max` |
 | Data retention (published) | API data not used for training unless opted in; abuse-monitoring logs up to 30 days; Responses API stores for ≥30 days **unless `store: false`** (Loop always sends it); ZDR / Modified Abuse Monitoring need OpenAI approval |
 | Sources | developers.openai.com/api/docs/models · …/models/gpt-6-astra · …/guides/structured-outputs · …/guides/your-data |
 
-**Why it is the fallback.** It is OpenAI's documented flagship for complex reasoning, so an answer
-served during a primary outage is held to a comparable standard. It serves only when the primary is
+**Why it is the fallback.** OpenAI documents it as its most capable model, so an answer served during a
+primary outage is held to a comparable standard. It serves only when the primary is
 unavailable, rate limited or timed out. **The cheaper alternative** is `gpt-5.6-sol` ($4/$20), which
 is a Product call.
 
@@ -62,6 +62,11 @@ is a Product call.
   - one attempt per target;
   - a 25 s primary deadline and a 20 s fallback deadline;
   - at least 10 s left for reads, reservations and reconciliation.
+
+  These deadlines size the path that is built today, where the call runs inside a Netlify function.
+  The approved Brain execution direction moves provider calls to AWS
+  (`docs/architecture/brain-execution-architecture.md`). The deadlines are revisited when that lands
+  (B6), under a reviewed routing-policy version, not before.
 - **Node 22** is required by `openai` 7.15 and is the only non-EOL LTS both SDKs support. See PR #267.
 
 ## Assumptions that still need legal or Product confirmation

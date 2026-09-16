@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-14 (Loop application structure: PR 1 in review; CRM Phase 1 blockers open)._
+_Last updated: 2026-09-16 (AI runtime #266–#271 merged, switched off; Brain-on-AWS direction approved, not built; see the Foundation handoff block)._
 
 ---
 
@@ -33,7 +33,7 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 - The log shows no errors, failures, rollbacks or drift.
 - The hand-written SQL matches `prisma migrate diff` statement for statement.
 
-The AI activation PRs #266–#270 add **no** migration.
+The AI activation PRs #266–#270 and the docs PR #271 add **no** migration.
 
 `migrate status` does not detect schema drift. Seven pre-existing, cosmetic differences between the
 migration history and `schema.prisma` are recorded in `docs/architecture/schema-drift-2026-09-16.md`.
@@ -258,6 +258,10 @@ make it actually leave.
 and `OUTBOX_DRAIN_SECRET` as repository secrets. Unconfigured, the endpoint fails closed with 401
 and nothing is delivered — which is why `delivery-execution` is PARTIAL, not GUARANTEED. Verify
 with a manual `workflow_dispatch` run.
+
+**⚠️ Confirmed 2026-09-16: STILL NOT CONFIGURED.** Every scheduled run since at least 2026-09-14 fails
+with "OUTBOX_DRAIN_URL and OUTBOX_DRAIN_SECRET must both be set", so nothing drains the outbox in
+production. This is an open item, not a resolved one.
 
 **NEXT: the Work OS subscriber**, now that it would land on a spine that provably delivers. Note
 the existing cognitive `work-os` handler is NOT a Work OS integration — it is identity-scoped
@@ -1221,84 +1225,118 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — OPERATOR SURFACE AND AI LEDGER LIVE ON MAIN · AI ACTIVATION PREPARED, OFF
+## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN ON AWS APPROVED AS DIRECTION, NOT BUILT
 
-_Last updated: 2026-09-16._ `main` is `d069c7d`. #244–#267 are merged and were verified by content.
-Production has 35 migrations. The operator surface (#264) is on `main` as temporary engineering UI.
-Production still holds 0 established Parties and 0 Relationships, and nothing has been converted, linked
-or cleaned up.
+_Last updated: 2026-09-16._ `main` is `7f33d3f`. #244–#271 are merged and were verified by content.
+- Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
+  #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`.
+- Full validation on that `main` is green. The only failures are the known baselines:
+  `marketplace-intelligence` typecheck, and lint, which was never configured.
+- Production has 35 migrations; nothing has been dispatched since run `35103219698`.
+- The operator surface (#264) is on `main` as temporary engineering UI.
+- Production holds 0 established Parties and 0 Relationships. Nothing has been converted, linked or
+  cleaned up.
 
-**AI: prepared end to end, switched off.** Zero Anthropic and zero OpenAI requests have been made. Five
-PRs merge in this order; #266 and #267 are merged. Each remaining PR contains the one before it, so with
-squash merges the next one must be rebased onto `main` (its content unchanged) before it can merge:
+**AI runtime: built, switched off.** Zero Anthropic and zero OpenAI requests have been made.
+- **#266 AI-1:** every provider call is reserved in `ai_invocations` inside a serializable transaction
+  before dispatch, and reconciled after. Activation allowlists, a versioned routing policy, a budget
+  policy and an invoker authorizer.
+- **#267 AI-2:** Node 22 for provider code.
+  - `apps/web/src/ai/ai-environment.ts` is the one server-only reader of the credentials and `LOOP_AI_*`.
+  - `sdk-clients.ts` is the one SDK importer.
+- **#268 AI-3:** adapters speak current APIs.
+  - Anthropic uses `output_config.format`; OpenAI sends `store: false`.
+  - Evidence is escaped.
+  - Failures carry no provider text.
+- **#269 AI-4:** the verified model catalog.
+  - `claude-opus-5` is primary and `gpt-6-astra` the fallback.
+  - Re-verified against the providers' own documentation on 2026-09-16, and still matching.
+  - Routing `routing.2026-09-16.2`; budget `budget.2026-09-16.1-proposed`.
+- **#270 AI-5:** Case Explanation.
+  - Context minimization and validation v2.
+  - A 20-scenario evaluation (scenarios 1–18, plus 7b and 7c).
+  - A switched-off panel.
+- **#271:** the schema-drift record, the Intake → Party linking recommendation, and the Charlie/Lexi
+  handoff.
 
-1. **#266 AI-1 (merged):** durable gateway.
-   - Every provider call is reserved in `ai_invocations` inside a serializable transaction before it is
-     made, and reconciled after.
-   - Activation is four allowlists.
-   - Routing is a versioned per-task policy, with a budget policy and an authorizer.
-   - Tested against real Postgres: under contention the cap holds; with READ COMMITTED it did not.
-2. **#267 AI-2 (merged):** Node 22 for provider code (`.nvmrc` plus two CI jobs).
-   - `apps/web/src/ai/ai-environment.ts` is the one server-only reader of the credentials and `LOOP_AI_*`.
-   - `packages/providers/src/ai/adapters/sdk-clients.ts` is the one SDK importer. Its base URL, retries and
-     logging are pinned, and clients can't be serialized.
-3. **#268 AI-3:** adapters speak current APIs.
-   - Anthropic uses `output_config.format`; OpenAI sends `store:false`.
-   - Evidence is rendered escaped.
-   - No provider text escapes a failure; unknown errors are UNCLASSIFIED.
-4. **#269 AI-4:** verified models (2026-09-16, official docs).
-   - `claude-opus-5` is primary and `gpt-6-astra` the fallback.
-   - Versioned price lists.
-   - Deadlines are sized to Netlify's fixed 60 s function limit.
-   - The budget is a proposal.
-5. **#270 AI-5:** Case Explanation.
-   - The context builder sends structured facts only and withholds human text, names and ids.
-   - Validation v2 checks figures against each claim's own sources, and numbers and dates in prose.
-   - A 21-scenario evaluation.
-   - An honest, switched-off panel.
+**Brain execution: direction approved 2026-09-16, NOT BUILT.** See
+`docs/architecture/brain-execution-architecture.md`.
+- **The split:** Netlify stays the product, auth boundary and Brain API. Neon stays authoritative. AWS
+  runs every Brain step and every provider call, for INTERACTIVE and DURABLE alike, behind a Loop-owned
+  orchestrator port.
+- **Orchestration:** Inngest is dropped. Step Functions, then Temporal, are escalation options only.
+- **Trust:** no long-lived AWS credentials in Netlify. Neon commands plus a JWT doorbell, approved
+  subject to implementation review.
+- **Keys:** provider keys end up in AWS Secrets Manager.
+- **Scope of the approval:** architecture only. No AWS resource exists, and nothing in Netlify has
+  changed.
+- **Sequence (§12 of the record), one reviewed PR each:**
+  - B0: docs, in review;
+  - B1: schema-only drift alignment;
+  - B2: pure contracts;
+  - B3: persistence (one additive migration, not dispatched);
+  - B4: Brain core and the Netlify Brain API;
+  - B5: AWS foundation in staging, switched off (needs approval of the second deployable and the
+    infrastructure-as-code tool);
+  - B6: Case Explanation on AWS, with the first live request in staging on a synthetic Case;
+  - B7: the first DURABLE task.
 
-**Found and fixed on the way:**
-- **In #265:** `reconcile` erased `fellBackFrom`.
-- **In the B5 gateway:** no principal authorization, no deadline, unknown errors retried, failures recorded
-  as free, claim shapes unchecked.
-- **In the context contract:** the cross-organization check was skipped when an id lacked `::`.
-
-**Blocked on Matt (activation):** see the activation dossier in the run report.
-- Approve the budget and the routing.
-- Confirm provider data terms (G2).
-- Confirm that `AWS_LAMBDA_JS_RUNTIME` is not set in Netlify.
-- Set the `LOOP_AI_*` variables for one organization.
-- Redeploy.
-- Make the first request by hand.
+**Open items — NOT resolved:**
+1. **Outbox drain is broken in production.** Every scheduled "Drain outbox" run since at least
+   2026-09-14 fails because the repository secrets `OUTBOX_DRAIN_URL` and `OUTBOX_DRAIN_SECRET` are
+   unset. Nothing delivers `state_change_outbox` events. It needs Matt, and it blocks B7.
+2. **Schema drift.** The seven recorded differences
+   (`docs/architecture/schema-drift-2026-09-16.md`) must be aligned in B1, before the B3 migration.
+   Otherwise `prisma migrate dev` folds "fixes" into it.
+3. **Anthropic effort.** Anthropic says to start Claude Opus 5 at `high`; the reviewed routing uses
+   `medium`, never evaluated live. Decide before the first live request, ideally after a staging effort
+   sweep.
+4. **First live request venue.** Recommended: AWS staging with a synthetic Case (B6). The earlier plan was
+   Netlify production for one organization. Matt to confirm.
+5. **Region.** AWS must use Neon's region, which is not recorded in the repo. Matt to confirm.
 
 **Blocked on a decision:** web-side Intake → Party linking. The recommendation and the narrowest fence
 change are in `docs/product/intake-party-linking-recommendation.md`.
 `legacy-intake-retirement-plan.md` and the handoff disagree on whether this is already authorized.
 
-**Handoff:** `docs/product/ui-track-handoff.md` §2 is current. §4 lists what is still missing for the
-visual redesign: the design deliverable, the route-transition proposal, and the cited "Product
-Definition".
+**Handoff:** `docs/product/ui-track-handoff.md` is current. It now also lists the Brain experience
+decisions for Charlie and Lexi.
 
 **Product decisions:**
-- **Approved:** PD-F-01, -02, -03, -04, -06, -07, -08; the AI ledger (reproducible cost, the
-  organization's business date, no per-user cap).
+- **Approved:**
+  - PD-F-01, -02, -03, -04, -06, -07, -08;
+  - the AI ledger (reproducible cost, the organization's business date, no per-user cap);
+  - the Brain execution direction (2026-09-16), including stored AI controls in Neon.
+  - provider specialization by capability route (2026-09-16). COMMUNICATION defaults to OpenAI
+    primary, TECHNICAL_ANALYSIS to Anthropic primary, and GENERAL_REASONING is named per task.
+    Fallback stays governed and recorded. **Not implemented**; the routing policy is unchanged. See
+    `brain-execution-architecture.md` §5a.
 - **Deferred:** PD-F-05, -09, -10.
 - **Still needed:**
   - PD-F-11 and PD-F-12;
-  - the AI budget values;
+  - AI budget values, per-job budgets and the paid-attempt limit;
   - MANAGER as a Case Explanation invoker;
   - Fable 5.1 versus Opus 5 (retention trade-off);
   - GPT-6 Astra versus GPT-5.6 Sol as fallback (cost);
-  - an instant, stored kill switch (needs a migration);
+  - retention for checkpoints, execution data and logs;
+  - the AWS account structure and access;
+  - a staging database (Neon branch);
+  - the Neon plan;
+  - the infrastructure-as-code tool (Charlie);
+  - the Brain experience decisions (Charlie and Lexi);
   - the web linking decision.
 
 **Next:**
-1. Merge #268 through #270 in order, refreshing each onto `main` after the one before it lands.
-2. Make the activation decisions above.
-3. Make one controlled Case Explanation request.
-4. Schema-side alignment for the drift (a schema-only PR, no migration).
-5. The Relationship list filtered by kind (creator roster).
-6. Opportunity and Campaign, after PD-F-11 and PD-F-12.
+1. Merge B0 (docs only).
+2. Post-B0 master-roadmap reconciliation. It incorporates provider specialization: capability route vs
+   the existing `profile`, Case Explanation's route and resulting routing policy, and the COMMUNICATION
+   models, verified when chosen.
+3. B1: schema-side alignment of the drift, a schema-only PR with no migration. Not started.
+4. Fix the outbox drain secrets (Matt).
+5. Then B2 onward, in order, each as its own reviewed PR.
+6. Unrelated to AI:
+   - the Relationship list filtered by kind (creator roster);
+   - Opportunity and Campaign, after PD-F-11 and PD-F-12.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
@@ -1379,7 +1417,8 @@ it; a broader Headlines route/access policy is a separate future decision.
    2. **Operator Velocity** — Decision Center v2 UI/workflow polish, zero backend.
    3. **Work OS as the FIRST subscriber** to `DECISION` events. This is what closes
       ENGINEERING_PRINCIPLES Rule 6, which currently holds by discipline rather than enforcement.
-      The drain now provably delivers — no subscription is registered for `DECISION` subjects.
+      The drain delivers in code and tests, but **it is not configured in production** (repository
+      secrets unset; see the drain block). No subscription is registered for `DECISION` subjects.
    4. Prove the event bus end to end.
    5. CRM onto the Decision Engine (producer #2) — now downstream of Business Identity too.
    6. Accounting onto the Decision Engine (producer #3).

@@ -80,15 +80,17 @@ export const AI_MODEL_CATALOG: readonly AiCatalogModel[] = Object.freeze([
     modelId: 'gpt-6-astra',
     displayName: 'GPT-6 Astra',
     pinned: true,
-    // "our flagship model for complex reasoning and coding"; the page lists
-    // `gpt-6-astra` as its only snapshot.
+    // The models page lists it first among the flagship models as "Our most capable
+    // model, built for the hardest end-to-end work"; its model page lists `gpt-6-astra`
+    // as its only snapshot, and the deprecations page does not mention it.
     status: 'Current flagship',
     contextWindowTokens: 1_050_000,
     maxOutputTokens: 128_000,
     knowledgeCutoff: '2026-04-30',
     retirement: null,
-    // $10 / MTok input, $50 / MTok output (prompts above 272K input tokens cost more;
-    // Loop's per-call input ceiling is far below that).
+    // $10 / MTok input ($1 cached), $50 / MTok output. "Prompts with more than 272K input
+    // tokens are priced at 2x input and cache rates and 1.5x output for the full request";
+    // Loop's per-call input ceiling (40,000 tokens) is far below that.
     pricing: Object.freeze({ listVersion: OPENAI_PRICE_LIST, inputMicrosPerToken: 10, outputMicrosPerToken: 50 }),
     reasoningEfforts: Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']),
     structuredOutputs: 'NATIVE_JSON_SCHEMA',

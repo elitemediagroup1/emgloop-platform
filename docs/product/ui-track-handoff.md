@@ -1,7 +1,7 @@
 # UI Track Handoff — what Charlie and Lexi can build now
 
-**Date:** 2026-09-16, against `main` `f6b6b0d` (#264 and #265 merged; production at 35 migrations), with
-the AI activation PRs #266–#270 noted where they change a status. **For:** Charlie and Lexi. **Owner of this page:** the
+**Date:** 2026-09-16, against `main` `7f33d3f` (#264–#271 merged; production at 35 migrations; the AI
+runtime is built and switched off). **For:** Charlie and Lexi. **Owner of this page:** the
 backend and authority track. **This table is the current status**; the matrix in
 `foundation-handoff.md` §6 records the 2026-09-15 decision point.
 
@@ -236,6 +236,28 @@ styles. Its **states and wording are the contract**; its look is yours to redesi
   - not shown, with a reason: rules broken, model declined, allowance used up, provider unavailable, or
     not found.
 - **No real-data sample exists yet.** Nothing is recorded, and answers are never stored.
+
+**Coming change: where Brain runs (approved direction 2026-09-16, not built).** Brain work, including this
+panel's model call, will run on AWS rather than inside the page request. See
+`docs/architecture/brain-execution-architecture.md`. What that means for your design:
+
+- **Start, then watch.** Pressing the button will start a job and return at once. The panel will then show
+  step progress until the result is ready, rather than waiting on one long request.
+- **Leaving is safe.** Work will continue if the person navigates away or closes the browser. Longer work
+  will be able to move to a "still working — you can leave" state without starting over.
+- **Results appear whole.** A validated answer will be shown in full, with no word-by-word typing effect.
+  An answer that breaks a rule will still never be shown.
+- **Waiting on a person** (later tasks only). A job will be able to pause with a question and resume when
+  it is answered, possibly days later.
+
+**Decisions that are yours** (none blocks today's panel contract):
+1. What the move to background looks like: the threshold, the wording, and where people find running and
+   finished work.
+2. The notification channel: in-app, email, or both.
+3. How a waiting question is shown, and its default expiry.
+4. Whether Case explanations keep a history or stay one-off.
+5. Whether any live token streaming is ever wanted. Governance currently shows validated results only.
+6. How each result type is presented: answer, analysis, finding, recommendation, proposed action.
 
 ## 3. Blockers you will hit
 
