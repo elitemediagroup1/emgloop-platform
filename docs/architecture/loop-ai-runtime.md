@@ -9,8 +9,15 @@ gates in §17 hold.
 **Where it executes (amended 2026-09-16, approved direction).** Brain execution, including every provider
 call, moves to AWS. Netlify stays the product and the Brain API front door, and Neon stays authoritative.
 See `brain-execution-architecture.md`.
-- **Built so far (B2):** the provider-independent execution contracts (§6a), and nothing that executes
-  them.
+- **Built so far (B2, B3):** the provider-independent execution and dispatch contracts (§6a), and
+  nothing that executes them.
+- **Designed (B3, not provisioned):** how work reaches AWS and runs there. See
+  `brain-execution-infrastructure.md`:
+  - an authenticated doorbell;
+  - SQS-driven Lambda step runners with Neon as the only workflow state;
+  - provider keys in Secrets Manager;
+  - product reads and writes through Loop's internal Brain API;
+  - region us-east-1, where production Neon runs.
 - **Until the rest is built:** the runtime described here runs inside the Netlify app, as §16 and §17
   say.
 
@@ -223,6 +230,10 @@ considered, reasons for skipping, and the one chosen.
   - **Fallback** stays governed and recorded.
   - **Unchanged.** `routing.2026-09-16.2` is unchanged, because Case Explanation (TECHNICAL_ANALYSIS)
     already conforms.
+  - **Run-time enforcement (B3, designed).** `brainRouteGate` runs where Brain work is accepted and
+    before every model step; a refusal ends the job as `ROUTING_NOT_CONFORMANT`. The existing,
+    switched-off Netlify gateway is not changed, because it is retired when Case Explanation moves
+    to AWS.
 
   See `brain-execution-architecture.md` §5a.
 
@@ -649,7 +660,8 @@ the pure `admitAiInvocation` and the durable reservation.
 Environment changes reach a Netlify deployment on its **next deploy**, so these switches act in minutes,
 not instantly. The approved Brain execution direction makes activation and kill switches **stored controls in
 Neon**, read by Netlify and the AWS worker alike, with a master switch per deployable as a floor
-(`brain-execution-architecture.md` §7). That needs a migration (step B3) and is **not built**. Until then,
+(`brain-execution-architecture.md` §7; the control-plane design is in
+`brain-execution-infrastructure.md` §17). That needs a migration (step B4) and is **not built**. Until then,
 these environment gates are the mechanism, and they are OFF.
 
 **If credentials are missing,** everything is built up to the adapter boundary and tested with recorded
