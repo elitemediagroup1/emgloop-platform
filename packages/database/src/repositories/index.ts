@@ -110,6 +110,8 @@ export { CustomerPartyLinkRepository } from './customer-party-link.repository';
 export type { CreateCustomerPartyLinkInput } from './customer-party-link.repository';
 export { PartyReferenceRepository } from './party-reference.repository';
 export type { PartyReferenceRequirement, PartyReferenceRepositoryDeps } from './party-reference.repository';
+export { PartyReadModelRepository, PartyListCursorError } from './party-read-model.repository';
+export type { PartyListOptions, PartyReadModelRepositoryDeps } from './party-read-model.repository';
 export { OrganizationRepository } from './organization.repository';
 export {
   DemoFootprintRepository,
