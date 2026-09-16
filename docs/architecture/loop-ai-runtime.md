@@ -551,20 +551,28 @@ and primary/fallback capability. Case Explanation is the first use case.
   content, workforce PII and sensitive fields are not sent (§7).
 - **Bodies:** prompt and response bodies are not persisted in production. Manifests and validated
   artifacts are (§9).
-- **Case Explanation access:** OWNER/ADMIN with `commercialIntelligence:view`, behind an organization
-  flag (§16).
+- **Case Explanation access:** OWNER/ADMIN with `commercialIntelligence:view`, for organizations on the
+  deployment's allowlist (§16; G6, G7 below).
 
 **Activation gates.** A live call to a provider happens only when **every** gate holds. Until then the
-task reports an honest "not configured" state and makes no call.
+task reports an honest "not configured" or "not enabled" state and makes no call. As built (AI-1, AI-2),
+the gates are read by exactly one server-only module, `apps/web/src/ai/ai-environment.ts`, and enforced by
+the pure `admitAiInvocation` and the durable reservation.
 
 | Gate | What must be true | Where it lives |
 |---|---|---|
-| G1 Credentials | `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` present in the server environment. Never `NEXT_PUBLIC`, never logged, never echoed. | Deployment environment (Netlify) |
-| G2 Provider terms | Provider security and data terms (no training on submissions, retention or zero-retention, processing region) confirmed for the environment. Recorded as configuration: absent means disabled. | Deployment environment |
-| G3 Models and routing | Model identifiers configured for the task's routing policy. No model id is hard-coded in domain code. | Deployment environment + routing policy |
-| G4 Budgets | Per-request token ceilings and a per-organization daily cap configured. Absent means disabled. | Deployment environment |
-| G5 Kill switches | Global and per-task switches not engaged | Deployment environment |
-| G6 Organization flag | The Case Explanation flag is enabled for the organization | Organization settings |
+| G0 Runtime enabled | `LOOP_AI_ENABLED` is exactly `true`. Anything else is OFF, and no provider client is even constructed. | Deployment environment (Netlify) |
+| G1 Credentials | `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` present. **Presence means CONFIGURED, never ON.** Read only by the environment module, handed only to the SDK factory, never `NEXT_PUBLIC`, never logged, never echoed. | Deployment environment |
+| G2 Provider terms | The provider is listed in **both** `LOOP_AI_PROVIDERS` and `LOOP_AI_PROVIDER_TERMS_CONFIRMED` — the second is the operator's record that its data terms (training, retention, region) were confirmed. | Deployment environment |
+| G3 Models and routing | The task version has an entry in the reviewed, versioned routing policy: exact primary and fallback model ids, effort, deadline, output ceiling, price list. A task version the policy was not reviewed against is refused. | Routing policy file (code review) |
+| G4 Budgets | A budget policy with per-call limits, a per-task daily cap, a per-organization daily cap and a global cap. Absent, unknown or zero means refused. Enforced in a serializable reservation. | Budget policy file (code review) + `ai_invocations` |
+| G5 Kill switches | None of `LOOP_AI_KILL_SWITCHES` names this task, organization, provider or model, and none is `GLOBAL`. An unreadable entry is `GLOBAL`. | Deployment environment |
+| G6 Organization and task | The organization is in `LOOP_AI_ORGANIZATIONS` and the task in `LOOP_AI_TASKS`. | Deployment environment |
+| G7 Invoker | The person is an active OWNER or ADMIN member holding every required permission through `can()`; never AI_EMPLOYEE. | `iamAiAuthorizer` |
+
+Environment changes reach a Netlify deployment on its **next deploy**, so these switches act in minutes,
+not instantly. An instant switch would need a stored flag, which needs a migration — a Product decision,
+not taken.
 
 **If credentials are missing,** everything is built up to the adapter boundary and tested with recorded
 fixtures, so the task can activate once G1–G6 are supplied.

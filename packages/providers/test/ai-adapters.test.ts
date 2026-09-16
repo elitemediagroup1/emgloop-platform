@@ -260,9 +260,17 @@ test('fence: the adapters read no credential, build no client and call no URL', 
   assert.ok(files.length >= 3);
   for (const file of files) {
     const src = readFileSync(join(dir, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    assert.doesNotMatch(src, /process\.env|API_KEY|apiKey/i, `${file} must read no credential`);
-    assert.doesNotMatch(src, /new Anthropic|new OpenAI|https?:\/\//, `${file} must build no client and name no host`);
+    assert.doesNotMatch(src, /process\.env/, `${file} must read no environment`);
     assert.doesNotMatch(src, /'(claude|gpt)-[\w.-]+'/i, `${file} must hard-code no model id`);
+    if (file === 'sdk-clients.ts') {
+      // The one file that builds clients. It is HANDED the credential, and it names
+      // exactly the two provider hosts -- pinned, so no environment can redirect them.
+      assert.deepEqual([...src.matchAll(/https?:\/\/[^'"`\s]+/g)].map((m) => m[0]).sort(), ['https://api.anthropic.com', 'https://api.openai.com/v1']);
+      assert.doesNotMatch(src, /API_KEY/, 'it names no environment variable');
+      continue;
+    }
+    assert.doesNotMatch(src, /API_KEY|apiKey/i, `${file} must read no credential`);
+    assert.doesNotMatch(src, /new Anthropic|new OpenAI|https?:\/\//, `${file} must build no client and name no host`);
   }
 });
 

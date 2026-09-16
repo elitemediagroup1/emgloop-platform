@@ -131,7 +131,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # This job runs the providers test suite, which now imports the model SDKs
+          # (openai requires Node >=22). One source: .nvmrc.
+          node-version-file: '.nvmrc'
 
       - name: Install dependencies
         # `npm install`, matching every other operations workflow. This step also
