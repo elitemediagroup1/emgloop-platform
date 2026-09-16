@@ -31,7 +31,7 @@ input tokens cost money; a refusal is a fact about the system. Both are recorded
 | `invocationId` | text, **unique per organization** | Loop's correlation id, **stable across retries** — so a retried attempt updates one row rather than counting twice |
 | `principalUserId` | FK → users, SET NULL | Whose authority assembled the context. Never a service account |
 | `taskId`, `taskVersion` | text | Which question, in which version |
-| `profile` | text | The capability profile routed on |
+| `profile` | text | The **capability route** the task declared (COMMUNICATION, TECHNICAL_ANALYSIS, GENERAL_REASONING). Since B2 it replaces the retired capability profile; the column kept its name because renaming it needs a migration. Rows written earlier hold the retired words and are read with `aiLedgerCapabilityOf`, which never maps them onto a route |
 | `providerId`, `requestedModelId` | text | What Loop asked for |
 | `servedModel` | text, null | What the provider says actually answered. Not always the same |
 | `routingPolicyVersion` | text | Which routing table chose it |

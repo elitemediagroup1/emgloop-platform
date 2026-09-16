@@ -95,7 +95,8 @@ export interface AiCallReservation {
   readonly principalUserId: string;
   readonly taskId: string;
   readonly taskVersion: string;
-  readonly profile: string;
+  /** The task's declared capability route. Stored in `ai_invocations.profile`. */
+  readonly capabilityRoute: string;
   readonly target: AiRouteTargetPolicy;
   readonly routingPolicyVersion: string;
   readonly budgetClass: string;
@@ -423,7 +424,7 @@ export class AiRuntimeGateway {
           principalUserId: principal.userId,
           taskId: request.task.taskId,
           taskVersion: request.task.version,
-          profile: request.task.profile,
+          capabilityRoute: request.task.capabilityRoute,
           target,
           routingPolicyVersion: meta.routingPolicyVersion,
           budgetClass: meta.budgetClass,

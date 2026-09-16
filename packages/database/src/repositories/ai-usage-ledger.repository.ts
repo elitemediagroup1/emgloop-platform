@@ -52,7 +52,12 @@ export interface AiInvocationReserveInput {
   readonly principalUserId: string | null;
   readonly taskId: string;
   readonly taskVersion: string;
-  readonly profile: string;
+  /**
+   * The capability route the task declared. The column is still called `profile`: it
+   * was named for the vocabulary this replaced in B2, and renaming it needs a migration.
+   * Rows written before B2 hold the retired words; read them with `aiLedgerCapabilityOf`.
+   */
+  readonly capabilityRoute: string;
   readonly providerId: string;
   readonly requestedModelId: string;
   readonly routingPolicyVersion: string;
@@ -144,7 +149,7 @@ export class AiUsageLedgerRepository {
         principalUserId: input.principalUserId,
         taskId: input.taskId,
         taskVersion: input.taskVersion,
-        profile: input.profile,
+        profile: input.capabilityRoute,
         providerId: input.providerId,
         requestedModelId: input.requestedModelId,
         routingPolicyVersion: input.routingPolicyVersion,

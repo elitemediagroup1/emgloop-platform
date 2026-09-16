@@ -246,6 +246,7 @@ test('reserve, then call, then validate, then reconcile, then answer', async () 
 
   const row = inner.calls[0]!;
   assert.equal(row.principalUserId, 'user_1', 'whose authority it was');
+  assert.equal(row.capabilityRoute, 'TECHNICAL_ANALYSIS', "the task's declared capability, not a model or a provider");
   assert.equal(row.routingPolicyVersion, 'routing.test.1');
   assert.equal(row.budgetClass, 'standard');
   assert.equal(row.fellBackFrom, null);

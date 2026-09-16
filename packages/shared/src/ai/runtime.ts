@@ -12,9 +12,10 @@
 // for the organization, for the task and for the provider. Four separate answers,
 // because "the key is present" means CONFIGURED and nothing more.
 //
-// ROUTING IS VERSIONED POLICY, PER TASK. A task names what it needs; a reviewed,
-// versioned routing policy names the exact primary and fallback models for that
-// task version. The model ids live in that policy and nowhere in domain code, so
+// ROUTING IS VERSIONED POLICY, PER TASK. A task declares the capability it needs
+// (capability.ts); a reviewed, versioned routing policy names the exact primary and
+// fallback models for that task version, and conforms to the provider specialization
+// policy or says why not. The model ids live in that policy and nowhere in domain code, so
 // changing the model that answers is a reviewed configuration change -- never a
 // provider alias quietly moving underneath a pinned request.
 //
@@ -31,10 +32,6 @@
 
 import { aiToolsAdmissible, type AiModelRequest, type AiUsage } from './provider';
 import { aiContextSourceRefs, type AiContextPackage } from './context';
-
-/** What a task needs of a model, not which model. Recorded on the task; routing is per task. */
-export const AI_CAPABILITY_PROFILES = ['EXPLANATION', 'EXTRACTION', 'CLASSIFICATION', 'DRAFTING'] as const;
-export type AiCapabilityProfile = (typeof AI_CAPABILITY_PROFILES)[number];
 
 /** How hard a model should think. Provider-neutral; each adapter maps it to its own knob. */
 export const AI_REASONING_EFFORTS = ['low', 'medium', 'high'] as const;
@@ -83,6 +80,12 @@ export interface AiTaskRoutePolicy {
   readonly fallbackPermitted: boolean;
   /** Which budget class limits this task. */
   readonly budgetClass: string;
+  /**
+   * Why the primary is not the provider the task's capability route prefers, or why
+   * this provider was chosen for a route with no default. Absent when the primary
+   * follows the preference. Reviewed with the rest of the entry (capability.ts).
+   */
+  readonly providerChoiceReason?: string;
 }
 
 export interface AiRoutingPolicy {

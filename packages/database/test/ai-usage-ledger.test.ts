@@ -35,6 +35,7 @@ import { AiUsageLedgerRepository, aiContextManifestHash } from '../src/repositor
 import { DurableAiUsageLedger, isSerializationFailure } from '../src/services/ai-usage-ledger.service';
 import type { AiCallReservation } from '../src/services/ai-runtime/gateway';
 import type { AiBudgetPolicy } from '@emgloop/shared';
+import { aiLedgerCapabilityOf } from '@emgloop/shared';
 
 const ORG = 'org_ledger';
 const OTHER = 'org_other';
@@ -58,7 +59,7 @@ const reserveInput = (invocationId: string, over: Record<string, unknown> = {}) 
   principalUserId: 'user_1',
   taskId: 'call.summarise',
   taskVersion: '1',
-  profile: 'SUMMARY',
+  capabilityRoute: 'GENERAL_REASONING',
   providerId: 'provider-a',
   requestedModelId: 'model-a',
   routingPolicyVersion: 'policy-1',
@@ -98,7 +99,7 @@ function reservation(callKey: string, over: Partial<AiCallReservation> = {}): Ai
     principalUserId: 'user_1',
     taskId: 'case.explanation',
     taskVersion: '1.0.0',
-    profile: 'EXPLANATION',
+    capabilityRoute: 'TECHNICAL_ANALYSIS',
     target: {
       providerId: 'provider-a',
       modelId: 'model-a',
@@ -350,6 +351,18 @@ test('a reservation writes the row the budget will count, priced from the versio
   assert.deepEqual(spend.organization, { invocations: 1, inputTokens: 3000, outputTokens: 2000 });
   assert.deepEqual(spend.task, spend.organization);
   assert.deepEqual(spend.global, spend.organization);
+});
+
+test('the profile column records the capability route, and a row written before B2 still reads honestly', async () => {
+  const w = world();
+  assert.deepEqual(await w.service.reserve(reservation('inv_route'), BUDGET, [ORG]), { ok: true });
+  const row = w.fake.aiInvocation.__rows[0];
+  assert.equal(row.profile, 'TECHNICAL_ANALYSIS', 'one field: the route the task declared');
+  assert.equal('capabilityRoute' in row, false, 'no second column beside it');
+  assert.deepEqual(aiLedgerCapabilityOf(row.profile), { kind: 'CAPABILITY_ROUTE', route: 'TECHNICAL_ANALYSIS' });
+  // A row from before B2 is not quietly mapped onto a route it never recorded.
+  assert.deepEqual(aiLedgerCapabilityOf('EXPLANATION'), { kind: 'RETIRED_PROFILE', profile: 'EXPLANATION' });
+  assert.deepEqual(aiLedgerCapabilityOf('SUMMARY'), { kind: 'UNRECOGNIZED', stored: 'SUMMARY' });
 });
 
 test('a fallback call records what it stands in for, and an unpriced route records no cost', async () => {

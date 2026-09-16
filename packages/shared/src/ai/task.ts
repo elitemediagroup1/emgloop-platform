@@ -16,10 +16,20 @@
 // is READ_ONLY. Nothing in this contract can propose a domain write, and the
 // governance gate refuses a tool that writes.
 //
+// THREE INDEPENDENT DECLARATIONS (B2). A task says which CAPABILITY it needs
+// (capability.ts), what its result MEANS and which authority owns it
+// (brain-result.ts), and how it may EXECUTE (brain-execution.ts). None is derived from
+// another, and none names a provider or a model: the routing policy does that.
+//
 // PURE. No clock, no I/O.
 
 import type { AiSensitivityClass } from './context';
-import type { AiCapabilityProfile } from './runtime';
+import type { AiCapabilityRoute } from './capability';
+import { isAiCapabilityRoute } from './capability';
+import type { BrainExecutionContract } from './brain-execution';
+import { brainExecutionContractViolations } from './brain-execution';
+import type { BrainResultOwner, BrainResultType } from './brain-result';
+import { brainOwnershipRule } from './brain-result';
 
 export const AI_TASK_CONSEQUENCES = ['READ_ONLY', 'PROPOSES_FOR_APPROVAL'] as const;
 export type AiTaskConsequence = (typeof AI_TASK_CONSEQUENCES)[number];
@@ -27,7 +37,18 @@ export type AiTaskConsequence = (typeof AI_TASK_CONSEQUENCES)[number];
 export interface AiTaskDefinition {
   readonly taskId: string;
   readonly version: string;
-  readonly profile: AiCapabilityProfile;
+  /**
+   * The capability the task needs. It replaced the retired `profile` in B2, and it is
+   * what `ai_invocations.profile` records. The routing policy, never the task, turns it
+   * into a provider and a model.
+   */
+  readonly capabilityRoute: AiCapabilityRoute;
+  /** What the output means to Loop. */
+  readonly resultType: BrainResultType;
+  /** Which authority owns the output, about which kind of subject. */
+  readonly resultOwner: BrainResultOwner;
+  /** How the task may execute, and its latency and waiting promises. */
+  readonly execution: BrainExecutionContract;
   /** The highest sensitivity class this task's context may carry. */
   readonly sensitivityCeiling: AiSensitivityClass;
   readonly consequence: AiTaskConsequence;
@@ -64,7 +85,21 @@ export interface AiTaskDefinition {
 export const AI_TASK_CASE_EXPLANATION: AiTaskDefinition = Object.freeze({
   taskId: 'case.explanation',
   version: '2.0.0',
-  profile: 'EXPLANATION',
+  // Evidence synthesis about an investigation: technical analysis, whose provider
+  // preference the reviewed routing policy already follows (brain-execution-architecture.md §5a).
+  capabilityRoute: 'TECHNICAL_ANALYSIS',
+  // It explains one Case, and the explanation belongs to Commercial Intelligence.
+  resultType: 'ANALYSIS',
+  resultOwner: Object.freeze({ authority: 'COMMERCIAL_INTELLIGENCE', subjectType: 'CASE' } as const),
+  // Interactive only for now: one model call and a governed fallback. The budgets are
+  // the task's promise to the reader, not any host's request limit, and they are a
+  // proposal for Charlie and Lexi to confirm. Durable execution is a later, reviewed
+  // change to this declaration.
+  execution: Object.freeze({
+    classes: Object.freeze(['INTERACTIVE'] as const),
+    interactive: Object.freeze({ presentationBudgetMs: 20_000, executionDeadlineMs: 75_000, streaming: 'NONE' } as const),
+    durable: null,
+  }),
   sensitivityCeiling: 'OPERATIONAL',
   consequence: 'READ_ONLY',
   requires: Object.freeze([{ resource: 'commercialIntelligence', action: 'view' } as const]),
@@ -82,6 +117,33 @@ export const AI_TASKS: readonly AiTaskDefinition[] = Object.freeze([AI_TASK_CASE
 
 export function aiTask(taskId: string): AiTaskDefinition | null {
   return AI_TASKS.find((t) => t.taskId === taskId) ?? null;
+}
+
+export const AI_TASK_CONTRACT_VIOLATIONS = [
+  'UNKNOWN_CAPABILITY_ROUTE',
+  'OWNERSHIP_NOT_PERMITTED',
+  'CONSEQUENCE_DOES_NOT_MATCH_RESULT',
+  'EXECUTION_CONTRACT_INVALID',
+  'NO_INVOKER',
+] as const;
+export type AiTaskContractViolation = (typeof AI_TASK_CONTRACT_VIOLATIONS)[number];
+
+/**
+ * Everything incoherent about a task definition. A result that only informs is
+ * READ_ONLY; a result that proposes something to an authority is PROPOSES_FOR_APPROVAL.
+ */
+export function aiTaskContractViolations(task: AiTaskDefinition): AiTaskContractViolation[] {
+  const out: AiTaskContractViolation[] = [];
+  if (!isAiCapabilityRoute(task.capabilityRoute)) out.push('UNKNOWN_CAPABILITY_ROUTE');
+  const governing = brainOwnershipRule(task.resultType, task.resultOwner);
+  if (!governing) out.push('OWNERSHIP_NOT_PERMITTED');
+  else {
+    const expected = governing.standing === 'PROPOSED' ? 'PROPOSES_FOR_APPROVAL' : 'READ_ONLY';
+    if (task.consequence !== expected) out.push('CONSEQUENCE_DOES_NOT_MATCH_RESULT');
+  }
+  if (brainExecutionContractViolations(task.execution, task.resultType).length > 0) out.push('EXECUTION_CONTRACT_INVALID');
+  if (task.invokerRoles.length === 0) out.push('NO_INVOKER');
+  return out;
 }
 
 // --- The answer Loop will accept ---------------------------------------------------

@@ -50,7 +50,7 @@ function reservation(organizationId: string, userId: string, callKey: string): A
     principalUserId: userId,
     taskId: 'case.explanation',
     taskVersion: '1.0.0',
-    profile: 'EXPLANATION',
+    capabilityRoute: 'TECHNICAL_ANALYSIS',
     target: { providerId: 'provider-a', modelId: 'model-a', reasoningEffort: 'medium', timeoutMs: 30_000, maxOutputTokens: 2000, pricing: null },
     routingPolicyVersion: 'routing.pg.1',
     budgetClass: 'standard',
