@@ -191,7 +191,9 @@ export class AiUsageLedgerRepository {
         outcome: input.outcome,
         servedModel: input.servedModel ?? null,
         providerRequestId: input.providerRequestId ?? null,
-        fellBackFrom: input.fellBackFrom ?? null,
+        // Written at reservation. A reconcile that does not say otherwise leaves it:
+        // overwriting it with null erased the record that a call was a fallback.
+        ...(input.fellBackFrom === undefined ? {} : { fellBackFrom: input.fellBackFrom }),
         inputTokens: input.inputTokens ?? null,
         outputTokens: input.outputTokens ?? null,
         cachedInputTokens: input.cachedInputTokens ?? null,

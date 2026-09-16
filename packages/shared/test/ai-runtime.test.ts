@@ -41,6 +41,9 @@ import {
   aiCostMicros,
   estimateAiInputTokens,
   parseAiTaskOutput,
+  aiNumbersInText,
+  aiDatesInText,
+  aiTaskAvailability,
   aiContextSourceRefs,
   aiProvenanceOf,
   aiSensitivityRank,
@@ -53,7 +56,7 @@ import {
   type AiBudgetPolicy,
   type AiContextPackage,
   type AiRoutingPolicy,
-  type AiTaskOutputV1,
+  type AiTaskOutput,
 } from '../src/index';
 
 const ORG = 'org_a';
@@ -137,11 +140,11 @@ function refusalsOf(result: ReturnType<typeof admitAiInvocation>): readonly stri
   return result.ok ? [] : result.refusals;
 }
 
-function output(patch: Partial<AiTaskOutputV1> = {}): AiTaskOutputV1 {
+function output(patch: Partial<AiTaskOutput> = {}): AiTaskOutput {
   return {
-    schemaId: 'case-explanation.v1',
+    schemaId: 'case-explanation.v2',
     summary: 'Revenue fell on this campaign in the observed period.',
-    claims: [{ statement: 'Revenue fell by 4200 cents.', citations: ['operational-observation:obs_1'], figures: [{ label: 'revenueCents', value: 4200 }] }],
+    claims: [{ kind: 'OBSERVATION', statement: 'Revenue fell by 4200 cents.', citations: ['operational-observation:obs_1'], figures: [{ label: 'revenueCents', value: 4200 }] }],
     limitations: ['No data after the observed period was supplied.'],
     ...patch,
   };
@@ -157,7 +160,8 @@ test('the first task is read-only, operational, structured, and tool-free', () =
   assert.equal(task.consequence, 'READ_ONLY');
   assert.equal(task.sensitivityCeiling, 'OPERATIONAL');
   assert.deepEqual([...task.tools], [], 'no tools at launch');
-  assert.equal(task.outputSchemaId, 'case-explanation.v1', 'structured output only');
+  assert.equal(task.outputSchemaId, 'case-explanation.v2', 'structured output only');
+  assert.equal(task.version, '2.0.0');
   assert.deepEqual([...task.requires], [{ resource: 'commercialIntelligence', action: 'view' }]);
   // Reading the evidence and paying to have it explained are different acts.
   assert.deepEqual([...task.invokerRoles], ['OWNER', 'ADMIN']);
@@ -210,6 +214,7 @@ test('an answer that is not the shape asked for is not read as one', () => {
     { ...good, summary: 7 },
     { ...good, limitations: [3] },
     { ...good, claims: [{ statement: 'x', figures: [] }] },
+    { ...good, claims: [{ statement: 'x', citations: [], figures: [] }] },
     { ...good, claims: [{ statement: 'x', citations: [7], figures: [] }] },
     { ...good, claims: [{ statement: 'x', citations: [], figures: [{ label: 'n', value: '4200' }] }] },
     { ...good, claims: [{ statement: 'x', citations: [], figures: [{ label: 'n', value: Number.NaN }] }] },
@@ -368,51 +373,132 @@ test('the runtime owns every retry decision, and an unknown failure is not retri
 
 // --- 5. The answer -------------------------------------------------------------------
 
+const OBS = 'operational-observation:obs_1';
+const OTHER_REF = 'decision-evidence:ev_2';
+
+function evidence(extra: Record<string, number[]> = {}, dates: string[] = []) {
+  const figures = new Map<string, Set<number>>([[OBS, new Set([4200, 42])]]);
+  for (const [ref, nums] of Object.entries(extra)) figures.set(ref, new Set(nums));
+  return { figures, dates: new Set(dates) };
+}
+
+function claim(patch: Record<string, unknown> = {}) {
+  return { kind: 'OBSERVATION' as const, statement: 'Revenue fell by 4200 cents.', citations: [OBS], figures: [{ label: 'revenueCents', value: 4200 }], ...patch };
+}
+
 test('an answer is accepted only when every claim stands on supplied evidence', () => {
   const refs = aiContextSourceRefs(contextPackage());
-  const figures = new Set([4200]);
-  assert.deepEqual(validateAiTaskOutput(output(), AI_TASK_CASE_EXPLANATION, refs, figures), []);
+  assert.deepEqual(validateAiTaskOutput(output(), AI_TASK_CASE_EXPLANATION, refs, evidence()), []);
 
-  const uncited = output({ claims: [{ statement: 'Things got worse.', citations: [], figures: [] }] });
-  assert.deepEqual(validateAiTaskOutput(uncited, AI_TASK_CASE_EXPLANATION, refs, figures), ['UNCITED_CLAIM']);
+  const uncited = output({ claims: [claim({ statement: 'Things got worse.', citations: [], figures: [] })] });
+  assert.deepEqual(validateAiTaskOutput(uncited, AI_TASK_CASE_EXPLANATION, refs, evidence()), ['UNCITED_CLAIM']);
 
-  const invented = output({ claims: [{ statement: 'See the report.', citations: ['report:made-up'], figures: [] }] });
-  assert.deepEqual(validateAiTaskOutput(invented, AI_TASK_CASE_EXPLANATION, refs, figures), ['CITATION_NOT_SUPPLIED']);
+  const invented = output({ claims: [claim({ statement: 'See the report.', citations: ['report:made-up'], figures: [] })] });
+  assert.deepEqual(validateAiTaskOutput(invented, AI_TASK_CASE_EXPLANATION, refs, evidence()), ['CITATION_NOT_SUPPLIED']);
 
-  const wrongNumber = output({
-    claims: [{ statement: 'Revenue fell by 9900 cents.', citations: ['operational-observation:obs_1'], figures: [{ label: 'revenueCents', value: 9900 }] }],
-  });
-  assert.deepEqual(validateAiTaskOutput(wrongNumber, AI_TASK_CASE_EXPLANATION, refs, figures), ['FIGURE_NOT_SUPPORTED']);
+  const wrongNumber = output({ claims: [claim({ statement: 'Revenue fell by 9900 cents.', figures: [{ label: 'revenueCents', value: 9900 }] })] });
+  assert.deepEqual(
+    [...validateAiTaskOutput(wrongNumber, AI_TASK_CASE_EXPLANATION, refs, evidence())].sort(),
+    ['FIGURE_NOT_SUPPORTED', 'UNSUPPORTED_NUMBER_IN_TEXT'],
+  );
 
-  assert.deepEqual(validateAiTaskOutput(output({ schemaId: 'something.else' }), AI_TASK_CASE_EXPLANATION, refs, figures), ['WRONG_SCHEMA']);
-  assert.ok(validateAiTaskOutput(output({ summary: '  ', claims: [] }), AI_TASK_CASE_EXPLANATION, refs, figures).includes('EMPTY_ANSWER'));
+  assert.deepEqual(validateAiTaskOutput(output({ schemaId: 'something.else' }), AI_TASK_CASE_EXPLANATION, refs, evidence()), ['WRONG_SCHEMA']);
+  assert.ok(validateAiTaskOutput(output({ summary: '  ', claims: [] }), AI_TASK_CASE_EXPLANATION, refs, evidence()).includes('EMPTY_ANSWER'));
+  assert.deepEqual(
+    validateAiTaskOutput(output({ claims: [claim({ kind: 'RECOMMENDATION' as never })] }), AI_TASK_CASE_EXPLANATION, refs, evidence()),
+    ['UNKNOWN_CLAIM_KIND'],
+  );
+});
+
+test('a figure must come from a source ITS OWN claim cites, including numbers written in prose', () => {
+  const pkg = contextPackage({ items: [...contextPackage().items, { ...contextPackage().items[0]!, blockId: `${ORG}::b2`, sourceRef: OTHER_REF }] });
+  const refs = aiContextSourceRefs(pkg);
+  const ev = evidence({ [OTHER_REF]: [17] });
+
+  // 17 is in the evidence -- but not in the source this claim cites.
+  const borrowed = output({ claims: [claim({ statement: 'Calls fell to 17.', figures: [{ label: 'calls', value: 17 }] })] });
+  assert.deepEqual(
+    [...validateAiTaskOutput(borrowed, AI_TASK_CASE_EXPLANATION, refs, ev)].sort(),
+    ['FIGURE_NOT_IN_CITED_SOURCE', 'UNSUPPORTED_NUMBER_IN_TEXT'],
+  );
+  // Cite both, and it stands.
+  const citedBoth = output({ claims: [claim({ statement: 'Revenue fell by 4200 cents while calls fell to 17.', citations: [OBS, OTHER_REF], figures: [{ label: 'calls', value: 17 }] })] });
+  assert.deepEqual(validateAiTaskOutput(citedBoth, AI_TASK_CASE_EXPLANATION, refs, ev), []);
+
+  // A number in prose with no figure entry is still checked.
+  const prose = output({ claims: [claim({ statement: 'Revenue fell by 4200 cents, about 31 percent.', figures: [] })] });
+  assert.deepEqual(validateAiTaskOutput(prose, AI_TASK_CASE_EXPLANATION, refs, ev), ['UNSUPPORTED_NUMBER_IN_TEXT']);
+  // Cents written as dollars is supported when the builder supplied the conversion.
+  const dollars = output({ claims: [claim({ statement: 'Revenue fell by $42.', figures: [{ label: 'dollars', value: 42 }] })] });
+  assert.deepEqual(validateAiTaskOutput(dollars, AI_TASK_CASE_EXPLANATION, refs, ev), []);
+  // A sign is not a new number.
+  const negative = output({ claims: [claim({ statement: 'Revenue moved by -4200 cents.', figures: [{ label: 'change', value: -4200 }] })] });
+  assert.deepEqual(validateAiTaskOutput(negative, AI_TASK_CASE_EXPLANATION, refs, ev), []);
+
+  // The summary and the limitations may use any supplied number, and nothing else.
+  assert.deepEqual(validateAiTaskOutput(output({ summary: 'Calls fell to 17.' }), AI_TASK_CASE_EXPLANATION, refs, ev), []);
+  assert.deepEqual(validateAiTaskOutput(output({ summary: 'Calls fell to 18.' }), AI_TASK_CASE_EXPLANATION, refs, ev), ['UNSUPPORTED_NUMBER_IN_TEXT']);
+  assert.deepEqual(validateAiTaskOutput(output({ limitations: ['Only 3 days were covered.'] }), AI_TASK_CASE_EXPLANATION, refs, ev), ['UNSUPPORTED_NUMBER_IN_TEXT']);
+  // Identifiers are not numbers.
+  assert.deepEqual(validateAiTaskOutput(output({ summary: 'See obs_1 and ev_2.' }), AI_TASK_CASE_EXPLANATION, refs, ev), []);
+});
+
+test('a date must be one the evidence names', () => {
+  const refs = aiContextSourceRefs(contextPackage());
+  const ev = evidence({}, ['2026-09-01']);
+  assert.deepEqual(validateAiTaskOutput(output({ summary: 'Since 2026-09-01 revenue fell.' }), AI_TASK_CASE_EXPLANATION, refs, ev), []);
+  assert.deepEqual(validateAiTaskOutput(output({ summary: 'Since 2026-09-02 revenue fell.' }), AI_TASK_CASE_EXPLANATION, refs, ev), ['UNSUPPORTED_DATE_IN_TEXT']);
+  // A date is checked as a date, and its parts are not mistaken for numbers.
+  assert.deepEqual(validateAiTaskOutput(output({ summary: 'At 2026-09-01T04:00:00Z revenue fell.' }), AI_TASK_CASE_EXPLANATION, refs, ev), []);
+});
+
+test('an answer too long to read is refused, not trimmed', () => {
+  const refs = aiContextSourceRefs(contextPackage());
+  const many = output({ claims: Array.from({ length: 13 }, () => claim()) });
+  assert.deepEqual(validateAiTaskOutput(many, AI_TASK_CASE_EXPLANATION, refs, evidence()), ['ANSWER_TOO_LONG']);
+  const wordy = output({ summary: 'Revenue fell. '.repeat(80) });
+  assert.deepEqual(validateAiTaskOutput(wordy, AI_TASK_CASE_EXPLANATION, refs, evidence()), ['ANSWER_TOO_LONG']);
 });
 
 test('a model may not score its own certainty, and a read-only task may not tell anyone what to do', () => {
   const refs = aiContextSourceRefs(contextPackage());
-  const figures = new Set([4200]);
-  for (const summary of [
-    'I am 85% confident revenue fell.',
-    'Revenue fell. Confidence: 0.9',
-    'This is 70 % certain.',
-  ]) {
-    assert.ok(
-      validateAiTaskOutput(output({ summary }), AI_TASK_CASE_EXPLANATION, refs, figures).includes('NUMERIC_CONFIDENCE_PRESENT'),
-      summary,
-    );
+  for (const summary of ['I am 85% confident revenue fell.', 'Revenue fell. Confidence: 0.9', 'This is 70 % certain.']) {
+    assert.ok(validateAiTaskOutput(output({ summary }), AI_TASK_CASE_EXPLANATION, refs, evidence()).includes('NUMERIC_CONFIDENCE_PRESENT'), summary);
   }
   for (const summary of [
     'You should pause the campaign.',
     'We recommend pausing the campaign.',
     'The next step is to call the buyer.',
+    'Please contact the buyer today.',
+    'Approve the decision now.',
+    'Make sure to escalate this.',
   ]) {
-    assert.ok(
-      validateAiTaskOutput(output({ summary }), AI_TASK_CASE_EXPLANATION, refs, figures).includes('RECOMMENDS_AN_ACTION'),
-      summary,
-    );
+    assert.ok(validateAiTaskOutput(output({ summary }), AI_TASK_CASE_EXPLANATION, refs, evidence()).includes('RECOMMENDS_AN_ACTION'), summary);
   }
-  // Explaining what the evidence shows, without prescribing, is exactly the task.
-  assert.deepEqual(validateAiTaskOutput(output(), AI_TASK_CASE_EXPLANATION, refs, figures), []);
+  // A consideration grounded in evidence, phrased as a possibility, is the task.
+  const consideration = output({
+    claims: [claim(), claim({ kind: 'CONSIDERATION', statement: 'It may be worth checking whether the drop coincides with a routing change.', figures: [] })],
+  });
+  assert.deepEqual(validateAiTaskOutput(consideration, AI_TASK_CASE_EXPLANATION, refs, evidence()), []);
+  assert.deepEqual(validateAiTaskOutput(output(), AI_TASK_CASE_EXPLANATION, refs, evidence()), []);
+});
+
+test('number and date extraction', () => {
+  assert.deepEqual(aiNumbersInText('Revenue fell by 4,200 cents (-12.5%) on 2026-09-01.'), [4200, 12.5]);
+  assert.deepEqual(aiNumbersInText('range 10-20, 24h, 3rd, ev_12, obs12, v1.2'), [10, 20, 24, 3]);
+  assert.deepEqual(aiDatesInText('from 2026-09-01 to 2026-09-07T04:00:00Z'), ['2026-09-01', '2026-09-07']);
+});
+
+test('what a screen may offer, decided without calling anything', () => {
+  const base = { authorized: true, activation: ON, killSwitches: [], policy: policy(), organizationId: ORG, taskId: 'case.explanation' };
+  assert.equal(aiTaskAvailability(base), 'AVAILABLE');
+  assert.equal(aiTaskAvailability({ ...base, authorized: false, activation: AI_ACTIVATION_OFF }), 'NOT_AUTHORIZED');
+  assert.equal(aiTaskAvailability({ ...base, activation: AI_ACTIVATION_OFF }), 'NOT_ENABLED');
+  assert.equal(aiTaskAvailability({ ...base, activation: { ...ON, organizations: [] } }), 'NOT_ENABLED');
+  assert.equal(aiTaskAvailability({ ...base, killSwitches: [{ scope: 'GLOBAL' }] }), 'PAUSED');
+  assert.equal(aiTaskAvailability({ ...base, killSwitches: [{ scope: 'PROVIDER', value: 'anthropic' }, { scope: 'PROVIDER', value: 'openai' }] }), 'PAUSED');
+  assert.equal(aiTaskAvailability({ ...base, activation: { ...ON, providers: [] } }), 'NOT_CONFIGURED');
+  assert.equal(aiTaskAvailability({ ...base, killSwitches: [{ scope: 'PROVIDER', value: 'anthropic' }] }), 'AVAILABLE', 'the permitted fallback can serve');
 });
 
 test('provenance records who asked, what was sent and what answered -- including when it failed', () => {

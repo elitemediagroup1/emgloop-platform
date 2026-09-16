@@ -47,14 +47,15 @@ function target(
   return Object.freeze({ providerId, modelId, ...limits, pricing: model.pricing });
 }
 
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-16.1';
+// .2: reviewed against Case Explanation task 2.0.0 (sectioned answer, per-source figures).
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-16.2';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
   tasks: Object.freeze({
     'case.explanation': Object.freeze({
       taskId: 'case.explanation',
-      taskVersion: '1.0.0',
+      taskVersion: '2.0.0',
       // Thinking tokens count against the output ceiling on both providers, so it is
       // sized for reasoning plus a structured answer, not for the answer alone.
       primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'medium', timeoutMs: 25_000, maxOutputTokens: 6_000 }),

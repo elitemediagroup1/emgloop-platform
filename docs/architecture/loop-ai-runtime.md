@@ -473,46 +473,70 @@ No vague global AI memory. Each kind maps to an existing or proposed authority:
 | Numeric confidences (signal registry, CallGrid persisted confidence, bid literals, intelligence package, diagnoser) | CONFLICTING | Convert to semantic states **before** model output shares a surface with them. Otherwise model uncertainty is compared to fabricated numbers. |
 | "Brain" as a product name | UI 10 conversational interface | The governed runtime behind CI context, later. Not a second intelligence system. |
 
-## 16. F15 — First integration slice (after Product approval)
+## 16. F15 — First integration slice: Case Explanation (as built, AI-1 to AI-5)
 
-**Case Explanation:** a read-only, on-demand, governed summary of one Commercial Intelligence Case for
-the person viewing it.
+**Case Explanation:** a read-only, on-demand, citation-bound explanation of one Commercial Intelligence
+Case for the person viewing it. **Prepared and switched off.** No live provider request has been made.
 
-- **Surface.** `/app/admin/cases/[id]`, an "Explain this case" action.
-- **Authority.** Existing guards (`requireWorkspace('ADMIN')` and `commercialIntelligence:view`), plus an
-  organization feature flag. OWNER/ADMIN only at first.
-- **Context.** `CaseWorkspaceView`: brief, what Loop could not establish, Findings, Recommendations,
-  Monitoring. It is assembled through the existing service, as the viewer. Operational data only; no
-  contact identifiers. Evidence statements and notes are untrusted data.
-- **Output** `CaseExplanationV1`:
-  - summary;
-  - what is known;
-  - what is not known;
-  - open questions;
-  - limitations.
+- **Surface.** `/app/admin/cases/[id]`, an "Explanation" panel. The page only asks whether to offer it,
+  which is a permission and configuration check with no model call. The request goes through the guarded
+  action `explainCaseAction`.
+- **Authority.**
+  - `requireWorkspace('ADMIN')` and `commercialIntelligence:view` in the action.
+  - `iamAiAuthorizer` in the service:
+    - an active OWNER or ADMIN membership;
+    - every required permission through `can()`;
+    - never AI_EMPLOYEE.
+  - The runtime allowlists for the organization, the task and the provider (§17).
+  - A person who may not invoke is refused **before the Case is read**.
+- **Context.** Built by `buildCaseExplanationContext` from `CaseWorkspaceView`, as the invoking person.
+  - **Sent:** structured facts only, all OPERATIONAL:
+    - the Case's state and detection history;
+    - the headline's measured lineage;
+    - measured evidence rows (capped at 30, entity names replaced by labels such as `buyer #1`);
+    - a current rule-produced finding;
+    - monitoring criteria and verdict;
+    - the outcome.
+  - **Withheld and counted:** everything a person typed, the Case title and subject, recommendations,
+    participation and work, user ids, and entity names.
+  - **Units:** taken only from Loop's metric definitions, never from a name.
+  - **Per-block manifest:** each block carries its authority, why it was included, the permission it was
+    read under, its sensitivity, its trust and its time basis.
+  - **Wrapping:** blocks go inside escaped `<loop_sources>` elements that source text cannot break out of.
+- **Output** `case-explanation.v2`:
+  - `summary`;
+  - `claims`, each an OBSERVATION, SIGNIFICANCE or CONSIDERATION, with `citations` and `figures`;
+  - `limitations`.
+- **Validation** (`validateAiTaskOutput`). The answer is refused whole on any of:
+  - wrong schema;
+  - empty answer;
+  - too long;
+  - an unknown claim kind;
+  - an uncited claim;
+  - a citation that wasn't supplied;
+  - a figure not in the claim's own cited sources;
+  - any number in prose that the evidence doesn't contain;
+  - any date the evidence doesn't name;
+  - a self-scored confidence;
+  - an instruction to act.
 
-  Every statement carries citations drawn from the manifest. It carries no recommendations, no numbers
-  absent from the sources, and no confidence.
-- **Validation.**
-  - schema;
-  - citations are a subset of the manifest;
-  - numeric tokens appear in the cited sources;
-  - forbidden fields absent.
-
-  Invalid output is shown as "could not produce a grounded explanation", never partially.
+  A refused answer is shown as a reason, never partially.
 - **Writes.**
   - **No domain writes.**
-  - Provenance and usage go to an AuditLog row `ai.case_explained`: ids, versions, usage, manifest refs,
-    validation result, no content. This avoids a migration in the first slice. A dedicated
-    `ai_invocations` table (a migration) follows when usage accounting needs it.
-- **Routing.** Primary and fallback across Anthropic and OpenAI through routing policy (fallback on
-  UNAVAILABLE, TIMEOUT, RATE_LIMITED). This proves neutrality and fallback.
+  - One `ai_invocations` row per provider call (reserved before, reconciled after).
+  - One AuditLog row `ai.case_explanation` per attempt that reached a provider (ids, versions, outcome, no
+    content).
+  - Answers are not stored.
+- **Routing.** `routing.2026-09-16.2`:
+  - Claude Opus 5 primary, GPT-6 Astra fallback.
+  - Fallback only on UNAVAILABLE, TIMEOUT or RATE_LIMITED; never after a refusal or a rejected answer.
+  - One attempt per target, within Netlify's 60 s request.
 - **Limits.**
-  - maximum input and output tokens per call;
-  - per-organization daily invocation cap;
-  - global kill switch;
+  - the per-call, per-task, per-organization and global caps (`budget.2026-09-16.1-proposed`);
+  - kill switches at five scopes;
   - no streaming, no tools.
-- **Evaluation.** A synthetic Case fixture suite gates the slice.
+- **Evaluation.** 21 synthetic scenarios (`packages/database/test/ai-case-explanation.eval.test.ts`)
+  drive the real adapters with scripted clients and gate the slice.
 
 **Why this surface.** The Case workspace is already authorized, org-scoped, deterministic, read-only, and
 carries provenance and explicit unknowns, which maps directly onto "Summary: does not replace source
@@ -528,8 +552,8 @@ facts". Its follow-on (`CaseRecommendationService.record` with author MODEL) alr
 | Slice | Contents | Migration |
 |---|---|---|
 | S0 | Contracts in `@emgloop/shared/ai`; `ModelProvider`; adapters with recorded-fixture tests and no live calls in CI; fences | no |
-| S1 | Runtime: governance gate, routing, budgets, validation, AuditLog provenance; Case Explanation behind a flag | no |
-| S2 | `ai_invocations` usage and provenance table; budgets from durable counters | yes |
+| S1 | Runtime: governance gate, routing, budgets, validation, AuditLog provenance; Case Explanation behind the activation allowlists — **built (AI-1 to AI-5), not activated** | no |
+| S2 | `ai_invocations` usage and provenance table; budgets from durable counters — **built and deployed (#265, AI-1)** | yes (applied) |
 | S3 | Decision Engine approval gaps (§8); `recommendation.propose` with author MODEL | possibly (actor type) |
 | S4 | Read tools and the broker; further tasks | no |
 

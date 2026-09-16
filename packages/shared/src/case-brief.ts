@@ -38,9 +38,11 @@ import type {
 /**
  * Who caused an observation.
  *
- * Mirrors the platform enum, and there is deliberately no AI member: there is no
- * LLM in this codebase, and a vocabulary that describes a capability the product
- * does not have is the same failure as a button that does nothing.
+ * Mirrors the platform enum, and there is deliberately no AI member: no model
+ * ever acts on a Case. The one AI task that touches a Case (Case Explanation) is
+ * read-only -- it writes no observation, so it never needs an actor type here, and
+ * a vocabulary that describes a capability the product does not have is the same
+ * failure as a button that does nothing.
  */
 export type CaseActorType = 'HUMAN' | 'SYSTEM';
 

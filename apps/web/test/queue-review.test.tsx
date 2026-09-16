@@ -293,9 +293,13 @@ test('4e. the harness shows the interactive controls, and cannot touch real work
   assert.equal(/caseId=\{(?!REVIEW_CASE_ID)/.test(src), false, 'no control names any other id');
 });
 
-// --- 5. No LLM, no external action, anywhere in this package ----------------------------------------
+// --- 5. No provider, no external action, anywhere in this package ----------------------------------------
+//
+// ONE AI TASK TOUCHES THESE SURFACES: the read-only Case Explanation. It is requested
+// through a guarded action and runs in the governed runtime (src/ai/), so none of
+// these files may name a provider, a model or a network call themselves.
 
-test('5. no Stage 4 surface calls a model or performs an external action', () => {
+test('5. no Stage 4 surface names a provider or a model, or performs an external action', () => {
   const walk = (dir: URL): string[] => {
     const out: string[] = [];
     for (const e of readdirSync(dir, { withFileTypes: true })) {

@@ -381,6 +381,48 @@ function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
+// --- Availability, for a screen ------------------------------------------------------
+
+export const AI_TASK_AVAILABILITY = ['AVAILABLE', 'NOT_AUTHORIZED', 'NOT_ENABLED', 'PAUSED', 'NOT_CONFIGURED'] as const;
+export type AiTaskAvailability = (typeof AI_TASK_AVAILABILITY)[number];
+
+/**
+ * What a surface may OFFER, decided without calling anything. It is a courtesy, not a
+ * gate: the gateway re-decides every one of these when the task is actually invoked.
+ *
+ *   NOT_AUTHORIZED  this person may not invoke the task (and learns nothing more);
+ *   NOT_ENABLED     the runtime, the organization or the task is not switched on;
+ *   PAUSED          a kill switch stops it;
+ *   NOT_CONFIGURED  no enabled provider on the task's route has a working client.
+ */
+export function aiTaskAvailability(input: {
+  readonly authorized: boolean;
+  readonly activation: AiActivation;
+  readonly killSwitches: readonly AiKillSwitch[];
+  readonly policy: AiRoutingPolicy;
+  readonly organizationId: string;
+  readonly taskId: string;
+}): AiTaskAvailability {
+  if (!input.authorized) return 'NOT_AUTHORIZED';
+  const a = input.activation;
+  if (a.enabled !== true || !a.organizations.includes(input.organizationId) || !a.tasks.includes(input.taskId)) return 'NOT_ENABLED';
+  const route = input.policy.tasks[input.taskId];
+  if (!route) return 'NOT_ENABLED';
+  const stopped = input.killSwitches.some(
+    (k) =>
+      k.scope === 'GLOBAL' ||
+      (k.scope === 'TASK' && k.value === input.taskId) ||
+      (k.scope === 'ORGANIZATION' && k.value === input.organizationId),
+  );
+  if (stopped) return 'PAUSED';
+  const targets = [route.primary, ...(route.fallbackPermitted && route.fallback ? [route.fallback] : [])];
+  const usable = targets.filter((t) => !stoppedTarget(input.killSwitches, t) && a.providers.includes(t.providerId));
+  if (usable.length === 0) {
+    return targets.some((t) => stoppedTarget(input.killSwitches, t)) ? 'PAUSED' : 'NOT_CONFIGURED';
+  }
+  return 'AVAILABLE';
+}
+
 // --- Provenance -----------------------------------------------------------------------
 
 export interface AiInvocationProvenance {

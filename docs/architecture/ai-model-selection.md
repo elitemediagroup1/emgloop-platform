@@ -2,7 +2,7 @@
 
 **Verified 2026-09-16 against each provider's current official documentation. Nothing here is from memory.**
 The machine-readable version is `packages/providers/src/ai/policy/model-catalog.ts`, and the routing
-decision is `packages/providers/src/ai/policy/routing-policy.ts` (version `routing.2026-09-16.1`). Changing
+decision is `packages/providers/src/ai/policy/routing-policy.ts` (version `routing.2026-09-16.2`, reviewed against Case Explanation task 2.0.0). Changing
 either is a reviewed pull request.
 
 ## Primary — Anthropic Claude Opus 5

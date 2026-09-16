@@ -3484,3 +3484,15 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .loop-appbar { padding: 0 16px; }
   .loop-main { padding: 20px 16px 40px; }
 }
+
+/* ===================== CASE EXPLANATION (AI-5) ===================== *
+   The one AI surface on a Case. Built from the Finding card's classes so it reads
+   as supporting context, not as a new kind of authority.                        */
+.cw-ai { margin-top: 12px; }
+.cw-ai__group { margin-top: 14px; }
+.cw-ai__title { margin: 0 0 6px; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
+.cw-ai__list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; line-height: 1.6; }
+.cw-ai__cites { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+.cw-ai__notshown { margin-top: 12px; }
+.cw-ai__notshown p { margin: 0; }
+.cw-ai__codes { margin-top: 6px !important; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--loop-text-3); overflow-wrap: anywhere; }
