@@ -400,6 +400,11 @@ export * from './decision-events';
 export * from './crm-relationship';
 export * from './crm-participant';
 
+// Relationship read models (slice R3-A3). A read resolves a superseded Party forward
+// and SAYS SO; a write refuses it. Neither ever rewrites a stored id. Duplicates that
+// resolve alike are reported for a person, never merged. See ./crm-relationship-read-model.ts.
+export * from './crm-relationship-read-model';
+
 // --- Decision card composition (presentation only) ---
 // Confidence, the operational consequence, the ways a decision can end, and the
 // visual tiering that shows EVERYTHING while giving the few the most room.
