@@ -371,6 +371,26 @@ export type {
 // Who may invoke an AI task: an active human member, in a listed role, holding every
 // required permission through the enforcing can(). Never AI_EMPLOYEE.
 export { iamAiAuthorizer, AI_INVOKER_FORBIDDEN_ROLES } from './services/ai-runtime/authorizer';
+// Case Explanation: the first AI task. Read-only, on demand, citation-bound; it
+// authorizes before reading and sends structured facts only.
+export { CaseExplanationService } from './services/ai-runtime/case-explanation.service';
+export type {
+  CaseExplanationResult,
+  CaseExplanationProvenance,
+  CaseExplanationRuntime,
+  CaseExplanationDeps,
+} from './services/ai-runtime/case-explanation.service';
+export {
+  buildCaseExplanationContext,
+  CASE_CONTEXT_MAX_EVIDENCE,
+  CASE_CONTEXT_WITHHELD,
+} from './services/ai-runtime/case-explanation-context';
+export type {
+  CaseExplanationContext,
+  CaseExplanationSource,
+  CaseContextManifestEntry,
+  CaseContextWithheld,
+} from './services/ai-runtime/case-explanation-context';
 export {
   CASE_EXPLANATION_SCHEMA,
   CASE_EXPLANATION_SCHEMA_ID,

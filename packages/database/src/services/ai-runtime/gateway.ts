@@ -67,7 +67,8 @@ import {
   type AiRoutingPolicy,
   type AiSpendSnapshot,
   type AiTaskDefinition,
-  type AiTaskOutputV1,
+  type AiSupportedEvidence,
+  type AiTaskOutput,
   type AiUsage,
 } from '@emgloop/shared';
 
@@ -164,7 +165,7 @@ export interface AiRuntimeDeps {
 }
 
 export type AiRunResult =
-  | { readonly outcome: 'ANSWERED'; readonly output: AiTaskOutputV1; readonly provenance: AiInvocationProvenance }
+  | { readonly outcome: 'ANSWERED'; readonly output: AiTaskOutput; readonly provenance: AiInvocationProvenance }
   | { readonly outcome: 'REFUSED_BY_LOOP'; readonly refusals: readonly AiAdmissionRefusal[] }
   | { readonly outcome: 'REJECTED_OUTPUT'; readonly rejections: readonly AiOutputRejection[]; readonly provenance: AiInvocationProvenance }
   | { readonly outcome: 'REFUSED_BY_MODEL'; readonly provenance: AiInvocationProvenance }
@@ -177,8 +178,8 @@ export interface AiRunRequest {
   readonly templateId: string;
   readonly templateVersion: string;
   readonly schema: Record<string, unknown>;
-  /** The numbers the supplied evidence actually contains. An answer may state no other. */
-  readonly supportedFigures: ReadonlySet<number>;
+  /** The numbers (per source) and dates the supplied evidence actually contains. An answer may state no other. */
+  readonly evidence: AiSupportedEvidence;
   readonly signal?: AbortSignal;
 }
 
@@ -524,7 +525,7 @@ export class AiRuntimeGateway {
     // 14. Checked before anybody sees it. A truncated answer is not half an answer.
     const parsed = result.stopReason === 'END' ? parseAiTaskOutput(result.output.json ?? safeJson(result.output.text)) : null;
     const rejections: AiOutputRejection[] = parsed
-      ? validateAiTaskOutput(parsed, request.task, new Set(request.context.items.map((i) => i.sourceRef)), request.supportedFigures)
+      ? validateAiTaskOutput(parsed, request.task, new Set(request.context.items.map((i) => i.sourceRef)), request.evidence)
       : ['WRONG_SCHEMA'];
     const accepted = parsed !== null && rejections.length === 0;
 

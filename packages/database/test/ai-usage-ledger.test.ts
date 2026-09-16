@@ -465,6 +465,7 @@ test('reconcile replaces the estimate with the report, and unreported stays unre
     latencyMs: 30_000,
   });
   const [ok, failed] = w.fake.aiInvocation.__rows;
+  assert.equal(ok.fellBackFrom, null);
   assert.deepEqual([ok.inputTokens, ok.outputTokens, ok.cachedInputTokens, ok.reasoningTokens], [1200, 300, 800, 120]);
   assert.equal(failed.inputTokens, null);
   assert.equal(failed.failureClass, 'TIMEOUT');
@@ -472,6 +473,13 @@ test('reconcile replaces the estimate with the report, and unreported stays unre
   // 1200 reported + 3000 still reserved for the call nobody reported on.
   assert.equal(spend.organization.inputTokens, 4200);
   assert.equal(await w.service.reconcile(OTHER, { callKey: 'ok', outcome: 'FAILED', servedModel: null, providerRequestId: null, usage: null, unitCostBasis: null, failureClass: null, rejectionCodes: [], completedAt: AT, latencyMs: null }), false, 'another tenant cannot reconcile it');
+});
+
+test('reconciling a fallback call keeps the record that it was one', async () => {
+  const w = world();
+  await w.service.reserve(reservation('inv.2', { fellBackFrom: 'provider-a/model-a', callOrdinal: 2 }), BUDGET, [ORG]);
+  await w.service.reconcile(ORG, { callKey: 'inv.2', outcome: 'ANSWERED', servedModel: 'm', providerRequestId: null, usage: { inputTokens: 1, outputTokens: 1 }, unitCostBasis: null, failureClass: null, rejectionCodes: [], completedAt: AT, latencyMs: 1 });
+  assert.equal(w.fake.aiInvocation.__rows[0].fellBackFrom, 'provider-a/model-a');
 });
 
 test('the global window covers every enabled organization over the trailing day, and nothing older', async () => {
