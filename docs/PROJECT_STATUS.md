@@ -37,6 +37,9 @@ The AI activation PRs #266–#270 and the docs PR #271 add **no** migration.
 
 `migrate status` does not detect schema drift. Seven pre-existing, cosmetic differences between the
 migration history and `schema.prisma` are recorded in `docs/architecture/schema-drift-2026-09-16.md`.
+**B1 (in review) aligns `schema.prisma` to the database.** It changes no migration and no database, and
+no migration is needed. After it, `prisma migrate diff` from a clean replay of all 35 migrations reports
+"No difference detected".
 
 The 2026-08-16 narrative below is kept as history.
 
@@ -1227,9 +1230,9 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 ## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN ON AWS APPROVED AS DIRECTION, NOT BUILT
 
-_Last updated: 2026-09-16._ `main` is `7f33d3f`. #244–#271 are merged and were verified by content.
+_Last updated: 2026-09-16._ `main` is `71006dd`. #244–#272 are merged and were verified by content.
 - Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
-  #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`.
+  #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`.
 - Full validation on that `main` is green. The only failures are the known baselines:
   `marketplace-intelligence` typecheck, and lint, which was never configured.
 - Production has 35 migrations; nothing has been dispatched since run `35103219698`.
@@ -1271,8 +1274,8 @@ _Last updated: 2026-09-16._ `main` is `7f33d3f`. #244–#271 are merged and were
 - **Scope of the approval:** architecture only. No AWS resource exists, and nothing in Netlify has
   changed.
 - **Sequence (§12 of the record), one reviewed PR each:**
-  - B0: docs, in review;
-  - B1: schema-only drift alignment;
+  - B0: docs, merged (#272);
+  - B1: schema-only drift alignment, in review (no migration);
   - B2: pure contracts;
   - B3: persistence (one additive migration, not dispatched);
   - B4: Brain core and the Netlify Brain API;
@@ -1285,9 +1288,17 @@ _Last updated: 2026-09-16._ `main` is `7f33d3f`. #244–#271 are merged and were
 1. **Outbox drain is broken in production.** Every scheduled "Drain outbox" run since at least
    2026-09-14 fails because the repository secrets `OUTBOX_DRAIN_URL` and `OUTBOX_DRAIN_SECRET` are
    unset. Nothing delivers `state_change_outbox` events. It needs Matt, and it blocks B7.
-2. **Schema drift.** The seven recorded differences
-   (`docs/architecture/schema-drift-2026-09-16.md`) must be aligned in B1, before the B3 migration.
-   Otherwise `prisma migrate dev` folds "fixes" into it.
+2. **Schema drift: aligned in B1, which is in review.** It stays open until B1 merges.
+   - **Migration history:** unchanged. 35 migrations; no file added or edited.
+   - **Database:** unchanged. There was no production access, and no DDL anywhere except in a throwaway
+     local replay.
+   - **Prisma schema:** aligned. The six index and unique declarations now carry the names the migrations
+     created (`map:`), and `IntegrationEvent.observedSources` declares its `@default([])`.
+   - **Replay drift:** zero. From a clean replay (PostgreSQL 18.6 and 16.15) to the schema,
+     `prisma migrate diff` reports "No difference detected" (exit 0).
+   - **Still missing:** the CI replay check that would stop a recurrence. It is not built.
+
+   See `docs/architecture/schema-drift-2026-09-16.md`.
 3. **Anthropic effort.** Anthropic says to start Claude Opus 5 at `high`; the reviewed routing uses
    `medium`, never evaluated live. Decide before the first live request, ideally after a staging effort
    sweep.
@@ -1327,14 +1338,14 @@ decisions for Charlie and Lexi.
   - the web linking decision.
 
 **Next:**
-1. Merge B0 (docs only).
+1. Merge B1 (schema description only, no migration).
 2. Post-B0 master-roadmap reconciliation. It incorporates provider specialization: capability route vs
    the existing `profile`, Case Explanation's route and resulting routing policy, and the COMMUNICATION
    models, verified when chosen.
-3. B1: schema-side alignment of the drift, a schema-only PR with no migration. Not started.
-4. Fix the outbox drain secrets (Matt).
-5. Then B2 onward, in order, each as its own reviewed PR.
-6. Unrelated to AI:
+3. Fix the outbox drain secrets (Matt).
+4. Then B2 onward, in order, each as its own reviewed PR. B2 must reconcile the capability route with the
+   existing task `profile`, not add a second dimension beside it.
+5. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.
 
