@@ -1,6 +1,13 @@
 # AI honesty inventory — what claims intelligence, and what is actually behind it
 
-**Status:** AUDIT COMPLETE (2026-09-16). Read-only: nothing in this pass changed code or data.
+**Status:** AUDIT COMPLETE, C1-C4 IMPLEMENTED (2026-09-16). Product decided to **delete** "AI resolution
+rate" rather than rename it. The corrections below are applied; the table is kept as the record of what
+was found and why each answer was chosen.
+
+**One correction to this audit itself.** It listed *two* percentage-confidence renders. The fence written
+with the fix found **five**: three more in `intelligence-ui.tsx` (lines 467, 731, 1048) that a
+surface-by-surface read had missed. A grep-backed fence found what reading did not, which is the argument
+for writing the fence at all.
 **Purpose:** Loop must not ship real AI beside fake AI. Slice AI S1 sends real model output to a screen;
 the day it does, every *other* surface implying intelligence has to be either genuinely intelligent or
 honestly labelled. This is the list, the classification, and the correction sequence.

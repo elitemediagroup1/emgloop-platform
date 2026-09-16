@@ -1,4 +1,5 @@
 import 'server-only';
+import { EVIDENCE_STRENGTH_LABEL, evidenceStrengthFromDerivedConfidence } from '@emgloop/shared';
 
 // The operational Home — one composed read.
 //
@@ -101,7 +102,13 @@ export interface BrainAction {
   title: string;
   why: string;
   impact: string;
-  confidencePct: number;
+  /**
+   * The evidence behind this action, as a strength a reader can act on. It replaced
+   * a percentage (Product, 2026-09-16): the underlying figure is the Evidence
+   * Engine's coverage measure, and shown as "87%" it reads as a probability that the
+   * recommendation is right, which it has never been.
+   */
+  evidenceLabel: string;
   href: string;
 }
 
@@ -137,7 +144,7 @@ function toAction(o: ExecutiveObservation): BrainAction {
     title: o.recommendation ? o.recommendation.action : o.observation,
     why: o.businessImpact ?? o.observation,
     impact: o.recommendation?.expectedImpact ?? '',
-    confidencePct: Math.round(o.confidence * 100),
+    evidenceLabel: EVIDENCE_STRENGTH_LABEL[evidenceStrengthFromDerivedConfidence(o.confidence)],
     href: CALLGRID_OVERVIEW,
   };
 }

@@ -62,7 +62,8 @@ export interface EntityAction {
   /** Why this matters — the business stake, in plain English. */
   why: string;
   impact?: string;
-  confidencePct?: number;
+  /** The evidence behind the action, as a strength. Never a percentage: see home-data.ts. */
+  evidenceLabel?: string;
   href?: string;
   cta?: string;
 }
@@ -246,11 +247,11 @@ export function EntityPage({ model }: { model: EntityPageModel }) {
                       <div className="ent-action__main">
                         <span className="ent-action__title">{a.title}</span>
                         <p className="ent-action__why">{a.why}</p>
-                        {a.impact || typeof a.confidencePct === "number" ? (
+                        {a.impact || a.evidenceLabel ? (
                           <div className="ent-action__meta">
                             {a.impact ? <span className="ent-action__impact">Expected: {a.impact}</span> : null}
-                            {typeof a.confidencePct === "number" ? (
-                              <span className="ent-action__conf">{a.confidencePct}% confidence</span>
+                            {a.evidenceLabel ? (
+                              <span className="ent-action__conf">{a.evidenceLabel}</span>
                             ) : null}
                           </div>
                         ) : null}
