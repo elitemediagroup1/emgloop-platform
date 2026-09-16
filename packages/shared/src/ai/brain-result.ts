@@ -10,11 +10,21 @@
 // through that authority's own gate. Activity records that something happened and
 // points at the artifact. It never holds the artifact, and neither does the job.
 //
-// A RESULT IS NEVER TRUTH. Every result is NON_AUTHORITATIVE (an answer, an analysis)
-// or PROPOSED (a finding, a recommendation, an action) and nothing else. Accepting,
-// resolving or executing is the owning authority's act, on a person's or an approved
-// policy's authority, recorded there. Every claim cites evidence Loop supplied, and a
-// previous model output is never cited as if it were a governed fact.
+// A RESULT IS NEVER TRUTH. Every result is NON_AUTHORITATIVE (an answer, an analysis,
+// a draft) or PROPOSED (a finding, a recommendation, an action) and nothing else, and
+// which one is fixed by its type (`BRAIN_RESULT_TYPE_STANDING`), not by whoever owns it.
+// Accepting, resolving or executing is the owning authority's act, on a person's or an
+// approved policy's authority, recorded there. Every claim cites evidence Loop
+// supplied, and a previous model output is never cited as if it were a governed fact.
+//
+// A DRAFT IS NOT A SEND (Matt and Charlie, 2026-09-16). A DRAFT is content Brain wrote
+// for a person to review and use -- an email, a follow-up, a rewrite. A PROPOSED_ACTION
+// asks Loop to DO something -- send that email -- and only the Decision Engine's
+// approval path may hold one. Committing a draft informs; it never authorizes,
+// schedules or performs the act it was written for. Sending is a separate act: a person
+// sending through Communications under their own permission, or a separate
+// PROPOSED_ACTION, approved on its own, that cites the draft as untrusted input. This is
+// what lets Brain draft through any provider without gaining authority to send.
 //
 // THESE AUTHORITIES' STORES ARE NOT BUILT. This file is the contract a commit must
 // satisfy; the tables behind each path arrive with the first task that needs them.
@@ -23,12 +33,25 @@
 
 import type { AiContentTrustLevel } from './provider';
 
-export const BRAIN_RESULT_TYPES = ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'PROPOSED_ACTION'] as const;
+export const BRAIN_RESULT_TYPES = ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'DRAFT', 'PROPOSED_ACTION'] as const;
 export type BrainResultType = (typeof BRAIN_RESULT_TYPES)[number];
 
 /** The only standing a result can have. Anything stronger is granted by its owner, later. */
 export const BRAIN_RESULT_STANDINGS = ['NON_AUTHORITATIVE', 'PROPOSED'] as const;
 export type BrainResultStanding = (typeof BRAIN_RESULT_STANDINGS)[number];
+
+/**
+ * The standing each result type has, whoever owns it. An ownership rule takes its
+ * standing from here, so no rule can make a draft a proposal.
+ */
+export const BRAIN_RESULT_TYPE_STANDING: Readonly<Record<BrainResultType, BrainResultStanding>> = Object.freeze({
+  ANSWER: 'NON_AUTHORITATIVE',
+  ANALYSIS: 'NON_AUTHORITATIVE',
+  FINDING: 'PROPOSED',
+  RECOMMENDATION: 'PROPOSED',
+  DRAFT: 'NON_AUTHORITATIVE',
+  PROPOSED_ACTION: 'PROPOSED',
+});
 
 /** Loop authorities that may own a Brain result. */
 export const BRAIN_RESULT_OWNERS = [
@@ -36,6 +59,9 @@ export const BRAIN_RESULT_OWNERS = [
   'COMMERCIAL_INTELLIGENCE',
   'RELATIONSHIPS',
   'CAMPAIGNS',
+  // The CRM's customer conversations (IAM resource `inbox`): the authority that holds
+  // communication and the only one whose people may send it.
+  'COMMUNICATIONS',
   'DECISION_ENGINE',
 ] as const;
 export type BrainResultOwnerAuthority = (typeof BRAIN_RESULT_OWNERS)[number];
@@ -43,7 +69,22 @@ export type BrainResultOwnerAuthority = (typeof BRAIN_RESULT_OWNERS)[number];
 /** Things that record or run work and so must never own what the work produced. */
 export const BRAIN_NEVER_OWNERS = ['ACTIVITY', 'BRAIN_EXECUTION', 'MODEL_PROVIDER'] as const;
 
-export const BRAIN_RESULT_SUBJECT_TYPES = ['CONVERSATION', 'CASE', 'RELATIONSHIP', 'CAMPAIGN', 'DECISION'] as const;
+/** The one result type that asks Loop to act, and the one authority whose approval path may hold it. */
+export const BRAIN_ACTION_RESULT_TYPE = 'PROPOSED_ACTION' satisfies BrainResultType;
+export const BRAIN_ACTION_AUTHORITY = 'DECISION_ENGINE' satisfies BrainResultOwnerAuthority;
+
+/**
+ * What a result is about. CONVERSATION is a Brain conversation; CUSTOMER_CONVERSATION is a
+ * CRM conversation with a customer (`conversations`), where a reply would be sent.
+ */
+export const BRAIN_RESULT_SUBJECT_TYPES = [
+  'CONVERSATION',
+  'CASE',
+  'RELATIONSHIP',
+  'CAMPAIGN',
+  'CUSTOMER_CONVERSATION',
+  'DECISION',
+] as const;
 export type BrainResultSubjectType = (typeof BRAIN_RESULT_SUBJECT_TYPES)[number];
 
 export interface BrainResultOwner {
@@ -64,23 +105,62 @@ export interface BrainOwnershipRule extends BrainResultOwner {
  * change to this table -- not a new place for output to land.
  */
 export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freeze([
-  rule('ANSWER', 'BRAIN_CONVERSATIONS', 'CONVERSATION', 'NON_AUTHORITATIVE', 'a Brain conversation turn'),
-  rule('ANALYSIS', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'NON_AUTHORITATIVE', 'a Case analysis held by Commercial Intelligence'),
-  rule('ANALYSIS', 'RELATIONSHIPS', 'RELATIONSHIP', 'NON_AUTHORITATIVE', 'a Relationship analysis held by the Relationship authority'),
-  rule('ANALYSIS', 'CAMPAIGNS', 'CAMPAIGN', 'NON_AUTHORITATIVE', 'a Campaign analysis held by the Campaign authority'),
-  rule('FINDING', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'PROPOSED', 'CaseFindingService, author MODEL'),
-  rule('RECOMMENDATION', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'PROPOSED', 'CaseRecommendationService, author MODEL'),
-  rule('PROPOSED_ACTION', 'DECISION_ENGINE', 'DECISION', 'PROPOSED', 'a Decision Engine approval item'),
+  rule('ANSWER', 'BRAIN_CONVERSATIONS', 'CONVERSATION', 'a Brain conversation turn'),
+  rule('ANALYSIS', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'a Case analysis held by Commercial Intelligence'),
+  rule('ANALYSIS', 'RELATIONSHIPS', 'RELATIONSHIP', 'a Relationship analysis held by the Relationship authority'),
+  rule('ANALYSIS', 'CAMPAIGNS', 'CAMPAIGN', 'a Campaign analysis held by the Campaign authority'),
+  rule('FINDING', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'CaseFindingService, author MODEL'),
+  rule('RECOMMENDATION', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'CaseRecommendationService, author MODEL'),
+  // Held as a draft on the conversation it would be sent in. Sending is not part of
+  // this path. Drafts about other subjects (a Relationship's outreach, a Campaign's
+  // copy) are each a reviewed addition here when their first task is defined.
+  rule('DRAFT', 'COMMUNICATIONS', 'CUSTOMER_CONVERSATION', 'a draft held by Communications, sent only by a separate act'),
+  rule('PROPOSED_ACTION', 'DECISION_ENGINE', 'DECISION', 'a Decision Engine approval item'),
 ]);
 
 function rule(
   resultType: BrainResultType,
   authority: BrainResultOwnerAuthority,
   subjectType: BrainResultSubjectType,
-  standing: BrainResultStanding,
   path: string,
 ): BrainOwnershipRule {
-  return Object.freeze({ resultType, authority, subjectType, standing, path });
+  return Object.freeze({ resultType, authority, subjectType, standing: BRAIN_RESULT_TYPE_STANDING[resultType], path });
+}
+
+export const BRAIN_OWNERSHIP_TABLE_VIOLATIONS = [
+  'UNKNOWN_RESULT_TYPE',
+  'STANDING_NOT_OF_TYPE',
+  'NEVER_OWNER',
+  'ACTION_OUTSIDE_APPROVAL_PATH',
+  'APPROVAL_PATH_HOLDS_NON_ACTION',
+  'AMBIGUOUS_OWNER',
+] as const;
+export type BrainOwnershipTableViolation = (typeof BRAIN_OWNERSHIP_TABLE_VIOLATIONS)[number];
+
+/**
+ * Everything wrong with an ownership table. The shipped table has none, and a test
+ * holds it there. The action path is closed both ways: only the approval path holds
+ * a proposed action, and it holds nothing else -- so a draft can never land where an
+ * approval would execute it. One result type about one kind of subject has one owner.
+ */
+export function brainOwnershipTableViolations(rules: readonly BrainOwnershipRule[]): BrainOwnershipTableViolation[] {
+  const out: BrainOwnershipTableViolation[] = [];
+  const seen = new Map<string, string>();
+  for (const r of rules) {
+    if (!(BRAIN_RESULT_TYPES as readonly string[]).includes(r.resultType)) {
+      out.push('UNKNOWN_RESULT_TYPE');
+      continue;
+    }
+    if (r.standing !== BRAIN_RESULT_TYPE_STANDING[r.resultType]) out.push('STANDING_NOT_OF_TYPE');
+    if ((BRAIN_NEVER_OWNERS as readonly string[]).includes(r.authority)) out.push('NEVER_OWNER');
+    if (r.resultType === BRAIN_ACTION_RESULT_TYPE && r.authority !== BRAIN_ACTION_AUTHORITY) out.push('ACTION_OUTSIDE_APPROVAL_PATH');
+    if (r.authority === BRAIN_ACTION_AUTHORITY && r.resultType !== BRAIN_ACTION_RESULT_TYPE) out.push('APPROVAL_PATH_HOLDS_NON_ACTION');
+    const key = `${r.resultType}|${r.subjectType}`;
+    const holder = seen.get(key);
+    if (holder !== undefined && holder !== r.authority) out.push('AMBIGUOUS_OWNER');
+    seen.set(key, r.authority);
+  }
+  return [...new Set(out)];
 }
 
 export function brainOwnershipRule(resultType: string, owner: { authority: string; subjectType: string }): BrainOwnershipRule | null {
@@ -150,7 +230,7 @@ export interface BrainSuppliedEvidence {
   readonly trust: AiContentTrustLevel;
 }
 
-/** What the job itself says the result must be. Read from Loop's job record. */
+/** What the job itself says the result must be. Read from Loop's job record (`brainCommitExpectation`). */
 export interface BrainCommitExpectation {
   readonly jobId: string;
   readonly organizationId: string;

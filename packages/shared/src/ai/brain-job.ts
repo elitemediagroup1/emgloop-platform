@@ -25,7 +25,15 @@
 
 import type { BrainExecutionClass } from './brain-execution';
 import { BRAIN_EXECUTION_CLASSES } from './brain-execution';
-import type { BrainEventActor, BrainJobEventName, BrainResultRef, BrainResultSubjectType, BrainResultType } from './brain-result';
+import type {
+  BrainCommitExpectation,
+  BrainEventActor,
+  BrainJobEventName,
+  BrainResultOwner,
+  BrainResultRef,
+  BrainResultSubjectType,
+  BrainResultType,
+} from './brain-result';
 import { BRAIN_RESULT_SUBJECT_TYPES } from './brain-result';
 import type { BrainStepKind } from './brain-step';
 
@@ -71,7 +79,15 @@ export interface BrainWait {
   readonly expiresAtMs: number;
 }
 
-/** A job as Loop records it. The executor sees only `jobId` and `generation`. */
+/**
+ * A job as Loop records it. The executor sees only `jobId` and `generation`.
+ *
+ * FOUR SEPARATE DECLARATIONS, EACH FIXED OR MOVED ON ITS OWN. `capabilityRoute` (what
+ * the work needs), `resultType` with `resultOwner` and `subject` (what it produces and
+ * who holds it), and `executionClass` (how it runs, which promotion may change). None
+ * is derived from another, and no provider or model is part of the job: those are
+ * chosen per call by the routing policy and recorded on each ledger row.
+ */
 export interface BrainJobSnapshot {
   readonly jobId: string;
   /** Increments when the same job is handed to an executor again after an executor-side loss. */
@@ -82,6 +98,8 @@ export interface BrainJobSnapshot {
   readonly taskVersion: string;
   readonly capabilityRoute: string;
   readonly resultType: BrainResultType;
+  /** The authority that will hold the result, as the task version declared it at acceptance. */
+  readonly resultOwner: BrainResultOwner;
   readonly subject: { readonly type: BrainResultSubjectType; readonly id: string };
   readonly executionClass: BrainExecutionClass;
   /** True once an interactive job has become durable. It never goes back. */
@@ -419,7 +437,13 @@ export function brainAcceptedJob(input: {
   readonly jobId: string;
   readonly submitter: BrainSubmitter;
   readonly submission: BrainSubmission;
-  readonly task: { readonly taskId: string; readonly version: string; readonly capabilityRoute: string; readonly resultType: BrainResultType };
+  readonly task: {
+    readonly taskId: string;
+    readonly version: string;
+    readonly capabilityRoute: string;
+    readonly resultType: BrainResultType;
+    readonly resultOwner: BrainResultOwner;
+  };
   readonly resumesJobId?: string | null;
 }): BrainJobSnapshot {
   return {
@@ -431,6 +455,7 @@ export function brainAcceptedJob(input: {
     taskVersion: input.task.version,
     capabilityRoute: input.task.capabilityRoute,
     resultType: input.task.resultType,
+    resultOwner: { authority: input.task.resultOwner.authority, subjectType: input.task.resultOwner.subjectType },
     subject: { ...input.submission.subject },
     executionClass: input.submission.executionClass,
     promoted: false,
@@ -440,6 +465,24 @@ export function brainAcceptedJob(input: {
     resultRefs: [],
     endReason: null,
     resumesJobId: input.resumesJobId ?? null,
+  };
+}
+
+/**
+ * What a commit from this job must be, taken only from the job record: its
+ * organization, its declared result type and owner, and the subject it was accepted
+ * for. A draft job can therefore never commit a proposed action, whatever its output
+ * says.
+ */
+export function brainCommitExpectation(
+  job: Pick<BrainJobSnapshot, 'jobId' | 'organizationId' | 'resultType' | 'resultOwner' | 'subject'>,
+): BrainCommitExpectation {
+  return {
+    jobId: job.jobId,
+    organizationId: job.organizationId,
+    resultType: job.resultType,
+    owner: { authority: job.resultOwner.authority, subjectType: job.resultOwner.subjectType },
+    subject: { type: job.subject.type, id: job.subject.id },
   };
 }
 

@@ -1,6 +1,6 @@
 # UI Track Handoff — what Charlie and Lexi can build now
 
-**Date:** 2026-09-16, against `main` `c85911a` (#264–#274 merged; production at 35 migrations; the AI
+**Date:** 2026-09-16, against `main` `6fdab5e` (#264–#275 merged; production at 35 migrations; the AI
 runtime is built and switched off). **For:** Charlie and Lexi. **Owner of this page:** the
 backend and authority track. **This table is the current status**; the matrix in
 `foundation-handoff.md` §6 records the 2026-09-15 decision point.
@@ -283,10 +283,26 @@ the look is yours. **None of it is built**, and today's Explanation panel is unc
     to stop is never applied.
 - **Leaving the page.** Quick work continues too, and its result is waiting when the person comes
   back. Nothing is lost by navigating away.
-- **Where results live.** A result belongs to the object it is about: a Case explanation to that
-  Case, a finding or recommendation to that Case's intelligence, a proposed action to the approval
-  queue. **There is no "Brain inbox" that owns results.** Activity shows that something happened and
-  links to the object.
+- **Where results live.** A result belongs to the object it is about:
+  - a Case explanation to that Case;
+  - a finding or recommendation to that Case's intelligence;
+  - **a draft to the customer conversation it would be sent in;**
+  - a proposed action to the approval queue.
+
+  **There is no "Brain inbox" that owns results.** Activity shows that something happened and links
+  to the object.
+- **A draft is not a send (decided 2026-09-16).** Brain can write an email, a follow-up or a rewrite
+  as a **draft** for a person to review, edit and use.
+  - **Creating a draft never sends anything,** schedules anything or grants permission to send,
+    whichever provider wrote it.
+  - **Sending is a separate act:**
+    - the person sends it themselves, under their own Conversations permission;
+    - or, later, Brain proposes "send this", and that proposal goes to the approval queue on its own
+      and is approved on its own.
+  - **So the "Send" control belongs to the conversation, not to the Brain result.** Never design a
+    one-click "Brain sent this".
+  - **Label a draft as a draft,** with what it was based on (the message it replies to, the booking
+    it mentions).
 - **Provenance and details.** Every result can show how it was produced:
   - model and provider;
   - whether a fallback answered, and why;
@@ -304,15 +320,13 @@ the look is yours. **None of it is built**, and today's Explanation panel is unc
 4. The in-app notification pattern for V1.
 5. Whether Case explanations keep a history or stay one-off.
 6. How each result type is presented.
-7. **Communication drafts (open, with Product).** Brain has a COMMUNICATION capability, but no DRAFT
-   result type yet. The options, with their consequences, are in
-   `brain-execution-infrastructure.md` §24:
-   - add a DRAFT type;
-   - treat drafts as a proposed "send" action;
-   - both;
-   - hold communication tasks until decided.
-
-   Nothing forces drafts into "answers" in the meantime.
+7. **Communication drafts (the type is decided; the experience is yours).** DRAFT is now its own
+   result type, separate from a proposed "send" (`brain-execution-architecture.md` §5). Still open
+   with you and Product:
+   - where drafts appear on a conversation, and how a person edits, discards or sends one;
+   - whether drafts may be started from other places (a Relationship, a Campaign, a Brain
+     conversation); each is added when its first task is defined;
+   - whether a draft's text may appear while it is being written (today: no, it appears whole).
 
 ## 3. Blockers you will hit
 

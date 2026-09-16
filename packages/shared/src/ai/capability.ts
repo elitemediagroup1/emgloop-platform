@@ -22,6 +22,14 @@
 // behaviour under the failure policy, and is recorded. It never happens because
 // another provider's output is preferred.
 //
+// THERE IS NO UNIVERSAL FALLBACK ORDER (reaffirmed 2026-09-16, after B3). No provider is
+// another's standing fallback. A task may be served by a different approved provider
+// only when its own routing entry explicitly permits it: `fallbackPermitted` AND a named
+// target. A permission that names no target is not explicit, and does not conform.
+//
+// A ROUTE IS NOT A RESULT TYPE. Communication work usually produces a DRAFT, but the
+// route never implies the result type or the execution class, nor they the route.
+//
 // PURE. No clock, no I/O.
 
 import type { AiRoutingPolicy } from './runtime';
@@ -66,6 +74,7 @@ export const AI_ROUTE_CONFORMANCE_FINDINGS = [
   'PREFERENCE_DEPARTED_WITHOUT_REASON',
   'NO_DEFAULT_AND_NO_REASON',
   'FALLBACK_DUPLICATES_PRIMARY',
+  'FALLBACK_PERMITTED_WITHOUT_TARGET',
 ] as const;
 export type AiRouteConformanceFinding = (typeof AI_ROUTE_CONFORMANCE_FINDINGS)[number];
 
@@ -131,6 +140,7 @@ export function aiRoutingConformance(
     ) {
       findings.push('FALLBACK_DUPLICATES_PRIMARY');
     }
+    if (entry.fallbackPermitted === true && !entry.fallback) findings.push('FALLBACK_PERMITTED_WITHOUT_TARGET');
     return result(task, preference, primaryProvider, departure, findings);
   });
 }

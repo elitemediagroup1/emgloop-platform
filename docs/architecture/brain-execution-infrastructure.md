@@ -12,6 +12,10 @@
 - **Scope of the design:** it settles how Loop hands Brain work to AWS **before** that environment
   exists. Each build step (§25) is its own reviewed pull request.
 
+**Amended after merge (B3.1, 2026-09-16).** Matt and Charlie then decided DRAFT and reaffirmed
+provider specialization with no universal fallback order. Decision 2 below, §15's fallback row, §24
+and §25 are updated to match; nothing else in the design changes.
+
 **How it relates to the other records.**
 - `brain-execution-architecture.md` holds the approved direction and the contracts.
 - `loop-ai-runtime.md` holds governance, the taxonomy and the activation gates.
@@ -37,8 +41,9 @@
 
 1. **B3 is design.** AWS trust, security and infrastructure design comes first. Brain persistence
    follows only after this is approved.
-2. **No sixth result type yet.** Communication drafts are **not** forced into ANSWER, and no DRAFT
-   result type is added. The question stays open (§24).
+2. **No sixth result type yet** (superseded after B3). Communication drafts were **not** forced into
+   ANSWER, and the question was left open. **Matt and Charlie have since added DRAFT** as a sixth
+   type, distinct from PROPOSED_ACTION (§24).
 3. **Replies come from the principal only.** WAITING_FOR_USER is answered only by the originating
    principal in V1. There is no delegation.
 4. **Conformance at run time too.** Provider-specialization conformance must be enforced at run time
@@ -493,7 +498,7 @@ migration, because a migration must not depend on a role that differs between en
 | Provider answered; worker died before commit | The `IN_FLIGHT` row is marked abandoned (spend kept); one more paid attempt if allowed | RUNNING, or FAILED `PROVIDER_RESULT_LOST` |
 | Provider timeout | The gateway's failure policy; fallback if permitted | RUNNING, or FAILED `PROVIDER_UNAVAILABLE` |
 | Provider rate-limited | Fallback if permitted; otherwise a delayed retry within policy | RUNNING, or FAILED `RETRIES_EXHAUSTED` |
-| Anthropic fails, OpenAI fallback permitted | The fallback serves; `fellBackFrom` and the reason recorded | RUNNING → SUCCEEDED |
+| The primary provider fails, and the task's own entry permits and names a fallback (for Case Explanation: Anthropic, then OpenAI) | The fallback serves; `fellBackFrom` and the reason recorded. A task that permits none fails by name | RUNNING → SUCCEEDED, or FAILED `PROVIDER_UNAVAILABLE` |
 | Both providers fail | Both calls recorded | FAILED `PROVIDER_UNAVAILABLE` |
 | Neon temporarily unavailable | Lease fails → message retried → DLQ after 5; the sweeper re-drives from Neon when it returns; the dispatcher returns 503 and the sweeper dispatches later | The last state stands; nothing advances without Neon |
 | User cancels during a model call | Cancel flag set; the worker aborts the call within about 5 s or settles at the boundary; any late result is kept but not applied | RUNNING → CANCELLED `REQUESTED_BY_PRINCIPAL` |
@@ -715,20 +720,30 @@ installed.
 
 ## 24. Unresolved decisions
 
-**The DRAFT result type (Charlie, Lexi, Product). Deliberately open.**
-- **The gap:**
-  - COMMUNICATION exists as a capability route;
-  - DRAFTING existed only in the retired profile vocabulary;
-  - the approved result types (ANSWER, ANALYSIS, FINDING, RECOMMENDATION, PROPOSED_ACTION) have no
-    DRAFT.
-- **The options:**
+**The DRAFT result type: DECIDED after B3** (Matt and Charlie, 2026-09-16; contracts in B3.1).
+- **The decision** is option 3 below: DRAFT is a sixth result type for content a person reviews and
+  uses, and PROPOSED_ACTION remains the only way to ask Loop to act (sending included).
+- **How the contracts hold it** (`brain-execution-architecture.md` §5):
+  - a DRAFT is NON_AUTHORITATIVE by type;
+  - it is held by Communications on a customer conversation;
+  - it can never reach the approval path;
+  - a draft job cannot commit a send proposal;
+  - a later send proposal cites the draft only as untrusted input, with its own job and approval.
+- **What this changes in the AWS design:** nothing structural.
+  - A draft is committed through the same internal COMMIT_RESULT call as any result.
+  - No AWS component gains a send capability.
+  - The worker's role still cannot write product tables.
+- **Still open for Charlie, Lexi and Product:**
+  - drafts about other subjects;
+  - whether draft text may show while it is written;
+  - the draft store itself, which is built with the first communication task.
 
-| Option | What it means | Consequence |
+| Option (as offered in B3) | What it meant | Outcome |
 |---|---|---|
-| 1. Add a DRAFT result type | Owned by a Communications or Inbox authority; NON_AUTHORITATIVE; sending is a separate human (or approved policy) act | A clean fit with the taxonomy's "Draft"; needs an owner authority and a store |
-| 2. Drafts are the payload of a PROPOSED_ACTION ("send this message") | Owned by the Decision Engine approval path | Every draft becomes an approval item, even ones nobody means to send; heavier |
-| 3. Both: DRAFT for working text, PROPOSED_ACTION when someone asks to send | Two paths with a clear hand-off | The most expressive; the most to build |
-| 4. Defer communication tasks until decided | No COMMUNICATION task ships | Safe; delays the OpenAI-preferred route's first use |
+| 1. Add a DRAFT result type | Owned by a Communications authority; NON_AUTHORITATIVE; sending is a separate act | Taken, as part of 3 |
+| 2. Drafts are the payload of a PROPOSED_ACTION | Every draft an approval item | Not taken |
+| 3. Both: DRAFT for working text, PROPOSED_ACTION when someone asks to send | Two paths with a clear hand-off | **Chosen** |
+| 4. Defer communication tasks | No COMMUNICATION task ships | Not needed |
 
 **For Matt:**
 - the Netlify function region (align to `iad`?);
@@ -743,18 +758,67 @@ installed.
 
 **For Charlie:** the IaC tool (§20) and the operations runbook.
 
-**For Charlie and Lexi:** the experience items in `docs/product/ui-track-handoff.md`, and the DRAFT
-question above.
+**For Charlie and Lexi:** the experience items in `docs/product/ui-track-handoff.md`, and the
+remaining draft questions above.
 
 ## 25. Sequence after B3
 
 | Step | Scope | Migration |
 |---|---|---|
-| **B4** | Brain persistence: jobs (with lease and version), transitions, steps and checkpoints, waits and replies, commands, Brain events, `ai_controls`, and job and step references on `ai_invocations`. Organization-first repositories; the Activity source adapter for Brain events; opt-in Postgres tests. A runbook for the three restricted database roles. | one additive migration, **not dispatched** |
+| **B4** | Brain persistence (detail below). | one additive migration, **not dispatched** |
 | B5 | Loop side: the Brain API (submit, status, respond, cancel), the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner for tests and development, and retirement of `/api/brain/call-handling-briefing` | none |
 | B6 | AWS foundation in staging, **off**: CDK; the authorizer, dispatcher, worker, sweeper, queues and DLQs; DynamoDB; KMS; Secrets Manager; SSM parameters; alarms; budgets; GitHub OIDC deploys. **Second deployable: needs approval.** | none |
 | B7 | Case Explanation on AWS in staging: the two-phase panel; the first live request on a synthetic Case with staging keys (only after the effort decision). Then production, and removal of Netlify's provider keys. | none |
 | B8 | The first DURABLE task, its owned artifact and interface; the outbox repair (prerequisite) and notifications; ECS long steps only if needed | artifact migration |
+
+**B4 in detail (revised in B3.1).** These are the tables and columns B4 proposes; exact names are
+settled in B4's review.
+- **`brain_jobs`.** Each of the four declarations is its own column, fixed at acceptance unless
+  marked:
+  - what the work needs: `capabilityRoute`;
+  - what it produces and who holds it: `resultType`, `resultOwnerAuthority`, `resultSubjectType`,
+    `resultSubjectId`;
+  - how it runs: `executionClass` (changed only by promotion), plus `promotedAt`.
+  - **No provider, model, fallback or routing column.** Those are chosen per call and recorded on
+    `ai_invocations`.
+  - The rest of the row:
+    - organization and principal (both foreign keys), task id and version;
+    - state, generation, `version` (optimistic), lease holder and expiry;
+    - cancel request (actor, reason, time), end reason;
+    - idempotency key and submission fingerprint (unique per organization, principal, task and
+      key);
+    - `resumesJobId`;
+    - accepted, started and ended times, and active elapsed time (excluding waits).
+- **`brain_job_transitions`:** sequence, event, from and to state, actor and reason. Unique per job
+  and sequence.
+- **`brain_job_steps`:** step key, kind, attempt, paid attempts, state, and the checkpoint (input
+  fingerprint and encrypted payload). Unique per job and step key, and per checkpoint key.
+- **`brain_job_waits`:** question schema and version, minimal question, expiry, status, responder,
+  validated reply, answered time. One reply per wait.
+- **`brain_commands`:** kind (START, RESUME or CANCEL), generation, issuer, wait id, `dispatchedAt`,
+  dispatch count.
+- **`brain_events`:** the `BrainJobEvent` allowlist, including `resultType`, with `brainEventId` as
+  the unique key.
+- **`ai_controls`:** the append-only log and its current projection.
+- **`ai_invocations` gains three nullable columns:**
+  - `brainJobId` and `brainStepKey`;
+  - `specializationPolicyVersion`, beside the existing `routingPolicyVersion`, because conformance is
+    decided per call.
+  - `profile` keeps holding the capability route.
+- **Vocabularies are text columns validated by the shared contracts, not database enums.** Adding
+  DRAFT would have needed a migration if they were enums; as text, a new result type, route or owner
+  stays a reviewed code change.
+- **Also in B4:**
+  - organization-first repositories that map rows to `BrainJobSnapshot` and back (round-trip tests,
+    including a DRAFT job);
+  - the Activity source adapter for Brain events;
+  - opt-in Postgres tests;
+  - the runbook for the three restricted database roles, applied by an ops script and not by the
+    migration.
+- **Not in B4:**
+  - any result store: no draft store, Communications table or approval-item table;
+  - any API, executor, AWS resource, provider call or activation;
+  - any change to the routing or specialization policy data.
 
 ## 26. Still to verify during build
 

@@ -31,6 +31,8 @@ import {
   AI_TASKS,
   aiLedgerCapabilityOf,
   aiTaskContractViolations,
+  BRAIN_ACTION_AUTHORITY,
+  BRAIN_ACTION_RESULT_TYPE,
   BRAIN_CANCEL_REASONS,
   BRAIN_CLIENT_AUTHORITY_KEYS,
   BRAIN_DEFAULT_STEP_POLICIES,
@@ -41,6 +43,9 @@ import {
   BRAIN_JOB_STATES,
   BRAIN_NEVER_OWNERS,
   BRAIN_OWNERSHIP_RULES,
+  BRAIN_PROVISIONAL_TEXT_RESULT_TYPES,
+  BRAIN_RESULT_OWNERS,
+  BRAIN_RESULT_TYPE_STANDING,
   BRAIN_RESULT_TYPES,
   BRAIN_STEP_KINDS,
   BRAIN_TRANSITION_EVENT_TYPES,
@@ -49,6 +54,7 @@ import {
   brainCallKey,
   brainCheckpointKey,
   brainCommandDisposition,
+  brainCommitExpectation,
   brainCommitRefusals,
   brainDeadlineDecision,
   brainDoorbellCheck,
@@ -59,6 +65,7 @@ import {
   brainJobTransition,
   brainMayWaitForUser,
   brainModelStepProvenance,
+  brainOwnershipTableViolations,
   brainPresentation,
   brainProgressFraction,
   brainStepPolicyViolations,
@@ -75,6 +82,7 @@ import {
   type BrainExecutionContract,
   type BrainJobSnapshot,
   type BrainJobTransitionEvent,
+  type BrainOwnershipRule,
   type BrainResultEnvelope,
   type BrainSubmission,
   type BrainSubmitter,
@@ -111,13 +119,21 @@ const submission = (over: Partial<BrainSubmission> = {}): BrainSubmission => ({
   ...over,
 });
 
+const RELATIONSHIP_REVIEW = {
+  taskId: 'relationship.review',
+  version: '1.0.0',
+  capabilityRoute: 'TECHNICAL_ANALYSIS',
+  resultType: 'ANALYSIS',
+  resultOwner: { authority: 'RELATIONSHIPS', subjectType: 'RELATIONSHIP' },
+} as const;
+
 function job(over: Partial<BrainJobSnapshot> = {}): BrainJobSnapshot {
   return {
     ...brainAcceptedJob({
       jobId: 'job_1',
       submitter: submitter(),
       submission: submission(),
-      task: { taskId: 'relationship.review', version: '1.0.0', capabilityRoute: 'TECHNICAL_ANALYSIS', resultType: 'ANALYSIS' },
+      task: RELATIONSHIP_REVIEW,
     }),
     ...over,
   };
@@ -154,7 +170,7 @@ test('execution class, result type and capability route are three separate vocab
     }
   }
   assert.deepEqual([...BRAIN_EXECUTION_CLASSES], ['INTERACTIVE', 'DURABLE']);
-  assert.deepEqual([...BRAIN_RESULT_TYPES], ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'PROPOSED_ACTION']);
+  assert.deepEqual([...BRAIN_RESULT_TYPES], ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'DRAFT', 'PROPOSED_ACTION']);
   assert.deepEqual([...AI_CAPABILITY_ROUTES], ['COMMUNICATION', 'TECHNICAL_ANALYSIS', 'GENERAL_REASONING']);
   // A task declares each on its own; none is derived from another.
   const t = AI_TASK_CASE_EXPLANATION;
@@ -167,16 +183,27 @@ function task(over: Partial<AiTaskDefinition>): AiTaskDefinition {
   return { ...AI_TASK_CASE_EXPLANATION, ...over } as AiTaskDefinition;
 }
 
+const DRAFT_OWNER = { authority: 'COMMUNICATIONS', subjectType: 'CUSTOMER_CONVERSATION' } as const;
+const INTERACTIVE_ONLY: BrainExecutionContract = {
+  classes: ['INTERACTIVE'],
+  interactive: { presentationBudgetMs: 10_000, executionDeadlineMs: 30_000, streaming: 'NONE' },
+  durable: null,
+};
+
 test('any allowed combination is a coherent task: durable communication, interactive analysis', () => {
-  const durableDraft = task({
-    capabilityRoute: 'COMMUNICATION',
-    resultType: 'ANSWER',
-    resultOwner: { authority: 'BRAIN_CONVERSATIONS', subjectType: 'CONVERSATION' },
-    execution: DURABLE_CONTRACT,
-  });
+  const durableDraft = task({ capabilityRoute: 'COMMUNICATION', resultType: 'DRAFT', resultOwner: DRAFT_OWNER, execution: DURABLE_CONTRACT });
   assert.deepEqual(aiTaskContractViolations(durableDraft), []);
+  const interactiveDraft = task({ capabilityRoute: 'COMMUNICATION', resultType: 'DRAFT', resultOwner: DRAFT_OWNER, execution: INTERACTIVE_ONLY });
+  assert.deepEqual(aiTaskContractViolations(interactiveDraft), []);
   const interactiveTechnical = task({ capabilityRoute: 'TECHNICAL_ANALYSIS', resultType: 'ANALYSIS' });
   assert.deepEqual(aiTaskContractViolations(interactiveTechnical), []);
+  const durableTechnical = task({ capabilityRoute: 'TECHNICAL_ANALYSIS', resultType: 'ANALYSIS', execution: DURABLE_CONTRACT });
+  assert.deepEqual(aiTaskContractViolations(durableTechnical), []);
+  // The route does not imply the result: a technical write-up can be a draft, and
+  // general reasoning can produce one too.
+  for (const capabilityRoute of AI_CAPABILITY_ROUTES) {
+    assert.deepEqual(aiTaskContractViolations(task({ capabilityRoute, resultType: 'DRAFT', resultOwner: DRAFT_OWNER })), [], capabilityRoute);
+  }
   for (const t of AI_TASKS) assert.deepEqual(aiTaskContractViolations(t), [], `${t.taskId} is coherent`);
 });
 
@@ -194,6 +221,21 @@ test('a task cannot confuse what it produces with what it may do, or declare the
   assert.deepEqual(
     aiTaskContractViolations(task({ resultType: 'FINDING', resultOwner: { authority: 'RELATIONSHIPS', subjectType: 'RELATIONSHIP' } })),
     ['OWNERSHIP_NOT_PERMITTED'],
+  );
+  assert.deepEqual(
+    aiTaskContractViolations(task({ resultType: 'DRAFT', resultOwner: DRAFT_OWNER, consequence: 'PROPOSES_FOR_APPROVAL' })),
+    ['CONSEQUENCE_DOES_NOT_MATCH_RESULT'],
+    'a draft proposes nothing: sending is a separate act',
+  );
+  assert.deepEqual(
+    aiTaskContractViolations(task({ resultType: 'DRAFT', resultOwner: { authority: 'DECISION_ENGINE', subjectType: 'DECISION' } })),
+    ['OWNERSHIP_NOT_PERMITTED'],
+    'a draft never lands on the approval path',
+  );
+  assert.deepEqual(
+    aiTaskContractViolations(task({ resultType: 'PROPOSED_ACTION', resultOwner: DRAFT_OWNER, consequence: 'PROPOSES_FOR_APPROVAL' })),
+    ['OWNERSHIP_NOT_PERMITTED'],
+    'Communications holds drafts, never a proposal to send one',
   );
   assert.deepEqual(aiTaskContractViolations(task({ capabilityRoute: 'EXPLANATION' as never })), ['UNKNOWN_CAPABILITY_ROUTE']);
   assert.deepEqual(aiTaskContractViolations(task({ invokerRoles: [] })), ['NO_INVOKER']);
@@ -238,6 +280,7 @@ test('an execution contract is refused when its envelopes do not match its class
 });
 
 test('unvalidated text is never streamed to a reader, for any result type, until Product approves one', () => {
+  assert.deepEqual([...BRAIN_PROVISIONAL_TEXT_RESULT_TYPES], [], 'not even a draft, until Product decides');
   for (const type of BRAIN_RESULT_TYPES) {
     const contract = { ...DURABLE_CONTRACT, interactive: { ...DURABLE_CONTRACT.interactive!, streaming: 'PROVISIONAL_TEXT' as const } };
     assert.deepEqual(brainExecutionContractViolations(contract, type), ['PROVISIONAL_TEXT_NOT_APPROVED'], type);
@@ -300,7 +343,7 @@ test("accepted work belongs to the submitter's organization and person, taken fr
     jobId: 'job_2',
     submitter: submitter(),
     submission: smuggled,
-    task: { taskId: 'relationship.review', version: '1.0.0', capabilityRoute: 'TECHNICAL_ANALYSIS', resultType: 'ANALYSIS' },
+    task: RELATIONSHIP_REVIEW,
   });
   assert.equal(safe.organizationId, ORG);
   assert.equal(safe.principalUserId, PRINCIPAL);
@@ -425,7 +468,7 @@ test('no job state or event describes a browser, a session or a connection', () 
   assert.match(src, /BrainJobIgnoresConnections/, 'the compile-time guard is in place');
   assert.deepEqual(Object.keys(job()).sort(), [
     'cancelRequest', 'capabilityRoute', 'endReason', 'executionClass', 'generation', 'jobId', 'organizationId', 'principalUserId',
-    'promoted', 'resultRefs', 'resultType', 'resumesJobId', 'state', 'subject', 'taskId', 'taskVersion', 'wait',
+    'promoted', 'resultOwner', 'resultRefs', 'resultType', 'resumesJobId', 'state', 'subject', 'taskId', 'taskVersion', 'wait',
   ]);
 });
 
@@ -712,14 +755,62 @@ const SUPPLIED = [
 
 test('the ownership table: every result type has an owner, and no recorder or runner owns anything', () => {
   for (const type of BRAIN_RESULT_TYPES) assert.ok(BRAIN_OWNERSHIP_RULES.some((r) => r.resultType === type), type);
+  assert.deepEqual(Object.keys(BRAIN_RESULT_TYPE_STANDING), [...BRAIN_RESULT_TYPES], 'every type has exactly one standing');
+  assert.deepEqual(
+    BRAIN_RESULT_TYPES.filter((t) => BRAIN_RESULT_TYPE_STANDING[t] === 'PROPOSED'),
+    ['FINDING', 'RECOMMENDATION', 'PROPOSED_ACTION'],
+  );
   for (const r of BRAIN_OWNERSHIP_RULES) {
     assert.ok(!(BRAIN_NEVER_OWNERS as readonly string[]).includes(r.authority));
-    assert.equal(r.standing, ['FINDING', 'RECOMMENDATION', 'PROPOSED_ACTION'].includes(r.resultType) ? 'PROPOSED' : 'NON_AUTHORITATIVE', r.resultType);
+    assert.equal(r.standing, BRAIN_RESULT_TYPE_STANDING[r.resultType], r.resultType);
   }
+  assert.deepEqual(brainOwnershipTableViolations(BRAIN_OWNERSHIP_RULES), []);
+  assert.ok(Object.isFrozen(BRAIN_OWNERSHIP_RULES) && Object.isFrozen(BRAIN_RESULT_TYPE_STANDING));
   const find = (t: string, a: string) => BRAIN_OWNERSHIP_RULES.find((r) => r.resultType === t && r.authority === a);
   assert.equal(find('ANALYSIS', 'COMMERCIAL_INTELLIGENCE')?.subjectType, 'CASE');
   assert.equal(find('PROPOSED_ACTION', 'DECISION_ENGINE')?.subjectType, 'DECISION');
   assert.equal(find('RECOMMENDATION', 'COMMERCIAL_INTELLIGENCE')?.subjectType, 'CASE');
+  assert.equal(find('DRAFT', 'COMMUNICATIONS')?.subjectType, 'CUSTOMER_CONVERSATION');
+  assert.equal(find('DRAFT', 'COMMUNICATIONS')?.standing, 'NON_AUTHORITATIVE');
+  // The action path is closed both ways.
+  assert.equal(BRAIN_ACTION_RESULT_TYPE, 'PROPOSED_ACTION');
+  assert.equal(BRAIN_ACTION_AUTHORITY, 'DECISION_ENGINE');
+  assert.deepEqual(
+    BRAIN_OWNERSHIP_RULES.filter((r) => r.authority === BRAIN_ACTION_AUTHORITY).map((r) => r.resultType),
+    ['PROPOSED_ACTION'],
+  );
+  assert.deepEqual(
+    BRAIN_OWNERSHIP_RULES.filter((r) => r.resultType === BRAIN_ACTION_RESULT_TYPE).map((r) => r.authority),
+    ['DECISION_ENGINE'],
+  );
+  assert.ok((BRAIN_RESULT_OWNERS as readonly string[]).includes('COMMUNICATIONS'));
+});
+
+test('an ownership table that would let a draft become a proposal, or reach the approval path, is refused', () => {
+  const base = BRAIN_OWNERSHIP_RULES;
+  const draft = base.find((r) => r.resultType === 'DRAFT')!;
+  const withRule = (r: Partial<BrainOwnershipRule>): BrainOwnershipRule[] => [...base, { ...draft, ...r } as BrainOwnershipRule];
+  assert.deepEqual(brainOwnershipTableViolations([...base.filter((r) => r !== draft), { ...draft, standing: 'PROPOSED' }]), [
+    'STANDING_NOT_OF_TYPE',
+  ]);
+  assert.deepEqual(
+    brainOwnershipTableViolations(withRule({ authority: 'DECISION_ENGINE', subjectType: 'DECISION' })),
+    ['APPROVAL_PATH_HOLDS_NON_ACTION'],
+    'a draft held where an approval would execute it',
+  );
+  assert.deepEqual(
+    brainOwnershipTableViolations(withRule({ resultType: 'PROPOSED_ACTION', standing: 'PROPOSED' })),
+    ['ACTION_OUTSIDE_APPROVAL_PATH'],
+    'a send proposal held by Communications instead of the approval path',
+  );
+  assert.deepEqual(
+    brainOwnershipTableViolations(withRule({ authority: 'BRAIN_CONVERSATIONS' })),
+    ['AMBIGUOUS_OWNER'],
+    'one kind of result about one kind of subject has one owner',
+  );
+  assert.deepEqual(brainOwnershipTableViolations(withRule({ authority: 'ACTIVITY' as never })), ['NEVER_OWNER', 'AMBIGUOUS_OWNER']);
+  assert.deepEqual(brainOwnershipTableViolations(withRule({ resultType: 'SEND' as never })), ['UNKNOWN_RESULT_TYPE']);
+  assert.deepEqual(brainOwnershipTableViolations(withRule({ subjectType: 'CASE' })), [], 'a second subject for drafts is a table change, not a violation');
 });
 
 test('a well-formed result may be handed to its owner, and nothing else is', () => {
@@ -803,6 +894,151 @@ test('a result without full provenance is refused', () => {
   }
 });
 
+// --- Drafts are not sends -----------------------------------------------------------------
+
+const DRAFT_SUBJECT = { type: 'CUSTOMER_CONVERSATION', id: 'conv_7' } as const;
+const DRAFT_SUPPLIED = [
+  { ref: 'message:msg_41', trust: 'UNTRUSTED_INPUT' as const },
+  { ref: 'booking:bk_9', trust: 'GOVERNED_FACT' as const },
+];
+
+function draftJob(over: Partial<BrainJobSnapshot> = {}): BrainJobSnapshot {
+  return {
+    ...brainAcceptedJob({
+      jobId: 'job_d1',
+      submitter: submitter(),
+      submission: submission({ taskId: 'reply.draft', subject: DRAFT_SUBJECT, executionClass: 'INTERACTIVE' }),
+      task: { taskId: 'reply.draft', version: '1.0.0', capabilityRoute: 'COMMUNICATION', resultType: 'DRAFT', resultOwner: DRAFT_OWNER },
+    }),
+    ...over,
+  };
+}
+
+function draftEnvelope(over: Partial<BrainResultEnvelope> = {}): BrainResultEnvelope {
+  const draftClaims = [
+    { statement: 'Replies to the customer asking to move their appointment.', citations: ['message:msg_41'] },
+    { statement: 'The appointment is on the booking Loop holds.', citations: ['booking:bk_9'] },
+  ];
+  return envelope({
+    resultType: 'DRAFT',
+    schemaId: 'reply-draft.v1',
+    subject: { ...DRAFT_SUBJECT },
+    owner: { ...DRAFT_OWNER },
+    standing: 'NON_AUTHORITATIVE',
+    claims: draftClaims,
+    evidenceRefs: brainEvidenceRefsOf(draftClaims),
+    limitations: [],
+    provenance: { ...envelope().provenance, jobId: 'job_d1', taskId: 'reply.draft', capabilityRoute: 'COMMUNICATION' },
+    payload: { subjectLine: 'Your appointment', body: 'Hi, happy to move it.' },
+    ...over,
+  });
+}
+
+test('a draft job records what it needs, what it produces, who holds it and how it runs, each on its own', () => {
+  const d = draftJob();
+  assert.equal(d.capabilityRoute, 'COMMUNICATION');
+  assert.equal(d.resultType, 'DRAFT');
+  assert.deepEqual(d.resultOwner, DRAFT_OWNER);
+  assert.deepEqual(d.subject, DRAFT_SUBJECT);
+  assert.equal(d.executionClass, 'INTERACTIVE');
+  for (const key of ['providerId', 'modelId', 'provider', 'model', 'fallback', 'routingPolicyVersion']) {
+    assert.equal(key in d, false, `a job carries no ${key}: routing chooses per call`);
+  }
+  // Promotion changes how it runs, and nothing else about it.
+  const promoted = run(draftJob(), [{ type: 'DISPATCHED' }, { type: 'STARTED' }, { type: 'PROMOTED' }]).job;
+  assert.equal(promoted.executionClass, 'DURABLE');
+  assert.equal(promoted.capabilityRoute, 'COMMUNICATION');
+  assert.equal(promoted.resultType, 'DRAFT');
+  assert.deepEqual(promoted.resultOwner, DRAFT_OWNER);
+  // An analysis job keeps its own owner too.
+  assert.deepEqual(job().resultOwner, { authority: 'RELATIONSHIPS', subjectType: 'RELATIONSHIP' });
+});
+
+test('the commit expectation comes only from the job record', () => {
+  assert.deepEqual(brainCommitExpectation(draftJob()), {
+    jobId: 'job_d1',
+    organizationId: ORG,
+    resultType: 'DRAFT',
+    owner: DRAFT_OWNER,
+    subject: DRAFT_SUBJECT,
+  });
+  assert.deepEqual(brainCommitExpectation(job()), EXPECTED);
+  const recorded = draftJob();
+  const expectation = brainCommitExpectation(recorded);
+  assert.notStrictEqual(expectation.owner, recorded.resultOwner, 'a copy of the owner, not the record itself');
+  assert.notStrictEqual(expectation.subject, recorded.subject, 'a copy of the subject, not the record itself');
+});
+
+test('a draft is held by Communications as content for a person, and never becomes a send', () => {
+  const expected = brainCommitExpectation(draftJob());
+  assert.deepEqual(brainCommitRefusals(draftEnvelope(), expected, DRAFT_SUPPLIED), []);
+  assert.deepEqual(
+    brainCommitRefusals(draftEnvelope({ standing: 'PROPOSED' }), expected, DRAFT_SUPPLIED),
+    ['STANDING_NOT_PERMITTED'],
+    'a draft is never a proposal',
+  );
+  const onApprovalPath = draftEnvelope({ owner: { authority: 'DECISION_ENGINE', subjectType: 'DECISION' } });
+  assert.deepEqual(
+    brainCommitRefusals(onApprovalPath, { ...expected, owner: onApprovalPath.owner }, DRAFT_SUPPLIED),
+    ['OWNER_NOT_PERMITTED', 'STANDING_NOT_PERMITTED'],
+  );
+  // A draft job cannot hand over a proposal to send, whatever the model returned.
+  const sendProposal = draftEnvelope({
+    resultType: 'PROPOSED_ACTION',
+    standing: 'PROPOSED',
+    owner: { authority: 'DECISION_ENGINE', subjectType: 'DECISION' },
+    subject: { type: 'DECISION', id: 'dec_1' },
+    payload: { tool: 'communication.send', input: { conversationId: 'conv_7' } },
+  });
+  const refused = brainCommitRefusals(sendProposal, expected, DRAFT_SUPPLIED);
+  assert.ok(refused.includes('RESULT_TYPE_MISMATCH'));
+  assert.ok(refused.includes('OWNER_MISMATCH'));
+  assert.ok(refused.includes('SUBJECT_MISMATCH'));
+  // A draft states what it stands on: with nothing cited it is refused, like any non-answer.
+  assert.deepEqual(brainCommitRefusals(draftEnvelope({ claims: [], evidenceRefs: [] }), expected, DRAFT_SUPPLIED), ['EVIDENCE_MISSING']);
+  // A draft about something Communications does not hold is refused.
+  const aboutCase = draftEnvelope({ subject: { type: 'CASE', id: 'case_1' }, owner: { authority: 'COMMUNICATIONS', subjectType: 'CASE' } });
+  assert.ok(
+    brainCommitRefusals(aboutCase, { ...expected, owner: aboutCase.owner, subject: aboutCase.subject }, DRAFT_SUPPLIED).includes('OWNER_NOT_PERMITTED'),
+  );
+});
+
+test('a later send proposal may cite a draft only as untrusted input, and succeeds or fails on its own', () => {
+  const draftRef = 'brain-result:draft_1';
+  const actionJob = brainAcceptedJob({
+    jobId: 'job_a1',
+    submitter: submitter(),
+    submission: submission({ taskId: 'reply.send.propose', subject: { type: 'DECISION', id: 'dec_1' } }),
+    task: {
+      taskId: 'reply.send.propose',
+      version: '1.0.0',
+      capabilityRoute: 'GENERAL_REASONING',
+      resultType: 'PROPOSED_ACTION',
+      resultOwner: { authority: 'DECISION_ENGINE', subjectType: 'DECISION' },
+    },
+  });
+  const cites = [{ statement: 'Proposes sending the reviewed reply.', citations: [draftRef] }];
+  const proposal = envelope({
+    resultType: 'PROPOSED_ACTION',
+    schemaId: 'send-proposal.v1',
+    subject: { type: 'DECISION', id: 'dec_1' },
+    owner: { authority: 'DECISION_ENGINE', subjectType: 'DECISION' },
+    standing: 'PROPOSED',
+    claims: cites,
+    evidenceRefs: [draftRef],
+    provenance: { ...envelope().provenance, jobId: 'job_a1' },
+  });
+  const expected = brainCommitExpectation(actionJob);
+  assert.deepEqual(brainCommitRefusals(proposal, expected, [{ ref: draftRef, trust: 'UNTRUSTED_INPUT' }]), []);
+  assert.deepEqual(
+    brainCommitRefusals(proposal, expected, [{ ref: draftRef, trust: 'GOVERNED_FACT' }]),
+    ['MODEL_OUTPUT_CITED_AS_FACT'],
+    'a draft is never a governed fact, even to the proposal that would send it',
+  );
+  assert.deepEqual(brainCommitRefusals(proposal, expected, [{ ref: draftRef, trust: 'UNTRUSTED_INPUT' }]).length, 0);
+  assert.notEqual(actionJob.jobId, draftJob().jobId, 'its own job, with its own approval');
+});
+
 test('an event points at results and carries no content and no ownership', () => {
   const event = {
     name: 'brain.job.succeeded',
@@ -824,6 +1060,9 @@ test('an event points at results and carries no content and no ownership', () =>
   );
   assert.deepEqual(brainJobEventRefusals({ ...event, name: 'brain.job.failed' }), ['REFS_ON_UNSUCCESSFUL_EVENT']);
   assert.deepEqual(brainJobEventRefusals({ ...event, name: 'brain.job.exploded', resultRefs: [] }), ['UNKNOWN_EVENT']);
+  const draftDone = { ...event, resultType: 'DRAFT', resultRefs: [{ owner: DRAFT_OWNER, subjectId: 'conv_7', artifactId: 'draft_1' }] };
+  assert.deepEqual(brainJobEventRefusals(draftDone), [], 'a finished draft is announced by reference, never by its text');
+  assert.deepEqual(brainJobEventRefusals({ ...draftDone, body: 'Hi, happy to move it.' }), ['EVENT_CARRIES_CONTENT']);
 });
 
 // --- Trust ----------------------------------------------------------------------------

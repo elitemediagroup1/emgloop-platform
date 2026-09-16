@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-16 (AI runtime #266–#271 merged, switched off; B0–B2 merged; B3 AWS trust and infrastructure design in review; nothing provisioned; see the Foundation handoff block)._
+_Last updated: 2026-09-16 (AI runtime #266–#271 merged, switched off; B0–B3 merged; B3.1 DRAFT and provider-specialization reconciliation in review; B4 not started; nothing provisioned; see the Foundation handoff block)._
 
 ---
 
@@ -1228,12 +1228,12 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN CONTRACTS ON MAIN · B3 AWS DESIGN IN REVIEW, NOTHING PROVISIONED
+## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN CONTRACTS AND AWS DESIGN ON MAIN · B3.1 IN REVIEW, NOTHING PROVISIONED
 
-_Last updated: 2026-09-16._ `main` is `c85911a`. #244–#274 are merged and were verified by content.
+_Last updated: 2026-09-16._ `main` is `6fdab5e`. #244–#275 are merged and were verified by content.
 - Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
   #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`, #273 (B1, schema) `c3ac3f2`,
-  #274 (B2, contracts) `c85911a`.
+  #274 (B2, contracts) `c85911a`, #275 (B3, AWS design) `6fdab5e`.
 - Full validation on that `main` is green. The only failures are the known baselines:
   `marketplace-intelligence` typecheck, and lint, which was never configured.
 - Production has 35 migrations; nothing has been dispatched since run `35103219698`.
@@ -1253,7 +1253,8 @@ _Last updated: 2026-09-16._ `main` is `c85911a`. #244–#274 are merged and were
   - Evidence is escaped.
   - Failures carry no provider text.
 - **#269 AI-4:** the verified model catalog.
-  - `claude-opus-5` is primary and `gpt-6-astra` the fallback.
+  - For Case Explanation, `claude-opus-5` is primary and `gpt-6-astra` its permitted fallback (a
+    per-task choice; there is no platform-wide fallback order).
   - Re-verified against the providers' own documentation on 2026-09-16, and still matching.
   - Routing `routing.2026-09-16.2`; budget `budget.2026-09-16.1-proposed`.
 - **#270 AI-5:** Case Explanation.
@@ -1263,8 +1264,8 @@ _Last updated: 2026-09-16._ `main` is `c85911a`. #244–#274 are merged and were
 - **#271:** the schema-drift record, the Intake → Party linking recommendation, and the Charlie/Lexi
   handoff.
 
-**Brain execution: direction approved 2026-09-16. B2 contracts merged; B3 design in review; nothing executes them
-and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md` and
+**Brain execution: direction approved 2026-09-16. B2 contracts and B3 design merged; B3.1 in review; nothing
+executes them and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md` and
 `docs/architecture/brain-execution-infrastructure.md`.
 - **The split:** Netlify stays the product, auth boundary and Brain API. Neon stays authoritative. AWS
   runs every Brain step and every provider call, for INTERACTIVE and DURABLE alike, behind a Loop-owned
@@ -1279,15 +1280,40 @@ and nothing is provisioned.** See `docs/architecture/brain-execution-architectur
   - B0: docs, merged (#272);
   - B1: schema-only drift alignment, merged (#273), no migration;
   - B2: pure contracts, merged (#274);
-  - B3: AWS trust, security and infrastructure **design**, **in review** (details below);
-  - B4: persistence (one additive migration, not dispatched);
+  - B3: AWS trust, security and infrastructure **design**, merged (#275);
+  - B3.1: DRAFT and provider-specialization reconciliation, **in review** (details below);
+  - B4: persistence (one additive migration, not dispatched); **not started, needs Matt's
+    authorization.** Scope in `brain-execution-infrastructure.md` §25;
   - B5: the Loop side (Brain API, internal Brain API, ring signing, in-process runner);
   - B6: AWS foundation in staging, switched off (needs approval of the second deployable and the IaC
     tool);
   - B7: Case Explanation on AWS, with the first live request in staging on a synthetic Case;
   - B8: the first DURABLE task, the outbox repair and notifications.
 
-**B3 (in review): the AWS design. Nothing provisioned; the only code is pure contracts.**
+**B3.1 (in review): DRAFT and "no universal fallback", reconciled. Pure contracts, tests and docs; no migration.**
+- **DRAFT is a sixth result type:** ANSWER, ANALYSIS, FINDING, RECOMMENDATION, DRAFT, PROPOSED_ACTION.
+  - **Standing is fixed by type.** DRAFT is NON_AUTHORITATIVE (`BRAIN_RESULT_TYPE_STANDING`), so a
+    DRAFT task is READ_ONLY.
+  - **Owner.** Communications (new owner authority) holds drafts about a `CUSTOMER_CONVERSATION`
+    (new subject type: the CRM's `conversations`).
+  - **The action path is closed both ways.** `brainOwnershipTableViolations` proves only the Decision
+    Engine holds a PROPOSED_ACTION, and that it holds nothing else.
+- **A draft job cannot commit a send proposal.** The job record now carries `resultOwner`, and
+  `brainCommitExpectation(job)` derives the commit expectation from the record alone.
+  - A later send proposal is its own job and approval.
+  - It cites the draft only as untrusted input.
+- **No universal fallback order.** A task is served by another provider only when its own entry permits
+  it **and** names the target. The new conformance finding is `FALLBACK_PERMITTED_WITHOUT_TARGET`.
+  - The routing and specialization **data are unchanged** (`routing.2026-09-16.2`,
+    `specialization.2026-09-16.1`). Only comments were clarified.
+- **Independence.** Capability route, result type (with owner and subject) and execution class stay
+  separate declarations. The job holds no provider or model.
+- **B4 scope revised** (`brain-execution-infrastructure.md` §25):
+  - the four declarations become separate columns;
+  - vocabularies are text validated by contracts, not enums;
+  - `ai_invocations` gains `specializationPolicyVersion` beside the job and step references.
+
+**B3 (merged #275): the AWS design. Nothing provisioned; the only code is pure contracts.**
 - **Region.** us-east-1, because production Neon is in `aws-us-east-1`, verified from the migration
   run log. The Netlify function region is not verified.
 - **Executor revised.** A Loop step runner on Lambda, driven by SQS (interactive and durable queues,
@@ -1318,7 +1344,7 @@ and nothing is provisioned.** See `docs/architecture/brain-execution-architectur
   - the presentation budget only moves the job to a background presentation;
   - the deadline promotes the job if the task supports DURABLE, and otherwise fails it by name;
   - no hosting limit is part of the contract.
-- **Semantic result type** (ANSWER, ANALYSIS, FINDING, RECOMMENDATION, PROPOSED_ACTION).
+- **Semantic result type** (ANSWER, ANALYSIS, FINDING, RECOMMENDATION, PROPOSED_ACTION; DRAFT added in B3.1).
   - Each type has an ownership table.
   - Standing is only NON_AUTHORITATIVE or PROPOSED.
   - A commit check covers organization, job, subject, owner, citations, evidence refs, model output
@@ -1346,7 +1372,8 @@ and nothing is provisioned.** See `docs/architecture/brain-execution-architectur
 **Open items — NOT resolved:**
 1. **Outbox drain is broken in production.** Every scheduled "Drain outbox" run since at least
    2026-09-14 fails because the repository secrets `OUTBOX_DRAIN_URL` and `OUTBOX_DRAIN_SECRET` are
-   unset. Nothing delivers `state_change_outbox` events. It needs Matt, and it blocks B7.
+   unset. Nothing delivers `state_change_outbox` events. It needs Matt, and it blocks B8's
+   notifications.
 2. **Schema drift: RESOLVED by B1 (#273, merged).** The migration history and the database are unchanged,
    the Prisma schema is aligned, and replay drift is zero (re-checked on `c3ac3f2`). The CI replay check
    that would stop a recurrence is **not built**. See `docs/architecture/schema-drift-2026-09-16.md`.
@@ -1357,8 +1384,10 @@ and nothing is provisioned.** See `docs/architecture/brain-execution-architectur
    Netlify production for one organization. Matt to confirm.
 5. **Region.** Production Neon is `aws-us-east-1` (verified), so AWS us-east-1 is recommended. The
    Netlify function region is unverified and should be aligned to `iad` if the plan allows (Matt).
-6. **The DRAFT result type is deliberately unresolved.** COMMUNICATION exists, but there is no DRAFT
-   result. The options are in `brain-execution-infrastructure.md` §24 (Charlie, Lexi, Product).
+6. **DRAFT: decided (Matt and Charlie), reconciled in B3.1.** Still open for Charlie, Lexi and Product:
+   - where drafts appear and how a person edits or sends one;
+   - draft subjects beyond a customer conversation;
+   - whether draft text may show while written.
 7. **Settled for B3 (Matt):**
    - replies come from the originating principal only (V1);
    - routing conformance is enforced at run time too, at acceptance and before every model step;
@@ -1378,9 +1407,12 @@ decisions for Charlie and Lexi.
   - the Brain execution direction (2026-09-16), including stored AI controls in Neon.
   - provider specialization by capability route (2026-09-16). COMMUNICATION defaults to OpenAI
     primary, TECHNICAL_ANALYSIS to Anthropic primary, and GENERAL_REASONING is named per task.
-    Fallback stays governed and recorded. **Contracts and policy data merged in B2; the run-time gate
-    is designed in B3; not activated**; the routing policy is unchanged. See
+    Fallback stays governed and recorded. There is **no universal fallback order**: each task's
+    entry permits and names its own (reaffirmed after B3). **Contracts and policy data merged in B2;
+    the run-time gate is designed in B3; not activated**; the routing policy is unchanged. See
     `brain-execution-architecture.md` §5a.
+  - DRAFT as a sixth result type, distinct from PROPOSED_ACTION; a draft never authorizes or
+    performs a send (2026-09-16, after B3).
 - **Deferred:** PD-F-05, -09, -10.
 - **Still needed:**
   - PD-F-11 and PD-F-12;
@@ -1398,8 +1430,8 @@ decisions for Charlie and Lexi.
   - the web linking decision.
 
 **Next:**
-1. Review and merge B3 (design plus pure contracts, no migration).
-2. Then B4 persistence, only when Matt authorizes it.
+1. Review and merge B3.1 (pure contracts, tests and docs; no migration).
+2. Then B4 persistence, only when Matt authorizes it (scope: `brain-execution-infrastructure.md` §25).
 3. Fix the outbox drain secrets (Matt). This is a prerequisite for B8's notifications.
 4. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
