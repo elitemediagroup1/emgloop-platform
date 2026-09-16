@@ -1307,6 +1307,10 @@ decisions for Charlie and Lexi.
   - PD-F-01, -02, -03, -04, -06, -07, -08;
   - the AI ledger (reproducible cost, the organization's business date, no per-user cap);
   - the Brain execution direction (2026-09-16), including stored AI controls in Neon.
+  - provider specialization by capability route (2026-09-16). COMMUNICATION defaults to OpenAI
+    primary, TECHNICAL_ANALYSIS to Anthropic primary, and GENERAL_REASONING is named per task.
+    Fallback stays governed and recorded. **Not implemented**; the routing policy is unchanged. See
+    `brain-execution-architecture.md` §5a.
 - **Deferred:** PD-F-05, -09, -10.
 - **Still needed:**
   - PD-F-11 and PD-F-12;
@@ -1324,10 +1328,13 @@ decisions for Charlie and Lexi.
 
 **Next:**
 1. Merge B0 (docs only).
-2. B1: schema-side alignment of the drift, a schema-only PR with no migration. Not started.
-3. Fix the outbox drain secrets (Matt).
-4. Then B2 onward, in order, each as its own reviewed PR.
-5. Unrelated to AI:
+2. Post-B0 master-roadmap reconciliation. It incorporates provider specialization: capability route vs
+   the existing `profile`, Case Explanation's route and resulting routing policy, and the COMMUNICATION
+   models, verified when chosen.
+3. B1: schema-side alignment of the drift, a schema-only PR with no migration. Not started.
+4. Fix the outbox drain secrets (Matt).
+5. Then B2 onward, in order, each as its own reviewed PR.
+6. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.
 

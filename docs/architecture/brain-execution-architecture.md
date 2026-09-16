@@ -52,6 +52,9 @@ These product and governance contracts carry over unchanged:
 AI never establishes truth by itself. Domain authorities own the artifacts. Activity records what
 happened; it does not own the artifact.
 
+A separate product decision made the same day, **provider specialization by capability route**, is
+recorded in §5a. It is approved, but it is not implemented and does not change today's routing policy.
+
 ## 2. What exists today (`main` `7f33d3f`)
 
 - **The built runtime.** AI-1 to AI-5 (#266–#270) built the governed runtime and Case Explanation:
@@ -144,6 +147,54 @@ No numeric confidence is attached.
 - Job state belongs to Brain execution.
 - A completed result belongs to its domain.
 - Activity projects that something happened.
+
+## 5a. Capability routes: provider specialization
+
+**Status:** an approved product decision (Matt and Charlie, 2026-09-16). **NOT IMPLEMENTED.** B0 records
+it only. It is incorporated in the post-B0 master-roadmap reconciliation, and no routing policy was
+changed or activated.
+
+Brain uses **provider specialization**, not one universal primary/fallback order. This is a routing
+policy decision. It is **not** a claim that either provider is better in general.
+
+**Three independent dimensions.** Choosing one never implies another.
+
+| Dimension | Values | What it decides |
+|---|---|---|
+| Execution class | INTERACTIVE, DURABLE (§4) | How the work runs |
+| Semantic result class | ANSWER, ANALYSIS, FINDING, RECOMMENDATION, PROPOSED_ACTION (§5) | What it produces and which authority owns it |
+| Capability route | COMMUNICATION, TECHNICAL_ANALYSIS, GENERAL_REASONING (extensible later) | Which capability the work needs, and so which provider policy applies |
+
+For example, a DURABLE communication job may use OpenAI, and an INTERACTIVE technical analysis may use
+Anthropic.
+
+| Capability route | Covers | Default primary |
+|---|---|---|
+| **COMMUNICATION** | Work whose main output is language meant for a person: email drafting and rewriting, outreach, follow-ups, client-facing communication, conversational responses, tone and style adaptation, meeting follow-up communication | **OpenAI** |
+| **TECHNICAL_ANALYSIS** | Technical reasoning, engineering and code analysis, architecture reasoning, complex investigations, evidence synthesis, diagnostics, and other deeply structured analysis | **Anthropic** |
+| **GENERAL_REASONING** | Anything else | **No global default.** Each task's reviewed policy names its provider explicitly. |
+
+**Rules to carry into the implementation:**
+- **One route per task.** Each task declares exactly one capability route. The reviewed, versioned
+  routing policy (`loop-ai-runtime.md` §5) states each task's primary and fallback. A policy that departs
+  from its route's default must say why.
+- **Governed fallback.** A fallback happens only on the failure classes the policy allows. It never
+  happens because another provider's output is preferred. Every fallback is observable and recorded in
+  provenance: which provider was tried first, and the requested and served models.
+- **A route names a provider preference, not a model.** Model ids stay in the catalog and the policy,
+  and each one is verified against the provider's current official documentation when it is chosen.
+
+**Still to reconcile (post-B0 master roadmap):**
+- **The existing `profile` concept.** Task definitions already carry a capability `profile`
+  (`AiCapabilityProfile`: EXPLANATION, EXTRACTION, CLASSIFICATION, DRAFTING), and every `ai_invocations`
+  row records the profile it was routed on. The capability route must **extend or replace** that
+  concept, not sit beside it.
+- **Case Explanation's route.** Its capability route, and any resulting routing-policy change, are to be
+  recommended there. Today's policy (`routing.2026-09-16.2`: Claude Opus 5 primary, GPT-6 Astra fallback)
+  is unchanged and still switched off.
+- **The COMMUNICATION models.** Which OpenAI model serves as COMMUNICATION primary, and which model is its
+  governed fallback, will be verified against current official documentation at that time. Nothing is
+  chosen here.
 
 ## 6. Trust: how Netlify starts AWS work
 
@@ -350,7 +401,7 @@ Each step is a separate draft PR with its own review. No step activates AI.
 |---|---|---|
 | B0 | Documentation corrections and this record | none |
 | B1 | Schema-only alignment of the seven recorded drift items (`schema-drift-2026-09-16.md`), so the next migration contains only intended changes | none |
-| B2 | Pure contracts: execution classes, result envelope, job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
+| B2 | Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
 | B3 | Persistence: jobs, transitions, steps and checkpoints, waits, command outbox, stored AI controls, plus job and step references on `ai_invocations` | one additive migration, not dispatched |
 | B4 | Brain core; an in-process orchestrator for tests and local development only; the Netlify Brain API; doorbell token issuing; stored-control reads; retirement of the old `/api/brain` route | none |
 | B5 | AWS foundation in staging, switched off: the worker, dispatcher, doorbell API, sweeper, reconciler, secret-reader fence, KMS, alarms and budgets; GitHub OIDC deploys. **This adds a second deployable and infrastructure-as-code, which needs explicit approval of layout and tool.** | none |
@@ -372,6 +423,11 @@ Each step is a separate draft PR with its own review. No step activates AI.
 - an AWS support plan;
 - still open from PD-F-08: MANAGER as an invoker; Opus 5 vs Fable 5.1; GPT-6 Astra vs GPT-5.6
   Sol.
+
+**Master-roadmap reconciliation (post-B0), from §5a:**
+- how capability route and `profile` fit together;
+- Case Explanation's capability route and its resulting routing policy;
+- the COMMUNICATION primary and fallback models, verified when chosen.
 
 **Charlie:** the infrastructure-as-code tool (TypeScript CDK is recommended) and ownership of the
 AWS runbook.

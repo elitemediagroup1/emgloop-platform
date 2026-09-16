@@ -207,6 +207,12 @@ considered, reasons for skipping, and the one chosen.
   (§13). Per-organization overrides are deferred.
 - **Adding a provider or model** is an adapter plus policy rows. Domain semantics never change.
 - **No hard-coded "provider X does task Y"** outside this policy.
+- **Provider specialization (approved product decision 2026-09-16, NOT implemented).** Each task will
+  declare a capability route (COMMUNICATION, TECHNICAL_ANALYSIS or GENERAL_REASONING). The defaults are
+  OpenAI primary for COMMUNICATION and Anthropic primary for TECHNICAL_ANALYSIS; GENERAL_REASONING has no
+  global default and is named per task. The preference lives in this policy, never in code branches.
+  Fallback stays governed and recorded. See `brain-execution-architecture.md` §5a. Today's policy is
+  unchanged.
 
 ## 6. F3 — Intelligence taxonomy
 
