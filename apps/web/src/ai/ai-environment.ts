@@ -178,3 +178,8 @@ export function readAiEnvironment(source: AiEnvironmentSource = process.env, dep
   });
   return { activation, killSwitches, providers, configuration };
 }
+
+/** The deployment's AI environment, read from process.env. The runtime assembly calls this. */
+export function aiEnvironment(deps: AiEnvironmentDeps = {}): AiEnvironment {
+  return readAiEnvironment(process.env, deps);
+}

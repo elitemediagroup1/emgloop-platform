@@ -13,8 +13,12 @@
 // window must not read as a healthy one.
 //
 // GUARDED AT THE TOP, ORGANIZATION FROM THE SESSION. `commercialIntelligence:view`
-// before anything is read. There are no mutations on this page yet, and the
-// section below says exactly which controls are missing and why.
+// before anything is read. Every control on this page posts to a guarded action
+// that re-checks its own authority; showing a control grants nothing.
+//
+// THE EXPLANATION PANEL is the one AI surface here. The page only asks whether to
+// offer it (a permission and configuration check, no model call); the request
+// itself goes through a guarded action and the governed runtime in src/ai/.
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -47,6 +51,8 @@ import {
 } from '../case-sections';
 import { loadCase } from '../case-data';
 import { requireWorkspace } from '../../../../../workspaces/guard';
+import { caseExplanationAvailability } from '../../../../../ai/case-explanation';
+import { ExplanationPanel } from '../explanation-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +101,10 @@ export default async function CaseWorkspacePage({
     params.id,
     session.userId,
   );
+
+  // WHETHER TO OFFER AN EXPLANATION. No model is called to answer this; the action
+  // re-decides everything when a person actually asks.
+  const explanation = await caseExplanationAvailability({ organizationId: session.organizationId, userId: session.userId });
 
   return (
     <div className="cw-page">
@@ -218,6 +228,7 @@ export default async function CaseWorkspacePage({
       <WorkSection coordination={view.coordination} />
       <MonitoringSummary view={view} canAct={canAct} caseId={params.id} />
       <OutcomeSection outcome={view.outcome} />
+      <ExplanationPanel caseId={params.id} availability={explanation} />
       <EvidenceSection
         brief={brief}
         controls={canReport ? <ReportEvidenceControl caseId={params.id} /> : undefined}
