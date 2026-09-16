@@ -57,13 +57,21 @@ export interface AiProviderPort {
   invoke(request: AiModelRequest, signal: AbortSignal): Promise<AiModelResult>;
 }
 
-/** The durable counter budgets are read from. S1 backs this with a table. */
+/**
+ * The counter budgets are read from. `DurableAiUsageLedger` backs it with the
+ * `ai_invocations` table and adds `reserve`, which this gateway does not call yet --
+ * wiring that in, so spend is claimed BEFORE dispatch, must land before activation.
+ */
 export interface AiUsageLedger {
   spentToday(organizationId: string): Promise<AiSpendToday>;
   record(provenance: AiInvocationProvenance): Promise<void>;
 }
 
-/** Enough of a ledger to exercise the gateway. Not for production: instances share no memory. */
+/**
+ * Enough of a ledger to exercise the gateway. Not for production: serverless instances
+ * share no memory, so a cap counted here is a cap per warm instance. The production
+ * ledger is `DurableAiUsageLedger`.
+ */
 export class InMemoryAiUsageLedger implements AiUsageLedger {
   readonly provenance: AiInvocationProvenance[] = [];
   private readonly byOrg = new Map<string, AiSpendToday>();

@@ -7,3 +7,7 @@ export * from './provider';
 export * from './context';
 export * from './runtime';
 export * from './task';
+
+// The business day a usage row is budgeted against. The organization's own
+// reporting zone, read in exactly one place and never used for display.
+export * from './budget-day';
