@@ -95,7 +95,12 @@ export interface AiModelRequest {
   readonly reasoningEffort: 'low' | 'medium' | 'high';
 }
 
-export const AI_STOP_REASONS = ['END', 'MAX_TOKENS', 'TOOL_USE', 'REFUSAL', 'CONTENT_FILTERED'] as const;
+/**
+ * Why a model stopped. Only END is a finished answer. MAX_TOKENS is truncated;
+ * INCOMPLETE is any other unfinished stop (a paused turn, an exhausted context
+ * window, a status nobody documented) -- and neither is ever read as an answer.
+ */
+export const AI_STOP_REASONS = ['END', 'MAX_TOKENS', 'INCOMPLETE', 'TOOL_USE', 'REFUSAL', 'CONTENT_FILTERED'] as const;
 export type AiStopReason = (typeof AI_STOP_REASONS)[number];
 
 export interface AiUsage {

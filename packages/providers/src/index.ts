@@ -253,4 +253,7 @@ export { AnthropicAdapter, ANTHROPIC_PROVIDER_ID } from './ai/adapters/anthropic
 export type { AnthropicAdapterDeps, AnthropicMessagesClient } from './ai/adapters/anthropic.adapter';
 export { OpenAiAdapter, OPENAI_PROVIDER_ID } from './ai/adapters/openai.adapter';
 export type { OpenAiAdapterDeps, OpenAiResponsesClient } from './ai/adapters/openai.adapter';
-export { classifyProviderError, retryAfterMs as providerRetryAfterMs } from './ai/adapters/failure-mapping';
+export { classifyProviderError, providerFailureMessage, retryAfterMs as providerRetryAfterMs } from './ai/adapters/failure-mapping';
+// How supplied evidence is written into a model request: one rendering for every
+// provider, with element boundaries source content cannot forge.
+export { renderAiSources, escapeAiSourceText, AI_SOURCES_OPEN, AI_SOURCES_CLOSE } from './ai/source-rendering';

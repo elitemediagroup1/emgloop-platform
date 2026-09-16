@@ -1,30 +1,37 @@
-// The Anthropic adapter. Slice B5 (S1 preparation) -- NOT ACTIVATED.
+// The Anthropic adapter. Slices B5 and AI-3 -- NOT ACTIVATED by anything in this file.
 //
-// This file and its OpenAI sibling are the only places in Loop that may import a
-// model SDK. Everything above them speaks `AiModelRequest` / `AiModelResult`, so the
-// runtime has no idea which vendor answered and no behaviour anywhere branches on
-// one.
+// It maps Loop's provider-neutral request onto the Messages API and the response
+// back. It does not create its own client, read an environment variable, choose a
+// model, retry, or decide anything; the client is injected (built by sdk-clients.ts
+// from a credential the server-only environment boundary handed it), the model and
+// effort come from the reviewed routing policy, and the gateway owns retries.
 //
-// IT DOES NOT CREATE ITS OWN CLIENT. The client is injected. That is what lets every
-// test drive this adapter with no credential and no network, and it is why nothing
-// here reads an environment variable: a runtime that can build its own client can
-// make a call nobody authorized.
+// STRUCTURED OUTPUT THROUGH `output_config.format`. The Messages API accepts a JSON
+// schema natively (GA; verified against platform.claude.com/docs structured outputs,
+// 2026-09-16), and the answer arrives as the text block. The earlier forced-tool
+// approach is gone: current models run adaptive thinking by default, and some reject
+// a forced `tool_choice` outright. NO TOOL IS EVER SENT.
 //
-// STRUCTURED OUTPUT VIA A FORCED TOOL. Anthropic has no native JSON-schema response
-// mode, so a schema-bound task is expressed as a single tool the model must call,
-// and the tool's input IS the answer. The tool WRITES NOTHING -- it is a shape, not a
-// capability, and the runtime refuses any tool that claims otherwise.
+// EFFORT, NOT SAMPLING. Current models reject temperature and budget_tokens; depth is
+// `output_config.effort`, taken from the routing policy. Thinking is left at the
+// model's default (adaptive), and its tokens count against `max_tokens` -- which is
+// why the routing policy's output ceiling is sized for it.
 //
-// TRUST TRAVELS WITH THE CONTENT. Each block says what it is and where it came from,
-// so the instruction can tell the model that a human-reported line is not a Loop fact.
+// ONLY `end_turn` IS AN ANSWER. `max_tokens` is truncated; a paused turn or an
+// exhausted context window is incomplete; `refusal` is a refusal. None of them is
+// parsed as an answer.
+//
+// USAGE IS TOTAL INPUT. Anthropic reports uncached input separately from cache reads
+// and writes; Loop records the sum as input, with cache reads also noted, so a budget
+// counts every token processed. Absent usage is null, never zero.
 
-import type { AiContentBlock, AiModelCapabilities, AiModelRequest, AiModelResult } from '@emgloop/shared';
+import type { AiContentBlock, AiModelCapabilities, AiModelRequest, AiModelResult, AiUsage } from '@emgloop/shared';
 
 import { ModelProviderError, type ModelProvider } from '../model-provider';
-import { classifyProviderError, retryAfterMs } from './failure-mapping';
+import { renderAiSources } from '../source-rendering';
+import { classifyProviderError, providerFailureMessage, retryAfterMs } from './failure-mapping';
 
 export const ANTHROPIC_PROVIDER_ID = 'anthropic';
-const STRUCTURED_TOOL = 'loop_structured_answer';
 
 /** The part of the SDK this adapter uses. Structural, so the SDK's types stay inside. */
 export interface AnthropicMessagesClient {
@@ -36,8 +43,14 @@ export interface AnthropicMessagesClient {
       id?: string;
       model?: string;
       stop_reason?: string | null;
-      content?: Array<{ type: string; text?: string; name?: string; input?: unknown }>;
-      usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number };
+      content?: Array<{ type: string; text?: string }>;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number | null;
+        cache_creation_input_tokens?: number | null;
+        output_tokens_details?: { thinking_tokens?: number } | null;
+      } | null;
     }>;
   };
 }
@@ -59,6 +72,11 @@ export class AnthropicAdapter implements ModelProvider {
   }
 
   async invoke(request: AiModelRequest, signal: AbortSignal): Promise<AiModelResult> {
+    // No task publishes a tool at launch, and none may write. A request carrying one
+    // is refused here too, before anything is sent.
+    if (request.tools.length > 0) {
+      throw new ModelProviderError('POLICY_DENIED', this.providerId, 'provider failure: POLICY_DENIED');
+    }
     const now = this.deps.now ?? (() => Date.now());
     const startedAt = now();
     const structured = request.output.kind === 'JSON_SCHEMA';
@@ -67,55 +85,71 @@ export class AnthropicAdapter implements ModelProvider {
       model: request.model.modelId,
       max_tokens: request.limits.maxOutputTokens,
       system: request.instructions,
-      messages: [{ role: 'user', content: request.input.map(asBlock).join('\n\n') }],
-      ...(structured && request.output.kind === 'JSON_SCHEMA'
-        ? {
-            tools: [{ name: STRUCTURED_TOOL, description: 'Return the answer in the required shape.', input_schema: request.output.schema }],
-            tool_choice: { type: 'tool', name: STRUCTURED_TOOL },
-          }
-        : {}),
+      messages: [{ role: 'user', content: renderAiSources(request.input as readonly AiContentBlock[]) }],
+      output_config: {
+        effort: request.reasoningEffort,
+        ...(request.output.kind === 'JSON_SCHEMA' ? { format: { type: 'json_schema', schema: request.output.schema } } : {}),
+      },
     };
 
+    let response: Awaited<ReturnType<AnthropicMessagesClient['messages']['create']>>;
     try {
-      const response = await this.deps.client.messages.create(body, { signal });
-      const toolUse = (response.content ?? []).find((b) => b.type === 'tool_use' && b.name === STRUCTURED_TOOL);
-      const text = (response.content ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('');
-      return {
-        output: structured ? { json: toolUse?.input } : { text },
-        toolCalls: [],
-        stopReason: stopReasonOf(response.stop_reason ?? null, Boolean(toolUse)),
-        usage: {
-          inputTokens: response.usage?.input_tokens ?? 0,
-          outputTokens: response.usage?.output_tokens ?? 0,
-          ...(response.usage?.cache_read_input_tokens !== undefined
-            ? { cachedInputTokens: response.usage.cache_read_input_tokens }
-            : {}),
-        },
-        providerRequestId: response.id ?? null,
-        // What actually served it, which is not always what was asked for.
-        reportedModel: response.model ?? null,
-        latencyMs: now() - startedAt,
-      };
+      response = await this.deps.client.messages.create(body, { signal });
     } catch (err) {
-      if (signal.aborted) throw new ModelProviderError('CANCELLED', this.providerId, 'cancelled');
-      throw new ModelProviderError(classifyProviderError(err), this.providerId, messageOf(err), retryAfterMs(err));
+      const failure = signal.aborted ? 'CANCELLED' : classifyProviderError(err);
+      throw new ModelProviderError(failure, this.providerId, providerFailureMessage(failure, err), retryAfterMs(err));
     }
+
+    const stopReason = stopReasonOf(response.stop_reason ?? null);
+    const text = (response.content ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('');
+    return {
+      output: structured ? (stopReason === 'END' ? { json: safeJson(text) } : {}) : { text },
+      toolCalls: [],
+      stopReason,
+      usage: usageOf(response.usage),
+      providerRequestId: response.id ?? null,
+      // What actually served it, which is not always what was asked for.
+      reportedModel: response.model ?? null,
+      latencyMs: now() - startedAt,
+    };
   }
 }
 
-/** Each block carries where it came from and how much it is worth, as text the model reads. */
-function asBlock(block: AiContentBlock): string {
-  return `[${block.trust} | source: ${block.sourceRef}]\n${block.content}`;
+function stopReasonOf(raw: string | null): AiModelResult['stopReason'] {
+  switch (raw) {
+    case 'end_turn':
+    case 'stop_sequence':
+      return 'END';
+    case 'max_tokens':
+      return 'MAX_TOKENS';
+    case 'refusal':
+      return 'REFUSAL';
+    case 'tool_use':
+      return 'TOOL_USE';
+    default:
+      // pause_turn, model_context_window_exceeded, null, or anything newer.
+      return 'INCOMPLETE';
+  }
 }
 
-function stopReasonOf(raw: string | null, usedTool: boolean): AiModelResult['stopReason'] {
-  if (raw === 'max_tokens') return 'MAX_TOKENS';
-  if (raw === 'refusal') return 'REFUSAL';
-  if (raw === 'tool_use') return usedTool ? 'END' : 'TOOL_USE';
-  return 'END';
+function usageOf(usage: NonNullable<Awaited<ReturnType<AnthropicMessagesClient['messages']['create']>>['usage']> | null | undefined): AiUsage | null {
+  if (!usage || typeof usage.input_tokens !== 'number' || typeof usage.output_tokens !== 'number') return null;
+  const cacheRead = typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0;
+  const cacheWrite = typeof usage.cache_creation_input_tokens === 'number' ? usage.cache_creation_input_tokens : 0;
+  const thinking = usage.output_tokens_details?.thinking_tokens;
+  return {
+    inputTokens: usage.input_tokens + cacheRead + cacheWrite,
+    outputTokens: usage.output_tokens,
+    ...(cacheRead > 0 ? { cachedInputTokens: cacheRead } : {}),
+    ...(typeof thinking === 'number' ? { reasoningTokens: thinking } : {}),
+  };
 }
 
-function messageOf(err: unknown): string {
-  const message = (err as { message?: unknown })?.message;
-  return typeof message === 'string' ? message : 'provider error';
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Not the shape asked for. The runtime rejects the answer whole.
+    return undefined;
+  }
 }
