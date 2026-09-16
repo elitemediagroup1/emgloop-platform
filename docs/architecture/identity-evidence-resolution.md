@@ -363,8 +363,9 @@ Party:
 | Policy activation / change | user, class, version, time |
 
 Identity writes are to publish `OutboxSubjectType.IDENTITY` state changes on the existing outbox (no
-new bus). **Not built yet:** `PartyService` and `CustomerPartyLinkService` write audit rows only, and
-record no actor display name (the rows read "System").
+new bus). **Not built yet:** `PartyService` and `CustomerPartyLinkService` write audit rows only; no
+IDENTITY outbox event is published. (Both now record the acting person's display name — the session's
+name, else the member's — since #247; the earlier "System" rows are history.)
 Audit rows never contain names or contact values.
 
 ## 14. Planned schema changes

@@ -25,13 +25,20 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — ALIGNED THROUGH CRM R2 (34 migrations; verified 2026-09-16)
+## Production migration state — ALIGNED AT 35 (AI usage ledger; verified 2026-09-16)
 
-**Latest:** run `35047357515` found 34 migrations and applied
-`20260917000000_crm_r2_relationship_participant`. `main` (`b8bc560`) has added no migration since.
-**Pending, not on `main`:** `20260918000000_ai_usage_ledger` in draft PR #265. When that merges, `main`
-will carry 35 and production 34 until someone dispatches the workflow. Its dispatch dossier is
-`docs/architecture/ai-usage-ledger.md` §7. The 2026-08-16 narrative below is kept as history.
+**Latest:** run `35103219698`, dispatched from `main` at `f6b6b0d`.
+- It found 35 migrations and applied `20260918000000_ai_usage_ledger`.
+- It reported "Database schema is up to date!".
+- The log shows no errors, failures, rollbacks or drift.
+- The hand-written SQL matches `prisma migrate diff` statement for statement.
+
+The AI activation PRs #266–#270 add **no** migration.
+
+`migrate status` does not detect schema drift. Seven pre-existing, cosmetic differences between the
+migration history and `schema.prisma` are recorded in `docs/architecture/schema-drift-2026-09-16.md`.
+
+The 2026-08-16 narrative below is kept as history.
 
 **Production is, and has been since 2026-07-09, under Prisma Migrate management.** The long-standing
 claim that it has no `_prisma_migrations` ledger and that no migration has ever been applied through
@@ -1214,71 +1221,84 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — AUTHORITIES ON MAIN · OPERATOR SURFACE AND AI LEDGER IN REVIEW
+## Foundation handoff — OPERATOR SURFACE AND AI LEDGER LIVE ON MAIN · AI ACTIVATION PREPARED, OFF
 
-_Last updated: 2026-09-16._ `main` is `b8bc560`. #244–#263 are merged and were verified on `main` by
-content at each checkpoint. Production has 34 migrations.
+_Last updated: 2026-09-16._ `main` is `d069c7d`. #244–#267 are merged and were verified by content.
+Production has 35 migrations. The operator surface (#264) is on `main` as temporary engineering UI.
+Production still holds 0 established Parties and 0 Relationships, and nothing has been converted, linked
+or cleaned up.
 
-**On `main`, and real:**
-- Party create and establish, and the People, Companies and establishment-queue read models (P1).
-- The full Relationship authority: R2 schema (deployed), R3-A1 lifecycle, R3-A2 Participants, and R3-A3
-  read models with server-decided capabilities and a duplicate diagnostic.
-- Universal Activity read-time adapters (A2) for the organization, Intake Record, Case and Work item
-  subjects. No page calls them.
-- AI S0/B5: runtime gateway, prompt template and fixture evaluation harness, plus the two provider
-  adapters, which are fixture-only.
-- The honesty corrections C1–C4, including the fence against percentage-confidence renders.
+**AI: prepared end to end, switched off.** Zero Anthropic and zero OpenAI requests have been made. Five
+PRs merge in this order; #266 and #267 are merged. Each remaining PR contains the one before it, so with
+squash merges the next one must be rebased onto `main` (its content unchanged) before it can merge:
 
-**Production data:** still 0 established Parties and 0 Relationships. No legacy Intake Record has been
-converted, linked, established or cleaned up, and none will be by inference.
+1. **#266 AI-1 (merged):** durable gateway.
+   - Every provider call is reserved in `ai_invocations` inside a serializable transaction before it is
+     made, and reconciled after.
+   - Activation is four allowlists.
+   - Routing is a versioned per-task policy, with a budget policy and an authorizer.
+   - Tested against real Postgres: under contention the cap holds; with READ COMMITTED it did not.
+2. **#267 AI-2 (merged):** Node 22 for provider code (`.nvmrc` plus two CI jobs).
+   - `apps/web/src/ai/ai-environment.ts` is the one server-only reader of the credentials and `LOOP_AI_*`.
+   - `packages/providers/src/ai/adapters/sdk-clients.ts` is the one SDK importer. Its base URL, retries and
+     logging are pinned, and clients can't be serialized.
+3. **#268 AI-3:** adapters speak current APIs.
+   - Anthropic uses `output_config.format`; OpenAI sends `store:false`.
+   - Evidence is rendered escaped.
+   - No provider text escapes a failure; unknown errors are UNCLASSIFIED.
+4. **#269 AI-4:** verified models (2026-09-16, official docs).
+   - `claude-opus-5` is primary and `gpt-6-astra` the fallback.
+   - Versioned price lists.
+   - Deadlines are sized to Netlify's fixed 60 s function limit.
+   - The budget is a proposal.
+5. **#270 AI-5:** Case Explanation.
+   - The context builder sends structured facts only and withholds human text, names and ids.
+   - Validation v2 checks figures against each claim's own sources, and numbers and dates in prose.
+   - A 21-scenario evaluation.
+   - An honest, switched-off panel.
 
-**In review, draft, not merged:**
-- **#264 — governed operator surface.** `/crm/parties` and `/crm/relationships` are temporary
-  engineering UI over the real authorities. With them, an authorized human can create and establish a
-  Person or Company, record a Relationship between established Parties, add Participants, and end,
-  reactivate or void either. There is no lookup by name, phone or email, and no conversion.
-  - Every act is submitted as each of OWNER, ADMIN, MANAGER, EMPLOYEE, AI_EMPLOYEE, READ_ONLY and an
-    unknown role, and refusals leave no writes.
-  - Mutation testing: 10 of 11 mutations caught; the 11th is documented as redundant.
-  - No migration.
-- **#265 — AI usage ledger.** Adds the `ai_invocations` table, a reserve-then-reconcile repository, and
-  `DurableAiUsageLedger`.
-  - **The migration is not dispatched**, and the gateway does not call `reserve` yet.
-  - Mutation testing: 10 of 11 caught; the 11th is a documented equivalent mutation.
-- #264 and #265 share no files and can merge in either order.
+**Found and fixed on the way:**
+- **In #265:** `reconcile` erased `fellBackFrom`.
+- **In the B5 gateway:** no principal authorization, no deadline, unknown errors retried, failures recorded
+  as free, claim shapes unchecked.
+- **In the context contract:** the cross-organization check was skipped when an id lacked `::`.
 
-**Blocked on a decision (one blocker, two symptoms):** Person and Company activity, and any web path
-that links an Intake Record to a Party.
-- The P0.2e fence forbids any `apps/web/src` file from naming `CustomerPartyLink`.
-- No product path creates a link, so a Party activity section would never render anything.
-- Revising the fence is a deliberate Product and architecture act. Recorded in
-  `docs/product/governed-operator-surface.md`.
+**Blocked on Matt (activation):** see the activation dossier in the run report.
+- Approve the budget and the routing.
+- Confirm provider data terms (G2).
+- Confirm that `AWS_LAMBDA_JS_RUNTIME` is not set in Netlify.
+- Set the `LOOP_AI_*` variables for one organization.
+- Redeploy.
+- Make the first request by hand.
 
-**AI:** not activated. No credential is read and no live provider request exists.
-Activation needs, in order:
-1. #265 merged and its migration dispatched.
-2. The gateway wired to reserve before dispatch.
-3. Activation values for gates G2–G6.
-4. Matt's explicit approval of the first real request.
+**Blocked on a decision:** web-side Intake → Party linking. The recommendation and the narrowest fence
+change are in `docs/product/intake-party-linking-recommendation.md`.
+`legacy-intake-retirement-plan.md` and the handoff disagree on whether this is already authorized.
 
-**Handoff:** `docs/product/ui-track-handoff.md` §2 is the current status per surface. People, Person,
-Companies, Company, Relationships and Relationship Detail are GREEN, and Intake is GREEN.
-`foundation-handoff.md` §6 records the 2026-09-15 decision point.
+**Handoff:** `docs/product/ui-track-handoff.md` §2 is current. §4 lists what is still missing for the
+visual redesign: the design deliverable, the route-transition proposal, and the cited "Product
+Definition".
 
 **Product decisions:**
-- Approved: PD-F-01, -02, -03, -04, -06, -07, -08.
-- AI ledger (2026-09-16): reproducible cost basis; the organization's business date for budgets only;
-  no per-user cap.
-- Deferred: PD-F-05, -09, -10.
-- Still needed: PD-F-11 (Opportunity and Campaign grants); PD-F-12 (Opportunity and Campaign
-  vocabularies); AI gate values G2–G6; the Intake → Party linking decision above.
+- **Approved:** PD-F-01, -02, -03, -04, -06, -07, -08; the AI ledger (reproducible cost, the
+  organization's business date, no per-user cap).
+- **Deferred:** PD-F-05, -09, -10.
+- **Still needed:**
+  - PD-F-11 and PD-F-12;
+  - the AI budget values;
+  - MANAGER as a Case Explanation invoker;
+  - Fable 5.1 versus Opus 5 (retention trade-off);
+  - GPT-6 Astra versus GPT-5.6 Sol as fallback (cost);
+  - an instant, stored kill switch (needs a migration);
+  - the web linking decision.
 
 **Next:**
-1. Matt reviews and merges #264 and #265, then dispatches the ledger migration.
-2. Wire the gateway to `reserve` before dispatch.
-3. Add a filter by kind on the Relationship list read (unblocks the creator roster).
-4. Product decision on web-side Intake → Party linking.
-5. Opportunity and Campaign slices, after PD-F-11 and PD-F-12.
+1. Merge #268 through #270 in order, refreshing each onto `main` after the one before it lands.
+2. Make the activation decisions above.
+3. Make one controlled Case Explanation request.
+4. Schema-side alignment for the drift (a schema-only PR, no migration).
+5. The Relationship list filtered by kind (creator roster).
+6. Opportunity and Campaign, after PD-F-11 and PD-F-12.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

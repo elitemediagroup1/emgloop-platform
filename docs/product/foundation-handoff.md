@@ -134,7 +134,7 @@ presentation convenience.
 | Tenant | Organization-scoped, fails closed |
 | Read contract | `CrmRepository.listCustomers`, `getWorkspace`, `kanbanBoard`; search |
 | Write contract | Intake status (`pipeline:update`), tags and assignment (`customers:update`), notes. **No create path** apart from seed. `/crm/merge` is live and slated to be disabled (PD-I2-05). Party link through `CustomerPartyLinkService` (`approve`; no production caller). |
-| Party Reference | The link target must be ESTABLISHED. The link service does not yet refuse archived Parties or return the canonical id (P1b). |
+| Party Reference | The link target must be ESTABLISHED. The link service refuses an archived Party and returns a superseded Party's canonical id without substituting it (P1b, #247). |
 | Lifecycle | Intake status JSON: New, Contacted, Quoted, Booked, Completed, Archived. **Overwritten in place, no history.** |
 | Audit | None for status, field or note edits. `customer.merged`, `customer.party_linked`, `customer.party_link_reversed`. |
 | Events | None |
@@ -530,13 +530,15 @@ is independent and merges first.
     Slice 1).
 - **Identity**
   - 0 established Parties and no production write path (P1).
-  - Party and link audit rows record "System" as actor.
-  - `CustomerPartyLinkService` does not apply the archived and canonical-id readings.
+  - ~~Party and link audit rows record "System" as actor.~~ Fixed in #247: rows name the acting person.
+  - ~~`CustomerPartyLinkService` does not apply the archived and canonical-id readings.~~ Fixed in #247.
   - IDENTITY outbox events are not published although the record plans them.
 - **Migration**
-  - Relationship R2, the outbox subject enum, the Intake history table and `ai_invocations` each need
-    the manual `Deploy Prisma Migrations` dispatch.
-  - Production is aligned today (33).
+  - Relationship R2 and `ai_invocations` are deployed (production aligned at 35 migrations, run
+    `35103219698`). The outbox subject enum and the Intake history table still need their own migrations
+    and the manual `Deploy Prisma Migrations` dispatch.
+  - Seven pre-existing differences between the migration history and `schema.prisma` (index names and
+    one column default) are recorded in `docs/architecture/schema-drift-2026-09-16.md`.
 - **Performance**
   - Identifier and continuity keys live only in JSON with no index.
   - Interaction has no `(provider, externalId)` unique or `(organizationId, customerId, occurredAt)`
