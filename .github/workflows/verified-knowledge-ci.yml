@@ -18,8 +18,10 @@
 # production. Live migration + env config remain the manual, secret-bearing
 # deploy-prisma-migrations.yml workflow's responsibility.
 #
-# Note: this monorepo does not commit a lockfile, so we use `npm install`
-# (not `npm ci`) and do not enable npm caching (which requires a lockfile).
+# Note: the lockfile IS committed. This still uses `npm install` (not `npm ci`) to
+# match every sibling workflow; switching how this repository installs in CI is its
+# own decision with its own blast radius, and has not been taken. npm caching is
+# available whenever that decision is.
 
 name: verified-knowledge-ci
 
