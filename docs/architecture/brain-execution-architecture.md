@@ -3,7 +3,10 @@
 **Status:** the direction was approved by Matt on 2026-09-16.
 - **B2 implemented the provider-independent contracts** as pure code in `packages/shared/src/ai/` (§2).
 - **B3 designed the AWS trust, security and infrastructure** in `brain-execution-infrastructure.md`,
-  which revises §9's executor. None of it is provisioned.
+  which revises §9's executor. None of it is provisioned. **Merged (#275).**
+- **B3.1 reconciled two post-B3 decisions** (Matt and Charlie, 2026-09-16): **DRAFT** is a sixth
+  result type, distinct from PROPOSED_ACTION (§5), and there is **no universal fallback order**
+  between providers (§5a). Pure contracts and tests only.
 - **Nothing executes them yet.** No AWS resource exists, no Netlify setting has changed, and AI is not
   activated.
 - **Where to look:** §2 separates what exists from what does not; §12 shows each step's status.
@@ -58,7 +61,8 @@ AI never establishes truth by itself. Domain authorities own the artifacts. Acti
 happened; it does not own the artifact.
 
 A separate product decision made the same day, **provider specialization by capability route**, is
-recorded in §5a. It is approved, but it is not implemented and does not change today's routing policy.
+recorded in §5a. B2 implemented it as contract and versioned policy data, and it was reaffirmed after
+B3. It does not change today's routing policy, and nothing executes it yet.
 
 ## 2. What exists today (as of B2)
 
@@ -78,8 +82,8 @@ recorded in §5a. It is approved, but it is not implemented and does not change 
   |---|---|
   | `capability.ts` | Capability routes, the provider-specialization policy type, routing conformance, and the ledger reader for the capability column |
   | `brain-execution.ts` | Execution classes, the interactive and durable envelopes, and the deadline/promotion decision |
-  | `brain-result.ts` | Result types, the ownership table, the result envelope and its commit check, and the Activity event and its check |
-  | `brain-job.ts` | Job states and transitions, submission parsing, access and idempotency, and progress |
+  | `brain-result.ts` | Result types and the standing each one has, the ownership table and its check (the action path is closed to everything but PROPOSED_ACTION), the result envelope and its commit check, and the Activity event and its check |
+  | `brain-job.ts` | Job states and transitions, submission parsing, access and idempotency, the commit expectation read from the job record, and progress |
   | `brain-step.ts` | Step policies, checkpoint and call keys, retry and resume decisions, and fallback provenance |
   | `brain-trust.ts` | The doorbell claim and body check, stored commands and their disposition, and the access re-check at each boundary |
   | `brain-executor.ts` | The executor port and its obligations |
@@ -184,21 +188,62 @@ No numeric confidence is attached.
 | ANALYSIS | A sectioned explanation of one subject (Case Explanation) | The subject's domain | Replace the facts it explains |
 | FINDING | A claim under evaluation | `CaseFindingService`, author MODEL, PROPOSED | Set its own evidence state |
 | RECOMMENDATION | Options with rationale | `CaseRecommendationService`, author `MODEL` | Be selected or dismissed by a model |
-| PROPOSED_ACTION | A tool, typed input, justification, impact bound and idempotency key | A Decision Engine approval item, once the gaps in `loop-ai-runtime.md` §8 close | Execute |
+| DRAFT | Content written for a person to review and use: an email, a follow-up, a rewrite | A draft held by Communications on the customer conversation it would be sent in | Send itself, or authorize, schedule or perform any act |
+| PROPOSED_ACTION | A request that Loop act: a tool, typed input, justification, impact bound and idempotency key | A Decision Engine approval item, once the gaps in `loop-ai-runtime.md` §8 close | Execute without approval |
+
+**Standing is fixed by type (`BRAIN_RESULT_TYPE_STANDING`).** ANSWER, ANALYSIS and DRAFT are
+NON_AUTHORITATIVE; FINDING, RECOMMENDATION and PROPOSED_ACTION are PROPOSED. An ownership rule takes
+its standing from this table, so no rule can turn a draft into a proposal.
 
 **Ownership rules (`BRAIN_OWNERSHIP_RULES`).**
 
 | Result type | Owner, about | Standing |
 |---|---|---|
-| ANSWER | Brain conversations, a conversation | NON_AUTHORITATIVE |
+| ANSWER | Brain conversations, a Brain conversation (`CONVERSATION`) | NON_AUTHORITATIVE |
 | ANALYSIS | Commercial Intelligence (a Case), Relationships (a Relationship), or Campaigns (a Campaign) | NON_AUTHORITATIVE |
 | FINDING | Commercial Intelligence, a Case | PROPOSED |
 | RECOMMENDATION | Commercial Intelligence, a Case | PROPOSED |
+| DRAFT | Communications, a customer conversation (`CUSTOMER_CONVERSATION`, the CRM's `conversations`; IAM resource `inbox`) | NON_AUTHORITATIVE |
 | PROPOSED_ACTION | Decision Engine, a Decision | PROPOSED |
 
 - **Anything else is refused.** Any other pairing is refused, and Activity, Brain execution and a
   model provider can never own a result.
+- **The table is checked (`brainOwnershipTableViolations`).**
+  - Every rule's standing is its type's.
+  - No recorder or runner owns anything.
+  - **The action path is closed both ways:** only the Decision Engine holds a PROPOSED_ACTION, and
+    it holds nothing else.
+  - One result type about one kind of subject has exactly one owner.
+- **Adding a subject is a reviewed change.** Drafts about another subject (a Relationship's outreach,
+  a Campaign's copy, a draft asked for inside a Brain conversation) are each added here when their
+  first task is defined.
 - **The stores behind these paths are not built.**
+
+**DRAFT is not PROPOSED_ACTION (Matt and Charlie, 2026-09-16, after B3).**
+
+| | DRAFT | PROPOSED_ACTION |
+|---|---|---|
+| Meaning | Brain wrote content for a person to review or use | Brain asks Loop to do something |
+| Example | An email reply | "Send this email" |
+| Standing | NON_AUTHORITATIVE | PROPOSED |
+| Task consequence | READ_ONLY | PROPOSES_FOR_APPROVAL |
+| Owner | Communications | Decision Engine approval path only |
+| What committing it does | Stores a draft. Nothing is sent, scheduled or authorized | Opens an approval item. Execution needs approval |
+
+- **Sending is always a separate act:**
+  - either a person sends through Communications under their own permission (no Brain step);
+  - or a **separate** PROPOSED_ACTION, with its own job, approval and audit, cites the draft by its
+    `brain-result:` ref, which is **untrusted input**, never a governed fact.
+- **A draft job can never produce a send proposal.** The commit expectation comes only from the job
+  record (`brainCommitExpectation`), so a draft job's output that claims to be an action is refused
+  (`RESULT_TYPE_MISMATCH`), whatever the model returned.
+- **Provider choice cannot grant authority.** Because authority comes from the result type and the
+  owner, Brain may draft through OpenAI (the COMMUNICATION preference) and gain no ability to send.
+- **Drafts cite their basis.** Like every non-answer, a draft with no cited evidence is refused
+  (`EVIDENCE_MISSING`); every factual statement in it stands on something Loop supplied.
+- **Still Product's call:** whether a draft's text may appear while it is being written
+  (`BRAIN_PROVISIONAL_TEXT_RESULT_TYPES` stays empty until then). A draft task will also need its own
+  output validator: the explanation validator's "recommends an action" rule is written for analyses.
 
 **The commit check (`brainCommitRefusals`) refuses a result that:**
 - crosses organization, job, subject, type or owner;
@@ -213,8 +258,6 @@ No numeric confidence is attached.
 its results now live. Its fields are an allowlist, so an event that carries content, or names a
 non-owner, is refused.
 
-**Not yet decided:** where a communication **draft** belongs. The runtime taxonomy has a Draft
-artifact, but the five approved result types have no DRAFT.
 **The job is not the artifact.**
 - Job state belongs to Brain execution.
 - A completed result belongs to its domain.
@@ -234,11 +277,12 @@ policy decision. It is **not** a claim that either provider is better in general
 | Dimension | Values | What it decides |
 |---|---|---|
 | Execution class | INTERACTIVE, DURABLE (§4) | How the work runs |
-| Semantic result class | ANSWER, ANALYSIS, FINDING, RECOMMENDATION, PROPOSED_ACTION (§5) | What it produces and which authority owns it |
+| Semantic result class | ANSWER, ANALYSIS, FINDING, RECOMMENDATION, DRAFT, PROPOSED_ACTION (§5) | What it produces and which authority owns it |
 | Capability route | COMMUNICATION, TECHNICAL_ANALYSIS, GENERAL_REASONING (extensible later) | Which capability the work needs, and so which provider policy applies |
 
 For example, a DURABLE communication job may use OpenAI, and an INTERACTIVE technical analysis may use
-Anthropic.
+Anthropic. A communication task usually produces a DRAFT, but the route never implies the result type,
+and the result type never implies the provider.
 
 | Capability route | Covers | Default primary |
 |---|---|---|
@@ -253,6 +297,14 @@ Anthropic.
 - **Governed fallback.** A fallback happens only on the failure classes the policy allows. It never
   happens because another provider's output is preferred. Every fallback is observable and recorded in
   provenance: which provider was tried first, and the requested and served models.
+- **No universal fallback order (reaffirmed after B3).**
+  - Neither provider is the other's standing fallback, and neither policy has a platform-wide
+    fallback.
+  - A task may be served by another approved provider only when **its own** routing entry permits it
+    (`fallbackPermitted`) **and** names the target. A permission that names no target does not
+    conform.
+  - A task that permits nothing is served by its primary or not at all.
+  - "Approved" means verified in the model catalog, and enabled for the environment at run time.
 - **A route names a provider preference, not a model.** Model ids stay in the catalog and the policy,
   and each one is verified against the provider's current official documentation when it is chosen.
 
@@ -282,7 +334,8 @@ Anthropic.
   - a task version the entry was not reviewed against;
   - a departure without a reason;
   - a no-default route without a reason;
-  - a fallback that duplicates the primary.
+  - a fallback that duplicates the primary;
+  - a fallback permission that names no target (B3.1).
 - **Enforcement.** The providers test suite requires the shipped routing policy to conform for
   every task. A non-conforming policy cannot land; the runtime does not re-check it on each call yet.
 
@@ -297,7 +350,8 @@ Anthropic.
 - **The COMMUNICATION models.** Which OpenAI model serves COMMUNICATION, and its governed fallback,
   are chosen and verified against current official documentation when the first communication task
   is defined.
-- **Recording the specialization version.** It enters job provenance when persistence exists.
+- **Recording the specialization version.** Result provenance carries it already. B4 adds it to each
+  `ai_invocations` row, beside the routing version, because conformance is decided per call.
 
 ## 6. Trust: how Netlify starts AWS work
 
@@ -547,8 +601,9 @@ Each step is a separate draft PR with its own review. No step activates AI.
 | B0 | Documentation corrections and this record. **Merged (#272).** | none |
 | B1 | Schema-only alignment of the seven recorded drift items (`schema-drift-2026-09-16.md`), so the next migration contains only intended changes. **Merged (#273).** | none |
 | B2 | **Merged (#274).** Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
-| B3 | **In review.** AWS trust, security and infrastructure **design** (`brain-execution-infrastructure.md`), plus the pure dispatch contracts (`brain-dispatch.ts`). Nothing is provisioned. | none |
-| B4 | Persistence: jobs (with lease and version), transitions, steps and checkpoints, waits and replies, commands, Brain events, stored AI controls, and job and step references on `ai_invocations`; the Brain-events Activity adapter; the restricted-roles runbook | one additive migration, not dispatched |
+| B3 | **Merged (#275).** AWS trust, security and infrastructure **design** (`brain-execution-infrastructure.md`), plus the pure dispatch contracts (`brain-dispatch.ts`). Nothing is provisioned. | none |
+| B3.1 | **In review.** Reconciles DRAFT (sixth result type) and "no universal fallback" with the contracts: type standing, the Communications owner, the ownership-table check, the job's result owner and commit expectation, and a fallback-permission finding. | none |
+| B4 | Persistence (scope in `brain-execution-infrastructure.md` §25): jobs with the four declarations as separate columns (capability route; result type, owner and subject; execution class), lease and version; transitions, steps and checkpoints, waits and replies, commands, Brain events, stored AI controls; job, step and specialization-version columns on `ai_invocations`; the Brain-events Activity adapter; the restricted-roles runbook | one additive migration, not dispatched |
 | B5 | Loop side: the Brain API, the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner; retirement of the old `/api/brain` route | none |
 | B6 | AWS foundation in staging, switched off (CDK; authorizer, dispatcher, worker, sweeper, queues, DynamoDB, KMS, secrets, alarms, budgets; GitHub OIDC). **Adds a second deployable: needs approval of layout and tool.** | none |
 | B7 | Case Explanation on AWS in staging, then production; the first live request on a synthetic Case after the effort decision; removal of Netlify's provider keys | none |
@@ -585,10 +640,15 @@ The order above is Matt's (2026-09-16): design first (B3), then persistence (B4)
 - Case Explanation's 20 s / 75 s are provisional product targets, never infrastructure limits.
 - The sequence is B3 design, then B4 persistence.
 
+**Settled by Matt and Charlie after B3 (2026-09-16), reconciled in B3.1:**
+- **DRAFT is a sixth result type,** distinct from PROPOSED_ACTION (§5).
+- **Provider specialization, with no universal fallback order** (§5a).
+
 **Still open:**
 - the COMMUNICATION primary and fallback models, verified when chosen;
-- **where a communication draft belongs.** There is no DRAFT result type; the options are in
-  `brain-execution-infrastructure.md` §24, and it is deliberately unresolved.
+- **which subjects drafts may be about** beyond a customer conversation, each decided with its first
+  task;
+- **whether a draft's text may show while it is written** (Product).
 
 **Charlie:** the infrastructure-as-code tool (TypeScript CDK is recommended) and ownership of the
 AWS runbook.
@@ -605,7 +665,7 @@ AWS runbook.
 1. **The outbox drain does not run in production.** Every scheduled "Drain outbox" run since at
    least 2026-09-14 fails because the repository secrets `OUTBOX_DRAIN_URL` and
    `OUTBOX_DRAIN_SECRET` are unset. Nothing delivers `state_change_outbox` events. Brain's
-   event and notification step (B7) depends on fixing this.
+   notification step (B8) depends on fixing this.
 2. **Schema drift: RESOLVED by B1 (#273, merged).** The Prisma schema now describes the database the
    35 migrations build, and a clean replay diffs empty. The migrations and the database were not
    changed. A CI replay check that would prevent a recurrence is **not built**.

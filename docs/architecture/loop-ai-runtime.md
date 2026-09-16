@@ -9,8 +9,8 @@ gates in §17 hold.
 **Where it executes (amended 2026-09-16, approved direction).** Brain execution, including every provider
 call, moves to AWS. Netlify stays the product and the Brain API front door, and Neon stays authoritative.
 See `brain-execution-architecture.md`.
-- **Built so far (B2, B3):** the provider-independent execution and dispatch contracts (§6a), and
-  nothing that executes them.
+- **Built so far (B2, B3, B3.1):** the provider-independent execution and dispatch contracts (§6a),
+  including the DRAFT result type, and nothing that executes them.
 - **Designed (B3, not provisioned):** how work reaches AWS and runs there. See
   `brain-execution-infrastructure.md`:
   - an authenticated doorbell;
@@ -182,6 +182,8 @@ interface ModelResult {
 - **Streaming.**
   - Only for human-facing drafting.
   - Partial output is shown as "draft in progress" and never stored or treated as an artifact.
+  - For Brain jobs this needs Product's approval first: `BRAIN_PROVISIONAL_TEXT_RESULT_TYPES` is empty,
+    DRAFT included.
   - Validation runs on the complete output.
   - Structured-output tasks do not stream.
 
@@ -228,6 +230,12 @@ considered, reasons for skipping, and the one chosen.
   - **Enforcement.** `aiRoutingConformance` checks every shipped task, and the providers test suite
     fails on any finding.
   - **Fallback** stays governed and recorded.
+  - **No universal fallback order** (reaffirmed after B3).
+    - Neither provider is the other's standing fallback.
+    - A task is served by another approved provider only when its own routing entry permits it and
+      names the target. `aiRoutingConformance` reports `FALLBACK_PERMITTED_WITHOUT_TARGET` otherwise.
+  - **Independence.** The route does not imply the result type (a COMMUNICATION task usually produces a
+    DRAFT) or the execution class.
   - **Unchanged.** `routing.2026-09-16.2` is unchanged, because Case Explanation (TECHNICAL_ANALYSIS)
     already conforms.
   - **Run-time enforcement (B3, designed).** `brainRouteGate` runs where Brain work is accepted and
@@ -244,7 +252,7 @@ considered, reasons for skipping, and the one chosen.
 | Raw model response | none | — | Never authority. Retained only per §11 retention. |
 | Validated output | none | yes | A typed artifact *candidate*. Still no authority. |
 | **Summary** | none (derived) | yes | Shown labeled as a model summary with citations. May be stored as a non-authoritative artifact with provenance. Never replaces facts. |
-| **Draft** (communication, content) | none until sent | yes | Stored only as a draft. Sending is a Communications act by a human, or by an explicitly approved policy. |
+| **Draft** (communication, content) | none until sent | yes | The Brain result type DRAFT (B3.1), held by Communications. Stored only as a draft. Sending is a Communications act by a human, or a separate PROPOSED_ACTION approved on its own. |
 | **Hypothesis** | CI `IntelligenceHypothesis` (PROPOSED → human accept/reject) | proposes only | `CaseFindingService` with author MODEL. Evidence state stays derived from governed evidence, so a model cannot make a claim ESTABLISHED. |
 | **Signal** | CI Commercial Signal (deterministic evaluator) | no | Only as a versioned *evaluator* behind the evaluator contract, with every referenced fact validated. Never written from raw output. |
 | **Finding** | CI Finding gate | no | Human acceptance plus the evidence gate. A model proposal never becomes a Finding by being emitted. |
@@ -256,7 +264,7 @@ considered, reasons for skipping, and the one chosen.
 
 ### 6a. Brain result types (B2)
 
-The Brain execution contracts (`brain-execution-architecture.md` §5) give every result one of five
+The Brain execution contracts (`brain-execution-architecture.md` §5) give every result one of six
 **semantic result types**, independent of how the work executes and which capability it needs.
 
 | Result type | Taxonomy object(s) above | Owner and standing |
@@ -265,9 +273,13 @@ The Brain execution contracts (`brain-execution-architecture.md` §5) give every
 | ANALYSIS | Summary of one subject | Commercial Intelligence (Case), Relationships or Campaigns; NON_AUTHORITATIVE |
 | FINDING | Hypothesis | Commercial Intelligence, through `CaseFindingService`; PROPOSED |
 | RECOMMENDATION | Recommendation | Commercial Intelligence, through `CaseRecommendationService`; PROPOSED |
+| DRAFT | Draft | Communications, on a customer conversation; NON_AUTHORITATIVE |
 | PROPOSED_ACTION | Proposed action | Decision Engine approval item; PROPOSED |
 
-- **Draft has no result type yet.** It is an open decision.
+- **A draft is not a send** (decided 2026-09-16, after B3).
+  - Committing a DRAFT authorizes, schedules and performs nothing.
+  - Only a PROPOSED_ACTION asks Loop to act, and only the Decision Engine holds one.
+  - A draft job can never commit one.
 - **Signal, Decision, Work, facts and identity** stay outside what a model may produce.
 - **Standing and ownership.** No result is ever more than PROPOSED, and Activity, Brain execution and a
   provider never own one.
@@ -590,7 +602,8 @@ Case for the person viewing it. **Prepared and switched off.** No live provider 
   - Execution **INTERACTIVE** only: a 20 s presentation budget and a 75 s interactive deadline (both
     proposals), with streaming `NONE`.
 - **Routing.** `routing.2026-09-16.2`, which conforms to the specialization policy with no change:
-  - Claude Opus 5 primary, GPT-6 Astra fallback.
+  - Case Explanation's own entry: Claude Opus 5 primary, with GPT-6 Astra as its permitted fallback.
+    This is one task's choice, not a platform-wide order.
   - Fallback only on UNAVAILABLE, TIMEOUT or RATE_LIMITED; never after a refusal or a rejected answer.
   - One attempt per target, within Netlify's 60 s request.
 - **Limits.**
