@@ -50,37 +50,101 @@ test('the lockfile records both, so an install is reproducible', () => {
   assert.match(lock, /node_modules\/openai/);
 });
 
-test('nothing imports either SDK yet, anywhere', () => {
-  const offenders: string[] = [];
+const SDK_FILE = 'packages/providers/src/ai/adapters/sdk-clients.ts';
+const ENV_FILE = 'apps/web/src/ai/ai-environment.ts';
+
+function code(file: string): string {
+  return readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
+test('exactly one file imports a model SDK', () => {
+  const importers: string[] = [];
   let scanned = 0;
   for (const root of ['packages/shared/src', 'packages/database/src', 'packages/providers/src', 'packages/brain/src', 'apps/web/src']) {
     for (const file of sourceFiles(root)) {
       scanned += 1;
-      const src = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-      if (/from ['"](@anthropic-ai|openai)/.test(src) || /require\(['"](@anthropic-ai|openai)/.test(src)) {
-        offenders.push(file.slice(REPO.length));
+      const src = code(file);
+      if (/from ['"](@anthropic-ai|openai)/.test(src) || /require\(['"](@anthropic-ai|openai)/.test(src) || /import\(['"](@anthropic-ai|openai)/.test(src)) {
+        importers.push(file.slice(REPO.length + 1));
       }
     }
   }
-  // The adapters now EXIST and still import nothing: they are typed structurally
-  // against the shape of each SDK's response, and take an injected client. So the
-  // SDK is needed only where a client is CONSTRUCTED -- which is slice S1, under the
-  // activation gates, and which must live under packages/providers/src/ai/adapters/.
-  // When that arrives this assertion narrows to that directory, in that PR, visibly.
-  assert.deepEqual(offenders, [], 'an installed SDK is not an activated provider');
+  // The client factory builds a client from a credential it is HANDED. Nothing else
+  // may see an SDK: not the runtime, not the adapters, not the app.
+  assert.deepEqual(importers, [SDK_FILE]);
   assert.ok(scanned > 200, `the scan covered the repository (${scanned} files)`);
 });
 
-test('no AI credential is read anywhere in the source', () => {
-  const offenders: string[] = [];
-  for (const root of ['packages/shared/src', 'packages/database/src', 'packages/providers/src', 'apps/web/src']) {
+test('exactly one file imports the SDK factory, and the providers barrel does not export it', () => {
+  const importers: string[] = [];
+  for (const root of ['packages/shared/src', 'packages/database/src', 'packages/providers/src', 'packages/brain/src', 'apps/web/src']) {
     for (const file of sourceFiles(root)) {
-      const src = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-      // The integration catalog names secrets for its configured/not-configured
-      // display and reads no value; everything else must not mention them at all.
-      if (file.endsWith('integration-catalog.ts')) continue;
-      if (/(ANTHROPIC_API_KEY|OPENAI_API_KEY)/.test(src)) offenders.push(file.slice(REPO.length));
+      if (/sdk-clients['"]/.test(code(file))) importers.push(file.slice(REPO.length + 1));
+    }
+  }
+  assert.deepEqual(importers, [ENV_FILE]);
+  // Importing '@emgloop/providers' -- which webhooks and email do -- must never load an SDK.
+  assert.doesNotMatch(code(join(REPO, 'packages/providers/src/index.ts')), /sdk-clients/);
+});
+
+test('exactly one file reads an AI credential; one pre-existing check reads only its presence', () => {
+  const offenders: string[] = [];
+  for (const root of ['packages/shared/src', 'packages/database/src', 'packages/providers/src', 'packages/brain/src', 'apps/web/src']) {
+    for (const file of sourceFiles(root)) {
+      const rel = file.slice(REPO.length + 1);
+      const src = code(file);
+      // The integration catalog NAMES the secrets for its configured/not-configured
+      // display. IntegrationOsService.isSecretConfigured looks names up dynamically and
+      // returns only a boolean. Neither can return a value.
+      if (rel === 'packages/database/src/integration-catalog.ts') continue;
+      if (/(ANTHROPIC_API_KEY|OPENAI_API_KEY)/.test(src) && rel !== ENV_FILE) offenders.push(rel);
     }
   }
   assert.deepEqual(offenders, []);
+  const presence = code(join(REPO, 'packages/database/src/services/integration-os.service.ts'));
+  assert.match(presence, /static isSecretConfigured\(envVar: string\): boolean/);
+  assert.match(presence, /return typeof v === 'string' && v\.trim\(\)\.length > 0;/, 'presence, never the value');
+});
+
+test('the adapters, the factory and the runtime read no environment at all', () => {
+  const files = [
+    ...sourceFiles('packages/providers/src/ai'),
+    ...sourceFiles('packages/shared/src/ai'),
+    ...sourceFiles('packages/database/src/services/ai-runtime'),
+    join(REPO, 'packages/database/src/services/ai-usage-ledger.service.ts'),
+    join(REPO, 'packages/database/src/repositories/ai-usage-ledger.repository.ts'),
+  ];
+  assert.ok(files.length >= 10);
+  for (const file of files) {
+    assert.doesNotMatch(code(file), /process\.env|readEnv\(|import\.meta\.env/, `${file.slice(REPO.length + 1)} must be handed its configuration`);
+  }
+});
+
+test('the environment boundary is server-only and the only reader of LOOP_AI_ settings', () => {
+  const env = code(join(REPO, ENV_FILE));
+  assert.match(env.trimStart(), /^import 'server-only';/);
+  for (const root of ['packages/shared/src', 'packages/database/src', 'packages/providers/src', 'apps/web/src']) {
+    for (const file of sourceFiles(root)) {
+      const rel = file.slice(REPO.length + 1);
+      if (rel === ENV_FILE) continue;
+      assert.doesNotMatch(code(file), /LOOP_AI_(ENABLED|ORGANIZATIONS|TASKS|PROVIDERS|PROVIDER_TERMS_CONFIRMED|KILL_SWITCHES)/, rel);
+    }
+  }
+});
+
+test('the provider runtime Node version satisfies both SDKs, everywhere it is declared', () => {
+  const nvmrc = readFileSync(join(REPO, '.nvmrc'), 'utf8').trim();
+  const netlify = readFileSync(join(REPO, 'netlify.toml'), 'utf8').match(/NODE_VERSION\s*=\s*"(\d+)/)?.[1];
+  const openai = JSON.parse(readFileSync(join(REPO, 'node_modules/openai/package.json'), 'utf8'));
+  const required = Number(String(openai.engines?.node ?? '').match(/(\d+)/)?.[1]);
+  assert.ok(Number.isFinite(required) && required >= 22, `openai requires Node ${openai.engines?.node}`);
+  assert.ok(Number(nvmrc) >= required, `.nvmrc (${nvmrc}) satisfies openai (${openai.engines.node})`);
+  assert.ok(Number(netlify) >= required, `netlify NODE_VERSION (${netlify}) satisfies openai`);
+  const factory = readFileSync(join(REPO, SDK_FILE), 'utf8');
+  assert.match(factory, new RegExp(`AI_MINIMUM_NODE_MAJOR = ${required};`), 'the runtime guard agrees');
+  // The two CI jobs that execute provider code run on the same version.
+  for (const workflow of ['verified-knowledge-ci.yml', 'poll-callgrid-interval.yml']) {
+    const yml = readFileSync(join(REPO, '.github/workflows', workflow), 'utf8');
+    assert.match(yml, /node-version-file:\s*['"]?\.nvmrc/, `${workflow} reads .nvmrc`);
+  }
 });
