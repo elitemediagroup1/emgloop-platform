@@ -1,88 +1,88 @@
-// DurableAiUsageLedger -- the AiUsageLedger the S1 gateway's budget is actually safe on.
+// DurableAiUsageLedger -- the ledger an AI budget is actually enforced on. Slices #265, AI-1.
 //
-// It implements the same interface as `InMemoryAiUsageLedger` and adds the two calls
-// a serverless runtime needs: `reserve` before the provider call and `reconcile`
-// after it. The in-memory one is kept for tests; it is not a production ledger and
-// its own comment says so.
+// It implements the gateway's `AiUsageLedger` over the `ai_invocations` table: a
+// cheap spend read, a RESERVATION that is atomic with its own budget check, and a
+// reconciliation that replaces the estimate with what the provider reported.
 //
-// THE BUSINESS DAY IS THE ORGANIZATION'S (Product, 2026-09-16). A daily cap has to
-// mean a day somebody recognises, so the window follows `Organization.timezone`,
-// which defaults to UTC. That is the ONLY thing the organization's zone is used for
-// here. It is not a display timezone -- how a person sees an instant is the Time
-// Authority's job, in that person's own zone -- and the canonical instants on every
-// row stay UTC.
+// WHY SERIALIZABLE. Netlify runs serverless. Two instances can each read an
+// organization's spend-to-date, each see room for one more call, and each insert --
+// and the budget is exceeded by exactly the concurrency nobody planned for. The
+// reservation therefore reads the spend and inserts the row inside ONE serializable
+// transaction. Postgres detects the read/write conflict between two such
+// transactions and aborts one of them; the loser re-reads, sees the other's row, and
+// is refused if there is no longer room. No raw SQL, no advisory lock, no row
+// touched that is not this table's.
 //
-// COST STAYS REPRODUCIBLE (Product, 2026-09-16). The ledger records the provider's
-// raw reported usage plus the price-list version to value it with. It never writes a
-// final dollar amount as the only record, so correcting a price re-values history
-// instead of rewriting it. `estimatedCostMicros` is the reserve, and is explicitly
-// not the cost of record.
+// A reservation that keeps losing is refused (RESERVATION_CONTENDED) rather than
+// retried forever: under contention, the safe answer is "not now".
 //
-// NO PER-USER CAP (Product, 2026-09-16). `principalUserId` is attribution, not a
-// budget grain. Nothing here reads it to decide anything, and an unused control still
-// has to be maintained -- so there is not one.
+// THE BUSINESS DAY IS THE ORGANIZATION'S (Product, 2026-09-16). The organization and
+// task windows follow `Organization.timezone`, default UTC. That is the ONLY thing
+// the organization's zone is used for here -- it is not a display timezone, and the
+// canonical instants on every row stay UTC. The global window is a trailing 24 hours
+// by the server clock, because business days differ between organizations.
 //
-// THIS SERVICE ACTIVATES NOTHING. It reads and writes one table. It constructs no
-// provider client, reads no credential, and makes no model call. The runtime stays
-// switched off (`activated: false`) until an operator turns it on, and the migration
-// for this table must be deployed BEFORE that happens -- a live provider behind a
-// budget nobody can enforce is the configuration this whole design exists to prevent.
+// COST STAYS REPRODUCIBLE (Product, 2026-09-16). The row keeps raw reported usage and
+// the price-list version. `estimatedCostMicros` is the reserve, never the cost of record.
+//
+// NO PER-USER CAP (Product, 2026-09-16). `principalUserId` is attribution only.
+//
+// THIS SERVICE ACTIVATES NOTHING. It reads and writes one table; it constructs no
+// provider client, reads no credential, and makes no model call.
 
-import type { PrismaClient } from '@prisma/client';
-import { aiBudgetDate, type AiBudgetDate, type AiInvocationProvenance, type AiSpendToday } from '@emgloop/shared';
-
+import { Prisma, type PrismaClient } from '@prisma/client';
 import {
-  AiUsageLedgerRepository,
-  type AiInvocationReconcileInput,
-  type AiInvocationReserveInput,
-} from '../repositories/ai-usage-ledger.repository';
+  aiBudgetDate,
+  aiBudgetRefusals,
+  aiCostMicros,
+  type AiBudgetDate,
+  type AiBudgetPolicy,
+  type AiSpendSnapshot,
+} from '@emgloop/shared';
 
-/** What the gateway holds of a ledger. Structurally `AiUsageLedger`. */
-export interface AiUsageLedgerPort {
-  spentToday(organizationId: string): Promise<AiSpendToday>;
-  record(provenance: AiInvocationProvenance): Promise<void>;
-}
+import { AiUsageLedgerRepository } from '../repositories/ai-usage-ledger.repository';
+import type {
+  AiCallReconciliation,
+  AiCallReservation,
+  AiReserveResult,
+  AiUsageLedger,
+} from './ai-runtime/gateway';
 
 export interface DurableAiUsageLedgerDeps {
   ledger?: AiUsageLedgerRepository;
-  /** Injected, because a service that reads the clock cannot be tested against one. */
-  now?: () => Date;
+  /** How many times a reservation that lost a serialization race is re-attempted. */
+  maxReservationAttempts?: number;
 }
 
-/** What `record` needs beyond the provenance contract to complete a row. */
-export interface AiUsageRecordOptions {
-  readonly taskVersion?: string;
-  readonly profile?: string;
-  readonly routingPolicyVersion?: string;
-  readonly unitCostBasis?: string | null;
-  readonly fellBackFrom?: string | null;
-  readonly failureClass?: string | null;
-  readonly rejectionCodes?: readonly string[];
-  readonly attemptCount?: number;
+const GLOBAL_WINDOW_MS = 24 * 60 * 60 * 1000;
+const UNIQUE_VIOLATION = 'P2002';
+
+/** Postgres aborted a serializable transaction because a concurrent one conflicted. */
+export function isSerializationFailure(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown; meta?: { code?: unknown } };
+  if (e?.code === 'P2034') return true;
+  if (e?.meta?.code === '40001') return true;
+  return typeof e?.message === 'string' && /could not serialize access|40001/.test(e.message);
 }
 
-/** Recorded when the caller did not say. Never invented as a plausible-looking value. */
-const UNRECORDED = 'UNRECORDED';
-
-export class DurableAiUsageLedger implements AiUsageLedgerPort {
+export class DurableAiUsageLedger implements AiUsageLedger {
   private readonly ledger: AiUsageLedgerRepository;
-  private readonly now: () => Date;
+  private readonly maxAttempts: number;
 
   constructor(
     private readonly prisma: PrismaClient,
     deps: DurableAiUsageLedgerDeps = {},
   ) {
     this.ledger = deps.ledger ?? new AiUsageLedgerRepository(prisma);
-    this.now = deps.now ?? (() => new Date());
+    this.maxAttempts = Math.max(1, deps.maxReservationAttempts ?? 3);
   }
 
   /**
-   * The organization's reporting day for an instant. Read from its own governed
-   * timezone, falling back to UTC -- a budget that could not be evaluated because of
-   * a missing or unusable zone would fail OPEN, and no ceiling on spend is the one
-   * outcome worth more than a slightly wrong window.
+   * The organization's reporting day for an instant, from its governed timezone. An
+   * unusable or missing zone budgets on the UTC day: a budget that could not be
+   * evaluated would fail OPEN.
    */
-  async businessDate(organizationId: string, instant: Date = this.now()): Promise<AiBudgetDate> {
+  async businessDate(organizationId: string, instant: Date): Promise<AiBudgetDate> {
     const org = await this.prisma.organization.findFirst({
       where: { id: organizationId },
       select: { timezone: true },
@@ -90,89 +90,90 @@ export class DurableAiUsageLedger implements AiUsageLedgerPort {
     return aiBudgetDate(instant, org?.timezone ?? 'UTC');
   }
 
-  /** Spend against this organization's own reporting day. */
-  async spentToday(organizationId: string): Promise<AiSpendToday> {
-    const instant = this.now();
-    return this.ledger.spentOn(organizationId, await this.businessDate(organizationId, instant));
+  async spend(organizationId: string, taskId: string, at: Date, activeOrganizations: readonly string[]): Promise<AiSpendSnapshot> {
+    const date = await this.businessDate(organizationId, at);
+    return this.ledger.spendSnapshot(organizationId, taskId, date, activeOrganizations, new Date(at.getTime() - GLOBAL_WINDOW_MS));
   }
 
-  /**
-   * Claim the budget BEFORE dispatch. False means the attempt was already reserved --
-   * a retry or a concurrent duplicate -- and the reservation still exists exactly
-   * once, so the caller may proceed either way.
-   */
   async reserve(
-    organizationId: string,
-    input: Omit<AiInvocationReserveInput, 'businessDate' | 'requestedAt'> & {
-      readonly requestedAt?: Date;
-    },
-  ): Promise<boolean> {
-    const requestedAt = input.requestedAt ?? this.now();
-    return this.ledger.reserve(organizationId, {
-      ...input,
-      requestedAt,
-      businessDate: await this.businessDate(organizationId, requestedAt),
-    });
+    reservation: AiCallReservation,
+    budget: AiBudgetPolicy,
+    activeOrganizations: readonly string[],
+  ): Promise<AiReserveResult> {
+    const date = await this.businessDate(reservation.organizationId, reservation.requestedAt);
+    const since = new Date(reservation.requestedAt.getTime() - GLOBAL_WINDOW_MS);
+
+    for (let attempt = 0; attempt < this.maxAttempts; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            if (await this.ledger.exists(reservation.organizationId, reservation.callKey, tx)) {
+              return { ok: false, refusals: ['DUPLICATE_INVOCATION'] } as const;
+            }
+            const spend = await this.ledger.spendSnapshot(
+              reservation.organizationId,
+              reservation.taskId,
+              date,
+              activeOrganizations,
+              since,
+              tx,
+            );
+            const refusals = aiBudgetRefusals(budget, reservation.budgetClass, reservation.estimate, spend);
+            if (refusals.length > 0) return { ok: false, refusals } as const;
+            await this.ledger.insertReservation(
+              reservation.organizationId,
+              {
+                invocationId: reservation.callKey,
+                principalUserId: reservation.principalUserId,
+                taskId: reservation.taskId,
+                taskVersion: reservation.taskVersion,
+                profile: reservation.profile,
+                providerId: reservation.target.providerId,
+                requestedModelId: reservation.target.modelId,
+                routingPolicyVersion: reservation.routingPolicyVersion,
+                templateId: reservation.templateId,
+                templateVersion: reservation.templateVersion,
+                contextSourceRefs: reservation.contextSourceRefs,
+                estimatedInputTokens: reservation.estimate.inputTokens,
+                estimatedOutputTokens: reservation.estimate.outputTokens,
+                estimatedCostMicros: aiCostMicros(reservation.target.pricing, reservation.estimate),
+                unitCostBasis: reservation.target.pricing?.listVersion ?? null,
+                businessDate: date,
+                requestedAt: reservation.requestedAt,
+                fellBackFrom: reservation.fellBackFrom,
+                attemptCount: reservation.callOrdinal,
+              },
+              tx,
+            );
+            return { ok: true } as const;
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (err) {
+        if (isSerializationFailure(err)) continue;
+        // Two instances minted the same key at once and the index settled it.
+        if ((err as { code?: unknown })?.code === UNIQUE_VIOLATION) return { ok: false, refusals: ['DUPLICATE_INVOCATION'] };
+        throw err;
+      }
+    }
+    return { ok: false, refusals: ['RESERVATION_CONTENDED'] };
   }
 
-  /** Replace the reserve with what the provider reported. */
-  reconcile(organizationId: string, input: AiInvocationReconcileInput): Promise<boolean> {
-    return this.ledger.reconcile(organizationId, input);
-  }
-
-  /**
-   * The gateway's post-hoc call. It reconciles the row `reserve` already wrote; if
-   * there is none -- a caller that has not adopted reserve yet -- it writes the row
-   * and reconciles it, so an invocation is never absent from the ledger merely
-   * because the reserve step was skipped.
-   *
-   * A row written this way is still correct AFTER the fact and still not safe
-   * BEFORE it: only `reserve` closes the concurrent-read window.
-   */
-  async record(provenance: AiInvocationProvenance, options: AiUsageRecordOptions = {}): Promise<void> {
-    const completedAt = new Date(provenance.recordedAt);
-    const requestedAt = new Date(completedAt.getTime() - Math.max(0, provenance.latencyMs));
-    const reconciliation: AiInvocationReconcileInput = {
-      invocationId: provenance.invocationId,
-      outcome: provenance.outcome,
-      servedModel: provenance.servedModel,
-      providerRequestId: provenance.providerRequestId,
-      fellBackFrom: options.fellBackFrom ?? null,
-      inputTokens: provenance.usage.inputTokens,
-      outputTokens: provenance.usage.outputTokens,
-      cachedInputTokens: provenance.usage.cachedInputTokens ?? null,
-      reasoningTokens: provenance.usage.reasoningTokens ?? null,
-      ...(options.unitCostBasis === undefined ? {} : { unitCostBasis: options.unitCostBasis }),
-      failureClass: options.failureClass ?? null,
-      rejectionCodes: options.rejectionCodes ?? [],
-      ...(options.attemptCount === undefined ? {} : { attemptCount: options.attemptCount }),
-      completedAt,
-      latencyMs: provenance.latencyMs,
-    };
-
-    if (await this.ledger.reconcile(provenance.organizationId, reconciliation)) return;
-
-    await this.ledger.reserve(provenance.organizationId, {
-      invocationId: provenance.invocationId,
-      principalUserId: provenance.viewerUserId || null,
-      taskId: provenance.taskId,
-      taskVersion: provenance.taskVersion,
-      profile: options.profile ?? UNRECORDED,
-      providerId: provenance.requestedModel.providerId,
-      requestedModelId: provenance.requestedModel.modelId,
-      routingPolicyVersion: options.routingPolicyVersion ?? UNRECORDED,
-      templateId: provenance.templateId,
-      templateVersion: provenance.templateVersion,
-      contextSourceRefs: provenance.contextSourceRefs,
-      // No reserve was made, so there is no estimate. NULL, never 0: a zero would
-      // claim Loop predicted this would be free.
-      estimatedInputTokens: null,
-      estimatedOutputTokens: null,
-      estimatedCostMicros: null,
-      unitCostBasis: options.unitCostBasis ?? null,
-      requestedAt,
-      businessDate: await this.businessDate(provenance.organizationId, requestedAt),
+  reconcile(organizationId: string, reconciliation: AiCallReconciliation): Promise<boolean> {
+    return this.ledger.reconcile(organizationId, {
+      invocationId: reconciliation.callKey,
+      outcome: reconciliation.outcome,
+      servedModel: reconciliation.servedModel,
+      providerRequestId: reconciliation.providerRequestId,
+      inputTokens: reconciliation.usage?.inputTokens ?? null,
+      outputTokens: reconciliation.usage?.outputTokens ?? null,
+      cachedInputTokens: reconciliation.usage?.cachedInputTokens ?? null,
+      reasoningTokens: reconciliation.usage?.reasoningTokens ?? null,
+      unitCostBasis: reconciliation.unitCostBasis,
+      failureClass: reconciliation.failureClass,
+      rejectionCodes: reconciliation.rejectionCodes,
+      completedAt: reconciliation.completedAt,
+      latencyMs: reconciliation.latencyMs,
     });
-    await this.ledger.reconcile(provenance.organizationId, reconciliation);
   }
 }

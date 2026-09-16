@@ -34,7 +34,7 @@
 
 import { createHash } from 'crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
-import type { AiBudgetDate, AiSpendToday } from '@emgloop/shared';
+import type { AiBudgetDate, AiSpendSnapshot, AiSpendToday } from '@emgloop/shared';
 
 /**
  * A business date as the UTC-midnight `Date` Postgres `DATE` round-trips through
@@ -66,6 +66,10 @@ export interface AiInvocationReserveInput {
   readonly unitCostBasis: string | null;
   readonly businessDate: AiBudgetDate;
   readonly requestedAt: Date;
+  /** The model this call stands in for, when it is not the primary. */
+  readonly fellBackFrom?: string | null;
+  /** Which call of its invocation this is: 1 for the first, 2 for the next. */
+  readonly attemptCount?: number;
 }
 
 export interface AiInvocationReconcileInput {
@@ -119,38 +123,55 @@ export class AiUsageLedgerRepository {
    */
   async reserve(organizationId: string, input: AiInvocationReserveInput, db: AiLedgerDb = this.prisma): Promise<boolean> {
     try {
-      await db.aiInvocation.create({
-        data: {
-          organizationId,
-          invocationId: input.invocationId,
-          principalUserId: input.principalUserId,
-          taskId: input.taskId,
-          taskVersion: input.taskVersion,
-          profile: input.profile,
-          providerId: input.providerId,
-          requestedModelId: input.requestedModelId,
-          routingPolicyVersion: input.routingPolicyVersion,
-          templateId: input.templateId,
-          templateVersion: input.templateVersion,
-          contextManifestHash: aiContextManifestHash(input.contextSourceRefs),
-          contextSourceCount: input.contextSourceRefs.length,
-          estimatedInputTokens: input.estimatedInputTokens,
-          estimatedOutputTokens: input.estimatedOutputTokens,
-          estimatedCostMicros: input.estimatedCostMicros,
-          unitCostBasis: input.unitCostBasis,
-          // It is not an answer, a refusal or a failure yet, and the budget counts it
-          // regardless -- that is what reserving means.
-          outcome: AI_INVOCATION_IN_FLIGHT,
-          rejectionCodes: [],
-          requestedAt: input.requestedAt,
-          businessDate: aiBudgetDateAsUtcDate(input.businessDate),
-        },
-      });
+      await this.insertReservation(organizationId, input, db);
       return true;
     } catch (err) {
       if ((err as { code?: string })?.code === UNIQUE_VIOLATION) return false;
       throw err;
     }
+  }
+
+  /**
+   * The same insert, without swallowing a duplicate. Inside a transaction a unique
+   * violation aborts the transaction, so it must reach the transaction's owner
+   * rather than be caught and followed by a COMMIT that silently rolls back.
+   */
+  async insertReservation(organizationId: string, input: AiInvocationReserveInput, db: AiLedgerDb = this.prisma): Promise<void> {
+    await db.aiInvocation.create({
+      data: {
+        organizationId,
+        invocationId: input.invocationId,
+        principalUserId: input.principalUserId,
+        taskId: input.taskId,
+        taskVersion: input.taskVersion,
+        profile: input.profile,
+        providerId: input.providerId,
+        requestedModelId: input.requestedModelId,
+        routingPolicyVersion: input.routingPolicyVersion,
+        templateId: input.templateId,
+        templateVersion: input.templateVersion,
+        contextManifestHash: aiContextManifestHash(input.contextSourceRefs),
+        contextSourceCount: input.contextSourceRefs.length,
+        estimatedInputTokens: input.estimatedInputTokens,
+        estimatedOutputTokens: input.estimatedOutputTokens,
+        estimatedCostMicros: input.estimatedCostMicros,
+        unitCostBasis: input.unitCostBasis,
+        // It is not an answer, a refusal or a failure yet, and the budget counts it
+        // regardless -- that is what reserving means.
+        outcome: AI_INVOCATION_IN_FLIGHT,
+        rejectionCodes: [],
+        requestedAt: input.requestedAt,
+        businessDate: aiBudgetDateAsUtcDate(input.businessDate),
+        fellBackFrom: input.fellBackFrom ?? null,
+        attemptCount: input.attemptCount ?? 1,
+      },
+    });
+  }
+
+  /** Whether a call key is already reserved in this organization. */
+  async exists(organizationId: string, invocationId: string, db: AiLedgerDb = this.prisma): Promise<boolean> {
+    const row = await db.aiInvocation.findFirst({ where: { organizationId, invocationId }, select: { id: true } });
+    return row !== null;
   }
 
   /**
@@ -198,14 +219,64 @@ export class AiUsageLedgerRepository {
   async spentOn(organizationId: string, businessDate: AiBudgetDate, db: AiLedgerDb = this.prisma): Promise<AiSpendToday> {
     const rows = await db.aiInvocation.findMany({
       where: { organizationId, businessDate: aiBudgetDateAsUtcDate(businessDate) },
-      select: { inputTokens: true, outputTokens: true, estimatedInputTokens: true, estimatedOutputTokens: true },
+      select: SPEND_COLUMNS,
     });
-    let inputTokens = 0;
-    let outputTokens = 0;
-    for (const row of rows) {
-      inputTokens += row.inputTokens ?? row.estimatedInputTokens ?? 0;
-      outputTokens += row.outputTokens ?? row.estimatedOutputTokens ?? 0;
-    }
-    return { invocations: rows.length, inputTokens, outputTokens };
+    return sumSpend(rows);
   }
+
+  /**
+   * The three windows a budget is checked against, read in one place so the
+   * pre-check and the reservation cannot disagree about what "spent" means:
+   *
+   *   organization  this organization, on its own business day;
+   *   task          the same rows, for one task;
+   *   global        every organization the runtime is enabled for, over the trailing
+   *                 24 hours by the server clock. Business days differ by timezone,
+   *                 so a global ceiling is a rolling window, not anybody's calendar.
+   *
+   * Every read names its organizations, so each one is an indexed range scan.
+   */
+  async spendSnapshot(
+    organizationId: string,
+    taskId: string,
+    businessDate: AiBudgetDate,
+    activeOrganizations: readonly string[],
+    globalSince: Date,
+    db: AiLedgerDb = this.prisma,
+  ): Promise<AiSpendSnapshot> {
+    const day = await db.aiInvocation.findMany({
+      where: { organizationId, businessDate: aiBudgetDateAsUtcDate(businessDate) },
+      select: { ...SPEND_COLUMNS, taskId: true },
+    });
+    const organizations = [...new Set([organizationId, ...activeOrganizations])];
+    const recent = await db.aiInvocation.findMany({
+      where: { organizationId: { in: organizations }, requestedAt: { gte: globalSince } },
+      select: SPEND_COLUMNS,
+    });
+    return {
+      organization: sumSpend(day),
+      task: sumSpend(day.filter((r) => r.taskId === taskId)),
+      global: sumSpend(recent),
+    };
+  }
+}
+
+const SPEND_COLUMNS = { inputTokens: true, outputTokens: true, estimatedInputTokens: true, estimatedOutputTokens: true } as const;
+
+/** Report over estimate: a reconciled row counts what the provider said; an in-flight or unreported one, the reserve. */
+function sumSpend(
+  rows: readonly {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    estimatedInputTokens: number | null;
+    estimatedOutputTokens: number | null;
+  }[],
+): AiSpendToday {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (const row of rows) {
+    inputTokens += row.inputTokens ?? row.estimatedInputTokens ?? 0;
+    outputTokens += row.outputTokens ?? row.estimatedOutputTokens ?? 0;
+  }
+  return { invocations: rows.length, inputTokens, outputTokens };
 }

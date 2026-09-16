@@ -354,8 +354,23 @@ export {
 // providers are registered with it; the only implementation that exists replays
 // recorded fixtures. No SDK, no credential, and `activated` defaults to false.
 // See ./services/ai-runtime/gateway.ts.
-export { AiRuntimeGateway, InMemoryAiUsageLedger } from './services/ai-runtime/gateway';
-export type { AiProviderPort, AiUsageLedger, AiRuntimeConfig, AiRuntimeDeps, AiRunRequest, AiRunResult } from './services/ai-runtime/gateway';
+export { AiRuntimeGateway, InMemoryAiUsageLedger, AI_CALL_OUTCOMES } from './services/ai-runtime/gateway';
+export type {
+  AiProviderPort,
+  AiUsageLedger,
+  AiRuntimeConfig,
+  AiRuntimeDeps,
+  AiRunRequest,
+  AiRunResult,
+  AiPrincipal,
+  AiAuthorizer,
+  AiCallReservation,
+  AiCallReconciliation,
+  AiReserveResult,
+} from './services/ai-runtime/gateway';
+// Who may invoke an AI task: an active human member, in a listed role, holding every
+// required permission through the enforcing can(). Never AI_EMPLOYEE.
+export { iamAiAuthorizer, AI_INVOKER_FORBIDDEN_ROLES } from './services/ai-runtime/authorizer';
 export {
   CASE_EXPLANATION_SCHEMA,
   CASE_EXPLANATION_SCHEMA_ID,
@@ -390,5 +405,5 @@ export type {
   AiInvocationReconcileInput,
   AiLedgerDb,
 } from './repositories/ai-usage-ledger.repository';
-export { DurableAiUsageLedger } from './services/ai-usage-ledger.service';
-export type { AiUsageLedgerPort, AiUsageRecordOptions, DurableAiUsageLedgerDeps } from './services/ai-usage-ledger.service';
+export { DurableAiUsageLedger, isSerializationFailure } from './services/ai-usage-ledger.service';
+export type { DurableAiUsageLedgerDeps } from './services/ai-usage-ledger.service';
