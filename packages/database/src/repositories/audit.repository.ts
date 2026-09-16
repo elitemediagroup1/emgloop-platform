@@ -39,8 +39,16 @@ export class AuditRepository {
     before?: unknown;
     after?: unknown;
     metadata?: Record<string, unknown>;
-  }): Promise<AuditLog> {
-    return this.prisma.auditLog.create({
+  },
+  /**
+   * The caller's open transaction, when it has one. An audit row for an act that
+   * was rolled back is worse than no audit row: it is a record of something that
+   * never happened. Authorities whose write spans several rows pass their
+   * transaction so the trail cannot outlive the act.
+   */
+  tx?: Pick<PrismaClient, 'auditLog'>,
+  ): Promise<AuditLog> {
+    return (tx ?? this.prisma).auditLog.create({
       data: {
         organizationId: args.organizationId,
         userId: args.userId ?? null,

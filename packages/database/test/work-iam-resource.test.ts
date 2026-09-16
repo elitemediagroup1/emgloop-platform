@@ -155,6 +155,21 @@ test('a work item is never a person, and its operator notes stay in the source',
   assert.ok(item.provenance.limitations.some((l) => l.includes('not logged consistently')), 'the lane admits it is incomplete');
 });
 
+test('`relationships` grants view to every human role, and no action beyond view', () => {
+  // The coarse gate. Consequential acts are governed by CRM_RELATIONSHIP_ACT_ROLES,
+  // which Product approved act by act -- so no matrix action beyond `view` exists to
+  // be confused for one, and AI_EMPLOYEE holds nothing here at all.
+  for (const role of ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY'] as const) {
+    assert.equal(matrixAllows(role, 'relationships', 'view'), true, `${role} view`);
+    for (const action of ['create', 'update', 'delete', 'manage'] as Action[]) {
+      assert.equal(matrixAllows(role, 'relationships', action), false, `${role} ${action}`);
+    }
+  }
+  for (const action of ['view', 'create', 'update', 'delete', 'manage'] as Action[]) {
+    assert.equal(matrixAllows('AI_EMPLOYEE', 'relationships', action), false, `AI_EMPLOYEE ${action}`);
+  }
+});
+
 test('fence: this slice changed no route guard', () => {
   const root = join(__dirname, '..', '..', '..');
   // The work trees are still guarded exactly as they were. If a later slice moves
