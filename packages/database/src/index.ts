@@ -109,6 +109,19 @@ export { PartyService, PARTY_WRITE_OUTCOMES, PARTY_ESTABLISHMENT_BASES } from '.
 export { PartyRecordService } from './services/party-record.service';
 // Universal Activity reads, authorized (slice A2). Every source is read under its
 // own guard; the service grants nothing. See ./services/activity.service.ts.
+// The Loop AI runtime gateway (slice B5, AI S1 preparation). It invokes whatever
+// providers are registered with it; the only implementation that exists replays
+// recorded fixtures. No SDK, no credential, and `activated` defaults to false.
+// See ./services/ai-runtime/gateway.ts.
+export { AiRuntimeGateway, InMemoryAiUsageLedger } from './services/ai-runtime/gateway';
+export type { AiProviderPort, AiUsageLedger, AiRuntimeConfig, AiRuntimeDeps, AiRunRequest, AiRunResult } from './services/ai-runtime/gateway';
+export {
+  CASE_EXPLANATION_SCHEMA,
+  CASE_EXPLANATION_SCHEMA_ID,
+  CASE_EXPLANATION_TEMPLATE_ID,
+  CASE_EXPLANATION_TEMPLATE_VERSION,
+  renderCaseExplanationInstructions,
+} from './services/ai-runtime/templates/case-explanation';
 export { ActivityService } from './services/activity.service';
 export type { ActivityViewer, ActivityReadResult, ActivityServiceDeps } from './services/activity.service';
 // CRM P0.2e: governed Customer -> Party links (identityResolution:approve; target must be established).
