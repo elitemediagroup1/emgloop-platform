@@ -365,6 +365,14 @@ export * from './decision-contract';
 // describe a stream the system does not publish. See ./decision-events.ts.
 export * from './decision-events';
 
+// --- CRM Relationship and Participant: pure contracts (slice R1) ---
+// A Relationship is a human-asserted commercial connection (OWN: the tenant and a
+// counterparty; THIRD_PARTY: two Parties); a Participant is the contextual role an
+// established Party holds in a CRM subject. Roles never become Party types. See
+// ./crm-relationship.ts, ./crm-participant.ts and docs/architecture/relationship-participant.md.
+export * from './crm-relationship';
+export * from './crm-participant';
+
 // --- Decision card composition (presentation only) ---
 // Confidence, the operational consequence, the ways a decision can end, and the
 // visual tiering that shows EVERYTHING while giving the few the most room.
