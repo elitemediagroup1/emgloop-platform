@@ -257,3 +257,15 @@ export { classifyProviderError, providerFailureMessage, retryAfterMs as provider
 // How supplied evidence is written into a model request: one rendering for every
 // provider, with element boundaries source content cannot forge.
 export { renderAiSources, escapeAiSourceText, AI_SOURCES_OPEN, AI_SOURCES_CLOSE } from './ai/source-rendering';
+// The verified model catalog and the reviewed routing and budget policies. The only
+// place a model id is written; changing one is a reviewed pull request.
+export { AI_MODEL_CATALOG, ANTHROPIC_PRICE_LIST, OPENAI_PRICE_LIST, aiCatalogModel, aiCatalogCapabilities } from './ai/policy/model-catalog';
+export type { AiCatalogModel } from './ai/policy/model-catalog';
+export {
+  AI_ROUTING_POLICY,
+  AI_ROUTING_POLICY_VERSION,
+  AI_BUDGET_POLICY,
+  AI_BUDGET_POLICY_VERSION,
+  AI_MAX_ATTEMPTS_PER_TARGET,
+  AI_PLATFORM_REQUEST_LIMIT_MS,
+} from './ai/policy/routing-policy';
