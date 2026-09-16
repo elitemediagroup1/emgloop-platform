@@ -1223,21 +1223,22 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 ## Foundation handoff — OPERATOR SURFACE AND AI LEDGER LIVE ON MAIN · AI ACTIVATION PREPARED, OFF
 
-_Last updated: 2026-09-16._ `main` is `f6b6b0d`. #244–#265 are merged and were verified by content.
+_Last updated: 2026-09-16._ `main` is `d069c7d`. #244–#267 are merged and were verified by content.
 Production has 35 migrations. The operator surface (#264) is on `main` as temporary engineering UI.
 Production still holds 0 established Parties and 0 Relationships, and nothing has been converted, linked
 or cleaned up.
 
 **AI: prepared end to end, switched off.** Zero Anthropic and zero OpenAI requests have been made. Five
-draft PRs, each containing the one before it, merge in this order:
+PRs merge in this order; #266 and #267 are merged. Each remaining PR contains the one before it, so with
+squash merges the next one must be rebased onto `main` (its content unchanged) before it can merge:
 
-1. **#266 AI-1:** durable gateway.
+1. **#266 AI-1 (merged):** durable gateway.
    - Every provider call is reserved in `ai_invocations` inside a serializable transaction before it is
      made, and reconciled after.
    - Activation is four allowlists.
    - Routing is a versioned per-task policy, with a budget policy and an authorizer.
    - Tested against real Postgres: under contention the cap holds; with READ COMMITTED it did not.
-2. **#267 AI-2:** Node 22 for provider code (`.nvmrc` plus two CI jobs).
+2. **#267 AI-2 (merged):** Node 22 for provider code (`.nvmrc` plus two CI jobs).
    - `apps/web/src/ai/ai-environment.ts` is the one server-only reader of the credentials and `LOOP_AI_*`.
    - `packages/providers/src/ai/adapters/sdk-clients.ts` is the one SDK importer. Its base URL, retries and
      logging are pinned, and clients can't be serialized.
@@ -1292,7 +1293,7 @@ Definition".
   - the web linking decision.
 
 **Next:**
-1. Merge #266 through #270 in order.
+1. Merge #268 through #270 in order, refreshing each onto `main` after the one before it lands.
 2. Make the activation decisions above.
 3. Make one controlled Case Explanation request.
 4. Schema-side alignment for the drift (a schema-only PR, no migration).
