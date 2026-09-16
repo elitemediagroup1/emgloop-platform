@@ -51,7 +51,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # The version the provider SDKs require (openai: >=22). One source: .nvmrc.
+          node-version-file: '.nvmrc'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
