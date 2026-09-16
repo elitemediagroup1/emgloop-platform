@@ -237,3 +237,11 @@ export type {
   PaginateInput,
   PaginatedReport,
 } from './adapters/callgrid-report-client';
+
+// --- Loop AI provider boundary (slice AI S0) ---
+// The ONLY place in Loop that may import a model SDK. Nothing here calls anything
+// yet: S0 defines the interface and a recorded-fixture provider, and a repository
+// fence asserts no SDK appears outside ./ai/adapters/. See ./ai/model-provider.ts
+// and docs/architecture/loop-ai-runtime.md.
+export { RecordedModelProvider, ModelProviderError, unconfirmedCapabilities } from './ai/model-provider';
+export type { ModelProvider, RecordedInvocation } from './ai/model-provider';

@@ -362,6 +362,14 @@ export * from './activity';
 // because every source is read under its own authority. See ./activity-read.ts.
 export * from './activity-read';
 
+// --- Loop AI runtime contracts (slice AI S0) ---
+// Provider-neutral by construction: routing is policy, never a branch on a vendor
+// name. No SDK, no credential and no model call lives here or can be reached from
+// here -- provider adapters are the only code allowed to import one. Every claim an
+// answer makes cites evidence Loop supplied, or the answer is rejected whole. See
+// ./ai/ and docs/architecture/loop-ai-runtime.md.
+export * from './ai';
+
 // --- Operational decision lifecycle (platform primitives) ---
 // The pure projection from an append-only observation log to the current state
 // of a priority, plus the operational history and decision-activity statistics
