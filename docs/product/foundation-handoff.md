@@ -365,6 +365,10 @@ Full detail: `docs/architecture/commercial-opportunity-campaign.md`.
 
 ## 6. Charlie and Lexi unblock matrix (after the 2026-09-15 decisions)
 
+> **For current status, read `ui-track-handoff.md` §2 (updated 2026-09-16).** This table records the
+> 2026-09-15 decision point and is not kept up to date. Since it was written, People, Person, Companies,
+> Company, Relationships and Relationship Detail have moved to GREEN, and Intake is GREEN outright.
+
 **Changes from the previous matrix:**
 - Relationships, Relationship Detail, Opportunities, Opportunity Detail, Campaigns and Campaign Detail
   move **RED → YELLOW**. Their contracts are locked strongly enough to design without inventing truth.

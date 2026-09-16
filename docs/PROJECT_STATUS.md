@@ -25,11 +25,13 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — ALIGNED THROUGH CRM P0.2e (33 migrations; verified 2026-09-15)
+## Production migration state — ALIGNED THROUGH CRM R2 (34 migrations; verified 2026-09-16)
 
-**Latest:** the `Deploy Prisma Migrations` run of 2026-09-13 found 33 migrations and applied
-`20260916000000_crm_p0_2e_customer_party_link`. `main` has added no migration since (#239–#243). The
-2026-08-16 narrative below is kept as history.
+**Latest:** run `35047357515` found 34 migrations and applied
+`20260917000000_crm_r2_relationship_participant`. `main` (`b8bc560`) has added no migration since.
+**Pending, not on `main`:** `20260918000000_ai_usage_ledger` in draft PR #265. When that merges, `main`
+will carry 35 and production 34 until someone dispatches the workflow. Its dispatch dossier is
+`docs/architecture/ai-usage-ledger.md` §7. The 2026-08-16 narrative below is kept as history.
 
 **Production is, and has been since 2026-07-09, under Prisma Migrate management.** The long-standing
 claim that it has no `_prisma_migrations` ledger and that no migration has ever been applied through
@@ -1212,72 +1214,71 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — DECISIONS RECORDED · PARTIALLY READY
+## Foundation handoff — AUTHORITIES ON MAIN · OPERATOR SURFACE AND AI LEDGER IN REVIEW
 
-_Last updated: 2026-09-16._
+_Last updated: 2026-09-16._ `main` is `b8bc560`. #244–#263 are merged and were verified on `main` by
+content at each checkpoint. Production has 34 migrations.
 
-**Merged since the decisions (all verified on `main` by content):** #244 security · #245 the records ·
-#250 A1 `activity.v1` · #251 R1 CRM Relationship / Participant contracts · #247 P1b · #246 P1 · #248
-Intake wording and merge removal · #249 Intake provenance. `main` is `4123b10`. No migration was
-deployed: none of the eight touches the schema.
+**On `main`, and real:**
+- Party create and establish, and the People, Companies and establishment-queue read models (P1).
+- The full Relationship authority: R2 schema (deployed), R3-A1 lifecycle, R3-A2 Participants, and R3-A3
+  read models with server-decided capabilities and a duplicate diagnostic.
+- Universal Activity read-time adapters (A2) for the organization, Intake Record, Case and Work item
+  subjects. No page calls them.
+- AI S0/B5: runtime gateway, prompt template and fixture evaluation harness, plus the two provider
+  adapters, which are fixture-only.
+- The honesty corrections C1–C4, including the fence against percentage-confidence renders.
 
-**Contract only, and not on any screen:** `activity.v1` (#250) and the CRM Relationship / Participant
-contracts (#251). No Relationship table, service or screen exists; production still holds 0 established
-Parties, and no page imports P1's Party write actions.
+**Production data:** still 0 established Parties and 0 Relationships. No legacy Intake Record has been
+converted, linked, established or cleaned up, and none will be by inference.
 
-**Production migration cleared (2026-09-16):** run 35047357515 applied
-`20260917000000_crm_r2_relationship_participant` from `main`. 34 migrations, schema up to date, zero
-failed or rolled back. `crm_relationships`, `crm_relationship_events` and `crm_participants` exist and
-are empty; the two Universal Activity indexes are live.
+**In review, draft, not merged:**
+- **#264 — governed operator surface.** `/crm/parties` and `/crm/relationships` are temporary
+  engineering UI over the real authorities. With them, an authorized human can create and establish a
+  Person or Company, record a Relationship between established Parties, add Participants, and end,
+  reactivate or void either. There is no lookup by name, phone or email, and no conversion.
+  - Every act is submitted as each of OWNER, ADMIN, MANAGER, EMPLOYEE, AI_EMPLOYEE, READ_ONLY and an
+    unknown role, and refusals leave no writes.
+  - Mutation testing: 10 of 11 mutations caught; the 11th is documented as redundant.
+  - No migration.
+- **#265 — AI usage ledger.** Adds the `ai_invocations` table, a reserve-then-reconcile repository, and
+  `DurableAiUsageLedger`.
+  - **The migration is not dispatched**, and the gateway does not call `reserve` yet.
+  - Mutation testing: 10 of 11 caught; the 11th is a documented equivalent mutation.
+- #264 and #265 share no files and can merge in either order.
 
-**Planning records added (no code, no production access):** `docs/product/ai-honesty-inventory.md`
-(one fabricated AI metric, one misleading heading, two numeric-confidence renders — with the correction
-PR sequence C1–C4, which must land before AI S1 reaches a screen);
-`docs/product/legacy-intake-retirement-plan.md` (six-segment classification of the 24,590 legacy
-records; nothing deletable, ~24,500 must remain permanently unresolved);
-`docs/architecture/google-workspace-connection.md`; `docs/architecture/meeting-intelligence.md`.
+**Blocked on a decision (one blocker, two symptoms):** Person and Company activity, and any web path
+that links an Intake Record to a Party.
+- The P0.2e fence forbids any `apps/web/src` file from naming `CustomerPartyLink`.
+- No product path creates a link, so a Party activity section would never render anything.
+- Revising the fence is a deliberate Product and architecture act. Recorded in
+  `docs/product/governed-operator-surface.md`.
 
-**In review:** A2 — Universal Activity read-time adapters (channel facts, marketplace calls, Case /
-Decision observations, Intake conversations, audit acts), keyset composition and per-item authorization.
-No migration, no writes, no UI. Work OS is excluded from A2: it has no RBAC resource for an item to
-state, which is a decision, not an adapter.
+**AI:** not activated. No credential is read and no live provider request exists.
+Activation needs, in order:
+1. #265 merged and its migration dispatched.
+2. The gateway wired to reserve before dispatch.
+3. Activation values for gates G2–G6.
+4. Matt's explicit approval of the first real request.
 
-**Handoff:** `docs/product/foundation-handoff.md`. **UI-track summary:** `docs/product/ui-track-handoff.md`.
+**Handoff:** `docs/product/ui-track-handoff.md` §2 is the current status per surface. People, Person,
+Companies, Company, Relationships and Relationship Detail are GREEN, and Intake is GREEN.
+`foundation-handoff.md` §6 records the 2026-09-15 decision point.
 
-**Records:**
-- `relationship-participant.md` — locked
-- `commercial-opportunity-campaign.md` — locked for design
-- `universal-activity.md` — `activity.v1`
-- `loop-ai-runtime.md` — approved, with activation gates
-
-**Product decisions (2026-09-15):**
+**Product decisions:**
 - Approved: PD-F-01, -02, -03, -04, -06, -07, -08.
+- AI ledger (2026-09-16): reproducible cost basis; the organization's business date for budgets only;
+  no per-user cap.
 - Deferred: PD-F-05, -09, -10.
-- Still needed (non-blocking for UI design):
-  - PD-F-11: Opportunity and Campaign grants.
-  - PD-F-12: confirm Opportunity categories and loss reasons, forecast amount and close date, Campaign
-    lifecycle states, provider-link exclusivity.
-  - AI activation values for gates G2–G6.
+- Still needed: PD-F-11 (Opportunity and Campaign grants); PD-F-12 (Opportunity and Campaign
+  vocabularies); AI gate values G2–G6; the Intake → Party linking decision above.
 
-**Gate:** FOUNDATION HANDOFF PARTIALLY READY — SPECIFIED SURFACES MAY RESUME.
-- Relationships, Opportunities and Campaigns moved RED → YELLOW.
-- Creator administration is YELLOW for the roster only.
-- Brain, creator execution and Universal Search stay RED.
-
-**Critical gap:** `PartyService.create` and `establish` have no production caller, and production holds 0
-established Parties. Slice P1 addresses this.
-
-**Security:** #244 (password-reset token exposure) is ready for review and merges first. No production
-abuse investigation without separate authorization.
-
-**Sequence:** handoff §9.
-- **Done:** P1, P1b, Intake, A1, R1.
-- **In review:** A2.
-- **Next, unstarted:** R2 (first migration of the Relationship track) → R3; then the Opportunity and
-  Campaign slices. AI S0 is independent and may run in parallel; AI S1 needs gates G1–G6.
-- **Still blocked on a decision:** a Work OS activity adapter (no RBAC resource); any web surface for
-  Intake → Party links (the P0.2e fence forbids `apps/web` naming `CustomerPartyLink`, and revising it
-  is a deliberate act, not a side effect — A3 or the P1 UI slice should propose it).
+**Next:**
+1. Matt reviews and merges #264 and #265, then dispatches the ledger migration.
+2. Wire the gateway to `reserve` before dispatch.
+3. Add a filter by kind on the Relationship list read (unblocks the creator roster).
+4. Product decision on web-side Intake → Party linking.
+5. Opportunity and Campaign slices, after PD-F-11 and PD-F-12.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

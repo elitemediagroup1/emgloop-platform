@@ -1,6 +1,9 @@
 # UI Track Handoff — what Charlie and Lexi can build now
 
-**Date:** 2026-09-15. **For:** Charlie and Lexi. **Owner of this page:** the backend and authority track.
+**Date:** 2026-09-16, against `main` `b8bc560`, with two open PRs noted where they change a status
+(#264 operator surface, #265 AI usage ledger). **For:** Charlie and Lexi. **Owner of this page:** the
+backend and authority track. **This table is the current status**; the matrix in
+`foundation-handoff.md` §6 records the 2026-09-15 decision point.
 
 You own the visual redesign: interaction architecture, hierarchy, layout, density, responsive behavior,
 record presentation, drawers, navigation design. This page tells you which backend truth exists, which
@@ -25,7 +28,32 @@ presentation convenience.
 | YELLOW | Design against the contract named; data arrives when the backend slice lands |
 | RED | Prototype or exploration only |
 
-YELLOW contracts become authoritative when the foundation handoff PR (#245) merges.
+The foundation handoff (#245) is merged, so the YELLOW contracts are authoritative.
+
+### What changed since 2026-09-15
+
+- **People, Person, Companies, Company, Relationships and Relationship Detail move YELLOW → GREEN.** The
+  Party read and write authorities and the full Relationship authority are on `main`: create, end,
+  reactivate and void, Participants, read models, server-decided capabilities and the duplicate
+  diagnostic. Production data is still empty, which is a design state rather than a missing authority.
+- **Intake moves to GREEN outright.** The provenance classification is in the Intake Records read model.
+- **Universal Activity stays YELLOW, now for a precise reason.** The read model is on `main`, but it has
+  no Person, Company or Relationship lane. See *Blockers* below.
+- **Intelligence and CallGrid:** the fabricated "AI resolution rate" is deleted. Every numeric
+  confidence render is converted to semantic strength, and a test now fails if one comes back (#262).
+
+### The operator surface is not your redesign
+
+PR #264 adds `/crm/parties` and `/crm/relationships`: **temporary engineering UI**. It exists so an
+authorized person can establish a Person or Company and record a governed Relationship now, instead of
+waiting on the redesign.
+
+- It is deliberately plain and uses the existing CRM shell. It makes no design decisions you need to
+  respect.
+- **Replace it; do not restyle it.** When your People, Companies and Relationships surfaces land, those
+  routes and their `_operator` components should be deleted.
+- It is a working reference for the contracts. Every form renders from server capabilities, and every
+  superseded, archived, refused and empty state has words on the page.
 
 ---
 
@@ -35,10 +63,11 @@ YELLOW contracts become authoritative when the foundation handoff PR (#245) merg
    Action), context drawers, the responsive and mobile system.
 2. **Global navigation** in the five areas (Home, CRM, Work, Intelligence, Operations), plus your
    route-transition proposal. Routes move only after Product approves the proposal.
-3. **Redesign on existing authority:** Intake Records, Work, Intelligence, Operations, CallGrid.
+3. **Redesign on existing authority:** Intake Records, Work, Intelligence, Operations, CallGrid, and now
+   People, Person, Companies, Company, Relationships and Relationship Detail.
 4. **Loop Home**, against governed sources.
-5. **People, Person, Companies, Company, Universal Activity, Relationships, Opportunities and Campaigns**
-   against the contracts below, with honest empty states.
+5. **Universal Activity, Opportunities and Campaigns** against the contracts below, with honest empty
+   and unavailable states.
 
 ## 2. Surface by surface
 
@@ -50,24 +79,24 @@ YELLOW contracts become authoritative when the foundation handoff PR (#245) merg
 | Record grammar | GREEN | Specification | A section whose authority is missing renders as unavailable, never with filler |
 | Context drawers | GREEN | Context chain is navigation state | Closing restores the prior subject; the chain never creates relationships |
 | Responsive / mobile | GREEN | Specification density and priority rules | — |
-| People | YELLOW | See People and Companies detail below | **Empty today:** 0 established Parties. Explain that People are identified people, and link to Intake Records. |
-| Person Detail | YELLOW | See People and Companies detail below | Contact info only from linked Intake Records, labeled **"From Intake Record — not verified"**. Relationships unavailable until the Relationship services land. Attributed activity unavailable until governed attribution exists. |
-| Companies | YELLOW | Company list, same shape as People | Empty today. Never the Workspace Organization; never CallGrid buyers or vendors. |
-| Company Detail | YELLOW | Company record, same shape as Person | Company profile fields unavailable; people at the Company come later through AFFILIATION Relationships |
-| Intake | GREEN (provenance YELLOW) | The existing Customer records, **named Intake Records** | A provenance label (e.g. "created from a CallGrid caller ID") arrives with the Intake Records read model. No merge action. Intake status is not a pipeline. |
-| Universal Activity | YELLOW | See Universal Activity detail below | "Known person / company" lanes empty until governed attribution exists. Content (message bodies, raw numbers) opens from its source page under that page's permission. |
-| Relationships | YELLOW | See Relationships detail below | Empty until the Relationship services land; creation needs established Parties |
-| Relationship Detail | YELLOW | See Relationships detail below | No health or strength score (CI Findings by reference only) |
+| People | GREEN | See People and Companies detail below | **Empty in production** until someone establishes a Party. Say that nobody has been established yet, which is not the same as loading. Explain that People are identified people, and link to Intake Records. |
+| Person Detail | GREEN (Activity unavailable) | See People and Companies detail below; Relationships through the Party's Relationship list | Contact info only from linked Intake Records, labeled **"From Intake Record — not verified"**. No product path creates a link yet (see *Blockers*), so expect none. **Activity renders as unavailable.** |
+| Companies | GREEN | Company list, same shape as People | Empty in production. Never the Workspace Organization; never CallGrid buyers or vendors. |
+| Company Detail | GREEN (Activity unavailable) | Company record, same shape as Person | Company profile fields unavailable. People at the Company are AFFILIATION Relationships, which now exist. **Activity renders as unavailable.** |
+| Intake | GREEN | The existing Customer records, **named Intake Records**, with a provenance segment per record (labels in `INTAKE_PROVENANCE_LABELS`) | Provenance is in the read model but no page shows it yet. Provenance says how a record was created, never who it is about. No merge action and no "link to Person" action (see *Blockers*). Intake status is not a pipeline. |
+| Universal Activity | YELLOW | See Universal Activity detail below. On `main` for the organization feed, an Intake Record, a Case and a Work item; no page calls it yet | **No Person, Company or Relationship lane** (see *Blockers*). A Relationship's own history is on its record instead. Content (message bodies, raw numbers) opens from its source page under that page's permission. |
+| Relationships | GREEN | See Relationships detail below | Empty in production until someone records one; creation needs established Parties. The list has no filter by kind yet. |
+| Relationship Detail | GREEN | See Relationships detail below | No health or strength score (CI Findings by reference only). A superseded Party shows its stored **and** current record, and a write naming it is refused, never quietly redirected. |
 | Opportunities | YELLOW | See Opportunities detail below | Empty until the Opportunity slices land |
 | Opportunity Detail | YELLOW | See Opportunities detail below | Amount and expected close date are pending confirmation: design them as optional human-entered fields. Actions are server-decided. |
 | Campaigns | YELLOW | See Campaigns detail below | Empty until the Campaign slices land |
 | Campaign Detail | YELLOW | See Campaigns detail below | Participants unavailable (not activated); invoices and payments unavailable (Accounting not built) |
 | Work | GREEN | Work OS | Links from work to records, and approvals, do not exist yet |
-| Intelligence | GREEN | CI Headlines, Queue, Cases, Findings (Developing / Established + evidence count), Recommendations (select, dismiss, revise), Monitoring; Decision Center | **Case Explanation panel is YELLOW**; see Intelligence detail below |
+| Intelligence | GREEN | CI Headlines, Queue, Cases, Findings (Developing / Established + evidence count), Recommendations (select, dismiss, revise), Monitoring; Decision Center | **Case Explanation panel is YELLOW**; see Intelligence detail below. The "AI resolution rate" is deleted; do not reintroduce it. |
 | Operations | GREEN | Area grouping of CallGrid and future operational modules | — |
-| CallGrid | GREEN | CallGrid execution, measurement and reconciliation, split per C-03 | Do not show numeric "confidence %" as truth; it is being converted |
-| Creator administration | YELLOW (roster) / RED (execution) | The roster is TALENT_REPRESENTATION Relationships with CREATOR participants | Deliverables, earnings, uploads and critiques: unavailable. No separate creator app. |
-| Brain | RED | Exploration only | No conversational Brain; no "AI" label on rules |
+| CallGrid | GREEN | CallGrid execution, measurement and reconciliation, split per C-03 | Confidence is shown as semantic strength, and a test fails if a percentage comes back. |
+| Creator administration | YELLOW (roster) / RED (execution) | The roster is TALENT_REPRESENTATION Relationships with CREATOR participants. The authority exists; the list read needs a filter by kind first (a small backend slice) | Deliverables, earnings, uploads and critiques: unavailable. No separate creator app. |
+| Brain / AI | RED | Exploration only | No conversational Brain; no "AI" label on rules. Provider adapters exist but run only against test fixtures. No credential is read, no live request exists, and the runtime is not switched on. The usage ledger (#265) is not deployed. |
 | Universal Search | RED | CRM-scoped search only | Universal search is deferred |
 
 ### Loop Home detail
@@ -134,13 +163,17 @@ Filters are All / Communications / Work / Intelligence / Changes.
 - business dates;
 - a "possible duplicate" notice when two records resolve to the same Parties.
 
-**Who can act:**
+**Who can act** (every role is tested by submitting each act directly, bypassing the UI):
 
 | Act | Who |
 |---|---|
-| Create, edit | EMPLOYEE+ |
-| End, reactivate | MANAGER+ |
-| Void | OWNER/ADMIN |
+| View | every human role, including READ_ONLY |
+| Create, edit, add or change a Participant | EMPLOYEE+ |
+| End, reactivate, end a Participant | MANAGER+ |
+| Void, void a Participant | OWNER/ADMIN |
+| Anything | never AI_EMPLOYEE |
+
+A side Participant (the Party that *is* a side) cannot be ended on its own. End the Relationship instead.
 
 ### Opportunities detail
 
@@ -178,7 +211,22 @@ changes the Opportunity.
 - No confidence number.
 - Shows "not configured" until the runtime's activation gates hold.
 
-## 3. Rules that apply to every surface
+## 3. Blockers you will hit
+
+**Person and Company activity, and linking an Intake Record to a Person, are the same blocker.**
+
+- Universal Activity has no Person, Company or Relationship lane. The only honest Person reading would
+  show each *linked Intake Record's* activity, labeled as that record's. It would never be relabeled as
+  the Person's own.
+- But no product path creates a link. The web app is fenced off from linking entirely: a test forbids
+  any web file from even naming it.
+- Whether people may link Intake Records to Parties from the product, and how that fence narrows while
+  still keeping ingestion out, is a **Product and architecture decision that has not been taken.**
+
+Until it is: no "link to Person" action on Intake Records, and Activity on Person and Company renders as
+unavailable.
+
+## 4. Rules that apply to every surface
 
 1. **Names:**
    - "People" means identified Parties only;
