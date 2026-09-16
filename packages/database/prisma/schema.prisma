@@ -271,6 +271,7 @@ model Organization {
   crmRelationships      CrmRelationship[]
   crmRelationshipEvents CrmRelationshipEvent[]
   crmParticipants       CrmParticipant[]
+  aiInvocations         AiInvocation[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -397,6 +398,7 @@ model User {
   crmParticipantsAdded    CrmParticipant[]       @relation("CrmParticipantCreator")
   crmParticipantsEnded    CrmParticipant[]       @relation("CrmParticipantEnder")
   crmParticipantsVoided   CrmParticipant[]       @relation("CrmParticipantVoider")
+  aiInvocations           AiInvocation[]         @relation("AiInvocationPrincipal")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -5085,4 +5087,111 @@ model CrmParticipant {
   @@index([organizationId, relationshipId, state])
   @@index([organizationId, partyId, state])
   @@map("crm_participants")
+}
+
+/// The durable AI usage ledger. One row per invocation ATTEMPT -- answered, refused,
+/// rejected or failed alike, because a failure that consumed input tokens cost money
+/// and a refusal is a fact about the system.
+///
+/// WHY A TABLE AND NOT A COUNTER. The S1 gateway reads budgets through an interface
+/// backed by an in-memory map. Netlify runs serverless: instances share no memory, so
+/// a daily cap enforced per-instance is that cap multiplied by however many instances
+/// are warm. That is the webhook replay-map mistake again, and a budget that is
+/// decorative is worse than no budget, because it is a control somebody will trust.
+///
+/// COST STAYS REPRODUCIBLE (Product, 2026-09-16). The row keeps the provider's RAW
+/// reported usage and the identifier of the price list it should be valued with. It
+/// never bakes a final dollar amount in as the only record, so a corrected price
+/// re-values history instead of requiring history to be rewritten.
+///
+/// NO PROMPT, NO RESPONSE. Storing bodies "for observability" would put customer data
+/// and model output in a table whose retention and access rules differ from the
+/// sources they came from -- the single change that turns a usage ledger into a
+/// privacy incident. This row NAMES the evidence; the evidence is read from its own
+/// authority, under its own guard.
+model AiInvocation {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// Loop's correlation id, STABLE ACROSS RETRIES. Unique per organization, so a
+  /// retried attempt updates one row rather than being counted twice against a cap.
+  invocationId String
+
+  /// Whose authority assembled the context and triggered the task. Never a service
+  /// account: an invocation always traces to a person.
+  principalUserId String?
+
+  taskId      String
+  taskVersion String
+  /// The capability profile that was routed on.
+  profile     String
+
+  providerId           String
+  requestedModelId     String
+  /// What the provider says actually answered. Not always what was asked for.
+  servedModel          String?
+  routingPolicyVersion String
+  providerRequestId    String?
+  /// The provider tried first, when there was one.
+  fellBackFrom         String?
+
+  /// The instruction is the largest single influence on an answer, so an unversioned
+  /// prompt makes a past answer unexplainable.
+  templateId      String
+  templateVersion String
+
+  /// A hash of the ORDERED source refs -- never the content. Enough to prove two
+  /// invocations saw the same evidence, useless for reconstructing it.
+  contextManifestHash String
+  contextSourceCount  Int
+
+  /// What Loop RESERVED before dispatch, so concurrent requests cannot each read a
+  /// spend-to-date of zero and all pass a cap only one of them should have. These are
+  /// Loop's estimate, never a provider's report, and the two are kept apart forever:
+  /// a row still carrying only an estimate is a row that never reconciled.
+  estimatedInputTokens  Int?
+  estimatedOutputTokens Int?
+
+  /// As reported by the provider. NULL where it did not say -- never zero-defaulted,
+  /// which would read as "free".
+  inputTokens       Int?
+  outputTokens      Int?
+  cachedInputTokens Int?
+  reasoningTokens   Int?
+
+  /// The price list version these tokens should be valued with. The cost authority.
+  unitCostBasis       String?
+  /// The RESERVE estimate, in integer micros, kept so concurrent requests cannot each
+  /// read a spend-to-date of zero. It is an estimate and is never the cost of record.
+  estimatedCostMicros Int?
+
+  /// ANSWERED / REFUSED_BY_MODEL / REJECTED_BY_LOOP / FAILED / CANCELLED.
+  outcome        String
+  /// Loop's own taxonomy, never a provider's prose.
+  failureClass   String?
+  /// Which contract rules the answer broke.
+  rejectionCodes String[]
+  attemptCount   Int      @default(1)
+
+  /// Server clock, Loop Time Authority. Never a browser's and never a provider's.
+  requestedAt DateTime  @default(now())
+  completedAt DateTime?
+  latencyMs   Int?
+
+  /// The organization's own reporting day, so a "daily cap" means a day somebody
+  /// recognises. It exists because a business-day budget requires it -- it is NOT a
+  /// display timezone, and canonical instants above stay UTC.
+  businessDate DateTime @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  principal    User?        @relation("AiInvocationPrincipal", fields: [principalUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, invocationId])
+  @@index([organizationId, businessDate])
+  @@index([organizationId, taskId, requestedAt])
+  @@index([organizationId, outcome, requestedAt])
+  @@map("ai_invocations")
 }
