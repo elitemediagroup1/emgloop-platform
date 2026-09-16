@@ -2,6 +2,8 @@
 
 **Status:** the direction was approved by Matt on 2026-09-16.
 - **B2 implemented the provider-independent contracts** as pure code in `packages/shared/src/ai/` (§2).
+- **B3 designed the AWS trust, security and infrastructure** in `brain-execution-infrastructure.md`,
+  which revises §9's executor. None of it is provisioned.
 - **Nothing executes them yet.** No AWS resource exists, no Netlify setting has changed, and AI is not
   activated.
 - **Where to look:** §2 separates what exists from what does not; §12 shows each step's status.
@@ -81,6 +83,7 @@ recorded in §5a. It is approved, but it is not implemented and does not change 
   | `brain-step.ts` | Step policies, checkpoint and call keys, retry and resume decisions, and fallback provenance |
   | `brain-trust.ts` | The doorbell claim and body check, stored commands and their disposition, and the access re-check at each boundary |
   | `brain-executor.ts` | The executor port and its obligations |
+  | `brain-dispatch.ts` (B3) | Commit and event identities, reference-only advance messages, job leases, the step-start deadline and promotion decision, the run-time routing gate, and the check on a worker's requests to Loop |
 
   The provider-specialization policy data is
   `packages/providers/src/ai/policy/provider-specialization.ts`.
@@ -107,11 +110,10 @@ recorded in §5a. It is approved, but it is not implemented and does not change 
 Browser ─session─▶ Netlify: Brain API (start · status · respond · cancel)
                       │ authorize → ONE Neon txn: brain_job + brain_command → doorbell (JWT, no content)
                       ▼
-AWS: HTTP API (JWT authorizer) → dispatcher ◀── scheduled sweeper
-       │ start (async, execution name = job) · resume (callback) · cancel (callback fail / stop)
-       ▼
-     brain-worker (Lambda durable functions): steps → AI Runtime gateway → adapters → Anthropic / OpenAI
-       │ provider keys ◀ Secrets Manager (KMS)          status events → reconciler
+AWS: HTTP API (Lambda authorizer, jti ledger) → dispatcher ─▶ SQS (interactive | durable) ◀── sweeper (1 min)
+       ▼                                                                   (B3 design, not built)
+     brain-worker (Lambda step runner, lease per job): steps → AI Runtime gateway → adapters → Anthropic / OpenAI
+       │ provider keys ◀ Secrets Manager (KMS)     context · access · commit ─▶ Loop internal API (KMS-signed)
        ▼
 Neon: jobs · steps/checkpoints · waits · commands · controls · ai_invocations · artifacts · outbox
        ▲ Netlify reads status and results; the browser polls Netlify
@@ -313,7 +315,9 @@ Some secret must live in Netlify, so the design makes that secret nearly worthle
      marked secret.
    - An API Gateway HTTP API JWT authorizer rejects bad tokens before any code runs. It accepts
      RSA only, requires `kid`, and caches keys for up to 2 hours.
-   - The public keys and discovery document are served from a public HTTPS location managed with
+   - *(B3 revises this bullet and the two before it: ES256 tokens verified by a Lambda authorizer with
+    pinned keys, plus a `jti` replay ledger. See `brain-execution-infrastructure.md` §5.)*
+  - The public keys and discovery document are served from a public HTTPS location managed with
      the infrastructure code.
 3. **The dispatcher trusts nothing but "look".** It claims the command from Neon, re-reads the
    job, organization and state, and only then acts:
@@ -418,7 +422,7 @@ activation allowlists and kill switches become versioned, audited controls that 
 | RUNNING (stays RUNNING) | `CANCEL_REQUESTED` | Records the request; the first one stands |
 | RUNNING → CANCELLED | `CANCEL_SETTLED` | Only after a request; in-flight work was reconciled |
 | RUNNING → SUCCEEDED | `RESULT_COMMITTED` | At least one owner's result ref; refused while a cancel is pending (the result is kept, never applied) |
-| any live state → FAILED | `FAILED` | Typed reason: `MODEL_REFUSED`, `OUTPUT_REJECTED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_LOST`, `BUDGET_REFUSED`, `ACCESS_WITHDRAWN`, `CONTEXT_UNAVAILABLE`, `RETRIES_EXHAUSTED`, `DEADLINE_EXCEEDED`, `COMMIT_REFUSED` or `INTERNAL` |
+| any live state → FAILED | `FAILED` | Typed reason: `MODEL_REFUSED`, `OUTPUT_REJECTED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_LOST`, `BUDGET_REFUSED`, `ACCESS_WITHDRAWN`, `CONTEXT_UNAVAILABLE`, `RETRIES_EXHAUSTED`, `DEADLINE_EXCEEDED`, `COMMIT_REFUSED`, `ROUTING_NOT_CONFORMANT` (B3) or `INTERNAL` |
 
 **Submission (implemented).**
 - **Parsing.** `parseBrainSubmission` accepts only task, subject, execution class, idempotency key and
@@ -478,53 +482,32 @@ The organization and the principal always come from Neon, never from the orchest
 - A running job stops at the next step boundary, and an in-flight provider call can be aborted.
 - After a grace period, the execution is stopped and any open reservation is reconciled.
 
-## 9. AWS runtime (proposed shape, confirmed at B5 review)
+## 9. AWS runtime: designed in B3, not built
 
-| Service | Role |
-|---|---|
-| Lambda durable functions (Node 22) | The worker, in two configurations (interactive, durable) from one artifact |
-| API Gateway HTTP API + JWT authorizer | The doorbell |
-| EventBridge Scheduler | The sweeper |
-| EventBridge "Durable Execution Status Change" events | The reconciler, which keeps Neon consistent |
-| Secrets Manager + a KMS customer-managed key | Credentials; execution data and checkpoint encryption |
-| CloudWatch, X-Ray, CloudTrail, Budgets, Cost Anomaly Detection | Operations and cost safety |
-| ECS Fargate | **Only if needed:** steps longer than a Lambda invocation allows |
+**The authoritative design is `brain-execution-infrastructure.md` (B3).** It **revises** the shape
+first proposed here in B0.
 
-**Lambda durable functions: facts from AWS documentation read 2026-09-16:**
-- **Availability:** generally available since 2025-12-02, starting in US East (Ohio); Node.js 22
-  and 24.
-- **Timeouts:** each invocation is bounded by the function timeout (at most 15 minutes). An
-  execution lasts up to one year, and waiting incurs no duration charge.
-- **Steps:** at-least-once per retry by default. `AtMostOncePerRetry` exists; nothing is
-  exactly-once.
-- **Callbacks** support timeouts and heartbeats.
-- **Naming:** an execution name with the same payload returns the existing execution.
-- **Versions:** executions stay pinned to the version they started on, and a new SDK major
-  version can break executions already in flight. Pin the major version and deploy through
-  versions.
-- **Hard limits:** 3,000 operations and 100 MB written per execution; 256 KB per checkpointed
-  result.
-- **KMS:** deleting the key destroys executions and their history, so key deletion is locked down.
-- **Testing:** a local test runner, `@aws/durable-execution-sdk-js-testing`, needs no
-  credentials.
-- **Observability:** the OpenTelemetry plugin is marked experimental.
-- **Documentation conflicts:** AWS pages disagree on the maximum execution timeout and the default
-  retention period.
+| B0 proposal | B3 design | Why |
+|---|---|---|
+| Lambda **durable functions** as the executor | A **Loop step runner on Lambda**, driven by **SQS** (interactive and durable queues, each with a DLQ), with a **one-minute EventBridge Scheduler sweeper** for timers and recovery | Neon already holds job state and checkpoints (B2). A durable engine would be a second state store to reconcile, and it pins in-flight executions to old code during days-long waits. It also adds hard per-execution limits and new-service risk. Durable functions and Step Functions stay valid adapters behind the executor port. |
+| API Gateway **native JWT authorizer** (RS256, public discovery document) | API Gateway HTTP API + a **Lambda authorizer with pinned ES256 keys** (from SSM) and a DynamoDB `jti` replay ledger | No public key hosting. The authorizer runs with no data access, and a token can be used only once. |
+| The worker runs Loop's repositories against product tables | The worker's **restricted Neon role** covers Brain tables and the ledger only. Context, access decisions and artifact commits go through **Loop's internal Brain API** on Netlify, with **KMS-signed** worker tokens bound to one job, purpose and body. | Authorization and product data stay behind Loop's own code. A compromised worker cannot read product tables. |
+| "A reconciler keeps Neon consistent with the engine" | Not needed | Nothing else holds workflow state |
+| Region "to confirm" | **us-east-1**, where production Neon runs (verified 2026-09-16) | Co-location with the authority |
 
-**Network and region.**
-- The worker runs outside a VPC and reaches Neon's pooler and the providers over the public
-  internet with TLS. No NAT gateway is needed.
-- IP allowlisting or private networking to Neon would need NAT and Neon's Scale plan; that is later
-  hardening.
-- **Region:** must equal Neon's region. That region is not recorded in the repository and must be
-  confirmed. Netlify's default function region is `cmh` (us-east-2).
+**Unchanged:**
+- Netlify initiates work, and Neon is the authority.
+- Provider keys live only in Secrets Manager, readable only by the worker.
+- No long-lived AWS credentials sit in Netlify.
+- Durable work never depends on the requester's connection.
 
 ## 10. Escalation and non-goals
 
 - **Inngest is removed.** Two orchestrators would be a parallel system.
-- **Escalation order:**
-  1. chained or child jobs, when an execution nears its operation or storage limit;
-  2. Step Functions Standard, if durable functions' maturity or limits fail us;
+- **Escalation order (revised in B3):**
+  1. more steps or chained jobs in the Loop step runner, which has no per-execution operation limit;
+  2. an engine adapter behind the executor port, if a workload needs engine-managed workflows:
+     Lambda durable functions or Step Functions Standard;
   3. Temporal Cloud with workers on ECS in the same AWS accounts.
 
   Neon's job model and the orchestrator port make each of these an adapter change.
@@ -534,7 +517,8 @@ The organization and the principal always come from Neon, never from the orchest
 - **Not planned:**
   - token streaming for validated result types;
   - provider-side conversation state;
-  - any second queue beside the Neon command outbox.
+  - any queue that holds job state. The SQS queues carry only references; Neon's command table is
+    the source of truth for what should run.
 
 ## 11. Security and privacy
 
@@ -562,25 +546,26 @@ Each step is a separate draft PR with its own review. No step activates AI.
 |---|---|---|
 | B0 | Documentation corrections and this record. **Merged (#272).** | none |
 | B1 | Schema-only alignment of the seven recorded drift items (`schema-drift-2026-09-16.md`), so the next migration contains only intended changes. **Merged (#273).** | none |
-| B2 | **In review.** Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
-| B3 | Persistence: jobs, transitions, steps and checkpoints, waits, command outbox, stored AI controls, plus job and step references on `ai_invocations` | one additive migration, not dispatched |
-| B4 | Brain core; an in-process orchestrator for tests and local development only; the Netlify Brain API; doorbell token issuing; stored-control reads; retirement of the old `/api/brain` route | none |
-| B5 | AWS foundation in staging, switched off: the worker, dispatcher, doorbell API, sweeper, reconciler, secret-reader fence, KMS, alarms and budgets; GitHub OIDC deploys. **This adds a second deployable and infrastructure-as-code, which needs explicit approval of layout and tool.** | none |
-| B6 | Case Explanation on AWS: a two-phase panel, waits, cancellation, resume, paid-attempt handling. The first live request happens in staging with a synthetic Case and staging keys; production follows, and then Netlify's provider keys are removed. | none |
-| B7 | The first DURABLE task, with its domain artifact and interface; outbox events to Activity and notifications (needs the outbox drain working); a Fargate long-step worker only if needed | artifact migration |
+| B2 | **Merged (#274).** Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
+| B3 | **In review.** AWS trust, security and infrastructure **design** (`brain-execution-infrastructure.md`), plus the pure dispatch contracts (`brain-dispatch.ts`). Nothing is provisioned. | none |
+| B4 | Persistence: jobs (with lease and version), transitions, steps and checkpoints, waits and replies, commands, Brain events, stored AI controls, and job and step references on `ai_invocations`; the Brain-events Activity adapter; the restricted-roles runbook | one additive migration, not dispatched |
+| B5 | Loop side: the Brain API, the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner; retirement of the old `/api/brain` route | none |
+| B6 | AWS foundation in staging, switched off (CDK; authorizer, dispatcher, worker, sweeper, queues, DynamoDB, KMS, secrets, alarms, budgets; GitHub OIDC). **Adds a second deployable: needs approval of layout and tool.** | none |
+| B7 | Case Explanation on AWS in staging, then production; the first live request on a synthetic Case after the effort decision; removal of Netlify's provider keys | none |
+| B8 | The first DURABLE task, with its owned artifact and interface; the outbox repair (prerequisite) and notifications; ECS long steps only if needed | artifact migration |
 
-**Sequence to confirm.** Matt's B2 instruction (2026-09-16) describes **B3** as the AWS trust and
-security boundary and the infrastructure-specific design. In the table above, B3 is persistence. The
-order of the remaining steps is confirmed before B3 starts, and this table is then updated.
+The order above is Matt's (2026-09-16): design first (B3), then persistence (B4).
 
 ## 13. Open decisions
 
 **Matt:**
-- the AWS region (it must match Neon's; please confirm Neon's region);
+- the AWS region: **us-east-1** is recommended, where production Neon runs (verified). Also the
+  Netlify function region;
 - the account structure and access;
-- approval of the second deployable and its layout at B5;
+- approval of the second deployable and its layout at B6;
+- the B3 executor revision (§9);
 - where the first live request happens (staging with a synthetic Case is recommended);
-- new per-environment provider keys, and removal of Netlify's keys after B6;
+- new per-environment provider keys, and removal of Netlify's keys after B7;
 - retention for checkpoints, execution data and logs;
 - budget values, per-job budgets, and the paid-attempt limit;
 - a staging database (a Neon branch);
@@ -593,12 +578,17 @@ order of the remaining steps is confirmed before B3 starts, and this table is th
 - capability route replaces `profile`;
 - Case Explanation is TECHNICAL_ANALYSIS and conforms, with no routing change.
 
-**Still open from §5a and B2:**
+**Settled by Matt for B3 (2026-09-16):**
+- WAITING_FOR_USER replies come from the originating principal only in V1.
+- Routing conformance is enforced at run time as well. B3 sets the boundary: acceptance, and before
+  every model step (`brainRouteGate`).
+- Case Explanation's 20 s / 75 s are provisional product targets, never infrastructure limits.
+- The sequence is B3 design, then B4 persistence.
+
+**Still open:**
 - the COMMUNICATION primary and fallback models, verified when chosen;
-- where a communication draft belongs (no DRAFT result type);
-- whether anyone besides the principal may answer a waiting question;
-- whether routing conformance is also enforced at run time;
-- the B3 sequencing above.
+- **where a communication draft belongs.** There is no DRAFT result type; the options are in
+  `brain-execution-infrastructure.md` §24, and it is deliberately unresolved.
 
 **Charlie:** the infrastructure-as-code tool (TypeScript CDK is recommended) and ownership of the
 AWS runbook.

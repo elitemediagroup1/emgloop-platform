@@ -1,6 +1,6 @@
 # UI Track Handoff — what Charlie and Lexi can build now
 
-**Date:** 2026-09-16, against `main` `7f33d3f` (#264–#271 merged; production at 35 migrations; the AI
+**Date:** 2026-09-16, against `main` `c85911a` (#264–#274 merged; production at 35 migrations; the AI
 runtime is built and switched off). **For:** Charlie and Lexi. **Owner of this page:** the
 backend and authority track. **This table is the current status**; the matrix in
 `foundation-handoff.md` §6 records the 2026-09-15 decision point.
@@ -237,27 +237,82 @@ styles. Its **states and wording are the contract**; its look is yours to redesi
     not found.
 - **No real-data sample exists yet.** Nothing is recorded, and answers are never stored.
 
-**Coming change: where Brain runs (approved direction 2026-09-16, not built).** Brain work, including this
-panel's model call, will run on AWS rather than inside the page request. See
-`docs/architecture/brain-execution-architecture.md`. What that means for your design:
+### Brain: what the approved architecture means for your design (B3, 2026-09-16, not built)
 
-- **Start, then watch.** Pressing the button will start a job and return at once. The panel will then show
-  step progress until the result is ready, rather than waiting on one long request.
-- **Leaving is safe.** Work will continue if the person navigates away or closes the browser. Longer work
-  will be able to move to a "still working — you can leave" state without starting over.
-- **Results appear whole.** A validated answer will be shown in full, with no word-by-word typing effect.
-  An answer that breaks a rule will still never be shown.
-- **Waiting on a person** (later tasks only). A job will be able to pause with a question and resume when
-  it is answered, possibly days later.
+Brain work will run on AWS; this page and your screens stay on Netlify. The details are in
+`docs/architecture/brain-execution-infrastructure.md`. This section covers behaviour, not visuals:
+the look is yours. **None of it is built**, and today's Explanation panel is unchanged and OFF.
 
-**Decisions that are yours** (none blocks today's panel contract):
-1. What the move to background looks like: the threshold, the wording, and where people find running and
-   finished work.
-2. The notification channel: in-app, email, or both.
-3. How a waiting question is shown, and its default expiry.
-4. Whether Case explanations keep a history or stay one-off.
-5. Whether any live token streaming is ever wanted. Governance currently shows validated results only.
-6. How each result type is presented: answer, analysis, finding, recommendation, proposed action.
+- **Quick (interactive) Brain.** Work the person watches, such as today's Case explanation.
+  - Pressing the button **starts a job and returns at once**. The screen then asks for the job's state
+    every second or so.
+  - The result appears **whole** when it is ready. There is no word-by-word typing, because an answer
+    that breaks a rule is never shown at all.
+  - Each task has a **presentation budget**: Case Explanation's provisional target is 20 s. After it,
+    show the work as continuing in the background; the job itself does not change.
+  - Each task also has a **deadline**: 75 s provisionally. After it, a task that allows it becomes
+    durable; otherwise it ends with a named reason.
+  - Neither number is a technical limit, and both are yours to confirm.
+- **Durable Brain.** Longer work that keeps going when the person leaves.
+  - It may **stop to ask the person something**, and continue when they answer.
+  - Nothing about it depends on the page staying open.
+- **"Brain • N working."** A count of the person's own Brain jobs that are not finished, read from
+  Loop's records.
+  - It survives navigation, reloads and a closed browser.
+  - It counts jobs, not percentages. There is no progress bar with an invented percentage; show the
+    **named step** instead (for example "Reading the evidence", "Checking citations").
+- **Working state on the object.** The record a job is about (a Case, later a Relationship or
+  Campaign) can show "Brain is working on this", and who started it.
+- **Waiting for you (WAITING_FOR_USER).**
+  - **V1: only the person who started the job may answer.** Nobody else sees an answer control.
+  - The question has an **expiry**. After it, the job ends as "expired", and a late answer is refused
+    with that wording.
+  - An answer to an older version of the question, from a stale tab, is refused.
+  - Answering twice returns the first answer.
+  - Cancelling while waiting stops the job at once.
+- **When it finishes.**
+  - **In V1, notification is in-app only**: the count changes, and the object shows the result.
+  - **Email or other delivery comes later**, because it depends on repairing Loop's outbox, which is
+    currently broken in production.
+- **Failure and retry wording.** Jobs end with a named reason: the model declined, the answer broke a
+  rule, the provider was unavailable, the allowance was used up, access was withdrawn, the deadline
+  passed, it was paused by an administrator, or the question expired. Show the reason honestly.
+  - **"Try again"** starts a new job that reuses what the old one already finished, so already-paid
+    work is not paid for twice.
+  - **Cancelling** means stopping at the next safe point. A result that arrives after the person asked
+    to stop is never applied.
+- **Leaving the page.** Quick work continues too, and its result is waiting when the person comes
+  back. Nothing is lost by navigating away.
+- **Where results live.** A result belongs to the object it is about: a Case explanation to that
+  Case, a finding or recommendation to that Case's intelligence, a proposed action to the approval
+  queue. **There is no "Brain inbox" that owns results.** Activity shows that something happened and
+  links to the object.
+- **Provenance and details.** Every result can show how it was produced:
+  - model and provider;
+  - whether a fallback answered, and why;
+  - task, template and policy versions;
+  - what was withheld;
+  - the citations.
+
+  It never shows prompts or raw model text beyond the validated answer.
+
+**Decisions that are yours:**
+1. The background presentation, and where people find running, waiting and finished work.
+2. The confirmed presentation budget and deadline for Case Explanation (currently 20 s / 75 s,
+   provisional).
+3. How a waiting question looks, its default expiry, and the expired wording.
+4. The in-app notification pattern for V1.
+5. Whether Case explanations keep a history or stay one-off.
+6. How each result type is presented.
+7. **Communication drafts (open, with Product).** Brain has a COMMUNICATION capability, but no DRAFT
+   result type yet. The options, with their consequences, are in
+   `brain-execution-infrastructure.md` §24:
+   - add a DRAFT type;
+   - treat drafts as a proposed "send" action;
+   - both;
+   - hold communication tasks until decided.
+
+   Nothing forces drafts into "answers" in the meantime.
 
 ## 3. Blockers you will hit
 
