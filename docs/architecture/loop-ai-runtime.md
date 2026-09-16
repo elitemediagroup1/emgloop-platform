@@ -1,9 +1,15 @@
 # Loop AI Runtime — architecture record
 
-**Status:** ARCHITECTURE APPROVED (PD-F-08, 2026-09-15). **Nothing in this record exists in code yet.**
-Case Explanation is approved as the first governed use case once the runtime foundation is ready. **No
-AI-generated domain write is authorized.** Provider SDKs and HTTP stay behind provider adapters. No
-production data is sent to any provider until the activation gates in §17 hold.
+**Status:** ARCHITECTURE APPROVED (PD-F-08, 2026-09-15). Slices S0–S2 are **built and switched off**
+(see the slice table in §16, which also describes what exists). **No live provider request has been made.** Case
+Explanation is the first governed use case. **No AI-generated domain write is authorized.** Provider SDKs
+and HTTP stay behind provider adapters. No production data is sent to any provider until the activation
+gates in §17 hold.
+
+**Where it executes (amended 2026-09-16, approved direction, not built).** Brain execution, including every
+provider call, moves to AWS. Netlify stays the product and the Brain API front door, and Neon stays
+authoritative. See `brain-execution-architecture.md`. Until that is built, the runtime described here runs
+inside the Netlify app, as §16 and §17 say.
 
 **Position.** Loop owns intelligence and governance. Anthropic and OpenAI are interchangeable reasoning
 engines underneath it. Neither is Loop's authority, memory or brain.
@@ -87,6 +93,9 @@ Activity" tab, catalog "Turn on the AI features…".
   - No provider names in `packages/shared` domain files, CI services or `apps/web`.
   - No `NEXT_PUBLIC_*` model keys.
   - No model calls from client components.
+- **Execution environment (amended 2026-09-16, not built).** These packages keep the runtime's code. It
+  will execute in an AWS worker behind a Loop-owned orchestrator port, with Netlify as the front door
+  (`brain-execution-architecture.md` §3, §9).
 - **Placement choice.** A dedicated `packages/ai-runtime` package is the alternative. It is not
   recommended now because it adds a package without a second consumer. Decide it before slice S1 if
   Product prefers the separation.
@@ -596,8 +605,10 @@ the pure `admitAiInvocation` and the durable reservation.
 | G7 Invoker | The person is an active OWNER or ADMIN member holding every required permission through `can()`; never AI_EMPLOYEE. | `iamAiAuthorizer` |
 
 Environment changes reach a Netlify deployment on its **next deploy**, so these switches act in minutes,
-not instantly. An instant switch would need a stored flag, which needs a migration — a Product decision,
-not taken.
+not instantly. The approved Brain execution direction makes activation and kill switches **stored controls in
+Neon**, read by Netlify and the AWS worker alike, with a master switch per deployable as a floor
+(`brain-execution-architecture.md` §7). That needs a migration (step B3) and is **not built**. Until then,
+these environment gates are the mechanism, and they are OFF.
 
 **If credentials are missing,** everything is built up to the adapter boundary and tested with recorded
 fixtures, so the task can activate once G1–G6 are supplied.
