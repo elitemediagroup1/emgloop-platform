@@ -371,3 +371,24 @@ export { CrmRelationshipReadService } from './services/crm-relationship-read.ser
 export type { CrmRelationshipViewer, CrmRelationshipReadResult, CrmRelationshipReadServiceDeps } from './services/crm-relationship-read.service';
 export { CrmRelationshipReadModelRepository, CrmRelationshipCursorError } from './repositories/crm-relationship-read-model.repository';
 export type { CrmRelationshipListOptions, CrmRelationshipReadModelDeps } from './repositories/crm-relationship-read-model.repository';
+
+// --- The durable AI usage ledger ---
+// The table an organization's daily AI budget is actually safe on. An interface
+// backed by one instance's memory cannot cap spend on serverless, where instances
+// share no memory. Reserve before the call, reconcile after it. Raw provider usage
+// plus the price-list version to value it with, so historical cost stays
+// reproducible; no prompt and no response, ever. See
+// ./repositories/ai-usage-ledger.repository.ts and docs/architecture/ai-usage-ledger.md.
+export {
+  AiUsageLedgerRepository,
+  aiContextManifestHash,
+  aiBudgetDateAsUtcDate,
+  AI_INVOCATION_IN_FLIGHT,
+} from './repositories/ai-usage-ledger.repository';
+export type {
+  AiInvocationReserveInput,
+  AiInvocationReconcileInput,
+  AiLedgerDb,
+} from './repositories/ai-usage-ledger.repository';
+export { DurableAiUsageLedger } from './services/ai-usage-ledger.service';
+export type { AiUsageLedgerPort, AiUsageRecordOptions, DurableAiUsageLedgerDeps } from './services/ai-usage-ledger.service';

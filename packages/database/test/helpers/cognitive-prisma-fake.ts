@@ -245,6 +245,10 @@ const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
   crmRelationship: [['organizationId', 'nonVoidedNaturalKey']],
   crmRelationshipEvent: [['relationshipId', 'sequence']],
   crmParticipant: [['organizationId', 'activeKey']],
+  // The AI usage ledger. `invocationId` is stable across retries, so the unique key
+  // is what makes a retried attempt update one row instead of consuming an
+  // organization's daily cap several times over.
+  aiInvocation: [['organizationId', 'invocationId']],
   operationalObservation: [
     ['priorityId', 'sequence'],
     ['priorityId', 'detectionKey'],
@@ -667,6 +671,8 @@ export const OPTIONAL_DELEGATES = [
   'invitation',
   'organizationMembership',
   'customerPartyLink',
+  // The durable AI usage ledger.
+  'aiInvocation',
 ] as const;
 
 export function makeCognitivePrisma(
