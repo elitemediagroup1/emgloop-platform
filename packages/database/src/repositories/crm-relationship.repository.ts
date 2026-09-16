@@ -320,6 +320,67 @@ export class CrmRelationshipRepository {
   }
 
   /**
+   * Correct a Participant, within the narrow band the contract allows: the side it
+   * ACTS FOR, and its business dates.
+   *
+   * WHAT IT CANNOT CHANGE, AND WHY. Not the Party -- that is a different Participant,
+   * and pretending otherwise would rewrite who took part. Not the role -- holding a
+   * different role is a second fact, recorded by ending this row and adding another,
+   * which is exactly how the architecture keeps "who held what, when" answerable.
+   * Not a side Participant into an acts-for one, or back: a side is structural, fixed
+   * at creation with the Relationship itself.
+   */
+  async changeParticipant(
+    organizationId: string,
+    participantId: string,
+    input: {
+      readonly actsForSide?: CrmRelationshipSide;
+      readonly effectiveFrom?: Date | null;
+      readonly actorUserId: string;
+      readonly occurredAt: Date;
+    },
+    tx?: CrmRelationshipTx,
+  ): Promise<CrmRelationshipWriteResult<CrmParticipant>> {
+    const participant = await this.prisma.crmParticipant.findFirst({ where: { id: participantId, organizationId } });
+    if (!participant || !participant.relationshipId) return { outcome: 'NOT_FOUND' };
+    if (participant.state !== 'ACTIVE') return { outcome: 'ILLEGAL_TRANSITION', from: participant.state as CrmRelationshipState };
+    if (participant.side !== null) return { outcome: 'INVALID', violations: ['SIDE_PARTICIPANT_IS_STRUCTURAL'] };
+    const relationship = await this.findById(organizationId, participant.relationshipId);
+    if (!relationship) return { outcome: 'NOT_FOUND' };
+
+    const actsForSide = input.actsForSide ?? (participant.actsForSide as CrmRelationshipSide | null);
+    if (actsForSide === null) return { outcome: 'INVALID', violations: ['MUST_BE_OR_ACT_FOR_A_SIDE'] };
+    // Re-validated as a whole: a correction is a new assertion, not an exception.
+    const violations = validateCrmParticipant({
+      subjectKind: 'RELATIONSHIP',
+      relationshipKind: relationship.kind,
+      role: participant.role,
+      partyType: participant.partyType as PartyType,
+      side: null,
+      actsForSide,
+    });
+    if (violations.length > 0) return { outcome: 'INVALID', violations };
+
+    const value = await this.inTransaction(tx, async (client) => {
+      const updated = await client.crmParticipant.update({
+        where: { id: participant.id },
+        data: {
+          actsForSide,
+          ...(input.effectiveFrom !== undefined ? { effectiveFrom: input.effectiveFrom } : {}),
+        },
+      });
+      await this.appendEvent(client, organizationId, relationship, {
+        type: 'PARTICIPANT_CHANGED',
+        occurredAt: input.occurredAt,
+        actorUserId: input.actorUserId,
+        participantId: participant.id,
+      });
+      return updated;
+    });
+    return { outcome: 'RECORDED', value };
+  }
+
+  /**
    * End or void a Participant. A side Participant is refused: a Relationship without
    * its side is not a fact, so a wrong side is corrected by voiding the whole record.
    * The row is stamped and KEPT -- holding the role again later writes a new one.

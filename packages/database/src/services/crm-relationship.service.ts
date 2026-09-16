@@ -24,13 +24,19 @@
 // table is even consulted. Nothing here infers, proposes or matches a Relationship.
 
 import type { Prisma, PrismaClient, CrmParticipant, CrmRelationship } from '@prisma/client';
-import { crmRelationshipActPermitted, type CrmRelationshipAct, type CrmRelationshipState } from '@emgloop/shared';
+import {
+  crmRelationshipActPermitted,
+  type CrmRelationshipAct,
+  type CrmRelationshipSide,
+  type CrmRelationshipState,
+} from '@emgloop/shared';
 
 import { AuditRepository } from '../repositories/audit.repository';
 import { IamRepository } from '../repositories/iam.repository';
 import { membershipAuthority } from '../repositories/membership.repository';
 import {
   CrmRelationshipRepository,
+  type CrmParticipantAddInput,
   type CrmRelationshipCreateInput,
   type CrmRelationshipWriteResult,
 } from '../repositories/crm-relationship.repository';
@@ -59,6 +65,10 @@ const OUTBOX_EVENT: Readonly<Record<string, string>> = Object.freeze({
   END_RELATIONSHIP: 'RelationshipEnded',
   REACTIVATE_RELATIONSHIP: 'RelationshipReactivated',
   VOID_RELATIONSHIP: 'RelationshipVoided',
+  ADD_PARTICIPANT: 'RelationshipParticipantAdded',
+  CHANGE_PARTICIPANT: 'RelationshipParticipantChanged',
+  END_PARTICIPANT: 'RelationshipParticipantEnded',
+  VOID_PARTICIPANT: 'RelationshipParticipantVoided',
 });
 
 const AUDIT_ACTION: Readonly<Record<string, string>> = Object.freeze({
@@ -66,6 +76,10 @@ const AUDIT_ACTION: Readonly<Record<string, string>> = Object.freeze({
   END_RELATIONSHIP: 'relationship.ended',
   REACTIVATE_RELATIONSHIP: 'relationship.reactivated',
   VOID_RELATIONSHIP: 'relationship.voided',
+  ADD_PARTICIPANT: 'relationship.participant_added',
+  CHANGE_PARTICIPANT: 'relationship.participant_changed',
+  END_PARTICIPANT: 'relationship.participant_ended',
+  VOID_PARTICIPANT: 'relationship.participant_voided',
 });
 
 export class CrmRelationshipService {
@@ -141,7 +155,125 @@ export class CrmRelationshipService {
     return this.transition(actor, 'VOID_RELATIONSHIP', relationshipId, 'VOIDED', input);
   }
 
+  // --- Participants (R3-A2) -------------------------------------------------------------
+
+  /**
+   * A Participant that ACTS FOR a side: a contact, a decision maker, a billing
+   * contact. The Party is resolved through the Party Reference contract by the
+   * repository, so an unestablished, archived, superseded or cross-organization id
+   * is refused -- a superseded one with its canonical id, never swapped for it.
+   *
+   * The role is CONTEXTUAL. It records what this Party does in this Relationship; it
+   * never decides, changes or implies what kind of Party it is.
+   */
+  async addParticipant(
+    actor: CrmRelationshipActor,
+    input: Omit<CrmParticipantAddInput, 'actorUserId'>,
+  ): Promise<CrmRelationshipServiceResult<CrmParticipant>> {
+    if (!(await this.may(actor, 'ADD_PARTICIPANT'))) return { outcome: 'NOT_AUTHORIZED' };
+    return this.act(actor, 'ADD_PARTICIPANT', async (tx) => {
+      const relationship = await this.relationships.findById(actor.organizationId, input.relationshipId);
+      const result = await this.relationships.addParticipant(
+        actor.organizationId,
+        { ...input, actorUserId: actor.userId },
+        tx,
+      );
+      if (result.outcome !== 'RECORDED' || !relationship) return { result, subject: null };
+      return {
+        result,
+        subject: {
+          // The Relationship's own state is untouched by a Participant act.
+          relationship: { ...relationship, lastSequence: relationship.lastSequence + 1 },
+          fromState: relationship.state as CrmRelationshipState,
+          toState: relationship.state as CrmRelationshipState,
+          reasonGiven: false,
+          participantId: result.value.id,
+          // Ids and the contextual role. Who the Party IS stays with the Party authority.
+          metadata: { kind: relationship.kind, partyId: result.value.partyId, role: result.value.role, actsForSide: result.value.actsForSide },
+        },
+      };
+    });
+  }
+
+  /**
+   * Correct a Participant, within the band the contract allows: the side it acts for
+   * and its business dates. Not the Party, not the role, not a side -- each of those
+   * is a different fact, recorded as one.
+   */
+  async changeParticipant(
+    actor: CrmRelationshipActor,
+    participantId: string,
+    input: { readonly actsForSide?: CrmRelationshipSide; readonly effectiveFrom?: Date | null; readonly occurredAt: Date },
+  ): Promise<CrmRelationshipServiceResult<CrmParticipant>> {
+    return this.participantAct(actor, 'CHANGE_PARTICIPANT', participantId, (tx) =>
+      this.relationships.changeParticipant(actor.organizationId, participantId, { ...input, actorUserId: actor.userId }, tx),
+    );
+  }
+
+  /** It was true and has stopped. The row is kept, its key released, the reason on the event. */
+  async endParticipant(
+    actor: CrmRelationshipActor,
+    participantId: string,
+    input: { readonly reason: string; readonly occurredAt: Date; readonly effectiveTo?: Date | null },
+  ): Promise<CrmRelationshipServiceResult<CrmParticipant>> {
+    return this.participantAct(actor, 'END_PARTICIPANT', participantId, (tx) =>
+      this.relationships.closeParticipant(actor.organizationId, participantId, { ...input, to: 'ENDED', actorUserId: actor.userId }, tx),
+    );
+  }
+
+  /** It was never true. Also kept: a record entered in error is still a record of the error. */
+  async voidParticipant(
+    actor: CrmRelationshipActor,
+    participantId: string,
+    input: { readonly reason: string; readonly occurredAt: Date },
+  ): Promise<CrmRelationshipServiceResult<CrmParticipant>> {
+    return this.participantAct(actor, 'VOID_PARTICIPANT', participantId, (tx) =>
+      this.relationships.closeParticipant(actor.organizationId, participantId, { ...input, to: 'VOIDED', actorUserId: actor.userId }, tx),
+    );
+  }
+
   // --- Internals ----------------------------------------------------------------------
+
+  /**
+   * The three acts that operate on an existing Participant. The Relationship it
+   * belongs to is read first so the audit row and the outbox event name the subject
+   * a subscriber actually follows -- a Participant is never a subject on its own.
+   */
+  private async participantAct(
+    actor: CrmRelationshipActor,
+    act: CrmRelationshipAct,
+    participantId: string,
+    run: (tx: Prisma.TransactionClient) => Promise<CrmRelationshipWriteResult<CrmParticipant>>,
+  ): Promise<CrmRelationshipServiceResult<CrmParticipant>> {
+    if (!(await this.may(actor, act))) return { outcome: 'NOT_AUTHORIZED' };
+    return this.act(actor, act, async (tx) => {
+      const before = await this.prisma.crmParticipant.findFirst({
+        where: { id: participantId, organizationId: actor.organizationId },
+        select: { relationshipId: true, role: true, partyId: true, state: true },
+      });
+      const result = await run(tx);
+      if (result.outcome !== 'RECORDED' || !before?.relationshipId) return { result, subject: null };
+      const relationship = await this.relationships.findById(actor.organizationId, before.relationshipId);
+      if (!relationship) return { result, subject: null };
+      return {
+        result,
+        subject: {
+          relationship: { ...relationship, lastSequence: relationship.lastSequence + 1 },
+          fromState: relationship.state as CrmRelationshipState,
+          toState: relationship.state as CrmRelationshipState,
+          reasonGiven: act === 'END_PARTICIPANT' || act === 'VOID_PARTICIPANT',
+          participantId,
+          metadata: {
+            kind: relationship.kind,
+            partyId: before.partyId,
+            role: before.role,
+            participantFromState: before.state,
+            participantToState: result.value.state,
+          },
+        },
+      };
+    });
+  }
 
   private async transition(
     actor: CrmRelationshipActor,
@@ -189,6 +321,8 @@ export class CrmRelationshipService {
         toState: CrmRelationshipState;
         reasonGiven: boolean;
         metadata: Record<string, unknown>;
+        /** Set when the act was about a Participant rather than the Relationship itself. */
+        participantId?: string;
       } | null;
     }>,
   ): Promise<CrmRelationshipServiceResult<T>> {
@@ -209,6 +343,7 @@ export class CrmRelationshipService {
             fromState: subject.fromState,
             toState: subject.toState,
             sequence: subject.relationship.lastSequence,
+            ...(subject.participantId ? { participantId: subject.participantId } : {}),
             // THAT a reason was given, never the words: they are on the event, where
             // the authority for them is, and they can name a person.
             reasonRecorded: subject.reasonGiven,
@@ -236,6 +371,7 @@ export class CrmRelationshipService {
             fromState: subject.fromState,
             toState: subject.toState,
             sequence: subject.relationship.lastSequence,
+            ...(subject.participantId ? { participantId: subject.participantId } : {}),
           } as Prisma.InputJsonValue,
           status: 'PENDING',
         },
