@@ -1,54 +1,74 @@
-// The Loop AI runtime gateway. Slice B5 (AI S1 preparation).
+// The Loop AI runtime gateway. Slices B5 and AI-1.
 //
 // One place where a task becomes a model call, and the only place. Callers invoke a
-// TASK BY NAME; they never choose a provider, never write a prompt, never see an
-// SDK, and never receive an answer Loop has not checked.
+// TASK BY NAME, as a signed-in person; they never choose a provider, never write a
+// prompt, never see an SDK, and never receive an answer Loop has not checked.
 //
-// NOTHING HERE CALLS ANYTHING YET. The gateway invokes whatever `ModelProvider`
-// implementations were registered with it, and the only implementation that exists
-// today is the recorded-fixture provider. No SDK is installed, no credential is
-// read, and `activated` defaults to false. Registering a real adapter is slice S1,
-// and it is gated on G1-G6 and on Matt's explicit authorization.
+// THE SEQUENCE, AND WHY IT IS THIS ORDER
 //
-// THE ORDER MATTERS, AND IT IS THE CHEAPEST-REFUSAL-FIRST ORDER.
-//   1. admit  -- activation, kill switches, budgets, context, tools, routing. Pure,
-//                free, and decided before a byte leaves the process.
-//   2. invoke -- with a deadline, bounded retries, and fallback ONLY where the
-//                failure class allows one.
-//   3. parse and validate -- an answer that breaks its contract is REFUSED WHOLE,
-//                never partially shown.
-//   4. record -- provenance and usage, for an answer, a refusal and a failure alike.
+//    1-3  the principal is the session's person, in the session's organization, and
+//         the context was assembled as that person in that organization;
+//    4    the principal may invoke this task (their grants, their role, and never an
+//         AI_EMPLOYEE -- an invocation always traces to a person);
+//    5    the context package is valid and within the task's sensitivity ceiling;
+//    6-9  activation, kill switches, routing and a cheap budget check -- all pure,
+//         all decided before a byte leaves the process;
+//    10   the call is estimated, pessimistically;
+//    11   the estimate is RESERVED in the durable ledger, which re-checks the budget
+//         inside a serializable transaction. Two serverless instances cannot both
+//         see room and both spend it;
+//    12   only a successful reservation makes a provider call eligible;
+//    13   the provider is called, under the route's deadline;
+//    14   the answer is parsed and validated, and refused whole if it breaks its
+//         contract;
+//    15   the reservation is reconciled with what the provider reported;
+//    16   provenance is returned for an answer, a refusal and a failure alike;
+//    17   only then does anybody see the answer.
+//
+// EVERY PROVIDER CALL HAS ITS OWN RESERVATION. A retry is a second call and a
+// fallback is a second call; each spends money, so each is reserved before it is
+// made and reconciled after. A fallback whose reservation is refused is not made.
 //
 // A REFUSAL IS AN OUTCOME, NOT A RETRY. When a model declines or its content filter
 // fires, Loop records that and stops. Asking the next provider until one agrees is
-// shopping for an answer, and it would make the fallback list a way to launder a
-// refusal.
+// shopping for an answer.
 //
-// USAGE IS COUNTED THROUGH AN INTERFACE, NOT A MAP. Serverless instances share no
-// memory (the webhook replay-map lesson in CLAUDE.md), so budgets read a durable
-// ledger. The durable implementation needs a table, and a table needs a migration,
-// which this run is not authorized to add -- so S1 supplies it and the interface is
-// here, with an in-memory implementation for tests.
+// AN UNRECOGNISED ERROR IS NOT WEATHER. It is not retried and not fallen back from.
+//
+// IF THE LEDGER CANNOT RECORD, NOTHING IS SHOWN. An answer whose spend and provenance
+// could not be written is an answer nobody can account for; the reservation that did
+// land still counts against the budget, which is the safe direction.
+//
+// NO BODY IS PERSISTED. The ledger receives ids, versions, counts and a hash of the
+// source refs -- never the prompt, never the answer, never a provider's error text.
 
 import {
   admitAiInvocation,
+  aiBudgetRefusals,
+  aiCostMicros,
   aiProvenanceOf,
+  estimateAiInputTokens,
+  parseAiTaskOutput,
   providerFailurePolicy,
   validateAiContextPackage,
   validateAiTaskOutput,
+  AI_FAILURE_CLASSES,
+  type AiActivation,
   type AiAdmissionRefusal,
-  type AiBudget,
+  type AiBudgetPolicy,
+  type AiCallEstimate,
   type AiContextPackage,
   type AiInvocationProvenance,
   type AiKillSwitch,
   type AiModelRequest,
   type AiModelResult,
-  type AiRouteTarget,
+  type AiOutputRejection,
+  type AiRouteTargetPolicy,
   type AiRoutingPolicy,
-  type AiSpendToday,
+  type AiSpendSnapshot,
   type AiTaskDefinition,
   type AiTaskOutputV1,
-  type AiOutputRejection,
+  type AiUsage,
 } from '@emgloop/shared';
 
 /** What the gateway needs of a provider. Structurally the providers package's `ModelProvider`. */
@@ -57,57 +77,90 @@ export interface AiProviderPort {
   invoke(request: AiModelRequest, signal: AbortSignal): Promise<AiModelResult>;
 }
 
-/**
- * The counter budgets are read from. `DurableAiUsageLedger` backs it with the
- * `ai_invocations` table and adds `reserve`, which this gateway does not call yet --
- * wiring that in, so spend is claimed BEFORE dispatch, must land before activation.
- */
-export interface AiUsageLedger {
-  spentToday(organizationId: string): Promise<AiSpendToday>;
-  record(provenance: AiInvocationProvenance): Promise<void>;
+/** The signed-in person the invocation is for. Established by the caller from the session. */
+export interface AiPrincipal {
+  readonly organizationId: string;
+  readonly userId: string;
+}
+
+/** Whether this person may invoke this task. Production: `iamAiAuthorizer`. */
+export type AiAuthorizer = (principal: AiPrincipal, task: AiTaskDefinition) => Promise<boolean>;
+
+/** One provider call, as the ledger records it before the call is made. */
+export interface AiCallReservation {
+  readonly organizationId: string;
+  /** Unique per organization. The first call is the invocation id; later calls add `.n`. */
+  readonly callKey: string;
+  readonly principalUserId: string;
+  readonly taskId: string;
+  readonly taskVersion: string;
+  readonly profile: string;
+  readonly target: AiRouteTargetPolicy;
+  readonly routingPolicyVersion: string;
+  readonly budgetClass: string;
+  readonly templateId: string;
+  readonly templateVersion: string;
+  readonly contextSourceRefs: readonly string[];
+  readonly estimate: AiCallEstimate;
+  /** The model this call stands in for, when it is not the primary. */
+  readonly fellBackFrom: string | null;
+  /** 1 for the first call of an invocation, 2 for the next, and so on. */
+  readonly callOrdinal: number;
+  readonly requestedAt: Date;
+}
+
+export type AiReserveResult = { readonly ok: true } | { readonly ok: false; readonly refusals: readonly AiAdmissionRefusal[] };
+
+export const AI_CALL_OUTCOMES = ['ANSWERED', 'REFUSED_BY_MODEL', 'REJECTED_BY_LOOP', 'FAILED', 'CANCELLED'] as const;
+export type AiCallOutcome = (typeof AI_CALL_OUTCOMES)[number];
+
+export interface AiCallReconciliation {
+  readonly callKey: string;
+  readonly outcome: AiCallOutcome;
+  readonly servedModel: string | null;
+  readonly providerRequestId: string | null;
+  /** Null when the provider reported nothing. The reserve then keeps counting. */
+  readonly usage: AiUsage | null;
+  readonly unitCostBasis: string | null;
+  readonly failureClass: string | null;
+  readonly rejectionCodes: readonly string[];
+  readonly completedAt: Date;
+  readonly latencyMs: number | null;
 }
 
 /**
- * Enough of a ledger to exercise the gateway. Not for production: serverless instances
- * share no memory, so a cap counted here is a cap per warm instance. The production
- * ledger is `DurableAiUsageLedger`.
+ * The durable counter budgets are read from and reserved against.
+ * Production: `DurableAiUsageLedger` over the `ai_invocations` table.
  */
-export class InMemoryAiUsageLedger implements AiUsageLedger {
-  readonly provenance: AiInvocationProvenance[] = [];
-  private readonly byOrg = new Map<string, AiSpendToday>();
-
-  async spentToday(organizationId: string): Promise<AiSpendToday> {
-    return this.byOrg.get(organizationId) ?? { invocations: 0, inputTokens: 0, outputTokens: 0 };
-  }
-
-  async record(provenance: AiInvocationProvenance): Promise<void> {
-    this.provenance.push(provenance);
-    const current = await this.spentToday(provenance.organizationId);
-    this.byOrg.set(provenance.organizationId, {
-      invocations: current.invocations + 1,
-      inputTokens: current.inputTokens + provenance.usage.inputTokens,
-      outputTokens: current.outputTokens + provenance.usage.outputTokens,
-    });
-  }
+export interface AiUsageLedger {
+  /** Spend so far, for the cheap pre-check. The reservation re-reads it authoritatively. */
+  spend(organizationId: string, taskId: string, at: Date, activeOrganizations: readonly string[]): Promise<AiSpendSnapshot>;
+  /** Claim the estimate, or refuse. Must be atomic with its own budget check. */
+  reserve(reservation: AiCallReservation, budget: AiBudgetPolicy, activeOrganizations: readonly string[]): Promise<AiReserveResult>;
+  /** Replace the estimate with what happened. False when no such reservation exists. */
+  reconcile(organizationId: string, reconciliation: AiCallReconciliation): Promise<boolean>;
 }
 
 export interface AiRuntimeConfig {
+  readonly activation: AiActivation;
   readonly policy: AiRoutingPolicy;
-  readonly budget: AiBudget;
+  /** Null means no budget is configured, and nothing runs (gate G4). */
+  readonly budget: AiBudgetPolicy | null;
   readonly killSwitches: readonly AiKillSwitch[];
-  /** G6. False until an operator turns the runtime on. */
-  readonly activated: boolean;
-  /** Bounded, and never beyond the task's deadline. */
+  /** Calls per target, first attempt included. Bounded. */
   readonly maxAttemptsPerTarget: number;
 }
 
 export interface AiRuntimeDeps {
   readonly providers: readonly AiProviderPort[];
   readonly ledger: AiUsageLedger;
+  readonly authorize: AiAuthorizer;
   /** Injected, because a runtime that reads the clock cannot be tested against one. */
   readonly now: () => Date;
   /** Injected for the same reason; the gateway mints no ids of its own. */
   readonly newInvocationId: () => string;
+  /** Injected so a deadline can be tested without waiting for one. */
+  readonly schedule?: (fn: () => void, ms: number) => () => void;
 }
 
 export type AiRunResult =
@@ -129,152 +182,384 @@ export interface AiRunRequest {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * Enough of a ledger to exercise the gateway in one process. Not for production:
+ * serverless instances share no memory. Its check-and-insert is SYNCHRONOUS, so
+ * concurrent reservations inside one process cannot interleave between them -- the
+ * same guarantee the durable ledger gets from a serializable transaction.
+ */
+export class InMemoryAiUsageLedger implements AiUsageLedger {
+  readonly calls: Array<AiCallReservation & { reconciliation: AiCallReconciliation | null }> = [];
+
+  async spend(organizationId: string, taskId: string): Promise<AiSpendSnapshot> {
+    return this.snapshot(organizationId, taskId);
+  }
+
+  private snapshot(organizationId: string, taskId: string): AiSpendSnapshot {
+    const sum = (rows: InMemoryAiUsageLedger['calls']) =>
+      rows.reduce(
+        (acc, r) => ({
+          invocations: acc.invocations + 1,
+          inputTokens: acc.inputTokens + (r.reconciliation?.usage?.inputTokens ?? r.estimate.inputTokens),
+          outputTokens: acc.outputTokens + (r.reconciliation?.usage?.outputTokens ?? r.estimate.outputTokens),
+        }),
+        { invocations: 0, inputTokens: 0, outputTokens: 0 },
+      );
+    const org = this.calls.filter((c) => c.organizationId === organizationId);
+    return { organization: sum(org), task: sum(org.filter((c) => c.taskId === taskId)), global: sum(this.calls) };
+  }
+
+  async reserve(reservation: AiCallReservation, budget: AiBudgetPolicy): Promise<AiReserveResult> {
+    if (this.calls.some((c) => c.organizationId === reservation.organizationId && c.callKey === reservation.callKey)) {
+      return { ok: false, refusals: ['DUPLICATE_INVOCATION'] };
+    }
+    const spend = this.snapshot(reservation.organizationId, reservation.taskId);
+    const refusals = aiBudgetRefusals(budget, reservation.budgetClass, reservation.estimate, spend);
+    if (refusals.length > 0) return { ok: false, refusals };
+    this.calls.push({ ...reservation, reconciliation: null });
+    return { ok: true };
+  }
+
+  async reconcile(organizationId: string, reconciliation: AiCallReconciliation): Promise<boolean> {
+    const row = this.calls.find((c) => c.organizationId === organizationId && c.callKey === reconciliation.callKey);
+    if (!row) return false;
+    row.reconciliation = reconciliation;
+    return true;
+  }
+}
+
+type CallOutcome =
+  | { readonly kind: 'RESULT'; readonly result: AiModelResult; readonly callKey: string; readonly target: AiRouteTargetPolicy }
+  | { readonly kind: 'FAILURE'; readonly failure: string; readonly callKey: string | null; readonly target: AiRouteTargetPolicy }
+  | { readonly kind: 'NOT_RESERVED'; readonly refusals: readonly AiAdmissionRefusal[] };
+
+class LedgerUnavailable extends Error {}
+
 export class AiRuntimeGateway {
   constructor(
     private readonly config: AiRuntimeConfig,
     private readonly deps: AiRuntimeDeps,
   ) {}
 
-  async run(request: AiRunRequest): Promise<AiRunResult> {
+  async run(principal: AiPrincipal, request: AiRunRequest): Promise<AiRunResult> {
     const { task, context } = request;
 
-    // 1. Admission. Every refusal is decided before anything is sent, and all of
-    //    them are reported at once so an operator fixes one thing, not five in turn.
-    const contextRefusals = validateAiContextPackage(context);
+    // 1-3. The context is this person's, in this organization, or nothing happens.
+    if (
+      !principal.organizationId ||
+      !principal.userId ||
+      context.organizationId !== principal.organizationId ||
+      context.viewerUserId !== principal.userId ||
+      context.taskId !== task.taskId
+    ) {
+      return { outcome: 'REFUSED_BY_LOOP', refusals: ['NOT_AUTHORIZED'] };
+    }
+
+    // 4. Their grants, their role. An unauthorized caller learns nothing more.
+    let authorized = false;
+    try {
+      authorized = await this.deps.authorize(principal, task);
+    } catch {
+      authorized = false;
+    }
+    if (!authorized) return { outcome: 'REFUSED_BY_LOOP', refusals: ['NOT_AUTHORIZED'] };
+
+    // 5-10. Context, activation, kill switches, routing, a cheap budget check.
+    const now = this.deps.now();
+    const estimatedInputTokens = estimateAiInputTokens([
+      request.instructions,
+      JSON.stringify(request.schema),
+      ...context.items.flatMap((item) => [item.sourceRef, item.trust, item.content]),
+    ]);
+    let spend: AiSpendSnapshot;
+    try {
+      spend = await this.deps.ledger.spend(context.organizationId, task.taskId, now, this.config.activation.organizations);
+    } catch {
+      return { outcome: 'REFUSED_BY_LOOP', refusals: ['LEDGER_UNAVAILABLE'] };
+    }
     const admission = admitAiInvocation({
       taskId: task.taskId,
-      profile: task.profile,
+      taskVersion: task.version,
       organizationId: context.organizationId,
+      authorized,
+      activation: this.config.activation,
       policy: this.config.policy,
       killSwitches: this.config.killSwitches,
       budget: this.config.budget,
-      spentToday: await this.deps.ledger.spentToday(context.organizationId),
+      spend,
+      estimatedInputTokens,
       registeredProviders: this.deps.providers.map((p) => p.providerId),
-      requestedMaxOutputTokens: task.maxOutputTokens,
-      contextRefusals,
+      contextRefusals: validateAiContextPackage(context),
       tools: [],
-      activated: this.config.activated,
     });
     if (!admission.ok) return { outcome: 'REFUSED_BY_LOOP', refusals: admission.refusals };
+    const budget = this.config.budget;
+    if (!budget) return { outcome: 'REFUSED_BY_LOOP', refusals: ['BUDGET_NOT_CONFIGURED'] };
 
-    // 2. Invocation, primary then fallbacks, each within the task's deadline.
     const invocationId = this.deps.newInvocationId();
+    const refs = [...new Set(context.items.map((i) => i.sourceRef))].sort();
+    const primaryName = `${admission.route.providerId}/${admission.route.modelId}`;
+    // When the policy's own primary could not serve (killed, not enabled, not
+    // registered), the first call already stands in for it -- and says so. A skipped
+    // FALLBACK changes nothing about the first call.
+    const policyPrimary = this.config.policy.tasks[task.taskId]?.primary;
+    const primarySkipped =
+      policyPrimary &&
+      (policyPrimary.providerId !== admission.route.providerId || policyPrimary.modelId !== admission.route.modelId);
+    const skippedPrimary = primarySkipped ? `${policyPrimary.providerId}/${policyPrimary.modelId}` : null;
     const targets = [admission.route, ...admission.fallbacks];
+
+    let callOrdinal = 0;
     let lastFailure = 'UNAVAILABLE';
     let lastTarget = admission.route;
+    let lastUsage: AiUsage | null = null;
+    let latencyMs = 0;
+    const startedAt = now.getTime();
 
-    for (const target of targets) {
-      lastTarget = target;
-      const provider = this.deps.providers.find((p) => p.providerId === target.providerId);
-      if (!provider) continue;
-      const attempt = await this.attempt(provider, target, invocationId, request);
+    const provenance = (
+      target: AiRouteTargetPolicy,
+      result: AiModelResult | null,
+      outcome: AiInvocationProvenance['outcome'],
+    ): AiInvocationProvenance =>
+      aiProvenanceOf(context, {
+        invocationId,
+        taskVersion: task.version,
+        templateId: request.templateId,
+        templateVersion: request.templateVersion,
+        routingPolicyVersion: admission.routingPolicyVersion,
+        requestedModel: { providerId: target.providerId, modelId: target.modelId },
+        servedModel: result?.reportedModel ?? null,
+        providerRequestId: result?.providerRequestId ?? null,
+        usage: result?.usage ?? lastUsage,
+        calls: callOrdinal,
+        latencyMs: result?.latencyMs ?? latencyMs,
+        outcome,
+        recordedAt: this.deps.now().toISOString(),
+      });
 
-      if (attempt.kind === 'RESULT') {
-        const result = attempt.result;
-        // A refusal is an outcome. It is recorded and it stops here.
-        if (result.stopReason === 'REFUSAL' || result.stopReason === 'CONTENT_FILTERED') {
-          const provenance = this.provenanceOf(request, invocationId, target, result, 'REFUSED_BY_MODEL');
-          await this.deps.ledger.record(provenance);
-          return { outcome: 'REFUSED_BY_MODEL', provenance };
+    try {
+      for (const [targetIndex, target] of targets.entries()) {
+        const provider = this.deps.providers.find((p) => p.providerId === target.providerId);
+        if (!provider) continue;
+        const fellBackFrom = targetIndex === 0 ? skippedPrimary : primaryName;
+
+        for (let attempt = 0; attempt < Math.max(1, this.config.maxAttemptsPerTarget); attempt += 1) {
+          if (request.signal?.aborted) {
+            lastFailure = 'CANCELLED';
+            break;
+          }
+          callOrdinal += 1;
+          const outcome = await this.call(principal, request, provider, target, {
+            invocationId,
+            callOrdinal,
+            fellBackFrom,
+            refs,
+            estimatedInputTokens,
+            budget,
+            routingPolicyVersion: admission.routingPolicyVersion,
+            budgetClass: admission.budgetClass,
+          });
+          lastTarget = target;
+
+          if (outcome.kind === 'NOT_RESERVED') {
+            // No reservation, no call. On the first call this is a refusal; on a
+            // retry or fallback, it ends the attempt with the failure that led here.
+            if (callOrdinal === 1) return { outcome: 'REFUSED_BY_LOOP', refusals: outcome.refusals };
+            callOrdinal -= 1;
+            return { outcome: 'FAILED', failure: lastFailure, provenance: provenance(target, null, 'FAILED') };
+          }
+
+          if (outcome.kind === 'RESULT') {
+            return await this.conclude(request, outcome, provenance);
+          }
+
+          lastFailure = outcome.failure;
+          latencyMs = this.deps.now().getTime() - startedAt;
+          if (outcome.failure === 'CANCELLED') break;
+          if (!providerFailurePolicy(outcome.failure).retry) break;
         }
 
-        // 3. The answer is checked before anybody sees it.
-        const parsed = this.parse(result);
-        const rejections = parsed
-          ? validateAiTaskOutput(parsed, task, new Set(context.items.map((i) => i.sourceRef)), request.supportedFigures)
-          : (['WRONG_SCHEMA'] as AiOutputRejection[]);
-        const provenance = this.provenanceOf(request, invocationId, target, result, rejections.length === 0 ? 'ANSWERED' : 'REJECTED_BY_LOOP');
-        await this.deps.ledger.record(provenance);
-        if (!parsed || rejections.length > 0) return { outcome: 'REJECTED_OUTPUT', rejections, provenance };
-        return { outcome: 'ANSWERED', output: parsed, provenance };
+        if (lastFailure === 'CANCELLED') break;
+        // Only the failure classes Loop says may fall back, do.
+        if (!providerFailurePolicy(lastFailure).fallback) break;
       }
-
-      lastFailure = attempt.failure;
-      // Only the failure classes Loop says may fall back, do.
-      if (!providerFailurePolicy(attempt.failure).fallback) break;
+    } catch (err) {
+      if (err instanceof LedgerUnavailable) {
+        return { outcome: 'FAILED', failure: 'LEDGER_UNAVAILABLE', provenance: provenance(lastTarget, null, 'FAILED') };
+      }
+      throw err;
     }
 
-    const provenance = this.provenanceOf(request, invocationId, lastTarget, null, 'FAILED');
-    await this.deps.ledger.record(provenance);
-    return { outcome: 'FAILED', failure: lastFailure, provenance };
+    return { outcome: 'FAILED', failure: lastFailure, provenance: provenance(lastTarget, null, 'FAILED') };
   }
 
-  /** One target, with bounded retries inside the task's deadline. */
-  private async attempt(
-    provider: AiProviderPort,
-    target: AiRouteTarget,
-    invocationId: string,
+  /** Steps 11-13 for one call: reserve, then (and only then) invoke under a deadline. */
+  private async call(
+    principal: AiPrincipal,
     request: AiRunRequest,
-  ): Promise<{ kind: 'RESULT'; result: AiModelResult } | { kind: 'FAILURE'; failure: string }> {
+    provider: AiProviderPort,
+    target: AiRouteTargetPolicy,
+    meta: {
+      invocationId: string;
+      callOrdinal: number;
+      fellBackFrom: string | null;
+      refs: readonly string[];
+      estimatedInputTokens: number;
+      budget: AiBudgetPolicy;
+      routingPolicyVersion: string;
+      budgetClass: string;
+    },
+  ): Promise<CallOutcome> {
+    const callKey = meta.callOrdinal === 1 ? meta.invocationId : `${meta.invocationId}.${meta.callOrdinal}`;
+    const estimate: AiCallEstimate = { inputTokens: meta.estimatedInputTokens, outputTokens: target.maxOutputTokens };
+
+    let reserved: AiReserveResult;
+    try {
+      reserved = await this.deps.ledger.reserve(
+        {
+          organizationId: principal.organizationId,
+          callKey,
+          principalUserId: principal.userId,
+          taskId: request.task.taskId,
+          taskVersion: request.task.version,
+          profile: request.task.profile,
+          target,
+          routingPolicyVersion: meta.routingPolicyVersion,
+          budgetClass: meta.budgetClass,
+          templateId: request.templateId,
+          templateVersion: request.templateVersion,
+          contextSourceRefs: meta.refs,
+          estimate,
+          fellBackFrom: meta.fellBackFrom,
+          callOrdinal: meta.callOrdinal,
+          requestedAt: this.deps.now(),
+        },
+        meta.budget,
+        this.config.activation.organizations,
+      );
+    } catch {
+      return { kind: 'NOT_RESERVED', refusals: ['LEDGER_UNAVAILABLE'] };
+    }
+    if (!reserved.ok) return { kind: 'NOT_RESERVED', refusals: reserved.refusals };
+
+    // 12-13. Reserved; the call is now eligible, and bounded by the route's deadline.
     const modelRequest: AiModelRequest = {
-      // Stable across retries: the same attempt, not a new one.
-      invocationId,
-      model: target,
+      invocationId: callKey,
+      model: { providerId: target.providerId, modelId: target.modelId },
       instructions: request.instructions,
       input: request.context.items,
       tools: [],
       output: { kind: 'JSON_SCHEMA', schemaId: request.task.outputSchemaId, schema: request.schema, strict: true },
-      limits: { maxOutputTokens: request.task.maxOutputTokens, timeoutMs: request.task.timeoutMs },
+      limits: { maxOutputTokens: target.maxOutputTokens, timeoutMs: target.timeoutMs },
+      reasoningEffort: target.reasoningEffort,
     };
 
-    let failure = 'UNAVAILABLE';
-    for (let attempt = 0; attempt < Math.max(1, this.config.maxAttemptsPerTarget); attempt += 1) {
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      request.signal?.addEventListener('abort', abort, { once: true });
-      try {
-        return { kind: 'RESULT', result: await provider.invoke(modelRequest, controller.signal) };
-      } catch (err) {
-        failure = classify(err);
-        if (!providerFailurePolicy(failure).retry) break;
-      } finally {
-        request.signal?.removeEventListener('abort', abort);
-      }
-    }
-    return { kind: 'FAILURE', failure };
-  }
-
-  /** A body that is not the shape asked for is not half an answer. */
-  private parse(result: AiModelResult): AiTaskOutputV1 | null {
-    const value = result.output.json ?? safeJson(result.output.text);
-    if (!value || typeof value !== 'object') return null;
-    const candidate = value as Partial<AiTaskOutputV1>;
-    if (typeof candidate.schemaId !== 'string' || !Array.isArray(candidate.claims)) return null;
-    return {
-      schemaId: candidate.schemaId,
-      summary: typeof candidate.summary === 'string' ? candidate.summary : '',
-      claims: candidate.claims,
-      limitations: Array.isArray(candidate.limitations) ? candidate.limitations : [],
-    };
-  }
-
-  private provenanceOf(
-    request: AiRunRequest,
-    invocationId: string,
-    target: AiRouteTarget,
-    result: AiModelResult | null,
-    outcome: AiInvocationProvenance['outcome'],
-  ): AiInvocationProvenance {
-    return aiProvenanceOf(request.context, {
-      invocationId,
-      taskVersion: request.task.version,
-      templateId: request.templateId,
-      templateVersion: request.templateVersion,
-      requestedModel: target,
-      servedModel: result?.reportedModel ?? null,
-      providerRequestId: result?.providerRequestId ?? null,
-      usage: result?.usage ?? { inputTokens: 0, outputTokens: 0 },
-      latencyMs: result?.latencyMs ?? 0,
-      outcome,
-      recordedAt: this.deps.now().toISOString(),
+    const controller = new AbortController();
+    let timedOut = false;
+    const schedule = this.deps.schedule ?? ((fn: () => void, ms: number) => {
+      const handle = setTimeout(fn, ms);
+      return () => clearTimeout(handle);
     });
+    const cancelTimer = schedule(() => {
+      timedOut = true;
+      controller.abort();
+    }, target.timeoutMs);
+    const onCallerAbort = () => controller.abort();
+    request.signal?.addEventListener('abort', onCallerAbort, { once: true });
+    const started = this.deps.now().getTime();
+
+    let failure: string;
+    try {
+      const result = await provider.invoke(modelRequest, controller.signal);
+      if (timedOut) throw Object.assign(new Error('deadline'), { failure: 'TIMEOUT' });
+      return { kind: 'RESULT', result, callKey, target };
+    } catch (err) {
+      failure = timedOut ? 'TIMEOUT' : request.signal?.aborted ? 'CANCELLED' : classify(err);
+    } finally {
+      cancelTimer();
+      request.signal?.removeEventListener('abort', onCallerAbort);
+    }
+
+    // The call happened and failed. Its reservation keeps counting unless the
+    // provider told us what it actually cost, and it did not.
+    await this.reconcile(principal.organizationId, {
+      callKey,
+      outcome: failure === 'CANCELLED' ? 'CANCELLED' : 'FAILED',
+      servedModel: null,
+      providerRequestId: null,
+      usage: null,
+      unitCostBasis: target.pricing?.listVersion ?? null,
+      failureClass: failure,
+      rejectionCodes: [],
+      completedAt: this.deps.now(),
+      latencyMs: this.deps.now().getTime() - started,
+    });
+    return { kind: 'FAILURE', failure, callKey, target };
+  }
+
+  /** Steps 14-17 for a call that returned. */
+  private async conclude(
+    request: AiRunRequest,
+    outcome: Extract<CallOutcome, { kind: 'RESULT' }>,
+    provenance: (target: AiRouteTargetPolicy, result: AiModelResult | null, outcome: AiInvocationProvenance['outcome']) => AiInvocationProvenance,
+  ): Promise<AiRunResult> {
+    const { result, callKey, target } = outcome;
+    const organizationId = request.context.organizationId;
+    const base = {
+      callKey,
+      servedModel: result.reportedModel,
+      providerRequestId: result.providerRequestId,
+      usage: result.usage,
+      unitCostBasis: target.pricing?.listVersion ?? null,
+      completedAt: this.deps.now(),
+      latencyMs: result.latencyMs,
+    };
+
+    // A refusal is an outcome. It is recorded and it stops here.
+    if (result.stopReason === 'REFUSAL' || result.stopReason === 'CONTENT_FILTERED') {
+      await this.reconcile(organizationId, { ...base, outcome: 'REFUSED_BY_MODEL', failureClass: null, rejectionCodes: [] });
+      return { outcome: 'REFUSED_BY_MODEL', provenance: provenance(target, result, 'REFUSED_BY_MODEL') };
+    }
+
+    // 14. Checked before anybody sees it. A truncated answer is not half an answer.
+    const parsed = result.stopReason === 'END' ? parseAiTaskOutput(result.output.json ?? safeJson(result.output.text)) : null;
+    const rejections: AiOutputRejection[] = parsed
+      ? validateAiTaskOutput(parsed, request.task, new Set(request.context.items.map((i) => i.sourceRef)), request.supportedFigures)
+      : ['WRONG_SCHEMA'];
+    const accepted = parsed !== null && rejections.length === 0;
+
+    // 15. Reconcile before returning; a failure to record withholds the answer.
+    await this.reconcile(organizationId, {
+      ...base,
+      outcome: accepted ? 'ANSWERED' : 'REJECTED_BY_LOOP',
+      failureClass: accepted ? null : result.stopReason === 'MAX_TOKENS' ? 'OUTPUT_TRUNCATED' : 'OUTPUT_INVALID',
+      rejectionCodes: rejections,
+    });
+
+    if (!accepted) return { outcome: 'REJECTED_OUTPUT', rejections, provenance: provenance(target, result, 'REJECTED_BY_LOOP') };
+    return { outcome: 'ANSWERED', output: parsed, provenance: provenance(target, result, 'ANSWERED') };
+  }
+
+  private async reconcile(organizationId: string, reconciliation: AiCallReconciliation): Promise<void> {
+    let recorded = false;
+    try {
+      recorded = await this.deps.ledger.reconcile(organizationId, reconciliation);
+    } catch {
+      recorded = false;
+    }
+    if (!recorded) throw new LedgerUnavailable();
   }
 }
 
-/** An adapter reports a failure class; anything else is treated as unknown and not retried. */
+/** Integer micro-dollars a call is estimated to cost, for the reservation row. */
+export function aiReservationCostMicros(target: AiRouteTargetPolicy, estimate: AiCallEstimate): number | null {
+  return aiCostMicros(target.pricing, estimate);
+}
+
+/** An adapter reports a failure class; anything else is UNCLASSIFIED and fails closed. */
 function classify(err: unknown): string {
   const failure = (err as { failure?: unknown })?.failure;
-  return typeof failure === 'string' ? failure : 'UNAVAILABLE';
+  return typeof failure === 'string' && (AI_FAILURE_CLASSES as readonly string[]).includes(failure) ? failure : 'UNCLASSIFIED';
 }
 
 function safeJson(text: string | undefined): unknown {

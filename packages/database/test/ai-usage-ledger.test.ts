@@ -32,7 +32,9 @@ import type { PrismaClient } from '@prisma/client';
 
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 import { AiUsageLedgerRepository, aiContextManifestHash } from '../src/repositories/ai-usage-ledger.repository';
-import { DurableAiUsageLedger } from '../src/services/ai-usage-ledger.service';
+import { DurableAiUsageLedger, isSerializationFailure } from '../src/services/ai-usage-ledger.service';
+import type { AiCallReservation } from '../src/services/ai-runtime/gateway';
+import type { AiBudgetPolicy } from '@emgloop/shared';
 
 const ORG = 'org_ledger';
 const OTHER = 'org_other';
@@ -47,7 +49,7 @@ function world(timezone = 'UTC', otherTimezone = 'UTC') {
   fake.organization.__rows.push({ id: OTHER, name: 'Other', timezone: otherTimezone });
   const prisma = fake as PrismaClient;
   const repo = new AiUsageLedgerRepository(prisma);
-  const service = new DurableAiUsageLedger(prisma, { now: () => AT });
+  const service = new DurableAiUsageLedger(prisma);
   return { fake, prisma, repo, service };
 }
 
@@ -71,6 +73,52 @@ const reserveInput = (invocationId: string, over: Record<string, unknown> = {}) 
   requestedAt: AT,
   ...over,
 });
+
+const BUDGET: AiBudgetPolicy = {
+  version: 'budget.test.1',
+  classes: {
+    standard: {
+      maxInputTokensPerCall: 50_000,
+      maxOutputTokensPerCall: 4000,
+      taskDaily: { maxInvocations: 100, maxInputTokens: 10_000_000, maxOutputTokens: 1_000_000 },
+    },
+  },
+  organizationDaily: { maxInvocations: 100, maxInputTokens: 10_000_000, maxOutputTokens: 1_000_000 },
+  globalDaily: { maxInvocations: 1000, maxInputTokens: 100_000_000, maxOutputTokens: 10_000_000 },
+};
+
+function capped(invocations: number): AiBudgetPolicy {
+  return { ...BUDGET, organizationDaily: { ...BUDGET.organizationDaily, maxInvocations: invocations } };
+}
+
+function reservation(callKey: string, over: Partial<AiCallReservation> = {}): AiCallReservation {
+  return {
+    organizationId: ORG,
+    callKey,
+    principalUserId: 'user_1',
+    taskId: 'case.explanation',
+    taskVersion: '1.0.0',
+    profile: 'EXPLANATION',
+    target: {
+      providerId: 'provider-a',
+      modelId: 'model-a',
+      reasoningEffort: 'medium',
+      timeoutMs: 30_000,
+      maxOutputTokens: 2000,
+      pricing: { listVersion: 'list.provider-a.2026-09-16', inputMicrosPerToken: 5, outputMicrosPerToken: 25 },
+    },
+    routingPolicyVersion: 'routing.test.1',
+    budgetClass: 'standard',
+    templateId: 'case-explanation',
+    templateVersion: '2',
+    contextSourceRefs: ['decision-evidence:ev_1'],
+    estimate: { inputTokens: 3000, outputTokens: 2000 },
+    fellBackFrom: null,
+    callOrdinal: 1,
+    requestedAt: AT,
+    ...over,
+  };
+}
 
 // --- 1. Reserve closes the window ------------------------------------------------
 
@@ -207,14 +255,14 @@ test("the reporting day is the organization's own, and only the budget uses it",
   // 18:30 UTC on the 16th is still the 16th in New York (14:30) and already the 17th
   // in Auckland (06:30 the next day). Same instant, two reporting days.
   const w = world('America/New_York', 'Pacific/Auckland');
-  assert.equal(await w.service.businessDate(ORG), '2026-09-16');
-  assert.equal(await w.service.businessDate(OTHER), '2026-09-17');
+  assert.equal(await w.service.businessDate(ORG, AT), '2026-09-16');
+  assert.equal(await w.service.businessDate(OTHER, AT), '2026-09-17');
 
-  await w.service.reserve(ORG, reserveInput('inv_ny') as any);
-  await w.service.reserve(OTHER, reserveInput('inv_nz') as any);
+  assert.equal((await w.service.reserve(reservation('inv_ny'), BUDGET, [ORG, OTHER])).ok, true);
+  assert.equal((await w.service.reserve(reservation('inv_nz', { organizationId: OTHER }), BUDGET, [ORG, OTHER])).ok, true);
 
-  assert.equal((await w.service.spentToday(ORG)).invocations, 1);
-  assert.equal((await w.service.spentToday(OTHER)).invocations, 1);
+  assert.equal((await w.service.spend(ORG, 'case.explanation', AT, [])).organization.invocations, 1);
+  assert.equal((await w.service.spend(OTHER, 'case.explanation', AT, [])).organization.invocations, 1);
   // Each lands on ITS OWN day, and neither appears on the other's.
   assert.equal((await w.repo.spentOn(ORG, '2026-09-17')).invocations, 0);
   assert.equal((await w.repo.spentOn(OTHER, '2026-09-16')).invocations, 0);
@@ -227,9 +275,9 @@ test('an organization with no usable timezone is budgeted on the UTC day rather 
   // Failing open would mean no window, no cap and no ceiling on spend. Of the two
   // wrong answers, the one that still enforces a limit wins.
   const w = world('Not/AZone');
-  assert.equal(await w.service.businessDate(ORG), '2026-09-16');
-  const missing = new DurableAiUsageLedger(w.prisma, { now: () => AT });
-  assert.equal(await missing.businessDate('org_that_does_not_exist'), '2026-09-16');
+  assert.equal(await w.service.businessDate(ORG, AT), '2026-09-16');
+  const missing = new DurableAiUsageLedger(w.prisma);
+  assert.equal(await missing.businessDate('org_that_does_not_exist', AT), '2026-09-16');
 });
 
 // --- 6. The context manifest is a hash, not the evidence -----------------------------
@@ -281,61 +329,161 @@ test('the ledger has no column a body could be written to, and no code path writ
 
 // --- 8. The gateway-facing surface ---------------------------------------------------
 
-test('record reconciles the reserved row rather than adding a second one', async () => {
+// --- 8. The gateway-facing service ----------------------------------------------------
+
+test('a reservation writes the row the budget will count, priced from the versioned list', async () => {
   const w = world();
-  await w.service.reserve(ORG, reserveInput('inv_rec') as any);
-  await w.service.record({
-    invocationId: 'inv_rec',
-    organizationId: ORG,
-    taskId: 'call.summarise',
-    taskVersion: '1',
-    templateId: 'tpl.summary',
-    templateVersion: '3',
-    requestedModel: { providerId: 'provider-a', modelId: 'model-a', profile: 'SUMMARY' } as any,
-    servedModel: 'model-a-20260901',
-    providerRequestId: 'req_1',
-    viewerUserId: 'user_1',
-    contextSourceRefs: ['interaction:i_1'],
-    usage: { inputTokens: 55, outputTokens: 12 },
-    latencyMs: 400,
-    outcome: 'ANSWERED',
-    recordedAt: AT.toISOString(),
-  });
-  assert.equal(w.fake.aiInvocation.__rows.length, 1, 'one attempt, one row');
-  assert.equal(w.fake.aiInvocation.__rows[0].inputTokens, 55);
-  assert.equal(w.fake.aiInvocation.__rows[0].estimatedInputTokens, 1000, 'the reserve is still visible');
+  assert.deepEqual(await w.service.reserve(reservation('inv_1'), BUDGET, [ORG]), { ok: true });
+  const row = w.fake.aiInvocation.__rows[0];
+  assert.equal(row.invocationId, 'inv_1');
+  assert.equal(row.outcome, 'IN_FLIGHT');
+  assert.equal(row.estimatedInputTokens, 3000);
+  assert.equal(row.estimatedOutputTokens, 2000);
+  assert.equal(row.estimatedCostMicros, 3000 * 5 + 2000 * 25, 'integer micros from the list, never invented');
+  assert.equal(row.unitCostBasis, 'list.provider-a.2026-09-16');
+  assert.equal(row.routingPolicyVersion, 'routing.test.1');
+  assert.equal(row.attemptCount, 1);
+  assert.equal(row.fellBackFrom, null);
+  assert.equal(row.inputTokens, undefined, 'nothing is reported before the call');
+
+  const spend = await w.service.spend(ORG, 'case.explanation', AT, [ORG]);
+  assert.deepEqual(spend.organization, { invocations: 1, inputTokens: 3000, outputTokens: 2000 });
+  assert.deepEqual(spend.task, spend.organization);
+  assert.deepEqual(spend.global, spend.organization);
 });
 
-test('record without a prior reserve still lands the row, and marks the estimate absent rather than zero', async () => {
+test('a fallback call records what it stands in for, and an unpriced route records no cost', async () => {
   const w = world();
-  await w.service.record({
-    invocationId: 'inv_late',
-    organizationId: ORG,
-    taskId: 'call.summarise',
-    taskVersion: '1',
-    templateId: 'tpl.summary',
-    templateVersion: '3',
-    requestedModel: { providerId: 'provider-a', modelId: 'model-a', profile: 'SUMMARY' } as any,
+  const unpriced = { ...reservation('x').target, providerId: 'provider-b', modelId: 'model-b', pricing: null };
+  await w.service.reserve(reservation('inv_1.2', { target: unpriced, fellBackFrom: 'provider-a/model-a', callOrdinal: 2 }), BUDGET, [ORG]);
+  const row = w.fake.aiInvocation.__rows[0];
+  assert.equal(row.fellBackFrom, 'provider-a/model-a');
+  assert.equal(row.attemptCount, 2);
+  assert.equal(row.estimatedCostMicros, null, 'unpriced is unknown, not free');
+  assert.equal(row.unitCostBasis, null);
+});
+
+test('the reservation refuses what the budget cannot hold, and writes nothing', async () => {
+  const w = world();
+  assert.equal((await w.service.reserve(reservation('a'), capped(1), [ORG])).ok, true);
+  const second = await w.service.reserve(reservation('b'), capped(1), [ORG]);
+  assert.deepEqual(second, { ok: false, refusals: ['BUDGET_ORGANIZATION_EXHAUSTED'] });
+  assert.equal(w.fake.aiInvocation.__rows.length, 1);
+});
+
+test('twenty concurrent reservations against a cap of five: exactly five rows', async () => {
+  const w = world();
+  const results = await Promise.all(Array.from({ length: 20 }, (_, i) => w.service.reserve(reservation(`inv_${i}`), capped(5), [ORG])));
+  assert.equal(results.filter((r) => r.ok).length, 5);
+  assert.equal(w.fake.aiInvocation.__rows.length, 5);
+});
+
+test('a duplicate call key is refused, and a unique-index race is reported the same way', async () => {
+  const w = world();
+  assert.equal((await w.service.reserve(reservation('same'), BUDGET, [ORG])).ok, true);
+  assert.deepEqual(await w.service.reserve(reservation('same'), BUDGET, [ORG]), { ok: false, refusals: ['DUPLICATE_INVOCATION'] });
+
+  // The database, not the pre-check, settles two instances inserting the same key at once.
+  const racing = {
+    organization: { findFirst: async () => ({ timezone: 'UTC' }) },
+    $transaction: async () => {
+      throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    },
+  } as unknown as PrismaClient;
+  assert.deepEqual(await new DurableAiUsageLedger(racing).reserve(reservation('k'), BUDGET, [ORG]), { ok: false, refusals: ['DUPLICATE_INVOCATION'] });
+});
+
+test('a reservation that loses a serialization race is retried, and refused if it keeps losing', async () => {
+  const w = world();
+  let failures = 2;
+  const flaky = new Proxy(w.prisma, {
+    get(target, prop, receiver) {
+      if (prop === '$transaction') {
+        return async (fn: never, options: never) => {
+          if (failures > 0) {
+            failures -= 1;
+            throw Object.assign(new Error('Transaction failed due to a write conflict or a deadlock'), { code: 'P2034' });
+          }
+          return (target as any).$transaction(fn, options);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as PrismaClient;
+  assert.deepEqual(await new DurableAiUsageLedger(flaky).reserve(reservation('r1'), BUDGET, [ORG]), { ok: true }, 'third attempt wins');
+
+  failures = 99;
+  assert.deepEqual(
+    await new DurableAiUsageLedger(flaky, { maxReservationAttempts: 3 }).reserve(reservation('r2'), BUDGET, [ORG]),
+    { ok: false, refusals: ['RESERVATION_CONTENDED'] },
+    'under contention the answer is "not now", never "try forever"',
+  );
+
+  // Anything else is not a race, and is not swallowed.
+  const broken = { ...w.prisma, organization: w.prisma.organization, $transaction: async () => { throw new Error('connection refused'); } } as unknown as PrismaClient;
+  await assert.rejects(new DurableAiUsageLedger(broken).reserve(reservation('r3'), BUDGET, [ORG]), /connection refused/);
+});
+
+test('serialization failures are recognised by code, not by guesswork', () => {
+  assert.equal(isSerializationFailure({ code: 'P2034' }), true);
+  assert.equal(isSerializationFailure({ meta: { code: '40001' } }), true);
+  assert.equal(isSerializationFailure({ message: 'ERROR: could not serialize access due to read/write dependencies' }), true);
+  assert.equal(isSerializationFailure({ code: 'P2002' }), false);
+  assert.equal(isSerializationFailure(new Error('timeout')), false);
+  assert.equal(isSerializationFailure(null), false);
+});
+
+test('reconcile replaces the estimate with the report, and unreported stays unreported', async () => {
+  const w = world();
+  await w.service.reserve(reservation('ok'), BUDGET, [ORG]);
+  await w.service.reserve(reservation('failed'), BUDGET, [ORG]);
+  assert.equal(
+    await w.service.reconcile(ORG, {
+      callKey: 'ok',
+      outcome: 'ANSWERED',
+      servedModel: 'model-a-1',
+      providerRequestId: 'req_1',
+      usage: { inputTokens: 1200, outputTokens: 300, cachedInputTokens: 800, reasoningTokens: 120 },
+      unitCostBasis: 'list.provider-a.2026-09-16',
+      failureClass: null,
+      rejectionCodes: [],
+      completedAt: AT,
+      latencyMs: 900,
+    }),
+    true,
+  );
+  await w.service.reconcile(ORG, {
+    callKey: 'failed',
+    outcome: 'FAILED',
     servedModel: null,
     providerRequestId: null,
-    viewerUserId: 'user_1',
-    contextSourceRefs: ['interaction:i_1'],
-    usage: { inputTokens: 7, outputTokens: 3 },
-    latencyMs: 250,
-    outcome: 'FAILED',
-    recordedAt: AT.toISOString(),
+    usage: null,
+    unitCostBasis: 'list.provider-a.2026-09-16',
+    failureClass: 'TIMEOUT',
+    rejectionCodes: [],
+    completedAt: AT,
+    latencyMs: 30_000,
   });
-  const row = w.fake.aiInvocation.__rows[0];
-  assert.equal(row.outcome, 'FAILED');
-  assert.equal(row.inputTokens, 7);
-  assert.equal(row.estimatedInputTokens, null, 'no reserve was made, so there is no estimate');
-  assert.equal(row.estimatedCostMicros, null);
-  // requestedAt is derived backwards from the recorded instant and the latency, so
-  // the row still sits on the day the work started.
-  assert.equal(row.requestedAt.toISOString(), new Date(AT.getTime() - 250).toISOString());
+  const [ok, failed] = w.fake.aiInvocation.__rows;
+  assert.deepEqual([ok.inputTokens, ok.outputTokens, ok.cachedInputTokens, ok.reasoningTokens], [1200, 300, 800, 120]);
+  assert.equal(failed.inputTokens, null);
+  assert.equal(failed.failureClass, 'TIMEOUT');
+  const spend = await w.service.spend(ORG, 'case.explanation', AT, [ORG]);
+  // 1200 reported + 3000 still reserved for the call nobody reported on.
+  assert.equal(spend.organization.inputTokens, 4200);
+  assert.equal(await w.service.reconcile(OTHER, { callKey: 'ok', outcome: 'FAILED', servedModel: null, providerRequestId: null, usage: null, unitCostBasis: null, failureClass: null, rejectionCodes: [], completedAt: AT, latencyMs: null }), false, 'another tenant cannot reconcile it');
 });
 
-// --- 9. Cost stays reproducible -------------------------------------------------------
+test('the global window covers every enabled organization over the trailing day, and nothing older', async () => {
+  const w = world();
+  await w.service.reserve(reservation('mine'), BUDGET, [ORG, OTHER]);
+  await w.service.reserve(reservation('theirs', { organizationId: OTHER }), BUDGET, [ORG, OTHER]);
+  await w.service.reserve(reservation('old', { requestedAt: new Date(AT.getTime() - 25 * 3600 * 1000) }), BUDGET, [ORG, OTHER]);
+  const spend = await w.service.spend(ORG, 'case.explanation', AT, [ORG, OTHER]);
+  assert.equal(spend.global.invocations, 2, 'mine and theirs; the 25-hour-old row has left the window');
+  const notEnabled = await w.service.spend(ORG, 'case.explanation', AT, []);
+  assert.equal(notEnabled.global.invocations, 1, 'only organizations the runtime is enabled for are summed');
+});
 
 test('the row carries raw usage and the price list to value it with, never a bare dollar amount', async () => {
   const w = world();

@@ -79,9 +79,11 @@ export function validateAiContextPackage(pkg: AiContextPackage): AiContextRefusa
     if (!item.sourceRef?.trim() || !item.sourceRef.includes(':')) out.push('MISSING_SOURCE_REF');
     if (!item.readUnder?.resource?.trim() || item.readUnder.action !== 'view') out.push('MISSING_READ_AUTHORITY');
     if (!(AI_CONTENT_TRUST_LEVELS as readonly string[]).includes(item.trust)) out.push('UNKNOWN_TRUST_LEVEL');
-    // A block that names another organization's record has no business here, and
-    // no ceiling makes it acceptable.
-    if (item.blockId.includes('::') && !item.blockId.startsWith(`${pkg.organizationId}::`)) out.push('CROSS_ORGANIZATION_BLOCK');
+    // Every block is minted inside the package's organization and says so. A block
+    // that does not -- including one whose id simply omits the prefix -- has no
+    // business here, and no ceiling makes it acceptable. (The check used to run only
+    // when an id contained `::`, so an unprefixed id skipped it entirely.)
+    if (!pkg.organizationId || !item.blockId?.startsWith(`${pkg.organizationId}::`)) out.push('CROSS_ORGANIZATION_BLOCK');
   }
   return [...new Set(out)];
 }

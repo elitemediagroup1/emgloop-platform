@@ -68,7 +68,6 @@ export class AnthropicAdapter implements ModelProvider {
       max_tokens: request.limits.maxOutputTokens,
       system: request.instructions,
       messages: [{ role: 'user', content: request.input.map(asBlock).join('\n\n') }],
-      ...(request.sampling?.temperature !== undefined ? { temperature: request.sampling.temperature } : {}),
       ...(structured && request.output.kind === 'JSON_SCHEMA'
         ? {
             tools: [{ name: STRUCTURED_TOOL, description: 'Return the answer in the required shape.', input_schema: request.output.schema }],

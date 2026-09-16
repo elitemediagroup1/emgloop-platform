@@ -91,7 +91,8 @@ export interface AiModelRequest {
     | { readonly kind: 'TEXT' }
     | { readonly kind: 'JSON_SCHEMA'; readonly schemaId: string; readonly schema: Record<string, unknown>; readonly strict: true };
   readonly limits: { readonly maxOutputTokens: number; readonly timeoutMs: number };
-  readonly sampling?: { readonly temperature?: number };
+  /** From the routing policy. Each adapter maps it onto its provider's own control. */
+  readonly reasoningEffort: 'low' | 'medium' | 'high';
 }
 
 export const AI_STOP_REASONS = ['END', 'MAX_TOKENS', 'TOOL_USE', 'REFUSAL', 'CONTENT_FILTERED'] as const;
@@ -108,7 +109,8 @@ export interface AiModelResult {
   readonly output: { readonly text?: string; readonly json?: unknown };
   readonly toolCalls: readonly { readonly id: string; readonly name: string; readonly input: unknown }[];
   readonly stopReason: AiStopReason;
-  readonly usage: AiUsage;
+  /** Null when the provider reported no usage. Never zeroes: zero reads as "free". */
+  readonly usage: AiUsage | null;
   readonly providerRequestId: string | null;
   /** What the provider says actually served the request, which is not always what was asked for. */
   readonly reportedModel: string | null;
@@ -130,6 +132,9 @@ export const AI_FAILURE_CLASSES = [
   'POLICY_DENIED',
   'BUDGET_EXCEEDED',
   'CANCELLED',
+  // Something went wrong and nobody recognised it. Not retried, not fallen back from,
+  // and raised: guessing that an unknown error is transient is how a bug becomes a bill.
+  'UNCLASSIFIED',
 ] as const;
 export type AiFailureClass = (typeof AI_FAILURE_CLASSES)[number];
 
@@ -160,6 +165,7 @@ const FAILURE_POLICY: Readonly<Record<AiFailureClass, AiFailurePolicy>> = Object
   POLICY_DENIED: { retry: false, fallback: false, repair: false, alert: false },
   BUDGET_EXCEEDED: { retry: false, fallback: false, repair: false, alert: true },
   CANCELLED: { retry: false, fallback: false, repair: false, alert: false },
+  UNCLASSIFIED: { retry: false, fallback: false, repair: false, alert: true },
 });
 
 /** Fails closed: an unrecognised failure is not retried, not fallen back from, and is raised. */

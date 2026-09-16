@@ -641,7 +641,7 @@ function sortRows(list: Row[], orderBy: any): Row[] {
 
 export interface CognitivePrismaFake {
   [delegate: string]: any;
-  $transaction: <T>(fn: (tx: CognitivePrismaFake) => Promise<T>) => Promise<T>;
+  $transaction: <T>(fn: (tx: CognitivePrismaFake) => Promise<T>, options?: { isolationLevel?: string }) => Promise<T>;
 }
 
 /** Build a fresh in-memory cognitive Prisma double. */
@@ -686,6 +686,21 @@ export function makeCognitivePrisma(
   // Interactive transaction: run against the same in-memory tables. Rollback is
   // not simulated — Increment 1 tests assert commit atomicity, not partial
   // failure, so a straight-through application is faithful for those cases.
-  fake.$transaction = async <T>(fn: (tx: CognitivePrismaFake) => Promise<T>): Promise<T> => fn(fake);
+  //
+  // A SERIALIZABLE transaction runs one at a time. That is the outcome Postgres
+  // guarantees for serializable transactions (a conflicting one is aborted and
+  // retried), so tests of a read-check-insert see the same answer they would get
+  // from the database. Real concurrency against real Postgres is proven separately
+  // (ai-usage-ledger.postgres.test.ts).
+  let serial: Promise<unknown> = Promise.resolve();
+  fake.$transaction = async <T>(
+    fn: (tx: CognitivePrismaFake) => Promise<T>,
+    options?: { isolationLevel?: string },
+  ): Promise<T> => {
+    if (options?.isolationLevel !== 'Serializable') return fn(fake);
+    const run = serial.then(() => fn(fake));
+    serial = run.catch(() => undefined);
+    return run;
+  };
   return fake as CognitivePrismaFake;
 }

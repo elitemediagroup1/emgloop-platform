@@ -33,6 +33,13 @@ export interface AiTaskDefinition {
   readonly consequence: AiTaskConsequence;
   /** The permissions the invoking user must hold, re-checked server-side. */
   readonly requires: readonly { readonly resource: string; readonly action: 'view' }[];
+  /**
+   * The membership roles that may INVOKE the task, on top of `requires`. Reading the
+   * evidence and spending money to have it explained are different acts; an empty
+   * list admits nobody. AI_EMPLOYEE is never an invoker, whatever this says: an
+   * invocation always traces to a person.
+   */
+  readonly invokerRoles: readonly string[];
   /** Structured output only: a task whose answer cannot be checked is not a task. */
   readonly outputSchemaId: string;
   readonly maxOutputTokens: number;
@@ -56,6 +63,9 @@ export const AI_TASK_CASE_EXPLANATION: AiTaskDefinition = Object.freeze({
   sensitivityCeiling: 'OPERATIONAL',
   consequence: 'READ_ONLY',
   requires: Object.freeze([{ resource: 'commercialIntelligence', action: 'view' } as const]),
+  // loop-ai-runtime.md §17: OWNER and ADMIN at launch. MANAGER can open the Case page,
+  // and whether they may also invoke the explanation is an open Product decision.
+  invokerRoles: Object.freeze(['OWNER', 'ADMIN']),
   outputSchemaId: 'case-explanation.v1',
   maxOutputTokens: 1200,
   timeoutMs: 30_000,
@@ -97,6 +107,35 @@ export const AI_OUTPUT_REJECTIONS = [
   'RECOMMENDS_AN_ACTION',
 ] as const;
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
+
+/**
+ * The answer as the provider returned it, checked for SHAPE before anything reads it.
+ * A claim missing its citations array is not an uncited claim to be rejected later;
+ * it is not the answer that was asked for, and reading it as one would throw.
+ */
+export function parseAiTaskOutput(value: unknown): AiTaskOutputV1 | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.schemaId !== 'string' || typeof v.summary !== 'string') return null;
+  if (!Array.isArray(v.claims) || !Array.isArray(v.limitations)) return null;
+  if (!v.limitations.every((l) => typeof l === 'string')) return null;
+  const claims: AiClaim[] = [];
+  for (const raw of v.claims) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const c = raw as Record<string, unknown>;
+    if (typeof c.statement !== 'string' || !Array.isArray(c.citations) || !Array.isArray(c.figures)) return null;
+    if (!c.citations.every((x) => typeof x === 'string')) return null;
+    const figures: { label: string; value: number }[] = [];
+    for (const f of c.figures) {
+      if (!f || typeof f !== 'object') return null;
+      const fig = f as Record<string, unknown>;
+      if (typeof fig.label !== 'string' || typeof fig.value !== 'number' || !Number.isFinite(fig.value)) return null;
+      figures.push({ label: fig.label, value: fig.value });
+    }
+    claims.push({ statement: c.statement, citations: c.citations as string[], figures });
+  }
+  return { schemaId: v.schemaId, summary: v.summary, claims, limitations: v.limitations as string[] };
+}
 
 /** A model that scores its own certainty is guessing twice. C-05 applies to AI too. */
 const CONFIDENCE_LIKE = /\b(\d{1,3})\s?%\s?(confiden|certain|sure|likel)|confidence(\s+score)?\s*[:=]\s*\d/i;
