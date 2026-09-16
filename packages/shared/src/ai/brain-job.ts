@@ -50,6 +50,9 @@ export const BRAIN_FAILURE_REASONS = [
   'RETRIES_EXHAUSTED',
   'DEADLINE_EXCEEDED',
   'COMMIT_REFUSED',
+  // B3: the routing policy the step would run under no longer conforms to the provider
+  // specialization policy (brain-dispatch.ts `brainRouteGate`).
+  'ROUTING_NOT_CONFORMANT',
   'INTERNAL',
 ] as const;
 export type BrainFailureReason = (typeof BRAIN_FAILURE_REASONS)[number];

@@ -266,7 +266,7 @@ test('when interactive time runs out, the same job is promoted if it can be, and
 
 test('fence: no hosting limit or infrastructure product is part of the execution contract', () => {
   const dir = join(__dirname, '..', 'src', 'ai');
-  for (const file of ['capability.ts', 'brain-execution.ts', 'brain-result.ts', 'brain-job.ts', 'brain-step.ts', 'brain-trust.ts', 'brain-executor.ts']) {
+  for (const file of ['capability.ts', 'brain-execution.ts', 'brain-result.ts', 'brain-job.ts', 'brain-step.ts', 'brain-trust.ts', 'brain-executor.ts', 'brain-dispatch.ts']) {
     const src = readFileSync(join(dir, file), 'utf8');
     assert.doesNotMatch(src, /\blambda\b|step functions|\bsqs\b|eventbridge|api gateway|\becs\b|fargate|temporal|netlify|inngest|\baws\b|vercel|cloudflare/i, `${file} names no infrastructure`);
     assert.doesNotMatch(src, /60_?000|sixty seconds|60 ?s\b/i, `${file} carries no platform request limit`);
