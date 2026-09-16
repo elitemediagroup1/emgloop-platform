@@ -107,6 +107,10 @@ export { CaseEvidenceService, EVIDENCE_REPORT_OUTCOMES } from './services/case-e
 // (identityResolution:approve). Keys are minted, never derived from contact values.
 export { PartyService, PARTY_WRITE_OUTCOMES, PARTY_ESTABLISHMENT_BASES } from './services/party.service';
 export { PartyRecordService } from './services/party-record.service';
+// Universal Activity reads, authorized (slice A2). Every source is read under its
+// own guard; the service grants nothing. See ./services/activity.service.ts.
+export { ActivityService } from './services/activity.service';
+export type { ActivityViewer, ActivityReadResult, ActivityServiceDeps } from './services/activity.service';
 // CRM P0.2e: governed Customer -> Party links (identityResolution:approve; target must be established).
 export {
   CustomerPartyLinkService,

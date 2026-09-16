@@ -108,6 +108,10 @@ export {
 export type { RemovedMarkerAssessment, RepairRefusalReason } from './removed-marker-repair.repository';
 export { CustomerPartyLinkRepository } from './customer-party-link.repository';
 export type { CreateCustomerPartyLinkInput } from './customer-party-link.repository';
+// Universal Activity (slice A2): a projection over other authorities, composed at
+// read time. Owns no table and writes nothing. See ./activity-read-model.repository.ts.
+export { ActivityReadModelRepository, ActivityCursorError } from './activity-read-model.repository';
+export type { ActivityAdapter, ActivitySubject, ActivityReadOptions } from './activity-read-model.repository';
 export { PartyReferenceRepository } from './party-reference.repository';
 export type { PartyReferenceRequirement, PartyReferenceRepositoryDeps } from './party-reference.repository';
 export { PartyReadModelRepository, PartyListCursorError } from './party-read-model.repository';

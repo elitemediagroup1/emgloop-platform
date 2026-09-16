@@ -42,7 +42,7 @@ Verified on `main` `543c645`:
 | `CustomerPartyLink` shows the active-key unique pattern: a nullable active key, a CHECK, and P2002 → re-read. | The pattern to copy. It does not yet refuse archived Parties or return the canonical id (debt, §11). |
 | `OutboxSubjectType` has no RELATIONSHIP member. `ActiveStateDomain.RELATIONSHIP` exists. Subscribers cannot filter by subject or event type. | Adding the subject type is an enum migration; `domain = RELATIONSHIP` and `stateKey = relationship.<id>` are available now. |
 | No team or reporting model exists. | MANAGER cannot be scoped to "their" relationships, so grants are organization-wide (PD-F-04). |
-| `PARTY_CAPACITIES` is fixed at five by a 2.0b test and reuses `CognitiveEntityType` names. | The role vocabulary becomes its own contract (§6). The identity record §12 says the full set is decided by this architecture. |
+| `PARTY_CAPACITIES` holds the nine capacities Product approved in PD-F-03, decoupled from `CognitiveEntityType` names (slice R1, #251). Before R1 it was five names borrowed from the Prisma enum. | Done: the role vocabulary is its own governed contract (§6), versioned in `@emgloop/shared`. Adding a capacity is a reviewed contract change, never a schema question. |
 
 ## 2. What a Relationship is
 

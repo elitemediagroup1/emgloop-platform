@@ -357,6 +357,11 @@ export * from './party-read-model';
 // ./activity.ts and docs/architecture/universal-activity.md.
 export * from './activity';
 
+// Reading Universal Activity (slice A2): page limits, the cursor in the one order,
+// and the k-way merge each composed read uses. Adapters live in @emgloop/database,
+// because every source is read under its own authority. See ./activity-read.ts.
+export * from './activity-read';
+
 // --- Operational decision lifecycle (platform primitives) ---
 // The pure projection from an append-only observation log to the current state
 // of a priority, plus the operational history and decision-activity statistics
