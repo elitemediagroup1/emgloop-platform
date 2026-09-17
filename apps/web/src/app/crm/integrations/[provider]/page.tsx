@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../../demo/db-health';
 import { requirePermission } from '../../../../auth/guard';
 import { requireCrmContext } from '../../../../crm/crm-data';
 import {
@@ -47,7 +47,7 @@ export default async function ProviderDetailPage({
   });
 
   if (!result.ok) {
-    return (<><h1 className="crm-h1">Integration OS</h1><DbNotConfigured /></>);
+    return (<><h1 className="crm-h1">Integration OS</h1><DataUnavailable /></>);
   }
   const card = result.data;
   if (!card) notFound();

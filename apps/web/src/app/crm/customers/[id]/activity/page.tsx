@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../../../demo/db-health';
 import { crmRepos } from '../../../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../../../auth/guard';
 import { viewerTime } from '../../../../../time/viewer-time';
@@ -41,7 +41,7 @@ export default async function CustomerActivityPage({
     return { empty: false as const, rows, name: workspace ? workspace.name : 'Customer' };
   });
 
-  if (!result.ok) return <DbNotConfigured />;
+  if (!result.ok) return <DataUnavailable />;
   const rows = result.data.empty ? [] : result.data.rows;
   const name = result.data.empty ? 'Customer' : result.data.name;
 

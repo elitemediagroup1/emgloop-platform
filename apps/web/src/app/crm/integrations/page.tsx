@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import {
@@ -69,7 +69,7 @@ export default async function IntegrationOsPage() {
     return (
       <>
         <h1 className="crm-h1">Integration OS</h1>
-        <DbNotConfigured />
+        <DataUnavailable />
       </>
     );
   }

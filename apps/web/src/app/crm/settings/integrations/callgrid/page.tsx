@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../../../demo/db-health';
 import { crmRepos } from '../../../../../crm/crm-data';
 import { requireCrmContext } from '../../../../../crm/crm-data';
 import { requirePermission } from '../../../../../auth/guard';
@@ -42,7 +42,7 @@ export default async function CallGridAdminPage() {
     return (
       <>
         <h1 className="crm-h1">CallGrid</h1>
-        <DbNotConfigured />
+        <DataUnavailable />
       </>
     );
   }

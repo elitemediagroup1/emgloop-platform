@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { viewerTime } from '../../../time/viewer-time';
@@ -76,7 +76,7 @@ export default async function IntelligencePage() {
       <>
         {header}
         {flow}
-        <DbNotConfigured />
+        <DataUnavailable />
       </>
     );
   }

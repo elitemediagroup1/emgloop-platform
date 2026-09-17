@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../auth/guard';
 import { toggleWorkflowActiveAction } from '../../../crm/workflow-actions';
@@ -38,7 +38,7 @@ export default async function WorkflowsPage() {
     return { empty: false as const, workflows };
   });
 
-  if (!result.ok) return <DbNotConfigured />;
+  if (!result.ok) return <DataUnavailable />;
   if (result.data.empty) {
     return (
       <>

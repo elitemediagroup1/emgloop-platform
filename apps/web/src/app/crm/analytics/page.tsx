@@ -1,4 +1,4 @@
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { UNKNOWN_DISPLAY } from '@emgloop/shared';
@@ -40,7 +40,7 @@ export default async function AnalyticsPage() {
     return (
       <>
         <h1 className="crm-h1">Analytics</h1>
-        <DbNotConfigured />
+        <DataUnavailable />
       </>
     );
   }
