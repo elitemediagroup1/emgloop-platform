@@ -1,483 +1,493 @@
-# UI-0 — implementation matrix and repository-fit assessment
+# UI-0 — screen map and repository-fit assessment for the Loop redesign
 
 **Status: ASSESSMENT ONLY (2026-09-17). No production surface is changed by this document.**
-- **What it answers.** The spec's "First Requested Deliverable"
-  (`loop-product-ui-architecture-v1.0.md`, Implementation Handoff):
-  1. a component inventory and plan;
-  2. a route-to-area map;
-  3. a data availability map for Home and Activity;
-  4. the canonical read-model gaps;
-  5. a proposed pull-request sequence with acceptance checks.
 
-  It adds a screen-by-screen matrix.
-- **How it was built.** Every row was read from code on `main` (`f744fca`); nothing was inferred from
-  older docs.
+## Controlling source
 
-**Source of truth, and what is missing.**
-- **The controlling artifact in the repository** is *Loop Product and UI Architecture v1.0*
-  (2026-09-15) with Product's annotations C-01 to C-05.
-- **Charlie and Lexi's latest handoff has not reached the repository.** Matt's run brief names a
-  "Subject Display System" (UI-2), which appears nowhere in the repository.
-- **Consequence:** this matrix is built on v1.0. Implementation of UI-1 to UI-5 is **held** until that
-  artifact is committed or pasted. Nothing here invents a competing design.
+**The design and product authority is *Loop Product and UI Redesign — Implementation Handoff*.**
+- **Who and when:** Charlie and Lexi, prepared for Matt Dunn, dated September 16 2026.
+- **Form:** 21 pages, with seven embedded visuals. It was supplied in this work session as
+  "update from charlie and lexi.pdf".
+- **What it says of itself:** it is "the current product and visual source of truth for the Loop
+  redesign", to be used "with the interactive prototype and the existing domain contracts".
+- **What it replaces:** visual interpretation of the temporary `/crm/parties` and `/crm/relationships`
+  screens.
 
-**Two numberings.**
-- **The spec** numbers its slices UI 0–10: UI 0 primitives, UI 1 Home, UI 2 navigation, UI 3 CRM IA,
-  UI 4 Activity, UI 5 Person, UI 6 Company and Relationship, and so on.
-- **Matt's run brief** uses:
-  - UI-0: this matrix;
-  - UI-1: shell and primitives;
-  - UI-2: Subject Display System;
-  - UI-3: People → Person → Companies → Company → Relationships → Relationship;
-  - UI-4: Activity and Intelligence;
-  - UI-5: Brain states.
-- **This document uses the brief's numbering**, and §6 maps it to the spec's.
+**The artifacts compared:**
 
-**Route moves wait on a proposal.** The locked decision record (`loop-application-structure.md` D1,
-C-01) says no route moves until Charlie and Lexi's route-transition proposal is approved. That proposal
-has not been received. Target routes below are therefore the reserved or current ones, not new ones.
+| Artifact | Date | Role here |
+|---|---|---|
+| *Loop Product and UI Redesign — Implementation Handoff* | 2026-09-16 | **Controlling** design and product source |
+| *Loop Product and UI Architecture v1.0* (`loop-product-ui-architecture-v1.0.md`, with Product annotations C-01 to C-05) | 2026-09-15 | Underlying architecture. The handoff repeats its model, constitution and UI 0–10 sequence. The C-01 to C-05 decisions stay locked |
+| *Loop CRM Product Definition and Build Specification v1.0* | file dated 2026-09-13 | Earlier CRM specification; superseded for design purposes |
+
+**A correction.** An earlier draft of this document said the latest Charlie and Lexi artifact had not
+been delivered. That was wrong: the handoff was supplied twice in this session. This version is built
+on it.
+
+**Not recoverable from the PDF.** The handoff links "Open the Loop prototype", but the PDF carries no
+URL, so the interactive prototype was not reviewed. Anything that only the prototype shows (exact
+tokens, interaction timing, tablet and mobile layouts) is listed as a dependency, not guessed.
+
+**What engineering owns** (handoff, Review Standard): "the route-to-contract mapping", and surfacing
+conflicts before coding around them. This document is that mapping's first pass, in the handoff's own
+Screen Implementation Contract fields.
 
 ---
 
-## 1. Status key
+## 1. What the handoff establishes
 
-| Status | Meaning |
+| Topic | Established by the handoff | Still undefined (specific) |
+|---|---|---|
+| Loop shell | Five page zones: global shell, context header, context navigation, primary workspace with a supporting rail, context drawer. Visuals show a dark left rail with the Loop mark, a top bar with **Search Loop** and a **Needs You _n_** counter, and a hierarchical trail such as "CRM / PEOPLE / DENISE K" | Exact tokens (colour, type scale, spacing); prototype only |
+| Navigation | Global navigation = five operating areas (Home, CRM, Work, Intelligence, Operations), shown in that order. Contextual navigation = the subject's tabs. The context trail is navigation state only | Where workspace settings and administration appear; the visuals show no settings entry (C-01 says settings, not an area) |
+| Subject Display System | **Defined** (pp. 13–14): six-part card anatomy; stable versus contextual content for Person, Company, Relationship, Workspace, Intake and Unresolved Activity; four densities; visual rules | Component names are engineering's choice. The handoff asks for it to be locked before search, participants or related-record panels |
+| Route transitions | Canonical routes are **not** given. Engineering owns the route-to-contract mapping. Breadcrumbs follow areas (CRM, Intelligence) | **Who approves route moves.** The locked record (D1) says Charlie and Lexi own the route-transition proposal; the handoff assigns route mapping to engineering (§11, decision 1) |
+| Home | Five sections with authorities and constraints (p. 4). Readiness: **partially ready** | The "since the user last operated" marker (no backend for it); which Pulse metrics suit which role |
+| People | Canonical established PERSON Parties. Visual: columns Person, Relationship context, Opportunities, State; filters All people / Relationship / State; **+ Establish person**. Readiness: **ready** | Whether unresolved identity-review rows appear in this list (the visual shows one; the text says People holds established Parties) |
+| Person detail | Header (name, state, "Person · role · affiliation"), actions Email / Call / Message / + Action, a summary strip (Relationship, Opportunities, Campaigns, Open Work), tabs, "What is happening now", an identity and active-relationship rail. States: Established, Superseded, Archived, Unresolved activity. Readiness: **ready** | How communication actions behave while no Party-level channel exists |
+| Companies / Company detail | Same grammar, emphasizing the commercial network. Company is a Party; Workspace is the tenant. A Company card example shows an industry line and "Active relationship · 2 opportunities". Readiness: **ready** | No Company visual beyond the card; the industry source (no Party industry field exists) |
+| Relationships / Relationship detail | Relationship detail visual: header "EMG ↔ Denise K", state, "Relationship · kind · Since year"; tabs Overview, Participants, Activity, Opportunities, Work, Intelligence; status narrative; meaningful activity with truth labels; Participants and Current Context rail. Rules on lifecycle, roles, supersession, additive history. Readiness: **ready** | No Relationships *list* visual; the display labels for kinds and roles (see §3.4) |
+| Activity | Nine truth types, presentation rules, the four human filters, unidentified activity kept operable. Readiness: **partially ready** | Advanced filter layout; prototype only |
+| Intelligence | Ambient, Actionable and Governed levels. The CI surfaces keep their authority, with composition redesigned (dedicated plus contextual). Readiness: **ready** | Layout of the dedicated area beyond Case Explanation |
+| Brain | The product contract (produce versus never establish); Understand → Recommend → Draft → Authorize → Act. Case Explanation visual under **Intelligence / Case Explanation**: an "Activation gated" pill, a "Design specimen · no model invocation" label, evidence with authority labels, a limitation, an output-contract rail, "Human authority required". Readiness: **activation gated** | Where running or waiting Brain work is shown outside Case Explanation. Whether provider names appear in the product (§11, decision 6). The execution split (Next Action 5) |
+| Responsive / mobile | Desktop, tablet and mobile rules (p. 15). Drawers become full-screen sheets; tables become prioritized lists | Breakpoints and per-screen mobile layouts; prototype only |
+| Shared visual primitives | Page zones; the Subject Display System; the visual grammar (subject, state, context, attention, provenance); three densities; semantic status colour; initials fallback | Token values |
+| Empty / loading / error states | Definition of Done covers default, loading, empty, error, unresolved and unauthorized. "Unknown is displayed as unknown"; "No activity found is different from no activity occurred" | Visual treatment of each state; prototype only |
+
+## 2. Readiness: the handoff's classification and repository fit
+
+**Repository fit** was read from the code on `main`:
+- **GREEN:** the authority and read model exist; UI work only.
+- **YELLOW:** the authority exists, but a projection, wiring or decision is missing.
+- **RED:** no authority exists.
+
+| Surface | Handoff readiness | Repository fit | Why |
+|---|---|---|---|
+| Shell, global navigation, drawers, record grammar | Ready | YELLOW | `LOOP_NAV` still has today's groups (`one-loop-shell.test.tsx` pins them); no drawer or subject-header primitive exists; no `error.tsx`/`not-found.tsx` |
+| People, Person | Ready | GREEN list; YELLOW record | `PartyRecordService` serves lists, records, posture, archived and supersession. Missing for the visuals: relationship context per row, opportunity counts, contact availability, a PARTY Activity subject |
+| Companies, Company | Ready | GREEN list; YELLOW record | as People; plus no industry field on a Party |
+| Relationships, Relationship | Ready | GREEN list and record; YELLOW Activity | read and write services, participants and events exist; no RELATIONSHIP Activity adapter |
+| Intake | Ready | GREEN | legacy Customer repositories; the Intake → Party web linking decision is still open |
+| Work | Ready | GREEN | Work OS |
+| Intelligence | Ready | GREEN | CI services, the Decision Engine and CallGrid Intelligence |
+| Operations, CallGrid | Ready | GREEN (placement pending) | authorities exist; the Operations prefix is undecided (D1) |
+| Loop Home | Partially ready | YELLOW | see §5 |
+| Universal Activity | Partially ready | YELLOW | `ActivityService` exists; no web page uses it; no PARTY or RELATIONSHIP subject |
+| Creator Administration | Partially ready | YELLOW | Relationships of kind `TALENT_REPRESENTATION` with the `CREATOR` capacity exist; no creator-capability model or Operations surface |
+| Opportunities, Campaigns, Universal Search | Backend work required | RED | no Opportunity or CRM Campaign authority; no unified search service |
+| Brain Case Explanation | Activation gated | YELLOW | the Netlify path exists and is off; the B5 boundary (PR #278) is in review; no result store; nothing activated |
+
+## 3. Screen map (the handoff's Screen Implementation Contract)
+
+**The first vertical slice is the one the handoff names** (Next Actions, item 2): shell, People, Person
+and Relationship. Those four are mapped in full; the rest follow in shorter form.
+
+**Fields for every row:**
+- the handoff's contract fields (Charlie and Lexi screen, route, authority, read model, actions,
+  permissions, states, non-default states, responsive behaviour, missing dependency, PR);
+- plus the temporary UI replaced, Activity, Brain, and the repository-fit status.
+
+### 3.1 Shell (global shell, context header, context navigation, drawer)
+
+| Field | Answer |
 |---|---|
-| **GREEN** | The owning authority and a read model exist and are usable from the web tier now. The slice is UI work. |
-| **YELLOW** | The authority exists, but a read model, web wiring, subject support or a Product decision is missing. The slice can ship partially with honest Unknown or unavailable states. |
-| **RED** | No authority exists. The only honest UI is an unavailable state or no navigation item. |
+| Charlie and Lexi screen | The frame common to pp. 6, 7, 8 and 11: dark left rail (Loop mark; Home, CRM, Work, Intelligence, Operations), top bar (Search Loop; Needs You _n_), trail, header, tabs |
+| Loop route | every signed-in page (`WorkspaceShell`) |
+| Backend authority | `LOOP_NAV` and `navFor(session)` (permission and workspace filtered); each page guards itself |
+| Read model | one `iam.canEach` read per request. The **Needs You** count needs the Home projection (§5) |
+| Available actions | navigate; global search (today `/crm/search` over intake records, conversations and the workspace) |
+| Permissions | unchanged; items appear only when their destination would open |
+| Data and states | active area; counter known / unknown |
+| Empty loading error | an unknown counter shows as unknown, never 0; there is no route-level error or not-found page today |
+| Responsive | desktop full rail; tablet collapses supporting rails; mobile action-first (p. 15) |
+| Missing dependency | regrouping `LOOP_NAV` to five areas changes the pinned shell test (a reviewed act); a settings entry point (C-01); the Needs You projection; token values (prototype) |
+| Implementation PR | UI 0 (primitives) and UI 2 (navigation) |
+| Replaces | today's groups `'' / CRM / Intelligence / Work OS / '' / Administration`, and the unlabeled Creator Hub and Accounting group |
+| Repository fit | YELLOW |
 
-## 2. Screen-by-screen matrix
+### 3.2 People (list)
 
-**Abbreviations:**
-- `RW` = `requireWorkspace`, `RP` = `requirePermission`.
-- *CI* = Commercial Intelligence.
-- *B5* = the Loop-side Brain boundary, in review and not on `main`.
+| Field | Answer |
+|---|---|
+| Charlie and Lexi screen | p. 6 "People list using governed identity state and relationship context" |
+| Loop route | `/app/crm/people` (reserved for PERSON Parties by D2/C-04; no page exists) |
+| Backend authority | Party and Identity (`PartyRecordService`, `PartyService`); Relationships (`CrmRelationshipReadService`) |
+| Read model | `PartyRecordService.listPeople` (established, non-superseded PERSON Parties). **Gap:** the list carries no relationship context or opportunity count. A list projection is needed (a per-row `forParty` read would be N+1) |
+| Available actions | **+ Establish person** → `PartyService.create` / `establish` (the operator flow on `/crm/parties` today) |
+| Permissions | today `identityResolution:view`; establishing needs `identityResolution:approve`. Ordinary CRM users hold neither (§11, decision 3) |
+| Data and states | Established; Unresolved (the visual's "Identity review required · Intake evidence available"); Superseded and Archived (Party states that exist) |
+| Empty loading error | production holds **0 established Parties**: empty, and never a fallback to Intake Records |
+| Responsive | the table becomes a prioritized list on mobile (p. 15); display density "compact subject row" (p. 14) |
+| Missing dependency | the list projection (relationship context); **Opportunities column: no authority**, so it shows unavailable or is omitted, never "0 active"; the People permission; the unresolved-row decision (§11, decision 4) |
+| Implementation PR | UI 3 (CRM area) / UI 5 (Person) |
+| Replaces | the People section of `/crm/parties` (kept for verification until the replacement covers its workflows) |
+| Activity / Brain | none on the list |
+| Repository fit | GREEN (list); YELLOW (visual columns) |
 
-### S1. Loop shell (global navigation, context header, context navigation, drawer): YELLOW
+### 3.3 Person (record)
 
-- **Route:** every signed-in page (`WorkspaceShell` via the tree layouts).
-- **Purpose:** stable orientation; five operating areas.
-- **Authority:** `LOOP_NAV` and `navFor(session)` (`workspaces/config.ts`, `nav-access.ts`). One
-  `iam.canEach` read per request.
-- **Actions and authorization:**
-  - navigation only;
-  - items are filtered by permission and workspace;
-  - every page guards itself.
-- **States:**
-  - `ShellPage` ("Nothing here yet") and `UnavailablePage` exist;
-  - there is **no `error.tsx` or `not-found.tsx` anywhere** under `app/`.
-- **Evidence, Activity, Brain:** not applicable. The shell will host the "Brain · N working" indicator
-  (S16).
-- **Gap:**
-  - the registry is not regrouped to the five areas;
-  - `one-loop-shell.test.tsx` pins today's grouping (`'' / CRM / Intelligence / Work OS / '' /
-    Administration`), so a regroup changes that test as an explicit, reviewed act;
-  - the Operations prefix is undecided (D1).
-- **Replaces:** the temporary grouping; the unlabeled Creator Hub and Accounting group, which leads to
-  "not built" pages.
-- **Decisions:**
-  - the route-transition proposal;
-  - where Administration renders (C-01: system/workspace settings);
-  - one CSS token set (§3).
+| Field | Answer |
+|---|---|
+| Charlie and Lexi screen | p. 7 "Canonical Person record … with identity, context, activity, intelligence and action" |
+| Loop route | `/app/crm/people/<partyId>` (engineering proposal within D1) |
+| Backend authority | Party and Identity; Relationships; Work; CI; Activity |
+| Read model | `PartyRecordService.getRecord` (identity, reference state, `archived`, establishment, posture, linked intake records); `CrmRelationshipReadService.forParty` |
+| Available actions | **Email / Call / Message: no Party-level channel exists** (conversations belong to intake records), so they are unavailable. **+ Action** must list only permitted commands |
+| Permissions | `identityResolution:view` today (§11, decision 3); relationship reads `relationships:view` |
+| Data and states | Established; Superseded (explain, link to current, preserve history; `reference.canonicalPartyId`); Archived (`archived`); Unresolved activity (no Person record; open the Activity or evidence context) |
+| Empty loading error | not found and unauthorized both render not-found |
+| Responsive | the header becomes a "featured subject block"; rails collapse on tablet; action-first on mobile |
+| Missing dependency | see the list below |
+| Implementation PR | UI 5 |
+| Replaces | `/crm/parties/[id]`; useful parts of `/crm/customers/[id]` (the handoff: "Transition and replace") |
+| Activity / Brain | Activity needs a PARTY subject. A Person is not a Brain subject type today |
+| Repository fit | YELLOW |
 
-### S2. Loop Home: YELLOW
+**Missing dependencies for the Person record:**
 
+| Element | What is missing |
+|---|---|
+| Summary strip: Opportunities, Campaigns | no authority (RED) |
+| Summary strip: Open Work | no Party reference on Work instances found |
+| Tabs: Opportunities, Campaigns | unavailable |
+| Tab: Activity | no PARTY subject in `ActivityService` |
+| Tab: Intelligence, and "Loop noticed" | no CI subject for a Party |
+| Identity rail: Email / Phone "Available" | `PartyRecordV1` carries no contact availability (evidence tier `NOT_AVAILABLE`) |
+| Identity rail: "Confidence" | shows governed posture (C-05), never a number |
+
+### 3.4 Relationship (record) and Relationships (list)
+
+| Field | Answer |
+|---|---|
+| Charlie and Lexi screen | p. 8 "Relationship detail makes the connection itself operable without collapsing either Party". **No list visual exists**; the list uses the Subject Display System (p. 13 relationship card) |
+| Loop route | `/app/crm/relationships` and `/app/crm/relationships/<id>` (engineering proposal within D1) |
+| Backend authority | Relationships (`CrmRelationshipService`, `CrmRelationshipReadService`); Participants; CI (interpretation only) |
+| Read model | `list`, `getRecord` and participants; `CrmRelationship.label`, `description` and `state`; events (`CrmRelationshipEvent`) |
+| Available actions | end, reactivate, void; add, change, end and void a participant (authority inside the service; capabilities returned to the UI) |
+| Permissions | `relationships:view`; writes per capability |
+| Data and states | Active, Ended, Voided (projected from events); participant history additive |
+| Empty loading error | "None yet" (production holds 0); not found and unauthorized both render not-found |
+| Responsive | rails collapse on tablet; participants become a context card list |
+| Missing dependency | see the list below |
+| Implementation PR | UI 6 (Company and Relationship) |
+| Replaces | `/crm/relationships`, `/crm/relationships/[id]` and `/new` (the handoff: "Replace engineering surface"), after the workflows and states are covered |
+| Activity / Brain | RELATIONSHIP is an accepted Brain subject (B5); no task and no result store exist |
+| Repository fit | GREEN (record and list); YELLOW (Activity, context, labels) |
+
+**Missing dependencies for the Relationship record:**
+
+| Element | What is missing |
+|---|---|
+| Kind and role labels | The visual shows "Managed Creator", "Commercial lead" and "Talent lead". The governed vocabularies are the kind `TALENT_REPRESENTATION` ("Talent representation"), the capacities (`CREATOR`, `BUYER`, …) and the engagement roles (`PRIMARY_CONTACT`, `DECISION_MAKER`, `BILLING_CONTACT`). A display-label decision is needed (§11, decision 5) |
+| Internal team members as participants | The visual shows EMG staff as participants. Today a Relationship's accountable person is a **user** (`ownerUserId`), not a Party participant (§11, decision 5) |
+| "Since 2026" | derivable from the first event |
+| Tab: Activity, and "Meaningful activity" | no RELATIONSHIP Activity adapter |
+| Tab: Opportunities, and "Current context" counts | no authority |
+| Tab: Intelligence | no CI subject for a Relationship |
+
+### 3.5 Companies and Company
+
+- **Screen:** p. 8 (text) and the p. 13 Company card. **No Company page visual exists.**
+- **Route:** `/app/crm/companies` and `/app/crm/companies/<partyId>`, an engineering proposal within D1.
+- **Read model:** `PartyRecordService.listCompanies` and `getRecord`; `forParty`.
+- **Gaps:**
+  - an industry line (no Party industry field; `Organization.industry` belongs to the tenant);
+  - opportunity counts (RED);
+  - Activity (PARTY subject).
+- **Must stay distinct:** Workspace (`/crm/organizations`) remains tenant administration, and is labelled
+  "Workspace".
+- **Slice:** UI 6. **Fit:** GREEN list; YELLOW record.
+
+### 3.6 Intake
+
+- **Screen:** p. 9. Intake is preserved and demoted: source, provenance, status, identity-resolution
+  progress, never a lesser Person.
+- **Routes:** `/crm/customers` (+ `[id]`, `/activity`), `/crm/pipeline`, `/crm/inbox`,
+  `/crm/conversations`.
+- **Read model:** the legacy Customer repositories.
+- **Gap:** `CustomerPartyLinkService` exists, but no web surface links Intake to a Party. The web
+  linking decision is open (`intake-party-linking-recommendation.md`), and **the Intake → Party fence is
+  not weakened here.**
+- **Fit:** GREEN.
+
+### 3.7 Loop Home
+
+- **Screen:** p. 4 (text only; no visual).
 - **Route:** `/app`.
-- **Purpose:** Needs You → What Changed → Loop Noticed → My Work → Operating Pulse.
-- **Today:** `AdminHome`, nine tiles, for ADMIN; `ModuleHome` launchers, with no data, for everyone
-  else.
-  - **Several tiles show fixed words, not read state:**
-    - Business Status lists systems statically, and only CallGrid can read as connected;
-    - CRM "Active";
-    - Creator Hub "Not Configured";
-    - Accounting "Not Connected".
-  - These are the first things UI-1 retires.
-- **Authorities per section:** §5.
-- **Authorization:** each section keeps its source's guard. The CI sections are ADMIN-workspace and
-  `commercialIntelligence:view` only.
-- **States:** "No evidence-backed priorities require your attention."; "Unavailable" and "Unknown".
-  These are good precedents.
-- **Activity:** "What Changed" needs the organization Activity lane (`ActivityService`), which **no web
-  page uses yet**.
-- **Brain:** "Needs You" should include Brain work waiting for this person (B5 `listMine`, phase
-  `WAITING_FOR_YOU`). This needs B5 merged.
+- **Authorities:** Needs You from the Decision Engine, Work, Identity and domain workflows; What Changed
+  from Activity; Loop Noticed from CI; My Work from Work OS; Pulse from measurement sources.
+- **Data map:** §5.
+- **Replaces:** the nine-tile `AdminHome`, including its fixed status words (Business Status lists
+  systems statically; CRM "Active"; Creator Hub "Not Configured"; Accounting "Not Connected").
+- **Slice:** UI 1, after the CRM slice (see §7). **Fit:** YELLOW.
+
+### 3.8 Universal Activity
+
+- **Screen:** p. 10.
+- **Authority:** `ActivityService.read`. The contract (`activity.v1`) already matches the handoff:
+  - the same nine categories, in the same order;
+  - the four human filters;
+  - identity states `KNOWN_PARTY / KNOWN_COMPANY / UNRESOLVED / ANONYMOUS / NOT_APPLICABLE`;
+  - no raw values and no confidence numbers.
 - **Gaps:**
-  - "since you last operated" has no per-user marker, which is a backend gap. Until one exists, the
-    honest window is fixed and says so.
-  - Non-ADMIN Home has no data sources beyond Work.
-- **Decisions:**
-  - the "What Changed" window;
-  - which Pulse metrics, and for which roles;
-  - what non-ADMIN people see in Needs You.
+  - no web page uses `ActivityService` (CRM timelines use `crm/timeline.tsx`);
+  - no PARTY or RELATIONSHIP subject exists (`activity.v1` names RELATIONSHIP, OPPORTUNITY and CAMPAIGN
+    as reserved and refused until their authorities exist).
+- **Slice:** UI 4. **Fit:** YELLOW.
 
-### S3. CRM Command Center: YELLOW (parts RED)
-
-- **Route:** `/crm` (target `/app/crm` after the proposal).
-- **Purpose:** where business is moving or stuck, relationships needing attention, commercial decisions
-  pending.
-- **Today:**
-  - Needs Attention, Customer Intake, Recent Activity, Quick Actions, Recent Audit;
-  - a **"Coming in Phase 2"** block, which should become nothing or an explicit unavailable state.
-- **Authority:**
-  - Relationships: `CrmRelationshipReadService`;
-  - CI attention: `CaseWorkspaceService.attention`;
-  - intake counts: `crm` repositories;
-  - **Opportunities: none (RED).**
-- **Guard:** `requireCrmContext` only (session). The composed sections carry their own checks
-  (`canOpenHeadlines`, audit `HP`).
-- **States:** `CrmLoadError`, `ReadError`, `EmptyTimeline`.
-- **Decisions:** what "needs attention" means for a Relationship. It must be a CI interpretation, never
-  a frontend score.
-
-### S4. People (list): GREEN
-
-- **Route:** `/app/crm/people`, reserved for PERSON Parties (D2/C-04). **No page exists.** Today the list
-  lives inside the operator surface `/crm/parties` (#264, temporary).
-- **Authority:** `PartyRecordService.listPeople` → `PartyReadModelRepository.listEstablished`
-  (established, non-superseded PERSON Parties).
-- **Authorization:** `identityResolution:view`.
-- **States:**
-  - "You do not have authority to read canonical identity.";
-  - the empty list. **Production holds 0 established Parties**, so the honest first state is empty,
-    and the list never falls back to Intake Records.
-- **Evidence:** the governed identity posture (C-05); never a number.
-- **Replaces:** the People list inside `/crm/parties`.
-- **Decision:** **which permission opens People for ordinary CRM users.** Today only
-  `identityResolution:view` does, an operator permission. A People view permission is an RBAC change for
-  Product.
-
-### S5. Person (record): YELLOW
-
-- **Route:** a Person under `/app/crm/people/<id>` (not yet built). Today `/crm/parties/[id]`
-  (operator).
-- **Authority:**
-  - `PartyRecordService.getRecord`: posture, establishment, reference, linked intake records;
-  - `CrmRelationshipReadService.forParty`.
-- **Grammar (spec §Canonical Record Experience):**
-
-  | Part | Available? |
-  |---|---|
-  | Identity | yes |
-  | State | yes (establishment, supersession) |
-  | Context: relationships | yes |
-  | Context: opportunities and campaigns | **no** (RED) |
-  | Context: work | **no** Party reference found in Work |
-  | Activity | **no** PARTY subject in `ActivityService` |
-  | Intelligence | **no** CI subject for a Party |
-  | Actions: communication | **no** Party-level channel. Conversations belong to Intake Records |
-
-- **Authorization:** `identityResolution:view` today (see S4).
-- **States:** a SUPERSEDED notice; `notFound()`; "This Party takes part in no Relationship yet."
-- **Brain:** a Person is not a Brain subject type (B5 accepts CASE, RELATIONSHIP and
-  CUSTOMER_CONVERSATION).
-- **Replaces:** `/crm/parties/[id]`, and the useful parts of `/crm/customers/[id]` (spec: "Transition and
-  replace").
-- **Decisions:**
-  - the Person permission;
-  - a PARTY Activity subject (backend);
-  - creator participation as a capability on a Person (C-02), not a Party type.
-
-### S6. Companies (list): GREEN
-
-As S4, with `PartyRecordService.listCompanies` (COMPANY Parties). **Company is not Workspace
-Organization:** `/crm/organizations` is the tenant (labelled "Workspace" in the navigation) and must stay
-visibly separate.
-
-### S7. Company (record): YELLOW
-
-As S5, for COMPANY Parties. The gaps are the same: Activity subject, opportunities, campaigns,
-intelligence. The commercial network is the Relationships the Company takes part in (available).
-
-### S8. Relationships (list): GREEN
-
-- **Route:** `/crm/relationships` (operator surface today; target `/app/crm/relationships` after the
-  proposal).
-- **Authority:** `CrmRelationshipReadService.list`, with capabilities.
-- **Authorization:** `relationships:view`. Creation shows only with `capabilities.create`.
-- **States:** "None yet. This is the correct answer until somebody records one"; no-authority text.
-  Production holds **0 Relationships**.
-- **Decision:** the list filtered by kind (the creator roster; already on the project's next list).
-
-### S9. Relationship (record): GREEN for the record, YELLOW for Activity and Intelligence
-
-- **Authority:**
-  - `CrmRelationshipReadService.getRecord`, and the participants;
-  - `CrmRelationshipService` for create, end, reactivate, void and participants. Authority is checked
-    inside the service.
-- **States:** `notFound()` for not found **and** for not authorized. This is correct: existence is not
-  leaked.
-- **Activity:**
-  - `CrmRelationshipEvent` rows exist, but **no RELATIONSHIP subject or adapter** exists in Activity;
-  - that adapter is backend work, not a UI join.
-- **Intelligence:** relationship health must be a CI interpretation. **No CI subject exists** for a
-  Relationship (RED for that panel).
-- **Brain:**
-  - RELATIONSHIP is an accepted Brain subject, and ANALYSIS about it is owned by the Relationship
-    authority (B3.1 ownership table);
-  - **no task and no result store exist**, so the panel shows nothing.
-
-### S10. Opportunities: RED
-
-- **No model, repository or service exists.** The navigation item is `soon` and no page exists.
-- "Opportunity" elsewhere in the code is a CallGrid concept; it must not be relabelled.
-- **Honest UI:** keep the `soon` item hidden, or show it as unavailable.
-- **Decision:** PD-F-11.
-
-### S11. Campaigns: RED
-
-- **No CRM Campaign authority exists.** "Campaign" today is a CallGrid call dimension
-  (`/app/admin/marketplace/campaigns`) and a traffic dimension (`/crm/traffic`). Neither is the
-  commercial Campaign.
-- **Decision:** PD-F-12.
-
-### S12. Intake Records (list, record, board, inbox, conversations): GREEN (preserve and demote)
-
-- **Routes:** `/crm/customers`, `/crm/customers/[id]` (+ `/activity`), `/crm/pipeline` (Intake Board),
-  `/crm/inbox`, `/crm/conversations` (+ `[id]`).
-- **Authority:** the legacy Customer repositories (`crm`, `customers`, `conversationsInbox`).
-- **Authorization:** `customers`, `pipeline` and `inbox` view/update, per action.
-- **Findings for UI-1:**
-  1. **Many CRM pages show "Database not configured" (`DbNotConfigured`) on *any* failed read,** including
-     an ordinary read failure. This is an honesty defect.
-     - Pages: customers, customer activity, conversations (list and record), inbox, pipeline, workflows
-       (list and record), analytics, traffic, revenue, intelligence, integrations (three pages),
-       CallGrid settings.
-     - The `CrmLoadError` pattern (`/crm`, `/crm/customers/[id]`, `/crm/organizations/[id]`,
-       `/crm/search`) is the fix.
-  2. **The record's "AI Activity" tab** renders AI-attributed interactions with a purple accent
-     (`var(--crm-purple)`). The spec says AI receives no ornamental treatment or default purple. Its
-     content also needs an AI-honesty check against `ai-honesty-inventory.md`.
-- **Intake → Party linking:**
-  - `CustomerPartyLinkService` exists, but **no web surface links** an intake record to a Party;
-  - the web linking decision is still open (`intake-party-linking-recommendation.md`);
-  - **the Intake → Party fence is not weakened by any slice here.**
-
-### S13. Search: YELLOW
-
-- **Route:** `/crm/search` (`runSearch` over intake records, conversations and the workspace).
-- **Target:** governed universal search that includes Parties and unresolved activity.
-- **Gap:** no Party search in the web tier, and no unified search service.
-- **Guard:** `customers:view`.
-
-### S14. Universal Activity (contextual timeline): YELLOW
-
-- **Authority:** `ActivityService.read(viewer, subject, options)`, which rechecks every item.
-  - **Subjects:** ORGANIZATION, INTAKE_RECORD, CASE, WORK_ITEM.
-  - **Adapters:** interactions, CallGrid calls, observations, messages, audit, Work, and Brain events
-    (Brain composed in B5).
-- **The contract already matches the spec:**
-  - filters `ALL / COMMUNICATIONS / WORK / INTELLIGENCE / CHANGES`;
-  - identity states `KNOWN_PARTY / KNOWN_COMPANY / UNRESOLVED / ANONYMOUS / NOT_APPLICABLE`
-    (`packages/shared/src/activity.ts`).
-- **Gaps:**
-  - **no web page uses `ActivityService`.** CRM timelines use `crm/timeline.tsx` over `inboxFeed`,
-    `customerActivity` and `audit.list`;
-  - **no PARTY or RELATIONSHIP subject** exists.
-- **Replaces:** the per-page CRM timeline adapters, once the service serves those subjects.
-
-### S15. Intelligence area: GREEN
+### 3.9 Intelligence
 
 - **Routes:**
-  - `/app/admin/headlines` (+ `[id]`), `/app/admin/queue`, `/app/admin/cases/[id]`;
+  - `/app/admin/headlines`, `/app/admin/queue`, `/app/admin/cases/[id]`;
   - `/app/admin/marketplace` (+ tabs), `/app/admin/brain`;
   - `/crm/intelligence`, `/crm/analytics`, `/crm/traffic`, `/crm/revenue`, `/crm/live/*`.
 
-  The target prefix `/app/intelligence` waits on the proposal.
-- **Authority:** CI (`CaseWorkspaceService`, `HeadlineInvestigationService`, `PersonalPriorityService`,
-  `CaseBriefService`), the Decision Engine, and CallGrid Intelligence.
-- **Authorization:** ADMIN workspace plus `commercialIntelligence:view` for the CI pages;
-  `intelligence:view` and `analytics:view` for the rest.
+  The target prefix `/app/intelligence` follows D1.
+- **Authority:** CI, the Decision Engine and CallGrid Intelligence.
+- **Composition (handoff):** Ambient, Actionable and Governed.
 - **Findings:**
-  1. **`/app/admin/marketplace` enforces only the ADMIN workspace, while its navigation item states
-     `intelligence:view`.** An ADMIN-workspace person with that permission denied can open it by URL.
-     The shell test records this as a known exception. Fixing it is a small, separate authorization PR.
-  2. **Two things are called "Brain":**
-     - `/app/admin/brain`, a deterministic executive projection;
-     - the Brain runtime (B5).
+  1. `/app/admin/marketplace` enforces only the ADMIN workspace, while its navigation item states
+     `intelligence:view` (a small separate authorization PR).
+  2. `/app/admin/brain` is a deterministic executive view that shares the name "Brain" with the
+     governed Brain (§11, decision 7).
+- **Slice:** UI 9. **Fit:** GREEN.
 
-     Their naming is a Product decision, so that nobody reads the executive view as AI.
-- **Spec sections vs today:**
-  - Overview: no page;
-  - Investigations = Cases;
-  - Findings and Recommendations: inside Cases;
-  - Decisions: the Decision Engine UI (`_decisions`) inside the CallGrid queue;
-  - Monitoring: inside Cases.
+### 3.10 Brain: Case Explanation and Brain work states
 
-  A dedicated Findings or Decisions list is new composition over existing authorities.
-
-### S16. Brain product states: YELLOW (depends on B5)
-
-- **Authority (B5, not on `main`):**
-  - **reads:** `BrainWorkService` via `/api/brain/work`, `/api/brain/work/[jobId]` and
-    `/api/brain/questions/[waitId]`;
-  - **actions:** `submitBrainWorkAction`, `respondToBrainQuestionAction` and `cancelBrainWorkAction`.
-- **States, and what backs each:**
-
-  | State | Backed by |
-  |---|---|
-  | Idle | no job for the subject (`forSubject` is empty) |
-  | Submitting | the action is pending |
-  | Queued / working | phase `QUEUED` / `WORKING` |
-  | Checkpoint / progress | the current step key and kind, and completed steps; never a percentage |
-  | Waiting for you | phase `WAITING_FOR_YOU`, plus the question (choose one, confirm, short text) |
-  | Completed | phase `COMPLETED`, plus result links to the owner's page |
-  | Failed | the end reason, mapped to plain words |
-  | Cancelled | the end reason |
-  | Retryable | a new submission with a new idempotency key (resume-from-checkpoint is not exposed to the web) |
-  | Not enabled | `NOT_ENABLED`, `PAUSED` or `NOT_CONFIGURED`: **every submission today** |
-
-- **Wording:** provider-neutral. No provider, model or "thinking" theatre.
-- **No live AI:** the UI must render "not enabled" honestly.
+- **Screen:** p. 11, "Brain Case Explanation separates evidence, interpretation, limitations and human
+  authority".
+- **Location:** Intelligence / Case Explanation.
+- **Authority and read model:**
+  - the Case Explanation task (Netlify path, off);
+  - the B5 Brain boundary (PR #278, in review): submit, status, question, answer, cancel;
+  - phases QUEUED, WORKING, WAITING_FOR_YOU, COMPLETED, FAILED, CANCELLED.
+- **States the visual establishes:**
+  - **Activation gated.** Every submission is refused today (`NOT_ENABLED`), and the UI says so honestly.
+  - **Design specimen, no model invocation.** Any preview is labelled as a specimen.
+  - **Output contract** (what Brain may and may not produce).
+  - **Human authority required.**
 - **Gaps:**
-  - **no result store** exists, so no job can complete;
-  - the Case page's existing explanation panel (off) must not be duplicated.
-- **Decisions (Charlie and Lexi):**
-  - where the "Brain · N working" indicator and the question live;
-  - the words for each end reason.
+  - no result store, so no job can complete;
+  - no controls-recording workflow;
+  - B5 not yet merged.
+- **Slice:** UI 10 (the handoff's sequence; Matt's brief calls the Brain states UI-5). **Fit:** YELLOW.
 
-### S17. Work: GREEN
+### 3.11 Work, Operations and CallGrid, Creator Administration, Search, Opportunities, Campaigns, Workspace administration, Connections
 
-- **Routes:** `/app/admin/work` (+ `team`, `new`, `[id]`, `blueprints`), `/app/employee/work` (+ `[id]`).
-  The target `/app/work` waits on the proposal.
-- **Authority:** Work OS (`WorkExecutionService`, `work` repositories).
-- **Guards:** the Work actor helpers.
-- **Gap:** "Workflows" is `soon`.
-
-### S18. Operations → CallGrid: GREEN (placement pending)
-
-- **Authority:** exists (CallGrid ingestion, reconciliation and diagnostics).
-- **Split (C-03):**
-  - operational surfaces, such as live calls, reconciliation and diagnostics
-    (`/app/admin/administration/diagnostics/callgrid`), go to Operations;
-  - analytical surfaces go to Intelligence;
-  - credentials and connection state (`/crm/settings/integrations/callgrid`, `/crm/integrations/*`) go
-    to settings.
-- **Pending:** the Operations prefix (D1).
-
-### S19. Operations → Creators: RED
-
-- **No creator participation or capability model** exists (C-02).
-- `/app/admin/creator-hub` falls to the catch-all "not built" page.
-- **The nearest real data** is the Relationship list filtered by kind (S8).
-
-### S20. Workspace administration: GREEN (placement pending)
-
-- **Routes:**
-  - Team (`/app/admin/administration/team`), Workspace (`/crm/organizations`), Settings, Setup;
-  - Audit (`/crm/audit`), AI Employees, Integration OS;
-  - Objectives (CI authority).
-- **Authority:** IAM, organizations, audit, Integration OS, CI.
-- **Pending:** placement per C-01 (system/workspace settings), from the proposal.
-
-### S21. Connections (Google Workspace): RED
-
-- **Contract only:** `google-workspace-connection.md` §11, in its own PR.
-- **Missing:** a table, a migration, routes and an OAuth client.
-- **When built:** each capability's state is shown honestly (not connected, connected, expired,
-  revoked, insufficient scope).
-
-## 3. Component inventory and plan (spec deliverable 1; brief UI-1)
-
-| Spec zone / primitive | Exists today | Plan |
+| Surface | Handoff | Repository fit and gap |
 |---|---|---|
-| Global shell | `WorkspaceShell`, `ShellNav`/`ShellCrumb` (client leaf) | keep; regroup the registry after the proposal |
-| Context header | partly: the `EntityPage` header (`_loop-os`), `crm-record-*` CSS | one `SubjectHeader` (identity, state, context chain, actions) |
-| Context navigation | `SectionTabs` (`crm/section-tabs.tsx`, with `soon`), `CallGridNav` | one tabs primitive; `soon` renders as unavailable, never as a link |
-| Primary workspace, supporting rail | `EntityPage` sections; `ContextCard`/`ContextGroup`; operator `SideSummary` | one workspace and rail layout |
-| Context drawer | `EvidenceDrawer` (marketplace); `<details>` in `EntityPage` | one drawer that preserves the subject and restores state on close |
-| Activity item | `Timeline`, `TimelineItem`, `ActivityTypeBadge`, `ProvenanceDisplay` (`crm/timeline.tsx`); `loop-actv`/`loop-feed` CSS | one item bound to the `activity.v1` shape (category, identity state, provenance) |
-| States | `StateBadge`/`StateNote`/`NotKnown`/`ReadError` (`_loop-os/product-state.tsx`); `ShellPage`; `UnavailablePage`; `CrmLoadError`; `DbNotConfigured` (misused) | one state family: loading, empty, unknown, read error, not authorized, unavailable, superseded |
-| Attention | `AttentionRow`, `AttentionBanner`, `PersonalQueue` | one attention item for Needs You |
-| Status system | `StateBadge`, `StatusDot`, `ds-status-dot`, `crm-status`, `ps-badge`, `SeverityTag`, `ConfidencePill` | one semantic status scale; color carries meaning, not section |
-| Formatters | `_loop-os/format.ts` (`UNKNOWN_DISPLAY`, `moneyOrUnknown`, …) | keep as the only home (CLAUDE.md) |
+| Work | Preserve authority; same shell and grammar | GREEN. `/app/admin/work*`, `/app/employee/work*`. "Workflows" is `soon` |
+| Operations → CallGrid | Preserve authority, under Operations | GREEN. Operational surfaces (live calls, reconciliation, diagnostics) move to Operations; credentials go to settings (C-03). The Operations prefix is undecided |
+| Creator Administration | New or reconcile; partially ready | YELLOW. `TALENT_REPRESENTATION` relationships and the `CREATOR` capacity exist; no Operations → Creators surface; `/app/admin/creator-hub` is a "not built" catch-all |
+| Universal Search | Backend work required | RED for universal search. `/crm/search` covers intake, conversations and the workspace only |
+| Opportunities | Backend work required | RED. No authority; do not build fake permanent screens against legacy pipeline fields |
+| Campaigns | Backend work required | RED. "Campaign" today is only a CallGrid or traffic dimension |
+| Workspace administration | Workspace Organization: preserve and contextualize | GREEN. Team, Workspace, Settings, Audit, AI Employees, Integration OS, Objectives; placement per C-01 |
+| Connections (Google) | not in the handoff | RED. Contract only (`google-workspace-connection.md` §11, PR #279) |
 
-**Styling finding: two parallel vocabularies.**
-- `app/loop-os.css` (about 3,500 lines; `loop-*`, `ps-*`, `ent-*`, `cw-*`, `hl-*`);
-- `app/crm/design-system.css` (`.crm` tokens, `ds-*`), plus `crm.css` and five sprint-numbered CSS
-  files.
+## 4. Subject Display System and shared primitives (UI 0)
 
-CLAUDE.md forbids new CSS files and names the design-system tokens. **Decision for Charlie and Lexi:**
-which token set is canonical. UI-1 then converges on it without adding a third.
+**The Subject Display System, as the handoff defines it:**
+- **Card anatomy:**
+  1. canonical name;
+  2. canonical type and identity or lifecycle state;
+  3. contextual role or reason;
+  4. affiliation or relationship;
+  5. one meaningful current fact or attention state;
+  6. permission-aware navigation that preserves the context chain.
+- **Densities:** compact row, standard card, context card, featured block.
+- **Subjects:** Person, Company, Relationship, Workspace, Intake, Unresolved Activity.
 
-## 4. Route → operating area map (spec deliverable 2)
+**What the data supports for each subject:**
 
-| Area | Current routes | Target prefix |
+| Subject | Stable content available | Contextual content available | Missing |
+|---|---|---|---|
+| Person / Company | display name, type, establishment, supersession, archived | participant roles and relationships (`forParty`) | affiliation text ("Kona, Kai & Kaleo"), industry, opportunity counts, image |
+| Relationship | label, kind, state, participants | events (for "activity yesterday") | display-label vocabulary |
+| Workspace | organization | membership, permissions | — |
+| Intake | source, status, provenance | identity-resolution progress | a linking surface (decision open) |
+| Unresolved Activity | event and source provenance (`activity.v1`) | "identifier available" as a category, never the raw value | related-event grouping is limited: grouping by raw identifier is identity matching and is forbidden by the contract |
+
+**Visual rules to encode:**
+- photos never establish identity;
+- initials fallback;
+- roles are not Party types;
+- status colour is semantic;
+- "no activity found" differs from "no activity occurred";
+- a relationship card is its own subject.
+
+**Existing primitives to converge** (UI 0 locks the shell, record header, context navigation, status,
+drawers, activity items and subject display components):
+
+| Primitive | Exists today | Plan |
 |---|---|---|
-| Home | `/app` | `/app` |
-| CRM | `/crm`, `/crm/customers*`, `/crm/pipeline`, `/crm/inbox`, `/crm/conversations*`, `/crm/search`, `/crm/workflows*`, `/crm/parties*` (operator), `/crm/relationships*` | `/app/crm` (after the proposal) |
-| Work | `/app/admin/work*`, `/app/employee/work*`, `/app/admin/administration/work-types` | `/app/work` |
-| Intelligence | `/app/admin/headlines*`, `/app/admin/queue`, `/app/admin/cases/[id]`, `/app/admin/marketplace*` (analytical), `/app/admin/brain`, `/crm/intelligence`, `/crm/analytics`, `/crm/traffic`, `/crm/revenue`, `/crm/live/*`, Objectives (CI authority) | `/app/intelligence` |
-| Operations | CallGrid operational: `/app/admin/administration/diagnostics/callgrid`, live calls; Creators (none) | undecided (D1) |
-| Settings (not an area) | `/app/admin/administration/team`, `/crm/organizations*`, `/crm/settings*`, `/crm/setup`, `/crm/audit`, `/crm/ai-employees`, `/crm/integrations*` | from the proposal (C-01) |
-| Standalone | `/crm/login`, `/crm/forgot-password`, `/crm/reset-password`, `/crm/accept-invite`, `/crm/unauthorized` | PR 3 of the structure sequence |
-| Transitional | `/app/{admin,business,client,creator,employee}` redirects and catch-alls; `/app/creator/upload` (inert); `/app/admin/review` (demo harness) | retire in "Final" |
+| Global shell | `WorkspaceShell`, `ShellNav` (client leaf) | keep; restyle to the handoff |
+| Context header | partly: the `EntityPage` header; `crm-record-*` CSS | one subject header, used by the featured subject block |
+| Context navigation | `SectionTabs` (with `soon`), `CallGridNav` | one tabs primitive; unavailable tabs are never links |
+| Workspace and rail | `EntityPage` sections; `ContextCard`; operator `SideSummary` | one primary workspace with a supporting rail |
+| Context drawer | `EvidenceDrawer` (marketplace); `<details>` | one drawer; full-screen sheet on mobile |
+| Activity item | `Timeline`/`TimelineItem`/`ActivityTypeBadge`/`ProvenanceDisplay` | one item over `activity.v1`: truth type, collapsed story, expanded evidence |
+| States | `StateBadge`/`NotKnown`/`ReadError`, `ShellPage`, `UnavailablePage`, `CrmLoadError`, `DbNotConfigured` (misused) | one family: default, loading, empty, error, unresolved, unauthorized, unavailable, superseded, archived |
+| Status | `StateBadge`, `StatusDot`, `ds-status-dot`, `crm-status`, `ps-badge`, `SeverityTag`, `ConfidencePill` | one semantic scale (visuals: green for established or active; amber for unresolved or activation gated) |
+| Styling | two vocabularies: `loop-os.css` (`loop-*`, `ps-*`, `ent-*`, `cw-*`) and `crm/design-system.css` (`ds-*`), plus sprint CSS | converge on one token set; no new CSS file (CLAUDE.md). Token values come from the prototype |
 
-## 5. Data availability for Home and Activity (spec deliverable 3)
+**Findings on existing screens:**
+- Many CRM pages show "Database not configured" (`DbNotConfigured`) for **any** failed read.
+- The intake record's "AI Activity" tab uses the purple accent that the handoff's visual grammar and the
+  constitution rule out.
 
-| Home section | Source | Exists | Web-wired | Note |
-|---|---|---|---|---|
-| Needs You | `PersonalPriorityService.queueFor` (CI) | yes | yes (`/app/admin/queue`) | ADMIN + CI only |
-| | Work: next action, notifications, unassigned | yes | yes | |
-| | Brain `WAITING_FOR_YOU` (B5 `listMine`) | in review | no | after B5 merges |
-| | Pending invitations and access requests (IAM) | yes | partly (Home reads invitations) | |
-| What Changed | `ActivityService` organization lane | yes | **no** | "since last operated" has no marker |
-| Loop Noticed | `CaseWorkspaceService.attention`, headlines | yes | yes | |
-| My Work | `work` repositories | yes | yes | |
-| Operating Pulse | CallGrid `aggregateWindow`; intake `statusCounts`/`windowCounts`; the website analytics coverage | yes | yes | choose the metrics; filter by authority |
+## 5. Home and Activity data availability
 
-| Activity source (adapter) | Subjects | Web-wired |
+| Home section (handoff authority) | Source in code | Exists | Web-wired |
+|---|---|---|---|
+| Needs You: Decision Engine | CallGrid operational queue (`loadOperationalQueue`) | yes | yes (Intelligence) |
+| Needs You: CI | `PersonalPriorityService.queueFor` | yes | yes (`/app/admin/queue`, ADMIN) |
+| Needs You: Work | next action, notifications, unassigned work | yes | yes |
+| Needs You: Identity | `PartyRecordService.listEstablishmentQueue` | yes | operator page only |
+| Needs You: domain workflows | Brain `WAITING_FOR_YOU` (B5); invitations | B5 in review; invitations yes | no; partly |
+| What Changed | `ActivityService` organization lane | yes | **no**; there is no "last operated" marker |
+| Loop Noticed | `CaseWorkspaceService.attention`, headlines | yes | yes |
+| My Work | `work` repositories | yes | yes |
+| Operating Pulse | CallGrid aggregates; intake counts; website coverage | yes | yes (role filtering to decide) |
+
+| Activity adapter | Subjects | Web-wired |
 |---|---|---|
-| Interactions | ORGANIZATION, INTAKE_RECORD | via `crm/timeline.tsx`, not `ActivityService` |
+| Interactions | ORGANIZATION, INTAKE_RECORD | through `crm/timeline.tsx`, not `ActivityService` |
 | CallGrid calls | ORGANIZATION | no |
-| Observations (Decision Engine) | CASE | Case page timeline (its own section) |
-| Messages | INTAKE_RECORD | via CRM pages |
-| Audit | ORGANIZATION, INTAKE_RECORD | via CRM pages |
+| Observations | CASE | the Case page's own section |
+| Messages, Audit | INTAKE_RECORD (Audit also ORGANIZATION) | through CRM pages |
 | Work | WORK_ITEM | Work pages |
-| Brain events | ORGANIZATION, CASE (ADMIN workspace) | no |
+| Brain events | ORGANIZATION, CASE (ADMIN workspace; B5) | no |
 | **Party, Company, Relationship** | **none** | — |
 
-## 6. Canonical read-model gaps (spec deliverable 4)
+## 6. Read-model gaps
 
-| Object | Exists | Missing (backend) |
-|---|---|---|
-| Person | `PartyRecordService` (list, record, posture, linked intake records); Relationships for a Party | a Person view permission for non-operators; a PARTY Activity subject; a Party reference on Work; opportunity and campaign context; any CI subject for a Party; a Party-level communication channel |
-| Company | same as Person (COMPANY) | same as Person |
-| Relationship | read service, write service, events, participants | a RELATIONSHIP Activity adapter over `CrmRelationshipEvent`; a CI subject; a list filter by kind |
-| Opportunity | nothing | the whole authority (PD-F-11) |
-| Campaign | nothing (CRM) | the whole authority (PD-F-12); composition with CallGrid, deliverables and accounting |
+| Object | Gap surfaced by the handoff's screens |
+|---|---|
+| Person | a list projection with relationship context; contact availability; a PARTY Activity subject; a Party reference on Work; a CI subject; a Party-level communication channel; a People permission for ordinary CRM users |
+| Company | the same, plus an industry or commercial-context field |
+| Relationship | a RELATIONSHIP Activity adapter over `CrmRelationshipEvent`; display labels for kinds and roles; internal team participation (§11, decision 5); a CI subject |
+| Opportunity | the entire authority |
+| Campaign | the entire CRM authority, and composition with execution owners |
+| Search | a governed universal search service |
+| Home | a per-user "last operated" marker; the Needs You projection |
 
-## 7. Proposed pull-request sequence (spec deliverable 5)
+## 7. Pull-request sequence
 
-Each PR comes from fresh `main`, is not stacked, and is a draft that Matt merges. Every one keeps:
-- server-side guards;
-- no fabricated data;
-- honest empty, unknown and error states;
-- a production build and a client-bundle check.
+This follows the handoff's Immediate Delivery Sequence:
+1. lock primitives and the Subject Display System;
+2. map every screen;
+3. build the ready CRM slice;
+4. then Activity and Home;
+5. then the capabilities that need backend work.
 
-| Brief | Spec | PR | Depends on | Acceptance checks |
+**Every PR:**
+- comes from fresh `main`, as a draft that Matt merges;
+- completes one screen-map row;
+- covers default, loading, empty, error, unresolved and unauthorized states;
+- is verified on desktop, tablet and mobile;
+- passes a production build and a client-bundle check;
+- keeps the temporary screens until its replacement covers their workflows.
+
+| Order | Handoff slice | Matt's brief | Scope | Depends on |
 |---|---|---|---|---|
-| UI-1 | UI 0 (+ part of UI 1) | Shell and primitives: one state family, subject header, tabs, drawer, activity item, attention item; the `DbNotConfigured` fix; Home's static status words removed | the latest Charlie/Lexi artifact; the token-set decision | no new CSS file; every state rendered in a test; no client component reaches the database; `one-loop-shell` unchanged unless regrouping is approved |
-| UI-1b | UI 1 | Loop Home, five sections, from §5 | UI-1 | each section names its source; the CI sections stay ADMIN-only; "What Changed" states its window; no number without a row behind it |
-| UI-2 | (new) | Subject Display System | **the artifact that defines it** | held |
-| UI-3a | UI 3 / UI 5 | People list and Person record (read-only), at the reserved route | UI-1; the Person-permission decision; the route proposal for `/app/crm/*` | 0 Parties renders empty and never falls back to Intake Records; posture shown as posture; the Intake → Party fence unchanged |
-| UI-3b | UI 6 | Companies and Company | UI-3a | Company visibly distinct from Workspace |
-| UI-3c | UI 6 | Relationships and Relationship on the record grammar (replacing the operator pages) | UI-1 | capabilities from the server; `notFound` for unauthorized; no frontend health score |
-| UI-4a | UI 4 | Activity on Organization, Intake Record, Case and Work via `ActivityService` | UI-1 | the item shows its category, identity state and provenance; unresolved and anonymous stay visible |
-| UI-4b | UI 4 | PARTY and RELATIONSHIP Activity subjects (**backend**) plus their timelines | UI-4a; a reviewed adapter | the adapter rechecks each item; no Person is created for an event |
-| UI-4c | UI 9 | Intelligence composition (Ambient, Actionable, Governed) where CI authority exists | UI-1 | status and evidence count on every Finding; approval stays with its owner |
-| UI-5 | UI 10 (part) | Brain product states on the B5 API | **B5 merged** | every state rendered; "not enabled" today; no provider or model words; no percentage |
-| — | — | Authorization fix: `/app/admin/marketplace` enforces `intelligence:view` | none | the shell test's exception removed |
+| 1 | UI 0 | UI-1, UI-2 | shell restyle, subject header, tabs, drawer, activity item, state family, **Subject Display System**; the `DbNotConfigured` fix; Home's fixed status words removed | token values (prototype); the token-set choice |
+| 2 | UI 2 | UI-1 | five-area global navigation | the settings entry point; the route-approval decision; updating the pinned shell test |
+| 3 | UI 3 + UI 5 | UI-3 | People and Person at `/app/crm/people` (read-only first, then Establish) | the People permission; the list projection; the unresolved-row decision |
+| 4 | UI 6 | UI-3 | Companies and Company; Relationships and Relationship (replacing the operator pages) | display labels; the internal-participant decision |
+| 5 | UI 4 | UI-4 | Activity through `ActivityService` on the existing subjects; then PARTY and RELATIONSHIP adapters (backend) | reviewed adapters |
+| 6 | UI 1 | UI-1 (Home) | Loop Home, five sections | the "last operated" marker; the Needs You projection |
+| 7 | UI 9 | UI-4 | Intelligence composition | — |
+| 8 | UI 10 | UI-5 | Brain states and Case Explanation (activation gated) | B5 merged; the result store; controls workflow; decisions 6 and 8 |
+| — | — | — | `/app/admin/marketplace` enforces `intelligence:view` | none |
+| later | UI 7, UI 8 | — | Opportunity, Campaign | their authorities (PD-F-11, PD-F-12) |
 
-## 8. Unresolved decisions
+## 8. What changed from the earlier draft
 
-1. **Charlie and Lexi's latest artifact,** including the Subject Display System. It is missing from the
-   repository, and **UI-1 to UI-5 are held until it arrives.**
-2. **The route-transition proposal:** Operations prefix, settings placement, CRM move (D1, C-01).
-3. **The canonical CSS token set** (§3).
-4. **A People and Companies view permission** for ordinary CRM users (S4).
-5. **Home:** the "What Changed" window, the Pulse metrics, and non-ADMIN Needs You (S2).
-6. **Naming:** the executive "Brain" page versus the Brain runtime (S15).
-7. **Where Brain status and questions live in the shell** (S16).
-8. **Opportunity and Campaign authorities** (PD-F-11, PD-F-12).
-9. **Intake → Party web linking** (open; unchanged here).
+The earlier draft was built on the v1.0 architecture document. Reading the handoff changed the
+following.
+
+**Source and readiness:**
+1. **Source of truth.** The handoff (2026-09-16) now controls, and v1.0 remains the underlying
+   architecture. The claim that the latest artifact was missing is withdrawn, and so is the hold on
+   UI-1 to UI-5 "until the artifact arrives".
+2. **The Subject Display System is defined** (anatomy, densities, subjects, rules). It was listed as
+   undefined, and is now §4 and part of the first PR.
+3. **Readiness.** The handoff's classification is adopted beside the repository-fit column:
+   - Person, Company and Relationship are "ready" by the handoff, with their remaining data gaps listed
+     as dependencies;
+   - Creator Administration moves from RED to "partially ready" / YELLOW;
+   - Search is "backend work required".
+
+**Screens:**
+
+4. **Row format.** Rows now use the handoff's Screen Implementation Contract fields, including the
+   Charlie and Lexi screen reference and responsive behaviour.
+5. **The first slice** is the handoff's shell, People, Person and Relationship, not Home.
+6. **New gaps from the visuals:**
+   - relationship context and opportunity counts in the People list;
+   - contact availability on a Person;
+   - Company industry;
+   - kind and role display labels;
+   - internal team members as Relationship participants;
+   - the Needs You counter in the top bar;
+   - Person Email / Call / Message actions without a Party channel.
+7. **Brain.** Case Explanation sits under Intelligence, with explicit "activation gated" and
+   "design specimen" states. The handoff's execution-split request and its provider-name display are
+   now recorded as decisions.
+8. **Needs You** includes Identity (the establishment queue) as a source, as the handoff specifies.
+
+**Routes and sequence:**
+
+9. **Routes.** The handoff gives route mapping to engineering. This conflicts with D1, which gives the
+   route-transition proposal to Charlie and Lexi, and is recorded as a decision rather than as
+   "waiting for a proposal".
+10. **Sequence.** It now follows the handoff's delivery order (primitives, CRM slice, Activity, Home).
+
+## 9. Findings carried from the repository
+
+- `DbNotConfigured` is shown for any failed read, on 16 CRM pages.
+- `AdminHome` shows fixed status words for systems it does not read.
+- `/app/admin/marketplace` enforces less than its navigation item states.
+- No web page uses `ActivityService`.
+- Two CSS vocabularies exist.
+- The "AI Activity" tab uses a purple accent.
+- There is no route-level error or not-found page.
+
+## 10. Temporary engineering screens
+
+`/crm/parties` and `/crm/relationships` stay available for verification only. Each is retired only when
+its redesigned replacement covers the same governed actions (create, establish, end, reactivate, void,
+participants) and their non-default states (handoff, Next Actions 6).
+
+## 11. Unresolved decisions (specific)
+
+1. **Route approval.** The handoff says engineering owns the route-to-contract mapping; the locked D1
+   says Charlie and Lexi own the route-transition proposal. Who proposes, and who approves, the
+   `/app/crm/*`, `/app/work`, `/app/intelligence` and Operations moves? The Operations prefix is also
+   still unset.
+2. **Settings entry point.** The visuals show only the five areas. Where do Team, Workspace, Settings,
+   Audit, AI Employees and Integrations appear (C-01)?
+3. **People and Companies permission.** Today only `identityResolution:view` opens them, which ordinary
+   CRM roles lack.
+4. **Unresolved rows in People.** The People visual includes an "Identity review required" row; the text
+   says People holds established Parties (C-04). Are unestablished PERSON Parties shown in the list
+   under the State filter, or only in a separate review queue?
+5. **Relationship vocabulary and team participants.**
+   - Which display labels map to governed kinds and roles? For example, "Managed Creator" against
+     `TALENT_REPRESENTATION`, and "Commercial lead" or "Talent lead", which exist in no role vocabulary.
+   - Are internal team members Relationship participants (as Parties), or shown from the accountable
+     user?
+6. **Provider names in the Brain UI.** The handoff's output-contract rail shows "Anthropic + OpenAI
+   boundaries"; the run brief asked for provider-neutral Brain wording.
+7. **"Brain" naming.** The deterministic executive page `/app/admin/brain` versus the governed Brain.
+8. **Brain execution split** (handoff, Next Actions 5). B3 chose AWS for both interactive and durable
+   work. The handoff allows a synchronous path for requests that fit the host limit. Confirm.
+9. **Person communication actions.** Email / Call / Message have no Party-level channel. Hide them,
+   show them as unavailable, or route them through linked intake records (which touches the Intake
+   fence)?
+10. **Tokens and responsive layouts.** They exist only in the interactive prototype, whose link is not
+    in the PDF. Share the prototype link.
+11. **Opportunity and Campaign authorities** (PD-F-11, PD-F-12). The **Intake → Party web-linking**
+    decision also remains open.
