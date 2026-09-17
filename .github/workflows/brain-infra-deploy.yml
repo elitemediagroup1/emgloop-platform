@@ -1,0 +1,83 @@
+# Brain execution environment (B6) -- DEPLOY. Manual, approved, staging only.
+#
+# Deploys infra/brain into the loop-brain-staging account with short-lived credentials
+# from GitHub's OIDC provider. There are no AWS access keys anywhere.
+#
+# It cannot run until Matt has, in loop-brain-staging:
+#   1. created the GitHub OIDC identity provider and the deploy role, and bootstrapped CDK
+#      (docs/runbooks/brain-aws-staging.md, parts 3 and 4);
+#   2. set the `brain-staging` GitHub environment, with Matt as required reviewer, and
+#      the environment variable BRAIN_STAGING_DEPLOY_ROLE_ARN. BRAIN_STAGING_ALARM_EMAIL
+#      and BRAIN_STAGING_BUDGET_EMAIL are optional environment variables; empty means
+#      no alarm subscription and no budget.
+# Choosing `diff` shows the change and creates nothing.
+
+name: brain-infra-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'diff (show the change) or deploy (apply it)'
+        required: true
+        type: choice
+        options: [diff, deploy]
+      confirm:
+        description: 'For deploy, type exactly: deploy loop-brain-staging'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    environment: brain-staging
+    env:
+      DATABASE_URL: 'postgresql://ci:ci@localhost:5432/ci?schema=public'
+      ALARM_EMAIL: ${{ vars.BRAIN_STAGING_ALARM_EMAIL }}
+      BUDGET_EMAIL: ${{ vars.BRAIN_STAGING_BUDGET_EMAIL }}
+    steps:
+      - name: Confirm
+        if: ${{ inputs.action == 'deploy' && inputs.confirm != 'deploy loop-brain-staging' }}
+        run: |
+          echo "Deploy requires the confirmation text: deploy loop-brain-staging"
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install
+        run: |
+          npm install --no-audit --no-fund
+          npm --prefix infra/brain install --no-audit --no-fund
+
+      - name: Test before touching AWS
+        run: |
+          npm run -w @emgloop/brain-executor test
+          npm --prefix infra/brain test
+
+      - name: AWS credentials (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.BRAIN_STAGING_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: brain-infra-${{ github.run_id }}
+
+      - name: Diff
+        working-directory: infra/brain
+        run: |
+          npm run bundle
+          npx cdk diff --no-notices -c alarmEmail="$ALARM_EMAIL" -c budgetEmail="$BUDGET_EMAIL" LoopBrain-staging
+
+      - name: Deploy
+        if: ${{ inputs.action == 'deploy' }}
+        working-directory: infra/brain
+        run: npx cdk deploy --no-notices --require-approval never -c alarmEmail="$ALARM_EMAIL" -c budgetEmail="$BUDGET_EMAIL" LoopBrain-staging

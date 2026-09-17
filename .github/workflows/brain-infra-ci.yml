@@ -1,0 +1,66 @@
+# Brain execution environment (B6) -- CI. No AWS credentials, no Neon, no provider.
+#
+# Builds and tests the second deployable on every pull request that touches it or the
+# contracts it runs on:
+#   - the runtime package (apps/brain-executor): typecheck + tests, dark end to end
+#   - the infrastructure project (infra/brain): typecheck + template, adapter and bundle
+#     tests (the bundle test proves no provider client ships), then `cdk synth`
+# Nothing here deploys. Deployment is brain-infra-deploy.yml, manual and approved.
+
+name: brain-infra-ci
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/brain/**'
+      - 'apps/brain-executor/**'
+      - 'packages/shared/src/ai/**'
+      - 'packages/database/src/services/brain/**'
+      - 'packages/database/src/repositories/brain/**'
+      - '.github/workflows/brain-infra-*.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  brain:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: 'postgresql://ci:ci@localhost:5432/ci?schema=public'
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      # Also runs `prisma generate` (the database package's postinstall), which fetches the
+      # rhel-openssl-3.0.x engine the Lambda bundles carry.
+      - name: Install workspace dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck (@emgloop/brain-executor)
+        run: npm run -w @emgloop/brain-executor typecheck
+
+      - name: Test (@emgloop/brain-executor)
+        run: npm run -w @emgloop/brain-executor test
+
+      - name: Install infrastructure dependencies
+        working-directory: infra/brain
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck (infra/brain)
+        working-directory: infra/brain
+        run: npm run typecheck
+
+      - name: Test (infra/brain)
+        working-directory: infra/brain
+        run: npm test
+
+      - name: Synthesize (creates nothing)
+        working-directory: infra/brain
+        run: npm run synth
