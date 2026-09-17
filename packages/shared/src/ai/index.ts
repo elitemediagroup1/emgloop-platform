@@ -23,6 +23,8 @@ export * from './brain-dispatch';
 // B4: how a person answers a waiting job, and the stored control log's contract.
 export * from './brain-wait';
 export * from './ai-controls';
+// B5: the structured question a durable job may ask, and its reply.
+export * from './brain-question';
 
 // The business day a usage row is budgeted against. The organization's own
 // reporting zone, read in exactly one place and never used for display.
