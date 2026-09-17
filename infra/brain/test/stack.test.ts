@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 
-import { BRAIN_PARAMETER_DEFAULTS, BrainStack, type BrainStackProps } from '../lib/brain-stack';
+import { buildBrainApp } from '../lib/app';
+import { BRAIN_PARAMETER_DEFAULTS } from '../lib/brain-stack';
 import { BRAIN_FUNCTIONS } from '../scripts/bundle';
 
 function stubAssets(): string {
@@ -20,9 +20,10 @@ function stubAssets(): string {
   return dir;
 }
 
-function synth(over: Partial<BrainStackProps> = {}): Template {
-  const app = new App();
-  const stack = new BrainStack(app, 'LoopBrain-staging', { stage: 'staging', assetsDir: stubAssets(), env: { account: '111111111111', region: 'us-east-1' }, ...over });
+// The same app the CLI builds: cdk.json's context (stage and feature flags) and the pinned
+// target. Extra context is what an operator would pass with --context.
+function synth(context: Record<string, unknown> = {}): Template {
+  const { stack } = buildBrainApp({ assetsDir: stubAssets(), context });
   return Template.fromStack(stack);
 }
 
@@ -176,9 +177,11 @@ test('least privilege: no wildcard actions or resources, and each role holds onl
   assert.ok(!actionsOf(roleStatements('authorizerrole')).some((a) => a.startsWith('secretsmanager:') || a.startsWith('sqs:')), 'the authorizer has no data access');
   // Secrets are encrypted with the data key; roles may decrypt only through Secrets Manager.
   const dataKey = ofType('AWS::KMS::Key').find(([, r]) => !r.Properties.KeySpec)![1];
+  // The recommended flags merge these into one statement; what matters is who, and how.
   const decrypts = (dataKey.Properties.KeyPolicy.Statement as any[]).filter((st) => JSON.stringify(st.Action).includes('kms:Decrypt') && JSON.stringify(st.Principal).includes('role'));
-  assert.ok(decrypts.length >= 3);
-  for (const st of decrypts) assert.match(JSON.stringify(st.Condition), /secretsmanager/, 'decrypt only via Secrets Manager');
+  const decryptingRoles = decrypts.flatMap((st) => [st.Principal.AWS].flat().map((p: any) => String(p['Fn::GetAtt']?.[0]).replace(/[0-9A-F]{8}$/, ''))).sort();
+  assert.deepEqual(decryptingRoles, ['dispatcherrole', 'sweeperrole', 'workerdurablerole', 'workerinteractiverole'], 'the authorizer cannot decrypt');
+  for (const st of decrypts) assert.deepEqual(st.Condition, { StringEquals: { 'kms:ViaService': 'secretsmanager.us-east-1.amazonaws.com' } }, 'decrypt only via Secrets Manager');
 });
 
 test('no role can read a provider secret in B6, and each role reads only its own database secret', () => {
@@ -195,7 +198,7 @@ test('no role can read a provider secret in B6, and each role reads only its own
 });
 
 test('the budget and alarm notifications appear only when an address is given', () => {
-  const withEmail = synth({ budgetEmail: 'ops@example.test', alarmEmail: 'ops@example.test', monthlyBudgetUsd: 30 });
+  const withEmail = synth({ budgetEmail: 'ops@example.test', alarmEmail: 'ops@example.test', monthlyBudgetUsd: '30' });
   withEmail.hasResourceProperties('AWS::Budgets::Budget', { Budget: { BudgetLimit: { Amount: 30, Unit: 'USD' }, TimeUnit: 'MONTHLY' } });
   withEmail.resourceCountIs('AWS::SNS::Subscription', 1);
   template.resourceCountIs('AWS::SNS::Subscription', 0);
