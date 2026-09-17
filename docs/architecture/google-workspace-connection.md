@@ -537,20 +537,26 @@ repository file, and nobody asks for it.
 `googleWorkspace` has its own grant table, `GOOGLE_WORKSPACE_GRANTS`, like `identityResolution`,
 with no READ_ONLY fallback:
 
-| Role | view (my connection) | update (connect, remove, disconnect: my own) | manage (another member's) |
-|---|---|---|---|
-| OWNER, ADMIN | yes | yes | yes |
-| MANAGER, EMPLOYEE, READ_ONLY | yes | yes | no |
-| AI_EMPLOYEE, unknown roles | no | no | no |
+| Role | view (my connection) | update (connect, remove, disconnect: my own) |
+|---|---|---|
+| OWNER, ADMIN, MANAGER, EMPLOYEE, READ_ONLY | yes | yes |
+| AI_EMPLOYEE, unknown roles | no | no |
 
-- **AI Employees:** `can()` and `canEach()` deny `AI_EMPLOYEE` whatever a Permission row says.
-- **`manage` is literal:** it does not imply the other actions.
-- **Offboarding is not a separate permission.** Disabling or removing a member
+- **Every action is about one's own connection.** The organization and the person come from the
+  signed session, so `view` and `update` cannot reach anybody else's row whoever holds them.
+- **There is no authority over another member's connection, for any role.** A `manage` action existed
+  here until 2026-09-17 — granted to OWNER and ADMIN, called by nothing — and was removed. An unused
+  administrative action beside somebody's mailbox is what a later feature grows into, and no comment
+  prevents that; deleting it costs nothing today.
+- **Offboarding is a different boundary, and it is unchanged.** Disabling or removing a member
   (`IamRepository.disableMember` / `removeMember`, under `users:update` / `users:delete`) revokes the
-  member's connection in the same transaction. The Team actions ask Google to revoke once that has
-  committed.
-- **No admin screen acts on another member's connection yet.** `manage` is granted, but nothing
-  offers it.
+  member's connection in the same transaction, and the Team actions ask Google to revoke once that has
+  committed. Ending somebody's access to Loop is membership administration; reaching into the Google
+  account of somebody who still works here is not, and the two must not share a permission.
+- **If an administrative act is ever genuinely needed** — forced credential revocation outside
+  offboarding, say — it gets its own action, named for that operation, with its own audit surface.
+  Never a generic `manage` that can be widened later.
+- **AI Employees:** `can()` and `canEach()` deny `AI_EMPLOYEE` whatever a Permission row says.
 - **Brain roles:** the restricted Brain database roles hold no privilege on either table (checked
   on PostgreSQL 18).
 
@@ -587,7 +593,9 @@ with no READ_ONLY fallback:
 1. **Matt:** merge; dispatch the migration; create the OAuth client and set the Netlify variables
    (runbook §1–§3); connect as Matt and Charlie (runbook §4).
 2. **The first read** (Calendar, §11.8), with its own review; then Gmail and Drive references.
-3. **An admin view** of members' connection states, and an admin disconnect (`manage`), if wanted.
+3. **An admin view** of members' connection states (counts and status only, never content), if
+   wanted. Any act on another member's connection would need its own narrowly named authority — see
+   §12.4; there is deliberately no generic one.
 4. **A UI** for the per-organization domain restriction, if any organization needs one.
 5. **Google verification and publishing** (runbook §6): brand, sensitive and restricted-scope
    review, CASA assessment, annual reassessment.

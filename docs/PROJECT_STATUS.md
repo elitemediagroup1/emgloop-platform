@@ -1683,8 +1683,9 @@ _Last updated: 2026-09-17._ Built on `main` `e15c65c`.
   - Accepting an invitation lands on `/app/onboarding/google`, which is optional: Continue or Skip.
   - Home → Connections (`/app/connections`) is available any time.
 - **IAM:** a new `googleWorkspace` resource with its own grant table.
-  - Every human role has view and update on its own connection.
-  - OWNER and ADMIN also have `manage`.
+  - Every human role has view and update on **its own** connection, and nothing else.
+  - **No role holds authority over another member's connection** — the unused `manage` action was
+    removed on 2026-09-17; ending someone's access stays `users:update` / `users:delete`.
   - AI Employees are always denied.
 - **Offboarding:** disabling or removing a member revokes their connection in the same transaction,
   and Google is asked to revoke after commit.

@@ -71,7 +71,7 @@ export interface GoogleOAuthPort {
   ): Promise<GoogleIdTokenResult>;
 }
 
-export type GoogleAuthority = 'view' | 'update' | 'manage';
+export type GoogleAuthority = 'view' | 'update';
 
 export interface GoogleWorkspaceServiceDeps {
   /** Null when this deployment has no Google client or token key: every connect is refused as NOT_CONFIGURED. */

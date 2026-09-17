@@ -729,10 +729,10 @@ test('nobody reaches another organization’s connection or attempts', async () 
   assert.equal(connection(w, alice).status, 'CONNECTED');
 });
 
-test('every human role connects its own account; only OWNER and ADMIN manage others; an AI Employee never holds one', async () => {
+test('every human role connects its own account, nobody holds authority over another person’s, and an AI Employee never holds one', async () => {
   assert.deepEqual({ ...GOOGLE_WORKSPACE_GRANTS }, {
-    OWNER: ['view', 'update', 'manage'],
-    ADMIN: ['view', 'update', 'manage'],
+    OWNER: ['view', 'update'],
+    ADMIN: ['view', 'update'],
     MANAGER: ['view', 'update'],
     EMPLOYEE: ['view', 'update'],
     READ_ONLY: ['view', 'update'],
@@ -741,11 +741,13 @@ test('every human role connects its own account; only OWNER and ADMIN manage oth
   for (const action of ['view', 'create', 'update', 'delete', 'manage', 'approve'] as const) {
     assert.equal(matrixAllows('AI_EMPLOYEE', 'googleWorkspace', action), false, action);
     assert.equal(matrixAllows('SOMETHING_NEW', 'googleWorkspace', action), false, `unknown role: ${action}`);
-    for (const role of ['MANAGER', 'EMPLOYEE', 'READ_ONLY']) {
+    // No role -- not even OWNER -- holds anything beyond view and update on one's OWN connection.
+    for (const role of ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']) {
       assert.equal(matrixAllows(role, 'googleWorkspace', action), action === 'view' || action === 'update', `${role} ${action}`);
     }
   }
-  assert.equal(matrixAllows('OWNER', 'googleWorkspace', 'delete'), false, 'manage is literal here');
+  assert.equal(matrixAllows('OWNER', 'googleWorkspace', 'manage'), false, 'there is no authority over another member’s Google connection');
+  assert.equal(matrixAllows('ADMIN', 'googleWorkspace', 'manage'), false, 'ending someone’s access is users:update / users:delete, a different boundary');
 
   const w = world();
   const robot = await person(w, ORG_A, 'AI_EMPLOYEE');
