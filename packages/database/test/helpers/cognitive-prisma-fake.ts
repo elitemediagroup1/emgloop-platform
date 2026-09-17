@@ -13,6 +13,19 @@ type Row = Record<string, any>;
 
 // Delegates that carry a @@unique constraint (org-scoped composite, or global).
 const UNIQUE_KEYS: Record<string, string[]> = {
+  // Daily Loop work state (DL-1). Every key is USER-FIRST as well as org-scoped: the same
+  // provider thread read for two people is two rows, and one person's row is never the other's.
+  workSourceCursor: ['organizationId', 'userId', 'source'],
+  workCorrespondent: ['organizationId', 'userId', 'addressHash'],
+  workThread: ['organizationId', 'userId', 'provider', 'threadId'],
+  workMessage: ['organizationId', 'userId', 'provider', 'messageId'],
+  workEvent: ['organizationId', 'userId', 'provider', 'eventId'],
+  workDocument: ['organizationId', 'userId', 'provider', 'fileId'],
+  workItem: ['organizationId', 'userId', 'recurrenceKey'],
+  workItemObservation: ['itemId', 'sequence'],
+  workBrief: ['organizationId', 'userId', 'localDate', 'version'],
+  employeeWorkPreferences: ['organizationId', 'userId'],
+  workRetentionOverride: ['organizationId', 'category'],
   cognitiveIdentity: ['organizationId', 'entityType', 'canonicalKey'],
   memoryEvent: ['organizationId', 'sourceSystem', 'sourceEventId'],
   activeStateRecord: ['organizationId', 'identityId', 'domain', 'stateKey'],
@@ -87,6 +100,28 @@ const UNIQUE_KEYS: Record<string, string[]> = {
  * schema.prisma; if one drifts, the fake is wrong and should be corrected here.
  */
 const COLUMN_DEFAULTS: Record<string, Row> = {
+  workSourceCursor: { cursor: null, cursorKind: null, lastSyncStartedAt: null, lastSyncCompletedAt: null, lastFailureClass: null, backoffUntil: null },
+  workSyncRun: { finishedAt: null, outcome: null, examined: null, written: null, failureClass: null },
+  workCorrespondent: { displayName: null, domain: null, inboundCount: 0, outboundCount: 0, suppressed: false },
+  workThread: {
+    subject: null, participantHashes: [], messageCount: 0, firstMessageAt: null, lastMessageAt: null,
+    lastDirection: null, lastMessageId: null, labels: [], derivedClass: null, classRuleVersion: null, medianReplyMinutes: null,
+  },
+  workMessage: { fromHash: null, toHashes: [], ccHashes: [], subject: null, headerMessageId: null, inReplyTo: null, labels: [] },
+  workEvent: {
+    recurringEventId: null, startsAt: null, endsAt: null, allDay: false, status: null, organizerHash: null,
+    attendeeCount: null, externalAttendeeCount: null, hasConference: false, providerUpdatedAt: null,
+  },
+  workDocument: { name: null, mimeType: null, ownerHashes: [], modifiedAt: null, webViewLink: null },
+  workItem: {
+    title: null, evidence: {}, evidenceQuote: null, evidenceQuoteRef: null, detectionCount: 1, state: 'OPEN',
+    stateChangedAt: null, snoozedUntil: null, resolvedAt: null, outcome: null,
+  },
+  workItemObservation: { actorUserId: null, reason: null, previousState: null, newState: null },
+  workBrief: { version: 1, coverage: {}, counts: {}, items: [], headline: null },
+  workFeedback: { reason: null },
+  employeeWorkPreferences: { timeZone: 'UTC', dayStartMinutes: 480, quietStartMinutes: null, quietEndMinutes: null, briefEnabled: true, sources: {} },
+  workRetentionOverride: { days: null, reason: null, setByUserId: null },
   // Google Workspace connection: the array defaults and every nullable column a row is
   // born with, so a read here sees what Postgres returns.
   googleConnection: {
@@ -766,6 +801,20 @@ export interface CognitivePrismaFake {
  * surface is requested explicitly by the suites that drive it.
  */
 export const OPTIONAL_DELEGATES = [
+  // Daily Loop work state (DL-1).
+  'workSourceCursor',
+  'workSyncRun',
+  'workCorrespondent',
+  'workThread',
+  'workMessage',
+  'workEvent',
+  'workDocument',
+  'workItem',
+  'workItemObservation',
+  'workBrief',
+  'workFeedback',
+  'employeeWorkPreferences',
+  'workRetentionOverride',
   // Read for an organization's Google domain restriction.
   'organization',
   'customer',

@@ -1,0 +1,220 @@
+// Daily Loop work state -- the vocabularies, the retention policy and the sensitivity map.
+//
+// Architecture: docs/architecture/daily-loop-employee-intelligence.md, slice DL-1 (§26.7).
+// The RULES that read these words (who is waiting, what went quiet) arrive in DL-8 and
+// belong in this file too; DL-1 defines only what the words are.
+//
+// EVERY VOCABULARY IS CLOSED, AND THE DATABASE AGREES. Each list below is mirrored by a
+// CHECK constraint in the DL-1 migration, so a value this file does not know cannot be
+// stored even by a caller that bypassed the contract -- the discipline google_connections
+// already uses for its scopes.
+//
+// WHAT IS DELIBERATELY ABSENT. There is no class for "opportunity" and none for "why this
+// matters": those need message content Loop does not read (§4.3 Stage 2), and a vocabulary
+// that names them now would invite a metadata-derived guess to fill them. Stage 2 adds its
+// words in the migration that earns them.
+//
+// PURE. No clock, no I/O, no environment.
+
+// --- Sources and providers ----------------------------------------------------------------
+
+/** The three Google capabilities Daily Loop reads from, one cursor each. */
+export const WORK_SOURCES = ['GMAIL', 'CALENDAR', 'DRIVE'] as const;
+export type WorkSource = (typeof WORK_SOURCES)[number];
+
+/** The provider a fact came from. One today; the work-state model is provider-neutral by design. */
+export const WORK_PROVIDERS = ['GOOGLE'] as const;
+export type WorkProvider = (typeof WORK_PROVIDERS)[number];
+
+export function isWorkSource(value: unknown): value is WorkSource {
+  return typeof value === 'string' && (WORK_SOURCES as readonly string[]).includes(value);
+}
+
+// --- What a thread or an item is about ------------------------------------------------------
+
+/**
+ * The four classes metadata can establish honestly (§6.1).
+ *
+ *   NEEDS_YOU         someone wrote, you have not answered.
+ *   WAITING_ON_THEM   you wrote last; no reply since.
+ *   GONE_QUIET        a thread that used to move and stopped.
+ *   FYI               you are on it, not addressed.
+ */
+export const WORK_CLASSES = ['NEEDS_YOU', 'WAITING_ON_THEM', 'GONE_QUIET', 'FYI'] as const;
+export type WorkClass = (typeof WORK_CLASSES)[number];
+
+/** What a work item is about. A class is never a subject, and a subject is never a party. */
+export const WORK_SUBJECT_KINDS = ['THREAD', 'EVENT', 'DOCUMENT', 'CORRESPONDENT'] as const;
+export type WorkSubjectKind = (typeof WORK_SUBJECT_KINDS)[number];
+
+/** Which way a message went, from the connected account's point of view. */
+export const WORK_DIRECTIONS = ['INBOUND', 'OUTBOUND'] as const;
+export type WorkDirection = (typeof WORK_DIRECTIONS)[number];
+
+// --- Provenance: four kinds of statement, never merged (§12.1) -------------------------------
+
+/**
+ *   SOURCE_FACT  a provider reported it (a message exists, a meeting moved).
+ *   DERIVED      a named, versioned rule projected it from facts.
+ *   INFERRED     a model read content and concluded it. Stage 2; a PROPOSAL, never state.
+ *   CONFIRMED    a person accepted or corrected it. Outranks the three above.
+ */
+export const WORK_PROVENANCE_KINDS = ['SOURCE_FACT', 'DERIVED', 'INFERRED', 'CONFIRMED'] as const;
+export type WorkProvenanceKind = (typeof WORK_PROVENANCE_KINDS)[number];
+
+/**
+ * What produced a work item. RULE is all DL-1 can write; MODEL exists so a Stage 2/3 item is
+ * the same row with a different producer rather than a second queue (§14.4 seam 2).
+ */
+export const WORK_PRODUCER_KINDS = ['RULE', 'MODEL'] as const;
+export type WorkProducerKind = (typeof WORK_PRODUCER_KINDS)[number];
+
+// --- Item lifecycle ---------------------------------------------------------------------------
+
+/** Where an item sits for the person who owns it. */
+export const WORK_ITEM_STATES = ['OPEN', 'SNOOZED', 'RESOLVED', 'DISMISSED'] as const;
+export type WorkItemState = (typeof WORK_ITEM_STATES)[number];
+
+/** The states that close an item. `resolvedAt` and `outcome` exist exactly for these. */
+export const WORK_ITEM_CLOSED_STATES: readonly WorkItemState[] = Object.freeze(['RESOLVED', 'DISMISSED']);
+
+/**
+ * How an item ended. Deliberately the shape the Decision Engine already uses: keeping
+ * "Loop should not have raised it" separate from "real, and I dealt with it" is the only
+ * feedback the rules ever get about their own accuracy (ENGINEERING_PRINCIPLES Rule 4).
+ */
+export const WORK_ITEM_OUTCOMES = ['HANDLED', 'NOT_MINE', 'NO_ACTION_NEEDED', 'FALSE_POSITIVE', 'SUPERSEDED', 'EXPIRED'] as const;
+export type WorkItemOutcome = (typeof WORK_ITEM_OUTCOMES)[number];
+
+/** The append-only log of what happened to an item. */
+export const WORK_OBSERVATION_TYPES = ['DETECTED', 'REDETECTED', 'SNOOZED', 'UNSNOOZED', 'RESOLVED', 'DISMISSED', 'REOPENED'] as const;
+export type WorkObservationType = (typeof WORK_OBSERVATION_TYPES)[number];
+
+/** Who acted. There is no AI actor, because no model writes work state. */
+export const WORK_ACTOR_TYPES = ['HUMAN', 'SYSTEM'] as const;
+export type WorkActorType = (typeof WORK_ACTOR_TYPES)[number];
+
+// --- Corrections --------------------------------------------------------------------------------
+
+/**
+ * What a person told Loop it got wrong. Every one is per employee and append-only: a
+ * correction tunes one person's own surface and may never become a global rule (§12.5, and
+ * Google's Limited Use policy, which permits only that user's own personalized model).
+ */
+export const WORK_FEEDBACK_KINDS = [
+  'NOT_IMPORTANT',
+  'ALREADY_HANDLED',
+  'NOT_WAITING',
+  'SUPPRESS_CORRESPONDENT',
+  'SUPPRESS_DOMAIN',
+] as const;
+export type WorkFeedbackKind = (typeof WORK_FEEDBACK_KINDS)[number];
+
+// --- Sync -----------------------------------------------------------------------------------------
+
+/** How a sync pass ended. TRUNCATED is not a failure: it means the deadline came first. */
+export const WORK_SYNC_OUTCOMES = ['SUCCEEDED', 'TRUNCATED', 'FAILED'] as const;
+export type WorkSyncOutcome = (typeof WORK_SYNC_OUTCOMES)[number];
+
+/** Why a sync pass could not finish. A class, never a provider's text. */
+export const WORK_SYNC_FAILURE_CLASSES = ['NETWORK', 'TIMEOUT', 'RATE_LIMITED', 'AUTH', 'MALFORMED', 'CURSOR_EXPIRED', 'UNAVAILABLE'] as const;
+export type WorkSyncFailureClass = (typeof WORK_SYNC_FAILURE_CLASSES)[number];
+
+/** What the stored cursor means for its source. */
+export const WORK_CURSOR_KINDS = ['GMAIL_HISTORY_ID', 'CALENDAR_SYNC_TOKEN', 'DRIVE_PAGE_TOKEN'] as const;
+export type WorkCursorKind = (typeof WORK_CURSOR_KINDS)[number];
+
+// --- Sensitivity (§14.4 seam 7) ------------------------------------------------------------------
+
+/**
+ * What class of data each stored column holds, so a Stage 2/3 context package can enforce a
+ * task's ceiling (`AI_SENSITIVITY_CLASSES` in ai/context.ts) instead of discovering it late.
+ *
+ * A SUBJECT LINE IS TREATED AS CONTENT. Google's metadata scope permits it and the product
+ * cannot work without it, but it is the sender's words -- so it never enters an
+ * OPERATIONAL-ceiling context and never leaves in an email (§17.4).
+ */
+export const WORK_STATE_SENSITIVITY: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
+  work_correspondents: Object.freeze({ addressHash: 'OPERATIONAL', displayAddress: 'CONTACT_IDENTIFIER', displayName: 'CONTACT_IDENTIFIER', domain: 'CONTACT_IDENTIFIER' }),
+  work_threads: Object.freeze({ subject: 'COMMUNICATION_CONTENT', participantHashes: 'OPERATIONAL', derivedClass: 'OPERATIONAL' }),
+  work_messages: Object.freeze({ subject: 'COMMUNICATION_CONTENT', fromHash: 'OPERATIONAL', toHashes: 'OPERATIONAL', ccHashes: 'OPERATIONAL' }),
+  work_events: Object.freeze({ organizerHash: 'OPERATIONAL', attendeeCount: 'OPERATIONAL' }),
+  work_documents: Object.freeze({ name: 'COMMUNICATION_CONTENT', ownerHashes: 'OPERATIONAL' }),
+  work_items: Object.freeze({ title: 'COMMUNICATION_CONTENT', evidence: 'OPERATIONAL', evidenceQuote: 'COMMUNICATION_CONTENT' }),
+  work_briefs: Object.freeze({ counts: 'OPERATIONAL', coverage: 'OPERATIONAL', headline: 'COMMUNICATION_CONTENT' }),
+});
+
+/** The longest an evidence quote may be (§17.4). Enforced by a CHECK, not by a caller. */
+export const WORK_EVIDENCE_QUOTE_MAX_CHARS = 240;
+
+// --- Retention (§21.3, approved 2026-09-17 as initial product policy) --------------------------
+
+export const WORK_RETENTION_POLICY_VERSION = 'work-retention.2026-09-17.1';
+
+/**
+ * How long each category is kept, and why.
+ *
+ *   days              a number of days, counted from the category's own anchor.
+ *   NEVER_STORED      nothing to delete, because nothing is written.
+ *   TIED_TO_PARENT    lives and dies with the conclusion it supports.
+ *   GOVERNED_ELSEWHERE  another policy owns it (audit).
+ *
+ * THESE ARE POLICY, NOT CONSTANTS OF NATURE. Changing one is a product decision, recorded in
+ * the architecture record with a date -- and an organization may hold a different window
+ * through `work_retention_overrides` without this file changing.
+ */
+export const WORK_RETENTION_RULES = ['DAYS', 'NEVER_STORED', 'TIED_TO_PARENT', 'GOVERNED_ELSEWHERE'] as const;
+export type WorkRetentionRule = (typeof WORK_RETENTION_RULES)[number];
+
+export interface WorkRetentionCategory {
+  readonly category: string;
+  readonly rule: WorkRetentionRule;
+  /** Days, when the rule is DAYS. Null otherwise -- never a defaulted number. */
+  readonly days: number | null;
+  /** What the window is counted from, in words. */
+  readonly anchor: string;
+  /** The tables this category governs. Every work table appears in exactly one category. */
+  readonly tables: readonly string[];
+  readonly why: string;
+}
+
+export const WORK_RETENTION_CATEGORIES: readonly WorkRetentionCategory[] = Object.freeze([
+  Object.freeze({ category: 'GOOGLE_RAW_RESPONSES', rule: 'NEVER_STORED', days: null, anchor: 'not applicable', tables: Object.freeze([]), why: 'Nothing needs the envelope once the fields are normalised.' }),
+  Object.freeze({ category: 'GMAIL_METADATA', rule: 'DAYS', days: 30, anchor: 'a voluntary disconnect; kept indefinitely while connected', tables: Object.freeze(['work_messages']), why: "A thread's rhythm needs weeks of history to mean anything." }),
+  Object.freeze({ category: 'THREAD_CONTEXT', rule: 'DAYS', days: 90, anchor: 'the last message on the thread', tables: Object.freeze(['work_threads', 'work_correspondents']), why: 'A dormant thread waking up is still recognisable as one that went quiet.' }),
+  Object.freeze({ category: 'DRIVE_METADATA', rule: 'DAYS', days: 30, anchor: 'a voluntary disconnect; kept indefinitely while connected', tables: Object.freeze(['work_documents']), why: 'Document context follows the same shape as mail metadata.' }),
+  Object.freeze({ category: 'CALENDAR_STATE', rule: 'DAYS', days: 90, anchor: 'the end of the event', tables: Object.freeze(['work_events']), why: 'Meeting briefs need past meetings with the same people.' }),
+  Object.freeze({ category: 'DERIVED_WORK_FACTS', rule: 'DAYS', days: 365, anchor: 'the item last changing state', tables: Object.freeze(['work_items', 'work_item_observations', 'work_feedback']), why: 'The accuracy signal needs a year to mean anything.' }),
+  Object.freeze({ category: 'BRIEFS', rule: 'DAYS', days: 365, anchor: 'the brief\'s local date', tables: Object.freeze(['work_briefs']), why: '"What happened last week" is the product.' }),
+  Object.freeze({ category: 'EVIDENCE_QUOTES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the item that cites it', tables: Object.freeze([]), why: 'An explanation lives exactly as long as the claim it explains.' }),
+  Object.freeze({ category: 'PROVENANCE_REFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the conclusion it supports', tables: Object.freeze([]), why: 'Evidence outliving its conclusion is the rule; the reverse is uninterpretable.' }),
+  Object.freeze({ category: 'PROCESSING_CACHE', rule: 'DAYS', days: 1, anchor: 'successful processing, whichever is sooner', tables: Object.freeze([]), why: 'Stage 2 only: deleted on success, with a 24-hour ceiling as a backstop.' }),
+  Object.freeze({ category: 'OPERATIONAL_SYNC_STATE', rule: 'DAYS', days: 30, anchor: 'the run starting; cursors live while connected', tables: Object.freeze(['work_sync_runs', 'work_source_cursors']), why: 'Operational only: enough to see a stalled pipeline.' }),
+  Object.freeze({ category: 'EMPLOYEE_PREFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the membership', tables: Object.freeze(['employee_work_preferences', 'work_retention_overrides']), why: "A person's own settings last as long as they are a member." }),
+  Object.freeze({ category: 'SECURITY_AUDIT', rule: 'GOVERNED_ELSEWHERE', days: null, anchor: 'not applicable', tables: Object.freeze([]), why: 'Audit records acts, never correspondence, and has its own policy.' }),
+]);
+
+/** Deletion at the two ends of a connection, which are different facts (§21.2). */
+export const WORK_DISCONNECT_GRACE_DAYS = 30;
+export const WORK_TERMINATION_GRACE_DAYS = 0;
+
+export function workRetentionCategory(category: string): WorkRetentionCategory | null {
+  return WORK_RETENTION_CATEGORIES.find((c) => c.category === category) ?? null;
+}
+
+/** Every table this slice creates. The coverage test walks it against the categories. */
+export const WORK_STATE_TABLES: readonly string[] = Object.freeze([
+  'work_source_cursors',
+  'work_sync_runs',
+  'work_correspondents',
+  'work_threads',
+  'work_messages',
+  'work_events',
+  'work_documents',
+  'work_items',
+  'work_item_observations',
+  'work_briefs',
+  'work_feedback',
+  'employee_work_preferences',
+  'work_retention_overrides',
+]);

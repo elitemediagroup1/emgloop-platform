@@ -86,7 +86,19 @@ export type Resource =
   // Google Workspace connection (Private V1; google-workspace-connection.md §11). A
   // person's OWN Google connection -- never anybody else's data. Grants: see
   // GOOGLE_WORKSPACE_GRANTS, which, like identityResolution, has no READ_ONLY fallback.
-  | 'googleWorkspace';
+  | 'googleWorkspace'
+  // Daily Loop employee intelligence (DL-1; daily-loop-employee-intelligence.md §20.1). A
+  // person's OWN work state, derived from their OWN Google connection -- and nobody else's,
+  // for any role. Grants: see EMPLOYEE_INTELLIGENCE_GRANTS.
+  //
+  // THIS RESOURCE HAS NO `manage` AND NO `approve`, DELIBERATELY. There is no action here
+  // that could later be read as "see somebody else's", because the authority to read
+  // another employee's mail-derived work state is not one this platform grants. The
+  // isolation itself is structural, not permission-based: every repository method takes
+  // (organizationId, userId) and there is no org-only read path, so holding `view` grants
+  // you your own rows and nothing else. Adding an action here is a product decision about
+  // surveillance, not a refactor.
+  | 'employeeIntelligence';
 
 
 /**
@@ -190,6 +202,28 @@ export const GOOGLE_WORKSPACE_GRANTS: Readonly<Record<string, readonly Action[]>
 /** Roles that may never hold a Google Workspace connection, whatever a Permission row says. */
 const GOOGLE_WORKSPACE_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
+// DAILY LOOP EMPLOYEE INTELLIGENCE (DL-1) -- a person's OWN work state.
+//
+// Every human role holds `view` (my queue, my day, my brief) and `update` (correct an item,
+// set my preferences), always about their own rows: the organization and the person come
+// from the session, and the repositories cannot express an org-only read.
+//
+// THE LIST IS EXACTLY ['view', 'update'] FOR EVERY HUMAN ROLE, and a test pins it. No
+// `manage`, no `approve`, no OWNER exception -- an owner reading an employee's mail-derived
+// state is not a permission this platform has. AI_EMPLOYEE is denied everything: an AI
+// Employee has no mailbox, no work state and no way to acquire one.
+export const EMPLOYEE_INTELLIGENCE_GRANTS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
+  OWNER: ['view', 'update'],
+  ADMIN: ['view', 'update'],
+  MANAGER: ['view', 'update'],
+  EMPLOYEE: ['view', 'update'],
+  READ_ONLY: ['view', 'update'],
+  AI_EMPLOYEE: [],
+});
+
+/** Roles that may never hold employee work state, whatever a Permission row says. */
+const EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
+
 /** Roles that may never hold identity-resolution authority, whatever a Permission row says. */
 const IDENTITY_RESOLUTION_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
@@ -250,6 +284,9 @@ export function matrixAllows(role: string, resource: Resource, action: Action): 
   }
   if (resource === 'googleWorkspace') {
     return (GOOGLE_WORKSPACE_GRANTS[role] ?? []).includes(action);
+  }
+  if (resource === 'employeeIntelligence') {
+    return (EMPLOYEE_INTELLIGENCE_GRANTS[role] ?? []).includes(action);
   }
   // PD-F-04 grants Relationship view to every authorized HUMAN workspace role, and
   // the recorded reading denies AI_EMPLOYEE because it is not one. Without this it
@@ -363,6 +400,8 @@ export class IamRepository {
     if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
     // Nor holds a Google connection.
     if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
+    // Nor work state derived from one.
+    if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;
 
     // Check explicit DENY rules first (deny wins)
     const denyRules = await this.prisma.permission.findMany({
@@ -419,6 +458,7 @@ export class IamRepository {
     return checks.map(({ resource, action }) => {
       if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
+      if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;
       const applicable = rules.filter((r) => r.resource === resource && r.action === action);
       if (applicable.some((r) => r.userId === userId && r.effect === 'DENY')) return false;
       if (applicable.some((r) => r.systemRole === role && r.effect === 'DENY')) return false;

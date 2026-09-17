@@ -88,6 +88,7 @@ export {
   matrixAllows,
   IDENTITY_RESOLUTION_GRANTS,
   GOOGLE_WORKSPACE_GRANTS,
+  EMPLOYEE_INTELLIGENCE_GRANTS,
   userSystemRole,
   invitationSystemRole,
 } from './iam.repository';
@@ -492,3 +493,31 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     memberExpectations: new ProviderMemberExpectationRepository(prisma),
   };
 }
+
+// Daily Loop work state (DL-1): one employee's own store. Every method takes a WorkPrincipal
+// -- organization AND user -- so an organization-only read of employee-private work state is
+// not expressible. See work-state/work-principal.ts.
+export {
+  workScope,
+  WorkSourceRepository,
+  WorkGraphRepository,
+  WorkItemRepository,
+  WorkBriefRepository,
+  WorkPreferencesRepository,
+} from './work-state';
+export type {
+  WorkPrincipal,
+  WorkCursorRecord,
+  WorkSyncRunRecord,
+  CorrespondentSeen,
+  ThreadFacts,
+  ThreadClassification,
+  MessageFacts,
+  EventFacts,
+  DocumentFacts,
+  WorkItemDetection,
+  WorkItemRecord,
+  BriefComposition,
+  WorkPreferences,
+  EffectiveRetention,
+} from './work-state';

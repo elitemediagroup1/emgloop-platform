@@ -1,0 +1,314 @@
+// The facts Daily Loop reads from: correspondents, threads, messages, events, documents.
+//
+// Architecture: daily-loop-employee-intelligence.md §11.2 and §17.
+//
+// IDEMPOTENT BY PROVIDER KEY. Every write is an upsert on the provider's own identifier
+// scoped to this person -- (org, user, provider, threadId / messageId / eventId / fileId) --
+// so re-ingesting the same page is a no-op and a retry is safe. That is the same property
+// `IntegrationEvent` gets from (provider, externalId), without its defect: these keys are
+// per employee, never global.
+//
+// A CORRESPONDENT IS NOT A PERSON. It is an address this employee writes to, stored hashed
+// with its readable form beside it. Turning one into canonical identity is a governed act
+// under `identityResolution`, and nothing here proposes, merges or attributes anything.
+//
+// NO CONTENT. There is no body, snippet, attachment or file content on any of these rows,
+// and no column to put one in.
+
+import type { PrismaClient } from '@prisma/client';
+import type { WorkClass, WorkDirection, WorkProvider } from '@emgloop/shared';
+
+import { workScope, type WorkPrincipal } from './work-principal';
+
+export interface CorrespondentSeen {
+  readonly addressHash: string;
+  readonly displayAddress: string;
+  readonly displayName?: string | null;
+  readonly domain?: string | null;
+  readonly seenAt: Date;
+  readonly direction: WorkDirection;
+}
+
+export interface ThreadFacts {
+  readonly provider: WorkProvider;
+  readonly threadId: string;
+  readonly subject?: string | null;
+  readonly participantHashes?: readonly string[];
+  readonly messageCount?: number;
+  readonly firstMessageAt?: Date | null;
+  readonly lastMessageAt?: Date | null;
+  readonly lastDirection?: WorkDirection | null;
+  readonly lastMessageId?: string | null;
+  readonly labels?: readonly string[];
+}
+
+export interface MessageFacts {
+  readonly provider: WorkProvider;
+  readonly messageId: string;
+  readonly threadId: string;
+  readonly internalDate: Date;
+  readonly direction: WorkDirection;
+  readonly fromHash?: string | null;
+  readonly toHashes?: readonly string[];
+  readonly ccHashes?: readonly string[];
+  readonly subject?: string | null;
+  readonly headerMessageId?: string | null;
+  readonly inReplyTo?: string | null;
+  readonly labels?: readonly string[];
+  readonly observedAt: Date;
+}
+
+export interface EventFacts {
+  readonly provider: WorkProvider;
+  readonly eventId: string;
+  readonly recurringEventId?: string | null;
+  readonly startsAt?: Date | null;
+  readonly endsAt?: Date | null;
+  readonly allDay?: boolean;
+  readonly status?: string | null;
+  readonly organizerHash?: string | null;
+  readonly attendeeCount?: number | null;
+  readonly externalAttendeeCount?: number | null;
+  readonly hasConference?: boolean;
+  readonly providerUpdatedAt?: Date | null;
+  readonly observedAt: Date;
+}
+
+export interface DocumentFacts {
+  readonly provider: WorkProvider;
+  readonly fileId: string;
+  readonly name?: string | null;
+  readonly mimeType?: string | null;
+  readonly ownerHashes?: readonly string[];
+  readonly modifiedAt?: Date | null;
+  readonly webViewLink?: string | null;
+  readonly observedAt: Date;
+}
+
+/** The class a rule decided, and the version of the rule that decided it. DL-8 writes these. */
+export interface ThreadClassification {
+  readonly derivedClass: WorkClass;
+  readonly classRuleVersion: string;
+  readonly medianReplyMinutes?: number | null;
+}
+
+export class WorkGraphRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  // -- Correspondents -------------------------------------------------------------------
+
+  /**
+   * Record that this employee exchanged mail with an address. Counts accumulate and the
+   * window widens; nothing here decides whether the address matters.
+   */
+  async recordCorrespondent(principal: WorkPrincipal, seen: CorrespondentSeen): Promise<void> {
+    const scope = workScope(principal);
+    const existing = await this.prisma.workCorrespondent.findFirst({ where: { ...scope, addressHash: seen.addressHash } });
+    const inbound = seen.direction === 'INBOUND' ? 1 : 0;
+    const outbound = seen.direction === 'OUTBOUND' ? 1 : 0;
+    if (!existing) {
+      await this.prisma.workCorrespondent.create({
+        data: {
+          ...scope,
+          addressHash: seen.addressHash,
+          displayAddress: seen.displayAddress,
+          displayName: seen.displayName ?? null,
+          domain: seen.domain ?? null,
+          firstSeenAt: seen.seenAt,
+          lastSeenAt: seen.seenAt,
+          inboundCount: inbound,
+          outboundCount: outbound,
+        },
+      });
+      return;
+    }
+    await this.prisma.workCorrespondent.update({
+      where: { id: existing.id },
+      data: {
+        displayName: seen.displayName ?? existing.displayName,
+        domain: seen.domain ?? existing.domain,
+        firstSeenAt: seen.seenAt < existing.firstSeenAt ? seen.seenAt : existing.firstSeenAt,
+        lastSeenAt: seen.seenAt > existing.lastSeenAt ? seen.seenAt : existing.lastSeenAt,
+        inboundCount: existing.inboundCount + inbound,
+        outboundCount: existing.outboundCount + outbound,
+      },
+    });
+  }
+
+  async correspondents(principal: WorkPrincipal, options: { readonly includeSuppressed?: boolean; readonly limit?: number } = {}) {
+    return this.prisma.workCorrespondent.findMany({
+      where: { ...workScope(principal), ...(options.includeSuppressed ? {} : { suppressed: false }) },
+      orderBy: { lastSeenAt: 'desc' },
+      take: Math.min(Math.max(options.limit ?? 100, 1), 500),
+    });
+  }
+
+  /** A person's own correction: stop surfacing this address. Reversible, and theirs alone. */
+  async suppressCorrespondent(principal: WorkPrincipal, addressHash: string, suppressed: boolean): Promise<boolean> {
+    const done = await this.prisma.workCorrespondent.updateMany({ where: { ...workScope(principal), addressHash }, data: { suppressed } });
+    return done.count === 1;
+  }
+
+  // -- Threads and messages -------------------------------------------------------------
+
+  /** Upsert a thread's facts. The provider key makes a re-read a no-op. */
+  async upsertThread(principal: WorkPrincipal, facts: ThreadFacts): Promise<string> {
+    const scope = workScope(principal);
+    const where = { ...scope, provider: facts.provider, threadId: facts.threadId };
+    const fields = {
+      subject: facts.subject ?? null,
+      participantHashes: [...(facts.participantHashes ?? [])],
+      messageCount: facts.messageCount ?? 0,
+      firstMessageAt: facts.firstMessageAt ?? null,
+      lastMessageAt: facts.lastMessageAt ?? null,
+      lastDirection: facts.lastDirection ?? null,
+      lastMessageId: facts.lastMessageId ?? null,
+      labels: [...(facts.labels ?? [])],
+    };
+    const existing = await this.prisma.workThread.findFirst({ where });
+    if (!existing) {
+      const created = await this.prisma.workThread.create({ data: { ...where, ...fields } });
+      return created.id;
+    }
+    await this.prisma.workThread.update({ where: { id: existing.id }, data: fields });
+    return existing.id;
+  }
+
+  /**
+   * Write the class a rule decided. Separate from the facts on purpose: a rule change
+   * reclassifies without re-reading Google, and a fact is never rewritten by an opinion.
+   */
+  async classifyThread(principal: WorkPrincipal, provider: WorkProvider, threadId: string, classification: ThreadClassification): Promise<boolean> {
+    const done = await this.prisma.workThread.updateMany({
+      where: { ...workScope(principal), provider, threadId },
+      data: {
+        derivedClass: classification.derivedClass,
+        classRuleVersion: classification.classRuleVersion,
+        medianReplyMinutes: classification.medianReplyMinutes ?? null,
+      },
+    });
+    return done.count === 1;
+  }
+
+  async thread(principal: WorkPrincipal, provider: WorkProvider, threadId: string) {
+    return this.prisma.workThread.findFirst({ where: { ...workScope(principal), provider, threadId } });
+  }
+
+  async threads(principal: WorkPrincipal, options: { readonly derivedClass?: WorkClass; readonly since?: Date; readonly limit?: number } = {}) {
+    return this.prisma.workThread.findMany({
+      where: {
+        ...workScope(principal),
+        ...(options.derivedClass ? { derivedClass: options.derivedClass } : {}),
+        ...(options.since ? { lastMessageAt: { gte: options.since } } : {}),
+      },
+      orderBy: { lastMessageAt: 'desc' },
+      take: Math.min(Math.max(options.limit ?? 50, 1), 200),
+    });
+  }
+
+  async upsertMessage(principal: WorkPrincipal, facts: MessageFacts): Promise<string> {
+    const scope = workScope(principal);
+    const where = { ...scope, provider: facts.provider, messageId: facts.messageId };
+    const fields = {
+      threadId: facts.threadId,
+      internalDate: facts.internalDate,
+      direction: facts.direction,
+      fromHash: facts.fromHash ?? null,
+      toHashes: [...(facts.toHashes ?? [])],
+      ccHashes: [...(facts.ccHashes ?? [])],
+      subject: facts.subject ?? null,
+      headerMessageId: facts.headerMessageId ?? null,
+      inReplyTo: facts.inReplyTo ?? null,
+      labels: [...(facts.labels ?? [])],
+      observedAt: facts.observedAt,
+    };
+    const existing = await this.prisma.workMessage.findFirst({ where });
+    if (!existing) {
+      const created = await this.prisma.workMessage.create({ data: { ...where, ...fields } });
+      return created.id;
+    }
+    await this.prisma.workMessage.update({ where: { id: existing.id }, data: fields });
+    return existing.id;
+  }
+
+  async messages(principal: WorkPrincipal, threadId: string, limit = 100) {
+    return this.prisma.workMessage.findMany({
+      where: { ...workScope(principal), threadId },
+      orderBy: { internalDate: 'asc' },
+      take: Math.min(Math.max(limit, 1), 500),
+    });
+  }
+
+  /** Deleted at the source is a fact: the row goes, on the next cycle (§21.3a). */
+  async forgetMessage(principal: WorkPrincipal, provider: WorkProvider, messageId: string): Promise<boolean> {
+    const done = await this.prisma.workMessage.deleteMany({ where: { ...workScope(principal), provider, messageId } });
+    return done.count === 1;
+  }
+
+  // -- Calendar and documents -----------------------------------------------------------
+
+  async upsertEvent(principal: WorkPrincipal, facts: EventFacts): Promise<string> {
+    const scope = workScope(principal);
+    const where = { ...scope, provider: facts.provider, eventId: facts.eventId };
+    const fields = {
+      recurringEventId: facts.recurringEventId ?? null,
+      startsAt: facts.startsAt ?? null,
+      endsAt: facts.endsAt ?? null,
+      allDay: facts.allDay ?? false,
+      status: facts.status ?? null,
+      organizerHash: facts.organizerHash ?? null,
+      attendeeCount: facts.attendeeCount ?? null,
+      externalAttendeeCount: facts.externalAttendeeCount ?? null,
+      hasConference: facts.hasConference ?? false,
+      providerUpdatedAt: facts.providerUpdatedAt ?? null,
+      observedAt: facts.observedAt,
+    };
+    const existing = await this.prisma.workEvent.findFirst({ where });
+    if (!existing) {
+      const created = await this.prisma.workEvent.create({ data: { ...where, ...fields } });
+      return created.id;
+    }
+    await this.prisma.workEvent.update({ where: { id: existing.id }, data: fields });
+    return existing.id;
+  }
+
+  async events(principal: WorkPrincipal, window: { readonly from: Date; readonly to: Date }) {
+    return this.prisma.workEvent.findMany({
+      where: { ...workScope(principal), startsAt: { gte: window.from, lte: window.to } },
+      orderBy: { startsAt: 'asc' },
+    });
+  }
+
+  async forgetEvent(principal: WorkPrincipal, provider: WorkProvider, eventId: string): Promise<boolean> {
+    const done = await this.prisma.workEvent.deleteMany({ where: { ...workScope(principal), provider, eventId } });
+    return done.count === 1;
+  }
+
+  async upsertDocument(principal: WorkPrincipal, facts: DocumentFacts): Promise<string> {
+    const scope = workScope(principal);
+    const where = { ...scope, provider: facts.provider, fileId: facts.fileId };
+    const fields = {
+      name: facts.name ?? null,
+      mimeType: facts.mimeType ?? null,
+      ownerHashes: [...(facts.ownerHashes ?? [])],
+      modifiedAt: facts.modifiedAt ?? null,
+      webViewLink: facts.webViewLink ?? null,
+      observedAt: facts.observedAt,
+    };
+    const existing = await this.prisma.workDocument.findFirst({ where });
+    if (!existing) {
+      const created = await this.prisma.workDocument.create({ data: { ...where, ...fields } });
+      return created.id;
+    }
+    await this.prisma.workDocument.update({ where: { id: existing.id }, data: fields });
+    return existing.id;
+  }
+
+  async documents(principal: WorkPrincipal, options: { readonly since?: Date; readonly limit?: number } = {}) {
+    return this.prisma.workDocument.findMany({
+      where: { ...workScope(principal), ...(options.since ? { modifiedAt: { gte: options.since } } : {}) },
+      orderBy: { modifiedAt: 'desc' },
+      take: Math.min(Math.max(options.limit ?? 50, 1), 200),
+    });
+  }
+}
