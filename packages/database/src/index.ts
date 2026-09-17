@@ -483,3 +483,45 @@ export type {
 export type { BrainTransitionOutcome, BrainWriteRefusal } from './repositories/brain/brain-job-writes';
 // Composed into the live Activity feed in B5, after migration 36 was deployed.
 export { BrainEventActivityAdapter, brainEventTitle } from './repositories/activity/brain-event.adapter';
+
+// --- The Loop-side Brain boundary (B5) ---
+// What a signed-in person reaches (submit, status, answer, cancel), what an executor may
+// do to Loop's records, and the three questions an executor may ask Loop. Nothing here
+// calls a model, a provider or an execution environment. See
+// docs/architecture/brain-boundary.md.
+export {
+  BrainWorkService,
+  BRAIN_SUBMIT_REFUSALS,
+  BRAIN_WORK_PHASES,
+  brainWorkPhase,
+  brainWorkViewOf,
+} from './services/brain/brain-work.service';
+export type {
+  BrainWorkPrincipal,
+  BrainWorkDeps,
+  BrainWorkView,
+  BrainWorkPhase,
+  BrainResultLocation,
+  BrainSubmitOutcome,
+  BrainSubmitRefusal,
+  BrainQuestionView,
+  BrainRespondOutcome,
+  BrainCancelWorkOutcome,
+  BrainSubjectWorkItem,
+  BrainDoorbellOutcome,
+} from './services/brain/brain-work.service';
+export { BrainExecutorStore } from './services/brain/brain-executor-store';
+export type { BrainExecutorJob, BrainClaimOutcome, BrainCommandLookup, BrainExecutorTransition } from './services/brain/brain-executor-store';
+export { BrainInternalService, defaultBrainContextAssemblers } from './services/brain/brain-internal.service';
+export { AesGcmBrainPayloadSealer, BrainPayloadUnopenable, BRAIN_SEAL_VERSION_AES_GCM } from './services/brain/brain-payload-sealer';
+export type {
+  BrainInternalDeps,
+  BrainTaskContext,
+  BrainContextAssembler,
+  BrainResultOwnerGate,
+  BrainAccessAnswer,
+  BrainContextAnswer,
+  BrainCommitAnswer,
+} from './services/brain/brain-internal.service';
+export { PrismaBrainSubjectResolver, brainSubjectHref, BRAIN_BUILT_SUBJECT_TYPES } from './services/brain/brain-subjects';
+export type { BrainSubject, BrainSubjectResolver } from './services/brain/brain-subjects';

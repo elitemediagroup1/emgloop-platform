@@ -109,6 +109,13 @@ export interface AiCallReservation {
   /** 1 for the first call of an invocation, 2 for the next, and so on. */
   readonly callOrdinal: number;
   readonly requestedAt: Date;
+  /**
+   * B5. The Brain job and step this call serves, when a Brain executor makes it. The
+   * call key is then `brainCallKey(job, step, attempt, ordinal)`. This gateway never sets it.
+   */
+  readonly brain?: { readonly jobId: string; readonly stepKey: string } | null;
+  /** B5. The provider-specialization policy version the call's routing conformed to. */
+  readonly specializationPolicyVersion?: string | null;
 }
 
 export type AiReserveResult = { readonly ok: true } | { readonly ok: false; readonly refusals: readonly AiAdmissionRefusal[] };
