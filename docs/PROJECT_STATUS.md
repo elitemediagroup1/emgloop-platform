@@ -1653,9 +1653,10 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.
 
-## Google Workspace connection — PRIVATE V1 CODE-COMPLETE, IN REVIEW (branch `feat/google-workspace-oauth-v1`) · NOT DEPLOYED · MIGRATION 37 NOT DISPATCHED
+## Google Workspace connection — PRIVATE V1 MERGED (#286, `e16a07c`) · MIGRATION 37 APPLIED · OAUTH CLIENT CREATED
 
-_Last updated: 2026-09-17._ Built on `main` `e15c65c`.
+_Last updated: 2026-09-17._ Merged into `main`; the migration was dispatched the same day (run
+succeeded 18:39Z) and the production OAuth client and the three Netlify variables now exist.
 - **Record:** `docs/architecture/google-workspace-connection.md` §11 (the contract) and §12 (what was
   built).
 - **Matt's steps:** `docs/runbooks/google-workspace-oauth.md`.
@@ -1722,18 +1723,14 @@ _Last updated: 2026-09-17._ Built on `main` `e15c65c`.
 - **Defect planting:** 14 planted defects were caught. The one survivor was a redundant duplicate
   check, since removed.
 
-**Not done:** no OAuth client, no deployment, no migration dispatch, and no Gmail, Calendar or
-Drive read (the first read is its own PR).
+**Not done:** no Gmail, Calendar or Drive data is read yet —
+`GoogleWorkspaceService.accessToken()` still has no production caller — and the app is still in
+Google's Testing mode (test users only; refresh tokens expire every 7 days).
 
 **Next:**
-1. Review and merge.
-2. Dispatch the migration.
-3. Create the production client with the redirect URI
-   `https://app.emgloop.com/api/integrations/google/callback`.
-4. Set the three Netlify variables, Production context only.
-5. Connect as Matt and Charlie.
-6. The Calendar read.
-7. Google verification and publishing (runbook §6).
+1. Connect as Matt and Charlie, and confirm a real grant end to end.
+2. Daily Loop (draft #287) — the read path is its first phase.
+3. Google verification and publishing (runbook §6).
 
 ## Daily Loop / Employee Intelligence — PROPOSED, NOTHING BUILT (draft #287)
 
