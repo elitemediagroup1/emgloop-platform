@@ -39,6 +39,7 @@ import {
   type ActivitySubject,
 } from './activity/adapter';
 import { AuditActivityAdapter } from './activity/audit.adapter';
+import { BrainEventActivityAdapter } from './activity/brain-event.adapter';
 import { InteractionActivityAdapter } from './activity/interaction.adapter';
 import { MarketplaceCallActivityAdapter } from './activity/marketplace-call.adapter';
 import { MessageActivityAdapter } from './activity/message.adapter';
@@ -55,7 +56,7 @@ export interface ActivityReadOptions {
 }
 
 export interface ActivityReadModelDeps {
-  /** Overridden in tests; production composes the five real adapters below. */
+  /** Overridden in tests; production composes the real adapters below. */
   adapters?: readonly ActivityAdapter[];
 }
 
@@ -71,6 +72,8 @@ export class ActivityReadModelRepository {
         new MessageActivityAdapter(prisma),
         new AuditActivityAdapter(prisma),
         new WorkActivityAdapter(prisma),
+        // B5: composed once migration 36 made its table exist in production.
+        new BrainEventActivityAdapter(prisma),
       ];
   }
 

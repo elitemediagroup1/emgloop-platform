@@ -99,7 +99,7 @@ test('READ_ONLY and AI_EMPLOYEE hold no work capability, as today', () => {
 });
 
 test('the work activity lane admits exactly the admin work tree\'s viewers', async () => {
-  const fake: any = makeCognitivePrisma({ also: ['invitation', 'organizationMembership', 'workStageEvent'] });
+  const fake: any = makeCognitivePrisma({ also: ['invitation', 'organizationMembership', 'workStageEvent', 'brainEvent', 'brainJob'] });
   const prisma = fake as PrismaClient;
   const iam = new IamRepository(prisma);
   const service = new ActivityService(prisma);

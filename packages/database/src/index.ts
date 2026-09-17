@@ -481,5 +481,5 @@ export type {
   BrainTaskInput,
 } from './repositories/brain/brain-records';
 export type { BrainTransitionOutcome, BrainWriteRefusal } from './repositories/brain/brain-job-writes';
-// Not composed into the live Activity feed until the migration is deployed (B5).
-export { BrainEventActivityAdapter } from './repositories/activity/brain-event.adapter';
+// Composed into the live Activity feed in B5, after migration 36 was deployed.
+export { BrainEventActivityAdapter, brainEventTitle } from './repositories/activity/brain-event.adapter';
