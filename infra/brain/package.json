@@ -1,0 +1,33 @@
+{
+  "name": "@emgloop/infra-brain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Brain execution environment on AWS: the second deployable (B6). Not an npm workspace, so the web build never installs it.",
+  "scripts": {
+    "bundle": "tsx scripts/bundle.ts",
+    "synth": "tsx scripts/bundle.ts && cdk synth --quiet --no-notices",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1134.0",
+    "@aws-sdk/client-kms": "3.1134.0",
+    "@aws-sdk/client-lambda": "3.1134.0",
+    "@aws-sdk/client-secrets-manager": "3.1134.0",
+    "@aws-sdk/client-sqs": "3.1134.0",
+    "@aws-sdk/client-ssm": "3.1134.0",
+    "aws-cdk-lib": "2.269.0",
+    "constructs": "10.8.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.163",
+    "@types/node": "22.20.3",
+    "aws-cdk": "2.1142.0",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  }
+}

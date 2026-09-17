@@ -31,7 +31,8 @@
 //     PrismaClientInitializationError ("Environment variable not found"), not a
 //     connection error. `kind: Closed` proves the URL was present and parseable
 //     and that a connection was established at some point.
-//   • Not multiple clients: there is exactly one `new PrismaClient` in the repo.
+//   • Not multiple clients: the web tier has exactly one `new PrismaClient` (the Brain
+//     execution deployable, infra/brain, builds its own per function instance).
 //
 // THE FIX
 //

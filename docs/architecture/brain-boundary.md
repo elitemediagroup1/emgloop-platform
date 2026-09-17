@@ -202,7 +202,7 @@ It carries **no** input, question text, result content, provider or model.
 | Route | Purpose | Answer |
 |---|---|---|
 | `POST /api/internal/brain/access` | `ACCESS_DECISION` | the principal's membership and a fresh `{allowed, organizationId, principalUserId, taskId, decidedAtMs}` |
-| `POST /api/internal/brain/context` | `CONTEXT` | the minimized context package, the citable refs with their trust, task support data and withheld counts; `403 NOT_PERMITTED`, `409` otherwise |
+| `POST /api/internal/brain/context` | `CONTEXT` | the minimized context package, the citable refs with their trust, task support data and withheld counts, the access decision and principal record it was assembled under, and `commitGate` (`AVAILABLE` only when an owner gate is registered for the job's result; added in B6); `403 NOT_PERMITTED`, `409` otherwise |
 | `POST /api/internal/brain/commit` | `COMMIT_RESULT` | body `{stepKey, envelope}` → the owner's artifact ref and commit key; `403 NOT_PERMITTED`, `409` for every other refusal |
 
 **Authentication** (`authenticateBrainWorkerRequest`, run first in each route):

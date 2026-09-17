@@ -815,6 +815,7 @@ test('access, context and commit are decided from the job, re-decided on every c
 
   const context = await internal.context(job);
   assert.equal(context.ok, true, JSON.stringify(context));
+  assert.equal(context.ok && context.commitGate, 'AVAILABLE', 'an owner is registered for this result');
   assert.deepEqual(assembled, [`${ORG}:${w.people.manager.userId}:{"horizonDays":90}`], 'assembled for the job’s own principal and input');
 
   const committed = await internal.commit(job, 'commit.result', reviewEnvelope(job.jobId));
@@ -848,6 +849,8 @@ test('access, context and commit are decided from the job, re-decided on every c
   const ungated = new BrainInternalService(w.prisma, { authorize: iamAiAuthorizer(w.prisma), tasks: TASKS, contexts: { [REVIEW.taskId]: assembler }, readInput: (o, j) => w.jobs.input(o, j) });
   const nowhere = await ungated.commit(job, 'commit.result', reviewEnvelope(job.jobId));
   assert.equal(!nowhere.ok && nowhere.refusal, 'OWNER_GATE_UNAVAILABLE');
+  const ungatedContext = await ungated.context(job);
+  assert.equal(ungatedContext.ok && ungatedContext.commitGate, 'UNAVAILABLE', 'an executor learns before paying that nothing can accept the result');
 
   // A context for someone else is refused, and so is a task without an assembler.
   const leaky = new BrainInternalService(w.prisma, {

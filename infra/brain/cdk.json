@@ -1,0 +1,8 @@
+{
+  "app": "npx tsx bin/brain.ts",
+  "cli-telemetry": false,
+  "context": {
+    "stage": "staging",
+    "@aws-cdk/core:newStyleStackSynthesis": true
+  }
+}

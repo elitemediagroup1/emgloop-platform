@@ -100,10 +100,14 @@ export class BrainExecutionReferences {
     return rows.map((r) => ({ organizationId: r.organizationId, jobId: r.jobId, waitId: r.id }));
   }
 
-  /** Running work whose worker stopped renewing its lease. */
+  /**
+   * Unfinished work whose worker stopped renewing its lease. ACCEPTED is included: a worker
+   * leases a job before it moves it, so one that died in between leaves an ACCEPTED job
+   * whose START message was already consumed.
+   */
   async staleLeases(now: Date, limit = 100): Promise<BrainJobReference[]> {
     const rows = await this.prisma.brainJob.findMany({
-      where: { state: { in: ['QUEUED', 'RUNNING'] }, leaseExpiresAt: { lte: now } },
+      where: { state: { in: ['ACCEPTED', 'QUEUED', 'RUNNING'] }, leaseExpiresAt: { lte: now } },
       select: { organizationId: true, id: true, generation: true },
       orderBy: [{ leaseExpiresAt: 'asc' }, { id: 'asc' }],
       take: bounded(limit),
