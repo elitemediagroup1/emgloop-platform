@@ -36,6 +36,7 @@ import {
   AI_ACTIVATION_OFF,
   AI_KILL_SWITCH_SCOPES,
   type AiActivation,
+  type AiControlFloor,
   type AiKillSwitch,
   type AiModelCapabilities,
 } from '@emgloop/shared';
@@ -177,6 +178,29 @@ export function readAiEnvironment(source: AiEnvironmentSource = process.env, dep
     providers: Object.freeze(usable),
   });
   return { activation, killSwitches, providers, configuration };
+}
+
+/**
+ * This deployment's FLOOR for Brain work (B5): whether it allows AI at all, for which
+ * organizations, tasks and providers, and what it kills. It reads no credential and builds
+ * no client -- Brain work executes elsewhere, with its own credentials, so this web tier
+ * needs none to accept it. A provider counts when it is listed AND its data terms are
+ * confirmed. The recorded controls in Neon are combined with this by
+ * `aiEffectiveControls`; neither is ever copied into the other.
+ */
+export function readAiControlFloor(source: AiEnvironmentSource = process.env): AiControlFloor {
+  const killSwitches = parseAiKillSwitches(source[AI_ENVIRONMENT.killSwitches]);
+  if (source[AI_ENVIRONMENT.enabled] !== 'true') return { activation: AI_ACTIVATION_OFF, killSwitches };
+  const confirmed = parseAiList(source[AI_ENVIRONMENT.termsConfirmed]);
+  return {
+    activation: Object.freeze({
+      enabled: true,
+      organizations: Object.freeze(parseAiList(source[AI_ENVIRONMENT.organizations])),
+      tasks: Object.freeze(parseAiList(source[AI_ENVIRONMENT.tasks])),
+      providers: Object.freeze(parseAiList(source[AI_ENVIRONMENT.providers]).filter((p) => confirmed.includes(p))),
+    }),
+    killSwitches,
+  };
 }
 
 /** The deployment's AI environment, read from process.env. The runtime assembly calls this. */

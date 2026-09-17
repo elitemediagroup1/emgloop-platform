@@ -444,8 +444,8 @@ The order matters. Each unlocks the next.
    Prerequisites: one guard family, one token set, and the phantom workspaces resolved. The plan is
    written and locked in `docs/architecture/loop-application-structure.md`; one shell and one nav
    registry (`LOOP_NAV`) are done. Follow that sequence; do not improvise around it.
-5. **Production Brain.** Replace `demonstrateBrainActivityFlow` — the current live briefing path — with
-   a real envelope author over real signals. Implement the `BrainService` sub-services that are
+5. **Production Brain.** Replace `demonstrateBrainActivityFlow` — a deterministic demonstration whose
+   only HTTP route was retired in B5 — with a real envelope author over real signals. Implement the `BrainService` sub-services that are
    currently names.
 6. **Production AI Employees.** A real AI provider behind the existing `ai.provider.ts` interface,
    then wire `channels`, `operatingHours`, `escalationRules` and `dnaOverrides` to something that

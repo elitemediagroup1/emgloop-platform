@@ -1,4 +1,4 @@
-// Brain work as Activity -- the Brain events adapter. Slice B4 (foundation only).
+// Brain work as Activity -- the Brain events adapter. Slice B4; composed in B5.
 //
 // `brain_events` is the authority for what Brain execution did: a job was accepted, was
 // promoted, stopped to ask somebody, succeeded, failed or was cancelled. An item here
@@ -8,16 +8,19 @@
 // and its links point at the job and at the owners' own records. The result is read from
 // its owner, under the owner's guard, or not at all.
 //
-// THE TASK'S OWN GUARD. A Brain event is visible to somebody who holds the permissions
-// the job's task requires (the same ones the Brain API checks before running it). An
-// event for a task this deployment does not know is not shown. The organization-wide lane
-// requires every permission any Brain task requires, so an unauthorized viewer costs zero
-// queries.
+// THE TASK'S OWN GUARD, IN THE WORKSPACE ITS SURFACES LIVE IN. A Brain event is visible
+// to somebody who holds the permissions the job's task requires (the same ones the Brain
+// API checks before running it), inside the ADMIN workspace where every Brain surface is
+// today (the Brain module and the Case pages). An event for a task this deployment does
+// not know is not shown. The organization-wide lane requires every permission any Brain
+// task requires, so an unauthorized viewer costs zero queries.
 //
-// NOT REGISTERED YET. The table does not exist in production until the B4 migration is
-// deployed, so `ActivityReadModelRepository` does not compose this adapter in B4; doing
-// so before the migration would break every organization-wide Activity read. Registering
-// it is a B5 step, after deployment. A test holds this.
+// COMPOSED ONCE ITS TABLE EXISTED. B4 built this adapter but left it out of the live
+// feed until migration 36 was deployed (run 35160530756, 2026-09-16); B5 composes it.
+//
+// TWO LANES. The organization-wide lane shows every Brain event the viewer may see; the
+// Case lane shows the events of Brain work about that Case. Other subjects follow when
+// their records carry Activity.
 //
 // WORK, NOT PEOPLE. The subject is Brain work in the organization; no identity state is
 // derived from it, so every item is NOT_APPLICABLE / NONE.
@@ -49,14 +52,44 @@ import {
 export const BRAIN_EVENT_RECORD_TYPE = 'brain-event';
 const DOMAIN = 'brain-execution';
 
-const TITLES: Readonly<Record<string, string>> = {
-  'brain.job.accepted': 'Brain work started',
-  'brain.job.promoted': 'Brain work continues in the background',
-  'brain.job.waiting_for_user': 'Brain is waiting for an answer',
-  'brain.job.succeeded': 'Brain work finished',
-  'brain.job.failed': 'Brain work did not finish',
-  'brain.job.cancelled': 'Brain work was stopped',
+/** What a person calls each kind of result. Never a provider, a model or an attempt. */
+const NOUNS: Readonly<Record<string, string>> = {
+  ANSWER: 'answer',
+  ANALYSIS: 'analysis',
+  FINDING: 'finding',
+  RECOMMENDATION: 'recommendation',
+  DRAFT: 'draft',
+  PROPOSED_ACTION: 'proposed action',
 };
+
+/** "Brain analysis started", "Brain is waiting for clarification", ... */
+export function brainEventTitle(name: string, resultType: string): string {
+  const noun = NOUNS[resultType] ?? 'work';
+  switch (name) {
+    case 'brain.job.accepted':
+      return `Brain ${noun} started`;
+    case 'brain.job.promoted':
+      return `Brain ${noun} continues in the background`;
+    case 'brain.job.waiting_for_user':
+      return 'Brain is waiting for clarification';
+    case 'brain.job.succeeded':
+      return `Brain ${noun} completed`;
+    case 'brain.job.failed':
+      return `Brain ${noun} failed`;
+    case 'brain.job.cancelled':
+      return `Brain ${noun} cancelled`;
+    default:
+      return `Brain ${noun} changed`;
+  }
+}
+
+/** Where Brain work is shown today. A task surfaced elsewhere will name its own workspace. */
+const BRAIN_WORKSPACE = 'ADMIN';
+
+/** The lane a Case's own page reads: its surface requires this, on top of each task's own. */
+const CASE_LANE_REQUIRES: readonly ActivityRequirement[] = [{ resource: 'commercialIntelligence', action: 'view' }];
+/** How many jobs about one subject a Case lane reads events for. */
+const MAX_JOBS_PER_SUBJECT = 200;
 
 const STATE_AFTER: Readonly<Record<string, string | null>> = {
   'brain.job.accepted': 'ACCEPTED',
@@ -130,39 +163,56 @@ export function brainEventActivityItem(record: BrainEventRecord): ActivityItemV1
       limitations: [],
     },
     display: {
-      title: TITLES[e.name] ?? 'Brain work changed',
+      title: brainEventTitle(e.name, e.resultType),
       channel: null,
       direction: null,
       stateChange: to ? { from: null, to } : null,
       // The kind of result the work produces, never the result.
       semanticStatus: e.resultType,
     },
-    access: { requires, workspace: null },
+    access: { requires, workspace: BRAIN_WORKSPACE },
     sensitivity: { class: 'OPERATIONAL', rawValuesInSource: false, contentInline: false },
   };
 }
 
 export class BrainEventActivityAdapter implements ActivityAdapter {
   readonly domain = DOMAIN;
-  readonly workspace = null;
+  readonly workspace = BRAIN_WORKSPACE;
   readonly categories: readonly ActivityCategory[] = ['STATE_CHANGE'];
 
   constructor(private readonly prisma: PrismaClient) {}
 
   supports(subject: ActivitySubject): boolean {
-    // Organization-wide only in B4: (organizationId, occurredAt, id) is the index.
-    return subject.kind === 'ORGANIZATION';
+    // (organizationId, occurredAt, id) serves the organization lane; a Case lane first finds
+    // the Case's jobs through (organizationId, resultSubjectType, resultSubjectId, state).
+    return subject.kind === 'ORGANIZATION' || subject.kind === 'CASE';
   }
 
-  requiresFor(_subject: ActivitySubject): readonly ActivityRequirement[] {
+  requiresFor(subject: ActivitySubject): readonly ActivityRequirement[] {
+    if (subject.kind === 'CASE') {
+      const all = new Map<string, ActivityRequirement>();
+      for (const r of [...CASE_LANE_REQUIRES, ...brainOrganizationRequirements()]) all.set(`${r.resource}:${r.action}`, r);
+      return [...all.values()];
+    }
     return brainOrganizationRequirements();
   }
 
   async page(request: ActivityAdapterRequest): Promise<ActivityAdapterPage> {
-    if (request.subject.kind !== 'ORGANIZATION') return EMPTY_PAGE;
+    if (request.subject.kind !== 'ORGANIZATION' && request.subject.kind !== 'CASE') return EMPTY_PAGE;
     if (filteredCategories(request.filter, this.categories, activityFilterIncludes).length === 0) return EMPTY_PAGE;
+    let jobScope: Record<string, unknown> = {};
+    if (request.subject.kind === 'CASE') {
+      const jobs = await this.prisma.brainJob.findMany({
+        where: { organizationId: request.organizationId, resultSubjectType: 'CASE', resultSubjectId: request.subject.priorityId },
+        select: { id: true },
+        orderBy: { acceptedAt: 'desc' },
+        take: MAX_JOBS_PER_SUBJECT,
+      });
+      if (jobs.length === 0) return EMPTY_PAGE;
+      jobScope = { jobId: { in: jobs.map((j) => j.id) } };
+    }
     const rows = await this.prisma.brainEvent.findMany({
-      where: { organizationId: request.organizationId, ...keysetWhere('occurredAt', BRAIN_EVENT_RECORD_TYPE, request.cursor) },
+      where: { organizationId: request.organizationId, ...jobScope, ...keysetWhere('occurredAt', BRAIN_EVENT_RECORD_TYPE, request.cursor) },
       orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
       take: request.limit + 1,
     });

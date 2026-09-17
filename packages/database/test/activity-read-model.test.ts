@@ -56,7 +56,7 @@ const SECRETS = {
 type Row = Record<string, unknown>;
 
 function world() {
-  const fake: any = makeCognitivePrisma({ also: ['interaction', 'marketplaceCall', 'conversation', 'message', 'customer', 'customerPartyLink'] });
+  const fake: any = makeCognitivePrisma({ also: ['interaction', 'marketplaceCall', 'conversation', 'message', 'customer', 'customerPartyLink', 'brainEvent', 'brainJob'] });
   const calls: { delegate: string; method: string; args: unknown }[] = [];
   const prisma = new Proxy(fake, {
     get(target, delegate: string) {
@@ -627,7 +627,8 @@ test('every source reads at most one page of rows, however much it holds', async
   }
   // One query per source, and not one more.
   const queries = w.calls.filter((c) => c.method === 'findMany');
-  assert.equal(queries.length, 3, 'interaction, marketplace call and audit: one query each, no N+1');
+  assert.equal(queries.length, 4, 'interaction, marketplace call, audit and Brain events (B5): one query each, no N+1');
+  assert.equal(queries.filter((c) => c.delegate === 'brainEvent').length, 1);
 });
 
 test('a thread fan-out is two queries, never one per conversation', async () => {

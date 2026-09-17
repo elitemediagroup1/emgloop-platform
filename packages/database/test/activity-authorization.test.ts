@@ -38,7 +38,7 @@ const ORG_B = 'org_b';
 const READS = new Set(['findFirst', 'findMany', 'findUnique', 'count']);
 
 async function world() {
-  const fake: any = makeCognitivePrisma({ also: ['interaction', 'marketplaceCall', 'conversation', 'message', 'customer', 'invitation', 'organizationMembership'] });
+  const fake: any = makeCognitivePrisma({ also: ['interaction', 'marketplaceCall', 'conversation', 'message', 'customer', 'invitation', 'organizationMembership', 'brainEvent', 'brainJob'] });
   const queried: string[] = [];
   const prisma = new Proxy(fake, {
     get(target, delegate: string) {

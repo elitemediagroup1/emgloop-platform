@@ -142,6 +142,9 @@ export class DurableAiUsageLedger implements AiUsageLedger {
                 requestedAt: reservation.requestedAt,
                 fellBackFrom: reservation.fellBackFrom,
                 attemptCount: reservation.callOrdinal,
+                brainJobId: reservation.brain?.jobId ?? null,
+                brainStepKey: reservation.brain?.stepKey ?? null,
+                specializationPolicyVersion: reservation.specializationPolicyVersion ?? null,
               },
               tx,
             );

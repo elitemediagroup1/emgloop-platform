@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B3.1 merged; B4 Brain durable persistence in review with one migration NOT dispatched (production stays at 35, main will carry 36); nothing provisioned; see the Foundation handoff block)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B4 merged; migration 36 deployed (production at 36); B5 Loop-side Brain boundary in review, switched off; nothing provisioned on AWS; see the Foundation handoff block)._
 
 ---
 
@@ -25,22 +25,19 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — ALIGNED AT 35 (AI usage ledger; verified 2026-09-16)
+## Production migration state — ALIGNED AT 36 (Brain durable persistence; 2026-09-17)
 
-**Latest:** run `35103219698`, dispatched from `main` at `f6b6b0d`.
-- It found 35 migrations and applied `20260918000000_ai_usage_ledger`.
-- It reported "Database schema is up to date!".
-- The log shows no errors, failures, rollbacks or drift.
-- The hand-written SQL matches `prisma migrate diff` statement for statement.
+**Latest:** run `35160530756` applied migration 36, `20260919000000_brain_durable_persistence`, from
+`main` at `f744fca` (B4, #277).
+- **What it added:** eight Brain tables, plus three nullable columns on `ai_invocations`.
+- **Evidence:** a fresh PostgreSQL 18 replay of all 36 showed no drift beforehand. The dossier is
+  `docs/architecture/brain-persistence.md` §12.
+- **Node:** the run used Node 20.20.2, and `npm install` warned that `openai@7.15.0` needs Node ≥ 22.
+  The migration does not load the SDK. A maintenance PR moving the workflows to `.nvmrc` is
+  recommended (`brain-boundary.md` §11.3).
 
-The AI activation PRs #266–#270 and the docs PR #271 add **no** migration.
-
-**Pending once B4 merges: migration 36, `20260919000000_brain_durable_persistence`, NOT dispatched.**
-- **What it does:** it is additive (eight Brain tables, plus three nullable columns on
-  `ai_invocations`).
-- **Evidence:** a fresh PostgreSQL 18 replay of all 36 shows no drift.
-- **Dossier:** `docs/architecture/brain-persistence.md` §12.
-- **Dispatch is Matt's.** After it, production is at 36.
+The previous run, `35103219698`, applied migration 35 (`20260918000000_ai_usage_ledger`). B5 adds **no**
+migration.
 
 `migrate status` does not detect schema drift. Seven pre-existing, cosmetic differences between the
 migration history and `schema.prisma` are recorded in `docs/architecture/schema-drift-2026-09-16.md`.
@@ -1235,15 +1232,16 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN CONTRACTS AND DESIGN ON MAIN · B4 PERSISTENCE IN REVIEW (MIGRATION NOT DISPATCHED), NOTHING PROVISIONED
+## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN B0–B4 MERGED, MIGRATION 36 DEPLOYED · B5 LOOP-SIDE BOUNDARY IN REVIEW, OFF · NOTHING ON AWS
 
-_Last updated: 2026-09-17._ `main` is `5d73d46`. #244–#276 are merged and were verified by content.
+_Last updated: 2026-09-17._ `main` is `f744fca`. #244–#277 are merged and were verified by content.
 - Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
   #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`, #273 (B1, schema) `c3ac3f2`,
-  #274 (B2, contracts) `c85911a`, #275 (B3, AWS design) `6fdab5e`, #276 (B3.1, DRAFT and fallback) `5d73d46`.
-- Full validation on that `main` is green. The only failures are the known baselines:
-  `marketplace-intelligence` typecheck, and lint, which was never configured.
-- Production has 35 migrations; nothing has been dispatched since run `35103219698`.
+  #274 (B2, contracts) `c85911a`, #275 (B3, AWS design) `6fdab5e`, #276 (B3.1, DRAFT and fallback) `5d73d46`,
+  #277 (B4, persistence) `f744fca`.
+- Validation on `main` is green. The only failures are the known baselines: `marketplace-intelligence`
+  typecheck, and lint, which was never configured.
+- Production has 36 migrations (run `35160530756`).
 - The operator surface (#264) is on `main` as temporary engineering UI.
 - Production holds 0 established Parties and 0 Relationships. Nothing has been converted, linked or
   cleaned up.
@@ -1271,9 +1269,10 @@ _Last updated: 2026-09-17._ `main` is `5d73d46`. #244–#276 are merged and were
 - **#271:** the schema-drift record, the Intake → Party linking recommendation, and the Charlie/Lexi
   handoff.
 
-**Brain execution: direction approved 2026-09-16. B2 contracts, B3 design and B3.1 merged; B4 persistence in
-review (migration not dispatched); nothing executes them and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md` and
-`docs/architecture/brain-execution-infrastructure.md`.
+**Brain execution: direction approved 2026-09-16. B2–B4 merged, migration 36 deployed; B5 (the Loop side) in
+review; nothing executes and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md`,
+`brain-execution-infrastructure.md`, `brain-persistence.md`, `brain-boundary.md` and the B6 plan
+`brain-aws-implementation-dossier.md`.
 - **The split:** Netlify stays the product, auth boundary and Brain API. Neon stays authoritative. AWS
   runs every Brain step and every provider call, for INTERACTIVE and DURABLE alike, behind a Loop-owned
   orchestrator port.
@@ -1289,15 +1288,48 @@ review (migration not dispatched); nothing executes them and nothing is provisio
   - B2: pure contracts, merged (#274);
   - B3: AWS trust, security and infrastructure **design**, merged (#275);
   - B3.1: DRAFT and provider-specialization reconciliation, merged (#276);
-  - B4: durable persistence, **in review** (details below); one additive migration, **not
-    dispatched**;
-  - B5: the Loop side (Brain API, internal Brain API, ring signing, in-process runner);
+  - B4: durable persistence, merged (#277); migration 36 **deployed**;
+  - B5: the Loop side, **in review** (details below), no migration;
   - B6: AWS foundation in staging, switched off (needs approval of the second deployable and the IaC
     tool);
   - B7: Case Explanation on AWS, with the first live request in staging on a synthetic Case;
   - B8: the first DURABLE task, the outbox repair and notifications.
 
-**B4 (in review): Brain durable persistence. One additive migration, NOT dispatched; nothing calls it; AI OFF.**
+**B5 (in review): the Loop-side Brain boundary. No migration; no AWS; no provider call; AI OFF.**
+- **Record:** `docs/architecture/brain-boundary.md`. **B6 plan:** `docs/architecture/brain-aws-implementation-dossier.md`.
+- **The Brain API** (server actions and routes): submit, status, list, question, answer, cancel.
+  - **Order:** the session's organization and person; authorization first; stored controls AND the
+    environment floor; the route gate; the subject in the organization; accept; ring.
+  - **Visibility:** status, question and answer are the principal's only. Stopping is the principal's
+    or an OWNER's or ADMIN's.
+- **The internal Brain API** (`/api/internal/brain/{access,context,commit}`) for workers only.
+  - **Tokens:** ES256, pinned keys, bound to job, generation, purpose and body.
+  - **Authority:** the loaded job, never the request. Access and context are re-decided per call.
+  - **Commits:** checked against re-assembled evidence and handed to an owner's gate. **No gate
+    exists yet.**
+- **Doorbell signing:** 60 s tokens with `{commandId}` only; never throws; never blocks. The environment
+  reader is `brain-environment.ts`, and nothing is configured.
+- **The executor's surface** (`BrainExecutorStore`), an AES-256-GCM checkpoint sealer, and a test-only
+  reference executor (end to end, a question round trip, cancellation mid-step).
+- **Brain Activity composed,** in the ADMIN workspace. A B5 finding fixed: the lane had no workspace.
+- **Retired:** `/api/brain/call-handling-briefing`, its record, and its only repository read.
+- **Tests:** 16 web, 24 database and 4 shared.
+- **Mutation testing:** 63 of 63 planted defects caught in the final full run, against a green
+  baseline. The first runs left eight survivors, all real test gaps and now closed:
+  - a ring before its command was committed;
+  - a demoted principal;
+  - membership checked apart from the authorizer;
+  - another job's call;
+  - a resume without a recorded reply;
+  - an organization's switch-off read as a platform pause;
+  - an unset doorbell variable;
+  - an unchecked sealed-payload header.
+- **Blockers before the first live request** (not before AWS provisioning):
+  - a Case Explanation result store (migration plus a retention decision);
+  - an operations workflow to record platform controls;
+  - the Anthropic effort decision.
+
+**B4 (merged #277; migration 36 deployed): Brain durable persistence.**
 - **Record and dossier:** `docs/architecture/brain-persistence.md`.
 - **Tables:** `brain_jobs`, `brain_job_transitions`, `brain_job_steps`, `brain_job_waits`,
   `brain_commands`, `brain_events`, `ai_controls` and `ai_control_current`.
@@ -1322,7 +1354,7 @@ review (migration not dispatched); nothing executes them and nothing is provisio
   - commands and events;
   - stored controls (append-only, versioned, never stale);
   - references.
-- **Activity:** the Brain-events adapter is built but not composed until the migration is deployed.
+- **Activity:** the Brain-events adapter, composed in B5.
 - **Restricted roles:** `scripts/operations/brain-database-roles.sql` and
   `docs/runbooks/brain-database-roles.md`. They are verified on local PostgreSQL 18 only; the worker
   cannot change what a job is.
@@ -1444,8 +1476,15 @@ review (migration not dispatched); nothing executes them and nothing is provisio
 change are in `docs/product/intake-party-linking-recommendation.md`.
 `legacy-intake-retirement-plan.md` and the handoff disagree on whether this is already authorized.
 
-**Handoff:** `docs/product/ui-track-handoff.md` is current. It now also lists the Brain experience
-decisions for Charlie and Lexi.
+**Handoff:** `docs/product/ui-track-handoff.md` is current, including the Brain behaviours B5 serves.
+
+**Redesign (Track 2).**
+- **Controlling source:** Charlie and Lexi's *Loop Product and UI Redesign — Implementation Handoff*
+  (2026-09-16), delivered in this work session.
+- **UI-0 screen map:** PR #280 (`docs/product/ui-0-implementation-matrix.md`).
+- **Runs in separate PRs.** UI-1 starts only when Matt authorizes it.
+- **Open decisions** are listed in that document's §11. They include who approves route moves, the
+  People permission, and the prototype link, which the PDF does not carry.
 
 **Product decisions:**
 - **Approved:**
@@ -1477,11 +1516,21 @@ decisions for Charlie and Lexi.
   - the web linking decision.
 
 **Next:**
-1. Review and merge B4.
-2. Matt dispatches migration 36 from `main`, following `brain-persistence.md` §12. Production then
-   has 36 migrations.
-3. B5 (the Loop-side Brain API, internal API and in-process runner), only when Matt authorizes it.
-3. Fix the outbox drain secrets (Matt). This is a prerequisite for B8's notifications.
+1. Review and merge B5. **This is a merge checkpoint:** B6 builds on it.
+2. Matt's decisions for B6 (`brain-aws-implementation-dossier.md`, READY FOR AWS checklist):
+   - the account topology;
+   - the second deployable and the IaC tool;
+   - the executor revision;
+   - the staging Neon branch;
+   - the budget values.
+3. B6: the AWS foundation in staging, switched off, only when Matt authorizes it.
+4. Before the first request:
+   - the result store;
+   - the controls workflow;
+   - the effort decision;
+   - staging provider workspaces.
+5. Fix the outbox drain secrets (Matt). This is a prerequisite for B8's notifications.
+6. The Node maintenance PR: workflows on `.nvmrc`, `engines >= 22`.
 4. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.

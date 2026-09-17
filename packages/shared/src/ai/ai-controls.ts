@@ -14,12 +14,16 @@
 // deleted. The current view is a projection of the latest version, written in the
 // same transaction, so it is never ahead of or behind its log.
 //
-// ABSENT MEANS OFF. A target with no ACTIVE control is not enabled. There is no
-// default-on control, and no control is inferred from a missing one.
+// ABSENT MEANS OFF where a control grants. GLOBAL, ORGANIZATION, a platform TASK and a
+// PROVIDER must each be ACTIVE for work to run; there is no default-on control, and no
+// control is inferred from a missing one. Two scopes only ever STOP: MODEL (models are
+// allowlisted by the reviewed routing policy, not by controls) and a TASK within one
+// organization (an organization may switch off a task the platform enabled, never
+// switch on one it did not). `aiEffectiveControls` is the one place this is decided.
 //
 // PURE.
 
-import { AI_KILL_SWITCH_SCOPES, type AiKillSwitchScope } from './runtime';
+import { AI_KILL_SWITCH_SCOPES, type AiActivation, type AiKillSwitch, type AiKillSwitchScope } from './runtime';
 
 export const AI_CONTROL_SCOPES = AI_KILL_SWITCH_SCOPES;
 export type AiControlScope = AiKillSwitchScope;
@@ -128,4 +132,59 @@ export function aiControlAppendDecision(
  */
 export function aiControlsApplyingTo<T extends { readonly target: AiControlTarget }>(organizationId: string, entries: readonly T[]): T[] {
   return entries.filter((e) => e.target.organizationId === null || e.target.organizationId === organizationId);
+}
+
+/** What one deployment's environment allows: its floor. Never written to the control log. */
+export interface AiControlFloor {
+  readonly activation: AiActivation;
+  readonly killSwitches: readonly AiKillSwitch[];
+}
+
+/** What an organization's AI work may do right now. */
+export interface AiEffectiveControls {
+  readonly activation: AiActivation;
+  readonly killSwitches: readonly AiKillSwitch[];
+}
+
+/**
+ * The deployment's floor AND the recorded controls, for one organization. Nothing the
+ * floor refuses is allowed, nothing a control does not grant is allowed, and every KILLED
+ * control that applies stops what it names. The result has the shape the runtime already
+ * admits work against (`admitAiInvocation`, `aiTaskAvailability`).
+ */
+export function aiEffectiveControls(
+  floor: AiControlFloor,
+  stored: readonly AiControlEntry[],
+  organizationId: string,
+): AiEffectiveControls {
+  const applying = aiControlsApplyingTo(organizationId, stored);
+  const has = (state: AiControlState, scope: AiControlScope, value: string | null, org: string | null) =>
+    applying.some((e) => e.state === state && e.target.scope === scope && e.target.value === value && e.target.organizationId === org);
+
+  const enabled = floor.activation.enabled === true && has('ACTIVE', 'GLOBAL', null, null);
+  const organizations =
+    floor.activation.organizations.includes(organizationId) && has('ACTIVE', 'ORGANIZATION', organizationId, organizationId)
+      ? [organizationId]
+      : [];
+  const tasks = floor.activation.tasks.filter(
+    (task) => has('ACTIVE', 'TASK', task, null) && !has('KILLED', 'TASK', task, organizationId),
+  );
+  const providers = floor.activation.providers.filter((provider) => has('ACTIVE', 'PROVIDER', provider, null));
+
+  const killSwitches: AiKillSwitch[] = [...floor.killSwitches];
+  for (const e of applying) {
+    if (e.state !== 'KILLED') continue;
+    const { scope, value, organizationId: org } = e.target;
+    if (scope === 'GLOBAL') killSwitches.push({ scope: 'GLOBAL' });
+    else if (scope === 'ORGANIZATION' && value) killSwitches.push({ scope: 'ORGANIZATION', value });
+    else if (scope === 'TASK' && org === null && value) killSwitches.push({ scope: 'TASK', value });
+    else if ((scope === 'PROVIDER' || scope === 'MODEL') && value) killSwitches.push({ scope, value });
+    // An organization's own TASK kill is applied above, by removing the task for that
+    // organization: it reads as switched off by the organization (NOT_ENABLED), never as
+    // a platform stop (PAUSED).
+  }
+  return {
+    activation: { enabled, organizations, tasks, providers },
+    killSwitches,
+  };
 }

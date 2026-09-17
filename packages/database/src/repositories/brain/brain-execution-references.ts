@@ -57,6 +57,18 @@ export class BrainExecutionReferences {
     return row ? { organizationId: row.organizationId, jobId: row.id, generation: row.generation } : null;
   }
 
+  /**
+   * The job a worker token names, whatever generation the token claims, so a stale
+   * generation is refused by name rather than looking like a missing job.
+   */
+  async locateJob(jobId: string): Promise<BrainJobReference | null> {
+    const row = await this.prisma.brainJob.findFirst({
+      where: { id: jobId },
+      select: { organizationId: true, id: true, generation: true },
+    });
+    return row ? { organizationId: row.organizationId, jobId: row.id, generation: row.generation } : null;
+  }
+
   /** The command a doorbell ring names. */
   async resolveCommand(commandId: string): Promise<BrainCommandReference | null> {
     const row = await this.prisma.brainCommand.findFirst({

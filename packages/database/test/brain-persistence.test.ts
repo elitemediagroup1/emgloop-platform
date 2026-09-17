@@ -970,7 +970,8 @@ test('a Brain event becomes a valid Activity item that points at work, never at 
 
   const adapter = new BrainEventActivityAdapter(w.prisma);
   assert.equal(adapter.supports({ kind: 'ORGANIZATION' }), true);
-  assert.equal(adapter.supports({ kind: 'CASE', priorityId: 'case_00000001' }), false);
+  assert.equal(adapter.supports({ kind: 'CASE', priorityId: 'case_00000001' }), true, 'B5: the Case lane');
+  assert.equal(adapter.supports({ kind: 'WORK_ITEM', workInstanceId: 'w_1' }), false);
   assert.deepEqual(adapter.requiresFor({ kind: 'ORGANIZATION' }), [{ resource: 'commercialIntelligence', action: 'view' }]);
   const page = await adapter.page({ organizationId: ORG, subject: { kind: 'ORGANIZATION' }, filter: 'ALL', cursor: null, limit: 10, interactionsIncluded: false });
   assert.deepEqual(page.items.map((i) => i.type), ['brain.job.succeeded', 'brain.job.accepted']);
@@ -996,9 +997,9 @@ test('a Brain event becomes a valid Activity item that points at work, never at 
 const SRC = join(__dirname, '..', 'src', 'repositories');
 const read = (path: string) => readFileSync(join(SRC, path), 'utf8');
 
-test('fence: the Brain activity adapter is not composed into the live feed before its migration is deployed', () => {
+test('fence: the Brain activity adapter is composed into the live feed only now that its migration is deployed (B5)', () => {
   const composition = read('activity-read-model.repository.ts');
-  assert.doesNotMatch(composition, /BrainEventActivityAdapter/, 'registering it is a B5 step, after the migration');
+  assert.match(composition, /new BrainEventActivityAdapter\(prisma\)/, 'migration 36 was deployed (run 35160530756) before B5 composed it');
 });
 
 test('fence: every Brain repository read and write is scoped by organization, except the reference lookups', () => {
