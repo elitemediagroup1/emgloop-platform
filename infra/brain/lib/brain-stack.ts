@@ -108,8 +108,9 @@ export class BrainStack extends Stack {
         generateSecretString: { secretStringTemplate: JSON.stringify({ state: 'UNSET' }), generateStringKey: 'placeholder', excludePunctuation: true },
       });
     // Why: provider keys will live here (B7). Revision 1 grants them to no function.
-    const anthropicSecret = unset('AnthropicSecret', `${secretPrefix}/anthropic`, 'Anthropic API key (not set; no function may read it in B6)');
-    const openaiSecret = unset('OpenAiSecret', `${secretPrefix}/openai`, 'OpenAI API key (not set; no function may read it in B6)');
+    const providerSecretNames = { anthropic: `${secretPrefix}/anthropic`, openai: `${secretPrefix}/openai` };
+    unset('AnthropicSecret', providerSecretNames.anthropic, 'Anthropic API key (not set; no function may read it in B6)');
+    unset('OpenAiSecret', providerSecretNames.openai, 'OpenAI API key (not set; no function may read it in B6)');
     // Why: each component connects to Neon as its own restricted role.
     const workerDatabase = unset('WorkerDatabaseSecret', `${secretPrefix}/neon-worker`, 'Neon URL for loop_brain_worker: {"url": "..."}');
     const dispatcherDatabase = unset('DispatcherDatabaseSecret', `${secretPrefix}/neon-dispatcher`, 'Neon URL for loop_brain_dispatcher: {"url": "..."}');
@@ -350,6 +351,7 @@ export class BrainStack extends Stack {
     new CfnOutput(this, 'DoorbellUrl', { value: `${api.apiEndpoint}/v1/doorbell`, description: 'LOOP_BRAIN_DOORBELL_URL for the Loop deployment that rings this environment' });
     new CfnOutput(this, 'WorkerSigningKeyArn', { value: signingKey.keyArn, description: 'Export its public key for LOOP_BRAIN_WORKER_PUBLIC_KEYS' });
     new CfnOutput(this, 'ParameterPrefix', { value: parameterPrefix });
-    new CfnOutput(this, 'ProviderSecretNames', { value: [anthropicSecret.secretName, openaiSecret.secretName].join(','), description: 'Not set in B6' });
+    // Literal names, not a reference to the secrets: an output never touches a secret resource.
+    new CfnOutput(this, 'ProviderSecretNames', { value: Object.values(providerSecretNames).join(','), description: 'Secret names only; no value is set in B6' });
   }
 }

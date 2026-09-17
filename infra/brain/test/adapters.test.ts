@@ -115,7 +115,8 @@ test('configuration: parameters fail closed; database secrets must hold a URL', 
   await assert.rejects(databaseUrl('s', secret(JSON.stringify({ state: 'UNSET', placeholder: 'x' }))), NotConfigured);
   await assert.rejects(databaseUrl('s', secret('not json')), NotConfigured);
   await assert.rejects(databaseUrl('s', secret(JSON.stringify({ url: 'mysql://x' }))), NotConfigured);
-  assert.equal(await databaseUrl('s', secret(JSON.stringify({ url: 'postgresql://u:p@h/db?sslmode=require' }))), 'postgresql://u:p@h/db?sslmode=require');
-  const a = prismaFor('postgresql://u:p@localhost:5/db');
-  assert.equal(prismaFor('postgresql://u:p@localhost:5/db'), a, 'one client per warm instance');
+  // Fixture URLs carry no user or password: a credential never appears in this repository.
+  assert.equal(await databaseUrl('s', secret(JSON.stringify({ url: 'postgresql://db.invalid/fixture?sslmode=require' }))), 'postgresql://db.invalid/fixture?sslmode=require');
+  const a = prismaFor('postgresql://localhost:5/fixture');
+  assert.equal(prismaFor('postgresql://localhost:5/fixture'), a, 'one client per warm instance');
 });
