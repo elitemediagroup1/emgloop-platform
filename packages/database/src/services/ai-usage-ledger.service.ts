@@ -47,6 +47,8 @@ import type {
   AiReserveResult,
   AiUsageLedger,
 } from './ai-runtime/gateway';
+import { isSerializationFailure } from '../repositories/transaction-conflict';
+
 
 export interface DurableAiUsageLedgerDeps {
   ledger?: AiUsageLedgerRepository;
@@ -57,13 +59,8 @@ export interface DurableAiUsageLedgerDeps {
 const GLOBAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UNIQUE_VIOLATION = 'P2002';
 
-/** Postgres aborted a serializable transaction because a concurrent one conflicted. */
-export function isSerializationFailure(err: unknown): boolean {
-  const e = err as { code?: unknown; message?: unknown; meta?: { code?: unknown } };
-  if (e?.code === 'P2034') return true;
-  if (e?.meta?.code === '40001') return true;
-  return typeof e?.message === 'string' && /could not serialize access|40001/.test(e.message);
-}
+// Defined once, beside the repositories that also retry serializable transactions.
+export { isSerializationFailure };
 
 export class DurableAiUsageLedger implements AiUsageLedger {
   private readonly ledger: AiUsageLedgerRepository;
