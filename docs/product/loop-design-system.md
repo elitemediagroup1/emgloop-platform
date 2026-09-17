@@ -99,6 +99,9 @@ slice by slice, without changing permissions, authority, contracts or product me
 **Global.** These live in `loop-os.css` and `_loop-os/`:
 - **Tokens:** canvas, surfaces, lines, text, primary, accent, semantic states, avatar, rail, radius,
   elevation, font.
+- **Brand mark:** the official EMG Loop wordmark, traced to vector outlines
+  (`apps/web/public/brand/emg-loop-wordmark.svg`, and `-on-dark.svg` for the navy rail), rendered
+  only through `EmgLoopWordmark`. It is never redrawn with text or approximated.
 - **Shell:** navigation rail, top bar, main canvas, mobile menu, operating-area bar, skip link, focus.
 - **Typography:** page title, subtitle, trail, section title, notes and counts.
 - **Containers and actions:** buttons and inert actions, filters, tabs, panels, record layout
