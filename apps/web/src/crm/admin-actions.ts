@@ -19,6 +19,7 @@ import { invitationAcceptUrl } from '@emgloop/shared';
 import { newToken, hashToken } from '../auth/auth';
 import { requirePermission } from '../auth/guard';
 import { sendInviteEmail } from '../lib/email/email-service';
+import { finishGoogleOffboarding } from '../google/google-runtime';
 
 function parseRole(v: unknown): SystemRole {
   const s = String(v ?? '');
@@ -146,8 +147,15 @@ export async function setUserStatusAction(formData: FormData): Promise<void> {
   if (!userId || (status !== 'ACTIVE' && status !== 'DISABLED')) return;
   let changed: boolean;
   if (status === 'DISABLED') {
-    changed = await repositories.iam.disableUser(session.organizationId, userId);
-    if (changed) await repositories.auth.revokeAllForUser(userId);
+    // Disabling ends the member's Google connection in the same transaction (the
+    // credential is deleted); Google is asked to revoke it once that has committed.
+    const actor = { userId: session.userId, name: session.name };
+    const ended = await repositories.iam.disableMember(session.organizationId, userId, actor);
+    changed = ended.changed;
+    if (changed) {
+      await repositories.auth.revokeAllForUser(userId);
+      await finishGoogleOffboarding(ended.googleRevocation, actor);
+    }
   } else {
     // Refused for a removed member: removal is undone by re-inviting, never by a
     // status flip that would restore a login the Team page cannot show.
@@ -177,8 +185,11 @@ export async function removeUserAction(formData: FormData): Promise<void> {
   const session = await requirePermission('users', 'delete');
   const userId = String(formData.get('userId') ?? '');
   if (!userId || userId === session.userId) return;
-  await repositories.iam.softRemoveUser(session.organizationId, userId);
+  // Removal ends the member's Google connection in the same transaction, as disabling does.
+  const actor = { userId: session.userId, name: session.name };
+  const ended = await repositories.iam.removeMember(session.organizationId, userId, actor);
   await repositories.auth.revokeAllForUser(userId);
+  await finishGoogleOffboarding(ended.googleRevocation, actor);
   await repositories.audit.record({
     organizationId: session.organizationId,
     userId: session.userId,

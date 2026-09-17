@@ -107,7 +107,12 @@ function makeIam() {
   // inside one interactive transaction, so the double carries that table and a
   // straight-through $transaction (rollback is not what these tests assert).
   const organizationMembership = makeTable('organization_memberships');
-  const prisma: Record<string, unknown> = { user, invitation, organizationMembership };
+  // Disabling or removing a member also ends their Google connection in the same
+  // transaction. Nobody here has one: the lookup finds nothing and nothing is written.
+  // (google-connection.test.ts drives that path with a connection present.)
+  const googleConnection = { async findFirst() { return null; } };
+  const googleOAuthState = { async deleteMany() { return { count: 0 }; } };
+  const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState };
   prisma['$transaction'] = async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(prisma);
   return { iam: new IamRepository(prisma as unknown as PrismaClient), user, invitation, organizationMembership };
 }

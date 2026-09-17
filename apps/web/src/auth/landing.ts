@@ -14,6 +14,21 @@
 export const LOOP_HOME = '/app';
 export const LOGIN_PATH = '/crm/login';
 
+/**
+ * Where a person lands right after accepting an invitation: employee onboarding, which
+ * asks them to connect their own Google Workspace (optional) and then continues to Loop
+ * Home. A normal sign-in never goes here.
+ */
+export const ONBOARDING_GOOGLE_PATH = '/app/onboarding/google';
+
+/** A person's own connections, reachable at any time after onboarding. */
+export const CONNECTIONS_PATH = '/app/connections';
+
+/** The destination after an invitation is accepted and the session is established. */
+export function postInvitationDestination(): string {
+  return ONBOARDING_GOOGLE_PATH;
+}
+
 /** Authentication screens: never a post-login destination (it would loop). */
 export const AUTH_SCREENS: readonly string[] = [
   '/crm/login',

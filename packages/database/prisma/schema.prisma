@@ -281,6 +281,9 @@ model Organization {
   brainEvents           BrainEvent[]
   aiControls            AiControl[]
   aiControlCurrent      AiControlCurrent[]
+  /// Google Workspace connection (Private V1). One per member; see GoogleConnection.
+  googleConnections     GoogleConnection[]
+  googleOAuthStates     GoogleOAuthState[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -401,21 +404,23 @@ model User {
   memberships        OrganizationMembership[] @relation("MembershipUser")
   invitedMemberships OrganizationMembership[] @relation("MembershipInviter")
 
-  crmRelationshipsOwned   CrmRelationship[]      @relation("CrmRelationshipOwner")
-  crmRelationshipsCreated CrmRelationship[]      @relation("CrmRelationshipCreator")
-  crmRelationshipEvents   CrmRelationshipEvent[] @relation("CrmRelationshipEventActor")
-  crmParticipantsAdded    CrmParticipant[]       @relation("CrmParticipantCreator")
-  crmParticipantsEnded    CrmParticipant[]       @relation("CrmParticipantEnder")
-  crmParticipantsVoided   CrmParticipant[]       @relation("CrmParticipantVoider")
-  aiInvocations           AiInvocation[]         @relation("AiInvocationPrincipal")
+  crmRelationshipsOwned    CrmRelationship[]      @relation("CrmRelationshipOwner")
+  crmRelationshipsCreated  CrmRelationship[]      @relation("CrmRelationshipCreator")
+  crmRelationshipEvents    CrmRelationshipEvent[] @relation("CrmRelationshipEventActor")
+  crmParticipantsAdded     CrmParticipant[]       @relation("CrmParticipantCreator")
+  crmParticipantsEnded     CrmParticipant[]       @relation("CrmParticipantEnder")
+  crmParticipantsVoided    CrmParticipant[]       @relation("CrmParticipantVoider")
+  aiInvocations            AiInvocation[]         @relation("AiInvocationPrincipal")
   /// Brain durable execution (B4). Attribution only; a job's principal is bound
   /// through its organization membership, not here.
-  brainJobsCancelled      BrainJob[]             @relation("BrainJobCancelActor")
-  brainJobTransitions     BrainJobTransition[]   @relation("BrainJobTransitionActor")
-  brainJobWaitsAnswered   BrainJobWait[]         @relation("BrainJobWaitResponder")
-  brainCommandsIssued     BrainCommand[]         @relation("BrainCommandIssuer")
-  brainEvents             BrainEvent[]           @relation("BrainEventActor")
-  aiControlsRecorded      AiControl[]            @relation("AiControlActor")
+  brainJobsCancelled       BrainJob[]             @relation("BrainJobCancelActor")
+  brainJobTransitions      BrainJobTransition[]   @relation("BrainJobTransitionActor")
+  brainJobWaitsAnswered    BrainJobWait[]         @relation("BrainJobWaitResponder")
+  brainCommandsIssued      BrainCommand[]         @relation("BrainCommandIssuer")
+  brainEvents              BrainEvent[]           @relation("BrainEventActor")
+  aiControlsRecorded       AiControl[]            @relation("AiControlActor")
+  /// Google connections this person revoked (their own, or a member's). Attribution only.
+  googleConnectionsRevoked GoogleConnection[]     @relation("GoogleConnectionRevoker")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -471,12 +476,15 @@ model OrganizationMembership {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user          User           @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
-  invitedBy     User?          @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user              User               @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy         User?              @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   /// B4. Brain work runs on a membership's authority: a job's principal must hold one here.
-  brainJobs     BrainJob[]     @relation("BrainJobPrincipal")
-  brainJobWaits BrainJobWait[] @relation("BrainJobWaitPrincipal")
+  brainJobs         BrainJob[]         @relation("BrainJobPrincipal")
+  brainJobWaits     BrainJobWait[]     @relation("BrainJobWaitPrincipal")
+  /// A Google connection belongs to a membership: the person, in THIS organization.
+  googleConnection  GoogleConnection[] @relation("GoogleConnectionMember")
+  googleOAuthStates GoogleOAuthState[] @relation("GoogleOAuthStateMember")
 
   @@unique([userId, organizationId])
   @@index([organizationId, status])
@@ -1242,8 +1250,10 @@ model UserSession {
   lastUsedAt     DateTime?
   createdAt      DateTime         @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Google connect attempts started in this session; the callback must arrive in the same one.
+  googleOAuthStates GoogleOAuthState[]
 
   @@index([userId])
   @@index([organizationId])
@@ -5530,4 +5540,112 @@ model AiControlCurrent {
 
   @@index([organizationId])
   @@map("ai_control_current")
+}
+
+// ===========================================================================
+// GOOGLE WORKSPACE CONNECTION (Private V1)
+//
+// docs/architecture/google-workspace-connection.md §11. A person connects THEIR OWN
+// Google account from inside a Loop session, one capability at a time (Gmail metadata,
+// Calendar events read-only, Drive metadata). Connecting is not signing in, and nothing
+// here is read to decide who a Loop user is.
+// ===========================================================================
+
+/// One Google connection per Loop user per organization.
+///
+/// BELONGS TO A MEMBERSHIP. The composite key binds the row to the person's membership in
+/// THIS organization, so a connection can never be filed under another organization or
+/// outlive the membership row it was made through.
+///
+/// REVOKE MEANS DELETE. The sealed refresh token is present only while CONNECTED. A revoked
+/// or expired connection keeps its lifecycle columns and its audit trail, and no
+/// credential. Google's own text is never stored: failures are classes.
+///
+/// THE TOKEN IS SEALED. AES-256-GCM with a key only the web tier holds (never in the
+/// database), bound to organization, user, Google account and purpose, so a sealed token
+/// copied to another row does not open.
+///
+/// SCOPES ARE PINNED IN THE DATABASE. A CHECK admits only the three approved capability
+/// scopes in `grantedScopes` and `requestedScopes`; a broader grant cannot be recorded even
+/// by a caller that skipped the contract.
+model GoogleConnection {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  userId                String
+  /// The ID token's `sub` last linked: stable and never reused, and never the email. Kept
+  /// after revocation for the audit trail.
+  googleSubject         String
+  /// `googleSubject` while the connection is live (CONNECTED or EXPIRED), NULL once
+  /// revoked. Unique per organization, so one Google account is linked to at most one Loop
+  /// user there at a time; Postgres treats NULLs as distinct.
+  activeGoogleSubject   String?
+  /// Display only, as Google reported it at link time. Never an identifier.
+  emailAtLink           String
+  /// The Workspace domain, or NULL for an account outside any Workspace.
+  hostedDomain          String?
+  /// CONNECTED, EXPIRED or REVOKED (`GOOGLE_CONNECTION_STATUSES` in @emgloop/shared).
+  status                String
+  /// The capability scopes Google granted, exactly as reported.
+  grantedScopes         String[]  @default([])
+  /// The capability scopes the person asked for on this connection. A requested scope that
+  /// was not granted is a declined capability (INSUFFICIENT_SCOPE).
+  requestedScopes       String[]  @default([])
+  /// The sealed refresh token, with its format and key reference. NULL unless CONNECTED.
+  refreshTokenSealed    Bytes?
+  sealVersion           String?
+  keyRef                String?
+  /// When the current grant was stored.
+  connectedAt           DateTime
+  lastUsedAt            DateTime?
+  /// When Google refused the stored grant and Loop stopped using it.
+  expiredAt             DateTime?
+  /// `GOOGLE_CONNECTION_FAILURE_CLASSES`. Never Google's text.
+  lastFailureClass      String?
+  revokedAt             DateTime?
+  revokedByUserId       String?
+  /// `GOOGLE_REVOCATION_REASONS`.
+  revocationReason      String?
+  /// When Google confirmed the revocation. NULL on a revoked row means Loop deleted its
+  /// copy but Google did not confirm (see `lastFailureClass`).
+  revocationConfirmedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("GoogleConnectionMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  revokedBy    User?                  @relation("GoogleConnectionRevoker", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+  @@unique([organizationId, activeGoogleSubject])
+  @@map("google_connections")
+}
+
+/// One attempt to connect Google: the OAuth `state`, single-use and short-lived.
+///
+/// BOUND TO WHO STARTED IT. Organization, user AND the browser session: the callback is
+/// honoured only in the same session, within ten minutes, once. Only hashes of the state
+/// and nonce are stored; the values travel through Google and back and nowhere else.
+model GoogleOAuthState {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  sessionId      String
+  /// SHA-256 (hex) of the state value.
+  stateHash      String    @unique
+  /// SHA-256 (hex) of the nonce Google must return in the ID token.
+  nonceHash      String
+  /// The capabilities this attempt asked for.
+  capabilities   String[]
+  /// ONBOARDING or CONNECTIONS: where the callback returns the person. Never read from the callback.
+  returnTo       String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("GoogleOAuthStateMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  session      UserSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, expiresAt])
+  @@map("google_oauth_states")
 }

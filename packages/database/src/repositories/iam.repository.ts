@@ -28,6 +28,7 @@
 import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
 import { hasRemovalMarker, membershipAuthority, syncMembershipFromUser } from './membership.repository';
+import { revokeGoogleConnectionInTx, type GoogleActor, type GoogleRevocation } from './google-connection.repository';
 
 
 export type Resource =
@@ -81,7 +82,11 @@ export type Resource =
   // identity, and asserting that two records are the same real-world Party.
   // Deliberately NOT `customers:update`: editing a contact and asserting canonical
   // identity are different authorities. Grants: see IDENTITY_RESOLUTION_GRANTS.
-  | 'identityResolution';
+  | 'identityResolution'
+  // Google Workspace connection (Private V1; google-workspace-connection.md §11). A
+  // person's OWN Google connection -- never anybody else's data. Grants: see
+  // GOOGLE_WORKSPACE_GRANTS, which, like identityResolution, has no READ_ONLY fallback.
+  | 'googleWorkspace';
 
 
 /**
@@ -153,6 +158,29 @@ export const IDENTITY_RESOLUTION_GRANTS: Readonly<Record<string, readonly Action
   AI_EMPLOYEE: [],
 });
 
+// GOOGLE WORKSPACE -- the connection lifecycle (google-workspace-connection.md §11.10.3).
+//
+// Every human member connects THEIR OWN Google account during onboarding, so every human
+// role holds `view` (see my connection) and `update` (connect, add or remove a
+// capability, disconnect -- always one's own; the organization and person come from the
+// session). `manage` -- acting on ANOTHER member's connection -- is OWNER and ADMIN only,
+// and is literal here: it does not imply the other actions.
+//
+// AI_EMPLOYEE is denied everything, whatever a Permission row says: an AI Employee is an
+// assignable identity, not a person with a Google account, and no grant may make it one.
+// A role missing from this table is denied too.
+export const GOOGLE_WORKSPACE_GRANTS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
+  OWNER: ['view', 'update', 'manage'],
+  ADMIN: ['view', 'update', 'manage'],
+  MANAGER: ['view', 'update'],
+  EMPLOYEE: ['view', 'update'],
+  READ_ONLY: ['view', 'update'],
+  AI_EMPLOYEE: [],
+});
+
+/** Roles that may never hold a Google Workspace connection, whatever a Permission row says. */
+const GOOGLE_WORKSPACE_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
+
 /** Roles that may never hold identity-resolution authority, whatever a Permission row says. */
 const IDENTITY_RESOLUTION_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
@@ -211,6 +239,9 @@ export function matrixAllows(role: string, resource: Resource, action: Action): 
   if (resource === 'identityResolution') {
     return (IDENTITY_RESOLUTION_GRANTS[role] ?? []).includes(action);
   }
+  if (resource === 'googleWorkspace') {
+    return (GOOGLE_WORKSPACE_GRANTS[role] ?? []).includes(action);
+  }
   // PD-F-04 grants Relationship view to every authorized HUMAN workspace role, and
   // the recorded reading denies AI_EMPLOYEE because it is not one. Without this it
   // would hold view anyway: AI_EMPLOYEE is absent from the matrix and falls back to
@@ -254,6 +285,12 @@ export function invitationSystemRole(inv: { systemRole?: string | null; metadata
   return 'EMPLOYEE';
 }
 
+
+/** A member's disable or removal: whether it happened, and the Google credential it deleted. */
+export interface MemberEndResult {
+  readonly changed: boolean;
+  readonly googleRevocation: GoogleRevocation | null;
+}
 
 export interface CanArgs {
   organizationId: string;
@@ -315,6 +352,8 @@ export class IamRepository {
     const role = authority.systemRole;
     // A machine never asserts identity: no Permission row can grant it.
     if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
+    // Nor holds a Google connection.
+    if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
 
     // Check explicit DENY rules first (deny wins)
     const denyRules = await this.prisma.permission.findMany({
@@ -370,6 +409,7 @@ export class IamRepository {
 
     return checks.map(({ resource, action }) => {
       if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
+      if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
       const applicable = rules.filter((r) => r.resource === resource && r.action === action);
       if (applicable.some((r) => r.userId === userId && r.effect === 'DENY')) return false;
       if (applicable.some((r) => r.systemRole === role && r.effect === 'DENY')) return false;
@@ -570,7 +610,25 @@ export class IamRepository {
   }
 
   async disableUser(organizationId: string, userId: string): Promise<boolean> {
-    return this.setStatus(organizationId, userId, 'DISABLED');
+    return (await this.disableMember(organizationId, userId)).changed;
+  }
+
+  /**
+   * Disable a member, ending their Google connection IN THE SAME TRANSACTION
+   * (google-workspace-connection.md §6, §11.6): the sealed token is deleted before the
+   * membership change commits. `googleRevocation` is what was deleted, for the caller
+   * that holds the key to revoke at Google after commit.
+   */
+  async disableMember(organizationId: string, userId: string, actor: GoogleActor = { userId: null }): Promise<MemberEndResult> {
+    let googleRevocation: GoogleRevocation | null = null;
+    const changed = await this.setStatus(organizationId, userId, 'DISABLED', async (tx) => {
+      googleRevocation = await revokeGoogleConnectionInTx(this.prisma, tx, organizationId, userId, {
+        reason: 'MEMBER_DISABLED',
+        actor,
+        now: new Date(),
+      });
+    });
+    return { changed, googleRevocation: changed ? googleRevocation : null };
   }
 
   /** Org-scoped status write plus its membership, in one transaction. No row, no write. */
@@ -578,6 +636,7 @@ export class IamRepository {
     organizationId: string,
     userId: string,
     status: 'ACTIVE' | 'DISABLED',
+    alsoInTransaction?: (tx: Prisma.TransactionClient) => Promise<void>,
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.user.findFirst({ where: { id: userId, organizationId } });
@@ -590,20 +649,29 @@ export class IamRepository {
       if (count === 0) return false;
       const user = await tx.user.findFirst({ where: { id: userId, organizationId } });
       if (user) await syncMembershipFromUser(tx, user);
+      if (alsoInTransaction) await alsoInTransaction(tx);
       return true;
     });
   }
 
   async softRemoveUser(organizationId: string, userId: string): Promise<void> {
+    await this.removeMember(organizationId, userId);
+  }
+
+  /**
+   * Remove a member (soft), ending their Google connection in the same transaction, as
+   * `disableMember` does.
+   */
+  async removeMember(organizationId: string, userId: string, actor: GoogleActor = { userId: null }): Promise<MemberEndResult> {
     // The metadata bag carries systemRole AND passwordHash. It must be MERGED,
     // never replaced: overwriting it stripped both, so a re-enabled user came
     // back with no password and silently defaulted to EMPLOYEE. Mirrors the
     // read-modify-write pattern used by setRole above; the findFirst keeps the
     // write scoped to the caller's organization.
     const user = await this.prisma.user.findFirst({ where: { id: userId, organizationId } });
-    if (!user) return;
+    if (!user) return { changed: false, googleRevocation: null };
     const m = meta(user);
-    await this.prisma.$transaction(async (tx) => {
+    const googleRevocation = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
         data: {
@@ -612,7 +680,13 @@ export class IamRepository {
         },
       });
       await syncMembershipFromUser(tx, updated);
+      return revokeGoogleConnectionInTx(this.prisma, tx, organizationId, userId, {
+        reason: 'MEMBER_REMOVED',
+        actor,
+        now: new Date(),
+      });
     });
+    return { changed: true, googleRevocation };
   }
 
 

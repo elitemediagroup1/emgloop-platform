@@ -177,7 +177,9 @@ describe('Every server action authenticates, except the reviewed sign-in flows',
 describe('Every API route authenticates, except static public endpoints', () => {
   // `authenticateBrainWorkerRequest` (B5) verifies a pinned-key worker token; brain-boundary.test.tsx
   // proves each internal Brain route calls it before anything else.
-  const AUTH = /getSession\(|\bcan\(|requireCrmContext\(|requirePermission\(|authenticateService\(|verifyWebhook|timingSafeEqual|LOOP_EVENT_SECRET|authenticateBrainWorkerRequest\(/;
+  // `getSessionBinding` resolves the same signed session as `getSession` and also returns its
+  // row id (the Google connect routes bind their state to it).
+  const AUTH = /getSession\(|getSessionBinding\(|\bcan\(|requireCrmContext\(|requirePermission\(|authenticateService\(|verifyWebhook|timingSafeEqual|LOOP_EVENT_SECRET|authenticateBrainWorkerRequest\(/;
   const PUBLIC_ROUTES = new Set(['health/route.ts', 'sdk/config/route.ts', 'sdk/emg-loop/route.ts']);
   const DB_ACCESS = /repositories\.|prisma\.|crmRepos|\.findMany\(|\.findFirst\(|\.create\(/;
 
