@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) code-complete in review, ID tokens verified against Google's published keys, NOT deployed, migration 37 not dispatched; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence proposed in draft #287, nothing built; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -1734,6 +1734,33 @@ Drive read (the first read is its own PR).
 5. Connect as Matt and Charlie.
 6. The Calendar read.
 7. Google verification and publishing (runbook §6).
+
+## Daily Loop / Employee Intelligence — PROPOSED, NOTHING BUILT (draft #287)
+
+**Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17). **No code, no
+schema, no scope change, no infrastructure.** It designs the employee surface on top of the Google
+connection #286 shipped: Google as a sensor, per-employee work state, Home as Daily Loop.
+
+**What the research settled:**
+- `gmail.metadata` forbids Gmail's `q` parameter, so there is no date-filtered search; reading bodies
+  needs `gmail.readonly`, and both scopes are already restricted (CASA is required either way).
+- `calendar.events.readonly` is sufficient for the Day view and meeting cards; listing calendars is
+  the only thing that would need more.
+- **Brain cannot run this today:** only a HUMAN may submit a job, a system-issued START is refused at
+  dispatch, no result owner gate is registered, no `MODEL_CALL` step exists, nothing is deployed.
+- So **V1 is deterministic and calls no model**: who is waiting on you, what you have not answered,
+  what went quiet, your day, a stored daily brief, and a structured Ask Loop.
+
+**Reuse, not new systems:** `projectBrainBriefing` (wired to nothing today), `attention-state`,
+`personal-priority`, the decision vocabulary, the AI task/context/template governance, the meeting
+record's M0-M4 slices, and `GoogleWorkspaceService.accessToken()` — which still has no caller.
+
+**The new boundary:** user-first isolation. This is the first data an OWNER must not be able to read;
+§20 makes it structural (no repository method without `userId`, no `manage` action).
+
+**Next:** Matt reviews #287, answers the twelve open decisions in §29 (the four that gate everything:
+when to ask for `gmail.readonly`; store content or derive-and-discard; whether any org-level aggregate
+is ever allowed; retention windows). Then phase A1 (per-employee timezone) and A2 (schema + isolation).
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
