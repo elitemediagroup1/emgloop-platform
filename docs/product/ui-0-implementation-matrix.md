@@ -2,6 +2,9 @@
 
 **Status: ASSESSMENT ONLY (2026-09-17). No production surface is changed by this document.**
 
+> **UI-1 has since implemented the shell, People, Person and Relationship rows** (`ui-1-implementation.md`).
+> That record lists which §11 decisions Matt's 2026-09-17 locked decisions resolved, and which remain.
+
 ## Controlling source
 
 **The design and product authority is *Loop Product and UI Redesign — Implementation Handoff*.**
