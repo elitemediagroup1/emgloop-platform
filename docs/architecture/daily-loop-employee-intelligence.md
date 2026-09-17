@@ -631,6 +631,19 @@ token expired: clear the employee's event rows and do one full window again. Del
 events arrive in the incremental result, which is what keeps "your day" honest when a meeting is
 called off.
 
+**The first call must be sync-token compatible, or there is no cursor to store.** Google answers a
+request it cannot replay incrementally *without* a `nextSyncToken`, and its `events.list` reference
+lists what cannot be combined with one: `iCalUID`, **`orderBy`**, `privateExtendedProperty`, `q`,
+`sharedExtendedProperty`, `timeMin`, `timeMax`, `updatedMin`. `timeMin`/`timeMax` are the documented
+exception — the sync guide's own sample limits a full sync by date range and still receives a token.
+`orderBy` is not: sending it costs the cursor silently, and every pass then re-reads the whole window
+(observed in production on 2026-09-17, two identical WINDOW syncs in a row).
+
+**Open, assigned to DL-5:** a token inherits the scope of the window that minted it, so a long-lived
+cursor keeps reporting against that original window. The scheduled runner should re-baseline the
+window periodically — a weekly bounded window read — so events beyond the original `timeMax` come into
+view. Not a defect in the sync path; a property of Google's tokens that the schedule has to handle.
+
 ### 8.3 An event becomes a work object
 
 For each event Loop stores: provider id, start/end, status, organizer, attendee **count and
@@ -1904,7 +1917,7 @@ full database suite unchanged.
 | **DL-2** | Calendar sensor (adapter only) | — | No | No | **No** | No | No | Adapter tests against a recorded double: sync tokens, `410` recovery, bounded windows. No live call |
 | **DL-3** | Calendar ingestion + cycle runner + manual trigger | DL-1, DL-2 | No | One secret | **No** | No | No | **You connect your own Calendar, trigger a cycle by hand, and see your events ingested — for your user only** |
 | **DL-4** | Home: YOUR DAY + TOMORROW, and the degradation states | DL-3 | No | No | **No** | No | **Yes** | Your real calendar rendered as your day, on desktop and phone; the honest states when Gmail and Drive are not connected |
-| **DL-5** | The scheduled cycle workflow | DL-3 | No | **Workflow + repo variable** | **No** | No | No | Cycles running every 15 minutes with the variable set; a failure showing as a red run |
+| **DL-5** | The scheduled cycle workflow, **and the periodic window re-baseline of §8.2** | DL-3 | No | **Workflow + repo variable** | **No** | No | No | Cycles running every 15 minutes with the variable set; a failure showing as a red run; and events beyond the original window coming into view |
 | **DL-6** | Gmail sensor (metadata adapter only) | — | No | No | **No** | No | No | Adapter tests: backfill paging, history cursor, `404` recovery, and a test asserting `q` is never sent |
 | **DL-7** | Gmail ingestion: correspondents, threads, messages, bounded backfill | DL-3, DL-6 | No | No | **No** | No | No | **Your own mailbox metadata ingested inside the caps** (30 days, 2,000 messages), with the run record showing exactly what was read |
 | **DL-8** | Work-state rules: needs you / waiting on / gone quiet, with evidence | DL-7 | No | No | **No** | No | No | The rules against fixture mailboxes, including cc-only, automated senders, out-of-office and one-message threads |

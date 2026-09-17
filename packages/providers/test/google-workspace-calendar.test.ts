@@ -88,7 +88,6 @@ test('a window read asks the primary calendar for expanded instances inside an e
   assert.equal(call.method, 'GET');
   assert.deepEqual(g.params(), {
     singleEvents: 'true',
-    orderBy: 'startTime',
     maxResults: String(GOOGLE_CALENDAR_PAGE_SIZE),
     timeMin: '2026-09-10T00:00:00.000Z',
     timeMax: '2026-10-17T00:00:00.000Z',
@@ -98,6 +97,44 @@ test('a window read asks the primary calendar for expanded instances inside an e
   assert.equal(call.headers.authorization, `Bearer ${TOKEN}`);
   assert.equal(call.url.toString().includes(TOKEN), false);
   assert.equal(result.ok && result.page.nextSyncToken, 'sync-1');
+});
+
+test('the first window read is sync-token compatible, so the cursor it returns can be stored', async () => {
+  // THE DEFECT THIS PINS. Google answers a request it cannot replay incrementally WITHOUT a
+  // nextSyncToken, and `orderBy` is on its list of parameters that cannot be combined with a
+  // sync token. Sending it cost the cursor silently: every pass then re-read the whole window
+  // (production, 2026-09-17 -- two identical WINDOW syncs in a row).
+  const g = calendar([page([timedEvent()], { nextSyncToken: 'sync-from-window' })]);
+  const result = await readGoogleCalendarWindow({ ...base, ...WINDOW, fetchImpl: g.fetchImpl });
+
+  const params = g.params();
+  assert.equal('orderBy' in params, false, 'orderBy suppresses the token Google would otherwise issue');
+  // Only parameters a later incremental read can live with, plus the window the sync guide's
+  // own sample uses on a full sync.
+  assert.deepEqual(Object.keys(params).sort(), ['maxResults', 'showDeleted', 'singleEvents', 'timeMax', 'timeMin']);
+  for (const incompatible of ['iCalUID', 'privateExtendedProperty', 'q', 'sharedExtendedProperty', 'updatedMin']) {
+    assert.equal(incompatible in params, false, incompatible);
+  }
+
+  // And the token survives the read, which is what makes the next pass incremental.
+  assert.equal(result.ok && result.page.nextSyncToken, 'sync-from-window');
+  assert.equal(result.ok && result.page.truncated, false);
+});
+
+test('a paginated window read keeps the token from its last page, and only from there', async () => {
+  // Google omits nextSyncToken while more results are available, and sends it on the final
+  // page -- so a multi-page window must not conclude "no token" from the first page.
+  const g = calendar([
+    page([timedEvent({ id: 'a' })], { nextPageToken: 'p2', syncToken: null }),
+    page([timedEvent({ id: 'b' })], { nextSyncToken: 'sync-last-page' }),
+  ]);
+  const result = await readGoogleCalendarWindow({ ...base, ...WINDOW, fetchImpl: g.fetchImpl });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.page.nextSyncToken, 'sync-last-page');
+  assert.equal(result.page.truncated, false);
+  assert.equal(g.params(1).pageToken, 'p2');
+  assert.equal('orderBy' in g.params(1), false, 'every page of the window read stays token-compatible');
 });
 
 test('a cursor read carries no time window, because Google forbids one with a syncToken', async () => {
