@@ -62,13 +62,26 @@ export interface EventFacts {
   readonly provider: WorkProvider;
   readonly eventId: string;
   readonly recurringEventId?: string | null;
+  readonly originalStartsAt?: Date | null;
+  /** Instants, for a timed event. */
   readonly startsAt?: Date | null;
   readonly endsAt?: Date | null;
   readonly allDay?: boolean;
+  /** Dates, for an all-day event. Never resolved to an instant here (DL-2). */
+  readonly startDate?: Date | null;
+  readonly endDateExclusive?: Date | null;
+  readonly eventTimeZone?: string | null;
   readonly status?: string | null;
+  readonly kind?: string | null;
+  readonly blocking?: string | null;
+  /** The event's title: the one content field, and the minimum the Day view needs. */
+  readonly summary?: string | null;
   readonly organizerHash?: string | null;
+  readonly organizerIsSelf?: boolean;
+  readonly attendanceKnown?: boolean;
   readonly attendeeCount?: number | null;
   readonly externalAttendeeCount?: number | null;
+  readonly selfResponse?: string | null;
   readonly hasConference?: boolean;
   readonly providerUpdatedAt?: Date | null;
   readonly observedAt: Date;
@@ -252,13 +265,23 @@ export class WorkGraphRepository {
     const where = { ...scope, provider: facts.provider, eventId: facts.eventId };
     const fields = {
       recurringEventId: facts.recurringEventId ?? null,
+      originalStartsAt: facts.originalStartsAt ?? null,
       startsAt: facts.startsAt ?? null,
       endsAt: facts.endsAt ?? null,
       allDay: facts.allDay ?? false,
+      startDate: facts.startDate ?? null,
+      endDateExclusive: facts.endDateExclusive ?? null,
+      eventTimeZone: facts.eventTimeZone ?? null,
       status: facts.status ?? null,
+      kind: facts.kind ?? null,
+      blocking: facts.blocking ?? null,
+      summary: facts.summary ?? null,
       organizerHash: facts.organizerHash ?? null,
+      organizerIsSelf: facts.organizerIsSelf ?? false,
+      attendanceKnown: facts.attendanceKnown ?? false,
       attendeeCount: facts.attendeeCount ?? null,
       externalAttendeeCount: facts.externalAttendeeCount ?? null,
+      selfResponse: facts.selfResponse ?? null,
       hasConference: facts.hasConference ?? false,
       providerUpdatedAt: facts.providerUpdatedAt ?? null,
       observedAt: facts.observedAt,
