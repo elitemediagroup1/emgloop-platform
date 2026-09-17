@@ -272,3 +272,27 @@ export {
 // Provider specialization by capability route (B2): which provider each route prefers,
 // as versioned data the routing policy must conform to.
 export { AI_PROVIDER_SPECIALIZATION_POLICY, AI_PROVIDER_SPECIALIZATION_POLICY_VERSION } from './ai/policy/provider-specialization';
+// Google Workspace connection: the OAuth 2.0 web-server flow and ID-token claim checks.
+// Protocol only -- no environment, no key, no storage; the network is injected.
+export {
+  GOOGLE_OAUTH_ENDPOINTS,
+  GOOGLE_ID_TOKEN_ISSUERS,
+  GOOGLE_OAUTH_TIMEOUT_MS,
+  GOOGLE_ID_TOKEN_SKEW_SECONDS,
+  googleAuthorizationUrl,
+  exchangeGoogleAuthorizationCode,
+  refreshGoogleAccessToken,
+  revokeGoogleToken,
+  checkGoogleIdTokenClaims,
+} from './google-workspace/oauth';
+export type {
+  GoogleAuthorizationRequest,
+  GoogleOAuthFailure,
+  GoogleTokenGrant,
+  GoogleTokenResult,
+  GoogleClientCredentials,
+  GoogleRevokeResult,
+  GoogleIdentity,
+  GoogleIdTokenRefusal,
+  GoogleIdTokenResult,
+} from './google-workspace/oauth';
