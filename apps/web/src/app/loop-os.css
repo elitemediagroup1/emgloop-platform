@@ -3544,6 +3544,8 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-sb__menu { display: contents; }
 .loop-sb__menubtn { display: none; }
 .loop-sb__mark { display: inline-flex; }
+/* The brand wordmark (official artwork, app/crm/_brand/Logos.tsx): sized by its height attribute. */
+.emg-wordmark { display: block; max-width: 100%; height: auto; }
 .loop-sb__mark--light { display: none; }
 .loop-areabar { display: none; }
 @media (max-width: 820px) {
