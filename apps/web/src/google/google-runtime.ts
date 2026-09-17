@@ -1,8 +1,8 @@
 // The Google Workspace connection, assembled for a web request. SERVER ONLY.
 //
 // This is where the pieces meet: the deployment's client credentials and token key (read
-// by google-environment.ts and nowhere else), Google's OAuth endpoints (@emgloop/providers),
-// the token sealer, and the IAM decision for `googleWorkspace`. Nothing here decides
+// by google-environment.ts and nowhere else), Google's OAuth endpoints and signing keys
+// (@emgloop/providers), the token sealer, and the IAM decision for `googleWorkspace`. Nothing here decides
 // anything those pieces do not already decide.
 //
 // WITH THE DEFAULT ENVIRONMENT NOTHING CONNECTS. No client or key is configured, so every
@@ -20,16 +20,26 @@ import {
   type GoogleRevocation,
 } from '@emgloop/database';
 import {
-  checkGoogleIdTokenClaims,
+  GoogleSigningKeys,
   exchangeGoogleAuthorizationCode,
   googleAuthorizationUrl,
   refreshGoogleAccessToken,
   revokeGoogleToken,
+  verifyGoogleIdToken,
 } from '@emgloop/providers';
 import type { GoogleConnectOutcome, GoogleConnectReturnTarget } from '@emgloop/shared';
 
 import { CONNECTIONS_PATH, ONBOARDING_GOOGLE_PATH } from '../auth/landing';
 import { readGoogleEnvironment, type GoogleEnvironment } from './google-environment';
+
+// Google's signing keys, one set per server instance and shared by every request it serves,
+// so Google's cache headers -- not each request -- decide when they are fetched again.
+// Next's own fetch cache is bypassed; the key set's lifetime is GoogleSigningKeys' to decide.
+let signingKeys: GoogleSigningKeys | null = null;
+function googleSigningKeys(): GoogleSigningKeys {
+  signingKeys ??= new GoogleSigningKeys({ fetchImpl: (input, init) => fetch(input, { ...init, cache: 'no-store', redirect: 'error' }) });
+  return signingKeys;
+}
 
 function oauthPort(env: Extract<GoogleEnvironment, { state: 'CONFIGURED' }>): GoogleOAuthPort {
   const client = { clientId: env.clientId, clientSecret: env.clientSecret };
@@ -40,7 +50,8 @@ function oauthPort(env: Extract<GoogleEnvironment, { state: 'CONFIGURED' }>): Go
     exchangeCode: (code) => exchangeGoogleAuthorizationCode({ fetchImpl, client, redirectUri: env.redirectUri, code }),
     refresh: (refreshToken) => refreshGoogleAccessToken({ fetchImpl, client, refreshToken }),
     revoke: (token) => revokeGoogleToken({ fetchImpl, token }),
-    checkIdToken: (idToken, expected) => checkGoogleIdTokenClaims(idToken, { clientId: env.clientId, ...expected }),
+    signingKeysReady: () => googleSigningKeys().ready(),
+    checkIdToken: (idToken, expected) => verifyGoogleIdToken(idToken, { clientId: env.clientId, signingKeys: googleSigningKeys(), ...expected }),
   };
 }
 

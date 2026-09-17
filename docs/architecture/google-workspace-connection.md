@@ -252,7 +252,8 @@ consent, by **incremental authorization**:
 2. **Callback.** The callback route:
    1. consumes `state` once and requires the **same session** that created it;
    2. exchanges the code at `https://oauth2.googleapis.com/token`;
-   3. **verifies the ID token**: `iss` is `https://accounts.google.com` or `accounts.google.com`, `aud`
+   3. **verifies the ID token**: first its RS256 signature, against Google's published signing keys
+      (`jwks_uri`, §12.3); then `iss` is `https://accounts.google.com` or `accounts.google.com`, `aud`
       is this client, `exp` has not passed; `email_verified` is true. If the organization has
       configured a domain restriction (§3; none in Private V1), `hd` must match it. An account outside
       any Workspace carries no `hd`, which is allowed when no restriction is configured;
@@ -416,7 +417,8 @@ repository file, and nobody asks for it.
 | Layer | File | Holds |
 |---|---|---|
 | Contract (pure) | `packages/shared/src/google-workspace.ts` | the three capabilities and their exact scopes; the granted-scope allowlist; per-capability states; outcome codes; revocation reasons; audit actions |
-| Protocol | `packages/providers/src/google-workspace/oauth.ts` | the authorization URL; code exchange, refresh and revoke (network injected); ID-token claim checks. No environment, no key |
+| Protocol | `packages/providers/src/google-workspace/oauth.ts` | the authorization URL; code exchange, refresh and revoke (network injected). No environment, no key |
+| ID token | `packages/providers/src/google-workspace/id-token.ts` | Google's signing keys (fetched from `jwks_uri`, cached per its headers) and verification: RS256 signature first, then the claims |
 | Persistence | `packages/database/src/repositories/google-connection.repository.ts` | attempts and connections, organization-first; audit rows in the same transaction; `revokeGoogleConnectionInTx` for offboarding |
 | Sealing | `packages/database/src/services/google/google-token-sealer.ts` over `services/sealing/aes-gcm-sealing.ts` | AES-256-GCM, header `LGT\x01`. The shared core now also serves the Brain checkpoint sealer, byte-for-byte as before |
 | Lifecycle | `packages/database/src/services/google/google-workspace.service.ts` | begin, complete, disconnect, remove one capability, access token, finish a revocation; Google, sealer, IAM and clock injected |
@@ -501,13 +503,34 @@ repository file, and nobody asks for it.
   - **Private V1 sets none,** and no UI edits it yet.
 - **Key reference.** `keyRef` is a fingerprint of `LOOP_GOOGLE_TOKEN_KEY` (`google-token/<16 hex>`).
   Rotation makes old tokens unopenable, and they expire as above. There is no dual-key period.
-- **The ID token's signature is not re-verified.** Google's OpenID Connect guide says a token
-  received directly from the token endpoint, in an exchange authenticated with the client secret,
-  comes from Google. The claims are checked:
-  - `iss`, `aud`/`azp`, `exp`, `iat`;
-  - the nonce;
-  - `email_verified`;
-  - `hd` when restricted.
+- **The ID token's signature is verified, then its claims** (`packages/providers/src/google-workspace/id-token.ts`).
+  Google's OpenID Connect guide says a token received directly from the token endpoint, in an
+  exchange authenticated with the client secret, comes from Google -- and also documents the full
+  validation, which is what Loop does: the account link rests on `sub`, so it does not rest on the
+  transport alone.
+  - **The keys are Google's published ones.** The discovery document
+    (`accounts.google.com/.well-known/openid-configuration`) names `jwks_uri`
+    `https://www.googleapis.com/oauth2/v3/certs`, and lists exactly one
+    `id_token_signing_alg_values_supported`: `RS256` (read 2026-09-17).
+  - **One algorithm.** The header must say `RS256`. `none`, `HS256` (the "public key as HMAC
+    secret" confusion) and every other algorithm are refused before a key is even looked up. A key
+    is used only from Google's set -- never one carried in the token's own header -- and only if it
+    is an RSA signing key of at least 2048 bits.
+  - **Nothing in the payload is read until the signature verifies.** `sub`, `email`, `hd`, the
+    nonce and the times are parsed only afterwards; the claim check has no other caller, so there
+    is no way to check claims without verifying first.
+  - **The claims, unchanged:** `iss`, `aud`/`azp`, `exp`, `iat`; the nonce; `email_verified`;
+    `hd` when restricted.
+  - **Keys are cached as Google's headers say.** The key set is kept for `max-age` less `Age`
+    (`Cache-Control: public, max-age=..., must-revalidate`; ~6.5 hours when read on 2026-09-17),
+    capped at a day, and never used stale. A `kid` the cached set does not hold means Google may
+    have rotated, so the set is fetched again -- at most once a minute, so invented key ids cannot
+    become a stream of requests to Google. One key set per server instance serves every request.
+  - **Fail closed.** A network failure, a timeout, a non-200, an unreadable key set, an unknown
+    `kid` or a bad signature each refuse the connection (`KEYS_UNAVAILABLE`, `UNKNOWN_KEY`,
+    `SIGNATURE`, `ALGORITHM`), and nothing is stored. Before the code is exchanged the service
+    checks that the keys are in hand, so an unreachable key set costs Google no grant. No token,
+    key-set body or error text appears in a result, a log or a thrown error.
 
 ### 12.4 Authority
 
@@ -550,7 +573,13 @@ with no READ_ONLY fallback:
      publishing.
    - The first read will also be the first caller of `accessToken`.
 4. **No dual-key rotation.** Rotating `LOOP_GOOGLE_TOKEN_KEY` expires every connection.
-5. **Test-renderer warning.** The panel's server-action forms render with a React warning under
+5. **A refusal after the exchange leaves Google's grant in place.** If the ID token is refused
+   (wrong domain, unverified email, a signature that does not verify) the code has already been
+   exchanged, so Google holds a grant Loop stored nothing for. Loop does not revoke it, because
+   `include_granted_scopes` means that grant may be the one another connection to the same Google
+   account is using (issue 1). The person simply reconnects. The one case this avoids entirely is
+   an unreachable key set: the code is not exchanged at all.
+6. **Test-renderer warning.** The panel's server-action forms render with a React warning under
    the test renderer (React 18.3), not under Next's bundled React. It has no product effect.
 
 ### 12.6 What remains

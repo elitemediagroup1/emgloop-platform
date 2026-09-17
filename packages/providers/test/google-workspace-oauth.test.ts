@@ -1,12 +1,12 @@
-// Google OAuth for the Google Workspace connection: request shapes, failure classes and
-// ID-token claim checks, against a recording network double. No live call is made.
+// Google OAuth for the Google Workspace connection: request shapes and failure classes,
+// against a recording network double. No live call is made. ID-token verification has its
+// own suite (google-workspace-id-token.test.ts).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
   GOOGLE_OAUTH_ENDPOINTS,
-  checkGoogleIdTokenClaims,
   exchangeGoogleAuthorizationCode,
   googleAuthorizationUrl,
   refreshGoogleAccessToken,
@@ -37,30 +37,6 @@ function network(responses: Array<{ status: number; body?: unknown } | 'throw' |
   };
   return { calls, fetchImpl };
 }
-
-const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
-const NOW = 1_800_000_000;
-function idToken(claims: Record<string, unknown>, header: Record<string, unknown> = { alg: 'RS256', kid: 'k' }) {
-  return `${b64(header)}.${b64(claims)}.c2lnbmF0dXJl`;
-}
-const GOOD = {
-  iss: 'https://accounts.google.com',
-  aud: CLIENT.clientId,
-  azp: CLIENT.clientId,
-  sub: '110169484474386276334',
-  email: 'person@example.com',
-  email_verified: true,
-  iat: NOW - 10,
-  exp: NOW + 3600,
-  nonce: 'the-nonce',
-};
-const expected = (over: Partial<Parameters<typeof checkGoogleIdTokenClaims>[1]> = {}) => ({
-  clientId: CLIENT.clientId,
-  nonceMatches: (n: string) => n === 'the-nonce',
-  nowSeconds: NOW,
-  allowedHostedDomains: [] as string[],
-  ...over,
-});
 
 test('the authorization URL asks for exactly what the flow documents: code, offline, cumulative, consent, state, nonce', () => {
   const url = new URL(
@@ -159,62 +135,4 @@ test('revoke posts the token to the revoke endpoint; an already-invalid token co
   assert.deepEqual(await revokeGoogleToken({ fetchImpl: failed.fetchImpl, token: 't' }), { ok: false, failure: 'REJECTED' });
   const down = network(['throw']);
   assert.deepEqual(await revokeGoogleToken({ fetchImpl: down.fetchImpl, token: 't' }), { ok: false, failure: 'NETWORK' });
-});
-
-test('an ID token straight from the token endpoint yields the account id, email and Workspace domain', () => {
-  assert.deepEqual(checkGoogleIdTokenClaims(idToken(GOOD), expected()), {
-    ok: true,
-    identity: { subject: GOOD.sub, email: GOOD.email, hostedDomain: null },
-  });
-  assert.deepEqual(checkGoogleIdTokenClaims(idToken({ ...GOOD, iss: 'accounts.google.com', hd: 'Example.COM', email_verified: 'true' }), expected()), {
-    ok: true,
-    identity: { subject: GOOD.sub, email: GOOD.email, hostedDomain: 'example.com' },
-  });
-  assert.equal(checkGoogleIdTokenClaims(idToken({ ...GOOD, aud: [CLIENT.clientId, 'other'], azp: CLIENT.clientId }), expected()).ok, true);
-  assert.equal(checkGoogleIdTokenClaims(idToken({ ...GOOD, azp: undefined }), expected()).ok, true, 'azp is optional with a single audience');
-});
-
-test('every claim the architecture names is checked', () => {
-  const refused = (claims: Record<string, unknown>, over = {}) => {
-    const result = checkGoogleIdTokenClaims(idToken(claims), expected(over));
-    return result.ok ? 'ACCEPTED' : result.refusal;
-  };
-  assert.equal(refused({ ...GOOD, iss: 'https://evil.example' }), 'ISSUER');
-  assert.equal(refused({ ...GOOD, iss: undefined }), 'ISSUER');
-  assert.equal(refused({ ...GOOD, aud: 'someone-else.apps.googleusercontent.com' }), 'AUDIENCE');
-  assert.equal(refused({ ...GOOD, aud: [CLIENT.clientId, 'other'], azp: 'other' }), 'AUDIENCE');
-  assert.equal(refused({ ...GOOD, aud: [CLIENT.clientId, 'other'], azp: undefined }), 'AUDIENCE');
-  assert.equal(refused({ ...GOOD, azp: 'other' }), 'AUDIENCE');
-  assert.equal(refused({ ...GOOD, exp: NOW - 61 }), 'EXPIRED');
-  assert.equal(refused({ ...GOOD, exp: undefined }), 'EXPIRED');
-  assert.equal(refused({ ...GOOD, exp: NOW - 30 }), 'ACCEPTED', 'within the skew allowance');
-  assert.equal(refused({ ...GOOD, iat: NOW + 120 }), 'NOT_YET_VALID');
-  assert.equal(refused({ ...GOOD, nonce: 'another-nonce' }), 'NONCE');
-  assert.equal(refused({ ...GOOD, nonce: undefined }), 'NONCE');
-  assert.equal(refused({ ...GOOD, nonce: '' }), 'NONCE');
-  assert.equal(refused({ ...GOOD, email_verified: false }), 'EMAIL_UNVERIFIED');
-  assert.equal(refused({ ...GOOD, email_verified: undefined }), 'EMAIL_UNVERIFIED');
-  assert.equal(refused({ ...GOOD, email: undefined }), 'EMAIL_UNVERIFIED');
-  assert.equal(refused({ ...GOOD, sub: undefined }), 'MALFORMED');
-  assert.equal(refused({ ...GOOD, sub: 'has spaces' }), 'MALFORMED');
-});
-
-test('a domain restriction, when an organization configures one, admits only its Workspace domains', () => {
-  const restricted = { allowedHostedDomains: ['example.com'] };
-  const verdict = (claims: Record<string, unknown>) => {
-    const r = checkGoogleIdTokenClaims(idToken(claims), expected(restricted));
-    return r.ok ? r.identity.hostedDomain : r.refusal;
-  };
-  assert.equal(verdict({ ...GOOD, hd: 'example.com' }), 'example.com');
-  assert.equal(verdict({ ...GOOD, hd: 'EXAMPLE.com' }), 'example.com');
-  assert.equal(verdict({ ...GOOD, hd: 'other.com' }), 'DOMAIN_NOT_ALLOWED');
-  assert.equal(verdict({ ...GOOD }), 'DOMAIN_NOT_ALLOWED', 'an account outside any Workspace is refused when a restriction exists');
-  assert.equal(checkGoogleIdTokenClaims(idToken({ ...GOOD, hd: 'anything.org' }), expected()).ok, true, 'no restriction: any domain');
-});
-
-test('a malformed token is refused before any claim is trusted', () => {
-  for (const token of ['', 'a.b', 'a.b.c.d', `${b64({ alg: 'none' })}.${b64(GOOD)}.`, `${b64({ alg: 'none' })}.${b64(GOOD)}.sig`, `!!.${b64(GOOD)}.sig`, `${b64({ alg: 'RS256' })}.${b64([1, 2])}.sig`, `${b64({ alg: 'RS256' })}.bm90IGpzb24.sig`]) {
-    const result = checkGoogleIdTokenClaims(token, expected());
-    assert.deepEqual(result, { ok: false, refusal: 'MALFORMED' }, token);
-  }
 });

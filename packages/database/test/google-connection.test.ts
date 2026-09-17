@@ -2,8 +2,9 @@
 //
 // Drives the REAL GoogleWorkspaceService, GoogleConnectionRepository, IamRepository and
 // token sealer against the in-memory Prisma double, with Google replaced by a recording
-// double that returns documented token responses and ID tokens (checked by the real
-// claim checker). No network, no database, no real key.
+// double that returns documented token responses and ID tokens signed with a generated
+// key it publishes as Google's key set -- verified by the real verifier, signature first.
+// No network, no database, no real key.
 //
 // WHAT THESE PROVE
 //   - A connect attempt is single-use, expires, and is honoured only for the same
@@ -21,11 +22,11 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
-import { checkGoogleIdTokenClaims, type GoogleRevokeResult, type GoogleTokenResult } from '@emgloop/providers';
+import { GoogleSigningKeys, verifyGoogleIdToken, type GoogleRevokeResult, type GoogleTokenResult } from '@emgloop/providers';
 
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 import { IamRepository, GOOGLE_WORKSPACE_GRANTS, matrixAllows } from '../src/repositories/iam.repository';
@@ -45,6 +46,11 @@ const T0 = new Date('2026-09-17T12:00:00Z');
 const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
 const sha = (v: string) => createHash('sha256').update(v).digest('hex');
 
+// The key "Google" signs ID tokens with, published as its key set, and one nobody published.
+const GOOGLE_KID = 'c1d2e3f405162738495a6b7c8d9e0f1122334455';
+const GOOGLE_KEY = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const FORGER_KEY = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
 // --- A recording Google ----------------------------------------------------------------
 
 interface GoogleAccount {
@@ -55,6 +61,18 @@ interface GoogleAccount {
 }
 
 function fakeGoogle(now: () => Date) {
+  let keysReachable = true;
+  const signingKeys = new GoogleSigningKeys({
+    nowMs: () => now().getTime(),
+    fetchImpl: async () => {
+      if (!keysReachable) throw new Error('google is unreachable');
+      return {
+        status: 200,
+        headers: { get: (name: string) => (name.toLowerCase() === 'cache-control' ? 'public, max-age=3600, must-revalidate' : null) },
+        json: async () => ({ keys: [{ ...GOOGLE_KEY.publicKey.export({ format: 'jwk' }), kid: GOOGLE_KID, alg: 'RS256', use: 'sig' }] }),
+      };
+    },
+  });
   const requests: { scopes: readonly string[]; state: string; nonce: string; loginHint: string | null }[] = [];
   const exchanged: string[] = [];
   const refreshed: string[] = [];
@@ -79,10 +97,11 @@ function fakeGoogle(now: () => Date) {
       revoked.push(token);
       return revoke(token);
     },
-    checkIdToken: (idToken, expected) => checkGoogleIdTokenClaims(idToken, { clientId: CLIENT_ID, ...expected }),
+    signingKeysReady: () => signingKeys.ready(),
+    checkIdToken: (idToken, expected) => verifyGoogleIdToken(idToken, { clientId: CLIENT_ID, signingKeys, ...expected }),
   };
-  const idToken = (account: GoogleAccount, nonce: string) =>
-    `${b64({ alg: 'RS256' })}.${b64({
+  const idToken = (account: GoogleAccount, nonce: string, forged = false) => {
+    const input = `${b64({ alg: 'RS256', kid: GOOGLE_KID, typ: 'JWT' })}.${b64({
       iss: 'https://accounts.google.com',
       aud: CLIENT_ID,
       azp: CLIENT_ID,
@@ -93,7 +112,9 @@ function fakeGoogle(now: () => Date) {
       iat: Math.floor(now().getTime() / 1000),
       exp: Math.floor(now().getTime() / 1000) + 3600,
       nonce,
-    })}.c2ln`;
+    })}`;
+    return `${input}.${sign('sha256', Buffer.from(input), forged ? FORGER_KEY.privateKey : GOOGLE_KEY.privateKey).toString('base64url')}`;
+  };
   return {
     port,
     requests,
@@ -101,8 +122,12 @@ function fakeGoogle(now: () => Date) {
     refreshed,
     revoked,
     last: () => requests[requests.length - 1]!,
-    /** Google's answer to the next code exchange. */
-    answer(account: GoogleAccount, scope: string, over: { refreshToken?: string | null; nonce?: string; idToken?: string | null } = {}) {
+    /** Whether Google's key set can be fetched at all. */
+    keysReachable(reachable: boolean) {
+      keysReachable = reachable;
+    },
+    /** Google's answer to the next code exchange. `forged` signs the ID token with an unpublished key. */
+    answer(account: GoogleAccount, scope: string, over: { refreshToken?: string | null; nonce?: string; idToken?: string | null; forged?: boolean } = {}) {
       exchange = () => {
         const nonce = over.nonce ?? requests[requests.length - 1]!.nonce;
         return {
@@ -112,7 +137,7 @@ function fakeGoogle(now: () => Date) {
             expiresInSeconds: 3599,
             refreshToken: over.refreshToken === undefined ? `1//refresh-${account.sub}-${exchanged.length}` : over.refreshToken,
             scope,
-            idToken: over.idToken === undefined ? idToken(account, nonce) : over.idToken,
+            idToken: over.idToken === undefined ? idToken(account, nonce, over.forged ?? false) : over.idToken,
           },
         };
       };
@@ -401,6 +426,27 @@ test('the ID token decides the account: nonce, verified email and any organizati
   assert.deepEqual(await connect(w, alice, 'gmail', ALICE, `openid email ${GMAIL}`), { returnTo: 'ONBOARDING', outcome: 'CONNECTED' });
   assert.deepEqual(await w.repo.allowedHostedDomains(ORG_A), ['example.com']);
   assert.deepEqual(await w.repo.allowedHostedDomains(ORG_B), [], 'no restriction by default');
+});
+
+test('the ID token is verified against Google’s published keys: a forged signature stores nothing, and without the keys the code is never exchanged', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+
+  assert.deepEqual(await connect(w, alice, 'gmail', ALICE, `openid email ${GMAIL}`, { forged: true }), { returnTo: 'ONBOARDING', outcome: 'FAILED' });
+  assert.equal(w.fake.googleConnection.__rows.length, 0, 'a token Google did not sign links no account');
+  assert.equal(audits(w).length, 0);
+
+  // Google's keys were cached for the hour its headers allow; past that they are fetched again.
+  w.google.keysReachable(false);
+  w.advance(3_600_001);
+  const exchanges = w.google.exchanged.length;
+  assert.deepEqual(await connect(w, alice, 'gmail', ALICE, `openid email ${GMAIL}`), { returnTo: 'ONBOARDING', outcome: 'FAILED' });
+  assert.equal(w.google.exchanged.length, exchanges, 'with no keys to verify against, the authorization code is not exchanged at all');
+  assert.equal(w.fake.googleConnection.__rows.length, 0);
+
+  w.google.keysReachable(true);
+  assert.deepEqual(await connect(w, alice, 'gmail', ALICE, `openid email ${GMAIL}`), { returnTo: 'ONBOARDING', outcome: 'CONNECTED' });
+  assert.equal(connection(w, alice).googleSubject, ALICE.sub);
 });
 
 test('a replayed, expired or cross-session callback is refused before Google is called', async () => {

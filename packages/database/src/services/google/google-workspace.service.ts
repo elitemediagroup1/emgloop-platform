@@ -62,10 +62,13 @@ export interface GoogleOAuthPort {
   exchangeCode(code: string): Promise<GoogleTokenResult>;
   refresh(refreshToken: string): Promise<GoogleTokenResult>;
   revoke(token: string): Promise<GoogleRevokeResult>;
+  /** Whether Google's signing keys are in hand (fetched if not). Asked before a code is exchanged. */
+  signingKeysReady(): Promise<boolean>;
+  /** Verify the ID token's signature against Google's published keys, then its claims. */
   checkIdToken(
     idToken: string,
     expected: { readonly nonceMatches: (nonce: string) => boolean; readonly nowSeconds: number; readonly allowedHostedDomains: readonly string[] },
-  ): GoogleIdTokenResult;
+  ): Promise<GoogleIdTokenResult>;
 }
 
 export type GoogleAuthority = 'view' | 'update' | 'manage';
@@ -234,6 +237,10 @@ export class GoogleWorkspaceService {
     const code = typeof query.code === 'string' && CODE_TEXT.test(query.code) ? query.code : null;
     if (!code) return end('INVALID_REQUEST');
 
+    // Without Google's signing keys the ID token cannot be verified, so the code is not
+    // exchanged: Google issues no grant that Loop would only have to discard.
+    if (!(await configured.oauth.signingKeysReady())) return end('FAILED');
+
     const exchanged = await configured.oauth.exchangeCode(code);
     if (!exchanged.ok) return end('FAILED');
     const grant = exchanged.grant;
@@ -242,7 +249,8 @@ export class GoogleWorkspaceService {
     if (!granted.ok) return end(granted.reason === 'UNEXPECTED_SCOPE' ? 'UNEXPECTED_SCOPE' : 'FAILED');
     if (!grant.idToken || !grant.refreshToken) return end('FAILED');
 
-    const identity = configured.oauth.checkIdToken(grant.idToken, {
+    // The signature is verified before any claim is read (a refusal of any kind stores nothing).
+    const identity = await configured.oauth.checkIdToken(grant.idToken, {
       nonceMatches: (nonce) => sameHash(nonce, attempt.nonceHash),
       nowSeconds: Math.floor(now.getTime() / 1000),
       allowedHostedDomains: await this.connections.allowedHostedDomains(organizationId),

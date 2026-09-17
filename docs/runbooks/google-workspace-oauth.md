@@ -20,6 +20,11 @@ access to any of them.
   - `drive.metadata.readonly`
 
   The code refuses a grant that contains anything else. The database refuses to record one.
+- **The callback needs outbound access to Google.** Besides the token endpoint, it fetches Google's
+  published signing keys (`https://www.googleapis.com/oauth2/v3/certs`) to verify the ID token's
+  signature, and caches them for as long as Google's headers allow. If those keys cannot be
+  fetched, a connect attempt fails rather than trusting the token: nothing to configure, but it is
+  why a connect can fail with "Google could not complete this" while Google itself is reachable.
 - **Private V1 stays in Testing.** Matt and Charlie are Google's test users. That is a Google limit
   for this phase, not a property of the product.
 

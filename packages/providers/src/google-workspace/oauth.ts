@@ -10,6 +10,10 @@
 // URI are handed in by the one server-only module that reads them. The network is handed
 // in as `fetchImpl`, so every request shape is tested without a live call.
 //
+// THE ID TOKEN IS VERIFIED ELSEWHERE. The token endpoint's `id_token` is returned as text;
+// id-token.ts verifies its signature against Google's published keys before any claim in
+// it is read.
+//
 // NOTHING SECRET LEAVES THROUGH A FAILURE. A failure is a CLASS. Google's error text, a
 // response body, an authorization code, a token and the client secret never appear in a
 // returned value, a thrown error or a log line here.
@@ -25,14 +29,8 @@ export const GOOGLE_OAUTH_ENDPOINTS = Object.freeze({
   revoke: 'https://oauth2.googleapis.com/revoke',
 });
 
-/** Google's documented issuers for an ID token. */
-export const GOOGLE_ID_TOKEN_ISSUERS: readonly string[] = Object.freeze(['https://accounts.google.com', 'accounts.google.com']);
-
 /** Every Google call gives up after this long. A slow Google never holds a request open. */
 export const GOOGLE_OAUTH_TIMEOUT_MS = 10_000;
-
-/** A small allowance for clock skew when checking an ID token's times. */
-export const GOOGLE_ID_TOKEN_SKEW_SECONDS = 60;
 
 type FetchLike = (input: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{
   status: number;
@@ -210,89 +208,4 @@ export async function revokeGoogleToken(options: CallOptions & { readonly token:
   const code = result.payload && typeof result.payload === 'object' ? (result.payload as { error?: unknown }).error : undefined;
   if (result.status === 400 && code === 'invalid_token') return { ok: true };
   return { ok: false, failure: errorClass(result.status, result.payload) };
-}
-
-export interface GoogleIdentity {
-  /** The stable, never-reused account id. The only identifier Loop links by. */
-  readonly subject: string;
-  /** Display and audit only; reassignable inside a Workspace. */
-  readonly email: string;
-  /** The Workspace domain, or null for an account outside any Workspace. */
-  readonly hostedDomain: string | null;
-}
-
-export type GoogleIdTokenRefusal =
-  | 'MALFORMED'
-  | 'ISSUER'
-  | 'AUDIENCE'
-  | 'EXPIRED'
-  | 'NOT_YET_VALID'
-  | 'NONCE'
-  | 'EMAIL_UNVERIFIED'
-  | 'DOMAIN_NOT_ALLOWED';
-
-export type GoogleIdTokenResult = { readonly ok: true; readonly identity: GoogleIdentity } | { readonly ok: false; readonly refusal: GoogleIdTokenRefusal };
-
-function base64UrlJson(segment: string): Record<string, unknown> | null {
-  if (!/^[A-Za-z0-9_-]+$/.test(segment)) return null;
-  try {
-    const value: unknown = JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'));
-    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Check the claims of an ID token that came DIRECTLY from Google's token endpoint.
- *
- * Google's OpenID Connect guide: a token received over an intermediary-free HTTPS
- * channel, in an exchange authenticated with the client secret, "really comes from
- * Google and is valid" -- so its signature is not re-verified here. That holds ONLY for a
- * token this server just received from the token endpoint; a token from anywhere else
- * must never be passed here. The claims are still checked, as the architecture requires:
- * issuer, audience (and `azp`), expiry, issue time, the nonce this attempt sent, a
- * verified email, and -- only when the organization configured one -- the Workspace domain.
- */
-export function checkGoogleIdTokenClaims(
-  idToken: string,
-  expected: {
-    readonly clientId: string;
-    /** Whether the token's `nonce` is the one this attempt sent. The caller holds only its hash. */
-    readonly nonceMatches: (nonce: string) => boolean;
-    readonly nowSeconds: number;
-    /** Lower-case domains. Empty: no restriction, and accounts outside any Workspace are allowed. */
-    readonly allowedHostedDomains: readonly string[];
-    readonly skewSeconds?: number;
-  },
-): GoogleIdTokenResult {
-  const parts = idToken.split('.');
-  if (parts.length !== 3 || !parts[0] || !parts[1]) return { ok: false, refusal: 'MALFORMED' };
-  const header = base64UrlJson(parts[0]);
-  const claims = base64UrlJson(parts[1]);
-  if (!header || !claims || header.alg === 'none') return { ok: false, refusal: 'MALFORMED' };
-
-  const skew = expected.skewSeconds ?? GOOGLE_ID_TOKEN_SKEW_SECONDS;
-  if (typeof claims.iss !== 'string' || !GOOGLE_ID_TOKEN_ISSUERS.includes(claims.iss)) return { ok: false, refusal: 'ISSUER' };
-
-  const aud = claims.aud;
-  const audiences = typeof aud === 'string' ? [aud] : Array.isArray(aud) ? aud.filter((a): a is string => typeof a === 'string') : [];
-  if (!audiences.includes(expected.clientId)) return { ok: false, refusal: 'AUDIENCE' };
-  if ((audiences.length > 1 || claims.azp !== undefined) && claims.azp !== expected.clientId) return { ok: false, refusal: 'AUDIENCE' };
-
-  if (typeof claims.exp !== 'number' || claims.exp + skew <= expected.nowSeconds) return { ok: false, refusal: 'EXPIRED' };
-  if (typeof claims.iat === 'number' && claims.iat - skew > expected.nowSeconds) return { ok: false, refusal: 'NOT_YET_VALID' };
-
-  if (typeof claims.nonce !== 'string' || claims.nonce === '' || !expected.nonceMatches(claims.nonce)) return { ok: false, refusal: 'NONCE' };
-
-  if (typeof claims.sub !== 'string' || !/^[A-Za-z0-9_-]{1,255}$/.test(claims.sub)) return { ok: false, refusal: 'MALFORMED' };
-  if (typeof claims.email !== 'string' || !claims.email.includes('@')) return { ok: false, refusal: 'EMAIL_UNVERIFIED' };
-  if (claims.email_verified !== true && claims.email_verified !== 'true') return { ok: false, refusal: 'EMAIL_UNVERIFIED' };
-
-  const hostedDomain = typeof claims.hd === 'string' && claims.hd !== '' ? claims.hd.toLowerCase() : null;
-  if (expected.allowedHostedDomains.length > 0 && (!hostedDomain || !expected.allowedHostedDomains.includes(hostedDomain))) {
-    return { ok: false, refusal: 'DOMAIN_NOT_ALLOWED' };
-  }
-
-  return { ok: true, identity: { subject: claims.sub, email: claims.email, hostedDomain } };
 }
