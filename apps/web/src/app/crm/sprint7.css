@@ -331,7 +331,7 @@
 /* ---- Responsive: stack on mobile ---- */
 @media (max-width: 860px) {
   .crm .loop-auth {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr); /* 1fr alone would not shrink below its content at 320 px */
     min-height: 0;
   }
   .crm .loop-auth__brand {

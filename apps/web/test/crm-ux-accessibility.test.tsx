@@ -77,14 +77,19 @@ describe('Shell and navigation', () => {
     }
   });
 
-  it('on small screens, folds the navigation behind Menu as a scrollable strip and keeps the areas in reach', () => {
-    const strip = SHELL_CSS.slice(SHELL_CSS.indexOf('/* Phone: the sidebar was stacking'));
-    assert.match(strip, /\.loop-sb__scroll \{[^}]*overflow-x: auto/);
-    assert.match(strip, /\.loop-main \{ padding: 20px 16px/);
-    const redesign = SHELL_CSS.slice(SHELL_CSS.indexOf('/* ---- Shell: narrow screens ---- */'));
-    assert.match(redesign, /\.loop-menu-toggle:not\(:checked\) ~ \.loop-sb__menu \{ display: none; \}/);
-    assert.match(redesign, /\.loop-areabar \{ display: grid;[^}]*position: fixed;[^}]*bottom: 0;/);
-    assert.match(redesign, /\.loop-main \{ padding-bottom: 96px; \}/, 'content clears the bar');
+  it('on small screens, uses the responsive light header, a navigation sheet and the area bar, not a shrunken sidebar', () => {
+    const phone = SHELL_CSS.slice(SHELL_CSS.indexOf('/* ---- Shell: desktop and phone ----'));
+    const rules = phone.slice(phone.indexOf('@media (max-width: 820px) {'));
+    assert.match(rules, /\.loop-sidebar \{[^}]*background: var\(--loop-surface\);/, 'a light header, not the navy rail');
+    assert.match(rules, /\.loop-sb__mark--rail, \.loop-sb__os \{ display: none; \}/);
+    assert.match(rules, /\.loop-sb__mark--light \{ display: inline-flex; \}/);
+    assert.match(rules, /\.loop-menu-toggle:not\(:checked\) ~ \.loop-sb__menu \{ display: none; \}/);
+    assert.match(rules, /\.loop-menu-toggle:checked ~ \.loop-sb__menu \{ position: fixed;[^}]*overflow-y: auto; background: var\(--loop-surface\);/, 'the open menu is a light, scrollable sheet');
+    assert.match(rules, /\.loop-sb__link \{ min-height: 44px;/, 'touch-sized targets');
+    assert.match(rules, /\.loop-appbar \{ display: none; \}/, 'one header on a phone');
+    assert.match(rules, /\.loop-areabar \{ display: grid;[^}]*position: fixed;[^}]*bottom: 0;/);
+    assert.match(rules, /\.loop-main \{ padding: 20px 16px 96px; \}/, 'content clears the bar');
+    assert.equal(SHELL_CSS.includes('It becomes a horizontally scrollable strip'), false, 'the old sidebar strip is gone');
   });
 
   it('nav destinations carry the same names as their nav items', () => {

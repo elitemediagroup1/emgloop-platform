@@ -608,11 +608,16 @@ describe('The Loop design system is the only visual language', () => {
     }
   });
 
-  it('the shell draws a navy rail and the light canvas from the tokens', () => {
+  it('the shell is a navy rail, light top bar and light canvas on desktop, and a light header on phones', () => {
     assert.match(shell, /\.loop-sidebar \{[^}]*background: var\(--loop-rail\);/);
     assert.match(shell, /\.loop-main \{[^}]*background: var\(--loop-canvas\);/);
     assert.match(shell, /\.loop-appbar \{[^}]*border-bottom: 1px solid var\(--loop-line\);/);
-    assert.match(read('workspaces/WorkspaceShell.tsx'), /<EmgLoopWordmark height=\{22\} tone="onDark" \/>/);
+    // Desktop: the navy rail (Matt, 2026-09-17). Phone: the light responsive header.
+    const shellTsx = read('workspaces/WorkspaceShell.tsx');
+    assert.match(shellTsx, /<span className="loop-sb__mark loop-sb__mark--rail">\s*<EmgLoopWordmark height=\{22\} tone="onDark" \/>/);
+    assert.match(shellTsx, /<span className="loop-sb__mark loop-sb__mark--light">\s*<EmgLoopWordmark height=\{22\} \/>/);
+    const phone = shell.slice(shell.indexOf('/* ---- Shell: desktop and phone ----'));
+    assert.match(phone, /@media \(max-width: 820px\) \{\n  \.loop-shell \{ grid-template-columns: 1fr; \}\n  \.loop-sidebar \{[^}]*background: var\(--loop-surface\);/);
   });
 
   it('Loop Home and the redesigned CRM pages are built from the same primitives', () => {

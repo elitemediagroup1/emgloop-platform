@@ -3513,23 +3513,6 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .loop-main { padding: 24px 24px 48px; }
 }
 
-/* Phone: the sidebar was stacking every nav item above the page, so content
-   started a full screen down. It becomes a horizontally scrollable strip; group
-   labels are dropped, every destination stays. */
-@media (max-width: 820px) {
-  .loop-sb__brand { padding: 12px 16px; }
-  .loop-sb__scroll { display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; padding: 8px 12px; scrollbar-width: thin; }
-  .loop-sb__group { display: contents; }
-  .loop-sb__grouplabel { display: none; }
-  .loop-sb__link { flex: 0 0 auto; white-space: nowrap; min-height: 44px; }
-  .loop-sb__link.is-active::before { left: 10px; right: 10px; top: auto; bottom: 4px; width: auto; height: 2px; }
-  .loop-sb__adminarea { display: flex; gap: 4px; overflow-x: auto; padding: 6px 12px; }
-  .loop-sb__foot { padding: 8px 16px; }
-  .loop-sb__user { margin-top: 0; padding-top: 0; border-top: 0; }
-  .loop-appbar { padding: 0 16px; }
-  .loop-main { padding: 20px 16px 40px; }
-}
-
 /* ===================== CASE EXPLANATION (AI-5) ===================== *
    The one AI surface on a Case. Built from the Finding card's classes so it reads
    as supporting context, not as a new kind of authority.                        */
@@ -3549,21 +3532,51 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
    redesigned surface and by Loop Home. React components: app/app/_loop-os/.
    They read only the :root --loop-* tokens. */
 
-/* ---- Shell: narrow screens ---- */
+/* ---- Shell: desktop and phone ----
+   One shell, two responsive forms of the same system (Matt, 2026-09-17):
+   - Desktop: the navy navigation rail, a light top bar, the light canvas.
+   - Phone (820 px and below): the handoff's responsive treatment, not a
+     shrunken sidebar: a light header with Menu, the full navigation as a light
+     sheet when Menu is open (no JavaScript: a checkbox and its label), and the
+     five operating areas in a fixed bar at the bottom.
+   Both use the same tokens, type, components and states. */
 .loop-menu-toggle { display: none; }
 .loop-sb__menu { display: contents; }
 .loop-sb__menubtn { display: none; }
+.loop-sb__mark { display: inline-flex; }
+.loop-sb__mark--light { display: none; }
 .loop-areabar { display: none; }
 @media (max-width: 820px) {
-  .loop-sidebar { border-right: none; }
-  .loop-sb__brand { justify-content: space-between; }
+  .loop-shell { grid-template-columns: 1fr; }
+  .loop-sidebar { position: sticky; top: 0; z-index: 35; height: auto; background: var(--loop-surface); color: var(--loop-body); border-right: none; border-bottom: 1px solid var(--loop-line); }
+  .loop-sb__brand { gap: 12px; min-height: 56px; padding: 8px 16px; border-bottom: none; }
+  .loop-sb__mark--rail, .loop-sb__os { display: none; }
+  .loop-sb__mark--light { display: inline-flex; }
   .loop-menu-toggle { display: block; position: absolute; width: 1px; height: 1px; opacity: 0; }
-  .loop-sb__menu { display: block; }
-  .loop-sb__menubtn { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; font-weight: 600; color: var(--loop-rail-text); border: 1px solid var(--loop-rail-line); border-radius: 9px; padding: 6px 10px; cursor: pointer; }
-  .loop-menu-toggle:focus-visible + .loop-sb__brand .loop-sb__menubtn { outline: 2px solid var(--loop-rail-active); outline-offset: 2px; }
+  .loop-sb__menubtn { order: -1; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 12px; font-size: 13px; font-weight: 650; color: var(--loop-ink); background: var(--loop-surface); border: 1px solid var(--loop-line-strong); border-radius: var(--loop-radius-sm); cursor: pointer; }
+  .loop-sb__menubtn::before { content: '\2261'; font-size: 18px; line-height: 1; }
+  .loop-menu-toggle:checked + .loop-sb__brand .loop-sb__menubtn { background: var(--loop-accent-soft); border-color: var(--loop-accent); }
+  .loop-menu-toggle:focus-visible + .loop-sb__brand .loop-sb__menubtn { outline: 2px solid var(--loop-focus); outline-offset: 2px; }
   .loop-menu-toggle:not(:checked) ~ .loop-sb__menu { display: none; }
-  .loop-appbar { position: static; }
-  .loop-main { padding-bottom: 96px; }
+  .loop-menu-toggle:checked ~ .loop-sb__menu { position: fixed; top: 57px; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 34; display: flex; flex-direction: column; overflow-y: auto; background: var(--loop-surface); border-top: 1px solid var(--loop-line); }
+  .loop-sb__scroll { flex: none; overflow: visible; padding: 12px; }
+  .loop-sb__adminarea { max-height: none; overflow: visible; border-top: 1px solid var(--loop-line); }
+  .loop-sb__grouplabel { color: var(--loop-muted); }
+  .loop-sb__link { min-height: 44px; color: var(--loop-body); }
+  .loop-sb__link:hover { background: var(--loop-hover); color: var(--loop-ink); }
+  .loop-sb__link.is-active { background: var(--loop-accent-soft); color: var(--loop-ink); }
+  .loop-sb__link.is-active::before { left: 0; background: var(--loop-accent); }
+  .loop-sb__link:focus-visible { outline-color: var(--loop-focus); }
+  .loop-sb__ico { color: var(--loop-muted); }
+  .loop-sb__link:hover .loop-sb__ico, .loop-sb__link.is-active .loop-sb__ico { color: var(--loop-accent); }
+  .loop-sb__soon { color: var(--loop-muted); border-color: var(--loop-line); }
+  .loop-sb__foot { margin-top: auto; padding: 12px 16px; border-top: 1px solid var(--loop-line); }
+  .loop-sb__uname { color: var(--loop-ink); }
+  .loop-sb__urole { color: var(--loop-muted); }
+  .loop-sb__signout { color: var(--loop-body); border-color: var(--loop-line-strong); }
+  .loop-sb__signout:hover { background: var(--loop-hover); color: var(--loop-ink); }
+  .loop-appbar { display: none; }
+  .loop-main { padding: 20px 16px 96px; }
   .loop-areabar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--loop-surface); border-top: 1px solid var(--loop-line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
   .loop-areabar__link { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; font-size: 11.5px; font-weight: 500; color: var(--loop-muted); text-decoration: none; border-radius: 10px; }
   .loop-areabar__ico { width: 20px; height: 20px; display: inline-flex; }
