@@ -30,6 +30,12 @@ import type { Construct } from 'constructs';
 
 export type BrainStage = 'staging';
 
+// Keys, secrets and log groups outlive updates and stack deletion once they exist, but a first
+// creation that rolls back deletes them (CloudFormation's RetainExceptOnCreate). Plain RETAIN
+// would leave fixed-name secrets and log groups behind a failed first deployment and block the
+// retry.
+const KEEP_ONCE_CREATED = RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE;
+
 export interface BrainStackProps extends StackProps {
   readonly stage: BrainStage;
   /** Where `npm run bundle` wrote one directory per function. */
@@ -74,7 +80,7 @@ export class BrainStack extends Stack {
       alias: `alias/${name('data')}`,
       description: 'Loop Brain: secrets and logs',
       enableKeyRotation: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: KEEP_ONCE_CREATED,
     });
     dataKey.addToResourcePolicy(
       new iam.PolicyStatement({
@@ -93,7 +99,7 @@ export class BrainStack extends Stack {
       description: 'Loop Brain: worker request signing (ES256)',
       keySpec: kms.KeySpec.ECC_NIST_P256,
       keyUsage: kms.KeyUsage.SIGN_VERIFY,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: KEEP_ONCE_CREATED,
     });
 
     // --- Secrets (no real values) ----------------------------------------------------------
@@ -103,7 +109,7 @@ export class BrainStack extends Stack {
         secretName,
         description,
         encryptionKey: dataKey,
-        removalPolicy: RemovalPolicy.RETAIN,
+        removalPolicy: KEEP_ONCE_CREATED,
         // A marked placeholder: nothing reads a secret whose state is UNSET as a value.
         generateSecretString: { secretStringTemplate: JSON.stringify({ state: 'UNSET' }), generateStringKey: 'placeholder', excludePunctuation: true },
       });
@@ -120,7 +126,7 @@ export class BrainStack extends Stack {
       secretName: `${secretPrefix}/checkpoint-key`,
       description: 'Checkpoint sealing secret (generated here; never leaves AWS)',
       encryptionKey: dataKey,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: KEEP_ONCE_CREATED,
       generateSecretString: { passwordLength: 64, excludePunctuation: true },
     });
 
@@ -183,7 +189,7 @@ export class BrainStack extends Stack {
         logGroupName: `/aws/lambda/${name(component)}`,
         retention: logs.RetentionDays.ONE_MONTH,
         encryptionKey: dataKey,
-        removalPolicy: RemovalPolicy.RETAIN,
+        removalPolicy: KEEP_ONCE_CREATED,
       });
       const role = new iam.Role(this, `${component}-role`, {
         roleName: name(`${component}-role`),

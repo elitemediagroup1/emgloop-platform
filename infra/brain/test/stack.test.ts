@@ -101,10 +101,25 @@ test('the doorbell is one POST route behind an uncached, simple-response authori
   template.hasResourceProperties('AWS::ApiGatewayV2::Stage', { DefaultRouteSettings: { ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10 } });
 });
 
-test('keys, secrets and parameters: generated or placeholder values only, retained, encrypted', () => {
+test('keys, secrets and log groups are kept once created; a rolled-back first creation leaves nothing behind', () => {
+  const policies: Record<string, string[]> = {};
+  for (const r of Object.values(resources) as any[]) {
+    if (r.DeletionPolicy === undefined && r.UpdateReplacePolicy === undefined) continue;
+    (policies[`${r.Type} ${r.DeletionPolicy}/${r.UpdateReplacePolicy}`] ??= []).push(r.Type);
+  }
+  assert.deepEqual(Object.fromEntries(Object.entries(policies).map(([k, v]) => [k, v.length])), {
+    'AWS::KMS::Key RetainExceptOnCreate/Retain': 2,
+    'AWS::SecretsManager::Secret RetainExceptOnCreate/Retain': 6,
+    'AWS::Logs::LogGroup RetainExceptOnCreate/Retain': 5,
+    'AWS::DynamoDB::Table Delete/Delete': 1,
+    'AWS::SQS::Queue Delete/Delete': 4,
+  });
+  assert.ok(!Object.values(resources).some((r: any) => r.DeletionPolicy === 'Retain'), 'plain Retain would strand fixed names after a failed first deployment');
+});
+
+test('keys, secrets and parameters: generated or placeholder values only, encrypted', () => {
   template.hasResourceProperties('AWS::KMS::Key', { KeySpec: 'ECC_NIST_P256', KeyUsage: 'SIGN_VERIFY' });
   template.hasResourceProperties('AWS::KMS::Key', { EnableKeyRotation: true, KeySpec: Match.absent() });
-  for (const [, r] of ofType('AWS::KMS::Key')) assert.equal((r as any).DeletionPolicy, 'Retain');
   const secretsByName = Object.fromEntries(ofType('AWS::SecretsManager::Secret').map(([, r]) => [r.Properties.Name, r]));
   assert.deepEqual(Object.keys(secretsByName).sort(), [
     'loop/brain/staging/anthropic',
@@ -118,7 +133,6 @@ test('keys, secrets and parameters: generated or placeholder values only, retain
     assert.equal(r.Properties.SecretString, undefined, 'no secret value is in the template');
     assert.ok(r.Properties.GenerateSecretString);
     assert.ok(r.Properties.KmsKeyId);
-    assert.equal(r.DeletionPolicy, 'Retain');
   }
   const params = Object.fromEntries(ofType('AWS::SSM::Parameter').map(([, r]) => [r.Properties.Name, r.Properties.Value]));
   assert.equal(params['/loop/brain/staging/worker/enabled'], 'false', 'the worker starts switched off');

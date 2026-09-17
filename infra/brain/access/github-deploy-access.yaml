@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Loop Brain staging - the GitHub Actions deploy identity. Only the brain-staging environment of
+  elitemediagroup1/emgloop-platform may use it, and it may only assume the CDK bootstrap roles.
+  Deployed once by a human administrator in 065148797865 / us-east-1 (checked before deploying);
+  never by the pipeline it authorizes.
+
+# Stack: LoopBrain-staging-github-access, termination protection on.
+# Procedure: docs/runbooks/brain-aws-staging.md, Part 3. Checks: infra/brain/test/access.test.ts.
+#
+# Kept outside the Brain CDK app on purpose: the pipeline this role authorizes must not manage the
+# role, and this template needs no CDK bootstrap and no assets.
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      # No thumbprint: IAM verifies this issuer's certificate against its trusted CAs.
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - { Key: app, Value: loop }
+        - { Key: component, Value: brain-deploy-access }
+        - { Key: env, Value: staging }
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: loop-brain-github-deploy
+      Description: GitHub Actions (brain-staging environment) deploys LoopBrain-staging through the CDK bootstrap roles.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Exactly one repository and one environment. The environment admits only main, with
+          # a required reviewer. OIDC sessions carry no session tags, so sts:TagSession is not needed.
+          - Sid: BrainStagingEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: repo:elitemediagroup1/emgloop-platform:environment:brain-staging
+      Policies:
+        # CDK deploys by assuming its bootstrap roles (qualifier hnb659fds). The role can do
+        # nothing else. Image publishing is not listed: the Brain stack has no image assets.
+        - PolicyName: assume-cdk-bootstrap-roles
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: UseCdkBootstrapRolesOnly
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource:
+                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-deploy-role-065148797865-us-east-1
+                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-file-publishing-role-065148797865-us-east-1
+                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-lookup-role-065148797865-us-east-1
+      Tags:
+        - { Key: app, Value: loop }
+        - { Key: component, Value: brain-deploy-access }
+        - { Key: env, Value: staging }
+
+Outputs:
+  DeployRoleArn:
+    Description: The value of the brain-staging environment variable BRAIN_STAGING_DEPLOY_ROLE_ARN.
+    Value: !GetAtt GitHubDeployRole.Arn
+  OidcProviderArn:
+    Description: The GitHub Actions OIDC identity provider in this account.
+    Value: !Ref GitHubOidcProvider
