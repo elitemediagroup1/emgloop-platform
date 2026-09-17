@@ -514,7 +514,9 @@ describe('Loop Home', () => {
     for (const absent of ['/app/admin', '/crm/opportunities', '/app/work/workflows', 'href="/app"', 'Workspace']) {
       assert.equal(html.includes(absent), false, absent);
     }
-    assert.match(html, /<section class="loop-card" aria-label="CRM">/);
+    // Drawn with the shared primitives of the Loop design system.
+    assert.match(html, /<section class="loop-panel" aria-label="CRM"><h2 class="loop-panel__title">CRM<\/h2>/);
+    assert.match(html, /<div class="loop-page" aria-label="Loop Home">/);
   });
 });
 

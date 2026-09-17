@@ -13,11 +13,18 @@ const TEAL = '#2E9B9B';
 export function EmgLoopWordmark({
   height = 26,
   title = 'EMG Loop',
+  tone = 'default',
 }: {
   height?: number;
   title?: string;
+  /** `onDark` for the navy navigation rail: the navy "EMG" would vanish there. */
+  tone?: 'default' | 'onDark';
 }) {
   const w = (height / 26) * 132;
+  const ink = tone === 'onDark' ? '#FFFFFF' : NAVY;
+  const start = tone === 'onDark' ? '#FFFFFF' : NAVY;
+  const end = tone === 'onDark' ? '#7FD0D0' : TEAL;
+  const gradId = tone === 'onDark' ? 'emgLoopGradOnDark' : 'emgLoopGrad';
   return (
     <svg
       role="img"
@@ -30,9 +37,9 @@ export function EmgLoopWordmark({
     >
       <title>{title}</title>
       <defs>
-        <linearGradient id="emgLoopGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor={NAVY} />
-          <stop offset="1" stopColor={TEAL} />
+        <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor={start} />
+          <stop offset="1" stopColor={end} />
         </linearGradient>
       </defs>
       {/* EMG */}
@@ -43,7 +50,7 @@ export function EmgLoopWordmark({
         fontWeight="800"
         fontSize="22"
         letterSpacing="-0.5"
-        fill={NAVY}
+        fill={ink}
       >
         EMG
       </text>
@@ -55,12 +62,12 @@ export function EmgLoopWordmark({
         fontWeight="600"
         fontSize="22"
         letterSpacing="0"
-        fill="url(#emgLoopGrad)"
+        fill={`url(#${gradId})`}
       >
         L
       </text>
       {/* Infinity "oo" */}
-      <g stroke="url(#emgLoopGrad)" strokeWidth="3" fill="none" strokeLinecap="round">
+      <g stroke={`url(#${gradId})`} strokeWidth="3" fill="none" strokeLinecap="round">
         <path d="M70 9 C70 5, 76 5, 79 9 C82 13, 88 13, 88 9 C88 5, 82 5, 79 9 C76 13, 70 13, 70 9 Z" />
       </g>
       <text
@@ -69,11 +76,11 @@ export function EmgLoopWordmark({
         fontFamily="Inter, system-ui, sans-serif"
         fontWeight="600"
         fontSize="22"
-        fill={TEAL}
+        fill={end}
       >
         p
       </text>
-      <text x="103" y="9" fontFamily="Inter, system-ui, sans-serif" fontWeight="700" fontSize="7" fill={TEAL}>
+      <text x="103" y="9" fontFamily="Inter, system-ui, sans-serif" fontWeight="700" fontSize="7" fill={end}>
         ™
       </text>
     </svg>

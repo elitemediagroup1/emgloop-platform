@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requirePermission } from '../../../../auth/guard';
 import { crmSubjectReads, personHref, PEOPLE_HREF } from '../../../../crm/crm-slice-data';
 import { readPeopleDirectory } from '../../../../crm/crm-subject-reads';
-import { ActionButton, LxPage, PageHead, ReadFailed, StateBlock, StatePill, type ActionSpec } from '../../_loop-os/record';
+import { ActionButton, LoopPage, PageHead, ReadFailed, StateBlock, StatePill, type ActionSpec } from '../../_loop-os/record';
 import { SubjectCard } from '../../_loop-os/subject-card';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,7 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
       : { label: '+ Establish person', href: null, reason: 'You do not have authority to establish people.' };
 
   return (
-    <LxPage label="People">
+    <LoopPage label="People">
       <PageHead
         trail={trail}
         title="People"
@@ -58,10 +58,10 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
 
       {directory.outcome === 'OK' ? (
         <>
-          <div className="lx-filters" role="group" aria-label="People shown">
-            <span className="lx-filter" aria-current="true">All people</span>
+          <div className="loop-filters" role="group" aria-label="People shown">
+            <span className="loop-filter" aria-current="true">All people</span>
             {directory.review.state === 'OK' && directory.review.value.count > 0 ? (
-              <Link className="lx-filter" href={IDENTITY_REVIEW_HREF}>
+              <Link className="loop-filter" href={IDENTITY_REVIEW_HREF}>
                 Awaiting identity review · {directory.review.value.count}
                 {directory.review.value.more ? '+' : ''}
               </Link>
@@ -94,13 +94,13 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
             )
           ) : (
             <>
-              <p className="lx-count">
+              <p className="loop-resultcount">
                 {directory.firstPage && directory.nextCursor === null
                   ? `${directory.rows.length} ${directory.rows.length === 1 ? 'person' : 'people'}`
                   : `Showing ${directory.rows.length} people`}
               </p>
-              <table className="lx-table">
-                <caption className="lx-visually-hidden">Established people and their relationship context</caption>
+              <table className="loop-table">
+                <caption className="loop-sr-only">Established people and their relationship context</caption>
                 <thead>
                   <tr>
                     <th scope="col">Person</th>
@@ -116,9 +116,9 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
                       </td>
                       <td data-label="Relationship context">
                         {row.context.relationship ? (
-                          <span className="lx-table__strong">{row.context.relationship}</span>
+                          <span className="loop-table__strong">{row.context.relationship}</span>
                         ) : (
-                          <span className="lx-table__muted">{row.context.fact.text}</span>
+                          <span className="loop-table__muted">{row.context.fact.text}</span>
                         )}
                       </td>
                       <td data-label="State">
@@ -128,18 +128,18 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
                   ))}
                 </tbody>
               </table>
-              <p className="lx-note">Opportunities are not tracked in Loop yet, so they are not shown for anyone.</p>
+              <p className="loop-note">Opportunities are not tracked in Loop yet, so they are not shown for anyone.</p>
               {directory.nextCursor || !directory.firstPage ? (
-                <nav className="lx-pager" aria-label="More people">
+                <nav className="loop-pager" aria-label="More people">
                   {!directory.firstPage ? (
-                    <Link className="lx-btn" href={PEOPLE_HREF}>
+                    <Link className="loop-btn" href={PEOPLE_HREF}>
                       First page
                     </Link>
                   ) : (
                     <span />
                   )}
                   {directory.nextCursor ? (
-                    <Link className="lx-btn" href={`${PEOPLE_HREF}?after=${encodeURIComponent(directory.nextCursor)}`}>
+                    <Link className="loop-btn" href={`${PEOPLE_HREF}?after=${encodeURIComponent(directory.nextCursor)}`}>
                       More people
                     </Link>
                   ) : null}
@@ -149,6 +149,6 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
           )}
         </>
       ) : null}
-    </LxPage>
+    </LoopPage>
   );
 }

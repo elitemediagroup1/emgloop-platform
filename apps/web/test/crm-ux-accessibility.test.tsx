@@ -236,10 +236,21 @@ describe('Semantics and labels on Phase 1 surfaces', () => {
 });
 
 describe('Design tokens', () => {
+  // --crm-* are aliases of the one Loop palette (:root --loop-* in loop-os.css).
+  function loopToken(name: string, depth = 0): string {
+    const root = SHELL_CSS.slice(SHELL_CSS.indexOf(':root {'), SHELL_CSS.indexOf('}', SHELL_CSS.indexOf(':root {')));
+    const m = root.match(new RegExp(`--loop-${name}:\\s*([^;]+);`));
+    assert.ok(m, `--loop-${name} is defined on :root`);
+    const value = m![1]!.trim();
+    const alias = value.match(/^var\(--loop-([a-z0-9-]+)\)$/);
+    if (alias && depth < 4) return loopToken(alias[1]!, depth + 1);
+    assert.match(value, /^#[0-9A-Fa-f]{6}$/, `--loop-${name} resolves to a hex colour`);
+    return value;
+  }
   function token(name: string): string {
-    const m = DS_CSS.match(new RegExp(`--crm-${name}:\\s*(#[0-9A-Fa-f]{6})`));
-    assert.ok(m, `--crm-${name} is a hex token`);
-    return m![1]!;
+    const m = DS_CSS.match(new RegExp(`--crm-${name}:\\s*var\\(--loop-([a-z0-9-]+)\\)`));
+    assert.ok(m, `--crm-${name} is an alias of a --loop-* token`);
+    return loopToken(m![1]!);
   }
   function luminance(hex: string): number {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)

@@ -17,7 +17,7 @@ import {
   ContextDrawer,
   ContextTabs,
   Facts,
-  LxPage,
+  LoopPage,
   PageHead,
   Panel,
   ReadFailed,
@@ -71,10 +71,10 @@ export default async function RelationshipPage({ params }: { params: { relations
   if (view.outcome !== 'OK') {
     if (view.outcome === 'NOT_FOUND') notFound();
     return (
-      <LxPage label="Relationship">
+      <LoopPage label="Relationship">
         <PageHead trail={[...trailBase, { label: 'Relationship' }]} title="Relationship" />
         <ReadFailed what="this relationship" />
-      </LxPage>
+      </LoopPage>
     );
   }
 
@@ -108,7 +108,7 @@ export default async function RelationshipPage({ params }: { params: { relations
   };
 
   return (
-    <LxPage label={subject.name}>
+    <LoopPage label={subject.name}>
       <PageHead
         trail={[...trailBase, { label: subject.name }]}
         actions={
@@ -160,7 +160,7 @@ export default async function RelationshipPage({ params }: { params: { relations
                 since ? ` since ${since}` : ''
               }, with ${activeParticipants.length === 1 ? '1 active participant' : `${activeParticipants.length} active participants`}.`}
             >
-              {record.description ? <p className="lx-note">{record.description}</p> : null}
+              {record.description ? <p className="loop-note">{record.description}</p> : null}
             </Panel>
 
             <section id="history" aria-label="History">
@@ -170,7 +170,7 @@ export default async function RelationshipPage({ params }: { params: { relations
                 ) : (
                   <ActivityList label="Relationship history" entries={relationshipHistoryEntries(record, names, time)} />
                 )}
-                <p className="lx-note" style={{ marginTop: 10 }}>
+                <p className="loop-note" style={{ marginTop: 10 }}>
                   From this relationship&apos;s own record. Calls, messages and other activity are not connected to relationships yet.
                 </p>
               </Panel>
@@ -190,9 +190,9 @@ export default async function RelationshipPage({ params }: { params: { relations
             <section id="participants" aria-label="Participants">
               <Panel title="Participants">
                 {record.participants.length === 0 ? (
-                  <p className="lx-note">No participant is recorded.</p>
+                  <p className="loop-note">No participant is recorded.</p>
                 ) : (
-                  <div className="lx-stack">
+                  <div className="loop-stack">
                     {record.participants.map((p) => (
                       <SubjectCard key={p.participantId} subject={participantSubject(p)} density="context" />
                     ))}
@@ -214,7 +214,7 @@ export default async function RelationshipPage({ params }: { params: { relations
               />
             </Panel>
             <ContextDrawer summary="About these labels">
-              <p className="lx-note">
+              <p className="loop-note">
                 The kind is the Relationships authority&apos;s own label. Participant roles and states are shown as
                 Loop records them; display names for them have not been decided yet.
               </p>
@@ -222,6 +222,6 @@ export default async function RelationshipPage({ params }: { params: { relations
           </>
         }
       />
-    </LxPage>
+    </LoopPage>
   );
 }

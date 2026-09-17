@@ -1,11 +1,15 @@
+/* The few standalone public screens (status, legacy dashboard/login) draw in
+   the Loop design system's palette too (docs/product/loop-design-system.md).
+   These names are aliases for those screens only; the palette itself is the
+   :root --loop-* set in loop-os.css. */
 :root {
-  --bg: #0b1020;
-  --panel: #141a2e;
-  --text: #e6e9f2;
-  --muted: #9aa3bd;
-  --accent: #5b8cff;
-  --border: #232a44;
-  --ok: #3fb950;
+  --bg: #f5f6f6;
+  --panel: #ffffff;
+  --text: #0f1c2a;
+  --muted: #5a6a76;
+  --accent: #1d6e85;
+  --border: #dce3e6;
+  --ok: #1d7449;
 }
 
 * {
@@ -91,7 +95,7 @@ a {
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #0e1426;
+  background: var(--panel);
   color: var(--text);
   margin-top: 0.35rem;
 }

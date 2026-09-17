@@ -44,33 +44,33 @@ export function BrainWorkState(props: {
   const working = props.state === 'QUEUED' || props.state === 'WORKING';
   return (
     <section
-      className={`lx-brain lx-brain--${look.cls}`}
+      className={`loop-brain loop-brain--${look.cls}`}
       aria-label={`${props.title}: ${label.label}`}
       aria-live={working ? 'polite' : undefined}
       data-brain-state={props.state}
     >
-      <span className="lx-brain__mark" aria-hidden="true">
+      <span className="loop-brain__mark" aria-hidden="true">
         <span>{look.mark}</span>
       </span>
-      <div className="lx-brain__body">
-        <div className="lx-brain__head">
-          <p className="lx-brain__title">{props.title}</p>
+      <div className="loop-brain__body">
+        <div className="loop-brain__head">
+          <p className="loop-brain__title">{props.title}</p>
           <StatePill state={{ label: label.label, tone: look.tone }} />
         </div>
-        <p className="lx-brain__detail">{label.detail}</p>
-        {reason ? <p className="lx-brain__meta">{reason}</p> : null}
+        <p className="loop-brain__detail">{label.detail}</p>
+        {reason ? <p className="loop-brain__meta">{reason}</p> : null}
         {working && typeof props.completedSteps === 'number' ? (
-          <p className="lx-brain__meta">
+          <p className="loop-brain__meta">
             {props.completedSteps === 1 ? '1 step finished' : `${props.completedSteps} steps finished`}
           </p>
         ) : null}
         {props.children}
         {props.action ? (
-          <div className="lx-btnrow" style={{ marginTop: 8 }}>
+          <div className="loop-btnrow" style={{ marginTop: 8 }}>
             <ActionButton action={props.action} />
           </div>
         ) : null}
-        <p className="lx-brain__boundary">
+        <p className="loop-brain__boundary">
           Brain explains, summarizes and drafts. It does not establish facts or make decisions: people and
           the parts of Loop that own a record do.
         </p>

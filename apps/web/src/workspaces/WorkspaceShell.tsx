@@ -58,7 +58,7 @@ export default async function WorkspaceShell({
              operating-area bar stays in reach. On wide screens both are inert. */}
           <input type="checkbox" id="loop-menu" className="loop-menu-toggle" />
           <div className="loop-sb__brand">
-            <EmgLoopWordmark height={22} />
+            <EmgLoopWordmark height={22} tone="onDark" />
             <span className="loop-sb__os">OS</span>
             <label htmlFor="loop-menu" className="loop-sb__menubtn">Menu</label>
           </div>

@@ -19,18 +19,18 @@ import { subjectInitials, type SubjectDensity, type SubjectDisplay, type Subject
 import { StatePill } from './record';
 
 const AVATAR_CLASS: Record<SubjectKind, string> = {
-  PERSON: 'lx-avatar',
-  COMPANY: 'lx-avatar lx-avatar--company',
-  RELATIONSHIP: 'lx-avatar lx-avatar--relationship',
-  WORKSPACE: 'lx-avatar lx-avatar--workspace',
-  INTAKE: 'lx-avatar lx-avatar--intake',
-  UNRESOLVED_ACTIVITY: 'lx-avatar lx-avatar--unresolved',
+  PERSON: 'loop-avatar',
+  COMPANY: 'loop-avatar loop-avatar--company',
+  RELATIONSHIP: 'loop-avatar loop-avatar--relationship',
+  WORKSPACE: 'loop-avatar loop-avatar--workspace',
+  INTAKE: 'loop-avatar loop-avatar--intake',
+  UNRESOLVED_ACTIVITY: 'loop-avatar loop-avatar--unresolved',
 };
 
 export function SubjectAvatar({ subject, size }: { subject: Pick<SubjectDisplay, 'kind' | 'name' | 'named'>; size?: 'sm' | 'lg' }) {
   const initials = subjectInitials(subject.named ? subject.name : null, subject.kind);
   return (
-    <span className={AVATAR_CLASS[subject.kind] + (size ? ` lx-avatar--${size}` : '')} aria-hidden="true">
+    <span className={AVATAR_CLASS[subject.kind] + (size ? ` loop-avatar--${size}` : '')} aria-hidden="true">
       {initials}
     </span>
   );
@@ -49,25 +49,25 @@ export function SubjectCard({
   children?: ReactNode;
 }) {
   const Name = headingLevel ?? 'p';
-  const nameClass = 'lx-subject__name' + (subject.named ? '' : ' is-placeholder');
+  const nameClass = 'loop-subject__name' + (subject.named ? '' : ' is-placeholder');
   const typeLine = (
-    <span className="lx-subject__type">
+    <span className="loop-subject__type">
       <b>{subject.typeLabel}</b>
       {density === 'row' ? <span>{subject.state.label}</span> : <StatePill state={subject.state} />}
     </span>
   );
   const contextLine = [subject.context, subject.affiliation].filter(Boolean).join(' · ');
   const fact = subject.fact && density !== 'row' ? (
-    <p className={`lx-subject__fact lx-subject__fact--${subject.fact.knowledge}`}>{subject.fact.text}</p>
+    <p className={`loop-subject__fact loop-subject__fact--${subject.fact.knowledge}`}>{subject.fact.text}</p>
   ) : null;
 
   const body = (
-    <div className="lx-subject__body">
+    <div className="loop-subject__body">
       <Name className={nameClass}>{subject.name}</Name>
       {density === 'featured' ? null : typeLine}
-      {contextLine ? <p className="lx-subject__line">{contextLine}</p> : null}
+      {contextLine ? <p className="loop-subject__line">{contextLine}</p> : null}
       {density === 'featured' ? (
-        <span className="lx-subject__type">
+        <span className="loop-subject__type">
           <b>{subject.typeLabel}</b>
           <StatePill state={subject.state} />
         </span>
@@ -75,9 +75,9 @@ export function SubjectCard({
       {fact}
       {density === 'card' && subject.action ? (
         subject.action.href ? (
-          <span className="lx-subject__go">{subject.action.label} →</span>
+          <span className="loop-subject__go">{subject.action.label} →</span>
         ) : (
-          <span className="lx-subject__go lx-subject__go--disabled">{subject.action.unavailableReason ?? 'Not available to you'}</span>
+          <span className="loop-subject__go loop-subject__go--disabled">{subject.action.unavailableReason ?? 'Not available to you'}</span>
         )
       ) : null}
       {children}
@@ -85,7 +85,7 @@ export function SubjectCard({
   );
 
   const avatar = <SubjectAvatar subject={subject} size={density === 'featured' ? 'lg' : density === 'context' ? 'sm' : undefined} />;
-  const cls = `lx-subject lx-subject--${density}`;
+  const cls = `loop-subject loop-subject--${density}`;
   const href = subject.action?.href ?? null;
   // Rows, cards and context cards navigate as a whole; the featured block is the page itself.
   if (href && density !== 'featured') {

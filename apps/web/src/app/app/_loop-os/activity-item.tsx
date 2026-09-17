@@ -43,7 +43,7 @@ export interface ActivityEntry {
 
 export function ActivityList({ entries, label }: { entries: readonly ActivityEntry[]; label: string }) {
   return (
-    <ol className="lx-activity" aria-label={label}>
+    <ol className="loop-activity" aria-label={label}>
       {entries.map((entry) => (
         <ActivityItem key={entry.key} entry={entry} />
       ))}
@@ -55,16 +55,16 @@ export function ActivityItem({ entry }: { entry: ActivityEntry }) {
   const interpretive = INTERPRETIVE_ACTIVITY_CATEGORIES.includes(entry.category);
   const kind = entry.category.toLowerCase();
   return (
-    <li className="lx-act" data-truth={entry.category}>
+    <li className="loop-act" data-truth={entry.category}>
       <details>
         <summary>
-          <span className={`lx-act__truth lx-act__truth--${kind}`}>{truthLabel(entry.category)}</span>
-          <span className="lx-act__story">{entry.story}</span>
-          <time className="lx-act__when" dateTime={entry.whenIso}>
+          <span className={`loop-act__truth loop-act__truth--${kind}`}>{truthLabel(entry.category)}</span>
+          <span className="loop-act__story">{entry.story}</span>
+          <time className="loop-act__when" dateTime={entry.whenIso}>
             {entry.when}
           </time>
         </summary>
-        <div className="lx-act__detail">
+        <div className="loop-act__detail">
           <Facts
             rows={[
               { label: 'Kind of truth', value: interpretive ? 'Interpretation, not a recorded fact' : 'Recorded by its authority' },

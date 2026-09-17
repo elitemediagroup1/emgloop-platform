@@ -23,9 +23,9 @@
 }
 
 .crm .crm-input {
-  background: var(--crm-panel, #12161d);
-  border: 1px solid var(--crm-border, #232a35);
-  color: var(--crm-text, #e6e9ef);
+  background: var(--crm-panel, var(--loop-surface));
+  border: 1px solid var(--crm-border, var(--loop-line));
+  color: var(--crm-text, var(--loop-ink));
   border-radius: 8px;
   padding: 0.45rem 0.65rem;
   font-size: 0.85rem;
@@ -34,13 +34,13 @@
 .crm .crm-input-sm { min-width: 160px; }
 .crm .crm-input:focus {
   outline: none;
-  border-color: var(--crm-accent, #4ade80);
+  border-color: var(--crm-accent, var(--loop-good));
 }
 
 .crm .crm-select {
-  background: var(--crm-panel, #12161d);
-  border: 1px solid var(--crm-border, #232a35);
-  color: var(--crm-text, #e6e9ef);
+  background: var(--crm-panel, var(--loop-surface));
+  border: 1px solid var(--crm-border, var(--loop-line));
+  color: var(--crm-text, var(--loop-ink));
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
   font-size: 0.85rem;
@@ -49,9 +49,9 @@
 
 .crm .crm-textarea {
   width: 100%;
-  background: var(--crm-panel, #12161d);
-  border: 1px solid var(--crm-border, #232a35);
-  color: var(--crm-text, #e6e9ef);
+  background: var(--crm-panel, var(--loop-surface));
+  border: 1px solid var(--crm-border, var(--loop-line));
+  color: var(--crm-text, var(--loop-ink));
   border-radius: 10px;
   padding: 0.65rem 0.8rem;
   font-size: 0.9rem;
@@ -60,7 +60,7 @@
 }
 .crm .crm-textarea:focus {
   outline: none;
-  border-color: var(--crm-accent, #4ade80);
+  border-color: var(--crm-accent, var(--loop-good));
 }
 
 /* Saved views */
@@ -76,22 +76,22 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  background: var(--crm-panel, #12161d);
-  border: 1px solid var(--crm-border, #232a35);
+  background: var(--crm-panel, var(--loop-surface));
+  border: 1px solid var(--crm-border, var(--loop-line));
   border-radius: 999px;
   padding: 0.15rem 0.55rem;
 }
-.crm .crm-saved-view a { color: var(--crm-text, #e6e9ef); text-decoration: none; }
+.crm .crm-saved-view a { color: var(--crm-text, var(--loop-ink)); text-decoration: none; }
 .crm .crm-x {
   background: none;
   border: none;
-  color: var(--crm-faint, #7a8290);
+  color: var(--crm-faint, var(--loop-muted));
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
   padding: 0 0.15rem;
 }
-.crm .crm-x:hover { color: var(--crm-red, #f87171); }
+.crm .crm-x:hover { color: var(--crm-red, var(--loop-crit)); }
 .crm .crm-save-view-form {
   display: inline-flex;
   gap: 0.4rem;
@@ -111,8 +111,8 @@
   margin-bottom: 0.6rem;
   font-size: 0.82rem;
 }
-.crm .crm-breadcrumb a { color: var(--crm-faint, #7a8290); text-decoration: none; }
-.crm .crm-breadcrumb a:hover { color: var(--crm-accent, #4ade80); }
+.crm .crm-breadcrumb a { color: var(--crm-faint, var(--loop-muted)); text-decoration: none; }
+.crm .crm-breadcrumb a:hover { color: var(--crm-accent, var(--loop-good)); }
 
 /* Conversation workspace controls */
 .crm .crm-conv-head { margin-bottom: 0.5rem; }
@@ -136,7 +136,7 @@
   padding: 0.25rem;
 }
 .crm .crm-msg {
-  border: 1px solid var(--crm-border, #232a35);
+  border: 1px solid var(--crm-border, var(--loop-line));
   border-radius: 10px;
   padding: 0.6rem 0.8rem;
   max-width: 80%;
@@ -162,7 +162,7 @@
 }
 .crm .crm-msg-customer {
   align-self: flex-start;
-  background: var(--crm-panel, #12161d);
+  background: var(--crm-panel, var(--loop-surface));
 }
 .crm .crm-msg-system {
   align-self: center;
@@ -195,4 +195,4 @@
   gap: 1rem;
   margin-top: 0.6rem;
 }
-.crm .crm-cell-muted { color: var(--crm-faint, #7a8290); font-size: 0.85rem; }
+.crm .crm-cell-muted { color: var(--crm-faint, var(--loop-muted)); font-size: 0.85rem; }

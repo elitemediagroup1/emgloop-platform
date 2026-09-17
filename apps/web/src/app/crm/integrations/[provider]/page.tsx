@@ -167,7 +167,7 @@ export default async function ProviderDetailPage({
                       <td>{e.eventType ?? ' - '}</td>
                       <td><span className={'crm-integration-status ' + e.status}>{e.status}</span></td>
                       <td>{fmtTime(e.receivedAt)}</td>
-                      <td style={{ color: '#f87171' }}>{e.errorMessage ?? ' - '}</td>
+                      <td style={{ color: 'var(--loop-crit)' }}>{e.errorMessage ?? ' - '}</td>
                     </tr>
                   ))}
                 </tbody>

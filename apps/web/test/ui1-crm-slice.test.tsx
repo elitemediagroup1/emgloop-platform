@@ -383,25 +383,25 @@ describe('Subject Display System: drawn', () => {
   it('draws every density from the same subject, with initials and never an image', () => {
     for (const density of ['row', 'card', 'context', 'featured'] as const) {
       const html = render(<SubjectCard subject={denise} density={density} />);
-      assert.match(html, new RegExp(`lx-subject--${density}`));
+      assert.match(html, new RegExp(`loop-subject--${density}`));
       assert.match(html, />DK</);
       assert.equal(html.includes('<img'), false, density);
       assert.match(text(html), /Denise K/);
     }
     const row = render(<SubjectCard subject={denise} density="row" />);
-    assert.match(row, /<a class="lx-subject lx-subject--row" aria-label="Open Denise K" data-subject-kind="PERSON" href="\/app\/crm\/people\/p_denise">/);
+    assert.match(row, /<a class="loop-subject loop-subject--row" aria-label="Open Denise K" data-subject-kind="PERSON" href="\/app\/crm\/people\/p_denise">/);
     const card = render(<SubjectCard subject={denise} density="card" />);
     assert.match(text(card), /Person Established Creator · EMG · Talent representation 1 active relationship Open Denise K →/);
     const featured = render(<SubjectCard subject={denise} density="featured" headingLevel="h1" />);
-    assert.match(featured, /<h1 class="lx-subject__name">Denise K<\/h1>/);
+    assert.match(featured, /<h1 class="loop-subject__name">Denise K<\/h1>/);
     assert.equal(featured.includes('<a '), false, 'the featured block is the page, not a link');
   });
 
   it('marks placeholders and unavailable facts so they never read as data', () => {
     const unnamed = partyListSubject(listItem('p_x', null), partyRelationshipContext('p_x', null, new Map(), null), '/x');
     const html = render(<SubjectCard subject={unnamed} density="card" />);
-    assert.match(html, /class="lx-subject__name is-placeholder">Unnamed person</);
-    assert.match(html, /lx-subject__fact--unavailable">Relationship context unavailable</);
+    assert.match(html, /class="loop-subject__name is-placeholder">Unnamed person</);
+    assert.match(html, /loop-subject__fact--unavailable">Relationship context unavailable</);
   });
 
   it('states, tabs, actions and summaries never pretend', () => {
@@ -412,8 +412,8 @@ describe('Subject Display System: drawn', () => {
     assert.equal(blocks[0]!.includes('role="alert"'), false);
 
     const tabs = render(<ContextTabs label="x" tabs={[{ label: 'Overview', href: '/o', current: true }, { label: 'Activity', href: null, reason: 'Not connected' }]} />);
-    assert.match(tabs, /<a class="lx-tab" aria-current="page" href="\/o">Overview<\/a>/);
-    assert.match(tabs, /<span class="lx-tab lx-tab--unavailable" aria-disabled="true" title="Not connected">Activity/);
+    assert.match(tabs, /<a class="loop-tab" aria-current="page" href="\/o">Overview<\/a>/);
+    assert.match(tabs, /<span class="loop-tab loop-tab--unavailable" aria-disabled="true" title="Not connected">Activity/);
     assert.equal((tabs.match(/href=/g) ?? []).length, 1);
 
     const inert = render(<ActionButton action={{ label: 'Email', href: null, reason: 'No governed channel.' }} />);
@@ -517,5 +517,113 @@ describe('The redesigned pages', () => {
     for (const file of ['record.tsx', 'subject-card.tsx', 'activity-item.tsx', 'brain-state.tsx']) {
       assert.equal(read(`app/app/_loop-os/${file}`).includes("'use client'"), false, file);
     }
+  });
+});
+
+// ---- one design system ------------------------------------------------------------------------
+
+describe('The Loop design system is the only visual language', () => {
+  const APP_DIR = join(SRC, 'app');
+  const cssFiles = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? cssFiles(join(dir, e.name)) : e.name.endsWith('.css') ? [join(dir, e.name)] : [],
+    );
+  const shell = read('app/loop-os.css');
+  const rootBlock = shell.slice(shell.indexOf(':root {'), shell.indexOf('}', shell.indexOf(':root {')) + 1);
+  const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
+  const lum = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  };
+  const ratio = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  };
+  const tokenValue = (name: string): string => {
+    const m = rootBlock.match(new RegExp(`--loop-${name}:\\s*([^;]+);`));
+    assert.ok(m, `--loop-${name}`);
+    const v = m![1]!.trim();
+    const alias = v.match(/^var\(--loop-([a-z0-9-]+)\)$/);
+    return alias ? tokenValue(alias[1]!) : v;
+  };
+
+  it('declares its palette once, on :root in loop-os.css; every other colour token is an alias', () => {
+    assert.ok(rootBlock.length > 100, 'the :root foundation exists');
+    for (const file of cssFiles(APP_DIR)) {
+      const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      const scoped = file.endsWith('loop-os.css') ? css.replace(rootBlock.replace(/\/\*[\s\S]*?\*\//g, ''), '') : css;
+      for (const m of scoped.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;}]+)/g)) {
+        const [, name, value] = m;
+        if (file.endsWith('globals.css')) continue; // the standalone public screens' aliases (asserted below)
+        assert.equal(COLOR.test(value!), false, `${file.split('/src/')[1]} declares ${name} as a colour of its own`);
+      }
+    }
+    const ds = read('app/crm/design-system.css');
+    const crmTokens = [...ds.matchAll(/(--crm-[a-z0-9-]+)\s*:\s*([^;]+);/g)];
+    assert.ok(crmTokens.length >= 20);
+    for (const [, name, value] of crmTokens) {
+      if (/radius-sm|ease|dur/.test(name!)) continue;
+      assert.match(value!.trim(), /^var\(--loop-[a-z0-9-]+\)$/, `${name} aliases the Loop palette`);
+    }
+    // The public screens use the same values as the Loop palette.
+    const g = read('app/globals.css');
+    for (const [alias, loop] of [['--bg', 'canvas'], ['--panel', 'surface'], ['--text', 'ink'], ['--muted', 'muted'], ['--accent', 'accent'], ['--border', 'line']] as const) {
+      const m = g.match(new RegExp(`${alias}:\\s*(#[0-9a-fA-F]{6})`));
+      assert.equal(m?.[1]?.toLowerCase(), tokenValue(loop).toLowerCase(), alias);
+    }
+  });
+
+  it('keeps no CRM-local or redesign-local layer: no .lx, no --lx-*', () => {
+    for (const file of cssFiles(APP_DIR)) assert.equal(/\.lx\b|--lx-/.test(readFileSync(file, 'utf8')), false, file);
+    const walkTsx = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walkTsx(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : [],
+      );
+    for (const file of walkTsx(SRC)) assert.equal(/\blx-|className="lx"|LxPage/.test(readFileSync(file, 'utf8')), false, file);
+  });
+
+  it('text tokens meet WCAG AA on every surface token, and the rail text on the rail', () => {
+    for (const fg of ['ink', 'body', 'muted', 'faint', 'accent', 'good', 'warn', 'crit', 'neutral']) {
+      for (const bg of ['canvas', 'surface', 'sunken', 'hover']) {
+        assert.ok(ratio(tokenValue(fg), tokenValue(bg)) >= 4.5, `${fg} on ${bg}: ${ratio(tokenValue(fg), tokenValue(bg)).toFixed(2)}`);
+      }
+    }
+    for (const [fg, bg] of [['good', 'good-soft'], ['warn', 'warn-soft'], ['crit', 'crit-soft'], ['neutral', 'neutral-soft'], ['accent', 'accent-soft'], ['avatar-ink', 'avatar']] as const) {
+      assert.ok(ratio(tokenValue(fg), tokenValue(bg)) >= 4.5, `${fg} on ${bg}`);
+    }
+    assert.ok(ratio('#ffffff', tokenValue('primary')) >= 4.5, 'text on the primary action');
+    for (const fg of ['rail-text', 'rail-muted', 'rail-active']) {
+      for (const bg of ['rail', 'rail-2']) assert.ok(ratio(tokenValue(fg), tokenValue(bg)) >= 4.5, `${fg} on ${bg}`);
+    }
+  });
+
+  it('no stylesheet paints a dark surface outside the navigation rail', () => {
+    for (const file of cssFiles(APP_DIR)) {
+      const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const m of css.matchAll(/background(?:-color)?\s*:\s*([^;}]+)/g)) {
+        for (const hex of m[1]!.match(/#[0-9a-fA-F]{6}\b/g) ?? []) {
+          assert.ok(lum(hex) >= 0.2, `${file.split('/src/')[1]} paints ${hex} as a background`);
+        }
+      }
+    }
+  });
+
+  it('the shell draws a navy rail and the light canvas from the tokens', () => {
+    assert.match(shell, /\.loop-sidebar \{[^}]*background: var\(--loop-rail\);/);
+    assert.match(shell, /\.loop-main \{[^}]*background: var\(--loop-canvas\);/);
+    assert.match(shell, /\.loop-appbar \{[^}]*border-bottom: 1px solid var\(--loop-line\);/);
+    assert.match(read('workspaces/WorkspaceShell.tsx'), /<EmgLoopWordmark height=\{22\} tone="onDark" \/>/);
+  });
+
+  it('Loop Home and the redesigned CRM pages are built from the same primitives', () => {
+    for (const file of ['app/app/_home/admin-home.tsx', 'app/app/_home/module-home.tsx', ...Object.values(PAGES)]) {
+      const src = code(read(file));
+      assert.match(src, /<LoopPage\b/, `${file} renders on the shared page`);
+      assert.match(src, /from '\.\.\/(\.\.\/)*_loop-os\/record'/, `${file} imports the shared primitives`);
+    }
+    const home = code(read('app/app/_home/admin-home.tsx'));
+    assert.match(home, /<PageHead\b/);
+    assert.equal(/className="(cmd|tiles|tile)\b/.test(home), false, 'Home no longer uses the old dashboard classes');
+    assert.equal(/Search companies, contacts, work/.test(home), false, 'the search box names what it searches');
   });
 });

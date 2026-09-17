@@ -1,4 +1,5 @@
-/* Sprint 21 — Owner Setup Wizard. Calm, minimal, accessible. No gradients. */
+/* Sprint 21 — Owner Setup Wizard. Calm, minimal, accessible. No gradients.
+   Drawn with the Loop design system tokens (docs/product/loop-design-system.md). */
 
 .loop-setup {
   min-height: 100vh;
@@ -6,7 +7,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  background: #f5f5f7;
+  background: var(--loop-canvas);
   padding: 56px 20px 80px;
   box-sizing: border-box;
 }
@@ -14,8 +15,8 @@
 .loop-setup__card {
   width: 100%;
   max-width: 760px;
-  background: #ffffff;
-  border: 1px solid #e6e6ea;
+  background: var(--loop-surface);
+  border: 1px solid var(--loop-line);
   border-radius: 16px;
   padding: 40px 44px 32px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -25,14 +26,14 @@
 .loop-setup__progress {
   height: 4px;
   width: 100%;
-  background: #ececf0;
+  background: var(--loop-sunken);
   border-radius: 999px;
   overflow: hidden;
 }
 
 .loop-setup__progress-bar {
   height: 100%;
-  background: #6b5cff;
+  background: var(--loop-primary);
   border-radius: 999px;
   transition: width 220ms ease;
 }
@@ -41,7 +42,7 @@
   margin: 14px 0 26px;
   font-size: 12px;
   letter-spacing: 0.02em;
-  color: #86868b;
+  color: var(--loop-faint);
 }
 
 .loop-setup__step {
@@ -55,20 +56,20 @@
   font-size: 26px;
   font-weight: 600;
   letter-spacing: -0.01em;
-  color: #1d1d1f;
+  color: var(--loop-ink);
 }
 
 .loop-setup__subtitle {
   margin: -8px 0 4px;
   font-size: 15px;
-  color: #6e6e73;
+  color: var(--loop-muted);
 }
 
 .loop-setup__body {
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
-  color: #6e6e73;
+  color: var(--loop-muted);
 }
 
 .loop-setup__field {
@@ -80,17 +81,17 @@
 .loop-setup__label {
   font-size: 13px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--loop-ink);
 }
 
-.loop-setup__req { color: #d1495b; }
+.loop-setup__req { color: var(--loop-crit); }
 
 .loop-setup__hint,
 .loop-setup__note,
 .loop-setup__photonote,
 .loop-setup__soon {
   font-size: 12px;
-  color: #86868b;
+  color: var(--loop-faint);
 }
 
 .loop-setup__field input,
@@ -100,9 +101,9 @@
   height: 42px;
   padding: 0 13px;
   font-size: 15px;
-  color: #1d1d1f;
-  background: #ffffff;
-  border: 1px solid #d6d6db;
+  color: var(--loop-ink);
+  background: var(--loop-surface);
+  border: 1px solid var(--loop-line-strong);
   border-radius: 10px;
   outline: none;
   transition: border-color 140ms ease, box-shadow 140ms ease;
@@ -110,13 +111,13 @@
 
 .loop-setup__field input:focus,
 .loop-setup__field select:focus {
-  border-color: #6b5cff;
-  box-shadow: 0 0 0 3px rgba(107, 92, 255, 0.16);
+  border-color: var(--loop-primary);
+  box-shadow: 0 0 0 3px rgba(29, 110, 133, 0.18);
 }
 
 .loop-setup__field input[readonly] {
-  background: #f5f5f7;
-  color: #6e6e73;
+  background: var(--loop-canvas);
+  color: var(--loop-muted);
 }
 
 .loop-setup__photo {
@@ -129,8 +130,8 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: #ececf0;
-  color: #6e6e73;
+  background: var(--loop-sunken);
+  color: var(--loop-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -144,9 +145,9 @@
   align-items: center;
   padding: 0 13px;
   font-size: 13px;
-  color: #86868b;
-  background: #f5f5f7;
-  border: 1px dashed #d6d6db;
+  color: var(--loop-faint);
+  background: var(--loop-canvas);
+  border: 1px dashed var(--loop-line-strong);
   border-radius: 10px;
 }
 
@@ -155,11 +156,11 @@
   align-items: center;
   gap: 10px;
   font-size: 15px;
-  color: #1d1d1f;
+  color: var(--loop-ink);
   cursor: pointer;
 }
 
-.loop-setup__check input { width: 18px; height: 18px; accent-color: #6b5cff; }
+.loop-setup__check input { width: 18px; height: 18px; accent-color: var(--loop-accent); }
 
 .loop-setup__services {
   display: grid;
@@ -168,7 +169,7 @@
 }
 
 .loop-setup__service {
-  border: 1px solid #e6e6ea;
+  border: 1px solid var(--loop-line);
   border-radius: 12px;
   padding: 16px;
   display: flex;
@@ -182,12 +183,12 @@
   justify-content: space-between;
 }
 
-.loop-setup__service-name { font-size: 14px; font-weight: 600; color: #1d1d1f; }
+.loop-setup__service-name { font-size: 14px; font-weight: 600; color: var(--loop-ink); }
 
 .loop-setup__badge {
   font-size: 11px;
-  color: #86868b;
-  background: #f5f5f7;
+  color: var(--loop-faint);
+  background: var(--loop-canvas);
   border-radius: 999px;
   padding: 3px 9px;
 }
@@ -195,9 +196,9 @@
 .loop-setup__connect {
   height: 34px;
   border-radius: 9px;
-  border: 1px solid #d6d6db;
-  background: #f5f5f7;
-  color: #a1a1a6;
+  border: 1px solid var(--loop-line-strong);
+  background: var(--loop-canvas);
+  color: var(--loop-faint);
   font-size: 13px;
   font-weight: 500;
   cursor: not-allowed;
@@ -210,7 +211,7 @@
   gap: 12px;
   margin-top: 30px;
   padding-top: 22px;
-  border-top: 1px solid #f0f0f2;
+  border-top: 1px solid var(--loop-line);
 }
 
 .loop-setup__actions--center { justify-content: center; }
@@ -220,32 +221,32 @@
   padding: 0 26px;
   border: none;
   border-radius: 11px;
-  background: #6b5cff;
-  color: #ffffff;
+  background: var(--loop-primary);
+  color: var(--loop-on-primary);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: background 140ms ease, opacity 140ms ease;
 }
 
-.loop-setup__continue:hover { background: #5a4bf0; }
+.loop-setup__continue:hover { background: var(--loop-primary-hover); }
 .loop-setup__continue:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .loop-setup__back,
 .loop-setup__secondary {
   height: 44px;
   padding: 0 22px;
-  border: 1px solid #d6d6db;
+  border: 1px solid var(--loop-line-strong);
   border-radius: 11px;
-  background: #ffffff;
-  color: #1d1d1f;
+  background: var(--loop-surface);
+  color: var(--loop-ink);
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .loop-setup__back:hover,
-.loop-setup__secondary:hover { background: #f5f5f7; }
+.loop-setup__secondary:hover { background: var(--loop-canvas); }
 
 .loop-setup__step--ready {
   align-items: center;
@@ -258,8 +259,8 @@
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: #e7f8ee;
-  color: #1f9d55;
+  background: var(--loop-good-soft);
+  color: var(--loop-good);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -268,7 +269,7 @@
 .loop-setup__error {
   margin: 4px 0 0;
   font-size: 13px;
-  color: #d1495b;
+  color: var(--loop-crit);
 }
 
 *:focus-visible { outline-offset: 2px; }
@@ -291,12 +292,12 @@
 .setup-photo-label-title {
   font-size: 13px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--loop-ink);
 }
 
 .setup-photo-label-note {
   font-size: 12px;
-  color: #86868b;
+  color: var(--loop-faint);
 }
 
 /* Sprint 22 — finish page secondary text link ("Review settings later"). */
@@ -304,13 +305,13 @@
   margin-top: 12px;
   border: none;
   background: transparent;
-  color: #6e6e73;
+  color: var(--loop-muted);
   font-size: 14px;
   cursor: pointer;
   text-decoration: underline;
 }
 
-.loop-setup__textlink:hover { color: #1d1d1f; }
+.loop-setup__textlink:hover { color: var(--loop-ink); }
 
 /* ============================================================
    Sprint 23 — first-run polish (presentation only).
@@ -353,7 +354,7 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #86868b;
+  color: var(--loop-faint);
 }
 
 /* Progress step labels row: Profile · Company · Workspace · AI · Finish. */
@@ -368,11 +369,11 @@
 .loop-setup__steplabel {
   font-size: 11px;
   letter-spacing: 0.03em;
-  color: #b0b0b6;
+  color: var(--loop-faint);
 }
 
 .loop-setup__steplabel--active {
-  color: #6b5cff;
+  color: var(--loop-accent);
   font-weight: 600;
 }
 
@@ -385,9 +386,9 @@
   height: 42px;
   padding: 0 13px;
   font-size: 15px;
-  color: #6e6e73;
-  background: #f5f5f7;
-  border: 1px solid #e6e6ea;
+  color: var(--loop-muted);
+  background: var(--loop-canvas);
+  border: 1px solid var(--loop-line);
   border-radius: 10px;
 }
 
@@ -400,7 +401,7 @@
 .loop-setup__copyicon {
   display: inline-flex;
   align-items: center;
-  color: #a1a1a6;
+  color: var(--loop-faint);
   flex-shrink: 0;
 }
 
@@ -420,7 +421,7 @@
   width: 15px;
   height: 15px;
   border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #ffffff;
+  border-top-color: var(--loop-surface);
   border-radius: 50%;
   animation: loop-setup-spin 700ms linear infinite;
 }

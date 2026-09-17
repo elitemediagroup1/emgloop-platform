@@ -1,9 +1,11 @@
-// The record grammar of Charlie and Lexi's handoff (2026-09-16, p. 5), as primitives.
+// The Loop design system's page primitives: the record grammar of Charlie and Lexi's
+// handoff (2026-09-16, p. 5), used by every redesigned surface and by Loop Home.
 //
 // Page zones: a context header (trail, subject, state, actions), context navigation
 // (tabs), a primary workspace with a supporting rail, a context drawer, and one
-// family of non-default states. Everything renders on the light record canvas
-// (`.lx`, loop-os.css). Server components only; the drawer is a native disclosure.
+// family of non-default states. They draw only with the global --loop-* tokens
+// (loop-os.css; docs/product/loop-design-system.md). Server components only; the
+// drawer is a native disclosure.
 //
 // RULES:
 //   - An unavailable capability is never a link. A tab, action or summary value
@@ -16,10 +18,10 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type { SubjectState } from '../../../crm/subject-display';
 
-export function LxPage({ children, label }: { children: ReactNode; label?: string }) {
+export function LoopPage({ children, label }: { children: ReactNode; label?: string }) {
   return (
-    <div className="lx" aria-label={label}>
-      <div className="lx-inner">{children}</div>
+    <div className="loop-page" aria-label={label}>
+      <div className="loop-page__inner">{children}</div>
     </div>
   );
 }
@@ -33,10 +35,10 @@ export interface TrailStep {
 export function ContextTrail({ steps }: { steps: readonly TrailStep[] }) {
   return (
     <nav aria-label="Context trail">
-      <p className="lx-trail">
+      <p className="loop-trail">
         {steps.map((step, i) => (
           <span key={`${step.label}-${i}`}>
-            {i > 0 ? <span className="lx-trail__sep" aria-hidden="true">/ </span> : null}
+            {i > 0 ? <span className="loop-trail__sep" aria-hidden="true">/ </span> : null}
             {step.href && i < steps.length - 1 ? <Link href={step.href}>{step.label}</Link> : <span aria-current={i === steps.length - 1 ? 'page' : undefined}>{step.label}</span>}
           </span>
         ))}
@@ -53,19 +55,19 @@ export function PageHead(props: {
   actions?: ReactNode;
 }) {
   return (
-    <header className="lx-head">
-      <div className="lx-head__text">
+    <header className="loop-head">
+      <div className="loop-head__text">
         <ContextTrail steps={props.trail} />
-        {props.title ? <h1 className="lx-title">{props.title}</h1> : null}
-        {props.subtitle ? <p className="lx-subtitle">{props.subtitle}</p> : null}
+        {props.title ? <h1 className="loop-title">{props.title}</h1> : null}
+        {props.subtitle ? <p className="loop-subtitle">{props.subtitle}</p> : null}
       </div>
-      {props.actions ? <div className="lx-head__actions">{props.actions}</div> : null}
+      {props.actions ? <div className="loop-head__actions">{props.actions}</div> : null}
     </header>
   );
 }
 
 export function StatePill({ state }: { state: SubjectState }) {
-  return <span className={`lx-pill lx-pill--${state.tone}`}>{state.label}</span>;
+  return <span className={`loop-pill loop-pill--${state.tone}`}>{state.label}</span>;
 }
 
 export interface ActionSpec {
@@ -78,7 +80,7 @@ export interface ActionSpec {
 
 /** An action that exists only when it can be taken. Otherwise a labelled, inert control. */
 export function ActionButton({ action }: { action: ActionSpec }) {
-  const cls = 'lx-btn' + (action.primary ? ' lx-btn--primary' : '');
+  const cls = 'loop-btn' + (action.primary ? ' loop-btn--primary' : '');
   if (action.href) {
     return (
       <Link className={cls} href={action.href}>
@@ -87,9 +89,9 @@ export function ActionButton({ action }: { action: ActionSpec }) {
     );
   }
   return (
-    <span className="lx-btn" role="link" aria-disabled="true" title={action.reason}>
+    <span className="loop-btn" role="link" aria-disabled="true" title={action.reason}>
       {action.label}
-      {action.reason ? <span className="lx-visually-hidden">. {action.reason}</span> : null}
+      {action.reason ? <span className="loop-sr-only">. {action.reason}</span> : null}
     </span>
   );
 }
@@ -104,16 +106,16 @@ export interface TabSpec {
 
 export function ContextTabs({ label, tabs }: { label: string; tabs: readonly TabSpec[] }) {
   return (
-    <nav className="lx-tabs" aria-label={label}>
+    <nav className="loop-tabs" aria-label={label}>
       {tabs.map((tab) =>
         tab.href ? (
-          <Link key={tab.label} className="lx-tab" href={tab.href} aria-current={tab.current ? 'page' : undefined}>
+          <Link key={tab.label} className="loop-tab" href={tab.href} aria-current={tab.current ? 'page' : undefined}>
             {tab.label}
           </Link>
         ) : (
-          <span key={tab.label} className="lx-tab lx-tab--unavailable" aria-disabled="true" title={tab.reason}>
+          <span key={tab.label} className="loop-tab loop-tab--unavailable" aria-disabled="true" title={tab.reason}>
             {tab.label}
-            <span className="lx-tab__soon">Not yet</span>
+            <span className="loop-tab__soon">Not yet</span>
           </span>
         ),
       )}
@@ -130,14 +132,14 @@ export interface StripItem {
 
 export function SummaryStrip({ items, label }: { items: readonly StripItem[]; label: string }) {
   return (
-    <section className="lx-strip" aria-label={label}>
+    <section className="loop-strip" aria-label={label}>
       {items.map((item) => (
-        <div className="lx-strip__item" key={item.label}>
-          <span className="lx-strip__label">{item.label}</span>
+        <div className="loop-strip__item" key={item.label}>
+          <span className="loop-strip__label">{item.label}</span>
           {item.value === null ? (
-            <span className="lx-strip__value lx-strip__value--unknown">{item.unknownText ?? 'Not available yet'}</span>
+            <span className="loop-strip__value loop-strip__value--unknown">{item.unknownText ?? 'Not available yet'}</span>
           ) : (
-            <span className="lx-strip__value">{item.value}</span>
+            <span className="loop-strip__value">{item.value}</span>
           )}
         </div>
       ))}
@@ -147,9 +149,9 @@ export function SummaryStrip({ items, label }: { items: readonly StripItem[]; la
 
 export function RecordLayout({ main, rail, railLabel }: { main: ReactNode; rail: ReactNode; railLabel: string }) {
   return (
-    <div className="lx-record">
-      <div className="lx-record__main">{main}</div>
-      <aside className="lx-record__rail" aria-label={railLabel}>
+    <div className="loop-record">
+      <div className="loop-record__main">{main}</div>
+      <aside className="loop-record__rail" aria-label={railLabel}>
         {rail}
       </aside>
     </div>
@@ -158,9 +160,9 @@ export function RecordLayout({ main, rail, railLabel }: { main: ReactNode; rail:
 
 export function Panel({ title, children, lead }: { title: string; children?: ReactNode; lead?: string }) {
   return (
-    <section className="lx-panel" aria-label={title}>
-      <h2 className="lx-panel__title">{title}</h2>
-      {lead ? <p className="lx-panel__lead">{lead}</p> : null}
+    <section className="loop-panel" aria-label={title}>
+      <h2 className="loop-panel__title">{title}</h2>
+      {lead ? <p className="loop-panel__lead">{lead}</p> : null}
       {children}
     </section>
   );
@@ -175,7 +177,7 @@ export interface FactRow {
 
 export function Facts({ rows }: { rows: readonly FactRow[] }) {
   return (
-    <dl className="lx-facts">
+    <dl className="loop-facts">
       {rows.map((row) => (
         <div key={row.label} style={{ display: 'contents' }}>
           <dt>{row.label}</dt>
@@ -189,9 +191,9 @@ export function Facts({ rows }: { rows: readonly FactRow[] }) {
 /** Evidence, participants or audit detail without leaving the subject. A full-screen sheet on phones. */
 export function ContextDrawer({ summary, children }: { summary: string; children: ReactNode }) {
   return (
-    <details className="lx-drawer">
+    <details className="loop-drawer">
       <summary>{summary}</summary>
-      <div className="lx-drawer__body">{children}</div>
+      <div className="loop-drawer__body">{children}</div>
     </details>
   );
 }
@@ -224,18 +226,18 @@ export function StateBlock(props: {
   const role = props.kind === 'error' ? 'alert' : undefined;
   return (
     <div
-      className={`lx-state lx-state--${props.kind}` + (props.compact ? ' lx-state--compact' : '')}
+      className={`loop-state loop-state--${props.kind}` + (props.compact ? ' loop-state--compact' : '')}
       role={role}
       data-state={props.kind}
     >
-      <span className="lx-state__mark" aria-hidden="true">
+      <span className="loop-state__mark" aria-hidden="true">
         {STATE_MARK[props.kind]}
       </span>
       <div>
-        <p className="lx-state__title">{props.title}</p>
-        <p className="lx-state__body">{props.body}</p>
+        <p className="loop-state__title">{props.title}</p>
+        <p className="loop-state__body">{props.body}</p>
         {props.action ? (
-          <div className="lx-state__action">
+          <div className="loop-state__action">
             <ActionButton action={props.action} />
           </div>
         ) : null}
@@ -258,17 +260,17 @@ export function ReadFailed({ what }: { what: string }) {
 /** The loading shape of a list page, drawn on the record canvas. */
 export function ListSkeleton({ trail, rows = 5 }: { trail: string; rows?: number }) {
   return (
-    <LxPage>
+    <LoopPage>
       <div aria-busy="true" aria-live="polite">
-        <p className="lx-trail">{trail}</p>
-        <span className="lx-skel lx-skel--title" />
-        <span className="lx-visually-hidden">Loading</span>
+        <p className="loop-trail">{trail}</p>
+        <span className="loop-skel loop-skel--title" />
+        <span className="loop-sr-only">Loading</span>
       </div>
-      <div className="lx-stack">
+      <div className="loop-stack">
         {Array.from({ length: rows }, (_, i) => (
-          <span key={i} className="lx-skel lx-skel--row" />
+          <span key={i} className="loop-skel loop-skel--row" />
         ))}
       </div>
-    </LxPage>
+    </LoopPage>
   );
 }

@@ -9,7 +9,7 @@ import {
   ActionButton,
   ContextTabs,
   Facts,
-  LxPage,
+  LoopPage,
   Panel,
   PageHead,
   ReadFailed,
@@ -49,10 +49,10 @@ export default async function PersonPage({ params }: { params: { partyId: string
   if (view.outcome !== 'OK') {
     if (view.outcome === 'NOT_FOUND') notFound();
     return (
-      <LxPage label="Person">
+      <LoopPage label="Person">
         <PageHead trail={[...trailBase, { label: 'Person' }]} title="Person" />
         <ReadFailed what="this person" />
-      </LxPage>
+      </LoopPage>
     );
   }
 
@@ -74,11 +74,11 @@ export default async function PersonPage({ params }: { params: { partyId: string
   ];
 
   return (
-    <LxPage label={subject.name}>
+    <LoopPage label={subject.name}>
       <PageHead
         trail={[...trailBase, { label: subject.name }]}
         actions={
-          <div className="lx-btnrow">
+          <div className="loop-btnrow">
             <ActionButton action={channel('Email')} />
             <ActionButton action={channel('Call')} />
             <ActionButton action={channel('Message')} />
@@ -144,12 +144,12 @@ export default async function PersonPage({ params }: { params: { partyId: string
                   }
                 />
               ) : context.activeCount ? (
-                <p className="lx-panel__lead">
+                <p className="loop-panel__lead">
                   {subject.name} has {context.fact.text}
                   {context.relationship ? `, including ${context.relationship}` : ''}.
                 </p>
               ) : (
-                <p className="lx-panel__lead">No active relationship is recorded for {subject.name}.</p>
+                <p className="loop-panel__lead">No active relationship is recorded for {subject.name}.</p>
               )}
               <StateBlock
                 kind="unavailable"
@@ -165,14 +165,14 @@ export default async function PersonPage({ params }: { params: { partyId: string
                   relationships.value.length === 0 ? (
                     <StateBlock kind="empty" compact title="No relationship recorded." body="Relationships appear here once one is recorded for this person." />
                   ) : (
-                    <div className="lx-cards">
+                    <div className="loop-cards">
                       {relationships.value.map((r) => (
                         <SubjectCard key={r.key} subject={r} density="card" />
                       ))}
                     </div>
                   )
                 ) : (
-                  <p className="lx-note">Not available.</p>
+                  <p className="loop-note">Not available.</p>
                 )}
               </Panel>
             </section>
@@ -207,7 +207,7 @@ export default async function PersonPage({ params }: { params: { partyId: string
                 ]}
               />
               {record.posture.limitations.length > 0 ? (
-                <ul className="lx-note" style={{ margin: '12px 0 0', paddingLeft: 18 }}>
+                <ul className="loop-note" style={{ margin: '12px 0 0', paddingLeft: 18 }}>
                   {record.posture.limitations.map((l) => (
                     <li key={l}>{LIMITATION_TEXT[l] ?? governedTerm(l)}</li>
                   ))}
@@ -217,11 +217,11 @@ export default async function PersonPage({ params }: { params: { partyId: string
 
             <Panel title="How Loop knows them">
               {activeLinks.length === 0 ? (
-                <p className="lx-note">No intake record is linked to this person.</p>
+                <p className="loop-note">No intake record is linked to this person.</p>
               ) : (
-                <ul className="lx-stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                <ul className="loop-stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {activeLinks.map((link) => (
-                    <li key={link.linkId} className="lx-note">
+                    <li key={link.linkId} className="loop-note">
                       {canOpenIntake ? (
                         <Link href={`/crm/customers/${encodeURIComponent(link.customerId)}`}>Linked intake record</Link>
                       ) : (
@@ -232,13 +232,13 @@ export default async function PersonPage({ params }: { params: { partyId: string
                   ))}
                 </ul>
               )}
-              <p className="lx-note" style={{ marginTop: 10 }}>
+              <p className="loop-note" style={{ marginTop: 10 }}>
                 Intake records are evidence of how this person entered Loop. They are not the person.
               </p>
             </Panel>
 
             <Panel title="Verification">
-              <p className="lx-note">
+              <p className="loop-note">
                 The temporary verification screen still holds the governed identity actions.{' '}
                 <Link href={`/crm/parties/${encodeURIComponent(record.partyId)}`}>Open verification record</Link>
               </p>
@@ -246,6 +246,6 @@ export default async function PersonPage({ params }: { params: { partyId: string
           </>
         }
       />
-    </LxPage>
+    </LoopPage>
   );
 }

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requirePermission } from '../../../../auth/guard';
 import { crmSubjectReads, relationshipHref, RELATIONSHIPS_HREF } from '../../../../crm/crm-slice-data';
 import { readRelationshipDirectory } from '../../../../crm/crm-subject-reads';
-import { ActionButton, LxPage, PageHead, ReadFailed, StateBlock } from '../../_loop-os/record';
+import { ActionButton, LoopPage, PageHead, ReadFailed, StateBlock } from '../../_loop-os/record';
 import { SubjectCard } from '../../_loop-os/subject-card';
 
 export const dynamic = 'force-dynamic';
@@ -26,7 +26,7 @@ export default async function RelationshipsPage({
   const base = includeVoided ? `${RELATIONSHIPS_HREF}?voided=1` : RELATIONSHIPS_HREF;
 
   return (
-    <LxPage label="Relationships">
+    <LoopPage label="Relationships">
       <PageHead
         trail={[{ label: 'CRM' }, { label: 'Relationships', href: RELATIONSHIPS_HREF }]}
         title="Relationships"
@@ -63,11 +63,11 @@ export default async function RelationshipsPage({
 
       {directory.outcome === 'OK' ? (
         <>
-          <div className="lx-filters" role="group" aria-label="Relationships shown">
-            <Link className="lx-filter" href={RELATIONSHIPS_HREF} aria-current={includeVoided ? undefined : 'true'}>
+          <div className="loop-filters" role="group" aria-label="Relationships shown">
+            <Link className="loop-filter" href={RELATIONSHIPS_HREF} aria-current={includeVoided ? undefined : 'true'}>
               Current and ended
             </Link>
-            <Link className="lx-filter" href={`${RELATIONSHIPS_HREF}?voided=1`} aria-current={includeVoided ? 'true' : undefined}>
+            <Link className="loop-filter" href={`${RELATIONSHIPS_HREF}?voided=1`} aria-current={includeVoided ? 'true' : undefined}>
               Including voided
             </Link>
           </div>
@@ -91,17 +91,17 @@ export default async function RelationshipsPage({
               action={directory.firstPage ? undefined : { label: 'Show the first page', href: base }}
             />
           ) : (
-            <div className="lx-cards">
+            <div className="loop-cards">
               {directory.subjects.map((subject) => (
                 <SubjectCard key={subject.key} subject={subject} density="card" headingLevel="h2" />
               ))}
             </div>
           )}
           {directory.nextCursor ? (
-            <nav className="lx-pager" aria-label="More relationships">
+            <nav className="loop-pager" aria-label="More relationships">
               <span />
               <Link
-                className="lx-btn"
+                className="loop-btn"
                 href={`${RELATIONSHIPS_HREF}?${includeVoided ? 'voided=1&' : ''}after=${encodeURIComponent(directory.nextCursor)}`}
               >
                 More relationships
@@ -110,6 +110,6 @@ export default async function RelationshipsPage({
           ) : null}
         </>
       ) : null}
-    </LxPage>
+    </LoopPage>
   );
 }
