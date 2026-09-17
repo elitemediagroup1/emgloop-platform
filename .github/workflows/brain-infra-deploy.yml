@@ -1,9 +1,11 @@
 # Brain execution environment (B6) -- DEPLOY. Manual, approved, staging only.
 #
-# Deploys infra/brain into the loop-brain-staging account with short-lived credentials
-# from GitHub's OIDC provider. There are no AWS access keys anywhere.
+# Deploys infra/brain into Loop Brain Staging (065148797865, us-east-1) with short-lived
+# credentials from GitHub's OIDC provider. There are no AWS access keys anywhere. The
+# account is checked twice before anything is compared or applied: the role ARN must be
+# in 065148797865, and so must the credentials it yields (the CDK app refuses any other).
 #
-# It cannot run until Matt has, in loop-brain-staging:
+# It cannot run until Matt has, in Loop Brain Staging:
 #   1. created the GitHub OIDC identity provider and the deploy role, and bootstrapped CDK
 #      (docs/runbooks/brain-aws-staging.md, parts 3 and 4);
 #   2. set the `brain-staging` GitHub environment, with Matt as required reviewer, and
@@ -36,7 +38,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: brain-staging
     env:
-      DATABASE_URL: 'postgresql://ci:ci@localhost:5432/ci?schema=public'
+      # Only for `prisma generate` at install; nothing connects.
+      DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
+      BRAIN_ACCOUNT: '065148797865'
+      DEPLOY_ROLE_ARN: ${{ vars.BRAIN_STAGING_DEPLOY_ROLE_ARN }}
       ALARM_EMAIL: ${{ vars.BRAIN_STAGING_ALARM_EMAIL }}
       BUDGET_EMAIL: ${{ vars.BRAIN_STAGING_BUDGET_EMAIL }}
     steps:
@@ -64,12 +69,27 @@ jobs:
           npm run -w @emgloop/brain-executor test
           npm --prefix infra/brain test
 
+      - name: The deploy role belongs to Loop Brain Staging
+        run: |
+          case "$DEPLOY_ROLE_ARN" in
+            "arn:aws:iam::${BRAIN_ACCOUNT}:role/"?*) ;;
+            *) echo "BRAIN_STAGING_DEPLOY_ROLE_ARN is not a role in ${BRAIN_ACCOUNT}"; exit 1 ;;
+          esac
+
       - name: AWS credentials (OIDC, short-lived)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.BRAIN_STAGING_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
           role-session-name: brain-infra-${{ github.run_id }}
+
+      - name: The credentials are for Loop Brain Staging
+        run: |
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$account" != "$BRAIN_ACCOUNT" ]; then
+            echo "Refusing: credentials are for $account, not $BRAIN_ACCOUNT"
+            exit 1
+          fi
 
       - name: Diff
         working-directory: infra/brain
