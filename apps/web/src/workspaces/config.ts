@@ -166,6 +166,9 @@ const SETTINGS_VIEW = { resource: 'settings', action: 'view' } as const;
 const AUDIT_VIEW = { resource: 'audit', action: 'view' } as const;
 const AI_EMPLOYEES_VIEW = { resource: 'aiEmployees', action: 'view' } as const;
 const INTEGRATIONS_VIEW = { resource: 'integrations', action: 'view' } as const;
+// A person's OWN Google Workspace connection (google-workspace-connection.md §11). Every
+// human role holds it; an AI Employee does not.
+const GOOGLE_WORKSPACE_VIEW = { resource: 'googleWorkspace', action: 'view' } as const;
 
 export const LOOP_NAV: ShellConfig = {
   label: 'Loop',
@@ -176,7 +179,11 @@ export const LOOP_NAV: ShellConfig = {
       label: '',
       area: 'HOME',
       short: 'Home',
-      items: [{ href: '/app', label: 'Home', icon: 'grid' }],
+      items: [
+        { href: '/app', label: 'Home', icon: 'grid' },
+        // Personal, not administration: the signed-in person's own connected accounts.
+        { href: '/app/connections', label: 'Connections', icon: 'plug', requires: GOOGLE_WORKSPACE_VIEW },
+      ],
     },
     {
       label: 'CRM',

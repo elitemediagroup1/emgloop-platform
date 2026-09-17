@@ -149,7 +149,10 @@ describe('Grouping', () => {
       ['Operations', 'OPERATIONS', false], ['Administration', null, true],
     ]);
     assert.deepEqual(LOOP_NAV.nav.map((g) => g.area).filter(Boolean), [...config.OPERATING_AREAS]);
-    assert.deepEqual(LOOP_NAV.nav[0]!.items.map((i) => [i.label, i.href]), [['Home', '/app']]);
+    // Home, and the person's own connections (their Google account), shown only to a
+    // role that holds one.
+    assert.deepEqual(LOOP_NAV.nav[0]!.items.map((i) => [i.label, i.href]), [['Home', '/app'], ['Connections', '/app/connections']]);
+    assert.deepEqual(LOOP_NAV.nav[0]!.items[1]!.requires, { resource: 'googleWorkspace', action: 'view' });
     // Operations: live execution and health (C-03) and creator administration (C-02).
     assert.deepEqual(LOOP_NAV.nav[4]!.items.map((i) => [i.label, i.href]), [
       ['Live Operations', '/crm/live/activity'], ['Live Calls', '/crm/live/calls'], ['Websites', '/crm/live/websites'],
@@ -283,7 +286,7 @@ describe('Navigation follows the authority each page enforces', () => {
     // grants view to human workspace roles and it is not one. Those two denials are
     // the whole reason these roles are asserted separately rather than in one loop.
     assert.deepEqual(labels(navForRole('EMPLOYEE')), [
-      ['', ['Home']],
+      ['', ['Home', 'Connections']],
       ['CRM', crm],
       ['Work', ['My Work', 'Workflows (soon)']],
       ['Intelligence', intelligence],
@@ -307,7 +310,8 @@ describe('Navigation follows the authority each page enforces', () => {
     const intelligence = ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue'];
     const operations = ['Live Operations', 'Live Calls', 'Websites'];
     const expected = [
-      ['', ['Home']],
+      // A read-only member still connects their OWN Google account (googleWorkspace).
+      ['', ['Home', 'Connections']],
       // READ_ONLY holds identityResolution:view and relationships:view, and may
       // perform no act through either -- capabilities decide that, not the nav.
       ['CRM', ['People', 'Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations']],

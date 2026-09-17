@@ -21,7 +21,7 @@ import {
 } from './auth';
 import { ensureCrmIdentity } from './bootstrap';
 import { sendPasswordResetEmail } from '../lib/email/email-service';
-import { loginPathFor, postLoginDestination } from './landing';
+import { loginPathFor, postInvitationDestination, postLoginDestination } from './landing';
 
 export async function loginAction(formData: FormData): Promise<void> {
   await ensureCrmIdentity();
@@ -220,8 +220,9 @@ export async function acceptInviteAction(formData: FormData) {
     redirect('/crm/login?message=' + encodeURIComponent('Your account is ready. Please sign in.'));
   }
 
-  // Land inside the approved application shell, NOT the legacy CRM. /app is the
-  // one post-login router — it sends the user to their role's home (admin roles
-  // land on /app/admin), so the invitee opens their own personalized Dashboard.
-  redirect('/app');
+  // Land inside the approved application shell, NOT the legacy CRM: employee
+  // onboarding, which offers the Google Workspace connection (optional, the person's
+  // own account, one capability at a time) and then continues to Loop Home. The
+  // landing authority owns the address.
+  redirect(postInvitationDestination());
 }

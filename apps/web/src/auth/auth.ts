@@ -169,11 +169,23 @@ export async function logout(): Promise<void> {
 
 /** Resolve the current session from the cookie, or null if unauthenticated. */
 export async function getSession(): Promise<AuthSession | null> {
+  return (await getSessionBinding())?.session ?? null;
+}
+
+/**
+ * The current session AND the id of the signed session row it resolved from. For a flow
+ * that must finish in the same browser session it started in (the Google connect state is
+ * bound to it). The id is a server-side row id, never the cookie value.
+ */
+export async function getSessionBinding(): Promise<{ session: AuthSession; sessionId: string } | null> {
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const resolved = await repositories.auth.resolveSession(hashToken(token));
   if (!resolved) return null;
-  return toAuthSession(resolved.user, resolved.session.organizationId, resolved.systemRole);
+  return {
+    session: toAuthSession(resolved.user, resolved.session.organizationId, resolved.systemRole),
+    sessionId: resolved.session.id,
+  };
 }
 
 /** Permission check for the current session. */
