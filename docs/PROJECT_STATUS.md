@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B5 merged, migration 36 deployed (production at 36); B6 AWS foundation built and tested, in review, NOT deployed; nothing exists on AWS; see the Foundation handoff block)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged, migration 36 deployed (production at 36); the staging AWS account exists (Loop Brain Staging, 065148797865) but holds no Brain resource and is not bootstrapped; B6 definition pass in review; NOT deployed; see the Foundation handoff block)._
 
 ---
 
@@ -1232,14 +1232,15 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN B0–B5 MERGED, MIGRATION 36 DEPLOYED · B6 AWS FOUNDATION IN REVIEW, NOT DEPLOYED · NOTHING ON AWS
+## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN B0–B6 MERGED, MIGRATION 36 DEPLOYED · STAGING ACCOUNT EXISTS, NOT BOOTSTRAPPED, NOTHING DEPLOYED
 
-_Last updated: 2026-09-17._ `main` is `12b9951`. #244–#280 are merged and were verified by content.
+_Last updated: 2026-09-17._ `main` is `50c07b8`. #244–#283 are merged and were verified by content.
 - Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
   #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`, #273 (B1, schema) `c3ac3f2`,
   #274 (B2, contracts) `c85911a`, #275 (B3, AWS design) `6fdab5e`, #276 (B3.1, DRAFT and fallback) `5d73d46`,
   #277 (B4, persistence) `f744fca`, #278 (B5, Loop-side boundary) `65276cf`, #279 (Google Private V1
-  contract) `97bf187`, #280 (UI-0 matrix) `12b9951`.
+  contract) `97bf187`, #280 (UI-0 matrix) `12b9951`, #282 (UI-1) `1de058e`, #281 (B6) `a824564`, #283
+  (brand wordmark) `50c07b8`.
 - Validation on `main` is green. The only failures are the known baselines: `marketplace-intelligence`
   typecheck, and lint, which was never configured.
 - Production has 36 migrations (run `35160530756`).
@@ -1270,8 +1271,8 @@ _Last updated: 2026-09-17._ `main` is `12b9951`. #244–#280 are merged and were
 - **#271:** the schema-drift record, the Intake → Party linking recommendation, and the Charlie/Lexi
   handoff.
 
-**Brain execution: direction approved 2026-09-16. B2–B5 merged, migration 36 deployed; B6 (the AWS
-foundation) built and in review; nothing executes and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md`,
+**Brain execution: direction approved 2026-09-16. B2–B6 merged, migration 36 deployed; the staging
+account exists, but nothing executes and no Brain resource is provisioned.** See `docs/architecture/brain-execution-architecture.md`,
 `brain-execution-infrastructure.md`, `brain-persistence.md`, `brain-boundary.md`, the B6 plan
 `brain-aws-implementation-dossier.md` and the B6 record `brain-aws-foundation.md`.
 - **The split:** Netlify stays the product, auth boundary and Brain API. Neon stays authoritative. AWS
@@ -1291,12 +1292,26 @@ foundation) built and in review; nothing executes and nothing is provisioned.** 
   - B3.1: DRAFT and provider-specialization reconciliation, merged (#276);
   - B4: durable persistence, merged (#277); migration 36 **deployed**;
   - B5: the Loop side, merged (#278), no migration;
-  - B6: AWS foundation for staging, **built and in review, not deployed** (details below);
+  - B6: AWS foundation for staging, **merged (#281), not deployed**; the definition pass for the real
+    account is in review (details below);
   - B7: Case Explanation on AWS, with the first live request in staging on a synthetic Case;
   - B8: the first DURABLE task, the outbox repair and notifications.
 
-**B6 (in review, branch `feat/b6-brain-aws-foundation`): the AWS foundation. BUILT AND TESTED, NOT
-DEPLOYED. No migration; no AWS resource; no provider call; AI OFF.**
+**B6 (merged #281; definition pass in review, branch `feat/b6-brain-staging-definition`): the AWS
+foundation. BUILT AND TESTED, NOT DEPLOYED, NOT BOOTSTRAPPED. No migration; no Brain resource on AWS;
+no provider call; AI OFF.**
+- **The account (Matt, 2026-09-17):**
+  - the organization's management account is EMG Loop Production;
+  - the member account is **Loop Brain Staging, `065148797865`**, `us-east-1`;
+  - IAM Identity Center is enabled, and Matt has `AdministratorAccess` through the portal;
+  - there are no long-lived IAM credentials, and nothing was created by hand.
+- **The definition pass** (record §15):
+  - the stack is pinned to that account, and the app refuses any other;
+  - the recommended CDK feature flags are pinned;
+  - the tests synthesize with the CLI's context and add target, bootstrap, async-handler and
+    secret-hygiene checks;
+  - the deploy workflow checks the account twice;
+  - the runbook carries the real account and the exact bootstrap command, which has **not been run**.
 - **Record:** `docs/architecture/brain-aws-foundation.md`; §14 is the pre-deployment report.
   **Matt's steps:** `docs/runbooks/brain-aws-staging.md`.
 - **The runtime,** `apps/brain-executor`, revision `loop-step-runner.r1`, DARK only. It provides the
@@ -1330,11 +1345,19 @@ DEPLOYED. No migration; no AWS resource; no provider call; AI OFF.**
   - the executor's 27 tests;
   - a dark run on real PostgreSQL 18 under the restricted roles;
   - the web-to-executor token compatibility test;
-  - 18 infrastructure tests (template, IAM, adapters, bundles free of provider code);
+  - 29 infrastructure tests (template, IAM, target, secret hygiene, adapters, bundles free of provider
+    code) after the definition pass;
   - 55 of 55 planted defects caught (9 initial survivors were real test gaps and are closed; 1 anchor
     was fixed).
-- **Stopped at:** Matt's AWS account setup (runbook parts 1–4), the staging Neon project (part 5), and
-  explicit deployment authorization. The staging Loop wiring (part 7) is a separate Netlify decision.
+- **Stopped at:** the rest of Matt's account setup (runbook parts 1–4). Still to confirm:
+  - the OU, guardrails, trail and budget;
+  - `LoopBrainOperator` and the CLI profile;
+  - the GitHub OIDC provider, the deploy role and the `brain-staging` environment;
+  - a Lambda concurrency quota of at least 118.
+
+  After that come the CDK bootstrap (step 14, **which needs Matt's go-ahead**), the staging Neon
+  project (part 5), and explicit deployment authorization. The staging Loop wiring (part 7) is a
+  separate Netlify decision.
 - **Follow-ups before B7:**
   - a cap on recovery attempts;
   - a sweeper pass for killed waiting jobs;
@@ -1529,7 +1552,7 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
 - **Controlling source:** Charlie and Lexi's *Loop Product and UI Redesign — Implementation Handoff*
   (2026-09-16), plus five prototype screenshots Matt supplied on 2026-09-17.
 - **UI-0 screen map:** merged (#280, `docs/product/ui-0-implementation-matrix.md`).
-- **UI-1: in review, branch `feat/ui-1-product-foundation`** (`docs/product/ui-1-implementation.md`).
+- **UI-1: merged (#282; the official wordmark followed in #283)** (`docs/product/ui-1-implementation.md`).
   - **Design system (revised on Matt's correction, then LOCKED, 2026-09-17):** the redesign is Loop's
     global design system (`docs/product/loop-design-system.md` §0).
     - Desktop: a navy rail, a light top bar and a light canvas.
@@ -1583,14 +1606,10 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
   - the web linking decision.
 
 **Next:**
-1. Review and merge B5. **This is a merge checkpoint:** B6 builds on it.
-2. Matt's decisions for B6 (`brain-aws-implementation-dossier.md`, READY FOR AWS checklist):
-   - the account topology;
-   - the second deployable and the IaC tool;
-   - the executor revision;
-   - the staging Neon branch;
-   - the budget values.
-3. B6: the AWS foundation in staging, switched off, only when Matt authorizes it.
+1. Review and merge the B6 definition pass (`feat/b6-brain-staging-definition`).
+2. Matt: the remaining account setup (runbook parts 1–4).
+3. Only on Matt's go-ahead: bootstrap `aws://065148797865/us-east-1` (runbook step 14), then
+   `brain-infra-deploy` `diff`, then `deploy`. The deployment stays switched off.
 4. Before the first request:
    - the result store;
    - the controls workflow;
@@ -1598,7 +1617,7 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
    - staging provider workspaces.
 5. Fix the outbox drain secrets (Matt). This is a prerequisite for B8's notifications.
 6. The Node maintenance PR: workflows on `.nvmrc`, `engines >= 22`.
-4. Unrelated to AI:
+7. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.
 

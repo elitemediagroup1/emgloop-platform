@@ -3,9 +3,14 @@
 > **Implemented as code in B6, not deployed.** What was built, and where it differs from this plan,
 > is in `brain-aws-foundation.md` (§4 lists the differences). Matt's steps are in
 > `docs/runbooks/brain-aws-staging.md`. This dossier is kept as the plan of record.
+>
+> **Since then (2026-09-17):** Matt created the organization (management account EMG Loop Production)
+> and the staging account, **Loop Brain Staging, `065148797865`**, and enabled Identity Center. Where
+> this plan's account name, role names or steps differ, the runbook is current.
 
-**Status: A PLAN. Nothing in it has been created on AWS.**
-- No AWS account, organization, identity, role, key, secret, queue, function or API exists.
+**Status when written: A PLAN. Nothing in it had been created on AWS.**
+- No AWS account, organization, identity, role, key, secret, queue, function or API existed then. The
+  account and Identity Center now exist; no Brain resource does.
 - No Netlify variable has changed. No provider key has been created or moved.
 
 **What it is for.** It turns the approved design (`brain-execution-infrastructure.md`, B3) and the built
