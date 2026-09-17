@@ -87,7 +87,10 @@ These are not aspirations. They are enforced in review.
 
 ## Repository Architecture — the canonical mental model
 
-Turborepo + npm workspaces. **One deployable: `apps/web`.** Netlify builds `--filter=@emgloop/web`.
+Turborepo + npm workspaces. **The product deployable is `apps/web`.** Netlify builds
+`--filter=@emgloop/web`. **The second deployable is `infra/brain`** (AWS CDK, Brain execution, B6). It is
+not a workspace: it has its own lockfile, it deploys only through the manual `brain-infra-deploy`
+workflow, and nothing in `apps/web` may import it or the AWS SDK.
 
 ```
 apps/
@@ -99,6 +102,9 @@ apps/
            src/workspaces/   role router, workspace config, WorkspaceShell
            src/crm/          server actions + CRM context
   api/     DEAD. 35-line stub. Nothing imports or deploys it. Do not add to it.
+  brain-executor/  The Brain step runner (dark), runtime-neutral: no AWS SDK, no provider, no env.
+infra/
+  brain/   AWS CDK stack + Lambda handlers that bind brain-executor to AWS. Staging only.
 packages/
   shared/                    kernel types + kg.v1 contract. Incoherent; don't add to it casually.
   providers/                 interfaces + adapters. CallGrid, Resend, Website are REAL. Rest are mocks.

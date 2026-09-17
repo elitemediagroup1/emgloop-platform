@@ -1,6 +1,10 @@
 # Brain on AWS — implementation dossier (for B6)
 
-**Status: A PLAN FOR THE NEXT RUN. Nothing in it has been created.**
+> **Implemented as code in B6, not deployed.** What was built, and where it differs from this plan,
+> is in `brain-aws-foundation.md` (§4 lists the differences). Matt's steps are in
+> `docs/runbooks/brain-aws-staging.md`. This dossier is kept as the plan of record.
+
+**Status: A PLAN. Nothing in it has been created on AWS.**
 - No AWS account, organization, identity, role, key, secret, queue, function or API exists.
 - No Netlify variable has changed. No provider key has been created or moved.
 

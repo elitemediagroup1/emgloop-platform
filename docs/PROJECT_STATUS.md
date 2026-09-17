@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B4 merged; migration 36 deployed (production at 36); B5 Loop-side Brain boundary in review, switched off; nothing provisioned on AWS; see the Foundation handoff block)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B5 merged, migration 36 deployed (production at 36); B6 AWS foundation built and tested, in review, NOT deployed; nothing exists on AWS; see the Foundation handoff block)._
 
 ---
 
@@ -1232,13 +1232,14 @@ write. The rules for the 2.5b supersession writer are recorded in §8.
 
 **Next:** see *Foundation handoff* below. No 2.1a or later slice without new authorization.
 
-## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN B0–B4 MERGED, MIGRATION 36 DEPLOYED · B5 LOOP-SIDE BOUNDARY IN REVIEW, OFF · NOTHING ON AWS
+## Foundation handoff — AI RUNTIME ON MAIN, OFF · BRAIN B0–B5 MERGED, MIGRATION 36 DEPLOYED · B6 AWS FOUNDATION IN REVIEW, NOT DEPLOYED · NOTHING ON AWS
 
-_Last updated: 2026-09-17._ `main` is `f744fca`. #244–#277 are merged and were verified by content.
+_Last updated: 2026-09-17._ `main` is `12b9951`. #244–#280 are merged and were verified by content.
 - Each squash commit matches its PR's reviewed head: #266 `8b8fac3`, #267 `d069c7d`, #268 `ce3f606`,
   #269 `d6b5742`, #270 `5c4dec0`, #271 `7f33d3f`, #272 (B0, docs) `71006dd`, #273 (B1, schema) `c3ac3f2`,
   #274 (B2, contracts) `c85911a`, #275 (B3, AWS design) `6fdab5e`, #276 (B3.1, DRAFT and fallback) `5d73d46`,
-  #277 (B4, persistence) `f744fca`.
+  #277 (B4, persistence) `f744fca`, #278 (B5, Loop-side boundary) `65276cf`, #279 (Google Private V1
+  contract) `97bf187`, #280 (UI-0 matrix) `12b9951`.
 - Validation on `main` is green. The only failures are the known baselines: `marketplace-intelligence`
   typecheck, and lint, which was never configured.
 - Production has 36 migrations (run `35160530756`).
@@ -1269,10 +1270,10 @@ _Last updated: 2026-09-17._ `main` is `f744fca`. #244–#277 are merged and were
 - **#271:** the schema-drift record, the Intake → Party linking recommendation, and the Charlie/Lexi
   handoff.
 
-**Brain execution: direction approved 2026-09-16. B2–B4 merged, migration 36 deployed; B5 (the Loop side) in
-review; nothing executes and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md`,
-`brain-execution-infrastructure.md`, `brain-persistence.md`, `brain-boundary.md` and the B6 plan
-`brain-aws-implementation-dossier.md`.
+**Brain execution: direction approved 2026-09-16. B2–B5 merged, migration 36 deployed; B6 (the AWS
+foundation) built and in review; nothing executes and nothing is provisioned.** See `docs/architecture/brain-execution-architecture.md`,
+`brain-execution-infrastructure.md`, `brain-persistence.md`, `brain-boundary.md`, the B6 plan
+`brain-aws-implementation-dossier.md` and the B6 record `brain-aws-foundation.md`.
 - **The split:** Netlify stays the product, auth boundary and Brain API. Neon stays authoritative. AWS
   runs every Brain step and every provider call, for INTERACTIVE and DURABLE alike, behind a Loop-owned
   orchestrator port.
@@ -1289,13 +1290,59 @@ review; nothing executes and nothing is provisioned.** See `docs/architecture/br
   - B3: AWS trust, security and infrastructure **design**, merged (#275);
   - B3.1: DRAFT and provider-specialization reconciliation, merged (#276);
   - B4: durable persistence, merged (#277); migration 36 **deployed**;
-  - B5: the Loop side, **in review** (details below), no migration;
-  - B6: AWS foundation in staging, switched off (needs approval of the second deployable and the IaC
-    tool);
+  - B5: the Loop side, merged (#278), no migration;
+  - B6: AWS foundation for staging, **built and in review, not deployed** (details below);
   - B7: Case Explanation on AWS, with the first live request in staging on a synthetic Case;
   - B8: the first DURABLE task, the outbox repair and notifications.
 
-**B5 (in review): the Loop-side Brain boundary. No migration; no AWS; no provider call; AI OFF.**
+**B6 (in review, branch `feat/b6-brain-aws-foundation`): the AWS foundation. BUILT AND TESTED, NOT
+DEPLOYED. No migration; no AWS resource; no provider call; AI OFF.**
+- **Record:** `docs/architecture/brain-aws-foundation.md`; §14 is the pre-deployment report.
+  **Matt's steps:** `docs/runbooks/brain-aws-staging.md`.
+- **The runtime,** `apps/brain-executor`, revision `loop-step-runner.r1`, DARK only. It provides the
+  doorbell authorizer, the dispatcher, the worker (a step runner) and the sweeper.
+  - **The worker covers:** lease, re-read, context, checkpoints, questions and resume, cancellation,
+    kills and the worker switch, deadline promotion, and bounded retry.
+  - **It ends every job at the governed commit boundary:** FAILED `COMMIT_REFUSED`, because no owner
+    gate exists. It never calls a provider and never commits.
+- **The second deployable,** `infra/brain` (AWS CDK, its own lockfile, us-east-1, `nodejs24.x`). It
+  contains:
+  - an HTTP API doorbell with a Lambda authorizer and a DynamoDB replay ledger;
+  - two SQS queues with DLQs;
+  - five functions with per-role IAM, using no wildcards and no managed policies;
+  - two KMS keys (data, and worker signing);
+  - six secrets: the provider placeholders, which no role can read, the three Neon URLs and the
+    checkpoint secret;
+  - seven closed-by-default parameters;
+  - a 5-minute sweeper schedule;
+  - ten alarms.
+- **CI:** `brain-infra-ci` on PRs. **Deploy:** `brain-infra-deploy`, manual, through GitHub OIDC and
+  the `brain-staging` environment. **Not run.**
+- **Loop-side changes:**
+  - Loop's CONTEXT answer now says whether a result could be committed (`commitGate`) and returns
+    the principal record;
+  - the step kind `SYNTHETIC`;
+  - the command lookup carries the execution class.
+- **Two recovery gaps found and fixed:**
+  - a job stranded RUNNING after a failed delivery;
+  - stale-lease recovery skipping ACCEPTED jobs.
+- **Evidence:**
+  - the executor's 27 tests;
+  - a dark run on real PostgreSQL 18 under the restricted roles;
+  - the web-to-executor token compatibility test;
+  - 18 infrastructure tests (template, IAM, adapters, bundles free of provider code);
+  - 55 of 55 planted defects caught (9 initial survivors were real test gaps and are closed; 1 anchor
+    was fixed).
+- **Stopped at:** Matt's AWS account setup (runbook parts 1–4), the staging Neon project (part 5), and
+  explicit deployment authorization. The staging Loop wiring (part 7) is a separate Netlify decision.
+- **Follow-ups before B7:**
+  - a cap on recovery attempts;
+  - a sweeper pass for killed waiting jobs;
+  - activation re-decided at paid boundaries;
+  - a way to record stored controls;
+  - the Case Explanation result store (a migration).
+
+**B5 (merged #278): the Loop-side Brain boundary. No migration; no AWS; no provider call; AI OFF.**
 - **Record:** `docs/architecture/brain-boundary.md`. **B6 plan:** `docs/architecture/brain-aws-implementation-dossier.md`.
 - **The Brain API** (server actions and routes): submit, status, list, question, answer, cancel.
   - **Order:** the session's organization and person; authorization first; stored controls AND the
