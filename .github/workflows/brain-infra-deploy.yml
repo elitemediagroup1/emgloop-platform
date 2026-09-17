@@ -2,16 +2,17 @@
 #
 # Deploys infra/brain into Loop Brain Staging (065148797865, us-east-1) with short-lived
 # credentials from GitHub's OIDC provider. There are no AWS access keys anywhere. The
-# account is checked twice before anything is compared or applied: the role ARN must be
-# in 065148797865, and so must the credentials it yields (the CDK app refuses any other).
+# account is checked before anything is compared or applied: the role ARN must be in
+# 065148797865, and so must the credentials it yields (allowed-account-ids, then an
+# explicit check); the CDK app refuses any other account as well.
 #
-# It cannot run until Matt has, in Loop Brain Staging:
-#   1. created the GitHub OIDC identity provider and the deploy role, and bootstrapped CDK
-#      (docs/runbooks/brain-aws-staging.md, parts 3 and 4);
-#   2. set the `brain-staging` GitHub environment, with Matt as required reviewer, and
-#      the environment variable BRAIN_STAGING_DEPLOY_ROLE_ARN. BRAIN_STAGING_ALARM_EMAIL
-#      and BRAIN_STAGING_BUDGET_EMAIL are optional environment variables; empty means
-#      no alarm subscription and no budget.
+# It cannot run until Matt has (docs/runbooks/brain-aws-staging.md):
+#   1. deployed the deploy identity, infra/brain/access/github-deploy-access.yaml (step 9),
+#      and bootstrapped CDK (step 14);
+#   2. created the `brain-staging` GitHub environment (step 11): Matt as required reviewer,
+#      `main` only, and the variable BRAIN_STAGING_DEPLOY_ROLE_ARN. BRAIN_STAGING_ALARM_EMAIL
+#      is optional (empty: no alarm subscription). BRAIN_STAGING_BUDGET_EMAIL stays unset:
+#      the budget is the central one (step 5), and a value would add a second, stack-owned one.
 # Choosing `diff` shows the change and creates nothing.
 
 name: brain-infra-deploy
@@ -76,12 +77,15 @@ jobs:
             *) echo "BRAIN_STAGING_DEPLOY_ROLE_ARN is not a role in ${BRAIN_ACCOUNT}"; exit 1 ;;
           esac
 
+      # Pinned to the v6.3.0 commit. With OIDC it sends no session tags; allowed-account-ids is
+      # checked against the assumed role's account.
       - name: AWS credentials (OIDC, short-lived)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.BRAIN_STAGING_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
           role-session-name: brain-infra-${{ github.run_id }}
+          allowed-account-ids: '065148797865'
 
       - name: The credentials are for Loop Brain Staging
         run: |
