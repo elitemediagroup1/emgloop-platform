@@ -1782,12 +1782,22 @@ connected communication and maintains the CRM, without a contact per address. It
 and needs no governed act; **every CRM write is a governed human act**, because
 `identity-evidence-resolution.md` §5 locks "no machine identity attribution — every attribution is a
 human proposal and a human confirmation", and C-05 forbids numeric identity confidence. Loop therefore
-proposes with evidence and a human accepts in one click (O7 asks whether Matt wants to amend that
-instead). Gmail metadata identifies **who and when**; **title, company and context need Stage 2**.
+proposes with evidence and a human accepts in one click. Gmail metadata identifies **who and when**;
+**title, company and context need Stage 2**.
+
+**Capture decisions (D17, 2026-09-17, closing O7-O11):** Path 1 — the identity constitution is not
+amended; the machine discovers and proposes, a human establishes shared identity. Shared fields are
+business conclusions only (name, business email, company, title where evidenced, owner, status, coarse
+recency, plus the provenance claim) — never subjects, bodies, message counts, private Calendar/Drive
+evidence or quotations. A **new narrow `relationshipCapture` (`view`, `accept`)** capability lets the
+relationship owner accept a conflict-free contact; everything ambiguous, competing, merging or
+splitting still routes to `identityResolution:approve`, which is not broadened. Internal colleagues are
+excluded from external capture. Dormancy defaults to 30 days as a cadence-aware, configurable
+heuristic, never a verdict.
 
 **Still open (§29.2, none blocking DL-0 or DL-1):** evidence quotes on by default (S2-2); the morning email
 digest (DL-10); delegated mailboxes (DL-7); when to start Google verification (Testing mode expires
-refresh tokens weekly); and five relationship-capture decisions (O7-O11) that gate only ARC PRs.
+refresh tokens weekly). The five relationship-capture decisions are closed (D17).
 
 **Next:** Matt merges #287, then authorizes **DL-0** (delete `googleWorkspace:manage`: four places, no
 runtime caller) and **DL-1** (the per-employee work-state foundation — schema, `employeeIntelligence`

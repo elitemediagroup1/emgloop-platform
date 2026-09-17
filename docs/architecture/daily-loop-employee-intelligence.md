@@ -2070,6 +2070,7 @@ The stages are §4.3's; this is what each buys and what it costs to get there.
 | D12 | Where the cycle runs | **GitHub Actions cron → authenticated app endpoint**, Brain later | §16.2 |
 | **D13** | **Retention windows** *(closes O1, 2026-09-17)* | **Approved as initial product policy, not permanent constants**: raw API responses never stored; Gmail metadata while connected + 30 days after voluntary disconnect; thread/work-state context 90 days; processing cache deleted immediately on success with a 24h ceiling; evidence quotes only as long as the item that needs them; derived facts 12 months; briefs 12 months; calendar state through 90 days after the event; provenance at least as long as its conclusion; security/audit governed separately; voluntary disconnect deletes at 30 days; termination deletes immediately | §21.3 |
 | **D14** | **`googleWorkspace:manage`** *(closes O2, 2026-09-17)* | **Removed, not fenced.** OWNER and ADMIN get no generic permission that could grow into access to another employee's Google connection. Membership management and employee-private Google authorization are separate boundaries; termination already revokes under `users:update` / `users:delete`. Any future administrative act (e.g. forced credential revocation) is designed as a narrow, explicitly named capability | §20.1.5, **PR DL-0** (§26.2) |
+| **D17** | **Relationship capture's five policy questions** *(closes O7-O11, 2026-09-17)* | **Path 1**: machine discovers and proposes, human establishes shared identity, identity constitution unamended. **Shared fields** limited to business conclusions plus provenance — never subjects, bodies, counts, private Calendar/Drive evidence or quotations. **A new narrow `relationshipCapture` capability** for conflict-free acceptance by the relationship owner, with everything ambiguous escalating to `identityResolution:approve`. **Internal colleagues excluded** from external capture. **Dormancy 30 days as a cadence-aware, configurable heuristic** | §32.2, §32.4a, §32.6, §32.8, §32.8a, §32.11 |
 | **D16** | **Automatic Relationship Capture is a first-class Daily Loop capability** *(new, 2026-09-17)* | Loop discovers meaningful business relationships from connected communication and maintains the CRM — **without** creating a contact per address, and **without** Loop becoming an identity authority. Its private half needs no governed act; every CRM write does | **§32** |
 | **D15** | **Ask Loop's scope** *(new, 2026-09-17)* | **Not a Gmail-only retrieval system.** Retrieval is a source-agnostic, authorized contract across separately governed knowledge domains; Company Knowledge is its own track and is **not** part of Daily Loop V1 | **§31**, §10.2, §26 (DL-11) |
 
@@ -2082,15 +2083,10 @@ The stages are §4.3's; this is what each buys and what it costs to get there.
 | **O5** | **Delegated and shared mailboxes**: detect and refuse, or ignore? | A connected account with delegated access would build a private queue over a third party's correspondence | **DL-7** | No |
 | **O6** | **Testing mode**: start Google verification now, or run on test users first? | Until the app is published, refresh tokens expire every 7 days, so employees reconnect weekly | Before rollout beyond you and Charlie | No |
 
-| **O7** | **Relationship capture: proposals, or a governed automated establishment basis?** | Automatic CRM creation collides with a locked Product resolution in another record (§32.2) | **ARC-5** | No |
-| **O8** | **What may be shared org-wide from private correspondence?** (person, company, title, business email, owner, status, coarse recency — and nothing finer) | It is the line between a current CRM and a system that reports on employees | **ARC-3** | No |
-| **O9** | **Who may accept a capture proposal?** `identityResolution:approve` is OWNER/ADMIN; the relationship owner usually is not | Either widen that grant in the identity record, or route acceptance through a review queue | **ARC-5** | No |
-| **O10** | **Does capture apply to internal colleagues?** | Recommendation: exclude the organization's own domains entirely | **ARC-1** | No |
-| **O11** | **Dormancy window** (proposal: 90 days, adjusted per correspondent rhythm) | It drives a visible status on shared records | **ARC-7** | No |
 
-**Nothing open blocks DL-1 or DL-0.** O1 and O2 are closed by D13 and D14. O7–O11 belong to
-Automatic Relationship Capture (§32.11) and gate only its own PRs. The Company Knowledge track's
-decisions are listed in §31.6, because none of them gates Daily Loop either.
+**Nothing open blocks DL-0 or DL-1.** O1 and O2 are closed by D13 and D14; O7–O11 by D17. What remains
+above touches Stage 2 and rollout only. The Company Knowledge track's decisions are listed in §31.6,
+because none of them gates Daily Loop either.
 
 ---
 
@@ -2149,7 +2145,7 @@ Five things surfaced when this record was re-checked against the decisions above
 | Conflict | Status |
 |---|---|
 | **Brain cannot run scheduled, system-initiated work today.** Only a human may submit; a system START is refused at dispatch; no owner gate is registered; no `MODEL_CALL` step exists; nothing is deployed | Real blocker for Phase 3. Resolved by the seven prerequisites of §15.3a; items 1-3 weaken a deliberate refusal and are reviewed as security changes |
-| **"Loop should maintain the CRM automatically" collides with a locked Product resolution**: *no machine identity attribution; every attribution is a human proposal and a human confirmation* (`identity-evidence-resolution.md` §5), plus C-05's ban on numeric identity confidence | Named, not worked around (§32.2). Path 1 (proposals with one-click confirmation) delivers the capability without amending that record; Path 2 amends it, and only its owner can. **O7** |
+| **"Loop should maintain the CRM automatically" collides with a locked Product resolution**: *no machine identity attribution; every attribution is a human proposal and a human confirmation* (`identity-evidence-resolution.md` §5), plus C-05's ban on numeric identity confidence | **Resolved, D17/O7:** Path 1 adopted, the constitution unamended. The machine discovers and proposes; a human establishes. The one change that remains is narrow and belongs to that record's owner: adding the `relationshipCapture` authority and its five preconditions to its authority table (§32.8) |
 | **A Party has nowhere to store a title, a company or a readable business email today** — `CognitiveIdentity` carries `displayName` and `IdentityEvidence` is hash-only by design | A real gap, not an oversight: the claim store is ARC-3, and the identity record's own People projection will need the same thing. It must be built once, not twice |
 | **Rule 5 says producers emit generic decisions, not their own queues.** Daily Loop proposes its own per-user store | Accepted deviation, decided in D1: privacy is the reason, promotion is the bridge, vocabularies are shared |
 | **Loop already has `Conversation` / `Message`.** Daily Loop adds `work_threads` / `work_messages` | Accepted, argued in §11.4: different authority, different privacy class. Cost: two "message" concepts. Mitigation: they never mix in one read path, and names differ in code and UI |
@@ -2369,19 +2365,20 @@ key is minted, never derived from a contact value; **C-05 forbids any numeric id
 *"never shown, computed or stored: a 0–1 score, a percentage, an AI confidence number or a weighted
 frequency score"*, with a test that fails if one appears; and *"frequency never raises a tier"*.
 
-**So Loop may not, today, automatically create a CRM Person from an employee's mailbox.** Two honest
-ways forward, and the choice is Matt's (§32.11, O7):
+**So Loop may not automatically create a CRM Person from an employee's mailbox — and by decision
+(D17/O7, 2026-09-17) it never will.**
 
-- **Path 1 — proposals with one-click confirmation (recommended, no constitutional change).** Loop does
-  all the work: it finds the relationship, drafts the record, resolves the company, fills every field
-  it can evidence, and presents it as one accept/dismiss. The human act remains, and it takes a second.
-  Everything else in this section is buildable under it.
-- **Path 2 — a governed automated establishment basis.** Product amends the identity record to add a
-  basis (say `CORRESPONDENCE_ESTABLISHED`) admissible only under a stated deterministic rule set, fully
-  reversible, audited, and visible as posture on the record. That is an amendment to *that* record, by
-  its owner, and it cannot be smuggled in through this one.
+> **The machine discovers and proposes. A human establishes shared identity.**
 
-This record assumes **Path 1** throughout, and is written so Path 2 changes one gate, not the design.
+**Path 1 is adopted and Path 2 is refused.** The identity constitution is not amended to permit
+automatic machine establishment of shared CRM identity. Loop does all the work — finds the
+relationship, drafts the record, resolves the company, fills every field it can evidence — and
+presents it as one accept or dismiss. What stays human is the *crossing*: employee-private
+correspondence becoming shared organizational identity.
+
+The distinction that makes this workable rather than bureaucratic: **maintaining employee-private
+relationship state is not a governed act.** Loop observes, classifies and keeps that continuously and
+automatically. Only the crossing is gated, and it happens once per relationship.
 
 ### 32.3 What is actually possible with `gmail.metadata` today
 
@@ -2442,6 +2439,23 @@ than a threshold on a count.
 Every candidate carries **why it qualified**, in words, and every rule has an id and a version, so a
 bad rule is identifiable and fixable rather than a mystery (§12.2).
 
+### 32.4a Internal colleagues are excluded (D17/O10, decided)
+
+**External CRM relationship capture never proposes a colleague.** An internal relationship belongs to
+the organization's employee graph, which is a different thing with a different privacy model; putting
+teammates into the external CRM would both pollute it and turn the colleague graph into a CRM artefact.
+
+Internal is determined deterministically, never by guesswork:
+
+- the address belongs to an **active member** of the organization (a `User` in it), or
+- its domain is the **hosted domain of a connected Google account** in this organization, or
+- its domain is listed in the organization's configured domains
+  (`organizations.settings.googleWorkspace.allowedHostedDomains`, which already exists).
+
+Internal correspondence still feeds the **private** side — colleagues absolutely appear in "who is
+waiting on you" and "what went quiet" — it simply never becomes an external CRM proposal. If an
+internal colleague graph is wanted later, it is its own design.
+
 ### 32.5 Person and Company resolution
 
 **Deterministic first, and never by similarity.** Name similarity, fuzzy matching and "the same
@@ -2486,13 +2500,23 @@ should see the other's mail**.
 
 The rule that makes this safe: **a shared fact is a conclusion, not its evidence.**
 
-| Shared with authorized CRM users | Stays private to the employee |
+**Decided (D17/O8, 2026-09-17).** A confirmed relationship may contribute these business conclusions
+to shared CRM state, and nothing else:
+
+| Shared with authorized CRM users | **Never shared, by decision** |
 |---|---|
-| The Person exists; display name; business email; company; title | Any message, subject, body or thread |
-| The Company exists; its domain | Who said what, and when, message by message |
-| **Relationship owner(s)** — which employee holds this relationship | The employee's queue, classifications and quotes |
-| Relationship status (active / dormant), and a **coarse** recency ("active this week") | Exact per-message timestamps and frequency counts |
-| That the evidence exists, and its class ("captured from employee correspondence") | The evidence itself |
+| Person / display name | Email **subjects** |
+| Business email address | Message **bodies** |
+| Established company association | Private thread contents |
+| Business **title / role**, when the evidence supports it | **Exact private message counts** |
+| **Relationship owner(s)** — which employee holds it | Private **Calendar** evidence |
+| Relationship **status** | Private **Drive** evidence |
+| **Coarse** last-contact / recency state | **Any quotation** from employee correspondence |
+| That the conclusion was established from employee correspondence — the provenance claim itself | The underlying evidence, in any form |
+
+The last row is the one that makes the model work: **the shared record retains provenance without
+exposing what it came from.** A CRM reader sees *"established from employee correspondence (Matt
+Dunn), 16 Sep"*; resolving that reference any further requires being Matt.
 
 Two mechanisms enforce it:
 
@@ -2500,9 +2524,9 @@ Two mechanisms enforce it:
   reference is subject to the *reader's* authority. An authorized CRM user sees *"established from
   employee correspondence (Matt Dunn), 16 Sep"*; they do not get the thread. This is §31.4 rule 2
   applied to a stored fact rather than an answer.
-- **Coarse recency by default.** "Last interaction: yesterday" is a fact about Matt's working day.
-  Shared as a bucket (today / this week / this month / dormant), with the exact instant private —
-  §32.11 O8 asks Matt whether even the bucket is acceptable.
+- **Coarse recency only.** "Last interaction: yesterday" is a fact about Matt's working day, so what
+  is shared is a bucket — today / this week / this month / dormant — never the instant, and never the
+  count of messages behind it.
 
 ### 32.7 Field-level provenance, and what a "fact" is here
 
@@ -2548,6 +2572,57 @@ Rules:
 owner, recency bucket, dormancy — is recomputable and reversible. Anything irreversible (a Person
 exists; two records are the same) stays human.
 
+#### Who may accept (D17/O9, decided)
+
+Requiring OWNER or ADMIN for every ordinary business contact would make the capability useless — the
+person who holds the relationship is usually neither. So a **new, deliberately narrow capability**,
+and `identityResolution:approve` is *not* broadened to reach it:
+
+> **`relationshipCapture` — actions `view` and `accept`.**
+> `accept` admits **one** operation: turning a straightforward, conflict-free capture proposal into a
+> new external Person (and, where the domain is new and not free-mail, its Company), for a
+> relationship the acceptor owns.
+
+**Every one of these preconditions must hold, or the proposal escalates** to
+`identityResolution:approve`:
+
+1. **No existing Party matches** the address — this creates a record, it never touches one.
+2. **No competing match anywhere**: the address is attributed to nobody, and the domain maps to at
+   most one established Company.
+3. **The acceptor is the relationship owner** — the employee whose own correspondence produced the
+   proposal. Nobody accepts on behalf of somebody else's mailbox.
+4. **The subject is external** (§32.4a).
+5. **It is reversible**: the created Party carries its capture provenance and can be voided by the
+   acceptor within the window, and by OWNER/ADMIN at any time.
+
+**Escalated to `identityResolution:approve`, always:** ambiguous identity; competing matches; merges;
+splits; conflicting established identity; attributing a second address to an existing Party; any
+cross-person resolution; anything irreversible.
+
+**The establishment basis stays `MANUAL`** — a human established it, and Loop only prepared the
+paperwork. No new `IdentityResolutionMethod` value, no enum migration, and no record in the schema
+that claims a machine established an identity.
+
+**This is an amendment to the identity record's authority table**, not to this one: a second, narrower
+path to establishment under stated preconditions. It is smaller than Path 2 (which removed the human
+altogether), and its owner has to record it — §32.12 ARC-5 lists it as a prerequisite.
+
+### 32.8a Dormancy is a heuristic, not a verdict (D17/O11, decided)
+
+**The initial default is 30 days**, and it is explicitly a default rather than a fact about
+relationships. Three rules keep it honest:
+
+1. **Cadence-aware.** Where a correspondent has enough history, the expected interval comes from the
+   observed rhythm, and dormancy is judged against *that*: a quarterly relationship is not stale at
+   31 days, and a daily one is odd at ten. The 30-day default applies when history is too thin to say.
+2. **Configurable**, per organization and per relationship, because a retainer client and a seasonal
+   supplier are not the same shape.
+3. **Worded as an observation, never a judgment.** The surface says *"no contact in 6 weeks; you
+   usually exchange every 8 days"* — two facts the employee can check — never "this relationship is
+   stale". An employee's own stated status always outranks the derived one (§32.9).
+
+The shared CRM record therefore carries a **status** and a coarse recency bucket, not a countdown.
+
 ### 32.9 Corrections, and making them stick
 
 | The employee says | What changes | How it stops recurring |
@@ -2583,15 +2658,19 @@ whether a correction is safe to share.
 | **Cost (§23)** | Metadata-stage capture is deterministic and free. Content enrichment is one call per *relationship*, gated on acceptance — not per message |
 | **Calendar / Drive** | Calendar co-attendance is an inclusion signal from day one; Drive contributes nothing to capture and is not used for it |
 
-### 32.11 What this needs from Matt
+### 32.11 Decisions (settled 2026-09-17)
 
-| # | Decision | Why it cannot be defaulted |
-|---|---|---|
-| **O7** | **Path 1 (proposals) or Path 2 (a governed automated establishment basis)?** | Path 2 amends a locked Product resolution in another record. Path 1 ships without touching it and still removes the manual work. Recommendation: **Path 1**, revisit after a month of real acceptance rates |
-| **O8** | **What may be shared org-wide from private correspondence?** The proposal is: person, company, title, business email, owner, status and a **coarse** recency bucket — never timestamps, subjects or counts | It is the boundary between a CRM that is current and a system that reports on employees' activity |
-| **O9** | **Who may accept a capture proposal?** `identityResolution:approve` is OWNER/ADMIN today; the person who owns the relationship is usually neither | Either widen that grant (a change to the identity record) or route acceptance through an OWNER/ADMIN review queue |
-| **O10** | **Does capture apply to internal colleagues?** Everyone emails their own colleagues constantly | Recommendation: exclude the organization's own domains from Person capture entirely |
-| **O11** | **Dormancy window** before a relationship is shown as dormant (proposal: 90 days, per correspondent rhythm) | It drives a visible status on shared records |
+| | Decision |
+|---|---|
+| **O7** | **Path 1.** The identity constitution is **not** amended for automatic machine establishment. The machine discovers and proposes; a human establishes shared identity. Employee-private relationship state is maintained automatically and is not a governed act (§32.2) |
+| **O8** | **Shared fields are business conclusions only**: person/display name, business email, established company association, business title/role where evidence supports it, relationship owner, relationship status, coarse recency — plus the provenance claim itself. Never subjects, bodies, thread contents, exact message counts, private Calendar or Drive evidence, or any quotation (§32.6) |
+| **O9** | **A new narrow capability, `relationshipCapture` (`view`, `accept`)**, lets the relationship owner accept a conflict-free external contact. `identityResolution:approve` is not broadened, and everything ambiguous, competing, merging, splitting or irreversible still routes to it (§32.8) |
+| **O10** | **Internal colleagues are excluded** from external CRM capture, deterministically, by membership and by configured/connected domain. They remain fully present in the private surface (§32.4a) |
+| **O11** | **Dormancy defaults to 30 days**, as a heuristic: cadence-aware where history allows, configurable per organization and relationship, and always worded as an observation rather than a verdict (§32.8a) |
+
+**Nothing in Automatic Relationship Capture is now waiting on a product decision.** What it waits on is
+engineering sequence (§32.12) and one amendment in another record — the `relationshipCapture` authority
+belongs in `identity-evidence-resolution.md`'s authority table, written by its owner.
 
 ### 32.12 Implementation sequence
 
@@ -2601,14 +2680,14 @@ Capture is **not** in DL-1, and its shared half cannot begin before the identity
 
 | PR | Objective | Depends on | Schema | Gmail scope | Privacy / security | Tests | Acceptance |
 |---|---|---|---|---|---|---|---|
-| **ARC-1** | Correspondent significance: the exclusion rules and inclusion signals, as pure versioned rules; candidates stored **privately**, nothing proposed to anyone | DL-7, DL-8 | Additive: candidate state + suppressions on the private side | **None** (adds header names only) | Entirely inside the employee boundary; no CRM write exists yet | Fixture mailboxes: newsletters, receipts, robots, lists, one-off senders, a real first contact, a colleague | On a real mailbox, the candidate list is recognisably "the people I actually work with", and the excluded list is recognisably noise |
+| **ARC-1** | Correspondent significance: the exclusion rules (including **internal colleagues**, §32.4a) and inclusion signals, as pure versioned rules; candidates stored **privately**, nothing proposed to anyone | DL-7, DL-8 | Additive: candidate state + suppressions on the private side | **None** (adds header names only) | Entirely inside the employee boundary; no CRM write exists yet | Fixture mailboxes: newsletters, receipts, robots, lists, one-off senders, a real first contact, a colleague | On a real mailbox, the candidate list is recognisably "the people I actually work with", and the excluded list is recognisably noise |
 | **ARC-2** | The private relationship surface and the Ask Loop people questions ("who do I know at X", "when did I last speak to Y", "who has gone quiet") | ARC-1, DL-11 | None | **None** | Private domain only | Query tests + the isolation test (another employee's contacts are invisible) | The employee gets real value **before any CRM record exists** |
 | **ARC-3** | The claim store: provenance-carrying, effective-dated field claims for a Party, with `EXISTING_CRM` precedence and supersession | ARC-1 | Additive (org-scoped claim table) | **None** | Shared-fact store; no private evidence copied into it | Precedence, supersession, effective dating, "why does Loop think this" rendering | An existing CRM value is never overwritten, and every claim explains itself |
 | **ARC-4** | Company resolution by domain evidence: match, propose, refuse (free-mail, conflict) | ARC-3 | None | **None** | Shared | Domain matching, free-mail refusal, conflict, the "two names one domain" case | No duplicate company is ever created from a name variant |
-| **ARC-5** | Proposals and one-click acceptance through the existing governed path; the weekly Daily Loop digest ("3 new relationships") | ARC-3, ARC-4, identity slices 2.1b/2.5, **O7 + O9** | Additive (proposal state) | **None** | The governed act is unchanged; acceptance is audited | Accept, dismiss, re-propose suppression, conflict, permission refusal | A relationship goes from mailbox to CRM record in one click, with its evidence |
+| **ARC-5** | Proposals and one-click acceptance; the `relationshipCapture` capability and its five preconditions; the weekly Daily Loop digest ("3 new relationships") | ARC-3, ARC-4, identity slices 2.1b/2.5, **and the `relationshipCapture` authority recorded in `identity-evidence-resolution.md`** | Additive (proposal state); IAM resource, no identity-schema change | **None** | The narrow capability is the security review: the five preconditions, the escalation set, reversibility, and an audit row per act | Each precondition refusing separately; escalation to `identityResolution:approve`; accept, dismiss, re-propose suppression; permission refusal; reversal | A relationship goes from mailbox to CRM record in one click, by the person who owns it, with its evidence — and anything ambiguous refuses and escalates |
 | **ARC-6** | Content enrichment: title, company, the "about" sentence, introductions — as `SOURCE_FACT` when a signature states it, `INFERRED` otherwise | ARC-5, **Stage 2** (`gmail.readonly`), the governed runtime | None | **Requires `gmail.readonly`** | Content ceilings (§17.4); quotes as evidence, capped | Signature parsing, inference labelling, conflict with existing values | The Ben Alcocer record in the brief becomes producible — with citations |
 | **ARC-7** | Keeping current: role and company changes, dormancy, new addresses, relationship revival, and the surfacing rules | ARC-5 | None | Partly content | Same | Change detection, effective dating, no destructive overwrite | "Ben appears to have changed roles" appears once, with evidence, and not again |
 
-**Placement:** ARC-1 and ARC-2 sit after DL-11 in phase 1 and need no new authorization beyond this
-record. ARC-3 to ARC-5 are their own phase, gated on O7/O9 and the identity slices. ARC-6 belongs to
+**Placement:** ARC-1 and ARC-2 sit after DL-11 in phase 1, are entirely inside the employee's private
+boundary, and need no new authorization beyond this record. ARC-3 to ARC-5 are their own phase, gated on O7/O9 and the identity slices. ARC-6 belongs to
 Stage 2 and cannot precede it. **DL-0 and DL-1 are unchanged by any of this.**
