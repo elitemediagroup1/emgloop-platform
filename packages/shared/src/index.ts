@@ -486,3 +486,10 @@ export * from './measurement-readiness';
 export * from './identity-evidence';
 export * from './identity-authority';
 export * from './evidence-use-policy';
+
+// --- Google Workspace connection (Private V1 OAuth contract) ---
+// docs/architecture/google-workspace-connection.md §11. One connection per Loop user per
+// organization; Gmail metadata, Calendar events read-only and Drive metadata, granted one
+// capability at a time. Pure: the exact scopes, the granted-scope allowlist and the
+// per-capability states.
+export * from './google-workspace';
