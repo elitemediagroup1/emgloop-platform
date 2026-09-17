@@ -110,7 +110,7 @@ metadata and calendar; the rest are answered partially and honestly, and the rec
 14 scopes · 15 Brain · 16 jobs · 17 data model · 18 retrieval · 19 notifications · 20 security ·
 21 offboarding · 22 first run · 23 cost · 24 observability · 25 failure modes · 26 PR plan ·
 27 V1 definition · 28 roadmap · 29 decisions · 30 risks and disagreements · 31 multi-domain retrieval
-and the Company Knowledge track.
+and the Company Knowledge track · 32 Automatic Relationship Capture.
 
 ---
 
@@ -870,6 +870,9 @@ mailbox out of an org-visible table by default. §29 records this as the decisio
 **Attribution to a Party.** A correspondent may be attributed to an established Party by someone
 holding `identityResolution:approve`, one act at a time, reversibly. Loop proposes nothing
 automatically; at most it can show "this address appears on 40 threads" next to the governed action.
+**§32 (Automatic Relationship Capture) is how that proposal gets made well** — significance rules,
+deterministic company resolution, field-level provenance — without Loop ever becoming the identity
+authority.
 
 ### 11.4 Why not reuse `Conversation` / `Message`
 
@@ -896,7 +899,8 @@ exist to stop. They stay separate, and §30 records the cost: Loop will have two
 
 The product brief asks for three; the repository's grain wants four, because **derived state** (rule
 output) and **inference** (model output) have completely different failure modes and must not share a
-badge. A rule that is wrong is a bug to fix; a model that is wrong is a probability to manage.
+badge. Relationship capture adds a fifth for CRM fields — `EXISTING_CRM`, a value Loop already held —
+which **outranks anything capture derives** (§32.7). A rule that is wrong is a bug to fix; a model that is wrong is a probability to manage.
 
 ### 12.2 How each is represented
 
@@ -998,8 +1002,10 @@ date-filtered search. So:
 
 - **Backfill:** `messages.list` with `labelIds` (INBOX, then SENT), newest first, paging until the
   metadata shows messages older than the window, capped hard (§22). `messages.get` with
-  `format=METADATA` and an explicit `metadataHeaders` list (From, To, Cc, Subject, Date,
-  Message-ID, In-Reply-To, References).
+  `format=METADATA` and an explicit `metadataHeaders` list (From, To, Cc, Reply-To, Subject, Date,
+  Message-ID, In-Reply-To, References, and — for relationship capture's exclusion rules, §32.4 —
+  List-Unsubscribe, List-Id, Precedence and Auto-Submitted). Header names cost nothing: the call, the
+  quota and the scope are identical.
 - **Incremental:** store the newest `historyId`; then `history.list` from it. Google retains history
   *"typically at least one week"*; a `404` means the cursor is too old and the answer is a bounded
   re-backfill, not a silent gap.
@@ -1695,6 +1701,10 @@ backing off. That number, not a guess, sets the window.
 | **3. Context mail** | back to 30 days, capped at **2,000 messages** | paged, rate-limited, resumable | ~10 minutes, in the background |
 | **4. Drive** *(if connected)* | files modified in the last 30 days, capped at 500 | one change page | background |
 
+**Relationship capture rides this backfill and adds no Gmail reads** (§32): the same headers that
+classify a thread also identify who the employee actually corresponds with, so a first run yields both
+the queue and a first candidate list.
+
 Hard caps: 30 days, 2,000 messages, 500 files. Beyond that the first run **stops and says so** —
 "Loop read the last 30 days" — rather than importing a career. Deeper history is a later, explicit
 choice, and most of it is worth nothing to a queue about today.
@@ -1993,6 +2003,7 @@ design proportional to consequence, its own audit surface, and its own entry in 
 | Any model call at all | Brain is not deployed, AI is off, and V1 does not need one (§15.3). Scheduled model work waits for the seven prerequisites (§15.3a) |
 | Organization-level views of anyone's mail intelligence | Decided: never by default, and not as an increment of this (§20.2a) |
 | Company knowledge (playbooks, policies, lexicon, decisions) in Ask Loop | A separate track (§31.6). V1 leaves the seam — one retrieval contract, one registered domain — and ingests nothing |
+| Writing CRM People, Companies or Relationships from mail | §32: capture's private half (ARC-1, ARC-2) can land inside phase 1; every CRM write is a governed human act and waits on O7/O9 and the identity slices |
 | Real-time alerts / push / SMS | No channel exists; the brief is the channel until the queue is trusted (§19) |
 | Meeting transcripts or a meeting bot | Explicitly out of scope in the meeting record; V2 there is a separate product decision |
 | Auto-linking correspondents to CRM People | Forbidden by the identity model; attribution stays a governed act (§11.1) |
@@ -2059,6 +2070,7 @@ The stages are §4.3's; this is what each buys and what it costs to get there.
 | D12 | Where the cycle runs | **GitHub Actions cron → authenticated app endpoint**, Brain later | §16.2 |
 | **D13** | **Retention windows** *(closes O1, 2026-09-17)* | **Approved as initial product policy, not permanent constants**: raw API responses never stored; Gmail metadata while connected + 30 days after voluntary disconnect; thread/work-state context 90 days; processing cache deleted immediately on success with a 24h ceiling; evidence quotes only as long as the item that needs them; derived facts 12 months; briefs 12 months; calendar state through 90 days after the event; provenance at least as long as its conclusion; security/audit governed separately; voluntary disconnect deletes at 30 days; termination deletes immediately | §21.3 |
 | **D14** | **`googleWorkspace:manage`** *(closes O2, 2026-09-17)* | **Removed, not fenced.** OWNER and ADMIN get no generic permission that could grow into access to another employee's Google connection. Membership management and employee-private Google authorization are separate boundaries; termination already revokes under `users:update` / `users:delete`. Any future administrative act (e.g. forced credential revocation) is designed as a narrow, explicitly named capability | §20.1.5, **PR DL-0** (§26.2) |
+| **D16** | **Automatic Relationship Capture is a first-class Daily Loop capability** *(new, 2026-09-17)* | Loop discovers meaningful business relationships from connected communication and maintains the CRM — **without** creating a contact per address, and **without** Loop becoming an identity authority. Its private half needs no governed act; every CRM write does | **§32** |
 | **D15** | **Ask Loop's scope** *(new, 2026-09-17)* | **Not a Gmail-only retrieval system.** Retrieval is a source-agnostic, authorized contract across separately governed knowledge domains; Company Knowledge is its own track and is **not** part of Daily Loop V1 | **§31**, §10.2, §26 (DL-11) |
 
 ### 29.2 Still open — with the PR each one blocks
@@ -2070,8 +2082,15 @@ The stages are §4.3's; this is what each buys and what it costs to get there.
 | **O5** | **Delegated and shared mailboxes**: detect and refuse, or ignore? | A connected account with delegated access would build a private queue over a third party's correspondence | **DL-7** | No |
 | **O6** | **Testing mode**: start Google verification now, or run on test users first? | Until the app is published, refresh tokens expire every 7 days, so employees reconnect weekly | Before rollout beyond you and Charlie | No |
 
-**Nothing open blocks DL-1.** O1 and O2 are closed by D13 and D14. The Company Knowledge track has its
-own decisions, and they are listed in §31.6 rather than here, because none of them gates Daily Loop.
+| **O7** | **Relationship capture: proposals, or a governed automated establishment basis?** | Automatic CRM creation collides with a locked Product resolution in another record (§32.2) | **ARC-5** | No |
+| **O8** | **What may be shared org-wide from private correspondence?** (person, company, title, business email, owner, status, coarse recency — and nothing finer) | It is the line between a current CRM and a system that reports on employees | **ARC-3** | No |
+| **O9** | **Who may accept a capture proposal?** `identityResolution:approve` is OWNER/ADMIN; the relationship owner usually is not | Either widen that grant in the identity record, or route acceptance through a review queue | **ARC-5** | No |
+| **O10** | **Does capture apply to internal colleagues?** | Recommendation: exclude the organization's own domains entirely | **ARC-1** | No |
+| **O11** | **Dormancy window** (proposal: 90 days, adjusted per correspondent rhythm) | It drives a visible status on shared records | **ARC-7** | No |
+
+**Nothing open blocks DL-1 or DL-0.** O1 and O2 are closed by D13 and D14. O7–O11 belong to
+Automatic Relationship Capture (§32.11) and gate only its own PRs. The Company Knowledge track's
+decisions are listed in §31.6, because none of them gates Daily Loop either.
 
 ---
 
@@ -2130,6 +2149,8 @@ Five things surfaced when this record was re-checked against the decisions above
 | Conflict | Status |
 |---|---|
 | **Brain cannot run scheduled, system-initiated work today.** Only a human may submit; a system START is refused at dispatch; no owner gate is registered; no `MODEL_CALL` step exists; nothing is deployed | Real blocker for Phase 3. Resolved by the seven prerequisites of §15.3a; items 1-3 weaken a deliberate refusal and are reviewed as security changes |
+| **"Loop should maintain the CRM automatically" collides with a locked Product resolution**: *no machine identity attribution; every attribution is a human proposal and a human confirmation* (`identity-evidence-resolution.md` §5), plus C-05's ban on numeric identity confidence | Named, not worked around (§32.2). Path 1 (proposals with one-click confirmation) delivers the capability without amending that record; Path 2 amends it, and only its owner can. **O7** |
+| **A Party has nowhere to store a title, a company or a readable business email today** — `CognitiveIdentity` carries `displayName` and `IdentityEvidence` is hash-only by design | A real gap, not an oversight: the claim store is ARC-3, and the identity record's own People projection will need the same thing. It must be built once, not twice |
 | **Rule 5 says producers emit generic decisions, not their own queues.** Daily Loop proposes its own per-user store | Accepted deviation, decided in D1: privacy is the reason, promotion is the bridge, vocabularies are shared |
 | **Loop already has `Conversation` / `Message`.** Daily Loop adds `work_threads` / `work_messages` | Accepted, argued in §11.4: different authority, different privacy class. Cost: two "message" concepts. Mitigation: they never mix in one read path, and names differ in code and UI |
 | **The repository forbids embeddings and similarity search by test** | Respected. §18 keeps retrieval structured; reversing it is D7 |
@@ -2189,6 +2210,11 @@ nobody else can find it. Keeping them separate is not tidiness, it is the whole 
 
 > Company knowledge is not employee-private Gmail data.
 > Employee-private Gmail data is not automatically company knowledge.
+
+**Automatic Relationship Capture (§32) is the one sanctioned bridge between domain 1 and domain 3**,
+and it works in exactly one direction and only through a governed act: private evidence produces a
+*proposal*, a human accepts it, and what crosses is a **conclusion** (this person, this company, this
+owner) — never the correspondence behind it.
 
 ### 31.3 The contract: one authorized retrieval interface, many retrievers
 
@@ -2296,3 +2322,293 @@ registration rather than a rewrite. So:
   never an empty answer that looks like "nothing exists".
 
 The cost of this in DL-11 is one interface and one registry. The cost of skipping it is the rewrite.
+
+---
+
+## 32. Automatic Relationship Capture
+
+**Added 2026-09-17. Nothing here is built, and none of it is in DL-1.** This section makes relationship
+capture a first-class Daily Loop capability and, more importantly, reconciles it with a locked Product
+resolution it collides with head-on (§32.2).
+
+### 32.1 The principle, and the thing it is not
+
+> *If an employee develops a meaningful business relationship through Loop-connected communication,
+> Loop should maintain the CRM relationship — the employee should not have to.*
+
+It is **not** "create a contact for every address". The corpus of a real mailbox is mostly not people
+you have a relationship with: newsletters, receipts, notifications, `noreply@`, list traffic, support
+robots, calendar infrastructure, one-off transactional senders and cold bulk outreach. A CRM filled
+with those is worse than an empty one, because it destroys the signal that the CRM is *curated*.
+
+So the capability is two things that must not be confused:
+
+| | **A. Private relationship intelligence** | **B. Shared CRM capture** |
+|---|---|---|
+| What | Who this employee corresponds with, how often, how recently, which domain, which meetings | People, Companies and Relationships in the organization's CRM |
+| Authority | The employee | The identity-resolution authority (`identityResolution`) |
+| Visibility | That employee only | Authorized CRM users |
+| Needs a governed act? | **No** | **Yes — always** |
+| Available today (metadata) | **Most of it** | Discovery only; the CRM act is human |
+
+**A is where most of the felt value is, and it needs no CRM write at all.** "When did I last talk to
+Ben?", "who haven't I spoken with recently?", "who do I know at Cashion?" are answered from the
+employee's own work state (§11.2). B is what keeps the organization's records true, and B is governed.
+
+### 32.2 The collision, stated plainly
+
+`docs/architecture/identity-evidence-resolution.md` §5 is unambiguous, and it is a Product resolution,
+not an implementation detail:
+
+> **"No machine identity attribution at launch (Product): every attribution is a human proposal and a
+> human confirmation. Machine matches exist only as read-time, non-persistent suggestions."**
+
+Alongside it: *"Intake is not identity and never automatically creates a Person"*; *"no source is an
+identity authority"*; establishment is `identityResolution:approve`, OWNER/ADMIN only; the canonical
+key is minted, never derived from a contact value; **C-05 forbids any numeric identity confidence** —
+*"never shown, computed or stored: a 0–1 score, a percentage, an AI confidence number or a weighted
+frequency score"*, with a test that fails if one appears; and *"frequency never raises a tier"*.
+
+**So Loop may not, today, automatically create a CRM Person from an employee's mailbox.** Two honest
+ways forward, and the choice is Matt's (§32.11, O7):
+
+- **Path 1 — proposals with one-click confirmation (recommended, no constitutional change).** Loop does
+  all the work: it finds the relationship, drafts the record, resolves the company, fills every field
+  it can evidence, and presents it as one accept/dismiss. The human act remains, and it takes a second.
+  Everything else in this section is buildable under it.
+- **Path 2 — a governed automated establishment basis.** Product amends the identity record to add a
+  basis (say `CORRESPONDENCE_ESTABLISHED`) admissible only under a stated deterministic rule set, fully
+  reversible, audited, and visible as posture on the record. That is an amendment to *that* record, by
+  its owner, and it cannot be smuggled in through this one.
+
+This record assumes **Path 1** throughout, and is written so Path 2 changes one gate, not the design.
+
+### 32.3 What is actually possible with `gmail.metadata` today
+
+Headers are metadata, and Gmail returns exactly the ones asked for (`format=METADATA`,
+`metadataHeaders`). That is more than it sounds:
+
+| From headers alone | Establishes |
+|---|---|
+| `From`, `To`, `Cc`, `Reply-To` | the address, and the **display name** the sender chose |
+| `Date`, `internalDate` | first and last interaction, frequency, recency, response latency |
+| thread structure, direction | **bidirectionality**, and whether *this employee replied* |
+| the address domain | a company **candidate** (never a company fact on its own) |
+| `List-Unsubscribe`, `List-Id`, `Precedence: bulk`, `Auto-Submitted` | **bulk, list and machine senders — the exclusion list, deterministically** |
+| local-part patterns (`noreply`, `no-reply`, `notifications`, `billing`, `support`, `mailer-daemon`) | robot and role addresses |
+| calendar attendee overlap (Calendar scope) | that you **met**, which is the strongest non-content signal there is |
+
+| Needs message content (`gmail.readonly`, Stage 2) |
+|---|
+| Job title and company **from a signature** |
+| The "about" sentence — what this relationship is actually for |
+| Introductions ("looping in Ben, who runs marketing") |
+| Opportunity, pricing and negotiation context |
+| A relationship summary that reads like a person wrote it |
+| Role changes stated in prose ("I've moved to…") |
+
+**So metadata alone can find the right people and say when and how often you speak. It cannot say who
+they are.** The example record in the brief — *Ben Alcocer, Director of Marketing, Cashion Rods* — is
+a Stage 2 record, except for the name Ben chose as his display name and the domain he writes from.
+
+### 32.4 Relationship significance — what makes a correspondent a relationship
+
+Deterministic, explainable, and computed **per employee**. No score is stored for identity purposes
+(C-05); this is a triage rule set that produces a **candidate with reasons**, exactly what §5's
+*"counts may prioritize a review worklist and support a proposed flag"* permits.
+
+**Hard exclusions (any one disqualifies, before anything else runs):** bulk/list/auto headers; a
+robot or role local-part; a no-reply domain; an address the employee has never sent to *and* never
+replied to; an address that appears only in a bcc-style blast; a domain the employee suppressed.
+
+**Inclusion signals, each a fact the proposal can cite:**
+
+1. **Bidirectional** — messages both ways.
+2. **The employee replied**, at least once, to a human-addressed message.
+3. **The employee initiated** — outbound first contact is strong intent.
+4. **Repetition** — more than one exchange, across more than one day.
+5. **A meeting** — calendar co-attendance, internal or external.
+6. **Duration** — first and last interaction more than a week apart.
+7. **A non-free domain** with more than one correspondent, or a domain already known to the CRM.
+8. **Existing CRM linkage** — the domain or address already belongs to an established Company or
+   Person, which makes this an *enrichment*, not a discovery.
+9. **Addressed directly** (`To`, not `Cc`), consistently.
+
+**The single-exchange case matters and is handled explicitly.** A first meaningful contact — an
+introduction that got a reply, or a meeting booked after one email — is a real relationship with one
+exchange. It qualifies when signal 3 or 5 is present, which is why the rules are a named set rather
+than a threshold on a count.
+
+Every candidate carries **why it qualified**, in words, and every rule has an id and a version, so a
+bad rule is identifiable and fixable rather than a mystery (§12.2).
+
+### 32.5 Person and Company resolution
+
+**Deterministic first, and never by similarity.** Name similarity, fuzzy matching and "the same
+company probably" are forbidden here for the same reason they are forbidden everywhere else in Loop
+(`identity-resolution.ts`, `party.ts`): they are how two customers become one.
+
+**Person.** In order:
+
+1. **Exact address** against an established Party's attributed email evidence → this is an existing
+   Person; the candidate becomes an **enrichment**, not a new record.
+2. **Exact address** against another employee's captured correspondent → it is the *same person* to the
+   organization; the candidate joins the existing proposal rather than creating a second one (§32.6).
+3. **No match** → a new-Person proposal, carrying its evidence.
+4. **Two matches** (the address is attributed to two Parties) → `CONFLICTING`, per the evidence matrix.
+   Loop proposes nothing and says why.
+
+Display names (`Ben Alcocer`, `Benjamin Alcocer`, "Ben") are **labels, never identity**: they populate
+a proposed name field and never link two records. A second address for a known person
+(`ben@cashionrods.com`, `ben.alcocer@…`) is an **attribution proposal** against that Party — the
+existing `IdentityResolutionLink` act, human-confirmed — never an automatic alias.
+
+**Company.** The only deterministic identifier a mailbox offers is the **domain**:
+
+1. The domain already belongs to an established COMPANY Party → use it. **Never create a second
+   company because the display name differs** ("Cashion", "Cashion Rods", "Cashion Rods LLC" are one
+   domain and one company).
+2. The domain is unknown and is **not** a free-mail or shared-hosting domain → propose a Company,
+   with the domain as its evidence and the display name as a *proposed label*.
+3. The domain is free-mail (`gmail.com`, `outlook.com`, …) → **no company is ever inferred**. The
+   person can still be a relationship; they simply have no company until somebody says so.
+4. Conflicting: the domain maps to two established companies → propose nothing, surface the conflict.
+
+**Merges and splits are governed acts, not automation.** "These are the same person" is
+`identityResolution:approve` (supersession); "these are different people" is a rejection that is
+recorded so the same pair is never proposed again. Loop may *propose*; it may never decide.
+
+### 32.6 The cross-employee model — shared facts, private evidence
+
+Matt corresponds with Ben at Cashion. Charlie corresponds with someone else at Cashion. The
+organization should see one Cashion, two contacts and two relationship owners — **and neither employee
+should see the other's mail**.
+
+The rule that makes this safe: **a shared fact is a conclusion, not its evidence.**
+
+| Shared with authorized CRM users | Stays private to the employee |
+|---|---|
+| The Person exists; display name; business email; company; title | Any message, subject, body or thread |
+| The Company exists; its domain | Who said what, and when, message by message |
+| **Relationship owner(s)** — which employee holds this relationship | The employee's queue, classifications and quotes |
+| Relationship status (active / dormant), and a **coarse** recency ("active this week") | Exact per-message timestamps and frequency counts |
+| That the evidence exists, and its class ("captured from employee correspondence") | The evidence itself |
+
+Two mechanisms enforce it:
+
+- **The evidence never moves.** A shared fact stores a **provenance reference**, and resolving that
+  reference is subject to the *reader's* authority. An authorized CRM user sees *"established from
+  employee correspondence (Matt Dunn), 16 Sep"*; they do not get the thread. This is §31.4 rule 2
+  applied to a stored fact rather than an answer.
+- **Coarse recency by default.** "Last interaction: yesterday" is a fact about Matt's working day.
+  Shared as a bucket (today / this week / this month / dormant), with the exact instant private —
+  §32.11 O8 asks Matt whether even the bucket is acceptable.
+
+### 32.7 Field-level provenance, and what a "fact" is here
+
+Every captured field is a **claim with a provenance kind**, never a bare value. Four kinds, matching
+§12.1, plus the one this capability adds:
+
+| Kind | Example | May it be shown as CRM truth? |
+|---|---|---|
+| `SOURCE_FACT` | The signature says "Director of Marketing, Cashion Rods" (Stage 2) | Yes, cited |
+| `EXISTING_CRM` | The value was already in Loop before any capture | Yes — and it **wins** by default |
+| `INFERRED` | Content context suggests the company | Only as a proposal, labelled |
+| `CONFIRMED` | An employee said yes | Yes, and it outranks the rest |
+| *(derived)* | The address domain is `cashionrods.com` | As evidence for a proposal, never as a title or a company name |
+
+Rules:
+
+- **Existing CRM values are never overwritten by capture.** A conflict produces a *proposed change*
+  with both values and their provenance, and a human decides. This is what "respect existing CRM data"
+  has to mean mechanically.
+- **Facts are effective-dated.** `effectiveFrom`, optional `effectiveTo`, and supersession rather than
+  destruction: Ben's old title stays true of last year. Role and company changes are new facts
+  superseding old ones, which is also how "Ben appears to have changed roles" becomes surfaceable.
+- **No numeric identity confidence, anywhere** (C-05). Identity claims carry **evidence tier,
+  provenance, freshness, conflicts** — the posture vocabulary of that record's §11a. A producer's own
+  confidence on a *content inference* may be recorded where the AI runtime already models it, nullable,
+  and it is never an identity score and never a merge threshold.
+- **"Why does Loop think Ben works for Cashion?"** is answerable from the claim itself: the kind, the
+  evidence reference, the rule or task version, when it was observed, and who confirmed it.
+
+### 32.8 Automatic vs proposed vs enrich vs nothing
+
+| Situation | Loop does | Human act needed |
+|---|---|---|
+| Excluded sender (bulk, robot, role, free-mail one-off) | **Nothing.** Not stored as a candidate, not shown | — |
+| Meaningful correspondent, no CRM match | **Proposes** a Person (+ Company when the domain is new and not free-mail), with reasons and evidence | One click to accept, under `identityResolution` |
+| Meaningful correspondent, address already attributed to an established Person | **Enriches**: proposes changed or missing fields only; existing values win on conflict | One click per changed field, or accept-all |
+| Second address for a known Person | **Proposes an attribution** (`IdentityResolutionLink`) | Confirm |
+| Two established Parties share the address | **Proposes nothing**, reports the conflict | Resolve the conflict |
+| Relationship already exists in CRM | **Updates only the capture-owned fields**: owner, coarse recency, status | None |
+| Employee dismissed this candidate before | **Nothing, permanently** (§32.9) | — |
+
+**Reversibility is a precondition of every automatic step.** Anything Loop writes without a human act —
+owner, recency bucket, dormancy — is recomputable and reversible. Anything irreversible (a Person
+exists; two records are the same) stays human.
+
+### 32.9 Corrections, and making them stick
+
+| The employee says | What changes | How it stops recurring |
+|---|---|---|
+| "That's not a real contact" | The candidate is dismissed | A durable suppression on the **candidate key** (address + employee), so no rule version re-proposes it |
+| "Don't add contacts from this domain" | Domain suppression for that employee | Same, at domain level; visible and reversible in settings |
+| "Ben works for Cashion, not X" | A `CONFIRMED` company fact superseding the inferred one | Confirmed beats inferred permanently; the inference is not re-run against a confirmed field |
+| "These are the same person" | Routed to `identityResolution:approve` | Governed supersession; nothing automatic |
+| "These are different people" | A recorded non-match | The pair is never proposed again |
+| "This person left the company" | An `effectiveTo` on the employment fact; relationship status dormant | Future mail from that address proposes a *new* employment fact, not a revival |
+| "This relationship is no longer active" | Status set by the employee, which outranks derived status | Derived status never overrides a stated one |
+
+All corrections are **append-only** (Rule 1), per employee where they concern private judgment, and
+org-level only where the correction is about a shared fact — and that distinction is itself the test of
+whether a correction is safe to share.
+
+### 32.10 Where it fits in the existing architecture
+
+| Touchpoint | Effect |
+|---|---|
+| **Gmail ingestion (§13.2)** | Add `List-Unsubscribe`, `List-Id`, `Precedence`, `Auto-Submitted`, `Reply-To` to `metadataHeaders`. No extra call, no extra quota, no scope change |
+| **Work graph (§11.2)** | `work_correspondents` already models the private side; capture adds `candidate state` and the suppression rows. No new private entity |
+| **Person / Company model** | **Reused as-is.** People and Companies are established PERSON/COMPANY Parties; capture produces evidence and proposals into that authority, never a parallel contact table |
+| **Relationship model** | `CrmRelationship` is *"a commercial connection a human asserted"* with an `ownerUserId`. Capture proposes; a human asserts. Capture may maintain owner and recency on an existing row |
+| **Attributes (title, company, description)** | **Genuinely missing today**: a Party carries `displayName` and nothing else, and `IdentityEvidence` is hash-only by design. Capture needs a provenance-carrying claim store (§32.12 ARC-3), which is also what the identity record's own People projection will need |
+| **Provenance (§12)** | Extended with `EXISTING_CRM` and field-level effective dating |
+| **Ask Loop (§10, §31)** | People questions become answerable across two domains: private evidence (domain 1) and CRM facts (domain 3), under §31.4's rules |
+| **Company Knowledge (§31)** | Unchanged and separate: a playbook is not a contact |
+| **First-run (§22)** | Capture runs over the **same** bounded backfill — no additional Gmail reads |
+| **Offboarding (§21)** | Shared CRM facts **survive** the employee; private evidence is deleted. The provenance reference degrades to a stub: *"captured from employee correspondence, evidence since deleted"* — a fact keeps its lineage claim even when the lineage is gone |
+| **Retention (§21.3)** | Capture candidates follow the private windows; **accepted CRM facts are organization data with CRM lifetime**, which is the point of the distinction |
+| **Audit** | Every proposal, acceptance, rejection, enrichment and suppression is an audit row with actor and reason |
+| **Cost (§23)** | Metadata-stage capture is deterministic and free. Content enrichment is one call per *relationship*, gated on acceptance — not per message |
+| **Calendar / Drive** | Calendar co-attendance is an inclusion signal from day one; Drive contributes nothing to capture and is not used for it |
+
+### 32.11 What this needs from Matt
+
+| # | Decision | Why it cannot be defaulted |
+|---|---|---|
+| **O7** | **Path 1 (proposals) or Path 2 (a governed automated establishment basis)?** | Path 2 amends a locked Product resolution in another record. Path 1 ships without touching it and still removes the manual work. Recommendation: **Path 1**, revisit after a month of real acceptance rates |
+| **O8** | **What may be shared org-wide from private correspondence?** The proposal is: person, company, title, business email, owner, status and a **coarse** recency bucket — never timestamps, subjects or counts | It is the boundary between a CRM that is current and a system that reports on employees' activity |
+| **O9** | **Who may accept a capture proposal?** `identityResolution:approve` is OWNER/ADMIN today; the person who owns the relationship is usually neither | Either widen that grant (a change to the identity record) or route acceptance through an OWNER/ADMIN review queue |
+| **O10** | **Does capture apply to internal colleagues?** Everyone emails their own colleagues constantly | Recommendation: exclude the organization's own domains from Person capture entirely |
+| **O11** | **Dormancy window** before a relationship is shown as dormant (proposal: 90 days, per correspondent rhythm) | It drives a visible status on shared records |
+
+### 32.12 Implementation sequence
+
+Capture is **not** in DL-1, and its shared half cannot begin before the identity slices it depends on
+(evidence classes and attribution links with proposal/decision columns — `identity-evidence-resolution.md`
+§14, slices 2.1b and 2.5). The private half has no such dependency.
+
+| PR | Objective | Depends on | Schema | Gmail scope | Privacy / security | Tests | Acceptance |
+|---|---|---|---|---|---|---|---|
+| **ARC-1** | Correspondent significance: the exclusion rules and inclusion signals, as pure versioned rules; candidates stored **privately**, nothing proposed to anyone | DL-7, DL-8 | Additive: candidate state + suppressions on the private side | **None** (adds header names only) | Entirely inside the employee boundary; no CRM write exists yet | Fixture mailboxes: newsletters, receipts, robots, lists, one-off senders, a real first contact, a colleague | On a real mailbox, the candidate list is recognisably "the people I actually work with", and the excluded list is recognisably noise |
+| **ARC-2** | The private relationship surface and the Ask Loop people questions ("who do I know at X", "when did I last speak to Y", "who has gone quiet") | ARC-1, DL-11 | None | **None** | Private domain only | Query tests + the isolation test (another employee's contacts are invisible) | The employee gets real value **before any CRM record exists** |
+| **ARC-3** | The claim store: provenance-carrying, effective-dated field claims for a Party, with `EXISTING_CRM` precedence and supersession | ARC-1 | Additive (org-scoped claim table) | **None** | Shared-fact store; no private evidence copied into it | Precedence, supersession, effective dating, "why does Loop think this" rendering | An existing CRM value is never overwritten, and every claim explains itself |
+| **ARC-4** | Company resolution by domain evidence: match, propose, refuse (free-mail, conflict) | ARC-3 | None | **None** | Shared | Domain matching, free-mail refusal, conflict, the "two names one domain" case | No duplicate company is ever created from a name variant |
+| **ARC-5** | Proposals and one-click acceptance through the existing governed path; the weekly Daily Loop digest ("3 new relationships") | ARC-3, ARC-4, identity slices 2.1b/2.5, **O7 + O9** | Additive (proposal state) | **None** | The governed act is unchanged; acceptance is audited | Accept, dismiss, re-propose suppression, conflict, permission refusal | A relationship goes from mailbox to CRM record in one click, with its evidence |
+| **ARC-6** | Content enrichment: title, company, the "about" sentence, introductions — as `SOURCE_FACT` when a signature states it, `INFERRED` otherwise | ARC-5, **Stage 2** (`gmail.readonly`), the governed runtime | None | **Requires `gmail.readonly`** | Content ceilings (§17.4); quotes as evidence, capped | Signature parsing, inference labelling, conflict with existing values | The Ben Alcocer record in the brief becomes producible — with citations |
+| **ARC-7** | Keeping current: role and company changes, dormancy, new addresses, relationship revival, and the surfacing rules | ARC-5 | None | Partly content | Same | Change detection, effective dating, no destructive overwrite | "Ben appears to have changed roles" appears once, with evidence, and not again |
+
+**Placement:** ARC-1 and ARC-2 sit after DL-11 in phase 1 and need no new authorization beyond this
+record. ARC-3 to ARC-5 are their own phase, gated on O7/O9 and the identity slices. ARC-6 belongs to
+Stage 2 and cannot precede it. **DL-0 and DL-1 are unchanged by any of this.**

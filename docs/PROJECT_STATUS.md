@@ -1776,9 +1776,18 @@ each separately governed, mixed only at read time, with an answer inheriting the
 of its inputs. The Company Knowledge track (CK-1..CK-4) is a separate programme and is **not** part of
 Daily Loop V1.
 
-**Still open (§29.2, none blocking DL-1):** evidence quotes on by default (S2-2); the morning email
+**Automatic Relationship Capture (D16, §32):** Loop discovers meaningful business relationships from
+connected communication and maintains the CRM, without a contact per address. Its **private half**
+(who you actually correspond with, when you last spoke, who has gone quiet) works on today's metadata
+and needs no governed act; **every CRM write is a governed human act**, because
+`identity-evidence-resolution.md` §5 locks "no machine identity attribution — every attribution is a
+human proposal and a human confirmation", and C-05 forbids numeric identity confidence. Loop therefore
+proposes with evidence and a human accepts in one click (O7 asks whether Matt wants to amend that
+instead). Gmail metadata identifies **who and when**; **title, company and context need Stage 2**.
+
+**Still open (§29.2, none blocking DL-0 or DL-1):** evidence quotes on by default (S2-2); the morning email
 digest (DL-10); delegated mailboxes (DL-7); when to start Google verification (Testing mode expires
-refresh tokens weekly).
+refresh tokens weekly); and five relationship-capture decisions (O7-O11) that gate only ARC PRs.
 
 **Next:** Matt merges #287, then authorizes **DL-0** (delete `googleWorkspace:manage`: four places, no
 runtime caller) and **DL-1** (the per-employee work-state foundation — schema, `employeeIntelligence`
