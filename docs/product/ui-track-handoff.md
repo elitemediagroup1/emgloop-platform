@@ -242,11 +242,21 @@ styles. Its **states and wording are the contract**; its look is yours to redesi
 Brain work will run on AWS; this page and your screens stay on Netlify. The details are in
 `docs/architecture/brain-execution-infrastructure.md`.
 
-**B4 (2026-09-17) stored the records these behaviours read, but nothing serves them yet.** See
-`docs/architecture/brain-persistence.md`.
-- **Stored:** jobs, their named steps, the questions they ask, and the one reply each accepts.
-- **Not built:** there is no API yet (B5), and the migration is not deployed. Design against the
-  behaviour below, not against data you can load today.
+**B4 stored the records these behaviours read, and B5 serves them (in review, switched off).** See
+`docs/architecture/brain-persistence.md` and `docs/architecture/brain-boundary.md` §2–§5.
+- **Stored and served:**
+  - jobs, with a product phase (QUEUED, WORKING, WAITING_FOR_YOU, COMPLETED, FAILED, CANCELLED);
+  - the named step and the number of completed steps;
+  - the structured question a job asks (choose one, confirm, short text) and the one reply it accepts;
+  - who may stop it;
+  - where its result lives.
+- **Not built:**
+  - no Brain UI;
+  - no executor, so nothing runs;
+  - no result store.
+
+  AI is off, so every submission is refused today. Design against the behaviour below, not against
+  data you can load today.
 
 This section covers behaviour, not visuals:
 the look is yours. **None of it is built**, and today's Explanation panel is unchanged and OFF.

@@ -675,8 +675,14 @@ Environment changes reach a Netlify deployment on its **next deploy**, so these 
 not instantly. The approved Brain execution direction makes activation and kill switches **stored controls in
 Neon**, read by Netlify and the AWS worker alike, with a master switch per deployable as a floor
 (`brain-execution-architecture.md` §7; the control-plane design is in
-`brain-execution-infrastructure.md` §17). That needs a migration (step B4) and is **not built**. Until then,
-these environment gates are the mechanism, and they are OFF.
+`brain-execution-infrastructure.md` §17).
+- **B4 stored them** (`ai_controls`, migration 36).
+- **B5 enforces them for Brain work** (`brain-boundary.md` §8): the environment floor AND the recorded
+  controls, where a missing grant means off.
+- **No control has been recorded, and no workflow to record one exists yet.** Brain work is therefore
+  refused even where the environment allows it.
+- **This Netlify Case Explanation path still reads only these environment gates.** It stays OFF and is
+  retired when Case Explanation moves to AWS (B7).
 
 **If credentials are missing,** everything is built up to the adapter boundary and tested with recorded
 fixtures, so the task can activate once G1–G6 are supplied.

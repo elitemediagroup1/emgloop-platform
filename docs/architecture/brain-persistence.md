@@ -413,6 +413,10 @@ applied in an environment that is building Brain execution.
 
 ## 13. What B5 builds on this
 
+**Built in B5; see `brain-boundary.md`.** Two differences from this plan: the sealer is an AES-256-GCM
+implementation whose key the caller supplies (tests, and in B6 a key the execution environment holds),
+and the in-process step runner is a test-only reference executor.
+
 - **APIs.** The Brain API (submit, status, respond, cancel) and the internal Brain API (access,
   context, commit) call these repositories.
 - **Stored controls.** The stored-control reader combines `currentFor` with each deployment's floor.

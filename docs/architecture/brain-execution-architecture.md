@@ -101,9 +101,9 @@ B3. It does not change today's routing policy, and nothing executes it yet.
   - the doorbell endpoint and its token signing or verification;
   - any AWS account resource;
   - any Brain API beyond that one action.
-- **An older route.** `apps/web/src/app/api/brain/call-handling-briefing` is an unlinked,
-  deterministic diagnostic from `packages/brain`, and is not this runtime. B4 retires or absorbs
-  it, so Brain has one front door.
+- **An older route.** `apps/web/src/app/api/brain/call-handling-briefing` was an unlinked,
+  deterministic diagnostic from `packages/brain`, not this runtime. **B5 retired it**, so Brain has
+  one front door.
 
 ## 3. Boundary (target)
 
@@ -607,8 +607,8 @@ Each step is a separate draft PR with its own review. No step activates AI.
 | B2 | **Merged (#274).** Pure contracts: execution classes, result envelope, capability routes (reconciled with the existing `profile`, §5a), job state machine, step plans and paid-attempt policy, command types, orchestrator port, doorbell token claims, stored-control types | none |
 | B3 | **Merged (#275).** AWS trust, security and infrastructure **design** (`brain-execution-infrastructure.md`), plus the pure dispatch contracts (`brain-dispatch.ts`). Nothing is provisioned. | none |
 | B3.1 | **Merged (#276).** Reconciles DRAFT (sixth result type) and "no universal fallback" with the contracts: type standing, the Communications owner, the ownership-table check, the job's result owner and commit expectation, and a fallback-permission finding. | none |
-| B4 | **In review; migration not dispatched** (`brain-persistence.md`). Persistence (scope in `brain-execution-infrastructure.md` §25): jobs with the four declarations as separate columns (capability route; result type, owner and subject; execution class), lease and version; transitions, steps and checkpoints, waits and replies, commands, Brain events, stored AI controls; job, step and specialization-version columns on `ai_invocations`; the Brain-events Activity adapter; the restricted-roles runbook | one additive migration, not dispatched |
-| B5 | Loop side: the Brain API, the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner; retirement of the old `/api/brain` route | none |
+| B4 | **Merged (#277); migration 36 deployed** (`brain-persistence.md`). Persistence (scope in `brain-execution-infrastructure.md` §25): jobs with the four declarations as separate columns (capability route; result type, owner and subject; execution class), lease and version; transitions, steps and checkpoints, waits and replies, commands, Brain events, stored AI controls; job, step and specialization-version columns on `ai_invocations`; the Brain-events Activity adapter; the restricted-roles runbook | one additive migration, deployed |
+| B5 | **Built, in review** (`brain-boundary.md`). Loop side: the Brain API, the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, checkpoint sealing, a test-only reference executor; the old `/api/brain/call-handling-briefing` route retired. The B6 build plan is `brain-aws-implementation-dossier.md` | none |
 | B6 | AWS foundation in staging, switched off (CDK; authorizer, dispatcher, worker, sweeper, queues, DynamoDB, KMS, secrets, alarms, budgets; GitHub OIDC). **Adds a second deployable: needs approval of layout and tool.** | none |
 | B7 | Case Explanation on AWS in staging, then production; the first live request on a synthetic Case after the effort decision; removal of Netlify's provider keys | none |
 | B8 | The first DURABLE task, with its owned artifact and interface; the outbox repair (prerequisite) and notifications; ECS long steps only if needed | artifact migration |

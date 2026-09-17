@@ -12,6 +12,10 @@
 - **Scope of the design:** it settles how Loop hands Brain work to AWS **before** that environment
   exists. Each build step (§25) is its own reviewed pull request.
 
+**Built since (2026-09-17).** B4 persisted the records (`brain-persistence.md`; migration 36 deployed).
+B5 built the Loop side (`brain-boundary.md`). The B6 build plan, with the few refinements it makes to
+this design, is `brain-aws-implementation-dossier.md`. Nothing on AWS exists.
+
 **Amended after merge (B3.1, 2026-09-16).** Matt and Charlie then decided DRAFT and reaffirmed
 provider specialization with no universal fallback order. Decision 2 below, §15's fallback row, §24
 and §25 are updated to match; nothing else in the design changes.
@@ -768,9 +772,9 @@ remaining draft questions above.
 
 | Step | Scope | Migration |
 |---|---|---|
-| **B4** | Brain persistence (detail below). **Built; see `brain-persistence.md`.** | one additive migration (`20260919000000_brain_durable_persistence`), **not dispatched** |
-| B5 | Loop side: the Brain API (submit, status, respond, cancel), the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner for tests and development, and retirement of `/api/brain/call-handling-briefing` | none |
-| B6 | AWS foundation in staging, **off**: CDK; the authorizer, dispatcher, worker, sweeper, queues and DLQs; DynamoDB; KMS; Secrets Manager; SSM parameters; alarms; budgets; GitHub OIDC deploys. **Second deployable: needs approval.** | none |
+| **B4** | Brain persistence (detail below). **Merged (#277); see `brain-persistence.md`.** | one additive migration (`20260919000000_brain_durable_persistence`), **deployed** |
+| B5 | **Built, in review; see `brain-boundary.md`.** Loop side: the Brain API (submit, status, respond, cancel), the internal Brain API (access, context, commit), ring signing, worker-token verification, stored-control reads, the in-process step runner for tests and development, and retirement of `/api/brain/call-handling-briefing` | none |
+| B6 | AWS foundation in staging, **off** (plan: `brain-aws-implementation-dossier.md`): CDK; the authorizer, dispatcher, worker, sweeper, queues and DLQs; DynamoDB; KMS; Secrets Manager; SSM parameters; alarms; budgets; GitHub OIDC deploys. **Second deployable: needs approval.** | none |
 | B7 | Case Explanation on AWS in staging: the two-phase panel; the first live request on a synthetic Case with staging keys (only after the effort decision). Then production, and removal of Netlify's provider keys. | none |
 | B8 | The first DURABLE task, its owned artifact and interface; the outbox repair (prerequisite) and notifications; ECS long steps only if needed | artifact migration |
 
