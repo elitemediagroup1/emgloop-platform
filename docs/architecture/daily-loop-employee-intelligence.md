@@ -7,7 +7,7 @@ re-checked against that same commit when the decisions below were recorded.
 
 **Twelve product decisions are settled and carried through this record (§29.1)**; six remain open and
 are listed with the PR each one blocks (§29.2). The first implementation PR proposed for
-authorization is **DL-1** (§26.6). Nothing may be implemented before that authorization.
+authorization is **DL-1** (§26.7). Nothing may be implemented before that authorization.
 
 **How to read it.** Every claim about what exists names a file. Where something does not exist, this
 record says so rather than describing it as if it did — the failure mode `docs/EVENT_BUS.md` created
@@ -109,7 +109,8 @@ metadata and calendar; the rest are answered partially and honestly, and the rec
 7 daily brief · 8 calendar · 9 meetings · 10 Ask Loop · 11 work graph · 12 provenance · 13 ingestion ·
 14 scopes · 15 Brain · 16 jobs · 17 data model · 18 retrieval · 19 notifications · 20 security ·
 21 offboarding · 22 first run · 23 cost · 24 observability · 25 failure modes · 26 PR plan ·
-27 V1 definition · 28 roadmap · 29 open decisions · 30 risks and disagreements.
+27 V1 definition · 28 roadmap · 29 decisions · 30 risks and disagreements · 31 multi-domain retrieval
+and the Company Knowledge track.
 
 ---
 
@@ -237,6 +238,14 @@ Each line was checked, not assumed.
   nothing.
 - No assistant or chat surface anywhere; the one page that sounded like one was deliberately renamed
   because the name lied.
+
+### 3.3a No company knowledge in Loop
+
+The EMG corpus — the fourteen documents from *EMG Context* to the *Examples Library* — exists outside
+the repository. **Nothing in Loop ingests, stores, versions or retrieves it**, and no table models a
+policy, a playbook or a decision rationale. The `vk_*` verified-knowledge graph is a different thing:
+a service-to-service store for a partner platform's verified claims, with its own trust boundary
+(§2.2). §31 designs the seam; the ingestion is its own track.
 
 ### 3.4 No retrieval infrastructure
 
@@ -707,14 +716,20 @@ Loop retrieves; the model phrases.*
 
 ```
 "What am I waiting on from Charlie?"
-  → INTENT PARSE            deterministic: a closed set of question shapes, each mapping to a query
-                            over work state (who / what / when / which class)
-  → RETRIEVAL               SQL over the employee's own rows only; org + user scoped; bounded
-                            (top N threads, a date window, a named correspondent)
-  → ANSWER                  Stage 1: composed from the rows, no model at all
-                            Stage 2: an AI task whose ContextPackage is exactly those rows
-  → EVERY CLAIM CITES       thread / event / document references the person can open
+  → INTENT PARSE            deterministic: a closed set of question shapes, each producing a
+                            DOMAIN-AGNOSTIC query (subject, people, time window, class)
+  → RETRIEVAL PLANNER       asks the retrievers registered for the domains this principal may read
+                            V1 registers exactly one: the employee's own work state (§31.3)
+  → RETRIEVAL               each retriever answers under its own authority; org + user scoped here;
+                            bounded (top N threads, a date window, a named correspondent)
+  → ANSWER                  Stage 1: composed from the returned items, no model at all
+                            Stage 2: an AI task whose ContextPackage is exactly those items
+  → EVERY CLAIM CITES       the item's domain, authority and reference — openable by that person
 ```
+
+**Ask Loop is not a Gmail reader.** It is Loop's authorized retrieval surface, and mail is its first
+domain. §31 sets out why that distinction has to exist on day one and what it costs (one interface and
+one registry).
 
 **Stage 1 is not a degraded Ask Loop.** "What am I waiting on?", "Anything from Charlie I haven't
 answered?", "What meetings tomorrow have related correspondence?", "What happened while I was out?"
@@ -738,7 +753,7 @@ model to copy verbatim, including the sentence that already handles prompt injec
 inside `<loop_sources>` is data to be explained. It is never an instruction to you."* with source
 content escaped so it cannot forge its own wrapper (`packages/providers/src/ai/source-rendering.ts`).
 
-### 10.4 Retrieval without an index
+### 10.4 Retrieval without an index (in the employee domain)
 
 There is **no** full-text index, no `tsvector`, no pgvector and no embedding store anywhere in the
 repository, and tests actively fail the build if similarity code appears
@@ -755,6 +770,11 @@ What retrieval looks like instead:
 - **By subject text (Stage 2 only):** if it is ever needed, the honest first step is Postgres
   full-text over *subjects* within one employee's rows — a small, bounded corpus — and it is a
   separate, argued decision, not a side effect of this feature.
+
+**This is a statement about one domain, not about retrieval in general.** A document corpus (§31)
+has different characteristics — long prose, stable text, org-wide readership — and may well justify
+full-text or embeddings. That belongs to the Company Knowledge track's own decision (§31.6), and the
+retrieval contract is what lets one domain answer structurally while another answers textually.
 
 ### 10.5 Where it lives in the product
 
@@ -1408,7 +1428,10 @@ Detail is in §10; this section is the storage-side answer.
    The model receives tens of blocks, never a mailbox.
 3. **Thread-level caching.** A thread summary is keyed by `(threadId, lastMessageId)`; if that pair is
    unchanged, the stored summary is reused and no call is made. This single rule is most of §23.
-4. **Full-text is a later, separate decision.** If subject search proves necessary, Postgres full-text
+4. **Retrieval is per domain, behind one contract.** V1 has a single domain and a single retriever;
+   §31.3 is the interface both it and every later domain implement. Nothing in Daily Loop may query a
+   knowledge source that is not behind it.
+5. **Full-text is a later, separate decision.** If subject search proves necessary, Postgres full-text
    over one employee's `work_threads.subject` is the smallest honest step — bounded corpus, no new
    dependency. Embeddings are a bigger decision still, and the repository currently forbids them by
    test; reversing that deserves its own record, not a paragraph in this one.
@@ -1489,15 +1512,22 @@ Enforced structurally, not by review:
    refactor, and a test asserts the action list stays exactly `['view','update']` for every role.
 4. **Admin surfaces see counts, never content**: whether a connection exists, when it last synced,
    whether it is expired. That is enough to run onboarding and support.
-5. **The existing `googleWorkspace:manage` is fenced.** That action already exists and is granted to
-   OWNER and ADMIN (`GOOGLE_WORKSPACE_GRANTS`), meaning *"acting on another member's connection"* —
-   and **nothing uses it today**. It must never become a door into mail-derived data. Two things
-   follow: the record states that `googleWorkspace:manage` may authorise only connection lifecycle
-   acts (see that a connection exists, revoke it), never a read of any `work_*` row; and a test
-   asserts no Daily Loop read path consults it. **Recommendation (§29, D13): narrow it now** — either
-   delete the action until a real admin use case exists, or rename the intent in the grant comment —
-   because an unused permission with a broad name is exactly what a future implementer reaches for.
-5. A test asserts that no Daily Loop repository method exists whose parameters omit `userId`, and that
+5. **`googleWorkspace:manage` is removed, not fenced** (decided, §29.1 D14). The action exists today,
+   is granted to OWNER and ADMIN in `GOOGLE_WORKSPACE_GRANTS`, means *"acting on another member's
+   connection"*, and **is used by nothing**. A generic administrative permission sitting beside
+   employee-private data is the shape a future implementer grows into, and documentation does not stop
+   that; an unused permission costs nothing to delete.
+
+   **Administrative membership management and employee-private Google authorization are separate
+   boundaries.** Ending somebody's access to Loop is `users:update` / `users:delete`, and it already
+   revokes their Google credential inside the same transaction (`IamRepository.disableMember` /
+   `removeMember`) — so termination needs no `manage` and loses nothing by its removal. If a narrower
+   administrative act is ever genuinely required (forced credential revocation outside offboarding,
+   say), it is designed then as an explicit capability named for exactly that operation, with its own
+   audit surface — never as a generic `manage`.
+
+   The removal is **PR DL-0** (§26.2). It is not done in this PR, which changes documentation only.
+6. A test asserts that no Daily Loop repository method exists whose parameters omit `userId`, and that
    no page under the Daily Loop tree reads work tables without the session's own user id — the same
    source-scanning style `public-surface-security.test.tsx` already uses.
 
@@ -1593,22 +1623,26 @@ is a product conversation and not a guess. **Expiry is a delete, performed by th
 | # | Category | Window | Why that long | What depends on it | Privacy / security | After expiry |
 |---|---|---|---|---|---|---|
 | 1 | **Google raw API responses** | **Not retained at all** (in memory for the duration of one call) | Nothing needs the envelope once the fields are normalised | Nothing | Raw bodies would be the largest possible surface for the smallest possible gain | Nothing to delete; never written |
-| 2 | **Normalized Gmail metadata** (`work_messages`) | **While connected + 30 days** | A thread's rhythm — median reply time, "moved every 2 days" — needs a few weeks of history to be meaningful | Waiting/gone-quiet classification, reply-latency facts, "what did I miss" | Headers and addresses, no content; per-user, hashed addresses | Deleted; derived facts on the thread survive (they carry their own evidence refs) |
-| 3 | **Thread state** (`work_threads`) | **While connected + 90 days** | Longer than messages so a dormant thread waking up is still recognised as "this one went quiet in June" | Gone-quiet detection, correspondent rhythm, Ask Loop by person | Subject lines are the sensitive part; treated as `COMMUNICATION_CONTENT` | Deleted; the thread simply looks new if it reappears |
-| 4 | **Selectively retained content — the processing cache** (§17.4) | **Hours; hard ceiling 24h, and deleted on run completion** | Only exists so multi-step analysis reads one consistent snapshot | Stage 2/3 summaries, commitments, Ask Loop over content | The single most sensitive store Loop would hold; sealed, unindexed, unlogged | Deleted by sweep; re-fetched from Google if needed again |
+| 2 | **Normalized Gmail metadata** (`work_messages`) | **While connected; 30 days after a voluntary disconnect** | A thread's rhythm — median reply time, "moved every 2 days" — needs a few weeks of history to be meaningful | Waiting/gone-quiet classification, reply-latency facts, "what did I miss" | Headers and addresses, no content; per-user, hashed addresses | Deleted; derived facts on the thread survive (they carry their own evidence refs) |
+| 3 | **Thread / work-state context** (`work_threads`) | **90 days** | Longer than messages so a dormant thread waking up is still recognised as "this one went quiet in June" | Gone-quiet detection, correspondent rhythm, Ask Loop by person | Subject lines are the sensitive part; treated as `COMMUNICATION_CONTENT` | Deleted; the thread simply looks new if it reappears |
+| 4 | **Selectively retained content — the processing cache** (§17.4) | **Deleted immediately on successful processing; 24h hard ceiling as a backstop** | Only exists so multi-step analysis reads one consistent snapshot; the ceiling covers a failed or interrupted run | Stage 2/3 summaries, commitments, Ask Loop over content | The single most sensitive store Loop would hold; sealed, unindexed, unlogged | Deleted by sweep; re-fetched from Google if needed again |
 | 5 | **Selectively retained content — evidence quotes** (§17.4) | **The life of the item that cites them** (so ≤ 12 months, usually days) | An explanation must survive as long as the claim it explains | "Why does this matter", the brief's readability | ≤240 chars, ≤2 per item, `COMMUNICATION_CONTENT`, excluded from email | Deleted with the item, in the same transaction |
 | 6 | **Derived work-state facts** (`work_items` + observations) | **12 months** | The accuracy signal: "how often did Loop raise something the employee said was not important" needs a year to mean anything | Rule tuning, the correction loop, "what did I resolve last quarter" | Ids, classes, rules and evidence refs — no correspondence | Deleted; the aggregate accuracy counts it fed are already recorded |
 | 7 | **Daily briefs** (`work_briefs`) | **12 months** | "What happened last week", "catch me up since the holiday", and year-over-year rhythm | The history surface, the "since you were away" experience | Counts and references; at Stage 3 a narrative sentence with citations | Deleted; older days become unanswerable, which the surface states plainly |
 | 8 | **Calendar-derived state** (`work_events`) | **While connected + 90 days after the event** | Meeting briefs need past meetings with the same people to say "since you last met" | Meeting preparation, "previous meetings", conflict detection | Times, counts and composition — not attendee lists as subjects | Deleted; Google remains the authority and can be re-read |
 | 9 | **Provenance / evidence references** | **As long as the conclusion they support** (categories 6–7) | Rule 3: the evidence outlives the conclusion, and a conclusion whose evidence expired first is uninterpretable | "Why is Loop telling me this", every drawer on every row | References and ids, not content — the cheapest thing Loop keeps | Deleted **with** their conclusion, never before it |
 | 10 | **Audit and security records** (`audit_logs`, connection lifecycle, deletion acts) | **Indefinite, unchanged** | They record *acts*, not correspondence: who connected, who revoked, who deleted, when | Security review, incident response, the offboarding story | Contains no mail data by construction | Not deleted |
-| 11 | **Disconnected / offboarded employee data** | **Disconnect: frozen, then deleted at 30 days. Membership ended: deleted immediately (cascade)** | 30 days covers an accidental disconnect or a token expiry over a holiday without leaving a silent archive | Reconnecting inside a month keeps continuity; after that it rebuilds | The strongest expectation to honour: somebody who left should not remain readable | All `work_*` rows deleted; audit of the acts remains |
+| 11 | **Disconnected / offboarded employee data** | **Voluntary disconnect: frozen, deleted at 30 days. Membership terminated: deleted immediately (cascade)**, except independently governed security/audit records | 30 days covers an accidental disconnect or a token expiry over a holiday without leaving a silent archive | Reconnecting inside a month keeps continuity; after that it rebuilds | The strongest expectation to honour: somebody who left should not remain readable | All `work_*` rows deleted; audit of the acts remains |
 
-Three numbers are worth Matt's explicit sign-off because they trade privacy against product: **90 days
-for thread state** (3), **12 months for items and briefs** (6, 7), and **30 days after disconnect**
-(11). Everything else follows from them. They become named constants in one file, printed in the
-runbook, and reflected in the Connections page, so "how long does Loop keep this?" has exactly one
-answer in code, docs and UI.
+**Status: approved as initial product policy (Matt, 2026-09-17, §29.1 D13).** These are the windows
+Daily Loop starts with — deliberately *policy*, not permanent universal constants. They live as named
+values in one place, are printed in the runbook and shown on the Connections page, and changing one is
+a product decision recorded here with a date, not a code edit. Two refinements the approval added:
+
+- **The processing cache is deleted immediately on successful processing**, with the 24-hour ceiling
+  as a backstop for a run that failed or was interrupted — not as the normal lifetime.
+- **Voluntary disconnect deletes at 30 days; membership termination deletes immediately**, and in both
+  cases security and audit records are governed separately and are untouched by this table.
 
 ### 21.3a Deletion at the source
 
@@ -1835,7 +1869,24 @@ Standing requirements for every PR: draft only; one objective per branch; `next-
 build, typecheck and tests reported honestly; no secret in any file; no production data touched;
 nothing merged by me.
 
-### 26.2 Phase 1 — Daily Loop V1, at a glance
+### 26.2 DL-0 — remove `googleWorkspace:manage` (decided, D14)
+
+A standalone change, deliberately not folded into DL-1 so that a permission removal is reviewed on its
+own diff. **Exactly four places:** the two grant rows in `GOOGLE_WORKSPACE_GRANTS`
+(`packages/database/src/repositories/iam.repository.ts:172-179`); the `GoogleAuthority` union in
+`packages/database/src/services/google/google-workspace.service.ts:74`; the grant-table assertion in
+`packages/database/test/google-connection.test.ts:733-741`; and the authority table plus the "admin
+disconnect, if wanted" line in `docs/architecture/google-workspace-connection.md`.
+
+**No runtime caller passes `'manage'`** — verified across `apps/` and `packages/` — so nothing changes
+behaviourally. Offboarding keeps working, because it revokes under `users:update` / `users:delete`
+inside the membership transaction and never consults this action.
+
+Schema **no** · infra **no** · scope **no** · model **no** · UI **no**. What you can test: the IAM
+matrix test proving OWNER and ADMIN hold exactly `view` and `update` on `googleWorkspace`, and the
+full database suite unchanged.
+
+### 26.3 Phase 1 — Daily Loop V1, at a glance
 
 | # | PR | Depends on | Schema | Infra | Google scope | Calls a model | Employee-visible UI | What you can test when it lands |
 |---|---|---|---|---|---|---|---|---|
@@ -1849,7 +1900,7 @@ nothing merged by me.
 | **DL-8** | Work-state rules: needs you / waiting on / gone quiet, with evidence | DL-7 | No | No | **No** | No | No | The rules against fixture mailboxes, including cc-only, automated senders, out-of-office and one-message threads |
 | **DL-9** | Home: NEEDS YOU, WAITING ON, GONE QUIET, the why-drawer, and corrections | DL-8 | No | No | **No** | No | **Yes** | **The core product**: your real queue, each row explaining itself, and "handled / not mine / snooze" changing it |
 | **DL-10** | The daily brief and YESTERDAY | DL-8 | No | No | **No** | No | **Yes** | A brief written for your local day, its history, and a brief that records reduced coverage when a source failed |
-| **DL-11** | Ask Loop, Stage 1 | DL-8 | No | No | **No** | No | **Yes** | The supported questions answered from rows, and an honest refusal for the ones that need message content |
+| **DL-11** | Ask Loop, Stage 1 — **on the source-agnostic retrieval contract of §31.3**, with one registered retriever | DL-8 | No | No | **No** | No | **Yes** | The supported questions answered from rows; an honest refusal for the ones needing message content; and a test proving no Ask Loop module imports a Gmail or `work_*` repository directly |
 | **DL-12** | Drive: sensor, ingestion, document relations | DL-3 | No | No | **No** | No | **Yes** | Documents related to a meeting appearing on its card, labelled as related-by-metadata |
 | **DL-13** | Retention sweep, self-inspection, deletion | DL-7 | No | No | **No** | No | **Yes** | Seeing exactly what Loop holds about you, deleting it, and the sweep deleting an aged category on a clock |
 | **DL-14** | Observability and the runbook | DL-5 | No | No | **No** | No | No | A stale employee, a truncating cycle and an expired connection each visible within minutes |
@@ -1857,7 +1908,7 @@ nothing merged by me.
 **Review point 1** — after DL-14: is the queue trusted? Are the corrections telling us the rules are
 right? Only then is Phase 2 worth its consent cost.
 
-### 26.3 Phase 2 — message content (`gmail.readonly`), authorized separately
+### 26.4 Phase 2 — message content (`gmail.readonly`), authorized separately
 
 | # | PR | Depends on | Schema | Infra | Google scope | Model | UI | What you can test |
 |---|---|---|---|---|---|---|---|---|
@@ -1868,7 +1919,7 @@ right? Only then is Phase 2 worth its consent cost.
 **Review point 2** — after S2-3: is content-derived output accurate enough to schedule? That is the
 question Phase 3 exists to answer, and it needs real usage data, not an opinion.
 
-### 26.4 Phase 3 — Brain intelligence (scheduled model work)
+### 26.5 Phase 3 — Brain intelligence (scheduled model work)
 
 | # | PR | Depends on | Schema | Infra | Scope | Model | UI | What you can test |
 |---|---|---|---|---|---|---|---|---|
@@ -1879,17 +1930,18 @@ question Phase 3 exists to answer, and it needs real usage data, not an opinion.
 
 **Review point 3** — after C4: are proposals accurate enough that anyone would want Loop to act?
 
-### 26.5 Phase 4 — safe actions
+### 26.6 Phase 4 — safe actions
 
 Not planned in detail here. Each write scope is its own PR, its own consent card, its own confirmation
 design proportional to consequence, its own audit surface, and its own entry in the scope test.
 
-### 26.6 The single first implementation PR to authorize
+### 26.7 The single first implementation PR to authorize
 
 > **DL-1 — the per-employee work-state foundation.**
 
 - **Objective.** The storage and the isolation boundary, with nothing writing to it and nothing reading
-  Google. It exists so that the most consequential review in this whole programme — *can anyone else
+  Google. **Unchanged by the decisions of 2026-09-17** — it gains the approved retention windows as
+  seeded data, and nothing else. It exists so that the most consequential review in this whole programme — *can anyone else
   reach an employee's mail-derived data?* — happens once, early, on a small diff.
 - **Exactly what it changes.** One additive migration for the §17.1 tables (including
   `employee_work_preferences` and the retention-category table); repositories under
@@ -1940,6 +1992,7 @@ design proportional to consequence, its own audit surface, and its own entry in 
 | Commitment detection ("you said you'd send pricing") | Needs content; and it must arrive as proposals, not tasks (§12) |
 | Any model call at all | Brain is not deployed, AI is off, and V1 does not need one (§15.3). Scheduled model work waits for the seven prerequisites (§15.3a) |
 | Organization-level views of anyone's mail intelligence | Decided: never by default, and not as an increment of this (§20.2a) |
+| Company knowledge (playbooks, policies, lexicon, decisions) in Ask Loop | A separate track (§31.6). V1 leaves the seam — one retrieval contract, one registered domain — and ingests nothing |
 | Real-time alerts / push / SMS | No channel exists; the brief is the channel until the queue is trusted (§19) |
 | Meeting transcripts or a meeting bot | Explicitly out of scope in the meeting record; V2 there is a separate product decision |
 | Auto-linking correspondents to CRM People | Forbidden by the identity model; attribution stays a governed act (§11.1) |
@@ -1972,6 +2025,7 @@ The stages are §4.3's; this is what each buys and what it costs to get there.
 | **4. Actions** | Reply, send, mark handled, schedule, move, invite — from Loop | A write scope each, a consent card each, confirmation proportional to consequence | The point at which Gmail becomes optional for most days |
 | **4b. Drive content** | "What was in the pricing document" | `drive.file` via the Picker, **preferred** over `drive.readonly` | Per-file consent is narrower than whole-Drive read; prefer it even though it is more work |
 | **5. Other providers** | The same surface over Slack, Teams, phone, SMS | The same sensor + work-state shape | The model is provider-neutral by design: a second provider adds rows, not tables |
+| **Company Knowledge** (parallel track, not a Daily Loop stage) | Answers grounded in EMG's own playbooks, policies, lexicon, decisions and examples — alongside, never merged with, private mail | The retrieval contract of §31.3, then its own ingestion and permissions | **§31.** The corpus exists; nothing ingests it. It is a separate programme with its own decisions, and it is the reason Ask Loop is built as a retrieval surface rather than a mail reader |
 
 **Explicitly not on this roadmap:**
 
@@ -1987,35 +2041,37 @@ The stages are §4.3's; this is what each buys and what it costs to get there.
 
 ## 29. Decisions — settled, and still open
 
-### 29.1 Settled (Matt, 2026-09-17, on this record)
+### 29.1 Settled (Matt, on this record)
 
-| # | Question | **Decision** | Where it lands in the record |
+| # | Question | **Decision** | Where it lands |
 |---|---|---|---|
-| D1 | Per-user queue or the org-wide Decision Center? | **Per-user `work_items`, promotable to an `OperationalPriority` by the employee.** Privacy is the reason; the vocabularies stay shared | §11.3, §17.1 |
-| D2 | When do we request `gmail.readonly`? | **Not in V1. Stage 2 is planned, not optional**, behind the §14.2 gate | §4.3, §14.2, §26.3 |
-| D3 | Stage 2: store content or derive and discard? | **Derive and discard, with two bounded exceptions**: a sealed processing cache (≤24h, deleted on completion) and evidence quotes (≤240 chars, ≤2 per item, deleted with the item). No body column, ever; attachments never fetched | §17.4, §21.3 |
-| D4 | Any organization-level aggregate over employee mail? | **No, and no shortcut to one.** Every query names a user; there is no org-only read path; any future capability is separately designed, with policy, permissions, disclosure and review | §20.2a, §28 |
-| D5 | Employee privacy from OWNER/ADMIN | **Structural.** `employeeIntelligence` has `view`/`update` only — no `manage`, no `approve`; admin surfaces see counts, never content; `googleWorkspace:manage` is fenced to connection lifecycle | §20.1 |
-| D6 | Retention | **A window per category, not one number** — eleven categories, each with its rationale | §21.3 |
-| D7 | Brain | **No second AI runtime.** V1 is deterministic; scheduled model work waits for the seven prerequisites; an intermediate Stage 2 may use the existing governed in-process runtime, invoked by a person, never on a timer | §15.3a, §15.5 |
-| D8 | The Home experience | **NEEDS YOU · YESTERDAY · YOUR DAY · TOMORROW · WAITING ON · GONE QUIET · ASK LOOP**, in that order, with no counter dashboard | §5.2 |
-| D9 | Progressive intelligence | **Four stages**, each with stated capability boundaries and a list of sentences the earlier stages may not produce | §4.3 |
-| D10 | Onboarding | **Three capabilities, each explained in purpose terms**, optional and reversible, with graceful degradation when one is missing | §4.1, §22.4 |
-| D11 | Implementation | **Incremental, with review points between phases**; the first authorized PR is DL-1 | §26 |
-| D12 | Where the cycle runs | **GitHub Actions cron → authenticated app endpoint now** (the `drain-outbox` shape); Brain/EventBridge later, as a substitution | §16.2 |
+| D1 | Per-user queue or the org-wide Decision Center? | **Per-user `work_items`, promotable to an `OperationalPriority` by the employee** | §11.3, §17.1 |
+| D2 | When do we request `gmail.readonly`? | **Not in V1. Stage 2 is planned, not optional**, behind the §14.2 gate | §4.3, §14.2, §26.4 |
+| D3 | Stage 2: store content or derive and discard? | **Derive and discard**, with a sealed processing cache and capped evidence quotes as the only exceptions | §17.4, §21.3 |
+| D4 | Any organization-level aggregate over employee mail? | **No, and no shortcut to one** | §20.2a, §28 |
+| D5 | Employee privacy from OWNER/ADMIN | **Structural**: `employeeIntelligence` has `view`/`update` only | §20.1 |
+| D6 | Retention | **A window per category, not one number** | §21.3 |
+| D7 | Brain | **No second AI runtime**; scheduled model work waits for the seven prerequisites | §15.3a, §15.5 |
+| D8 | The Home experience | **NEEDS YOU · YESTERDAY · YOUR DAY · TOMORROW · WAITING ON · GONE QUIET · ASK LOOP**, no counter dashboard | §5.2 |
+| D9 | Progressive intelligence | **Four stages**, each with stated capability boundaries | §4.3 |
+| D10 | Onboarding | **Three capabilities, explained in purpose terms**, optional, reversible, degrading gracefully | §4.1, §22.4 |
+| D11 | Implementation | **Incremental, with review points**; first authorized PR named | §26 |
+| D12 | Where the cycle runs | **GitHub Actions cron → authenticated app endpoint**, Brain later | §16.2 |
+| **D13** | **Retention windows** *(closes O1, 2026-09-17)* | **Approved as initial product policy, not permanent constants**: raw API responses never stored; Gmail metadata while connected + 30 days after voluntary disconnect; thread/work-state context 90 days; processing cache deleted immediately on success with a 24h ceiling; evidence quotes only as long as the item that needs them; derived facts 12 months; briefs 12 months; calendar state through 90 days after the event; provenance at least as long as its conclusion; security/audit governed separately; voluntary disconnect deletes at 30 days; termination deletes immediately | §21.3 |
+| **D14** | **`googleWorkspace:manage`** *(closes O2, 2026-09-17)* | **Removed, not fenced.** OWNER and ADMIN get no generic permission that could grow into access to another employee's Google connection. Membership management and employee-private Google authorization are separate boundaries; termination already revokes under `users:update` / `users:delete`. Any future administrative act (e.g. forced credential revocation) is designed as a narrow, explicitly named capability | §20.1.5, **PR DL-0** (§26.2) |
+| **D15** | **Ask Loop's scope** *(new, 2026-09-17)* | **Not a Gmail-only retrieval system.** Retrieval is a source-agnostic, authorized contract across separately governed knowledge domains; Company Knowledge is its own track and is **not** part of Daily Loop V1 | **§31**, §10.2, §26 (DL-11) |
 
-### 29.2 Still open — I need an answer before the PR that depends on it
+### 29.2 Still open — with the PR each one blocks
 
-| # | Question | Why it cannot be defaulted | Needed by |
-|---|---|---|---|
-| **O1** | **The three retention numbers**: 90 days for thread state, 12 months for items and briefs, 30 days after disconnect. Confirm or change | They are product/privacy tradeoffs, not technical constants, and they become the numbers printed in the UI and the runbook | **DL-1** (the category table is seeded there) |
-| **O2** | **`googleWorkspace:manage`**: delete the action now, or keep it fenced by documentation and a test? | It exists, is granted to OWNER/ADMIN, is unused, and is the one permission a future implementer could mistake for "admin access to an employee's Google data". Deleting it is a five-line change today | **DL-1** |
-| **O3** | **Evidence quotes on or off by default** at Stage 2, and may an organization disable them for everyone? | It is the only place correspondence text persists beyond the cache; the product is materially better with them and materially smaller without | **S2-2** |
-| **O4** | **The morning email digest**: in-app only, or an opt-in email with counts and subjects? | The digest lands in the very mailbox it describes; subjects in an email are content leaving Loop's boundary | **DL-10** (design), later to build |
-| **O5** | **Delegated and shared mailboxes**: detect and refuse, or ignore? | If a connected account has delegated access to someone else's mail, Loop would build a private queue over a third party's correspondence | **DL-7** |
-| **O6** | **Testing mode**: do we start Google verification now, or run V1 on test users for a while? | Until the app is published, refresh tokens expire every 7 days, so an employee reconnects weekly — friction that argues against "primary work surface" (§30.3) | Before rollout beyond you and Charlie |
+| # | Question | Why it cannot be defaulted | Needed by | Blocks DL-1? |
+|---|---|---|---|---|
+| **O3** | **Evidence quotes on or off by default** at Stage 2, and may an organization disable them for everyone? | The only place correspondence text persists beyond the cache; the product is materially better with them and materially smaller without | **S2-2** | No |
+| **O4** | **The morning email digest**: in-app only, or opt-in email with counts and subjects? | The digest lands in the very mailbox it describes; subjects in an email are content leaving Loop's boundary | **DL-10** | No |
+| **O5** | **Delegated and shared mailboxes**: detect and refuse, or ignore? | A connected account with delegated access would build a private queue over a third party's correspondence | **DL-7** | No |
+| **O6** | **Testing mode**: start Google verification now, or run on test users first? | Until the app is published, refresh tokens expire every 7 days, so employees reconnect weekly | Before rollout beyond you and Charlie | No |
 
-Everything else previously listed as open is now settled in §29.1.
+**Nothing open blocks DL-1.** O1 and O2 are closed by D13 and D14. The Company Knowledge track has its
+own decisions, and they are listed in §31.6 rather than here, because none of them gates Daily Loop.
 
 ---
 
@@ -2096,3 +2152,147 @@ Five things surfaced when this record was re-checked against the decisions above
 | **Verification delay blocks the whole product** | V1 depends on the *existing* Testing-mode grant (Matt and Charlie), so it can be used internally while verification proceeds; the 7-day refresh-token expiry in Testing means reconnects are frequent and the UI must make that a non-event |
 | **The 100-user / Testing cap** | Fine for EMG; publishing is the gate for customer use, and it is already on the runbook |
 
+
+---
+
+## 31. Multi-domain retrieval, and the Company Knowledge track
+
+**Added 2026-09-17 (decision D15).** Nothing here is built, and none of it is part of Daily Loop V1.
+This section exists so that the retrieval layer built in DL-11 is a **seam** rather than a Gmail
+client, because retrofitting a second knowledge domain into a surface coupled to one is the expensive
+version of this work.
+
+### 31.1 Why this is in the Daily Loop record at all
+
+Ask Loop is the first surface in Loop that answers a question by *retrieving*. If it is built against
+the Gmail repositories, then every later knowledge source — the EMG corpus, the CRM, campaigns —
+arrives as either a second assistant or a rewrite. One paragraph of contract now prevents both.
+
+There is also a second, sharper reason. The three knowledge domains have **incompatible privacy
+models**, and the failure mode of a single retrieval store is that they quietly merge: an employee's
+private thread becomes "company context", or a company policy inherits an employee's privacy and
+nobody else can find it. Keeping them separate is not tidiness, it is the whole safety property.
+
+### 31.2 The three domains
+
+| | **1. Employee-private intelligence** | **2. Organization / institutional knowledge** | **3. Operational company data** |
+|---|---|---|---|
+| What | Gmail-, Calendar- and Drive-derived context; Daily Loop work state | Company bible, voice guide, playbooks, lexicon, operating knowledge, decisions and rationale, approved examples, product timeline | CRM, buyers, creators and talent, campaigns, projects, and every other Loop-owned operational system |
+| Authority | **The employee** | **The organization** (an author, an approver, an effective date) | The existing domain service that already owns the record |
+| Scope | `(organizationId, userId)` | `organizationId` | `organizationId`, plus whatever that domain already enforces |
+| Who may read | **Only that employee** (§20.1) | Members, by role and by document class | Whoever the existing IAM resource says |
+| Truth model | Provider facts + derived state + confirmations (§12) | Authored, **versioned, effective-dated, supersedable** | The domain's own record of truth |
+| Lifetime | §21.3 retention windows | Kept as history; superseded, not overwritten | The domain's own |
+| Today | Designed here, unbuilt | **The corpus exists** (Lexi's 14 documents); nothing ingests it | Built, live, governed |
+
+**The two sentences that must survive every later design review:**
+
+> Company knowledge is not employee-private Gmail data.
+> Employee-private Gmail data is not automatically company knowledge.
+
+### 31.3 The contract: one authorized retrieval interface, many retrievers
+
+Ask Loop never queries a domain directly. It asks a **planner**, which asks the **retrievers**
+registered for the domains the principal may read. Each retriever answers under its own authority and
+returns items in one envelope.
+
+```
+Ask Loop question + principal (organizationId, userId, roles)
+        │
+        ▼
+   RETRIEVAL PLANNER            picks domains from the question's shape; never widens authority
+        │
+        ├─▶ EmployeePrivateRetriever     (org + user; Daily Loop work state)          ← DL-11 registers this one
+        ├─▶ CompanyKnowledgeRetriever    (org; role- and class-permissioned)          ← CK track
+        └─▶ OperationalDataRetriever(s)  (delegating to CRM / campaigns / relationships,
+                                          each under its existing IAM resource)       ← later
+        │
+        ▼
+   RETRIEVED ITEMS  (one envelope, many sources)  →  answer composition  →  citations by domain
+```
+
+Every item carries, without exception:
+
+| Field | Why it exists |
+|---|---|
+| `domain` | Which of the three; decides how the item may be rendered, quoted and retained |
+| `sourceType` | `EMAIL_THREAD`, `CALENDAR_EVENT`, `DOCUMENT`, `PLAYBOOK_SECTION`, `CRM_RECORD`, … |
+| `authority` | The Loop authority that owns the record — the thing an answer cites, and the thing a correction goes back to |
+| `sourceRef` | Opaque handle for opening the original, under that authority's own guard |
+| `organizationId`, `userId?` | `userId` present **only** for employee-private items; its presence is what marks an answer private (§31.4) |
+| `effectiveFrom` / `effectiveTo` | A playbook from March is not the policy today; an answer that cannot date its source cannot be trusted |
+| `version`, `supersededBy?` | Institutional knowledge is revised, not overwritten; retrieval follows supersession forward |
+| `provenanceKind` | `SOURCE_FACT` / `DERIVED` / `INFERRED` / `CONFIRMED` — the same four as §12.1 |
+| `confidence?` | Only when inferred, and null rather than defaulted |
+| `sensitivityClass` | `OPERATIONAL` / `CONTACT_IDENTIFIER` / `COMMUNICATION_CONTENT` / `WORKFORCE_PII`, so a task's ceiling can be enforced |
+| `retrievedAt` | Freshness is a property of the answer, not an assumption |
+
+### 31.4 The rules that keep the privacy models apart
+
+1. **Mixing happens at read time, in one principal's request. Never at storage.** There is no combined
+   index, no shared table, no cross-domain join in SQL. Each domain keeps its own store, its own
+   authority and its own permissions.
+2. **An answer inherits the strictest visibility of its inputs.** If any item is employee-private, the
+   *answer* is employee-private: it is not stored anywhere org-readable, not published into an outbox
+   event with detail, not used to enrich a shared record. This is the mechanical version of "do not
+   collapse the privacy models".
+3. **Promotion is an act, not a side effect.** An employee may deliberately turn something private into
+   something the organization sees — the promotion path of §11.3. Nothing else may.
+4. **Retrieval may not widen authority.** A retriever is called *as the principal*; there is no service
+   account that "just reads what it needs". This is the rule the AI context package already enforces
+   (`packages/shared/src/ai/context.ts`) and it applies to every domain.
+5. **Every claim in an answer cites its item**, and the citation names the domain. "Where did this come
+   from" is answerable by construction, and a private citation renders as private.
+6. **Company knowledge is dated, not eternal.** A retrieved policy states its version and effective
+   date; a superseded one is either followed forward or reported as superseded, never quoted as
+   current.
+
+### 31.5 The worked example
+
+> *"Prepare me for my Cashion meeting."*
+
+| Item | Domain | Visibility of the item | What it contributes |
+|---|---|---|---|
+| The Cashion email thread | Employee-private | Only this employee | What was last said and who owes what |
+| Today's calendar event | Employee-private | Only this employee | Time, attendees, whether it moved |
+| The Cashion CRM record | Operational | Whoever `customers:view` admits | The commercial relationship as the company records it |
+| Creator & Talent Playbook, §"rate cards" | Institutional | Members, by role | How EMG prices this kind of work |
+| Commercial policy on usage rights | Institutional | Members, by role | What terms are standard, and what needs approval |
+| The proposal in Drive | Employee-private (metadata today; content at Stage 2/4b) | Only this employee | What was actually sent |
+
+The brief that comes back is **the employee's**, because two of its inputs are. It cites all six. The
+private thread never becomes organization-readable in the process, and the playbook never becomes
+private to one person.
+
+### 31.6 The Company Knowledge track (separate programme, not scheduled here)
+
+The corpus exists — fourteen authored documents, from *EMG Context* through the *Examples Library* —
+and it is the natural second domain. Its own track, at a glance, with the decisions it owns:
+
+| | |
+|---|---|
+| **CK-1** | Contract and home: what a knowledge document *is* in Loop (authorship, approval, version, effective date, supersession, document class), and where it lives. **Open decision:** the `vk_*` verified-knowledge graph is a service-to-service delivery store with a different trust boundary and is probably *not* the right home; a purpose-built org-scoped document store probably is. That is CK-1's decision to make and argue, not this record's |
+| **CK-2** | Ingestion with provenance: who authored it, who approved it, when it takes effect, what it supersedes. Documents are **authored artifacts, not truth** — they are revised, and retrieval must follow revisions |
+| **CK-3** | A `CompanyKnowledgeRetriever` implementing §31.3, permissioned by role and document class |
+| **CK-4** | Planner support for multiple domains, and answers that cite across them |
+| **Open decisions for that track** | Where the corpus lives; who may read which class (is the Commercial Playbook readable by every member?); whether retrieval over a document corpus finally justifies full-text or embeddings — a reversal of a position this repository enforces by test, and therefore its own record; and how a document's effective date interacts with an answer about the past |
+
+**None of this is Daily Loop work**, and none of it gates DL-1. It is listed so the seam has a
+destination.
+
+### 31.7 What this requires of DL-11, concretely
+
+DL-11 ships Ask Loop with **exactly one registered retriever**, and adding the second must be a
+registration rather than a rewrite. So:
+
+- The intent parser produces a **domain-agnostic query** (subject, people, time window, class), not a
+  Gmail query.
+- The planner and the item envelope of §31.3 exist from the first commit, with one implementation.
+- **No Ask Loop module imports a Gmail repository, or any `work_*` repository, directly.** A test
+  asserts it, in the style the repository already uses for its guard checks.
+- The renderer cites `domain` + `authority` + `sourceRef`, so a second domain needs no rendering
+  change.
+- A question Loop cannot answer within the registered domains says so and names what it searched —
+  never an empty answer that looks like "nothing exists".
+
+The cost of this in DL-11 is one interface and one registry. The cost of skipping it is the rewrite.

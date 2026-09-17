@@ -1764,14 +1764,27 @@ shortcut to one; retention is a window per category, not one number; no second A
 model work waits for the seven Brain prerequisites; Home is NEEDS YOU / YESTERDAY / YOUR DAY /
 TOMORROW / WAITING ON / GONE QUIET / ASK LOOP, not a counter dashboard.
 
-**Still open (§29.2):** the three retention numbers; whether to delete the unused
-`googleWorkspace:manage` action; evidence quotes on by default; the morning email digest; delegated
-mailboxes; and when to start Google verification (Testing mode expires refresh tokens weekly).
+**Closed 2026-09-17:** retention approved as **initial product policy** (a window per category, §29.1
+D13), and **`googleWorkspace:manage` is to be removed, not fenced** (D14) — OWNER/ADMIN get no generic
+permission that could grow into another employee's Google connection; termination already revokes
+under `users:update` / `users:delete`. **Nothing open now blocks DL-1.**
 
-**Next:** Matt merges #287 and authorizes **DL-1** — the per-employee work-state foundation (schema,
-`employeeIntelligence` IAM with no `manage`, repositories whose every method takes a `userId`,
-isolation tests). Nothing is implemented before that authorization. The full 14-PR phase-1 sequence,
-with schema/infra/scope/model/UI impact per PR, is §26.
+**New requirement (D15):** Ask Loop is not a Gmail-only retrieval system. **§31** adds the
+multi-domain retrieval seam — employee-private intelligence, organization/institutional knowledge
+(Lexi's 14-document EMG corpus, which nothing in Loop ingests today) and operational company data,
+each separately governed, mixed only at read time, with an answer inheriting the strictest visibility
+of its inputs. The Company Knowledge track (CK-1..CK-4) is a separate programme and is **not** part of
+Daily Loop V1.
+
+**Still open (§29.2, none blocking DL-1):** evidence quotes on by default (S2-2); the morning email
+digest (DL-10); delegated mailboxes (DL-7); when to start Google verification (Testing mode expires
+refresh tokens weekly).
+
+**Next:** Matt merges #287, then authorizes **DL-0** (delete `googleWorkspace:manage`: four places, no
+runtime caller) and **DL-1** (the per-employee work-state foundation — schema, `employeeIntelligence`
+IAM with no `manage`, repositories whose every method takes a `userId`, isolation tests). Nothing is
+implemented before that authorization. The full sequence with schema/infra/scope/model/UI impact per
+PR is §26.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
