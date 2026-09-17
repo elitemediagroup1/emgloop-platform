@@ -10,7 +10,7 @@ import { KmsEs256Signer } from '../src/aws/signer';
 import { LambdaDispatcherInvoker } from '../src/aws/invoker';
 import { SecretsSealerSource } from '../src/aws/sealers';
 import { cachedParameter, requiredEnv, NotConfigured } from '../src/config';
-import { databaseUrl, prismaFor } from '../src/database';
+import { connectionUrl, databaseUrl, prismaFor } from '../src/database';
 import { DISPATCHER_RECOVERY_SOURCE } from '../src/recovery';
 
 function recording(reply: (input: any) => unknown = () => ({})) {
@@ -101,7 +101,7 @@ test('sealers: new checkpoints name the current secret version; old ones open wi
   assert.equal(await source.forKeyRef('secretsmanager:loop/brain/staging/checkpoint-key:v9'), null);
 });
 
-test('configuration: parameters fail closed; database secrets must hold a URL', async () => {
+test('configuration: parameters fail closed; database secrets must hold a URL that verifies TLS', async () => {
   let calls = 0;
   const flaky = cachedParameter('/p', 60_000, { send: async () => { calls += 1; throw new Error('denied'); } } as any);
   assert.equal(await flaky(), undefined);
@@ -116,7 +116,24 @@ test('configuration: parameters fail closed; database secrets must hold a URL', 
   await assert.rejects(databaseUrl('s', secret('not json')), NotConfigured);
   await assert.rejects(databaseUrl('s', secret(JSON.stringify({ url: 'mysql://x' }))), NotConfigured);
   // Fixture URLs carry no user or password: a credential never appears in this repository.
-  assert.equal(await databaseUrl('s', secret(JSON.stringify({ url: 'postgresql://db.invalid/fixture?sslmode=require' }))), 'postgresql://db.invalid/fixture?sslmode=require');
+  const url = (u: string) => databaseUrl('s', secret(JSON.stringify({ url: u })));
+  assert.equal(await url('postgresql://db.invalid/fixture?sslmode=require'), 'postgresql://db.invalid/fixture?sslmode=require');
+  assert.equal(await url('postgres://db.invalid/fixture?sslmode=require&sslaccept=strict'), 'postgres://db.invalid/fixture?sslmode=require&sslaccept=strict');
+  for (const weak of [
+    'postgresql://db.invalid/fixture',
+    'postgresql://db.invalid/fixture?sslmode=prefer',
+    'postgresql://db.invalid/fixture?sslmode=disable',
+    'postgresql://db.invalid/fixture?sslmode=require&sslaccept=accept_invalid_certs',
+    'postgresql://db.invalid/fixture?sslmode=require&sslaccept=',
+  ]) {
+    await assert.rejects(url(weak), NotConfigured, weak);
+  }
+  // Refusals never carry the URL.
+  await assert.rejects(url('postgresql://db.invalid/unique-marker?sslmode=disable'), (err: Error) => !err.message.includes('unique-marker'));
+
+  assert.equal(connectionUrl('postgresql://db.invalid/fixture?sslmode=require'), 'postgresql://db.invalid/fixture?sslmode=require&connection_limit=1&sslaccept=strict');
+  assert.equal(connectionUrl('postgresql://db.invalid/fixture'), 'postgresql://db.invalid/fixture?connection_limit=1&sslaccept=strict');
+  assert.equal(connectionUrl('postgresql://db.invalid/fixture?sslmode=require&connection_limit=3&sslaccept=strict'), 'postgresql://db.invalid/fixture?sslmode=require&connection_limit=3&sslaccept=strict');
   const a = prismaFor('postgresql://localhost:5/fixture');
   assert.equal(prismaFor('postgresql://localhost:5/fixture'), a, 'one client per warm instance');
 });
