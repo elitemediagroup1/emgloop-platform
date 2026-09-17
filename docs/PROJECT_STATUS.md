@@ -1477,8 +1477,14 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
 `legacy-intake-retirement-plan.md` and the handoff disagree on whether this is already authorized.
 
 **Handoff:** `docs/product/ui-track-handoff.md` is current, including the Brain behaviours B5 serves.
-The permanent redesign (Track 2) runs in separate PRs; its implementation waits on Charlie and Lexi's
-latest artifact, which has not reached the repository.
+
+**Redesign (Track 2).**
+- **Controlling source:** Charlie and Lexi's *Loop Product and UI Redesign — Implementation Handoff*
+  (2026-09-16), delivered in this work session.
+- **UI-0 screen map:** PR #280 (`docs/product/ui-0-implementation-matrix.md`).
+- **Runs in separate PRs.** UI-1 starts only when Matt authorizes it.
+- **Open decisions** are listed in that document's §11. They include who approves route moves, the
+  People permission, and the prototype link, which the PDF does not carry.
 
 **Product decisions:**
 - **Approved:**
