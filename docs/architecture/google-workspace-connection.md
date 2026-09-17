@@ -1,10 +1,16 @@
 # Google Workspace connection — architecture record
 
-**Status:** PROPOSED (2026-09-16). The Private V1 OAuth contract was added on 2026-09-17 (§11).
-- **Nothing here is implemented.** No OAuth client exists, no Google account is connected, and no scope
-  has been requested.
-- **What this record defines:** how Loop would connect to Google Workspace without the two mistakes that
+**Status:** the Private V1 connection (§11) is **code-complete, NOT deployed** (2026-09-17, branch
+`feat/google-workspace-oauth-v1`; §12 records what was built).
+- **Not yet done:**
+  - no OAuth client exists;
+  - no Google account is connected;
+  - the migration has not been dispatched;
+  - nothing reads Gmail, Calendar or Drive data yet.
+- **Google sign-in (§1–§3)** remains a proposal. Connecting is not signing in.
+- **What this record defines:** how Loop connects to Google Workspace without the two mistakes that
   make such integrations unsafe.
+- **Matt's steps:** `docs/runbooks/google-workspace-oauth.md`.
 
 **The two mistakes, named first, because everything below follows from refusing them:**
 
@@ -45,6 +51,15 @@ Invitation (Loop, existing)
 
 Each connection is its own act, separately declinable, separately revocable, and Loop works without any
 of them. A person who connects nothing is a fully functional user.
+
+**As built (§12.2), Private V1 puts that choice into employee onboarding:**
+```
+Invitation accepted (password; Loop identity established)
+  → Welcome → Connect Google Workspace       (/app/onboarding/google)
+      → Connect Gmail / Calendar / Drive      each its own consent, each shown with its state
+      → Continue to Loop  |  Skip for now     both lead to Loop Home; nothing is required
+  → later: Home → Connections                 (/app/connections) to add, remove, reconnect or disconnect
+```
 
 ## 3. Account linking
 
@@ -141,10 +156,13 @@ a subject line, a body, a file name or an attendee list**.
 
 ## 11. Private V1 OAuth contract (2026-09-17, prepare only)
 
-**Status: A CONTRACT, NOT AN IMPLEMENTATION.**
-- No OAuth client, secret, consent screen, API enablement or Google Cloud change exists or was made.
-- No route in §11.3 exists in code.
-- No migration exists for §11.5.
+**Status: IMPLEMENTED IN CODE (§12), NOT DEPLOYED.**
+- **Google Cloud (Matt, 2026-09-17):**
+  - the project "EMG Loop", External, Testing, with Matt and Charlie as test users;
+  - the three APIs enabled and the three scopes configured.
+  - **No OAuth client exists yet.**
+- **The routes in §11.3** exist in code.
+- **The migration for §11.5** exists and has not been dispatched.
 
 **Values.** Where a value is established in code, it is quoted with its source. Where it is not, it is
 marked **Matt provides** and nothing is invented.
@@ -209,9 +227,10 @@ consent, by **incremental authorization**:
 | What | Value | Status |
 |---|---|---|
 | Production origin | `https://app.emgloop.com` | the canonical fallback in `packages/shared/src/app-origin.ts`. `APP_URL` overrides it. **Matt confirms** production's Netlify `APP_URL` equals it before registering anything |
-| Connect start | `GET /api/integrations/google/connect?capability=calendar\|gmail\|drive` | **proposed**, not built |
-| Callback (one for all capabilities) | `GET /api/integrations/google/callback` | **proposed**, not built |
-| Disconnect | a server action on the person's Connections page | **proposed**, not built |
+| Connect start | `GET /api/integrations/google/connect?capability=calendar\|gmail\|drive[&return=onboarding]` | **built**, not deployed |
+| Callback (one for all capabilities) | `GET /api/integrations/google/callback` | **built**, not deployed |
+| Disconnect, remove one capability | server actions on the Connections page (`apps/web/src/google/actions.ts`) | **built**, not deployed |
+| Onboarding step, Connections page | `/app/onboarding/google`, `/app/connections` | **built**, not deployed |
 | Authorized redirect URI (production) | `https://app.emgloop.com/api/integrations/google/callback` | register only once the route exists and the origin is confirmed |
 | Authorized redirect URI (development) | `http://localhost:3000/api/integrations/google/callback` | a **separate** development OAuth client, never the production one |
 | Authorized JavaScript origins | none | the web-server flow needs none. The Google Picker (`drive.file`) would add one later |
@@ -247,9 +266,12 @@ consent, by **incremental authorization**:
    - an `hd` outside an organization's configured domain, where one is configured;
    - a replayed or expired `state`;
    - a session mismatch.
-5. **PKCE.** Google's web-server guide documents `state`, and the client secret authenticates the
-   exchange. Whether to add PKCE (S256) on top is an implementation check against Google's current
-   documentation, not an assumption.
+5. **PKCE: not used (checked 2026-09-17).** Google's web-server guide documents `state` and the
+   client secret for this flow, and does not document `code_challenge` for it. The flow uses:
+   - the single-use, session-bound state;
+   - the client secret;
+   - a **`nonce`**, which Google's OpenID Connect guide lists for replay protection. It is stored
+     hashed with the state and must match the ID token's `nonce`.
 
 ### 11.5 Storage (needs a migration: not authorized)
 
@@ -363,17 +385,19 @@ repository file, and nobody asks for it.
 
 ### 11.10 Before implementation: decisions and prerequisites
 
-1. **The migration** for `google_connections` (§11.5), with its own authorization.
+1. **The migration** for `google_connections` (§11.5), with its own authorization. **Written:**
+   `20260920000000_google_workspace_connections`; not dispatched.
 2. **The path beyond Private V1.** The audience is External (decided).
    - **Leaving Testing** means Google's verification, including the restricted-scope review for
      `gmail.metadata` and `drive.metadata.readonly`, or narrower scopes.
    - **Until then,** connections are limited to the test users and expire every 7 days.
-3. **The IAM resource** for connecting and reading Google data (e.g. a new `googleWorkspace` resource
-   with `view` and `manage`): a permissions-matrix change.
+3. **The IAM resource** for connecting and reading Google data. **Decided in §12.4:**
+   `googleWorkspace`, with its own grant table.
 4. **Gmail:** metadata or readonly (§10, question 3).
 5. **Retention** of references after revocation (§10, question 4).
 6. **The production `APP_URL`,** and the privacy policy and terms URLs.
 7. **A Connections surface** in the Loop shell (Track 2), showing each capability's state honestly.
+   **Built:** the onboarding step and Connections page (§12.2).
 
 **Suggested PR sequence, each reviewed on its own:**
 1. the table and repository (migration);
@@ -382,3 +406,159 @@ repository file, and nobody asks for it.
 3. the Connections UI;
 4. the Calendar read;
 5. Gmail and Drive references.
+
+---
+
+## 12. Implementation: Private V1 (2026-09-17, code-complete, not deployed)
+
+### 12.1 Where it lives
+
+| Layer | File | Holds |
+|---|---|---|
+| Contract (pure) | `packages/shared/src/google-workspace.ts` | the three capabilities and their exact scopes; the granted-scope allowlist; per-capability states; outcome codes; revocation reasons; audit actions |
+| Protocol | `packages/providers/src/google-workspace/oauth.ts` | the authorization URL; code exchange, refresh and revoke (network injected); ID-token claim checks. No environment, no key |
+| Persistence | `packages/database/src/repositories/google-connection.repository.ts` | attempts and connections, organization-first; audit rows in the same transaction; `revokeGoogleConnectionInTx` for offboarding |
+| Sealing | `packages/database/src/services/google/google-token-sealer.ts` over `services/sealing/aes-gcm-sealing.ts` | AES-256-GCM, header `LGT\x01`. The shared core now also serves the Brain checkpoint sealer, byte-for-byte as before |
+| Lifecycle | `packages/database/src/services/google/google-workspace.service.ts` | begin, complete, disconnect, remove one capability, access token, finish a revocation; Google, sealer, IAM and clock injected |
+| Environment | `apps/web/src/google/google-environment.ts` | the ONLY reader of `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `LOOP_GOOGLE_TOKEN_KEY`; server-only |
+| Web wiring | `apps/web/src/google/google-runtime.ts`, `actions.ts`, `app/api/integrations/google/{connect,callback}/route.ts` | the routes and actions; the principal always comes from the signed session |
+| UI | `apps/web/src/app/app/_google/google-workspace-panel.tsx`, `app/app/onboarding/google`, `app/app/connections` | one server-component panel, two pages |
+| Schema | `google_connections`, `google_oauth_states` (migration `20260920000000_google_workspace_connections`) | as §11.5, with the refinements below |
+
+### 12.2 Onboarding and Connections
+
+- **Onboarding.** Accepting an invitation now lands on `/app/onboarding/google`
+  (`postInvitationDestination` in `landing.ts`, the one landing authority).
+  - **What the page shows:** each capability with what Loop reads and never reads, its state, and
+    its own Connect link.
+  - **Moving on:** *Continue to Loop* once all three are connected; *Skip for now* otherwise. Both go
+    to Loop Home, and **nothing is required**.
+  - **Roles without a connection:** a role that cannot hold a connection (AI Employee) is sent
+    straight to Loop Home.
+- **Connections.** `/app/connections` (Home → Connections in `LOOP_NAV`, shown only with
+  `googleWorkspace:view`) is where a person, at any time, can:
+  - add a capability;
+  - approve a declined one again, or reconnect an expired one;
+  - remove one capability;
+  - disconnect Google.
+- **Existing members** (onboarded before this) reach the same panel through Connections. No prompt
+  is forced on their next sign-in.
+- **Each Connect is a plain link** to the connect route for **one** capability, so every Google
+  consent screen names exactly one kind of access. No router link is used, so no prefetch can start
+  an attempt.
+
+### 12.3 Refinements to §11
+
+- **State and nonce.**
+  - **Storage:** `google_oauth_states` stores SHA-256 hashes of both, with organization, user,
+    **session row id**, capabilities, return page and a ten-minute expiry.
+  - **Consumption:** an attempt is consumed exactly once, and only in the same session.
+  - **Limit:** a person may hold ten open attempts.
+  - **Offboarding:** revocation drops every open attempt.
+  - **Refusals:** connect requests another site initiated (`Sec-Fetch-Site: cross-site`) are
+    refused.
+- **What is stored is what was granted.** The token response's `scope` is parsed against an
+  allowlist:
+  - the identity scopes (`openid`, `email`, `…/userinfo.email`);
+  - the three capability scopes.
+
+  Anything else refuses the whole grant and stores nothing. A database CHECK admits only the three
+  capability scopes in `grantedScopes`/`requestedScopes`.
+- **Declined capabilities.**
+  - `requestedScopes` accumulates what the person asked for on a live connection.
+  - A requested scope that is not granted reads `INSUFFICIENT_SCOPE`.
+  - A first attempt that granted no capability at all stores nothing (`DECLINED`).
+- **One live link per Google account per organization.**
+  - `activeGoogleSubject` equals `googleSubject` while the connection is CONNECTED or EXPIRED, and
+    is NULL once REVOKED. It is unique per organization.
+  - A different account for the same person is refused (`DIFFERENT_ACCOUNT`), and so is an account
+    another member holds (`ACCOUNT_IN_USE`).
+  - The repository decides both inside a **serializable** transaction, which also re-reads the
+    person's membership standing. A member disabled while their callback was in flight is never
+    re-connected. A serialization conflict is retried (at most three attempts).
+- **Removing one capability.** Google cannot revoke one scope of a grant. So removal:
+  1. revokes and deletes the whole grant (reason `CAPABILITY_REMOVED`);
+  2. offers the kept capabilities as one fresh, narrower consent.
+- **Expiry.** An access token is obtained per call, in memory.
+  - **Google refuses the refresh (`invalid_grant`):** the connection becomes EXPIRED, the sealed
+    token is **deleted** (it is known to be dead), and Loop stops calling until the person
+    reconnects.
+  - **The token cannot be opened** (a rotated key): the same happens, with class `TOKEN_UNOPENABLE`.
+  - **A refresh reports fewer scopes:** the stored set follows, with a `scope_changed` audit row.
+- **Revocation outcome.**
+  - **Revoked:** `revocationConfirmedAt` is set when Google confirms. An already-invalid token counts
+    as revoked.
+  - **Not confirmed:** `lastFailureClass` records `REVOKE_UNCONFIRMED`, with an audit row.
+- **A shared grant is not revoked (architecture issue, see §12.5).** Before calling Google, Loop
+  asks, across organizations, whether another live connection holds the same Google account.
+  - **If one does,** Loop deletes only its own copy and records `REVOKE_SKIPPED_SHARED_GRANT`.
+  - **This is the one cross-organization read** (`liveGrantElsewhere`). It returns only a boolean,
+    about the account the caller already holds.
+- **Domain restriction (§3).** It is per organization:
+  `organizations.settings.googleWorkspace.allowedHostedDomains`, lower-case domains.
+  - **Unset, the default:** no restriction; personal Google accounts are allowed.
+  - **Set:** the ID token's `hd` must be one of them.
+  - **Private V1 sets none,** and no UI edits it yet.
+- **Key reference.** `keyRef` is a fingerprint of `LOOP_GOOGLE_TOKEN_KEY` (`google-token/<16 hex>`).
+  Rotation makes old tokens unopenable, and they expire as above. There is no dual-key period.
+- **The ID token's signature is not re-verified.** Google's OpenID Connect guide says a token
+  received directly from the token endpoint, in an exchange authenticated with the client secret,
+  comes from Google. The claims are checked:
+  - `iss`, `aud`/`azp`, `exp`, `iat`;
+  - the nonce;
+  - `email_verified`;
+  - `hd` when restricted.
+
+### 12.4 Authority
+
+`googleWorkspace` has its own grant table, `GOOGLE_WORKSPACE_GRANTS`, like `identityResolution`,
+with no READ_ONLY fallback:
+
+| Role | view (my connection) | update (connect, remove, disconnect: my own) | manage (another member's) |
+|---|---|---|---|
+| OWNER, ADMIN | yes | yes | yes |
+| MANAGER, EMPLOYEE, READ_ONLY | yes | yes | no |
+| AI_EMPLOYEE, unknown roles | no | no | no |
+
+- **AI Employees:** `can()` and `canEach()` deny `AI_EMPLOYEE` whatever a Permission row says.
+- **`manage` is literal:** it does not imply the other actions.
+- **Offboarding is not a separate permission.** Disabling or removing a member
+  (`IamRepository.disableMember` / `removeMember`, under `users:update` / `users:delete`) revokes the
+  member's connection in the same transaction. The Team actions ask Google to revoke once that has
+  committed.
+- **No admin screen acts on another member's connection yet.** `manage` is granted, but nothing
+  offers it.
+- **Brain roles:** the restricted Brain database roles hold no privilege on either table (checked
+  on PostgreSQL 18).
+
+### 12.5 Issues found
+
+1. **Shared grants.**
+   - Google issues one grant per Google account per OAuth client, and Loop is one client for every
+     organization.
+   - The same Google account linked in two organizations therefore shares a grant, and revoking it
+     for one would end the other.
+   - Loop protects the other connection (§12.3), at the cost of leaving the grant at Google until
+     its last holder disconnects.
+   - This is inferred from Google's documented behaviour and not tested live.
+   - Alternatives: one link per Google account across all of Loop, or one OAuth client per
+     organization. Both are product decisions.
+2. **Testing-mode expiry.** Private V1 refresh tokens expire after 7 days (§11.1), so every
+   connection turns Expired weekly until the app is published.
+3. **Reads are not built.** No code reads Gmail, Calendar or Drive yet.
+   - Google's verification requires demonstrating each scope, so the read PRs must precede
+     publishing.
+   - The first read will also be the first caller of `accessToken`.
+4. **No dual-key rotation.** Rotating `LOOP_GOOGLE_TOKEN_KEY` expires every connection.
+5. **Test-renderer warning.** The panel's server-action forms render with a React warning under
+   the test renderer (React 18.3), not under Next's bundled React. It has no product effect.
+
+### 12.6 What remains
+
+1. **Matt:** merge; dispatch the migration; create the OAuth client and set the Netlify variables
+   (runbook §1–§3); connect as Matt and Charlie (runbook §4).
+2. **The first read** (Calendar, §11.8), with its own review; then Gmail and Drive references.
+3. **An admin view** of members' connection states, and an admin disconnect (`manage`), if wanted.
+4. **A UI** for the per-organization domain restriction, if any organization needs one.
+5. **Google verification and publishing** (runbook §6): brand, sensitive and restricted-scope
+   review, CASA assessment, annual reassessment.

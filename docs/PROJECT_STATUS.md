@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. the definition pass #284, migration 36 deployed (production at 36); AWS accounts exist (management 670682108352, Loop Brain Staging 065148797865) but staging holds no Brain resource, is not bootstrapped and has no trail; Lambda quota 10 with an increase pending; B7 pre-deployment PR in review; NOT deployed; see the Foundation handoff block)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) code-complete in review, NOT deployed, migration 37 not dispatched; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -1652,6 +1652,79 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
 7. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.
+
+## Google Workspace connection — PRIVATE V1 CODE-COMPLETE, IN REVIEW (branch `feat/google-workspace-oauth-v1`) · NOT DEPLOYED · MIGRATION 37 NOT DISPATCHED
+
+_Last updated: 2026-09-17._ Built on `main` `e15c65c`.
+- **Record:** `docs/architecture/google-workspace-connection.md` §11 (the contract) and §12 (what was
+  built).
+- **Matt's steps:** `docs/runbooks/google-workspace-oauth.md`.
+
+**Google Cloud (Matt, 2026-09-17):**
+- the project "EMG Loop": External, Testing, with test users Matt and Charlie;
+- the Gmail, Calendar and Drive APIs enabled;
+- the scopes `gmail.metadata`, `calendar.events.readonly` and `drive.metadata.readonly`;
+- **no OAuth client yet.**
+
+**Built:**
+- **One connection per Loop user per organization.** Gmail, Calendar and Drive are granted one
+  capability at a time (incremental authorization).
+- **The flow.**
+  - `GET /api/integrations/google/connect` records a single-use state and nonce, stored hashed,
+    bound to organization, user and session, for ten minutes.
+  - `GET /api/integrations/google/callback` exchanges the code server-side, checks the ID token's
+    claims, reads the GRANTED scopes against an allowlist, and stores the refresh token sealed
+    (AES-256-GCM, `LOOP_GOOGLE_TOKEN_KEY`).
+- **Other lifecycle.** Disconnect, and removal of one capability (Google cannot revoke one scope,
+  so the whole grant is revoked and the rest re-approved), are server actions. Expiry (a refused
+  refresh, or a rotated key) turns the connection Expired and deletes the credential.
+- **Onboarding and Connections.**
+  - Accepting an invitation lands on `/app/onboarding/google`, which is optional: Continue or Skip.
+  - Home → Connections (`/app/connections`) is available any time.
+- **IAM:** a new `googleWorkspace` resource with its own grant table.
+  - Every human role has view and update on its own connection.
+  - OWNER and ADMIN also have `manage`.
+  - AI Employees are always denied.
+- **Offboarding:** disabling or removing a member revokes their connection in the same transaction,
+  and Google is asked to revoke after commit.
+- **Migration** `20260920000000_google_workspace_connections`: additive, two tables. CHECKs pin the
+  three scopes, the credential lifecycle, hashed state and valid return targets. It is **not
+  dispatched**.
+
+**Evidence (2026-09-17):**
+- **New tests:**
+  - shared contract: 7;
+  - OAuth protocol: 9;
+  - database lifecycle and isolation: 25;
+  - real PostgreSQL 18: 2, opt-in, run locally;
+  - web: 17.
+- **Full suites:** web 535, database 1366 (+8 opt-in skipped), shared 1209, providers 186, executor
+  27 (+1), infra 37. All pass.
+- **Local replay:** all 37 migrations replayed on PostgreSQL 18.6, with no drift from the schema.
+- **Build:** `next build` passes.
+- **A local run of the built app** against that database, with a test-only client, checked:
+  - the connect redirect;
+  - every refusal path;
+  - the hashed state;
+  - both pages;
+  - no horizontal overflow at 390 px.
+
+  No call reached Google.
+- **Defect planting:** 14 planted defects were caught. The one survivor was a redundant duplicate
+  check, since removed.
+
+**Not done:** no OAuth client, no deployment, no migration dispatch, and no Gmail, Calendar or
+Drive read (the first read is its own PR).
+
+**Next:**
+1. Review and merge.
+2. Dispatch the migration.
+3. Create the production client with the redirect URI
+   `https://app.emgloop.com/api/integrations/google/callback`.
+4. Set the three Netlify variables, Production context only.
+5. Connect as Matt and Charlie.
+6. The Calendar read.
+7. Google verification and publishing (runbook §6).
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
