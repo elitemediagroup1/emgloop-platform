@@ -160,18 +160,27 @@ export const IDENTITY_RESOLUTION_GRANTS: Readonly<Record<string, readonly Action
 
 // GOOGLE WORKSPACE -- the connection lifecycle (google-workspace-connection.md §11.10.3).
 //
-// Every human member connects THEIR OWN Google account during onboarding, so every human
-// role holds `view` (see my connection) and `update` (connect, add or remove a
-// capability, disconnect -- always one's own; the organization and person come from the
-// session). `manage` -- acting on ANOTHER member's connection -- is OWNER and ADMIN only,
-// and is literal here: it does not imply the other actions.
+// EVERY ACTION HERE IS ABOUT ONE'S OWN CONNECTION, AND NOTHING ELSE. Every human member
+// connects THEIR OWN Google account during onboarding, so every human role holds `view`
+// (see my connection) and `update` (connect, add or remove a capability, disconnect --
+// always one's own; the organization and person come from the session).
+//
+// THERE IS DELIBERATELY NO `manage`. It existed here until 2026-09-17, meaning "acting on
+// ANOTHER member's connection", and nothing ever called it. An unused administrative
+// action sitting next to somebody's mailbox is the shape a later feature grows into:
+// ending a person's access to Loop is membership administration (`users:update` /
+// `users:delete`, which already revoke the Google credential in the same transaction --
+// see disableMember / removeMember), and that is a different boundary from reaching into
+// the Google account of somebody who still works here. If a narrow administrative act is
+// ever genuinely needed, it gets its own action named for that operation, with its own
+// audit surface -- never a generic one that can be widened later.
 //
 // AI_EMPLOYEE is denied everything, whatever a Permission row says: an AI Employee is an
 // assignable identity, not a person with a Google account, and no grant may make it one.
 // A role missing from this table is denied too.
 export const GOOGLE_WORKSPACE_GRANTS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
-  OWNER: ['view', 'update', 'manage'],
-  ADMIN: ['view', 'update', 'manage'],
+  OWNER: ['view', 'update'],
+  ADMIN: ['view', 'update'],
   MANAGER: ['view', 'update'],
   EMPLOYEE: ['view', 'update'],
   READ_ONLY: ['view', 'update'],
