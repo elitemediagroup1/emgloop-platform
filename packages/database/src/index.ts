@@ -567,3 +567,21 @@ export {
   GOOGLE_TOKEN_PURPOSE,
 } from './services/google/google-token-sealer';
 export type { GoogleTokenBinding, SealedGoogleToken } from './services/google/google-token-sealer';
+
+// Daily Loop calendar ingestion (DL-3): one employee's calendar, into their own work state.
+// The Google connection, the sensor and the clock are injected; the principal is the whole
+// authorization.
+export {
+  CalendarSyncService,
+  eventFactsFor,
+  CALENDAR_LOOKBACK_DAYS,
+  CALENDAR_LOOKAHEAD_DAYS,
+} from './services/work-state';
+export type {
+  CalendarAccessPort,
+  CalendarSensorPort,
+  CalendarSyncDeps,
+  CalendarSyncMode,
+  CalendarSyncOutcome,
+  CalendarConnectionState,
+} from './services/work-state';

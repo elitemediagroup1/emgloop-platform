@@ -1733,7 +1733,7 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 2. Daily Loop (draft #287) — the read path is its first phase.
 3. Google verification and publishing (runbook §6).
 
-## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-1 MERGED (#289) · DL-2 IN REVIEW
+## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-1, DL-2 MERGED · DL-3 IN REVIEW
 
 **Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
 product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
@@ -1822,9 +1822,24 @@ calendar** with `singleEvents=true`, pagination with a 10-page bound, incrementa
 **hashed**, no description, location, attendee list or joining link. **No schema, no ingestion, no
 cursor persistence, no model, no UI, no scope change.** DL-3 owns writing these facts to `work_events`.
 
-**Next:** review DL-2, then authorize **DL-3** (Calendar ingestion + cycle runner + manual trigger:
-the first production caller of `GoogleWorkspaceService.accessToken()`). §26 of the record has the full
-sequence.
+**DL-3 (in review):** the first complete private data path — the employee's own Google connection,
+through `GoogleWorkspaceService.accessToken()` (its first production caller), through the DL-2 sensor,
+into their own DL-1 work state. A bounded first window (7 days back, 30 ahead), then incremental reads
+by `syncToken`; an expired cursor causes ONE bounded re-baseline, never a crawl. Idempotent upserts on
+the provider key; a cancelled event is kept as cancelled rather than deleted. The manual trigger is
+`POST /api/integrations/google/calendar/sync`, which takes the principal from the session and reads no
+body, query or header that could name anybody else.
+
+**Migration 39** `20260921000000_work_event_calendar_facts` adds ten additive columns to `work_events`
+(the title DL-2 flagged as missing, the all-day date/zone columns, kind, blocking, original start,
+organizer-self, attendance-known, self response) plus one CHECK. **Neither 38 nor 39 is dispatched.**
+
+**Production migration sequence after merge:** one run of `Deploy Prisma Migrations` applies
+`20260920000000_daily_loop_work_state` (38) then `20260921000000_work_event_calendar_facts` (39), in
+that order. Production is currently at 37.
+
+**Next:** review DL-3, then authorize **DL-4** (Your Day / Tomorrow on Home — the first
+employee-visible Daily Loop surface). §26 of the record has the full sequence.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

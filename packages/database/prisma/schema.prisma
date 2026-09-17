@@ -5886,16 +5886,43 @@ model WorkEvent {
   provider         String
   eventId          String
   recurringEventId String?
+  /// For an instance of a series, the moment the series said it would start, before any move.
+  originalStartsAt DateTime?
 
-  startsAt DateTime?
-  endsAt   DateTime?
-  allDay   Boolean   @default(false)
-  /// The provider's status (confirmed / tentative / cancelled), stored as given.
-  status   String?
+  /// A TIMED event has instants. An ALL-DAY event has dates, and a date is not a moment until
+  /// somebody says whose day it is -- so the two are stored apart and neither is invented from
+  /// the other (DL-2, and the Loop Time Authority). `endDateExclusive` keeps Google's own
+  /// semantics: a one-day event on the 18th ends on the 19th.
+  startsAt         DateTime?
+  endsAt           DateTime?
+  allDay           Boolean   @default(false)
+  startDate        DateTime? @db.Date
+  endDateExclusive DateTime? @db.Date
+  /// The calendar's own IANA zone where the provider states one. Never the reader's.
+  eventTimeZone    String?
+  /// `CALENDAR_EVENT_STATUSES`. A cancelled event is kept, not deleted: it is how a meeting
+  /// leaves the day, and deleting it would make the history ambiguous.
+  status           String?
+  /// `CALENDAR_EVENT_KINDS`. An out-of-office block is not a meeting, and a later rule needs to
+  /// know that without reading a title.
+  kind             String?
+  /// `CALENDAR_TIME_BLOCKING`. An event that does not block time is not a conflict.
+  blocking         String?
+
+  /// The event's title. CONTENT, and the minimum the approved Day experience needs (DL-2 found
+  /// it missing). Deliberately the ONLY content field: no description, no location, no
+  /// attendee addresses, no joining link, no attachment.
+  summary String?
 
   organizerHash         String?
+  organizerIsSelf       Boolean @default(false)
+  /// Whether the provider stated who is attending at all. FALSE means the counts are UNKNOWN,
+  /// which is a different fact from nobody being invited.
+  attendanceKnown       Boolean @default(false)
   attendeeCount         Int?
   externalAttendeeCount Int?
+  /// `CALENDAR_RESPONSES` -- the connected person's own answer, when the provider states one.
+  selfResponse          String?
   hasConference         Boolean @default(false)
 
   /// The provider's own last-modified stamp, and when Loop read it.
