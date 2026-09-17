@@ -762,7 +762,7 @@ test('every human role connects its own account; only OWNER and ADMIN manage oth
 // --- The migration ------------------------------------------------------------------------------
 
 test('the migration only adds, is ASCII, and pins the three approved scopes in the database', () => {
-  const sql = readFileSync(join(__dirname, '..', 'prisma', 'migrations', '20260920000000_google_workspace_connections', 'migration.sql'), 'utf8');
+  const sql = readFileSync(join(__dirname, '..', 'prisma', 'migrations', '20260917172545_google_workspace_connections', 'migration.sql'), 'utf8');
   assert.equal(/[^\x00-\x7f]/.test(sql), false, 'ASCII only');
   const statements = sql.replace(/--.*$/gm, '');
   assert.equal(/\bDROP\b|\bUPDATE\s+"|\bDELETE\s+FROM\b|\bINSERT\s+INTO\b|\bTRUNCATE\b|RENAME/i.test(statements), false, 'additive only');

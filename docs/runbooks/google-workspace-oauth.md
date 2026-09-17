@@ -2,7 +2,7 @@
 
 **Status (2026-09-17): code-complete in the branch `feat/google-workspace-oauth-v1`, NOT deployed.**
 - **No OAuth client exists yet**, and no Google account has been connected.
-- **The migration** `20260920000000_google_workspace_connections` exists and has **not** been
+- **The migration** `20260917172545_google_workspace_connections` exists and has **not** been
   dispatched.
 
 **Where the design lives:** `docs/architecture/google-workspace-connection.md`, especially §11 and

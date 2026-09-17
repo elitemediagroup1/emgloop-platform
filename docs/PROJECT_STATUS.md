@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) code-complete in review, NOT deployed, migration 37 not dispatched; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) code-complete in review, ID tokens verified against Google's published keys, NOT deployed, migration 37 not dispatched; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -1672,9 +1672,10 @@ _Last updated: 2026-09-17._ Built on `main` `e15c65c`.
 - **The flow.**
   - `GET /api/integrations/google/connect` records a single-use state and nonce, stored hashed,
     bound to organization, user and session, for ten minutes.
-  - `GET /api/integrations/google/callback` exchanges the code server-side, checks the ID token's
-    claims, reads the GRANTED scopes against an allowlist, and stores the refresh token sealed
-    (AES-256-GCM, `LOOP_GOOGLE_TOKEN_KEY`).
+  - `GET /api/integrations/google/callback` exchanges the code server-side, verifies the ID token
+    (RS256 signature against Google's published signing keys, then the claims), reads the GRANTED
+    scopes against an allowlist, and stores the refresh token sealed (AES-256-GCM,
+    `LOOP_GOOGLE_TOKEN_KEY`).
 - **Other lifecycle.** Disconnect, and removal of one capability (Google cannot revoke one scope,
   so the whole grant is revoked and the rest re-approved), are server actions. Expiry (a refused
   refresh, or a rotated key) turns the connection Expired and deletes the credential.
@@ -1687,20 +1688,28 @@ _Last updated: 2026-09-17._ Built on `main` `e15c65c`.
   - AI Employees are always denied.
 - **Offboarding:** disabling or removing a member revokes their connection in the same transaction,
   and Google is asked to revoke after commit.
-- **Migration** `20260920000000_google_workspace_connections`: additive, two tables. CHECKs pin the
+- **ID-token verification** (`packages/providers/src/google-workspace/id-token.ts`): the signature is
+  checked against Google's published keys (`jwks_uri`, RS256 only) before any claim is read; the key
+  set is cached per Google's `Cache-Control`/`Age`, refetched once for an unknown `kid` (rotation,
+  rate-limited), never used stale, and every failure refuses the connection.
+- **Migration** `20260917172545_google_workspace_connections`: additive, two tables. CHECKs pin the
   three scopes, the credential lifecycle, hashed state and valid return targets. It is **not
   dispatched**.
 
 **Evidence (2026-09-17):**
 - **New tests:**
   - shared contract: 7;
-  - OAuth protocol: 9;
-  - database lifecycle and isolation: 25;
+  - OAuth protocol: 5;
+  - ID-token verification (signature, algorithms, rotation, caching, unavailability): 13;
+  - database lifecycle and isolation: 26;
   - real PostgreSQL 18: 2, opt-in, run locally;
   - web: 17.
-- **Full suites:** web 535, database 1366 (+8 opt-in skipped), shared 1209, providers 186, executor
-  27 (+1), infra 37. All pass.
+- **Full suites:** web 535, database 1375 (8 opt-in included), shared 1209, providers 195, executor
+  28, infra 37. All pass.
 - **Local replay:** all 37 migrations replayed on PostgreSQL 18.6, with no drift from the schema.
+  The Google migration's id is dated for the day it was written (2026-09-17), which sorts before two
+  migrations production already has; applying it onto a 36-migration ledger and replaying it into a
+  fresh database were both checked, and both produce an identical schema.
 - **Build:** `next build` passes.
 - **A local run of the built app** against that database, with a test-only client, checked:
   - the connect redirect;

@@ -387,7 +387,7 @@ repository file, and nobody asks for it.
 ### 11.10 Before implementation: decisions and prerequisites
 
 1. **The migration** for `google_connections` (§11.5), with its own authorization. **Written:**
-   `20260920000000_google_workspace_connections`; not dispatched.
+   `20260917172545_google_workspace_connections`; not dispatched.
 2. **The path beyond Private V1.** The audience is External (decided).
    - **Leaving Testing** means Google's verification, including the restricted-scope review for
      `gmail.metadata` and `drive.metadata.readonly`, or narrower scopes.
@@ -425,7 +425,7 @@ repository file, and nobody asks for it.
 | Environment | `apps/web/src/google/google-environment.ts` | the ONLY reader of `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `LOOP_GOOGLE_TOKEN_KEY`; server-only |
 | Web wiring | `apps/web/src/google/google-runtime.ts`, `actions.ts`, `app/api/integrations/google/{connect,callback}/route.ts` | the routes and actions; the principal always comes from the signed session |
 | UI | `apps/web/src/app/app/_google/google-workspace-panel.tsx`, `app/app/onboarding/google`, `app/app/connections` | one server-component panel, two pages |
-| Schema | `google_connections`, `google_oauth_states` (migration `20260920000000_google_workspace_connections`) | as §11.5, with the refinements below |
+| Schema | `google_connections`, `google_oauth_states` (migration `20260917172545_google_workspace_connections`) | as §11.5, with the refinements below |
 
 ### 12.2 Onboarding and Connections
 
