@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) code-complete in review, ID tokens verified against Google's published keys, NOT deployed, migration 37 not dispatched; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence proposed in draft #287, nothing built; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -1653,9 +1653,10 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
    - the Relationship list filtered by kind (creator roster);
    - Opportunity and Campaign, after PD-F-11 and PD-F-12.
 
-## Google Workspace connection — PRIVATE V1 CODE-COMPLETE, IN REVIEW (branch `feat/google-workspace-oauth-v1`) · NOT DEPLOYED · MIGRATION 37 NOT DISPATCHED
+## Google Workspace connection — PRIVATE V1 MERGED (#286, `e16a07c`) · MIGRATION 37 APPLIED · OAUTH CLIENT CREATED
 
-_Last updated: 2026-09-17._ Built on `main` `e15c65c`.
+_Last updated: 2026-09-17._ Merged into `main`; the migration was dispatched the same day (run
+succeeded 18:39Z) and the production OAuth client and the three Netlify variables now exist.
 - **Record:** `docs/architecture/google-workspace-connection.md` §11 (the contract) and §12 (what was
   built).
 - **Matt's steps:** `docs/runbooks/google-workspace-oauth.md`.
@@ -1723,18 +1724,87 @@ _Last updated: 2026-09-17._ Built on `main` `e15c65c`.
 - **Defect planting:** 14 planted defects were caught. The one survivor was a redundant duplicate
   check, since removed.
 
-**Not done:** no OAuth client, no deployment, no migration dispatch, and no Gmail, Calendar or
-Drive read (the first read is its own PR).
+**Not done:** no Gmail, Calendar or Drive data is read yet —
+`GoogleWorkspaceService.accessToken()` still has no production caller — and the app is still in
+Google's Testing mode (test users only; refresh tokens expire every 7 days).
 
 **Next:**
-1. Review and merge.
-2. Dispatch the migration.
-3. Create the production client with the redirect URI
-   `https://app.emgloop.com/api/integrations/google/callback`.
-4. Set the three Netlify variables, Production context only.
-5. Connect as Matt and Charlie.
-6. The Calendar read.
-7. Google verification and publishing (runbook §6).
+1. Connect as Matt and Charlie, and confirm a real grant end to end.
+2. Daily Loop (draft #287) — the read path is its first phase.
+3. Google verification and publishing (runbook §6).
+
+## Daily Loop / Employee Intelligence — PROPOSED, NOTHING BUILT (draft #287)
+
+**Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
+product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
+employee surface on top of the Google connection #286 shipped: Google as a sensor, per-employee work
+state, Home as Daily Loop, in four stages (metadata -> content -> Brain -> actions).
+
+**What the research settled:**
+- `gmail.metadata` forbids Gmail's `q` parameter, so there is no date-filtered search; reading bodies
+  needs `gmail.readonly`, and both scopes are already restricted (CASA is required either way).
+- `calendar.events.readonly` is sufficient for the Day view and meeting cards; listing calendars is
+  the only thing that would need more.
+- **Brain cannot run this today:** only a HUMAN may submit a job, a system-issued START is refused at
+  dispatch, no result owner gate is registered, no `MODEL_CALL` step exists, nothing is deployed.
+- So **V1 is deterministic and calls no model**: who is waiting on you, what you have not answered,
+  what went quiet, your day, a stored daily brief, and a structured Ask Loop.
+
+**Reuse, not new systems:** `projectBrainBriefing` (wired to nothing today), `attention-state`,
+`personal-priority`, the decision vocabulary, the AI task/context/template governance, the meeting
+record's M0-M4 slices, and `GoogleWorkspaceService.accessToken()` — which still has no caller.
+
+**The new boundary:** user-first isolation. This is the first data an OWNER must not be able to read;
+§20 makes it structural (no repository method without `userId`, no `manage` action).
+
+**Decisions (Matt, 2026-09-17, recorded in §29.1):** V1 does not request `gmail.readonly`, but Stage 2
+is a planned stage, not an option; employee mail intelligence is private from OWNER/ADMIN structurally
+(`employeeIntelligence` has no `manage` action); Stage 2 derives and discards, with only a sealed
+<=24h processing cache and <=240-char evidence quotes; **no organization-level aggregation**, and no
+shortcut to one; retention is a window per category, not one number; no second AI runtime — scheduled
+model work waits for the seven Brain prerequisites; Home is NEEDS YOU / YESTERDAY / YOUR DAY /
+TOMORROW / WAITING ON / GONE QUIET / ASK LOOP, not a counter dashboard.
+
+**Closed 2026-09-17:** retention approved as **initial product policy** (a window per category, §29.1
+D13), and **`googleWorkspace:manage` is to be removed, not fenced** (D14) — OWNER/ADMIN get no generic
+permission that could grow into another employee's Google connection; termination already revokes
+under `users:update` / `users:delete`. **Nothing open now blocks DL-1.**
+
+**New requirement (D15):** Ask Loop is not a Gmail-only retrieval system. **§31** adds the
+multi-domain retrieval seam — employee-private intelligence, organization/institutional knowledge
+(Lexi's 14-document EMG corpus, which nothing in Loop ingests today) and operational company data,
+each separately governed, mixed only at read time, with an answer inheriting the strictest visibility
+of its inputs. The Company Knowledge track (CK-1..CK-4) is a separate programme and is **not** part of
+Daily Loop V1.
+
+**Automatic Relationship Capture (D16, §32):** Loop discovers meaningful business relationships from
+connected communication and maintains the CRM, without a contact per address. Its **private half**
+(who you actually correspond with, when you last spoke, who has gone quiet) works on today's metadata
+and needs no governed act; **every CRM write is a governed human act**, because
+`identity-evidence-resolution.md` §5 locks "no machine identity attribution — every attribution is a
+human proposal and a human confirmation", and C-05 forbids numeric identity confidence. Loop therefore
+proposes with evidence and a human accepts in one click. Gmail metadata identifies **who and when**;
+**title, company and context need Stage 2**.
+
+**Capture decisions (D17, 2026-09-17, closing O7-O11):** Path 1 — the identity constitution is not
+amended; the machine discovers and proposes, a human establishes shared identity. Shared fields are
+business conclusions only (name, business email, company, title where evidenced, owner, status, coarse
+recency, plus the provenance claim) — never subjects, bodies, message counts, private Calendar/Drive
+evidence or quotations. A **new narrow `relationshipCapture` (`view`, `accept`)** capability lets the
+relationship owner accept a conflict-free contact; everything ambiguous, competing, merging or
+splitting still routes to `identityResolution:approve`, which is not broadened. Internal colleagues are
+excluded from external capture. Dormancy defaults to 30 days as a cadence-aware, configurable
+heuristic, never a verdict.
+
+**Still open (§29.2, none blocking DL-0 or DL-1):** evidence quotes on by default (S2-2); the morning email
+digest (DL-10); delegated mailboxes (DL-7); when to start Google verification (Testing mode expires
+refresh tokens weekly). The five relationship-capture decisions are closed (D17).
+
+**Next:** Matt merges #287, then authorizes **DL-0** (delete `googleWorkspace:manage`: four places, no
+runtime caller) and **DL-1** (the per-employee work-state foundation — schema, `employeeIntelligence`
+IAM with no `manage`, repositories whose every method takes a `userId`, isolation tests). Nothing is
+implemented before that authorization. The full sequence with schema/infra/scope/model/UI impact per
+PR is §26.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
