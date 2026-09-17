@@ -1733,7 +1733,7 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 2. Daily Loop (draft #287) — the read path is its first phase.
 3. Google verification and publishing (runbook §6).
 
-## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-1 IN REVIEW
+## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-1 MERGED (#289) · DL-2 IN REVIEW
 
 **Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
 product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
@@ -1810,8 +1810,21 @@ with exactly `view`/`update` and no `manage` or `approve`; repositories under
 policy as versioned data with per-organization overrides. **No Google call, no model, no UI, no
 schedule** — nothing writes to these tables yet.
 
-**Next:** review DL-1, then authorize **DL-2** (the Calendar sensor: adapter only, no ingestion). The
-full sequence with schema/infra/scope/model/UI impact per PR is §26 of the record.
+**DL-1 merged as #289.** Migration `20260920000000_daily_loop_work_state` is on `main` and **NOT
+applied**: production's last deploy ran at `e16a07c` (migration 37). Nothing reads those tables yet, so
+there is no urgency, but `main` is one migration ahead of production.
+
+**DL-2 (in review):** the Calendar sensor, provider layer only. A Loop-owned, provider-neutral contract
+(`packages/shared/src/calendar-sensor.ts`) and the Google adapter
+(`packages/providers/src/google-workspace/calendar.ts`): bounded `events.list` reads of the **primary
+calendar** with `singleEvents=true`, pagination with a 10-page bound, incremental reads by `syncToken`
+(410 -> `CURSOR_EXPIRED`), and normalization into event facts -- attendees **counted**, organizer
+**hashed**, no description, location, attendee list or joining link. **No schema, no ingestion, no
+cursor persistence, no model, no UI, no scope change.** DL-3 owns writing these facts to `work_events`.
+
+**Next:** review DL-2, then authorize **DL-3** (Calendar ingestion + cycle runner + manual trigger:
+the first production caller of `GoogleWorkspaceService.accessToken()`). §26 of the record has the full
+sequence.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

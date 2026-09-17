@@ -496,3 +496,6 @@ export * from './google-workspace';
 // Daily Loop work state (DL-1): the closed vocabularies, the retention policy and the
 // sensitivity map for one employee's own work state. The rules that read them arrive in DL-8.
 export * from './work-state';
+// The calendar sensor contract (DL-2): Loop-owned event facts, provider-neutral by design, so
+// a second calendar provider implements the same shape and Daily Loop does not change.
+export * from './calendar-sensor';

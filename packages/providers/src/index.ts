@@ -291,6 +291,23 @@ export type {
   GoogleClientCredentials,
   GoogleRevokeResult,
 } from './google-workspace/oauth';
+// The Calendar sensor (DL-2): bounded reads of the primary calendar, normalized into the
+// provider-neutral facts in @emgloop/shared. Observes and emits; decides nothing.
+export {
+  GOOGLE_CALENDAR_EVENTS_ENDPOINT,
+  GOOGLE_CALENDAR_PAGE_SIZE,
+  GOOGLE_CALENDAR_MAX_PAGE_SIZE,
+  GOOGLE_CALENDAR_MAX_PAGES,
+  googleCalendarAddressHash,
+  normalizeGoogleCalendarEvent,
+  readGoogleCalendarWindow,
+  readGoogleCalendarChanges,
+} from './google-workspace/calendar';
+export type {
+  CalendarIdentityContext,
+  CalendarWindowRequest,
+  CalendarChangesRequest,
+} from './google-workspace/calendar';
 export {
   GOOGLE_JWKS_URI,
   GOOGLE_ID_TOKEN_ALGORITHM,
