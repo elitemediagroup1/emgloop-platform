@@ -68,6 +68,10 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // instead of accumulating -- and one person may legitimately hold two different
   // roles on one case.
   caseParticipant: ['priorityId', 'userId', 'contribution'],
+  // Google Workspace connection. One connection per member, and one connect attempt per
+  // state hash; the live-account key is in EXTRA_UNIQUE_KEYS.
+  googleConnection: ['organizationId', 'userId'],
+  googleOAuthState: ['stateHash'],
 };
 
 /**
@@ -83,6 +87,25 @@ const UNIQUE_KEYS: Record<string, string[]> = {
  * schema.prisma; if one drifts, the fake is wrong and should be corrected here.
  */
 const COLUMN_DEFAULTS: Record<string, Row> = {
+  // Google Workspace connection: the array defaults and every nullable column a row is
+  // born with, so a read here sees what Postgres returns.
+  googleConnection: {
+    grantedScopes: [],
+    requestedScopes: [],
+    hostedDomain: null,
+    activeGoogleSubject: null,
+    refreshTokenSealed: null,
+    sealVersion: null,
+    keyRef: null,
+    lastUsedAt: null,
+    expiredAt: null,
+    lastFailureClass: null,
+    revokedAt: null,
+    revokedByUserId: null,
+    revocationReason: null,
+    revocationConfirmedAt: null,
+  },
+  googleOAuthState: { consumedAt: null },
   // A performance objective is ACTIVE and open-ended unless stated otherwise,
   // matching @default(ACTIVE) — a row created without one must still match
   // `where status: 'ACTIVE'`, or the list query would be correct in production
@@ -280,6 +303,9 @@ function rangeBound(value: any, fallback: number): number {
 
 // A delegate may carry more than one unique. Prisma enforces each independently.
 const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
+  // One live link per Google account per organization. NULL once revoked, and NULLs
+  // never collide -- the same device as the CRM natural keys below.
+  googleConnection: [['organizationId', 'activeGoogleSubject']],
   // CRM slice R2. The natural key binds exactly the NON-VOIDED Relationships: it is
   // held while ACTIVE or ENDED and NULL once voided, and NULLs are distinct in
   // Postgres, so voiding releases the key without a partial index. The participant
@@ -328,6 +354,10 @@ const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
 };
 
 const DELEGATES = [
+  // Google Workspace connection. Always present: disabling or removing a member (IAM)
+  // revokes the member's connection in the same transaction.
+  'googleConnection',
+  'googleOAuthState',
   'cognitiveIdentity',
   'identityRole',
   'identityEvidence',
@@ -736,6 +766,8 @@ export interface CognitivePrismaFake {
  * surface is requested explicitly by the suites that drive it.
  */
 export const OPTIONAL_DELEGATES = [
+  // Read for an organization's Google domain restriction.
+  'organization',
   'customer',
   // CRM slice R2, requested by the Relationship suite.
   'crmRelationship',

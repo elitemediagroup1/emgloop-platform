@@ -87,10 +87,11 @@ export {
   roleLabel,
   matrixAllows,
   IDENTITY_RESOLUTION_GRANTS,
+  GOOGLE_WORKSPACE_GRANTS,
   userSystemRole,
   invitationSystemRole,
 } from './iam.repository';
-export type { Resource, Action, UserListItem } from './iam.repository';
+export type { Resource, Action, UserListItem, MemberEndResult } from './iam.repository';
 export {
   MembershipRepository,
   membershipFromUser,

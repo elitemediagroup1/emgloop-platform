@@ -526,3 +526,44 @@ export type {
 } from './services/brain/brain-internal.service';
 export { PrismaBrainSubjectResolver, brainSubjectHref, BRAIN_BUILT_SUBJECT_TYPES } from './services/brain/brain-subjects';
 export type { BrainSubject, BrainSubjectResolver } from './services/brain/brain-subjects';
+
+// --- Google Workspace connection (Private V1) ---
+// One Google connection per Loop user per organization (Gmail metadata, Calendar events
+// read-only, Drive metadata), granted one capability at a time. The repository stores
+// sealed bytes only; the service runs the lifecycle with Google, the sealer and the IAM
+// decision injected. See docs/architecture/google-workspace-connection.md §11.
+export {
+  GoogleConnectionRepository,
+  revokeGoogleConnectionInTx,
+  GOOGLE_OAUTH_STATE_LIFETIME_MS,
+  GOOGLE_OAUTH_MAX_OPEN_STATES,
+} from './repositories/google-connection.repository';
+export type {
+  GoogleActor,
+  GoogleConnectionRecord,
+  ConsumedGoogleOAuthState,
+  GoogleGrantToStore,
+  GoogleStoreOutcome,
+  GoogleRevocation,
+} from './repositories/google-connection.repository';
+export { GoogleWorkspaceService, sha256Hex as googleStateHash } from './services/google/google-workspace.service';
+export type {
+  GooglePrincipal,
+  GoogleSessionPrincipal,
+  GoogleOAuthPort,
+  GoogleAuthority,
+  GoogleWorkspaceServiceDeps,
+  GoogleWorkspaceStatus,
+  GoogleBeginResult,
+  GoogleCallbackQuery,
+  GoogleCallbackResult,
+  GoogleAccessTokenResult,
+} from './services/google/google-workspace.service';
+export {
+  GoogleTokenSealer,
+  GoogleTokenUnopenable,
+  googleTokenKeyRef,
+  GOOGLE_TOKEN_SEAL_VERSION,
+  GOOGLE_TOKEN_PURPOSE,
+} from './services/google/google-token-sealer';
+export type { GoogleTokenBinding, SealedGoogleToken } from './services/google/google-token-sealer';
