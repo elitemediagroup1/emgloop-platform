@@ -27,7 +27,8 @@ jobs:
   brain:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: 'postgresql://ci:ci@localhost:5432/ci?schema=public'
+      # Only for `prisma generate`; nothing connects.
+      DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
       AWS_EC2_METADATA_DISABLED: 'true'
     steps:
       - name: Checkout

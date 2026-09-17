@@ -12,6 +12,9 @@ import { join, resolve } from 'node:path';
 const ROOT = resolve(__dirname, '..', '..', '..');
 const DIST = resolve(__dirname, '..', 'dist');
 
+/** The syntax level the bundles are built for; it must match the Lambda runtime (nodejs24.x). */
+export const BUNDLE_TARGET = 'node24';
+
 export const BRAIN_FUNCTIONS = [
   { name: 'authorizer', entry: 'authorizer', database: false },
   { name: 'dispatcher', entry: 'dispatcher', database: true },
@@ -49,7 +52,7 @@ async function main() {
       outfile: join(out, 'index.js'),
       bundle: true,
       platform: 'node',
-      target: 'node24',
+      target: BUNDLE_TARGET,
       format: 'cjs',
       sourcemap: true,
       minify: false,

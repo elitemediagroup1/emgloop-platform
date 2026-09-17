@@ -610,9 +610,9 @@ test('only durable work waits, a wait must end in the future, and a job has one 
     ok: false,
     refusal: 'EXPIRY_NOT_IN_FUTURE',
   });
-  await assert.rejects(w.waits.open(ORG, durable, { question: { ...q, body: ['not', 'an', 'object'] as never }, expiresAt: at(100), context: DURABLE_CTX }), BrainPersistenceInvariantError);
+  await assert.rejects(w.waits.open(ORG, durable, { question: { ...q, body: ['not', 'an', 'object'] as never }, expiresAt: at(100), context: DURABLE_CTX, now: at(3) }), BrainPersistenceInvariantError);
   await assert.rejects(
-    w.waits.open(ORG, durable, { question: { ...q, body: { blob: 'x'.repeat(20_000) } }, expiresAt: at(100), context: DURABLE_CTX }),
+    w.waits.open(ORG, durable, { question: { ...q, body: { blob: 'x'.repeat(20_000) } }, expiresAt: at(100), context: DURABLE_CTX, now: at(3) }),
     /too large/,
   );
   assert.equal((await w.waits.open(ORG, durable, { question: q, expiresAt: at(100), context: DURABLE_CTX, now: at(3) })).ok, true);

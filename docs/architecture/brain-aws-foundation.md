@@ -31,6 +31,8 @@
 | No AWS Brain infrastructure existed | no infrastructure directory, CDK or AWS SDK before this branch |
 | This environment has **no** AWS credentials | no AWS CLI, no `AWS_*` variables, no `~/.aws` |
 | AWS Lambda supports `nodejs24.x` (deprecation 2028-04-30) | AWS "Lambda runtimes" page, read 2026-09-17; `aws-cdk-lib` 2.269.0 has `Runtime.NODEJS_24_X` |
+| On `nodejs24.x`, handlers must be async: "Callback-based function handlers are only supported up to Node.js 22" | AWS "Define Lambda function handler in Node.js" page, read 2026-09-17. All four handlers are `async` (bundle test) |
+| The staging account exists: **Loop Brain Staging, `065148797865`**, a member of the organization whose management account is EMG Loop Production. Identity Center (organization instance) is enabled; no long-lived IAM credentials; no Brain resource was created by hand | Matt, 2026-09-17 (after #281 merged). Not observable from this environment |
 
 ## 2. The executor revision: `loop-step-runner.r1`
 
@@ -373,21 +375,26 @@ outbox or its drain.
 
 | Item | Value |
 |---|---|
-| Account | `loop-brain-staging`, a new member account under the organization's `Workloads` OU. **It does not exist yet; its account id is unknown.** Never the management account |
+| Account | **Loop Brain Staging, `065148797865`** (Matt, 2026-09-17), a member account of the EMG Loop Production organization; never the management account. Pinned in `infra/brain/lib/target.ts`: the app refuses credentials for any other account, and the deploy workflow checks the role ARN and the credentials again |
 | Region | `us-east-1` |
 | Stack | `LoopBrain-staging` (termination protection on) |
-| Resources | as §4: 5 functions, 4 queues, 1 table, 2 KMS keys (+2 aliases), 6 secrets, 7 parameters, 1 HTTP API (1 route, 1 authorizer, 1 stage, 1 integration), 1 schedule, 5 log groups, 10 alarms, 1 SNS topic, 6 IAM roles with inline policies, 2 Lambda permissions, 4 queue policies, 2 event source mappings, and the CDK bootstrap stack |
+| Runtime | `nodejs24.x`, x86_64; bundles built for `node24`; every handler async (§1) |
+| CDK feature flags | all 87 flags `aws-cdk-lib` 2.269.0 currently recommends are pinned in `cdk.json` before the first deploy, so none changes under a live stack. The one departure: construct-metadata collection is off. Against the unflagged template they add and remove no resource; they merge IAM and key-policy statements and write partition literals. No permission is added (stack test) |
+| Bootstrap | **required, not done.** `npx cdk bootstrap aws://065148797865/us-east-1 --profile loop-brain-staging --termination-protection` creates the `CDKToolkit` stack (runbook step 14 lists its resources). The stack needs bootstrap version 6 or later, and has no image assets |
+| Resources | as §4: 5 functions, 4 queues, 1 table, 2 KMS keys (+2 aliases), 6 secrets, 7 parameters, 1 HTTP API (1 route, 1 authorizer, 1 stage, 1 integration), 1 schedule, 5 log groups, 10 alarms, 1 SNS topic, 6 IAM roles with inline policies, 2 Lambda permissions, 4 queue policies, 2 event source mappings (70 in the template). The CDK bootstrap stack is separate |
 | IAM | §5 |
 | Secrets | §6: placeholders and a generated checkpoint secret. **No real value is written by the deployment** |
 | Estimated baseline cost | about **$5–10 per month idle**: KMS $2, secrets $2.40, alarms free up to 10, the rest within free tiers (sweeper invocations, idle queue polling, logs). Signing costs $0.15 per 10k once workers call Loop. Neon staging compute is separate |
-| Network | no VPC. Functions reach AWS APIs, the Neon pooled endpoint (TLS) and Loop (HTTPS) over AWS-managed egress. The only inbound path is the HTTPS doorbell route, behind the authorizer and a throttle |
+| Network | no VPC. Functions reach AWS APIs, the Neon pooled endpoint and Loop (HTTPS) over AWS-managed egress. Neon connections require TLS with a verified certificate (`sslmode=require`, `sslaccept=strict`, enforced in `src/database.ts`). The only inbound path is the HTTPS doorbell route, behind the authorizer and a throttle |
 | Staging Neon | a separate project, not a production branch (§9); not created |
 | Rollback | §12 |
 | **Proof that no provider call can occur** | (1) no bundle contains a provider client, host or package (bundle test); (2) no role can read a provider secret (stack test); (3) the provider secrets hold placeholders; (4) revision 1 has no model step, and its source imports no provider module (fence test); (5) the worker switch and AI floor default to off |
-| Deploy mechanism | `.github/workflows/brain-infra-deploy.yml`: manual, `diff` or `deploy`, typed confirmation, `brain-staging` environment with reviewer, OIDC role. **Not run** |
+| Deploy mechanism | `.github/workflows/brain-infra-deploy.yml`: manual, `diff` or `deploy`, typed confirmation, `brain-staging` environment with reviewer, OIDC role, account checks before anything is compared. **Not run** |
 
-**Deployment is stopped here** for Matt's account setup (runbook parts 1–3) and his explicit
-authorization.
+**Deployment is stopped here.** It waits for:
+- the rest of Matt's account setup: runbook parts 1–4 (the account and Identity Center are done);
+- the bootstrap (runbook step 14);
+- Matt's explicit authorization.
 
 ## 15. Changes and findings in B6
 
@@ -416,9 +423,33 @@ authorization.
 - `apps/brain-executor` is a workspace with no external dependencies; the root lockfile gains only its
   link.
 
+**The definition pass (2026-09-17, after the account was created):**
+- **The target is pinned.** It was `CDK_DEFAULT_ACCOUNT`, whatever credentials were active, which
+  could have been the management account. It is now `065148797865` / `us-east-1`, with a refusal for
+  any other account.
+- **The recommended feature flags are pinned** before the first deploy. Changing them later can
+  replace or rewrite resources in a live stack.
+- **Tests synthesize exactly what the CLI does:** the same app builder and the same `cdk.json`
+  context. They now cover the target and its refusal, the flags, the bootstrap the cloud assembly
+  needs, async handlers, and secret hygiene: no value, dynamic reference or credential-shaped
+  literal in the template, context, outputs, function environment or any committed file.
+- **`ProviderSecretNames` is a literal list.** It was derived from the secret resources.
+- **Neon certificates are now verified.** Prisma 5.22's engine defaults `sslaccept` to
+  `accept_invalid_certs` (prisma-engines 5.22.0, `quaint/src/connector/postgres/url.rs`), so
+  `sslmode=require` alone encrypts without checking who answers.
+  - The functions now add `sslaccept=strict`.
+  - They refuse a URL without `sslmode=require`, or with any other `sslaccept`.
+  - Production's own `DATABASE_URL` (Netlify) is outside this change; it is reported to Matt, not
+    altered.
+- **Fixture database URLs carry no user or password,** and neither do the two Brain workflows'
+  placeholder URLs.
+- **The runbook's concurrency figure was wrong:** the stack reserves 18, not 15, so the account needs
+  118.
+
 ## 16. Decisions for Matt
 
-1. **Authorize deployment** after the account setup, and choose the alarm and budget addresses.
+1. **Authorize the bootstrap, then deployment,** after the account setup. Choose the alarm and budget
+   addresses.
 2. **Staging Loop.** Wire a Loop deployment to the staging database (a Netlify change).
 3. **The first owner gate.** Case Explanation's result store (a migration) and its retention rule.
 4. **Recovery attempts are not capped.** A poison message stops at its DLQ, but the sweeper keeps

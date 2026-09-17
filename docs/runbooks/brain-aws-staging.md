@@ -1,8 +1,19 @@
-# Runbook: the Brain staging environment on AWS (`loop-brain-staging`)
+# Runbook: the Brain staging environment on AWS (Loop Brain Staging, `065148797865`)
 
-**Status (2026-09-17): prepared, NOTHING CREATED.**
-- **Who does it:** Matt, in the AWS and Neon consoles and on his own machine. Claude has no AWS or
+**Status (2026-09-17): the account exists; NO BRAIN INFRASTRUCTURE HAS BEEN CREATED.**
+- **Done by Matt (confirmed 2026-09-17):**
+  - the AWS Organization, whose management account is **EMG Loop Production**;
+  - the member account **Loop Brain Staging**, account id **`065148797865`**;
+  - the IAM Identity Center organization instance, in `us-east-1`;
+  - Matt's `AdministratorAccess` to Loop Brain Staging through the access portal.
+
+  No long-lived IAM credentials exist, and no Brain resource was created by hand. The CDK bootstrap
+  (step 14) is not reported as done.
+- **Who does the rest:** Matt, in the AWS and Neon consoles and on his own machine. Claude has no AWS or
   Neon access and has created nothing.
+- **The target is fixed in code.** `infra/brain/lib/target.ts` pins the stack to `065148797865` /
+  `us-east-1`, and the CDK app refuses credentials for any other account. The deploy workflow checks the
+  role ARN and the credentials' account again before it compares or applies anything.
 - **What it builds:** `docs/architecture/brain-aws-foundation.md`, whose §14 is the pre-deployment
   report.
 
@@ -26,23 +37,16 @@
 
 ## Part 1 — Organization and account (management account)
 
-1. **Enable Organizations.** Sign in to the current account (it stays the management account) with an
-   administrator (not root, once Identity Center exists). Open **AWS Organizations**. If there is no
-   organization, choose **Create an organization** (all features).
+1. **Organizations — DONE (Matt).** The organization exists, and its management account is **EMG Loop
+   Production**. Nothing in this runbook creates anything in the management account.
 
-2. **Create the workload account.** Go to **AWS accounts → Add an AWS account → Create an AWS
-   account**:
-   - **Account name:** `loop-brain-staging`.
-   - **Email:** a new mailbox or alias Matt controls, used by no other AWS account.
-   - **IAM role name:** leave `OrganizationAccountAccessRole`.
+2. **The workload account — DONE (Matt).** The member account is **Loop Brain Staging**, account id
+   **`065148797865`**. Every account id below is this one.
 
-   Note the **account ID** it shows. Every `<ACCOUNT_ID>` below is this number, never the
-   management account's.
+3. **Group it** (not yet confirmed). Go to **AWS accounts → Actions → Create new** organizational unit
+   `Workloads` under Root. Move Loop Brain Staging into it.
 
-3. **Group it.** Go to **AWS accounts → Actions → Create new** organizational unit `Workloads` under
-   Root. Move `loop-brain-staging` into it.
-
-4. **Guardrails (service control policy).**
+4. **Guardrails (service control policy)** (not yet confirmed).
    1. Go to **Policies → Service control policies → Enable**.
    2. Choose **Create policy**, name it `loop-workloads-guardrails`, and paste the policy below.
    3. **Attach** it to `Workloads` (not to Root).
@@ -69,7 +73,7 @@
 
    These `"*"` resources are deliberate: each statement denies the action everywhere in the OU.
 
-5. **Audit trail.** In **CloudTrail → Trails → Create trail**:
+5. **Audit trail** (not yet confirmed). In **CloudTrail → Trails → Create trail**:
    - **Name:** `loop-organization-trail`.
    - **Enable for all accounts in my organization:** on.
    - **Storage:** a new S3 bucket.
@@ -77,10 +81,10 @@
 
    The first copy of management events carries no CloudTrail charge; S3 storage is cents.
 
-6. **Cost alarm.** In **Billing and Cost Management → Budgets → Create budget**, choose a
+6. **Cost alarm** (not yet confirmed). In **Billing and Cost Management → Budgets → Create budget**, choose a
    **monthly cost budget**:
    - **Amount:** $25.
-   - **Scope:** filtered to **Linked account = loop-brain-staging**.
+   - **Scope:** filtered to **Linked account = Loop Brain Staging (`065148797865`)**.
    - **Alerts:** at 50%, 80% and 100% (actual), to Matt's address.
 
    The stack can also create its own budget (Part 6); one budget is enough.
@@ -88,33 +92,32 @@
 ## Part 2 — People's access (IAM Identity Center)
 
 7. **Set up Identity Center.**
-   1. Open **IAM Identity Center** in **us-east-1** and choose **Enable** (organization instance,
-      Identity Center directory).
-   2. Under **Users**, create Matt's user. Require MFA: **Settings → Authentication → MFA**, "every
-      time they sign in".
-   3. Under **Permission sets**, create:
-      - `AdministratorAccess` (predefined), session 1 hour. Setup only.
-      - `LoopBrainOperator` (custom), session 1 hour: the AWS managed `ReadOnlyAccess` plus the inline
-        policy below, for day-to-day stop and rollback without admin rights.
-   4. Under **AWS accounts → loop-brain-staging → Assign users**, assign Matt both permission sets.
+   1. **DONE (Matt):** the organization instance is enabled in **us-east-1**, and Matt has
+      `AdministratorAccess` to Loop Brain Staging through the access portal.
+   2. **Confirm** that MFA is required: **Settings → Authentication → MFA**, "every time they sign
+      in". Keep the `AdministratorAccess` session at 1 hour, for setup only.
+   3. Under **Permission sets**, create `LoopBrainOperator` (custom), session 1 hour: the AWS managed
+      `ReadOnlyAccess` plus the inline policy below, for day-to-day stop and rollback without admin
+      rights.
+   4. Under **AWS accounts → Loop Brain Staging → Assign users**, assign Matt `LoopBrainOperator`.
 
-   The `LoopBrainOperator` inline policy (replace `<ACCOUNT_ID>`):
+   The `LoopBrainOperator` inline policy:
 
    ```json
    {
      "Version": "2012-10-17",
      "Statement": [
        { "Effect": "Allow", "Action": "ssm:PutParameter",
-         "Resource": "arn:aws:ssm:us-east-1:<ACCOUNT_ID>:parameter/loop/brain/staging/*" },
+         "Resource": "arn:aws:ssm:us-east-1:065148797865:parameter/loop/brain/staging/*" },
        { "Effect": "Allow",
          "Action": ["lambda:PutFunctionConcurrency", "lambda:DeleteFunctionConcurrency"],
-         "Resource": "arn:aws:lambda:us-east-1:<ACCOUNT_ID>:function:loop-brain-staging-*" },
+         "Resource": "arn:aws:lambda:us-east-1:065148797865:function:loop-brain-staging-*" },
        { "Effect": "Allow", "Action": "lambda:UpdateEventSourceMapping", "Resource": "*",
-         "Condition": { "StringLike": { "lambda:FunctionArn": "arn:aws:lambda:us-east-1:<ACCOUNT_ID>:function:loop-brain-staging-*" } } },
+         "Condition": { "StringLike": { "lambda:FunctionArn": "arn:aws:lambda:us-east-1:065148797865:function:loop-brain-staging-*" } } },
        { "Effect": "Allow", "Action": "scheduler:UpdateSchedule",
-         "Resource": "arn:aws:scheduler:us-east-1:<ACCOUNT_ID>:schedule/default/loop-brain-staging-*" },
+         "Resource": "arn:aws:scheduler:us-east-1:065148797865:schedule/default/loop-brain-staging-*" },
        { "Effect": "Allow", "Action": ["secretsmanager:PutSecretValue"],
-         "Resource": "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:loop/brain/staging/neon-*" }
+         "Resource": "arn:aws:secretsmanager:us-east-1:065148797865:secret:loop/brain/staging/neon-*" }
      ]
    }
    ```
@@ -126,14 +129,14 @@
 8. **Set up the CLI on Matt's machine** (AWS CLI v2):
 
    ```sh
-   aws configure sso            # profile name: loop-brain-staging; region us-east-1
+   aws configure sso            # profile name: loop-brain-staging; account 065148797865; region us-east-1
    aws sso login --profile loop-brain-staging
-   aws sts get-caller-identity --profile loop-brain-staging   # Account must be <ACCOUNT_ID>
+   aws sts get-caller-identity --profile loop-brain-staging --query Account --output text   # must print 065148797865
    ```
 
-## Part 3 — GitHub deploys without keys (in `loop-brain-staging`)
+## Part 3 — GitHub deploys without keys (in Loop Brain Staging)
 
-9. **Trust GitHub's identity provider.** Signed in to `loop-brain-staging` as `AdministratorAccess`,
+9. **Trust GitHub's identity provider.** Signed in to Loop Brain Staging as `AdministratorAccess`,
    go to **IAM → Identity providers → Add provider**:
    - **Type:** OpenID Connect.
    - **Provider URL:** `https://token.actions.githubusercontent.com`.
@@ -149,7 +152,7 @@
       "Version": "2012-10-17",
       "Statement": [{
         "Effect": "Allow",
-        "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com" },
+        "Principal": { "Federated": "arn:aws:iam::065148797865:oidc-provider/token.actions.githubusercontent.com" },
         "Action": "sts:AssumeRoleWithWebIdentity",
         "Condition": {
           "StringEquals": {
@@ -171,9 +174,9 @@
         "Effect": "Allow",
         "Action": "sts:AssumeRole",
         "Resource": [
-          "arn:aws:iam::<ACCOUNT_ID>:role/cdk-hnb659fds-deploy-role-<ACCOUNT_ID>-us-east-1",
-          "arn:aws:iam::<ACCOUNT_ID>:role/cdk-hnb659fds-file-publishing-role-<ACCOUNT_ID>-us-east-1",
-          "arn:aws:iam::<ACCOUNT_ID>:role/cdk-hnb659fds-lookup-role-<ACCOUNT_ID>-us-east-1"
+          "arn:aws:iam::065148797865:role/cdk-hnb659fds-deploy-role-065148797865-us-east-1",
+          "arn:aws:iam::065148797865:role/cdk-hnb659fds-file-publishing-role-065148797865-us-east-1",
+          "arn:aws:iam::065148797865:role/cdk-hnb659fds-lookup-role-065148797865-us-east-1"
         ]
       }]
     }
@@ -184,7 +187,8 @@
     - **Required reviewers:** Matt.
     - **Deployment branches:** selected branches, `main` only.
     - **Environment variables:**
-      - `BRAIN_STAGING_DEPLOY_ROLE_ARN`: the role's ARN (not a secret).
+      - `BRAIN_STAGING_DEPLOY_ROLE_ARN`: `arn:aws:iam::065148797865:role/loop-brain-github-deploy`
+        (not a secret). The workflow refuses a role in any other account.
       - `BRAIN_STAGING_ALARM_EMAIL` and `BRAIN_STAGING_BUDGET_EMAIL` (optional; leave unset for no
         subscription or budget).
 
@@ -192,29 +196,60 @@
 
 ## Part 4 — Account preparation
 
-13. **Lambda concurrency.** The stack reserves 15 concurrent executions, and AWS keeps 100
-    unreserved, so the account limit must be at least 115. New accounts often start at 10. Check:
+13. **Lambda concurrency.** The stack reserves 18 concurrent executions (authorizer 5, dispatcher 5,
+    interactive worker 5, durable worker 2, sweeper 1), and AWS keeps 100 unreserved, so the account
+    limit must be at least 118. New accounts often start at 10. Check:
 
     ```sh
     aws lambda get-account-settings --profile loop-brain-staging --query AccountLimit.ConcurrentExecutions
     ```
 
-    If it is below 115, open **Service Quotas → AWS Lambda → Concurrent executions → Request increase**
+    If it is below 118, open **Service Quotas → AWS Lambda → Concurrent executions → Request increase**
     and ask for 1000. Wait for approval before Part 6.
 
-14. **Bootstrap CDK** once, from an up-to-date `main` checkout, as `AdministratorAccess`:
+14. **Bootstrap CDK** once. **NOT DONE; it creates resources, so it waits for Matt.** From an
+    up-to-date `main` checkout, signed in with `AdministratorAccess`:
 
     ```sh
+    aws sso login --profile loop-brain-staging
+    aws sts get-caller-identity --profile loop-brain-staging --query Account --output text   # must print 065148797865
     cd infra/brain && npm install
-    npx cdk bootstrap aws://<ACCOUNT_ID>/us-east-1 --profile loop-brain-staging
+    npx cdk bootstrap aws://065148797865/us-east-1 --profile loop-brain-staging --termination-protection
     ```
 
-    This creates the `CDKToolkit` stack: an assets bucket and the roles named in step 10.
+    **Where:** Loop Brain Staging (`065148797865`), `us-east-1` only. Nothing is created in the
+    management account.
 
-    **Trade-off:** its CloudFormation role has administrator rights inside this single-purpose
-    account, within the Part 1 guardrails. To narrow it, pass
-    `--cloudformation-execution-policies <a customer-managed policy ARN>` instead. That is a later
-    hardening step.
+    **What it creates:** one CloudFormation stack, `CDKToolkit`, from bootstrap template version 32
+    (the one `aws-cdk` 2.1142.0 carries; the Brain stack needs version 6 or later). Its resources:
+
+    | Resource | Name |
+    |---|---|
+    | S3 bucket for the function zips and the template. Versioned, public access blocked, TLS-only bucket policy, encrypted with the AWS-managed S3 key | `cdk-hnb659fds-assets-065148797865-us-east-1` |
+    | ECR repository for image assets. It stays empty: the Brain has none | `cdk-hnb659fds-container-assets-065148797865-us-east-1` |
+    | IAM role CloudFormation uses to create the stack's resources | `cdk-hnb659fds-cfn-exec-role-065148797865-us-east-1` |
+    | IAM role the CLI assumes to deploy | `cdk-hnb659fds-deploy-role-065148797865-us-east-1` |
+    | IAM role that uploads the zips | `cdk-hnb659fds-file-publishing-role-065148797865-us-east-1` |
+    | IAM role that would upload images (unused) | `cdk-hnb659fds-image-publishing-role-065148797865-us-east-1` |
+    | IAM role for read-only lookups (unused: the stack makes none) | `cdk-hnb659fds-lookup-role-065148797865-us-east-1` |
+    | SSM parameter recording the bootstrap version | `/cdk-bootstrap/hnb659fds/version` |
+
+    - **No customer-managed KMS key:** for a new bootstrap the CLI chooses the AWS-managed S3 key.
+    - **Termination protection:** `--termination-protection` keeps `CDKToolkit` from being deleted by
+      mistake.
+    - **Cost:** under a cent a month. Each deployed version uploads about 38 MB of zips, and an empty
+      repository costs nothing.
+    - **The CLI prints a warning** that the default execution policy is `AdministratorAccess`. That is
+      the trade-off below.
+
+    **Trade-off:** the CloudFormation role has administrator rights inside this single-purpose
+    account, within the Part 1 guardrails.
+    - Only CloudFormation can assume it.
+    - The GitHub deploy role (step 10) can assume only the deploy, file-publishing and lookup roles.
+    - Deployment still needs Matt's approval in the `brain-staging` environment.
+
+    To narrow it, bootstrap with `--cloudformation-execution-policies <a customer-managed policy ARN>`
+    instead. That is a later hardening step.
 
 ## Part 5 — The staging database (Neon)
 
@@ -246,20 +281,25 @@
     choose **Retrieve secret value → Edit → Plaintext**, and replace the placeholder with:
 
     ```json
-    {"url":"postgresql://loop_brain_worker:<password>@<POOLED host>/<database>?sslmode=require"}
+    {"url":"postgresql://loop_brain_worker:<password>@<POOLED host>/<database>?sslmode=require&sslaccept=strict"}
     ```
 
     Repeat for `neon-dispatcher` (`loop_brain_dispatcher`) and `neon-sweeper` (`loop_brain_sweeper`).
-    - Use the **pooled** host, with the same query parameters production's pooled `DATABASE_URL` uses.
-      The functions add `connection_limit=1` themselves.
+    - Use the **pooled** host. Percent-encode any special character in the password.
+    - **TLS is enforced.** The functions refuse a URL without `sslmode=require`, and any `sslaccept`
+      other than `strict`: Prisma 5 otherwise accepts any server certificate. They add
+      `sslaccept=strict` and `connection_limit=1` when the URL omits them.
     - Until a secret holds a URL, that function connects to nothing and fails as "not configured".
     - Afterwards, `unset STAGING_DIRECT_URL`.
 
 ## Part 6 — Deploy (ONLY with Matt's explicit authorization)
 
 19. **Diff.** Go to **GitHub → Actions → brain-infra-deploy → Run workflow**, choose branch `main` and
-    action `diff`, and approve the environment. Read the diff against the foundation record: §4
-    (resources), §5 (IAM), §6 (secrets and parameters). **Stop if it differs.**
+    action `diff`, and approve the environment.
+    - Before comparing, the workflow checks that the deploy role and the credentials are both in
+      `065148797865`. The CDK app refuses any other account as well.
+    - Read the diff against the foundation record: §4 (resources), §5 (IAM), §6 (secrets and
+      parameters). **Stop if it differs.**
 
 20. **Deploy.** Run the same workflow with action `deploy` and confirmation text
     `deploy loop-brain-staging`, then approve.
