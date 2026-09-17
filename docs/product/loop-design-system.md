@@ -9,6 +9,22 @@
   must look like one product; People and Relationships must not look like a different application
   from Home.
 
+## 0. Locked (Matt, 2026-09-17)
+
+**The global design-system question is resolved.**
+- **Desktop:** a navy navigation rail, a light top bar and a light content canvas.
+- **Mobile:** the handoff's responsive treatment:
+  - a light header with Menu;
+  - the full navigation as a light sheet when Menu is open;
+  - the five operating areas in a fixed bottom bar.
+
+  It is not a reproduction of the desktop sidebar.
+- **Every product surface:** the same global tokens, typography, components, states and visual
+  language.
+- **No separate dark or light themes by product area.** Dark colour is allowed where the system uses it
+  (the rail, the primary action). What is ruled out is a section of Loop running under a different
+  visual system.
+
 ## 1. The decision
 
 **One foundation.** Loop has one design foundation:
@@ -34,7 +50,8 @@ slice by slice, without changing permissions, authority, contracts or product me
 - Inter, with large, tight, bold page titles and small uppercase letter-spaced trails;
 - 1 px cool-grey borders, radius 14 px (10 px for controls), and near-flat elevation;
 - initials avatars on pale teal;
-- on phones, a light header and a fixed five-area bar.
+- on phones, the responsive form of the same shell: a light header, a light navigation sheet and a
+  fixed five-area bar.
 
 ## 2. Reconciliation: what existed before this revision
 
@@ -121,8 +138,9 @@ slice by slice, without changing permissions, authority, contracts or product me
 
    Every existing surface therefore renders in the new language now, without its structure being
    redesigned.
-5. **Shell:** a navy rail, a light top bar, and the light canvas on `.loop-main`; on phones, a light
-   header, menu and area bar.
+5. **Shell:** a navy rail, a light top bar, and the light canvas on `.loop-main`. On phones: a light
+   header with Menu, a light navigation sheet and the area bar. The navy wordmark shows on the light
+   header; the on-dark wordmark shows on the rail.
 6. **Primitives.** UI-1's primitives move from the `lx-*` names to the global `loop-*` names and read
    only `--loop-*`. `LxPage` becomes `LoopPage`.
 7. **Loop Home** (both the operational home and the areas home) is built from the global primitives:
@@ -144,8 +162,9 @@ What changes is only which classes and tokens they use:
 
 **Shared by every signed-in surface now:**
 - **The palette:** `:root` `--loop-*` tokens.
-- **The shell:** navy rail with the on-dark wordmark, light top bar, light canvas, phone menu and
-  operating-area bar.
+- **The shell:**
+  - desktop: a navy rail with the on-dark wordmark, a light top bar and a light canvas;
+  - phone: a light header, a light navigation sheet and the operating-area bar.
 - **The primitives:** page, head and trail, title, buttons, links, forms, filters, tabs, panels,
   summary strip, record layout, facts, drawer, table-to-list, pager, skeleton, state family, state
   pill, Subject Display System, activity item, Brain work state.

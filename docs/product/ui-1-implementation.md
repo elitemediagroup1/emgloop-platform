@@ -78,13 +78,17 @@ Email, Call and Message are never faked; the normal Brain UI is provider-neutral
 | Accounting | removed from global navigation | C-01: surfaced contextually. It is not built; its honest not-built route still exists |
 | Live Operations, Live Calls, Websites | moved from Intelligence to Operations | C-03: live execution and health |
 
-**Narrow screens** (820 px and below):
-- The navigation folds behind a **Menu** control. It is a checkbox and label, so it needs no
-  JavaScript.
-- A fixed **operating-area bar** (Home, CRM, Work, Intel, Ops) sits at the bottom, as in the
-  prototype. Each tab leads to the area's first item that person can open. An area with nothing to
-  open has no tab, and the current area is marked.
-- The desktop rail is unchanged.
+**Desktop:** the navy navigation rail, a light top bar and the light canvas.
+
+**Narrow screens** (820 px and below) use the handoff's responsive treatment, not a shrunken sidebar
+(locked by Matt, 2026-09-17):
+- **A light header with a Menu control.** Menu is a checkbox and label, so it needs no JavaScript.
+- **The full navigation** opens as a light, scrollable sheet with touch-sized links.
+- **A fixed operating-area bar** (Home, CRM, Work, Intel, Ops) sits at the bottom, as in the prototype:
+  - each tab leads to the area's first item that person can open;
+  - an area with nothing to open has no tab;
+  - the current area is marked.
+- **The desktop top bar is hidden,** so a phone has one header.
 
 **Not built, and why:**
 - **Search Loop:** universal search is backend work (the handoff calls it "backend work required").
@@ -339,8 +343,10 @@ remaining older structures, the migration order, and the alias names that remain
    or drop the controls from the design?
 5. **Search Loop and Needs You in the top bar.** Both need backend work (universal search; the Needs You
    projection).
-6. **The navy rail.** UI-0's record of the handoff visuals shows a dark rail, while the prototype
-   screenshots show only the mobile light header. The rail is navy; confirm.
+6. ~~The navy rail.~~ **Resolved (Matt, 2026-09-17).**
+   - Desktop: a navy rail, a light top bar and a light canvas.
+   - Mobile: the light responsive header and navigation.
+   - Everywhere: one set of tokens and components (`loop-design-system.md` §0).
 7. **The People permission.** People and Relationships are still gated by `identityResolution:view` and
    `relationships:view`. AI principals and unknown roles hold neither, which is intended. Confirm that
    ordinary CRM roles should keep seeing People through identity authority.
