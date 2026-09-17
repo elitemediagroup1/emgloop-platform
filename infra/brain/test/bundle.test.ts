@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { BRAIN_FUNCTIONS } from '../scripts/bundle';
+import { BRAIN_FUNCTIONS, BUNDLE_TARGET } from '../scripts/bundle';
 
 const DIST = resolve(__dirname, '..', 'dist');
 
@@ -44,25 +44,38 @@ test('each function carries only the cloud clients and database access it uses',
   }
 });
 
+const LOAD_ENV = {
+  ...process.env,
+  AWS_REGION: 'us-east-1',
+  AWS_EC2_METADATA_DISABLED: 'true',
+  BRAIN_PARAMETER_PREFIX: '/loop/brain/test',
+  BRAIN_REPLAY_TABLE: 'replay',
+  BRAIN_INTERACTIVE_QUEUE_URL: 'https://sqs.us-east-1.amazonaws.com/1/i',
+  BRAIN_DURABLE_QUEUE_URL: 'https://sqs.us-east-1.amazonaws.com/1/d',
+  BRAIN_DATABASE_SECRET: 'db',
+  BRAIN_CHECKPOINT_SECRET: 'ck',
+  BRAIN_SIGNING_KEY_ARN: 'arn:aws:kms:us-east-1:1:key/x',
+  BRAIN_WORKER_ISSUER: 'loop-brain-test',
+  BRAIN_WORKER_SUBJECT: 'worker-durable',
+  BRAIN_DISPATCHER_FUNCTION: 'dispatcher',
+};
+
 test('every bundle loads and exports a handler, with no network at load time', () => {
-  const env = {
-    ...process.env,
-    AWS_REGION: 'us-east-1',
-    AWS_EC2_METADATA_DISABLED: 'true',
-    BRAIN_PARAMETER_PREFIX: '/loop/brain/test',
-    BRAIN_REPLAY_TABLE: 'replay',
-    BRAIN_INTERACTIVE_QUEUE_URL: 'https://sqs.us-east-1.amazonaws.com/1/i',
-    BRAIN_DURABLE_QUEUE_URL: 'https://sqs.us-east-1.amazonaws.com/1/d',
-    BRAIN_DATABASE_SECRET: 'db',
-    BRAIN_CHECKPOINT_SECRET: 'ck',
-    BRAIN_SIGNING_KEY_ARN: 'arn:aws:kms:us-east-1:1:key/x',
-    BRAIN_WORKER_ISSUER: 'loop-brain-test',
-    BRAIN_WORKER_SUBJECT: 'worker-durable',
-    BRAIN_DISPATCHER_FUNCTION: 'dispatcher',
-  };
   for (const f of BRAIN_FUNCTIONS) {
-    const out = execFileSync(process.execPath, ['-e', `const m = require(${JSON.stringify(join(DIST, f.name, 'index.js'))}); process.stdout.write(typeof m.handler)`], { env, stdio: 'pipe' }).toString();
+    const out = execFileSync(process.execPath, ['-e', `const m = require(${JSON.stringify(join(DIST, f.name, 'index.js'))}); process.stdout.write(typeof m.handler)`], { env: LOAD_ENV, stdio: 'pipe' }).toString();
     assert.equal(out, 'function', f.name);
+  }
+});
+
+// Node.js 24 on Lambda supports only async (or promise-returning) handlers; the callback
+// form ends at Node.js 22. A handler with a third parameter would be a callback handler.
+test('every handler is async and takes no callback, as the nodejs24.x runtime requires', () => {
+  assert.equal(BUNDLE_TARGET, 'node24', 'the bundles are built for the runtime the stack declares');
+  for (const f of BRAIN_FUNCTIONS) {
+    const script = `const { handler } = require(${JSON.stringify(join(DIST, f.name, 'index.js'))}); process.stdout.write(JSON.stringify([handler.constructor.name, handler.length]))`;
+    const [kind, arity] = JSON.parse(execFileSync(process.execPath, ['-e', script], { env: LOAD_ENV, stdio: 'pipe' }).toString()) as [string, number];
+    assert.equal(kind, 'AsyncFunction', f.name);
+    assert.ok(arity <= 2, `${f.name} declares ${arity} parameters`);
   }
 });
 
