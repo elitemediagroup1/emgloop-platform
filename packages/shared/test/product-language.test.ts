@@ -158,3 +158,39 @@ test('3c. there are five tones, and each implies a different next move', () => {
   );
   assert.equal(used.size, 5, 'every tone is actually used');
 });
+
+// --- Brain work: provider-neutral words, kept apart from the flat lookup ----------------------
+
+import {
+  BRAIN_CANCEL_REASONS,
+  BRAIN_END_REASON_LANGUAGE,
+  BRAIN_FAILURE_REASONS,
+  BRAIN_WORK_DISPLAY_STATES,
+  BRAIN_WORK_LANGUAGE,
+  brainWorkLabel,
+} from '../src/index';
+
+test('Brain work: every display state and every end reason has words, and none names a provider or model', () => {
+  for (const state of BRAIN_WORK_DISPLAY_STATES) {
+    const label = brainWorkLabel(state);
+    assert.equal(label.from, state);
+    assert.ok(PRODUCT_TONES.includes(label.tone), state);
+    assert.ok(label.label.length > 0 && label.detail.length > 0, state);
+  }
+  assert.deepEqual(Object.keys(BRAIN_WORK_LANGUAGE).sort(), [...BRAIN_WORK_DISPLAY_STATES].sort());
+  assert.deepEqual(Object.keys(BRAIN_END_REASON_LANGUAGE).sort(), [...BRAIN_FAILURE_REASONS, ...BRAIN_CANCEL_REASONS].sort());
+  // The words only: the governed keys (MODEL_REFUSED, PROVIDER_UNAVAILABLE) are not shown.
+  const words = [
+    ...Object.values(BRAIN_WORK_LANGUAGE).flatMap((l) => [l.label, l.detail]),
+    ...Object.values(BRAIN_END_REASON_LANGUAGE),
+  ].join(' ');
+  assert.doesNotMatch(words, /anthropic|openai|claude|gpt|model\b|provider/i);
+});
+
+test('Brain work: a finished job is not presented as accepted truth, and the words never answer for other states', () => {
+  assert.doesNotMatch(brainWorkLabel('COMPLETED').label, /verified|confirmed|accepted|true/i);
+  assert.match(brainWorkLabel('COMPLETED').detail, /decides what is accepted/);
+  assert.notEqual(brainWorkLabel('FAILED').tone, 'VERIFIED');
+  assert.equal(productLabel('WAITING_FOR_YOU'), null, 'Brain words are not in the flat lookup');
+  assert.equal(productLabel('NOT_ENABLED'), null);
+});

@@ -519,6 +519,114 @@ export const FINDING_LIFECYCLE_LANGUAGE: Record<Exclude<FindingLifecycle, 'CURRE
   },
 };
 
+// --- Brain work ----------------------------------------------------------------------------------
+
+/**
+ * What a person reads about Brain work on a subject: the six product phases the Brain API
+ * reports (`BRAIN_WORK_PHASES`), plus the two states around them: nothing running, and Brain
+ * not switched on.
+ *
+ * PROVIDER-NEUTRAL, ALWAYS. No word here names a provider or a model; which one served a
+ * call belongs to provenance and diagnostics, never to the product surface.
+ *
+ * NOT IN THE FLAT LOOKUP BELOW. `FAILED`, `CANCELLED` and `COMPLETED` are generic names other
+ * authorities may also use; `brainWorkLabel` keeps these words from answering for anyone
+ * else's state.
+ *
+ * FINISHED IS NOT ACCEPTED. A finished job has handed its result to the authority that owns
+ * it; whether that result becomes anything in Loop is that authority's decision.
+ */
+export const BRAIN_WORK_DISPLAY_STATES = [
+  'NOT_ENABLED',
+  'IDLE',
+  'QUEUED',
+  'WORKING',
+  'WAITING_FOR_YOU',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+] as const;
+export type BrainWorkDisplayState = (typeof BRAIN_WORK_DISPLAY_STATES)[number];
+
+export const BRAIN_WORK_LANGUAGE: Record<BrainWorkDisplayState, ProductLabel> = {
+  NOT_ENABLED: {
+    tone: 'NEEDS_SETUP',
+    label: 'Not switched on',
+    detail: 'Brain is not switched on here. Nothing has been sent for reasoning.',
+    from: 'NOT_ENABLED',
+  },
+  IDLE: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Nothing running',
+    detail: 'No Brain work is running for this.',
+    from: 'IDLE',
+  },
+  QUEUED: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Queued',
+    detail: 'Loop accepted the request and will start it shortly.',
+    from: 'QUEUED',
+  },
+  WORKING: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Working',
+    detail: 'Loop is working on this. You can leave; the work continues.',
+    from: 'WORKING',
+  },
+  WAITING_FOR_YOU: {
+    tone: 'NEEDS_SETUP',
+    label: 'Needs your answer',
+    detail: 'Loop stopped to ask you something. Nothing continues until you answer.',
+    from: 'WAITING_FOR_YOU',
+  },
+  COMPLETED: {
+    tone: 'VERIFIED',
+    label: 'Finished',
+    detail: 'The work finished. The part of Loop that owns the result decides what is accepted.',
+    from: 'COMPLETED',
+  },
+  FAILED: {
+    tone: 'CONFLICTING',
+    label: 'Did not finish',
+    detail: 'The work stopped before it produced a result. Nothing was changed.',
+    from: 'FAILED',
+  },
+  CANCELLED: {
+    tone: 'INCOMPLETE',
+    label: 'Stopped',
+    detail: 'The work was stopped before it finished. Nothing was changed.',
+    from: 'CANCELLED',
+  },
+};
+
+/**
+ * Why Brain work ended, in words a person can act on, keyed by the governed failure and cancel
+ * reasons (`BRAIN_FAILURE_REASONS`, `BRAIN_CANCEL_REASONS`; a test keeps the keys complete).
+ * Provider-neutral: an unavailable provider reads as the reasoning service being unavailable.
+ */
+export const BRAIN_END_REASON_LANGUAGE: Readonly<Record<string, string>> = {
+  MODEL_REFUSED: 'The reasoning service declined this request.',
+  OUTPUT_REJECTED: "The answer did not pass Loop's checks, so it was not used.",
+  PROVIDER_UNAVAILABLE: 'The reasoning service was unavailable.',
+  PROVIDER_RESULT_LOST: 'The answer was lost before Loop could check it.',
+  BUDGET_REFUSED: 'This would have gone over the spending limit.',
+  ACCESS_WITHDRAWN: 'The person who asked no longer has access to this.',
+  CONTEXT_UNAVAILABLE: 'Loop could not gather the information this needs.',
+  RETRIES_EXHAUSTED: 'Loop tried several times and could not complete it.',
+  DEADLINE_EXCEEDED: 'It took longer than allowed.',
+  COMMIT_REFUSED: 'Nothing in Loop can accept this kind of result yet.',
+  ROUTING_NOT_CONFORMANT: "Loop's reasoning setup no longer matches its reviewed policy.",
+  INTERNAL: 'Something went wrong inside Loop.',
+  REQUESTED_BY_PRINCIPAL: 'The person who asked stopped it.',
+  REQUESTED_BY_ADMINISTRATOR: 'An administrator stopped it.',
+  KILL_SWITCH: 'Brain was switched off while it ran.',
+  WAIT_EXPIRED: 'The question went unanswered for too long.',
+};
+
+export function brainWorkLabel(state: BrainWorkDisplayState): ProductLabel {
+  return BRAIN_WORK_LANGUAGE[state];
+}
+
 /**
  * Every label, by the governed state it translates.
  *

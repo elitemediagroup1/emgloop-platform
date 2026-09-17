@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import {
@@ -87,7 +87,7 @@ export default async function ConversationsPage({
     return { empty: false as const, list, assignees, savedViews };
   });
 
-  if (!result.ok) return <DbNotConfigured />;
+  if (!result.ok) return <DataUnavailable />;
   if (result.data.empty) {
     return (
       <>

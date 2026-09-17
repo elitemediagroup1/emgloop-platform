@@ -72,7 +72,7 @@ These are not aspirations. They are enforced in review.
    already does this well (`revenue/page.tsx`); match that standard.
 5. **Delete dead code instead of hiding it.** We carry ~9,000 lines with zero importers. Every one of
    them was "kept just in case." Deleting is cheaper than the confusion. Git remembers.
-6. **One source of truth.** We have three workflow systems and two token sets. Each one started as "just
+6. **One source of truth.** We have three workflow systems and had two token sets (now one palette, with `--crm-*` aliases until the CRM migrates). Each one started as "just
    for now." (Two shells and three nav configs did too; they became one shell and one registry,
    `LOOP_NAV`, only once the plan was written down.)
 7. **Simplicity over cleverness.** The `_loop-os` primitives are good because they are boring.
@@ -94,6 +94,8 @@ apps/
   web/     Next.js 14 App Router. THE product. ~24k LOC.
            src/app/crm/      36 mature feature routes
            src/app/app/      Loop OS shell (5 workspaces; only ADMIN + EMPLOYEE/work are real)
+           src/app/app/crm/  the redesigned CRM slice (People, Person, Relationships)
+           src/app/app/_loop-os/  the Loop design system's shared primitives
            src/app/api/      19 route handlers — THE REAL API TIER
            src/auth/         session, scrypt, guards
            src/workspaces/   role router, workspace config, WorkspaceShell
@@ -198,7 +200,10 @@ Those two workspaces are unreachable. Don't build into them without fixing the h
   `*.service.ts` for orchestration. A file named for a sprint is a mistake we already made ×5.
 - **Defensive programming.** Fail closed. Unknown role → least privilege. Missing scope → deny.
   Return `null` for not-found rather than throwing into a server action.
-- **No new CSS files.** Especially not sprint-numbered ones. Use the tokens in `design-system.css`.
+- **No new CSS files.** Especially not sprint-numbered ones. Loop has ONE palette: the `:root`
+  `--loop-*` tokens in `app/loop-os.css` (`docs/product/loop-design-system.md`). New UI uses the
+  `_loop-os` primitives; `--crm-*` are aliases kept only until the CRM migrates. Never declare a
+  colour token anywhere else (a test enforces it).
 - **Time goes through the Loop Time Authority** (`docs/architecture/loop-time-authority.md`). Instants
   are stored UTC and stamped by the server or database clock, never the browser. A human-facing date is
   formatted with `viewerTime()` (server) or `@emgloop/shared` `formatInstant`/`relativeTime` with an

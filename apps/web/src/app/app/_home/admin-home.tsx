@@ -1,13 +1,19 @@
 import Link from 'next/link';
-import type { ReactNode } from 'react';
 import { loadDashboard, type DayScore } from '../admin/dashboard-data';
 import { requireWorkspace } from '../../../workspaces/guard';
 import { trend, trendLabel, metricValue, type TrendResult } from '@emgloop/shared';
 import { viewerTime } from '../../../time/viewer-time';
+import { LoopPage, PageHead, Panel, StatePill } from '../_loop-os/record';
+import type { SubjectTone } from '../../../crm/subject-display';
 
 // The Operational Home of Elite Media Group.
 //
-// One screen, no scroll: a header (greeting + global search) and nine tiles.
+// Drawn with the Loop design system's shared primitives (page head, panels, state
+// pills; docs/product/loop-design-system.md), like every redesigned surface. The
+// handoff's Home composition (Needs You, What Changed, Loop Noticed, My Work,
+// Operating Pulse) is its own later slice; this keeps today's sections and data.
+//
+// One screen: a header (greeting + CRM search) and nine panels.
 // Within 15 seconds an employee sees how the business did yesterday and today,
 // whether anything needs them, whether they have work, and whether it can all be
 // trusted.
@@ -44,30 +50,28 @@ function showNum(available: boolean, n: number | null): string {
   return n.toLocaleString('en-US');
 }
 
-function Tile({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="tile" aria-label={title}>
-      <div className="tile__head"><span className="tile__title">{title}</span></div>
-      {children}
-    </section>
-  );
-}
+const PILL_TONE: Record<Tone, SubjectTone> = {
+  good: 'good',
+  warn: 'attention',
+  crit: 'critical',
+  info: 'neutral',
+  idle: 'neutral',
+};
 
 function StatusWord({ tone, label }: { tone: Tone; label: string }) {
   return (
-    <div className="tile__status">
-      <span className={'tile__dot tile__dot--' + tone} aria-hidden="true" />
-      <span>{label}</span>
-    </div>
+    <p className="loop-home__status">
+      <StatePill state={{ label, tone: PILL_TONE[tone] }} />
+    </p>
   );
 }
 
 function StatusNum({ value, label }: { value: number; label?: string }) {
   return (
-    <div className="tile__status">
-      <span className="tile__num">{value.toLocaleString('en-US')}</span>
-      {label ? <span className="tile__num-label">{label}</span> : null}
-    </div>
+    <p className="loop-home__num">
+      <span className="loop-home__num-value">{value.toLocaleString('en-US')}</span>
+      {label ? <span className="loop-home__num-label">{label}</span> : null}
+    </p>
   );
 }
 
@@ -142,76 +146,81 @@ export async function AdminHome() {
   const acts = w.recentActivity;
 
   return (
-    <div className="loop-os">
-      <div className="cmd">
-
-        <header className="cmd-head">
-          <div className="cmd-head__main">
-            <h1 className="cmd-head__greeting">{header.greeting}, {header.displayName}</h1>
-            <p className="cmd-head__meta">{header.dateLabel} · {header.organizationName}</p>
-          </div>
-          <form className="cmd-search" method="get" action="/crm/search" role="search">
-            <input type="search" name="q" className="cmd-search__input" placeholder="Search companies, contacts, work…" aria-label="Search" />
+    <LoopPage label="Loop Home">
+      <PageHead
+        trail={[{ label: 'Your Loop' }]}
+        title={`${header.greeting}, ${header.displayName}`}
+        subtitle={`${header.dateLabel} · ${header.organizationName}`}
+        actions={
+          <form className="loop-searchform" method="get" action="/crm/search" role="search">
+            <input
+              type="search"
+              name="q"
+              className="loop-input"
+              placeholder="Search intake records and conversations"
+              aria-label="Search the CRM"
+            />
           </form>
-        </header>
+        }
+      />
 
-        <div className="tiles">
+      <div className="loop-home">
 
           {/* ── Row 1 ───────────────────────────────────────────── */}
 
-          <Tile title="Business Status">
+          <Panel title="Business Status">
             <StatusWord tone="idle" label={visibilityLabel} />
-            <p className="tile__line">{visibilityText}</p>
-          </Tile>
+            <p className="loop-home__line">{visibilityText}</p>
+          </Panel>
 
-          <Tile title="Today's Priorities">
+          <Panel title="Today's Priorities">
             {priorities.length === 0 ? (
               <>
                 <StatusWord tone="idle" label="None" />
-                <p className="tile__line">No evidence-backed priorities require your attention.</p>
+                <p className="loop-home__line">No evidence-backed priorities require your attention.</p>
               </>
             ) : (
-              <ul className="tile__list">
+              <ul className="loop-home__list">
                 {priorities.slice(0, 4).map((p, i) => (
-                  <li key={i} className="tile__li">
-                    <span className={'tile__dot tile__dot--' + p.tone} aria-hidden="true" />
-                    <Link href={p.href} className="tile__li-text">{p.text}</Link>
+                  <li key={i} className="loop-home__item">
+                    <span className={'loop-home__dot loop-home__dot--' + p.tone} aria-hidden="true" />
+                    <Link href={p.href} className="loop-home__item-text">{p.text}</Link>
                   </li>
                 ))}
-                {priorities.length > 4 ? <li className="tile__li-more">and {priorities.length - 4} more.</li> : null}
+                {priorities.length > 4 ? <li className="loop-home__more">and {priorities.length - 4} more.</li> : null}
               </ul>
             )}
-          </Tile>
+          </Panel>
 
-          <Tile title="My Work">
+          <Panel title="My Work">
             {assigned === 0 ? (
               <>
                 <StatusWord tone="idle" label="No work assigned" />
-                <p className="tile__line">You have no work assigned. When work is assigned it will appear here.</p>
+                <p className="loop-home__line">You have no work assigned. When work is assigned it will appear here.</p>
               </>
             ) : (
               <>
                 <StatusNum value={assigned} label="Assigned" />
-                <p className="tile__line">
+                <p className="loop-home__line">
                   {w.nextAction ? `Next: ${w.nextAction.title}.` : `${assigned === 1 ? 'One item is' : `${assigned} items are`} waiting for you.`}
                 </p>
               </>
             )}
-            <div className="tile__row">
-              <Link href="/app/admin/work" className="tile__action">View my work →</Link>
-              {w.canCreateWork ? <Link href="/app/admin/work/new" className="tile__action">Create work →</Link> : null}
+            <div className="loop-home__actions">
+              <Link href="/app/admin/work" className="loop-link">View my work →</Link>
+              {w.canCreateWork ? <Link href="/app/admin/work/new" className="loop-link">Create work →</Link> : null}
             </div>
-          </Tile>
+          </Panel>
 
           {/* ── Row 2 ───────────────────────────────────────────── */}
 
           {/* CallGrid Intelligence — the Executive Scorecard */}
-          <Tile title="CallGrid Intelligence">
+          <Panel title="CallGrid Intelligence">
             {!callgridConnected ? (
               <>
                 <StatusWord tone="idle" label="No call data yet" />
-                <p className="tile__line">CallGrid has not sent any calls yet.</p>
-                <Link href="/app/admin/marketplace" className="tile__action">Open CallGrid Intelligence →</Link>
+                <p className="loop-home__line">CallGrid has not sent any calls yet.</p>
+                <Link href="/app/admin/marketplace" className="loop-link">Open CallGrid Intelligence →</Link>
               </>
             ) : (
               <>
@@ -226,63 +235,62 @@ export async function AdminHome() {
                   <ScoreRow label="Billable calls" yText={showNum(yd.available, yd.billableCalls)} tText={showNum(td.available, td.billableCalls)} r={billableTrend} />
                   <ScoreRow label="Total calls" yText={showNum(yd.available, yd.totalCalls)} tText={showNum(td.available, td.totalCalls)} r={totalTrend} neutral />
                 </div>
-                <Link href="/app/admin/marketplace" className="tile__action">Open CallGrid Intelligence →</Link>
+                <Link href="/app/admin/marketplace" className="loop-link">Open CallGrid Intelligence →</Link>
               </>
             )}
-          </Tile>
+          </Panel>
 
           {/* CRM — Phase 1: real command center with org-scoped data */}
-          <Tile title="CRM">
+          <Panel title="CRM">
             <StatusWord tone="good" label="Active" />
-            <p className="tile__line">Phase 1 CRM is live with people, conversations, intake status and activity.</p>
-            <Link href="/crm" className="tile__action">Open CRM →</Link>
-          </Tile>
+            <p className="loop-home__line">Phase 1 CRM is live with people, conversations, intake status and activity.</p>
+            <Link href="/crm" className="loop-link">Open CRM →</Link>
+          </Panel>
 
           {/* Creator Hub */}
-          <Tile title="Creator Hub">
+          <Panel title="Creator Hub">
             <StatusWord tone="idle" label="Not Configured" />
-            <p className="tile__line">Creator Hub has not yet been built.</p>
-          </Tile>
+            <p className="loop-home__line">Creator Hub has not yet been built.</p>
+          </Panel>
 
           {/* ── Row 3 ───────────────────────────────────────────── */}
 
           {/* Accounting */}
-          <Tile title="Accounting">
+          <Panel title="Accounting">
             <StatusWord tone="idle" label="Not Connected" />
-            <p className="tile__line">Accounting integration has not yet been configured.</p>
-          </Tile>
+            <p className="loop-home__line">Accounting integration has not yet been configured.</p>
+          </Panel>
 
           {/* Recent Business Activity */}
-          <Tile title="Recent Business Activity">
+          <Panel title="Recent Business Activity">
             {acts.length === 0 ? (
               <>
                 <StatusWord tone="idle" label="None yet" />
-                <p className="tile__line">No recent business activity.</p>
+                <p className="loop-home__line">No recent business activity.</p>
               </>
             ) : (
-              <ul className="tile__list">
+              <ul className="loop-home__list">
                 {acts.slice(0, 4).map((a) => (
-                  <li key={a.id} className="tile__li">
-                    <span className="tile__dot tile__dot--info" aria-hidden="true" />
-                    <span className="tile__li-text">{a.label}</span>
-                    <span className="tile__li-time">{relTime(a.createdAtIso)}</span>
+                  <li key={a.id} className="loop-home__item">
+                    <span className="loop-home__dot loop-home__dot--info" aria-hidden="true" />
+                    <span className="loop-home__item-text">{a.label}</span>
+                    <span className="loop-home__item-time">{relTime(a.createdAtIso)}</span>
                   </li>
                 ))}
               </ul>
             )}
-          </Tile>
+          </Panel>
 
           {/* Quick Actions — only actions that exist */}
-          <Tile title="Quick Actions">
-            <div className="tile__qa">
-              {w.canCreateWork ? <Link href="/app/admin/work/new" className="tile__qa-btn">Create work →</Link> : null}
-              {w.canInvite ? <Link href="/app/admin/administration/team" className="tile__qa-btn">Invite team member →</Link> : null}
-              {!w.canCreateWork && !w.canInvite ? <p className="tile__line">No quick actions available for your role.</p> : null}
+          <Panel title="Quick Actions">
+            <div className="loop-btnrow">
+              {w.canCreateWork ? <Link href="/app/admin/work/new" className="loop-btn">Create work →</Link> : null}
+              {w.canInvite ? <Link href="/app/admin/administration/team" className="loop-btn">Invite team member →</Link> : null}
+              {!w.canCreateWork && !w.canInvite ? <p className="loop-home__line">No quick actions available for your role.</p> : null}
             </div>
-          </Tile>
+          </Panel>
 
-        </div>
       </div>
-    </div>
+    </LoopPage>
   );
 }

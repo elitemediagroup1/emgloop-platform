@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../../demo/db-health';
 import { crmRepos, requireCrmContext, workflowBelongsToOrg } from '../../../../crm/crm-data';
 import { requirePermission, hasPermission } from '../../../../auth/guard';
 import { PIPELINE_STATUSES } from '@emgloop/database';
@@ -90,7 +90,7 @@ export default async function WorkflowBuilderPage({
     };
   });
 
-  if (!result.ok) return <DbNotConfigured />;
+  if (!result.ok) return <DataUnavailable />;
   if (result.data.empty || !result.data.workflow) notFound();
 
   const { workflow, runs, customers, conversations } = result.data;

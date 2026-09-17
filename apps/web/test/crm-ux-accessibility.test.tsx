@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ActorDisplay, Timeline, TimelineItem, fromInboxItem } from '../src/crm/timeline';
 import { SectionTabs } from '../src/crm/section-tabs';
 import { CrmLoadError } from '../src/crm/load-error';
+import { DataUnavailable } from '../src/demo/db-health';
 import { LOOP_NAV } from '../src/workspaces/config';
 
 const render = (el: unknown) => renderToStaticMarkup(el as never);
@@ -76,10 +77,19 @@ describe('Shell and navigation', () => {
     }
   });
 
-  it('collapses the sidebar into a scrollable strip on small screens', () => {
-    const phone = SHELL_CSS.slice(SHELL_CSS.lastIndexOf('@media (max-width: 820px)'));
-    assert.match(phone, /\.loop-sb__scroll \{[^}]*overflow-x: auto/);
-    assert.match(phone, /\.loop-main \{ padding: 20px 16px/);
+  it('on small screens, uses the responsive light header, a navigation sheet and the area bar, not a shrunken sidebar', () => {
+    const phone = SHELL_CSS.slice(SHELL_CSS.indexOf('/* ---- Shell: desktop and phone ----'));
+    const rules = phone.slice(phone.indexOf('@media (max-width: 820px) {'));
+    assert.match(rules, /\.loop-sidebar \{[^}]*background: var\(--loop-surface\);/, 'a light header, not the navy rail');
+    assert.match(rules, /\.loop-sb__mark--rail, \.loop-sb__os \{ display: none; \}/);
+    assert.match(rules, /\.loop-sb__mark--light \{ display: inline-flex; \}/);
+    assert.match(rules, /\.loop-menu-toggle:not\(:checked\) ~ \.loop-sb__menu \{ display: none; \}/);
+    assert.match(rules, /\.loop-menu-toggle:checked ~ \.loop-sb__menu \{ position: fixed;[^}]*overflow-y: auto; background: var\(--loop-surface\);/, 'the open menu is a light, scrollable sheet');
+    assert.match(rules, /\.loop-sb__link \{ min-height: 44px;/, 'touch-sized targets');
+    assert.match(rules, /\.loop-appbar \{ display: none; \}/, 'one header on a phone');
+    assert.match(rules, /\.loop-areabar \{ display: grid;[^}]*position: fixed;[^}]*bottom: 0;/);
+    assert.match(rules, /\.loop-main \{ padding: 20px 16px 96px; \}/, 'content clears the bar');
+    assert.equal(SHELL_CSS.includes('It becomes a horizontally scrollable strip'), false, 'the old sidebar strip is gone');
   });
 
   it('nav destinations carry the same names as their nav items', () => {
@@ -156,7 +166,7 @@ describe('Honest failure states', () => {
     for (const [name, src] of surfaces) {
       assert.match(src, /loadOrFallback\(/, `${name} loads through loadOrFallback`);
       assert.match(src, /<CrmLoadError failure=\{/, `${name} renders CrmLoadError`);
-      assert.equal(src.includes('DbNotConfigured'), false, `${name} no longer renders the legacy full-page notice`);
+      assert.equal(/DbNotConfigured|DataUnavailable/.test(src), false, `${name} no longer renders the generic page notice`);
     }
   });
 
@@ -231,10 +241,21 @@ describe('Semantics and labels on Phase 1 surfaces', () => {
 });
 
 describe('Design tokens', () => {
+  // --crm-* are aliases of the one Loop palette (:root --loop-* in loop-os.css).
+  function loopToken(name: string, depth = 0): string {
+    const root = SHELL_CSS.slice(SHELL_CSS.indexOf(':root {'), SHELL_CSS.indexOf('}', SHELL_CSS.indexOf(':root {')));
+    const m = root.match(new RegExp(`--loop-${name}:\\s*([^;]+);`));
+    assert.ok(m, `--loop-${name} is defined on :root`);
+    const value = m![1]!.trim();
+    const alias = value.match(/^var\(--loop-([a-z0-9-]+)\)$/);
+    if (alias && depth < 4) return loopToken(alias[1]!, depth + 1);
+    assert.match(value, /^#[0-9A-Fa-f]{6}$/, `--loop-${name} resolves to a hex colour`);
+    return value;
+  }
   function token(name: string): string {
-    const m = DS_CSS.match(new RegExp(`--crm-${name}:\\s*(#[0-9A-Fa-f]{6})`));
-    assert.ok(m, `--crm-${name} is a hex token`);
-    return m![1]!;
+    const m = DS_CSS.match(new RegExp(`--crm-${name}:\\s*var\\(--loop-([a-z0-9-]+)\\)`));
+    assert.ok(m, `--crm-${name} is an alias of a --loop-* token`);
+    return loopToken(m![1]!);
   }
   function luminance(hex: string): number {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
@@ -308,5 +329,26 @@ describe('Rendered output', () => {
     const unconfigured = render(<CrmLoadError surface="Search" failure={{ ok: false, cause: 'not-configured', message: 'x' }} />);
     assert.match(unconfigured, /no database configured/);
     assert.notEqual(failed, unconfigured);
+  });
+
+  it('the generic page notice says "not configured" only when the environment has no database', () => {
+    const saved = process.env.DATABASE_URL;
+    try {
+      process.env.DATABASE_URL = 'postgresql://configured.example/db';
+      const configured = render(<DataUnavailable />);
+      assert.match(configured, /role="alert"/);
+      assert.match(configured, /could not be shown/);
+      assert.equal(/not configured|DATABASE_URL/i.test(configured), false, 'a failed read is not a configuration problem');
+      delete process.env.DATABASE_URL;
+      const missing = render(<DataUnavailable />);
+      assert.match(missing, /Database is not configured/);
+      assert.match(missing, /DATABASE_URL/);
+    } finally {
+      if (saved === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = saved;
+    }
+    for (const file of ['../src/app/crm/customers/page.tsx', '../src/app/crm/pipeline/page.tsx', '../src/app/crm/inbox/page.tsx']) {
+      assert.equal(read(file).includes('DbNotConfigured'), false, file);
+    }
   });
 });

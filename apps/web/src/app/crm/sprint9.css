@@ -14,7 +14,7 @@
   font-size: 0.95rem;
   font-weight: 600;
   margin: 0 0 0.75rem;
-  color: var(--crm-text, #e5e7eb);
+  color: var(--crm-text, var(--loop-ink));
 }
 
 .crm .crm-wf-grid {
@@ -64,9 +64,9 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.5rem 0.65rem;
-  border: 1px solid var(--crm-border, #2a2f3a);
+  border: 1px solid var(--crm-border, var(--loop-line));
   border-radius: 0.5rem;
-  background: var(--crm-panel-2, rgba(255, 255, 255, 0.02));
+  background: var(--crm-panel-2, rgba(15, 28, 42, 0.02));
 }
 
 .crm .crm-step-idx {
@@ -79,8 +79,8 @@
   border-radius: 50%;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #0b0f17;
-  background: var(--crm-accent, #34d399);
+  color: var(--loop-on-primary);
+  background: var(--crm-accent, var(--loop-good));
 }
 
 .crm .crm-step-label {
@@ -91,7 +91,7 @@
 
 .crm .crm-step-detail {
   flex: 1 1 auto;
-  color: var(--crm-faint, #9ca3af);
+  color: var(--crm-faint, var(--loop-muted));
   font-size: 0.82rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -99,7 +99,7 @@
 }
 
 .crm .crm-add-step {
-  border-top: 1px dashed var(--crm-border, #2a2f3a);
+  border-top: 1px dashed var(--crm-border, var(--loop-line));
   padding-top: 0.85rem;
 }
 
@@ -127,7 +127,7 @@
   flex: 0 0 auto;
   border: none;
   background: transparent;
-  color: var(--crm-faint, #9ca3af);
+  color: var(--crm-faint, var(--loop-muted));
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
@@ -135,5 +135,5 @@
 }
 
 .crm .crm-x:hover {
-  color: var(--crm-red, #f87171);
+  color: var(--crm-red, var(--loop-crit));
 }

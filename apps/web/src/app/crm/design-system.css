@@ -1,74 +1,64 @@
 /* =====================================================================
-   EMG Loop — Operating System Design Language (Sprint 13)
+   EMG Loop — CRM compatibility layer over the Loop design system
    ---------------------------------------------------------------------
-   A premium, dark-first design system layered on top of the existing
-   .crm scope. This file is PRESENTATION ONLY. It redefines the design
-   tokens and upgrades the visual treatment of the shared component
-   classes (panels, cards, tables, buttons, badges, tabs, inputs, etc.)
-   so every existing /crm page inherits the new look with zero changes
-   to business logic, data, routing, or auth.
+   PRESENTATION ONLY. The /crm pages still use the .crm component classes
+   (panels, cards, tables, buttons, badges, tabs, inputs). Their tokens are
+   now ALIASES of the one Loop palette (:root --loop-* in app/loop-os.css,
+   docs/product/loop-design-system.md), so every /crm page renders in the
+   same visual language as the rest of Loop.
 
-   Loaded AFTER crm.css + sprintN.css in layout.tsx, so these rules win.
-
-   Brand palette is derived from the Elite Media Group + EMG Loop marks:
-     navy   #1B2A6B   teal #2E9B9B   (logo gradient)
-   combined with the Sprint 13 platform palette:
-     bg #0B0F14  panel #111827  card #151D29  hover #1C2636
-     accent (electric cyan) #22D3EE   revenue/success (emerald) #34D399
-     warning (amber) #F5B544   error (crimson) #F2545B
+   This file declares NO colour value of its own. The --crm-* names exist
+   only because 47 CRM files still reference them; they are deleted when
+   the last /crm surface moves onto the loop primitives (design-system
+   record, migration step 9). Do not add a --crm-* token.
    ===================================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 .crm {
   /* --- Surfaces --- */
-  --crm-bg: #0B0F14;
-  --crm-panel: #111827;
-  --crm-panel-2: #151D29;
-  --crm-card: #151D29;
-  --crm-hover: #1C2636;
-  --crm-border: #1E2A3A;
-  --crm-border-soft: #18222F;
+  --crm-bg: var(--loop-canvas);
+  --crm-panel: var(--loop-surface);
+  --crm-panel-2: var(--loop-sunken);
+  --crm-card: var(--loop-surface);
+  --crm-hover: var(--loop-hover);
+  --crm-border: var(--loop-line);
+  --crm-border-soft: var(--loop-line);
 
   /* --- Text --- */
-  --crm-text: #E8EEF6;
-  --crm-muted: #93A1B5;
-  --crm-faint: #8090A6;               /* ≥4.5:1 on bg/panel/card/hover (was #5C6B80, 3.1:1) */
+  --crm-text: var(--loop-ink);
+  --crm-muted: var(--loop-muted);
+  --crm-faint: var(--loop-faint);
 
-  /* --- Brand / accents --- */
-  --crm-accent: #22D3EE;              /* electric cyan */
-  --crm-accent-dim: rgba(34, 211, 238, 0.12);
-  --crm-accent-soft: rgba(34, 211, 238, 0.18);
-  --crm-navy: #1B2A6B;
-  --crm-teal: #2E9B9B;
-  --crm-brand-grad: linear-gradient(120deg, #1B2A6B 0%, #2E9B9B 100%);
+  /* --- Accents (semantic, from the one palette) --- */
+  --crm-accent: var(--loop-accent);
+  --crm-accent-dim: var(--loop-accent-soft);
+  --crm-accent-soft: var(--loop-accent-soft);
+  --crm-navy: var(--loop-primary);
+  --crm-teal: var(--loop-accent);
+  --crm-brand-grad: var(--loop-primary);
 
-  --crm-blue: #4AA8FF;
-  --crm-purple: #B07CFF;
-  --crm-amber: #F5B544;
-  --crm-red: #F2545B;
-  --crm-green: #34D399;               /* success */
-  --crm-emerald: #34D399;             /* revenue */
-  --crm-revenue: #34D399;
+  --crm-blue: var(--loop-accent);
+  --crm-purple: var(--loop-neutral);
+  --crm-amber: var(--loop-warn);
+  --crm-red: var(--loop-crit);
+  --crm-green: var(--loop-good);
+  --crm-emerald: var(--loop-good);
+  --crm-revenue: var(--loop-good);
 
   /* --- Geometry / motion --- */
-  --crm-radius: 12px;
-  --crm-radius-sm: 9px;
-  --crm-radius-lg: 16px;
-  --crm-shadow: 0 1px 0 rgba(255,255,255,0.02), 0 8px 24px -12px rgba(0,0,0,0.6);
-  --crm-shadow-lg: 0 24px 60px -20px rgba(0,0,0,0.7);
+  --crm-radius: var(--loop-radius-sm);
+  --crm-radius-sm: 8px;
+  --crm-radius-lg: var(--loop-radius);
+  --crm-shadow: var(--loop-shadow);
+  --crm-shadow-lg: var(--loop-shadow-lg);
   --crm-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --crm-dur: 160ms;
 
-
-  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
-    Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--loop-font);
   font-size: 14px;
-  background:
-    radial-gradient(1200px 600px at 78% -8%, rgba(46,155,155,0.08), transparent 60%),
-    radial-gradient(900px 500px at -6% 4%, rgba(27,42,107,0.16), transparent 55%),
-    var(--crm-bg);
-  color: var(--crm-text);
+  background: var(--loop-canvas);
+  color: var(--loop-ink);
   letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
 }
@@ -113,7 +103,7 @@
   border-color: var(--crm-border);
 }
 .crm-panel, .crm-card {
-  background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.6));
+  background: linear-gradient(180deg, var(--crm-card), var(--loop-surface));
   box-shadow: var(--crm-shadow);
 }
 .crm-card { transition: transform var(--crm-dur) var(--crm-ease), border-color var(--crm-dur) var(--crm-ease); }
@@ -122,17 +112,16 @@ a.crm-card:hover, .crm-card.hoverable:hover {
 }
 
 /* Buttons */
-.crm-btn {
-  background: var(--crm-accent); color: #04222a; border-radius: var(--crm-radius-sm);
-  font-weight: 600; transition: all var(--crm-dur) var(--crm-ease);
-  box-shadow: 0 6px 18px -8px rgba(34,211,238,0.6);
+.crm-btn, .crm a.crm-btn {
+  background: var(--loop-primary); color: var(--loop-on-primary); border-radius: var(--crm-radius-sm);
+  font-weight: 600; transition: background var(--crm-dur) var(--crm-ease);
 }
-.crm-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
-.crm-btn-ghost {
+.crm-btn:hover, .crm a.crm-btn:hover { background: var(--loop-primary-hover); }
+.crm-btn-ghost, .crm-btn.crm-btn-ghost, .crm a.crm-btn-ghost, .crm a.crm-btn.crm-btn-ghost {
   background: var(--crm-card); color: var(--crm-text); border: 1px solid var(--crm-border);
   box-shadow: none;
 }
-.crm-btn-ghost:hover { background: var(--crm-hover); border-color: var(--crm-accent-soft); }
+.crm-btn-ghost:hover, .crm-btn.crm-btn-ghost:hover, .crm a.crm-btn-ghost:hover, .crm a.crm-btn.crm-btn-ghost:hover { background: var(--crm-hover); border-color: var(--loop-line-strong); }
 
 /* Inputs */
 .crm-input, .crm-select, .crm-textarea {
@@ -144,7 +133,7 @@ a.crm-card:hover, .crm-card.hoverable:hover {
 }
 
 /* Tables */
-.crm-table th { background: rgba(21,29,41,0.7); letter-spacing: 0.06em; }
+.crm-table th { background: var(--loop-surface); letter-spacing: 0.06em; }
 .crm-table tbody tr { transition: background var(--crm-dur) var(--crm-ease); }
 .crm-table tbody tr:hover { background: var(--crm-hover); }
 
@@ -175,7 +164,7 @@ a.crm-card:hover, .crm-card.hoverable:hover {
 /* KPI grid */
 .ds-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(168px, 100%), 1fr)); gap: 0.85rem; margin-bottom: 1.4rem; }
 .ds-kpi {
-  background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.55));
+  background: linear-gradient(180deg, var(--crm-card), var(--loop-surface));
   border: 1px solid var(--crm-border); border-radius: var(--crm-radius);
   padding: 0.95rem 1rem; position: relative; overflow: hidden;
   box-shadow: var(--crm-shadow);
@@ -198,7 +187,7 @@ a.crm-card:hover, .crm-card.hoverable:hover {
 .ds-grid > * { min-width: 0; }
 @media (max-width: 1100px) { .ds-grid.cols-3, .ds-grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); } }
 
-.ds-card { background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.55)); border: 1px solid var(--crm-border); border-radius: var(--crm-radius); box-shadow: var(--crm-shadow); }
+.ds-card { background: linear-gradient(180deg, var(--crm-card), var(--loop-surface)); border: 1px solid var(--crm-border); border-radius: var(--crm-radius); box-shadow: var(--crm-shadow); }
 .ds-card-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--crm-border-soft); }
 .ds-card-head :is(h2, h3) { margin: 0; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.02em; }
 .ds-card-head .more { margin-left: auto; font-size: 0.74rem; color: var(--crm-faint); white-space: nowrap; }
@@ -244,7 +233,7 @@ a.crm-card:hover, .crm-card.hoverable:hover {
 .ds-flow { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; padding: 0.5rem 0; }
 .ds-flow-node {
   width: 100%; max-width: 420px; text-align: center;
-  background: linear-gradient(180deg, var(--crm-card), rgba(17,24,39,0.5));
+  background: linear-gradient(180deg, var(--crm-card), var(--loop-surface));
   border: 1px solid var(--crm-border); border-radius: var(--crm-radius);
   padding: 0.7rem 1rem; box-shadow: var(--crm-shadow);
   transition: border-color var(--crm-dur) var(--crm-ease), transform var(--crm-dur) var(--crm-ease);

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
 import { LOOP_HOME } from '../../../auth/landing';
 import type { NavGroup } from '../../../workspaces/config';
+import { LoopPage, PageHead, Panel } from '../_loop-os/record';
 
 // Loop Home for a person without the operational overview's authority.
 //
@@ -10,6 +11,7 @@ import type { NavGroup } from '../../../workspaces/config';
 // The groups arrive already resolved from their permissions and role authority
 // (workspaces/nav-access.ts), so nothing here decides access, and nothing a
 // person cannot open is shown. It shows no business data, so it invents none.
+// Drawn with the Loop design system's shared primitives.
 
 export function ModuleHome({ name, groups }: { name: string; groups: readonly NavGroup[] }) {
   const areas = groups
@@ -20,29 +22,24 @@ export function ModuleHome({ name, groups }: { name: string; groups: readonly Na
     .filter((area) => area.items.length > 0);
 
   return (
-    <div className="loop-grid__content">
-      <div className="loop-pagehead">
-        <div className="loop-eyebrow">Loop Home</div>
-        <h1 className="loop-title">Welcome, {name}</h1>
-        <p className="loop-subtitle">Everything you have access to in Loop.</p>
+    <LoopPage label="Loop Home">
+      <PageHead trail={[{ label: 'Your Loop' }]} title={`Welcome, ${name}`} subtitle="Everything you have access to in Loop." />
+      <div className="loop-home">
+        {areas.map((area) => (
+          <Panel title={area.label} key={area.label}>
+            <div className="loop-launchers">
+              {area.items.map((item) => (
+                <Link href={item.href} className="loop-launch" key={item.href}>
+                  <span className="loop-launch__icon">
+                    <SidebarIcon name={item.icon} />
+                  </span>
+                  <span className="loop-launch__title">{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          </Panel>
+        ))}
       </div>
-      {areas.map((area) => (
-        <section className="loop-card" key={area.label} aria-label={area.label}>
-          <div className="loop-card__head">
-            <h2 className="loop-card__title">{area.label}</h2>
-          </div>
-          <div className="loop-launchers">
-            {area.items.map((item) => (
-              <Link href={item.href} className="loop-launch" key={item.href}>
-                <span className="loop-launch__icon">
-                  <SidebarIcon name={item.icon} />
-                </span>
-                <span className="loop-launch__title">{item.label}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
+    </LoopPage>
   );
 }

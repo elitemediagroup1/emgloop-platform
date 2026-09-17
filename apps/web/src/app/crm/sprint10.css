@@ -49,7 +49,7 @@
 }
 
 .crm-analytics-kpi-delta.up { color: var(--crm-accent); }
-.crm-analytics-kpi-delta.down { color: var(--crm-red, #f87171); }
+.crm-analytics-kpi-delta.down { color: var(--crm-red, var(--loop-crit)); }
 .crm-analytics-kpi-delta.stable { color: var(--crm-faint); }
 
 .crm-analytics-grid {
@@ -178,9 +178,9 @@
   font-size: 0.85rem;
 }
 
-.crm-intel-rec.high { border-left-color: var(--crm-red, #f87171); }
-.crm-intel-rec.medium { border-left-color: var(--crm-amber, #fbbf24); }
-.crm-intel-rec.low { border-left-color: var(--crm-blue, #60a5fa); }
+.crm-intel-rec.high { border-left-color: var(--crm-red, var(--loop-crit)); }
+.crm-intel-rec.medium { border-left-color: var(--crm-amber, var(--loop-warn)); }
+.crm-intel-rec.low { border-left-color: var(--crm-blue, var(--loop-accent)); }
 
 .crm-intel-rec-title {
   font-weight: 700;
@@ -271,9 +271,9 @@
   flex-shrink: 0;
 }
 
-.crm-integration-status.PENDING { color: var(--crm-amber, #fbbf24); }
+.crm-integration-status.PENDING { color: var(--crm-amber, var(--loop-warn)); }
 .crm-integration-status.CONNECTED { color: var(--crm-accent); }
-.crm-integration-status.ERROR { color: var(--crm-red, #f87171); }
+.crm-integration-status.ERROR { color: var(--crm-red, var(--loop-crit)); }
 .crm-integration-status.DISCONNECTED { color: var(--crm-faint); }
 
 .crm-integration-card-config {

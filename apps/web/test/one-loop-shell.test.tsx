@@ -26,7 +26,7 @@ import {
 } from '../src/workspaces/config';
 import { resolveWorkspaceRole } from '../src/workspaces/role-router';
 import { runWorkspaceRoutingVerification } from '../src/workspaces/verification';
-import { ShellCrumb, ShellNav } from '../src/workspaces/ShellNav';
+import { AreaBar, ShellCrumb, ShellNav } from '../src/workspaces/ShellNav';
 import UnavailablePage from '../src/workspaces/UnavailablePage';
 import { ModuleHome } from '../src/app/app/_home/module-home';
 
@@ -125,7 +125,7 @@ describe('One shell, one registry', () => {
 
   it('every signed-in surface mounts that one shell, the CRM included', () => {
     const mounts = [
-      'app/crm/layout.tsx', 'app/app/page.tsx',
+      'app/crm/layout.tsx', 'app/app/page.tsx', 'app/app/crm/layout.tsx',
       ...['admin', 'employee', 'client', 'business', 'creator'].map((d) => `app/app/${d}/layout.tsx`),
     ];
     for (const m of mounts) assert.match(code(read(m)), /<WorkspaceShell session=\{session\}>/, m);
@@ -143,47 +143,57 @@ describe('One shell, one registry', () => {
 });
 
 describe('Grouping', () => {
-  it('is Home · CRM · Intelligence · Work OS · Creator Hub/Accounting, with Administration at the foot', () => {
-    assert.deepEqual(LOOP_NAV.nav.map((g) => [g.label, Boolean(g.footer)]), [
-      ['', false], ['CRM', false], ['Intelligence', false], ['Work OS', false], ['', false], ['Administration', true],
+  it('is the five operating areas (Home · CRM · Work · Intelligence · Operations), with Administration at the foot', () => {
+    assert.deepEqual(LOOP_NAV.nav.map((g) => [g.label, g.area ?? null, Boolean(g.footer)]), [
+      ['', 'HOME', false], ['CRM', 'CRM', false], ['Work', 'WORK', false], ['Intelligence', 'INTELLIGENCE', false],
+      ['Operations', 'OPERATIONS', false], ['Administration', null, true],
     ]);
+    assert.deepEqual(LOOP_NAV.nav.map((g) => g.area).filter(Boolean), [...config.OPERATING_AREAS]);
     assert.deepEqual(LOOP_NAV.nav[0]!.items.map((i) => [i.label, i.href]), [['Home', '/app']]);
-    assert.deepEqual(LOOP_NAV.nav[4]!.items.map((i) => i.label), ['Creator Hub', 'Accounting']);
+    // Operations: live execution and health (C-03) and creator administration (C-02).
+    assert.deepEqual(LOOP_NAV.nav[4]!.items.map((i) => [i.label, i.href]), [
+      ['Live Operations', '/crm/live/activity'], ['Live Calls', '/crm/live/calls'], ['Websites', '/crm/live/websites'],
+      ['Creators', '/app/admin/creator-hub'],
+    ]);
+    // Accounting is its own domain surfaced contextually (C-01): no global entry while it is not built.
+    assert.equal(items.some((i) => /accounting/i.test(i.href + i.label)), false);
     assert.deepEqual(LOOP_NAV.nav[5]!.items.map((i) => i.label), [
       'Team', 'Workspace', 'Settings', 'Objectives', 'Audit Log', 'AI Employees', 'Integration OS',
     ]);
   });
 
-  it('CRM opens the real CRM under /crm, starting at its Command Center', () => {
+  it('CRM leads with the redesigned People and Relationships, then the real CRM under /crm', () => {
     const crm = LOOP_NAV.nav.find((g) => g.label === 'CRM')!;
     assert.deepEqual(crm.items.map((i) => [i.label, i.href, Boolean(i.soon)]), [
+      // Canonical People (established PERSON Parties, C-04) and Relationships, redesigned.
+      ['People', '/app/crm/people', false],
+      ['Relationships', '/app/crm/relationships', false],
       ['Command Center', '/crm', false],
-      ['Intake Records', '/crm/customers', false],
-      // Parties and Relationships are BUILT now (identity P1, R3). The Relationships
-      // slot was reserved here as `soon` before the authority existed; it is real.
-      ['Parties', '/crm/parties', false],
-      ['Relationships', '/crm/relationships', false],
       ['Opportunities', '/crm/opportunities', true],
       ['Campaigns', '/crm/campaigns', true],
       ['Conversations', '/crm/conversations', false],
+      ['Intake Records', '/crm/customers', false],
       ['Intake Board', '/crm/pipeline', false],
+      // Identity review is its own governed workflow, on the temporary operator screen.
+      ['Identity Review', '/crm/parties', false],
       ['Inbox', '/crm/inbox', false],
       ['Search', '/crm/search', false],
       ['Automations', '/crm/workflows', false],
     ]);
+    assert.equal(find('People').href.startsWith('/crm/customers'), false, 'People are never Intake Records');
   });
 
-  it('no item leads to the retired /app/admin/crm placeholder, or to any CRM copy outside /crm', () => {
+  it('no item leads to the retired /app/admin/crm placeholder; every CRM item is a real page under /crm or /app/crm', () => {
     assert.equal(items.some((i) => i.href.startsWith('/app/admin/crm')), false);
     for (const item of enabled.filter((i) => i.group === 'CRM')) {
-      assert.ok(item.href === '/crm' || item.href.startsWith('/crm/'), item.href);
+      assert.ok(item.href === '/crm' || item.href.startsWith('/crm/') || item.href.startsWith('/app/crm/'), item.href);
       assert.equal(pageFor(item.href), join(APP, item.href, 'page.tsx'), `${item.label} is a real CRM page, not a placeholder`);
     }
   });
 
   it('only the unbuilt modules open the honest not-built page; every other item opens its own page', () => {
     const placeholders = enabled.filter((i) => pageFor(i.href)?.includes('[...slug]')).map((i) => i.label);
-    assert.deepEqual(placeholders, ['Creator Hub', 'Accounting']);
+    assert.deepEqual(placeholders, ['Creators']);
     for (const item of enabled) assert.ok(pageFor(item.href), `${item.label} → ${item.href} has no page`);
   });
 
@@ -201,7 +211,7 @@ describe('Grouping', () => {
   });
 
   it('CRM Automations, Work OS and Commercial Intelligence stay separate authorities', () => {
-    const work = LOOP_NAV.nav.find((g) => g.label === 'Work OS')!;
+    const work = LOOP_NAV.nav.find((g) => g.label === 'Work')!;
     assert.deepEqual(work.items.map((i) => [i.label, i.href, i.workspace ?? null, Boolean(i.soon)]), [
       ['My Work', '/app/admin/work', 'ADMIN', false],
       ['My Work', '/app/employee/work', 'EMPLOYEE', false],
@@ -264,7 +274,9 @@ describe('Navigation follows the authority each page enforces', () => {
   });
 
   it('Employees get the CRM, the intelligence they can read, their own work queue, and nothing administrative they cannot open', () => {
-    const intelligence = ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites'];
+    const intelligence = ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue'];
+    const operations = ['Live Operations', 'Live Calls', 'Websites'];
+    const crm = ['People', 'Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations'];
     // A PERSON employee reaches canonical identity and the commercial area; an AI
     // principal reaches NEITHER. `identityResolution` has its own grant table with no
     // READ_ONLY fallback, and `relationships` hard-denies AI_EMPLOYEE because PD-F-04
@@ -272,16 +284,18 @@ describe('Navigation follows the authority each page enforces', () => {
     // the whole reason these roles are asserted separately rather than in one loop.
     assert.deepEqual(labels(navForRole('EMPLOYEE')), [
       ['', ['Home']],
-      ['CRM', ['Command Center', 'Intake Records', 'Parties', 'Relationships', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['CRM', crm],
+      ['Work', ['My Work', 'Workflows (soon)']],
       ['Intelligence', intelligence],
-      ['Work OS', ['My Work', 'Workflows (soon)']],
+      ['Operations', operations],
       ['Administration', ['AI Employees']],
     ]);
     assert.deepEqual(labels(navForRole('AI_EMPLOYEE')), [
       ['', ['Home']],
-      ['CRM', ['Command Center', 'Intake Records', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['CRM', crm.filter((l) => !['People', 'Relationships', 'Identity Review'].includes(l))],
+      ['Work', ['My Work', 'Workflows (soon)']],
       ['Intelligence', intelligence],
-      ['Work OS', ['My Work', 'Workflows (soon)']],
+      ['Operations', operations],
       ['Administration', ['AI Employees']],
     ]);
     for (const role of ['EMPLOYEE', 'AI_EMPLOYEE']) {
@@ -290,21 +304,25 @@ describe('Navigation follows the authority each page enforces', () => {
   });
 
   it('Read Only is not isolated in a placeholder: it sees what its permissions allow, and no Work OS it cannot open', () => {
+    const intelligence = ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue'];
+    const operations = ['Live Operations', 'Live Calls', 'Websites'];
     const expected = [
       ['', ['Home']],
       // READ_ONLY holds identityResolution:view and relationships:view, and may
       // perform no act through either -- capabilities decide that, not the nav.
-      ['CRM', ['Command Center', 'Intake Records', 'Parties', 'Relationships', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
-      ['Intelligence', ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites']],
+      ['CRM', ['People', 'Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations']],
+      ['Intelligence', intelligence],
+      ['Operations', operations],
       ['Administration', ['AI Employees']],
     ];
     assert.deepEqual(labels(navForRole('READ_ONLY')), expected);
     // An unknown role falls back to READ_ONLY in the matrix -- but identityResolution
-    // has no such fallback, so it does NOT see Parties. Least, never more.
+    // has no such fallback, so it does NOT see People or Identity Review. Least, never more.
     assert.deepEqual(labels(navForRole('SOMETHING_NEW')), [
       ['', ['Home']],
-      ['CRM', ['Command Center', 'Intake Records', 'Relationships', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Board', 'Inbox', 'Search', 'Automations']],
-      ['Intelligence', ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue', 'Live Operations', 'Live Calls', 'Websites']],
+      ['CRM', ['Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['Intelligence', intelligence],
+      ['Operations', operations],
       ['Administration', ['AI Employees']],
     ], 'an unknown role gets the least, never more');
     assert.equal(myWorkHref(navForRole('READ_ONLY')), null);
@@ -360,11 +378,12 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.match(html, /<nav class="loop-sb__scroll" aria-label="Loop">/);
     assert.match(html, /<a class="loop-sb__link is-active" aria-current="page" href="\/crm\/customers">/);
     assert.equal(html.includes('/app/admin'), false, 'nothing from a tree Read Only cannot open');
-    assert.equal(html.includes('Work OS'), false);
+    assert.equal(html.includes('>Work<'), false, 'no Work area for a role without a queue');
     // Opportunities is still Soon; Relationships is built and is a real link now.
     assert.match(html, /<span class="loop-sb__link is-disabled" aria-disabled="true">.*?Opportunities.*?Soon<\/span><\/span>/);
     assert.equal(/href="\/crm\/opportunities"/.test(html), false);
-    assert.match(html, /href="\/crm\/relationships"/, 'Relationships is reachable now');
+    assert.match(html, /href="\/app\/crm\/relationships"/, 'Relationships is reachable');
+    assert.match(html, /href="\/app\/crm\/people"/, 'People is reachable');
     assert.match(html, /<nav class="loop-sb__adminarea" aria-label="Administration"><div class="loop-sb__group"><div class="loop-sb__grouplabel">Administration<\/div>/);
   });
 
@@ -383,9 +402,11 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.equal(active('/crm'), 'Command Center');
     assert.equal(active('/crm/customers/c_1/activity'), 'Intake Records');
     assert.equal(active('/crm/live/calls'), 'Live Calls');
-    assert.equal(active('/crm/relationships'), 'Relationships');
-    assert.equal(active('/crm/relationships/r_1'), 'Relationships', 'and on its nested routes');
-    assert.equal(active('/crm/parties/p_1'), 'Parties');
+    assert.equal(active('/app/crm/relationships'), 'Relationships');
+    assert.equal(active('/app/crm/relationships/r_1'), 'Relationships', 'and on its nested routes');
+    assert.equal(active('/app/crm/people/p_1'), 'People');
+    assert.equal(active('/crm/parties/p_1'), 'Identity Review');
+    assert.equal(active('/crm/relationships/r_1'), 'Command Center', 'the verification screens sit under the CRM command center');
     assert.equal(active('/crm/opportunities'), 'Command Center', 'a Soon item is never active');
     assert.equal(active('/app/admin/work/abc123'), 'My Work');
     assert.equal(active('/app/admin/work/team'), 'Team Work');
@@ -393,6 +414,33 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.equal(active('/app/admin/marketplace/buyers'), 'CallGrid Intelligence');
     assert.equal(active('/app/admin/headlines/h1'), 'Headlines');
     assert.equal(active('/app/admin/administration/work-types'), 'Work Types');
+  });
+});
+
+describe('Narrow screens: the operating-area bar', () => {
+  it('offers each operating area the person can open, at its first openable item, and marks the current one', () => {
+    assert.deepEqual(config.areaEntries(navForRole('OWNER')), [
+      { area: 'HOME', label: 'Home', href: '/app' },
+      { area: 'CRM', label: 'CRM', href: '/app/crm/people' },
+      { area: 'WORK', label: 'Work', href: '/app/admin/work' },
+      { area: 'INTELLIGENCE', label: 'Intel', href: '/app/admin/headlines' },
+      { area: 'OPERATIONS', label: 'Ops', href: '/crm/live/activity' },
+    ]);
+    assert.deepEqual(config.areaEntries(navForRole('READ_ONLY')).map((e) => e.area), ['HOME', 'CRM', 'INTELLIGENCE', 'OPERATIONS'], 'no Work area without a queue');
+    assert.deepEqual(config.areaEntries(navForRole('AI_EMPLOYEE')).find((e) => e.area === 'CRM')?.href, '/crm', 'an area leads to what this person can open');
+    const soon = { href: '/soon', label: 'Soon item', icon: 'flow', soon: true };
+    assert.deepEqual(config.areaEntries([{ label: 'Work', area: 'WORK', short: 'Work', items: [soon, { href: '/real', label: 'Real', icon: 'flow' }] }]), [
+      { area: 'WORK', label: 'Work', href: '/real' },
+    ], 'never a Soon destination');
+    assert.deepEqual(config.areaEntries([{ label: 'Work', area: 'WORK', items: [soon] }]), [], 'an area with nothing to open is not a tab');
+    assert.deepEqual(config.areaEntries([{ label: 'Administration', footer: true, items: [{ href: '/x', label: 'X', icon: 'cog' }] }]), [], 'administration is not an area');
+    const html = renderAt('/app/crm/people/p_1', <AreaBar groups={navForRole('OWNER')} />);
+    assert.match(html, /<nav class="loop-areabar" aria-label="Operating areas">/);
+    assert.match(html, /<a class="loop-areabar__link is-active" aria-current="true" href="\/app\/crm\/people">/);
+    assert.equal((html.match(/is-active/g) ?? []).length, 1);
+    const shell = code(read('workspaces/WorkspaceShell.tsx'));
+    assert.match(shell, /<AreaBar groups=\{groups\} \/>/);
+    assert.match(shell, /<input type="checkbox" id="loop-menu" className="loop-menu-toggle" \/>/);
   });
 });
 
@@ -460,13 +508,15 @@ describe('Loop Home', () => {
     assert.match(html, /<h1 class="loop-title">Welcome, Charlie Reyes<\/h1>/);
     // Relationships and Parties are built and an employee can open both, so Home
     // links to them. It was in the absent list only while they were `soon`.
-    for (const href of ['/crm', '/crm/customers', '/crm/parties', '/crm/relationships', '/crm/intelligence', '/app/employee/work', '/crm/ai-employees']) {
+    for (const href of ['/crm', '/crm/customers', '/app/crm/people', '/app/crm/relationships', '/crm/parties', '/crm/intelligence', '/app/employee/work', '/crm/ai-employees']) {
       assert.ok(html.includes(`href="${href}"`), href);
     }
     for (const absent of ['/app/admin', '/crm/opportunities', '/app/work/workflows', 'href="/app"', 'Workspace']) {
       assert.equal(html.includes(absent), false, absent);
     }
-    assert.match(html, /<section class="loop-card" aria-label="CRM">/);
+    // Drawn with the shared primitives of the Loop design system.
+    assert.match(html, /<section class="loop-panel" aria-label="CRM"><h2 class="loop-panel__title">CRM<\/h2>/);
+    assert.match(html, /<div class="loop-page" aria-label="Loop Home">/);
   });
 });
 
@@ -479,8 +529,8 @@ describe('Legacy placeholder addresses are honest', () => {
 
   it('an unbuilt module says it is not built', () => {
     const html = render(<UnavailablePage href="/app/admin/creator-hub" />);
-    assert.match(html, /<h1 class="loop-title">Creator Hub<\/h1>/);
-    assert.match(html, /Creator Hub is not built yet/);
+    assert.match(html, /<h1 class="loop-title">Creators<\/h1>/);
+    assert.match(html, /Creators is not built yet/);
   });
 });
 

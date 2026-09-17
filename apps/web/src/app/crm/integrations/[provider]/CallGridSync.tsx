@@ -109,7 +109,7 @@ export function CallGridSync() {
   }
 
   return (
-    <div className="cg-sync" style={{ marginTop: 16, padding: 16, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }}>
+    <div className="cg-sync" style={{ marginTop: 16, padding: 16, border: '1px solid var(--loop-line)', borderRadius: 8 }}>
       <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Sync recent CallGrid calls</h3>
       <p style={{ margin: '4px 0 12px', fontSize: 12, opacity: 0.7 }}>
         Pull calls from the CallGrid REST API to backfill what the webhook missed
@@ -127,7 +127,7 @@ export function CallGridSync() {
             style={{
               padding: '6px 12px',
               borderRadius: 6,
-              border: '1px solid rgba(255,255,255,0.15)',
+              border: '1px solid var(--loop-line-strong)',
               background: range === r.key ? 'rgba(99,102,241,0.3)' : 'transparent',
               cursor: loading ? 'default' : 'pointer',
               fontSize: 12,
@@ -144,8 +144,8 @@ export function CallGridSync() {
             padding: '6px 14px',
             borderRadius: 6,
             border: 'none',
-            background: 'rgb(79,70,229)',
-            color: '#fff',
+            background: 'var(--loop-primary)',
+            color: 'var(--loop-on-primary)',
             cursor: loading ? 'default' : 'pointer',
             fontSize: 12,
             fontWeight: 600,
@@ -156,7 +156,7 @@ export function CallGridSync() {
       </div>
 
       {error ? (
-        <p style={{ marginTop: 12, fontSize: 12, color: 'rgb(248,113,113)' }}>{error}</p>
+        <p style={{ marginTop: 12, fontSize: 12, color: 'var(--loop-crit)' }}>{error}</p>
       ) : null}
 
       {result ? (

@@ -142,7 +142,7 @@ function renderCalls(items: Json[], clock: FeedClock) {
                 <td>{attr(it.campaign, 'Unknown campaign')}</td>
                 <td>
                   {qualified === true ? (
-                    <span className="crm-tag" style={{ background: 'var(--crm-accent, #14b8a6)', color: '#fff' }}>Qualified</span>
+                    <span className="crm-tag" style={{ background: 'var(--loop-accent)', color: 'var(--loop-on-primary)' }}>Qualified</span>
                   ) : qualified === false ? (<span className="crm-tag">Unqualified</span>) : ('—')}
                 </td>
                 <td>{dur(it.durationSeconds)}</td>

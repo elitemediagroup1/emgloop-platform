@@ -1,4 +1,4 @@
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { hasValue } from '@emgloop/shared';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
@@ -32,7 +32,7 @@ export default async function TrafficIntelligencePage() {
     return (
       <>
         <h1 className="crm-h1">Traffic Intelligence</h1>
-        <DbNotConfigured />
+        <DataUnavailable />
       </>
     );
   }
@@ -44,7 +44,7 @@ export default async function TrafficIntelligencePage() {
     return (
       <>
         <h1 className="crm-h1">Traffic Intelligence</h1>
-        <DbNotConfigured />
+        <DataUnavailable />
       </>
     );
   }

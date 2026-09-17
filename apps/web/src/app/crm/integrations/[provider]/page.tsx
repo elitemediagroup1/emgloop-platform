@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../../demo/db-health';
 import { requirePermission } from '../../../../auth/guard';
 import { requireCrmContext } from '../../../../crm/crm-data';
 import {
@@ -47,7 +47,7 @@ export default async function ProviderDetailPage({
   });
 
   if (!result.ok) {
-    return (<><h1 className="crm-h1">Integration OS</h1><DbNotConfigured /></>);
+    return (<><h1 className="crm-h1">Integration OS</h1><DataUnavailable /></>);
   }
   const card = result.data;
   if (!card) notFound();
@@ -167,7 +167,7 @@ export default async function ProviderDetailPage({
                       <td>{e.eventType ?? ' - '}</td>
                       <td><span className={'crm-integration-status ' + e.status}>{e.status}</span></td>
                       <td>{fmtTime(e.receivedAt)}</td>
-                      <td style={{ color: '#f87171' }}>{e.errorMessage ?? ' - '}</td>
+                      <td style={{ color: 'var(--loop-crit)' }}>{e.errorMessage ?? ' - '}</td>
                     </tr>
                   ))}
                 </tbody>

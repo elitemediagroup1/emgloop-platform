@@ -56,7 +56,7 @@
 
 .crm-btn {
   background: var(--crm-accent);
-  color: #04221a;
+  color: var(--loop-on-primary);
   border: none;
   border-radius: 7px;
   padding: 0.45rem 0.85rem;
@@ -129,8 +129,8 @@
 .crm-status.Contacted { color: var(--crm-purple); background: rgba(176,124,255,0.12); }
 .crm-status.Quoted { color: var(--crm-amber); background: rgba(255,194,74,0.12); }
 .crm-status.Booked { color: var(--crm-accent); background: var(--crm-accent-dim); }
-.crm-status.Completed { color: #7ee0b0; background: rgba(126,224,176,0.10); }
-.crm-status.Archived { color: var(--crm-faint); background: rgba(91,102,117,0.12); }
+.crm-status.Completed { color: var(--loop-good); background: rgba(126,224,176,0.10); }
+.crm-status.Archived { color: var(--crm-faint); background: var(--loop-overlay); }
 
 .crm-tag {
   display: inline-block;

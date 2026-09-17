@@ -7,8 +7,6 @@
 //
 // Scope: presentation-only guarding. No providers, auth, or business logic.
 
-import Link from 'next/link';
-
 export const DB_NOT_CONFIGURED_MESSAGE =
   'Database is not configured for this environment yet.';
 
@@ -56,42 +54,46 @@ export async function loadOrFallback<T>(fn: () => Promise<T>): Promise<LoadResul
 }
 
 /**
- * Internal notice shown when the database is unavailable. Explains, for
- * operators, exactly what production needs. Intentionally plain and honest.
+ * The notice a page shows when it has no data to render: its read failed, the
+ * environment has no database, or the read returned nothing the page can show.
+ *
+ * IT SAYS WHICH. This used to be `DataUnavailable`, and it told every visitor the
+ * database was "not configured" whenever any read failed, in environments where
+ * the database was configured and a query had simply failed. That is a false
+ * statement about the system, and it sent operators to fix configuration that was
+ * fine. Only an environment with no DATABASE_URL gets the setup notice; everywhere
+ * else the page says its data could not be shown, and that this is not a finding.
+ *
+ * Rendered inside the Loop shell; it draws no chrome of its own.
  */
-export function DbNotConfigured() {
+export function DataUnavailable() {
+  if (!isDatabaseConfigured()) {
+    return (
+      <div className="ds-card crm-load-error" role="alert">
+        <div className="ds-card-body">
+          <h1 className="crm-load-error__title">{DB_NOT_CONFIGURED_MESSAGE}</h1>
+          <p className="crm-load-error__desc">
+            This page reads real data from PostgreSQL, and this environment has no
+            database connection string, so nothing can be shown here.
+          </p>
+          <p className="crm-load-error__desc">
+            To enable it: set <code>DATABASE_URL</code> and apply the schema with{' '}
+            <code>prisma migrate deploy</code>.
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="shell">
-      <nav className="nav">
-        <div className="container">
-          <Link href="/" className="brand">
-            EMG Loop
-          </Link>
-          <span className="muted">Database not configured</span>
-        </div>
-      </nav>
-      <main className="container">
-        <h1>{DB_NOT_CONFIGURED_MESSAGE}</h1>
-        <p className="muted">
-          This page reads real data from PostgreSQL. The current environment has
-          no reachable database, so live metrics and timelines are unavailable.
+    <div className="ds-card crm-load-error" role="alert">
+      <div className="ds-card-body">
+        <h1 className="crm-load-error__title">This page&apos;s data could not be shown</h1>
+        <p className="crm-load-error__desc">
+          Loop could not load or measure what this page needs right now. Nothing is shown
+          rather than a partial or empty view, and this is not a finding that nothing
+          exists. Try again shortly.
         </p>
-        <div className="card" style={{ marginTop: '1.25rem' }}>
-          <strong>To enable this in production:</strong>
-          <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
-            <li>
-              Set <code>DATABASE_URL</code> to a PostgreSQL connection string.
-            </li>
-            <li>
-              Apply the schema with <code>prisma migrate deploy</code>.
-            </li>
-            <li>
-              Optionally run the seed (<code>npm run -w @emgloop/database seed</code>)
-              for demo data.
-            </li>
-          </ol>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }

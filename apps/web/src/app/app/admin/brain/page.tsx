@@ -74,7 +74,7 @@ export default async function BrainPage() {
       <main className="loop-os__main">
         <header className="loop-os__brief">
           <div className="loop-os__brief-main">
-            <p className="loop-os__brief-lead">Brain</p>
+            <p className="loop-os__brief-lead">Executive Brain</p>
             <p className="loop-os__brief-title">{viewerTime().greeting()}. Here is today&rsquo;s business health.</p>
             <p className="loop-os__brief-body">{takeaway}</p>
           </div>

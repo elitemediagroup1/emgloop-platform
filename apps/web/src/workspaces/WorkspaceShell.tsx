@@ -5,7 +5,7 @@ import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
 import { LOOP_NAV, myWorkHref } from './config';
 import { navFor } from './nav-access';
-import { ShellCrumb, ShellNav } from './ShellNav';
+import { AreaBar, ShellCrumb, ShellNav } from './ShellNav';
 import { viewerTime } from '../time/viewer-time';
 import { TimeZoneSync } from '../time/TimeZoneSync';
 
@@ -54,10 +54,22 @@ export default async function WorkspaceShell({
       <TimeZoneSync timeZone={time.timeZone} source={time.source} />
       <div className="loop-shell">
         <aside className="loop-sidebar">
+          {/* Desktop: the navy rail. Phone: a light header whose Menu opens the
+             same navigation as a light sheet, without JavaScript; the
+             operating-area bar stays in reach. The CSS picks the wordmark that
+             reads on each surface; the other is not rendered (display: none). */}
+          <input type="checkbox" id="loop-menu" className="loop-menu-toggle" />
           <div className="loop-sb__brand">
-            <EmgLoopWordmark height={22} />
+            <span className="loop-sb__mark loop-sb__mark--rail">
+              <EmgLoopWordmark height={22} tone="onDark" />
+            </span>
+            <span className="loop-sb__mark loop-sb__mark--light">
+              <EmgLoopWordmark height={22} />
+            </span>
             <span className="loop-sb__os">OS</span>
+            <label htmlFor="loop-menu" className="loop-sb__menubtn">Menu</label>
           </div>
+          <div className="loop-sb__menu">
           <ShellNav groups={groups} label={LOOP_NAV.label} />
           <div className="loop-sb__foot">
             <div className="loop-sb__user">
@@ -71,6 +83,7 @@ export default async function WorkspaceShell({
                 <button className="loop-sb__signout" type="submit">Sign out</button>
               </form>
             </div>
+          </div>
           </div>
         </aside>
         <div className="loop-content">
@@ -94,6 +107,8 @@ export default async function WorkspaceShell({
             ) : null}
           </header>
           <main className="loop-main" id="loop-main" tabIndex={-1}>{children}</main>
+          {/* Narrow screens only (CSS): the five operating areas, always in reach. */}
+          <AreaBar groups={groups} />
         </div>
       </div>
     </div>

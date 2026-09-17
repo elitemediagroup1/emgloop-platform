@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { requirePermission } from '../../../../auth/guard';
 import { requireCrmContext } from '../../../../crm/crm-data';
-import { loadOrFallback, DbNotConfigured } from '../../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../../demo/db-health';
 import { loadProviderCard, webhookUrlFor, connectionLabel } from '../../../../crm/integration-os';
 import { listProviders } from '@emgloop/database';
 
@@ -78,7 +78,7 @@ export default async function AssistantPage({
         ))}
       </div>
 
-      {!result.ok ? <DbNotConfigured /> : null}
+      {!result.ok ? <DataUnavailable /> : null}
 
       {query && !card ? (
         <div className="ios-assistant">

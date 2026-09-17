@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
-import { resolveActiveNav, type NavGroup, type NavItem } from './config';
+import { areaEntries, areaOfItem, resolveActiveNav, type NavGroup, type NavItem, type OperatingArea } from './config';
 
 // The Loop sidebar navigation and breadcrumb leaf, drawn from groups already
 // resolved for one person on the server (see nav-access.ts).
@@ -83,4 +83,44 @@ export function ShellNav({ groups, label }: { groups: readonly NavGroup[]; label
 /** The breadcrumb leaf: the item that owns the current path, never an empty crumb. */
 export function ShellCrumb({ groups }: { groups: readonly NavGroup[] }) {
   return <span aria-current="page">{useActiveItem(groups)?.label ?? 'Overview'}</span>;
+}
+
+const AREA_ICON: Record<OperatingArea, string> = {
+  HOME: 'grid',
+  CRM: 'users',
+  WORK: 'columns',
+  INTELLIGENCE: 'chart',
+  OPERATIONS: 'activity',
+};
+
+/**
+ * The compact operating-area bar for narrow screens (handoff p. 15: mobile is action
+ * first). One entry per area this person can open, leading to that area's first
+ * item; the area of the page actually shown is marked current. Presentation only:
+ * it draws the same server-resolved groups as the sidebar.
+ */
+export function AreaBar({ groups }: { groups: readonly NavGroup[] }) {
+  const current = areaOfItem(groups, useActiveItem(groups));
+  const entries = areaEntries(groups);
+  if (entries.length === 0) return null;
+  return (
+    <nav className="loop-areabar" aria-label="Operating areas">
+      {entries.map((entry) => {
+        const isActive = entry.area === current;
+        return (
+          <Link
+            key={entry.area}
+            className={'loop-areabar__link' + (isActive ? ' is-active' : '')}
+            href={entry.href}
+            aria-current={isActive ? 'true' : undefined}
+          >
+            <span className="loop-areabar__ico" aria-hidden="true">
+              <SidebarIcon name={AREA_ICON[entry.area]} />
+            </span>
+            <span>{entry.label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
 }

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { viewerTime } from '../../../time/viewer-time';
@@ -106,7 +106,7 @@ export default async function CustomersPage({
     return { empty: false as const, list, tags, counts };
   });
 
-  if (!result.ok) return <DbNotConfigured />;
+  if (!result.ok) return <DataUnavailable />;
 
   if (result.data.empty || !result.data.list) {
     return (

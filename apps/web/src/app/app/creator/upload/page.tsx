@@ -25,7 +25,7 @@ export default async function CreatorUploadPage() {
           <div
             className="ds-empty"
             style={{
-              border: '1px dashed var(--ds-border, rgba(255,255,255,0.15))',
+              border: '1px dashed var(--loop-line-strong)',
               borderRadius: '12px',
               padding: '2.5rem',
               textAlign: 'center',

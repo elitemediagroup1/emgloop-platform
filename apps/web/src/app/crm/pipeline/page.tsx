@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { loadOrFallback, DbNotConfigured } from '../../../demo/db-health';
+import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { PIPELINE_STATUSES } from '@emgloop/database';
@@ -42,7 +42,7 @@ export default async function PipelinePage() {
     return { empty: false as const, columns };
   });
 
-  if (!result.ok) return <DbNotConfigured />;
+  if (!result.ok) return <DataUnavailable />;
 
   const columns = result.data.empty ? [] : result.data.columns;
   const totalPeople = columns.reduce((n, c) => n + c.count, 0);
