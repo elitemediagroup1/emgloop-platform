@@ -1,0 +1,22 @@
+{
+  "name": "@emgloop/brain-executor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Brain execution runtime for the AWS deployable (infra/brain). Dark in B6: it calls no provider.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@emgloop/database": "*",
+    "@emgloop/shared": "*"
+  },
+  "devDependencies": {
+    "@emgloop/providers": "*"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
