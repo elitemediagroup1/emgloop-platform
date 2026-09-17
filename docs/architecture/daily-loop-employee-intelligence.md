@@ -1,8 +1,13 @@
 # Daily Loop / Employee Intelligence — architecture proposal
 
-**Status: PROPOSED (2026-09-17). NOTHING IN THIS RECORD IS BUILT.** No code, no migration, no scope
-change, no infrastructure. It is a design for review, written against `main` at `e16a07c` (PR #286
-merged; migration `20260917172545_google_workspace_connections` applied in production on 2026-09-17).
+**Status: PROPOSED, DIRECTION APPROVED (2026-09-17). NOTHING IN THIS RECORD IS BUILT.** No code, no
+migration, no scope change, no infrastructure. Written against `main` at `e16a07c` (PR #286 merged;
+migration `20260917172545_google_workspace_connections` applied in production on 2026-09-17), and
+re-checked against that same commit when the decisions below were recorded.
+
+**Twelve product decisions are settled and carried through this record (§29.1)**; six remain open and
+are listed with the PR each one blocks (§29.2). The first implementation PR proposed for
+authorization is **DL-1** (§26.6). Nothing may be implemented before that authorization.
 
 **How to read it.** Every claim about what exists names a file. Where something does not exist, this
 record says so rather than describing it as if it did — the failure mode `docs/EVENT_BUS.md` created
@@ -66,14 +71,37 @@ Google Workspace (per-employee OAuth grant, PR #286)
 
 - **Scope reality.** The current Gmail scope is `gmail.metadata`, which by Google's definition excludes
   message bodies, and — verified in Google's reference — **forbids the `q` search parameter entirely**.
-  A large part of the product brief (why it matters, what changed, opportunities, drafting) is not
-  reachable under it. §14 sets out what V1 can honestly do and what the next scope buys.
+  A large part of the north star (why it matters, what changed, commitments, drafting) is not
+  reachable under it. That is a sequencing fact, not a limit on the product: **Stage 2 (`gmail.readonly`)
+  is a planned stage of Daily Loop, not an optional idea** (§4.3, §14). V1's job is to deliver every
+  truthful thing metadata allows *and* to leave the seams Stage 2 attaches to.
 - **Privacy is structural, not a setting.** One employee's mailbox-derived state must be unreachable by
   every other member of the organization, including OWNER and ADMIN. Loop's existing tenancy rules are
   organization-first; this is the first surface that needs **user-first** isolation inside a tenant.
 - **Brain is not deployed.** The AI runtime is built and switched off, and its execution home in AWS is
   defined but not provisioned. Daily Loop V1 must therefore be useful with **no model calls at all**,
-  and must not grow a second AI runtime in the web app to compensate.
+  and **must not grow a second AI runtime in the web app to compensate** (§15.5).
+
+### 1.5 The north star, and which stage answers each question
+
+The product goal is that an employee opens Loop in the morning and rarely needs Gmail or Calendar.
+Each question below is answered at a named stage (§4.3), so nobody has to guess whether V1 is meant to
+answer it.
+
+| The employee asks | Stage 1 (metadata + calendar) | Stage 2 (mail content) | Stage 3 (Brain) | Stage 4 (actions) |
+|---|---|---|---|---|
+| What needs my attention? | Threads where someone is waiting on a reply, ranked by named facts | Ranked by what the message actually says | Reasoned across threads, meetings and history | — |
+| Who is waiting on me? | **Fully** — last message inbound, no reply since | Plus what they asked for | — | Reply from Loop |
+| Who am I waiting on? | **Fully** — you sent last, no reply since | Plus what you asked for and when it was due | Chased automatically as a proposal | Nudge from Loop |
+| What emails did I miss? | Who wrote, when, on which thread, whether it is new | What each one says | What matters and why | Triage from Loop |
+| What changed yesterday? | Threads that moved, meetings that changed | What developed in them | A narrative with citations | — |
+| What has gone quiet? | **Fully** — threads that used to move and stopped | Plus whether the silence matters | Plus what to do about it | Follow-up drafted |
+| What meetings do I have today / tomorrow? | **Fully** | — | — | Reschedule from Loop |
+| What should I prepare for? | Which meetings have related correspondence and documents | What that correspondence says and where it stands | An assembled brief with open items | — |
+| What should I follow up on? | Threads and meetings by age and rhythm | Commitments extracted from content, both directions | Prioritised with reasons | Drafted and sent on approval |
+
+**Read the first column as the V1 promise.** Four of the ten questions are answered *completely* by
+metadata and calendar; the rest are answered partially and honestly, and the record says which part.
 
 ---
 
@@ -252,19 +280,35 @@ Each line was checked, not assumed.
 
 ## 4. Target user experience
 
-### 4.1 Onboarding (exists today up to the connection; nothing after it)
+### 4.1 Onboarding — connecting the three services
+
+The connection step exists (PR #286). What onboarding still needs is the *why* beside each capability
+and a first run that pays off immediately.
 
 1. Matt invites an employee. `acceptInviteAction` (`apps/web/src/auth/actions.ts:134-228`) creates the
    session and redirects through `postInvitationDestination()` (`apps/web/src/auth/landing.ts:28-30`)
    to `/app/onboarding/google`.
-2. The employee sees three capabilities, each with what Loop reads and never reads
-   (`GOOGLE_WORKSPACE_CAPABILITY_READS`, `packages/shared/src/google-workspace.ts:47-51`), and connects
-   them one at a time. Skipping is a first-class answer.
-3. **New:** the moment the first capability is connected, Loop starts a bounded first-run sync (§22)
-   and shows an honest progress state — not a spinner that implies more than it knows:
-   *"Reading your calendar… 2 of 3 sources. Nothing is stored in the clear."*
-4. **New:** within about a minute the employee sees their first Day view; the mail picture fills in
-   behind it. What is not yet read is named, never implied.
+2. The employee sees **three separate approvals**, each with Loop's own words before Google's screen —
+   what it enables, what Loop reads, and what it never reads. The prose already lives in the contract
+   (`GOOGLE_WORKSPACE_CAPABILITY_READS`, `packages/shared/src/google-workspace.ts:47-51`); onboarding
+   adds the *purpose* line:
+
+   | Capability | What Loop does with it | What Loop reads | What Loop never reads |
+   |---|---|---|---|
+   | **Calendar** | Your day and tomorrow; which meetings need preparation | Events on your primary calendar: when, who is invited, whether it was moved | Anything in other people's calendars; no event is ever changed |
+   | **Gmail** | Who is waiting on you, what you have not answered, what has gone quiet | Message headers: who wrote, when, on which thread, and its labels | **Message bodies and attachments** — the current permission cannot read them |
+   | **Drive** | Which documents relate to a meeting or a thread | File names, types, owners and when they changed | **File contents** — the current permission cannot read them |
+
+3. **Connecting is optional and reversible, and the order is the employee's.** Skipping is a
+   first-class answer; the page says what Loop will not be able to do, not what the employee failed to
+   do.
+4. **Calendar first is the recommended default order** in the copy, because it is the fastest payoff
+   (§22): a Day view exists within seconds of approval.
+5. The moment the first capability is connected, Loop starts the bounded first run (§22) and shows an
+   honest progress state — *"Reading your calendar… nothing is stored in the clear."*
+6. **Status stays visible and revocable forever** at Home → Connections: what is connected, when it
+   last synced, and a per-capability disconnect. Removing one capability is one act, and Loop states
+   what stops working. This is built.
 
 ### 4.2 The daily rhythm
 
@@ -276,18 +320,58 @@ Each line was checked, not assumed.
 | Before a meeting | The meeting card carries its related threads and documents | Claim a "briefing" that is only a title and a time |
 | End of day | Commitments the employee made today become tomorrow's follow-ups | Create a task the employee never agreed to |
 
-### 4.3 What "useful" means at each scope stage
+### 4.3 Progressive intelligence — what the employee gets at each stage
 
-This is the honest version of the product ladder, and §14 is its scope counterpart.
+Four stages. Each is a real product increment with its own gate, and **each attaches to the previous
+one rather than replacing it** (the seams are listed in §14.4). The boundaries are stated precisely,
+because the most expensive mistake available here is implying that metadata understands email.
 
-- **Stage 1 — metadata only (today's grant).** Loop knows *that* people wrote, *who* wrote, *when*,
-  *which thread*, *whether you answered*, and *what is on your calendar*. That is enough for: who is
-  waiting on you, what you have not answered, what has gone quiet, your day, which meetings have
-  related correspondence, and a daily brief of volumes and waiting states. It is **not** enough for:
-  why it matters, what changed, opportunities, commitments, drafting.
-- **Stage 2 — message content (`gmail.readonly`).** Adds: why it matters, what changed, commitments
-  in both directions, opportunity detection, thread summaries, drafting help, Ask Loop over content.
-- **Stage 3 — actions (send/modify).** Deferred by design; §28.
+#### Stage 1 — Gmail metadata + Calendar (today's grant; V1)
+
+Loop reads: who wrote, to whom, when, on which thread, with which labels, and every event on the
+primary calendar. It reads **no body at all**, and a subject line is a string it can show, never a
+meaning it can interpret.
+
+| Loop can truthfully say | Loop must never say |
+|---|---|
+| "Ben replied 2 days ago; you have not answered" | "Ben is asking about pricing" |
+| "You sent the last message 6 days ago; no reply" | "They are stalling" |
+| "This thread moved every 2 days and has been silent for 9" | "This deal has gone cold" |
+| "You are cc'd, not addressed" | "This does not need you" |
+| "This meeting has 4 related threads and 1 related document" | "Here is what the meeting is about" |
+| "68 messages arrived; 41 were on threads you never reply to" | "41 needed no action" |
+| "This correspondent writes weekly and you usually answer within 3 hours" | "This is your most important client" |
+
+The right-hand column is less a list of future features than **a list of sentences V1's UI may not
+produce**. A source-level test should assert that no Stage 1 surface renders a claim of that class.
+
+#### Stage 2 — Gmail message content (`gmail.readonly`; planned, §14)
+
+The semantic layer, and the single biggest product step. It makes possible: understanding what a
+message says; high-quality thread summaries; questions that need answering; commitments and promises
+in both directions; commercial and negotiation state (pricing proposed, terms open); meaningful
+follow-ups; *why* something matters; contextual Ask Loop answers over the correspondence itself; and,
+later, assistance with drafting.
+
+Stage 2 is where "Cashion Rods — Ben responded; they want 3–5 videos; EMG proposed $2,000; pricing
+unresolved" becomes a sentence Loop can write with citations.
+
+#### Stage 3 — Brain intelligence (governed runtime; §15)
+
+Content plus reasoning across *everything Loop holds for that employee*: this thread against its own
+history, against next week's meeting, against the document that changed yesterday. It turns
+per-thread understanding into a prioritised day — what to do first and why, what is drifting, what a
+meeting needs, what was promised and by whom — and it writes the brief's narrative sentence.
+
+Stage 3 is a **governance** step as much as a capability step: it is where Loop runs model work on a
+schedule rather than because a person asked, and §15.3 lists what must exist before it can.
+
+#### Stage 4 — safe actions (§28)
+
+Reply, send, mark handled, schedule, move, invite — each behind its own write scope, its own consent
+card, and a confirmation proportional to the consequence. This is the stage at which an employee can
+finish work without opening Gmail, and it is deliberately last: an irreversible act taken on a wrong
+inference is the one failure a better interface cannot repair.
 
 ---
 
@@ -304,73 +388,101 @@ design system's migration order says the same thing at step 5
 (`docs/product/loop-design-system.md:235-238`), and names its blocker: *"Needs: the Needs You
 projection and a 'last operated' marker."*
 
-**Daily Loop is that projection.** It must ship as that composition, not beside it. One Home, one
-registry (`LOOP_NAV`), one set of primitives — the repository's defining failure mode is the parallel
-system, and a second home surface would be exactly that.
+**Daily Loop is that projection.** It ships as that composition, not beside it. One Home, one registry
+(`LOOP_NAV`), one set of primitives.
 
-### 5.2 The hierarchy, in the order a person reads it
+### 5.2 The hierarchy
+
+Seven blocks, in this order. It should read like an assistant who has already been through your mail
+and your calendar — **not a dashboard of counters**. A number appears only inside a block, as part of
+a sentence, never as a tile competing for attention.
 
 ```
 /app  (Loop Home — same route, same shell, same guard)
 
-  1  HEADER          Good morning, <name> · <date in the viewer's zone>
-                     Coverage line: "Loop checked mail, calendar and files at 07:04."
-                     or: "Loop last checked at 18:20 yesterday — Google connection expired."
+  HEADER
+      Good morning, Matt · Thursday 18 September
+      Loop went through your mail and calendar at 07:04.
+      (or: "Loop last managed to check at 18:20 yesterday — your Google connection expired.")
 
-  2  THE THREE COUNTS   needs you (7) · waiting on you (3) · meetings today (4)
-                     Each count is a link. No count is shown that cannot be traced to rows.
-                     A count Loop could not compute reads "—", never 0.
+  1  NEEDS YOU
+      The few things that genuinely require this person, highest confidence first.
+      Each row: who · what happened · WHY THIS IS HERE (the facts that raised it)
+                [Open] [Handled] [Not mine] [Snooze] [Ask Loop about this]
+      Bounded to 5-7. "See all 34" is one link, never 34 rows.
 
-  3  NEEDS YOU NOW   5–7 items maximum, ordered, each with:
-                       who / company · one sentence of what happened · WHY THIS IS HERE (the rule
-                       that raised it, in words) · [Open] [Handled] [Not mine] [Snooze]
-                     "Why this is here" is a fact, e.g. "they replied 2 days ago; your last message
-                     was before that." Not a score.
+  2  YESTERDAY            (or "Since Friday" — since this person last worked)
+      What moved while they were away, in prose where prose is truthful:
+      Stage 1: "9 threads moved, 3 people replied to you, 2 meetings changed."
+      Stage 2: the short narrative, with citations.
+      Links into the stored brief (§7) and its history.
 
-  4  YOUR DAY        Today's events in time order; the next one emphasised; each shows whether
-                     preparation exists (related threads / documents), never a bare title.
-                     Tomorrow collapsed to one line with a count.
+  3  YOUR DAY
+      Today's events in time order, the next one emphasised.
+      Each: internal/external · related correspondence and documents · conflicts
+      "Prepare for this" appears only when Loop actually holds something to prepare with.
 
-  5  WAITING         Two columns (stacked on mobile): "They owe you" | "You owe them"
-                     Each row: person, what, how long, the message it came from.
+  4  TOMORROW
+      Tomorrow's meetings and what is worth doing tonight — collapsed by default
+      to one line unless something needs preparing.
 
-  6  SINCE YESTERDAY The brief headline + counts, linking to the full brief and to history.
+  5  WAITING ON
+      People and threads where this person is waiting for someone else.
+      Each: who · what · how long · the message it came from.
 
-  7  FOOTER          What Loop did not read, if anything: "Drive not connected."
+  6  GONE QUIET
+      Conversations that used to move and have stopped, with their own rhythm as
+      the evidence ("this thread moved every 2 days; silent for 9").
+
+  7  ASK LOOP
+      A persistent input, always in reach: "Ask about your work…"
+      It is the drill-down for everything above (every row carries "Ask Loop about
+      this", which seeds the question) and the way to ask for something not on screen.
+
+  FOOTER
+      What Loop could not read: "Drive not connected." "Calendar last read 2 days ago."
 ```
 
-### 5.3 Mobile (the first screen must answer three questions)
+**Where did the counters go?** "7 need attention · 3 follow-ups · 4 meetings" is now the *shape of the
+blocks themselves* — a person scanning the page sees seven rows under NEEDS YOU without being told
+there are seven. Where a count carries information the rows do not (41 messages needed nothing), it
+belongs in YESTERDAY as part of a sentence.
+
+### 5.3 What makes it feel like an assistant rather than a report
+
+1. **It opens with a judgment, not an inventory.** NEEDS YOU is first, and it is short.
+2. **Every item explains itself in the employee's language**, from facts (§12.3).
+3. **Absence is spoken plainly.** "Nothing is waiting on you" is only said when Loop checked
+   everything and can say what it checked (`packages/shared/src/attention-state.ts`); otherwise it
+   says what it could not read.
+4. **Ask Loop is a continuation, not a separate product.** The question box is on Home and every row
+   can seed it, so "tell me more" is one click from the thing that prompted it.
+5. **Nothing blinks, badges or nags.** The shell deliberately renders no unread count today
+   (`WorkspaceShell.tsx:100-107`); Daily Loop keeps that.
+
+### 5.4 Mobile
 
 At ≤820px the shell already becomes a light header with a bottom area bar
-(`apps/web/src/app/loop-os.css:3543-3586`). Daily Loop's mobile order is **counts → needs you → next
-meeting**, everything else below the fold. That is exactly "What needs me? What's next? Did anything
-important happen?" and it requires no new CSS: `.loop-home` already collapses 3→2→1 columns
-(`loop-os.css:3800-3829`).
+(`apps/web/src/app/loop-os.css:3543-3586`). The block order is unchanged — NEEDS YOU, then YOUR DAY,
+then the rest — because the first phone screen must answer *what needs me* and *what is next*.
+YESTERDAY collapses to its headline with a tap to expand; ASK LOOP is reachable from the header.
+No new CSS is required: `.loop-home` already collapses 3→2→1 columns (`loop-os.css:3800-3829`).
 
-### 5.4 Primitive mapping (no new components, no new CSS file)
+### 5.5 Primitive mapping (no new components, no new CSS file)
 
 | Block | Primitive | File |
 |---|---|---|
-| Page frame, heading | `LoopPage`, `PageHead` | `_loop-os/record.tsx:21,50` |
-| Each section | `Panel` (has a `lead`) | `record.tsx:161` |
-| The three counts | `SummaryStrip` / `StripItem` — renders "Not available yet" for null, never 0 | `record.tsx:126-148` |
-| Needs-you rows | `AttentionRow` | `_loop-os/panels.tsx:6` |
-| Why-this-is-here disclosure | `ContextDrawer` (full-screen sheet on phones) | `record.tsx:192` |
-| Evidence inside the drawer | `Facts` / `FactRow` (null → `.is-unknown`) | `record.tsx:171-189` |
-| Since-yesterday feed | `ActivityList` / `ActivityItem` (interpretive entries already render as interpretive) | `_loop-os/activity-item.tsx:44,54` |
-| Empty / stale / denied states | `StateBlock` kinds `empty·unavailable·error·denied·attention` | `record.tsx:201-247` |
-| A single item's full story | `EntityPage` (structurally forces "why it matters" + evidence) | `_loop-os/entity-page.tsx:165` |
-
-### 5.5 The calm rules
-
-1. **Seven items, not seventy.** Everything else is one link away ("See all 34").
-2. **No badge Loop cannot defend.** The shell deliberately renders no unread count today
-   (`WorkspaceShell.tsx:100-107`); Daily Loop keeps that discipline.
-3. **An earned all-clear or nothing.** `packages/shared/src/attention-state.ts` already encodes this:
-   an empty queue must state what was examined; anything less is `INSUFFICIENT_COVERAGE`, which is not
-   an error and not a warning — it is Loop declining to claim.
-4. **No colour for product area, only for state** (`loop-os.css:1-15`).
-5. **Nothing on this page is a model's opinion unless it is labelled as one** (§12).
+| Page frame, heading, coverage line | `LoopPage`, `PageHead` | `_loop-os/record.tsx:21,50` |
+| Each block | `Panel` (has a `lead`) | `record.tsx:161` |
+| NEEDS YOU rows | `AttentionRow` | `_loop-os/panels.tsx:6` |
+| "Why this is here" | `ContextDrawer` (full-screen sheet on phones) | `record.tsx:192` |
+| Evidence inside it | `Facts` / `FactRow` (null → `.is-unknown`) | `record.tsx:171-189` |
+| YESTERDAY feed | `ActivityList` / `ActivityItem` (interpretive entries already render as interpretive) | `_loop-os/activity-item.tsx:44,54` |
+| YOUR DAY / TOMORROW rows | `Panel` + `.loop-row`; meeting card reuses `Facts` | existing classes |
+| WAITING ON / GONE QUIET | `Panel` + `.loop-row` | existing classes |
+| Any empty / stale / denied state | `StateBlock` kinds `empty·unavailable·error·denied·attention` | `record.tsx:201-247` |
+| One item's full story | `EntityPage` (structurally forces "why it matters" + evidence) | `_loop-os/entity-page.tsx:165` |
+| Degraded sources | `StateBlock` `unavailable` + the footer line | `record.tsx:219` |
 
 ---
 
@@ -642,9 +754,24 @@ What retrieval looks like instead:
 - **By state:** `(organizationId, userId, class, lastMessageAt)` for "needs you", "waiting on".
 - **By subject text (Stage 2 only):** if it is ever needed, the honest first step is Postgres
   full-text over *subjects* within one employee's rows — a small, bounded corpus — and it is a
-  separate, argued decision (§29), not a side effect of this feature.
+  separate, argued decision, not a side effect of this feature.
 
-### 10.5 What Ask Loop refuses
+### 10.5 Where it lives in the product
+
+Ask Loop is a **block on Home**, not a separate destination (§5.2). Two behaviours make it feel like a
+continuation of the page rather than a chatbot bolted to it:
+
+- **Every row carries "Ask Loop about this"**, which seeds the question with that thread, meeting or
+  document already in scope — so "why does this matter" and "what did I promise here" are one click
+  from the thing that raised them.
+- **An answer can be acted on where it lands**: the rows it returns carry the same actions as the
+  queue (open, handled, not mine, snooze), so asking and doing are the same surface.
+
+At Stage 1 it answers from facts; at Stage 2 the same questions route to content-backed tasks; at
+Stage 3 it can reason across everything Loop holds for that employee. The input box does not change
+between stages — only the honesty line under a refusal does.
+
+### 10.6 What Ask Loop refuses
 
 - Another employee's mail, in any phrasing, for any role (§20).
 - A question it cannot ground: "I don't have that" beats an answer assembled from nothing (Rule 7).
@@ -931,7 +1058,7 @@ Two consequences people usually get wrong, both worth stating plainly:
    introduced by reading message content.
 2. **Calendar needs nothing more** for Daily Loop V1 or meeting briefs.
 
-### 14.2 The one scope that unlocks the product vision
+### 14.2 Stage 2 is planned, not optional
 
 Everything in the brief that explains *why something matters* needs message content, and Google offers
 **no narrower read-content scope than `gmail.readonly`** — the add-on scopes
@@ -944,13 +1071,18 @@ Everything in the brief that explains *why something matters* needs message cont
 | **Verification impact** | The CASA assessment must cover the new data class; adding a restricted scope can require reassessment. It does not move Loop into a new tier |
 | **Consent impact** | A visibly bigger ask: "read your email" instead of "see headers". It must be **its own incremental grant**, asked at the moment it buys something, with Loop's own screen saying what it will and will not do first |
 | **Security impact** | Loop now holds correspondence content. Retention, deletion, prompt injection, logging, human-access policy and per-user isolation all become load-bearing (§20, §21) |
-| **Policy impact** | Limited Use: content may not train any generalized model; human review is prohibited without documented explicit consent. Both are architectural constraints, not paperwork (§20.6) |
+| **Policy impact** | Limited Use: content may not train any generalized model; human review is prohibited without documented explicit consent. Both are architectural constraints, not paperwork (§20.2, §20.2a) |
 
-**When to ask:** not with V1. Ask when (a) the metadata product is in daily use and its queue is
-trusted, (b) the Brain execution path is live so content is processed in one governed place, and
-(c) the retention/deletion story is built. Then it is one capability card in the existing Connections
-UI — the incremental-authorization machinery already exists and already refuses anything broader
-(`parseGoogleGrantedScopes`, plus the database CHECK that literally rejects unexpected scopes).
+**Decided: V1 does not request it.** Stage 2 is nevertheless a planned stage of Daily Loop with a
+named gate, not an idea to revisit. The gate is: (a) the metadata product is in daily use and its
+queue is trusted; (b) the retention, deletion and content-minimisation design of §17.4 and §21 is
+built and tested; (c) the governed processing path exists, so content is analysed in one place with a
+ledger and a template — which in practice means the Brain prerequisites of §15.3. Then it is one more
+capability card in the existing Connections UI: the incremental-authorization machinery already
+exists and already refuses anything broader (`parseGoogleGrantedScopes`, plus the database CHECK that
+rejects an unexpected scope even from a caller that bypassed the contract).
+
+Nothing about Stage 2 is a rewrite. §14.4 lists the seams V1 must leave so that it is an addition.
 
 ### 14.3 Scopes Loop should still refuse
 
@@ -961,6 +1093,24 @@ that need ever becomes real, precisely because it is *narrower* than `drive.read
 
 A source-scan test already asserts none of these strings appear in the contract file
 (`packages/shared/test/google-workspace.test.ts:47-49`). Keep it, and extend it as scopes change.
+
+### 14.4 The seams V1 must leave so Stage 2 attaches without a rewrite
+
+These are V1 design obligations, each cheap now and expensive to retrofit. They are the reason V1 is
+not a disposable interim system.
+
+| # | Seam | What V1 builds | What Stage 2 does with it |
+|---|---|---|---|
+| 1 | **The thread is the unit** | Every classification, evidence reference and cache key is `(threadId, lastMessageId)` | Per-thread analysis attaches to the same key; no re-modelling, and the change-gate that controls cost already exists |
+| 2 | **`work_items` are producer-agnostic** | Columns `producerKind` (`RULE`), `producerId`, `producerVersion`, `evidence` | A model-produced item is the same row with `producerKind = 'MODEL'`, `producerId` = the task id. No migration, no second queue |
+| 3 | **The four-way provenance model** (§12.1) | Source fact / derived state / *(inference, unused)* / confirmed | Stage 2 starts writing the third kind; the badge, the drawer and the tests already exist |
+| 4 | **The brief has a `headline` field, null at Stage 1** | Stored as null, rendered as absent | Stage 3 fills it; the record shape, history and retention do not change |
+| 5 | **Ask Loop's parser returns a `needsContent` flag** | Questions needing content answer "I can't read your messages yet, only who wrote and when" | The same questions route to a content-backed task instead of refusing |
+| 6 | **A `ThreadContentReader` port exists from day one** | V1's implementation returns `UNAVAILABLE_SCOPE` for every call | Stage 2 implements it against `gmail.readonly`; nothing above the port changes |
+| 7 | **Every stored field carries a sensitivity class** | `OPERATIONAL` / `CONTACT_IDENTIFIER` in V1 | Context assembly can enforce a task's ceiling (`packages/shared/src/ai/context.ts`) the moment `COMMUNICATION_CONTENT` exists |
+| 8 | **Retention is a categorised sweep, not one timer** (§21.3) | Categories and windows as data, with a sweep that reads them | Stage 2 adds categories; the sweep, its tests and its runbook are unchanged |
+| 9 | **Evidence carries optional quote fields, null at Stage 1** | `quote`, `quoteMessageId`, `quoteCharCount` exist and are always null | Stage 2 writes bounded quotes (§17.4); the renderer already handles present-or-absent |
+| 10 | **Consent prose is per capability, in the contract** | `GOOGLE_WORKSPACE_CAPABILITY_READS` already works this way | A Stage 2 capability is a new entry plus a CHECK change, reviewed as its own PR |
 
 ---
 
@@ -1010,19 +1160,27 @@ something overnight*. Four specific blockers, each verifiable in code:
 4. **No DURABLE task exists**, no `MODEL_CALL` step exists in the executor revision, and **no AWS
    resource is deployed**.
 
-So: **Daily Loop V1 must not depend on Brain at all**, and that is not a workaround — it is the right
-sequence. V1's intelligence is deterministic, so it ships on Neon and Netlify with no model, no AWS
-and no new AI governance. When Brain goes live, the model layer arrives as new tasks behind the same
-surfaces, and the four items above become **explicit prerequisites** of that phase (§26, D-phase),
-each one a small contract change rather than a new subsystem:
+So: **Daily Loop V1 does not depend on Brain at all**, and that is the right sequence rather than a
+workaround. V1's intelligence is deterministic, so it ships on Neon and Netlify with no model, no AWS
+and no new AI governance.
 
-- a `SYSTEM` submitter kind, admitted only for named scheduled tasks, with the same membership checks;
-- an `EMPLOYEE_WORKSTATE` result subject and a `BrainResultOwnerGate` owned by the Daily Loop service;
-- a DURABLE task definition with a `MODEL_CALL` step in a new executor revision;
-- `WORKFORCE_PII` admitted as a sensitivity ceiling for exactly those tasks, with a context builder
-  that counts what it withholds (the `case-explanation-context.ts` pattern).
+### 15.3a The Brain prerequisites, named, with where they land
 
-### 15.4 The AI tasks Daily Loop would define (Stage 2, not now)
+Stage 3 cannot start until all seven hold. Each is a small, reviewable change to an existing
+contract — none is a new subsystem — but items 1–3 **weaken a deliberate refusal** and must be
+reviewed as security changes, not plumbing.
+
+| # | Prerequisite | Where it lives | Lands in |
+|---|---|---|---|
+| 1 | A `SYSTEM` submitter kind, admitted **only** for a named allowlist of scheduled tasks, still requiring an active membership for the principal it acts for | `packages/shared/src/ai/brain-job.ts` (`brainSubmissionRefusals`) | **C1** |
+| 2 | A system-issued `START` permitted for those same tasks, attributed to a named policy rather than an anonymous system | `packages/shared/src/ai/brain-trust.ts` (`brainCommandDisposition`) + the matching DB CHECK | **C1** |
+| 3 | An `EMPLOYEE_WORKSTATE` result subject and a registered `BrainResultOwnerGate` owned by the Daily Loop service (today `owners` defaults to `[]`, so no job can commit anything) | `brain-result.ts`, `BrainInternalService`, `apps/web/src/brain/brain-runtime.ts` | **C1** |
+| 4 | A DURABLE task definition and a `MODEL_CALL` step in a new executor revision | `packages/shared/src/ai/task.ts`, `apps/brain-executor` | **C2** |
+| 5 | A routing entry, a budget class and a reviewed template per task | `packages/providers/src/ai/policy/routing-policy.ts`, `services/ai-runtime/templates/` | **C2** |
+| 6 | `WORKFORCE_PII` / `COMMUNICATION_CONTENT` admitted as a ceiling for exactly those tasks, with a context builder that counts what it withholds | `packages/shared/src/ai/context.ts`, the `case-explanation-context.ts` pattern | **C3** |
+| 7 | AWS deployed (bootstrap, the B7 identity, the staging Neon, the Lambda quota) and `LOOP_AI_ENABLED` deliberately turned on | `infra/brain`, Netlify environment | before **C2** |
+
+### 15.4 The tasks Daily Loop would define (Stage 3)
 
 | Task | Consequence | Ceiling | Route | Input |
 |---|---|---|---|---|
@@ -1032,8 +1190,27 @@ each one a small contract change rather than a new subsystem:
 | `workstate.brief.compose` | READ_ONLY | `OPERATIONAL` | COMMUNICATION | the day's *derived* counts and item titles |
 | `workstate.ask` | READ_ONLY | varies by question | GENERAL_REASONING | the retrieved rows only |
 
-Note the fourth: the daily brief's sentence is composed from **already-derived state**, not from raw
-mail, so it stays at the `OPERATIONAL` ceiling and costs one cheap call per employee per day.
+Note the fourth: the brief's narrative is composed from **already-derived state**, not from raw mail,
+so it stays at the `OPERATIONAL` ceiling and costs one cheap call per employee per day.
+
+### 15.5 The rule that must not be broken: no second AI runtime
+
+Stage 2 will create pressure to "just call a model from the web app" because Brain is not ready. That
+is forbidden, and the record states why in advance:
+
+- The gateway performs 17 governed steps (authorize, estimate, admit, reserve, route, render, call,
+  validate, reconcile) and refuses to show an answer the ledger could not record. A direct call
+  bypasses budget enforcement, the kill switches, the provenance record and the output validator.
+- `packages/providers/src/ai/adapters` is the only place a model SDK may be imported, and a fence test
+  scans the repository for violations. **That test is the enforcement; do not weaken it.**
+- If Stage 2 is wanted before Brain is deployed, the correct answer is the **existing in-process
+  runtime** (`AiRuntimeGateway`, already wired at `apps/web/src/ai/case-explanation.ts`) with a new
+  task, a new routing entry and a new template — governed by the same 17 steps — *not* a new call
+  path. That is a legitimate intermediate step; a bespoke client is not.
+- The one thing the in-process runtime cannot do is run **on a schedule without a person**. If Stage 2
+  is needed before Brain, Daily Loop analyses a thread **when the employee opens it or asks**, never
+  on a timer. Scheduled model work waits for §15.3a.
+
 
 ---
 
@@ -1150,11 +1327,71 @@ told to accept), the migration should encode:
 
 ### 17.3 What is deliberately *not* a column
 
-- **No message body, no snippet, no attachment content.** Under the current grant there is nothing to
-  store; under Stage 2 the storage question gets its own decision (§29), and the default answer should
-  be *store derived state, fetch content on demand, keep nothing*.
+- **No message body, no snippet, no attachment content, at any stage.** See §17.4: Loop does not
+  become a second copy of anyone's mailbox.
 - **No `partyId`.** Attribution is governed and lives on the identity side, not here (§11.1).
 - **No score.** There is no rank column; ordering is a declared walk over facts (§6.4).
+- **No organization-scoped read path.** There is no method, view or index that answers a question
+  about *everyone's* mail (§20.2a).
+
+### 17.4 Content at Stage 2: minimisation, and the one case for short-lived storage
+
+**The rule.** Loop is not a mail archive. It fetches content when it needs it, derives structured
+intelligence, keeps the provenance needed to explain that intelligence, and keeps as little of the
+content itself as the product can stand.
+
+Four categories, decided separately, because they have different lifetimes and different risk:
+
+| Category | Decision | Why |
+|---|---|---|
+| **Full message bodies, long-lived** | **Never stored.** No column exists, at any stage | A permanent duplicate of every employee's mailbox is a breach surface with no product justification: everything Loop shows is derived, and the original is one link away in Gmail |
+| **Attachments** | **Never fetched, never stored.** Names and types only | Nothing in the product needs the bytes; fetching them multiplies both risk and quota for zero surface |
+| **A short-lived processing cache** | **Necessary — allow, tightly bounded** | See below |
+| **Bounded evidence quotes** | **Necessary — allow, capped** | See below |
+| **Derived structured output** (summaries, commitments, significance, with citations) | Retained per §21.3 | It *is* the product, and it is far smaller and less sensitive than the correspondence it came from |
+
+#### Why a short-lived processing cache is genuinely necessary
+
+A thread at Stage 2/3 is read by several steps in sequence — classify, summarise, detect commitments —
+and possibly again by an Ask Loop question minutes later. Without a cache:
+
+- each step re-fetches the same messages, multiplying Gmail quota (20 units per `messages.get`) and
+  wall-clock against a per-user-per-minute ceiling;
+- worse, **the steps can disagree**: a thread that gains a message between step 1 and step 3 produces a
+  summary and a commitment set derived from different bytes, and the citations stop lining up.
+
+So the cache exists for correctness as much as cost. Its bounds are the tradeoff:
+
+- **sealed at rest** with the existing AES-256-GCM core, bound to (organization, user, thread,
+  purpose), exactly as refresh tokens and Brain checkpoints already are;
+- **TTL measured in hours, 24 at the outside**, deleted when the processing run completes, whichever
+  comes first — a sweep enforces it rather than trusting a code path;
+- keyed by `(org, user, threadId, lastMessageId)`, never indexed by content, never searchable;
+- never logged, never in an audit row, never in an AI ledger row (the ledger has no content columns by
+  design);
+- an employee can see that it exists and empty it (§21.4).
+
+**The honest cost:** for up to a day, Loop holds encrypted fragments of that employee's recent
+correspondence. The alternative — no cache — buys a smaller window at the price of inconsistent
+analysis and several times the quota, and would make Stage 3's multi-step reasoning unaffordable.
+
+#### Why bounded evidence quotes are necessary
+
+"Why does this matter?" must be answerable **without** opening Gmail, or the surface is only a link
+list. A quote of a sentence is what makes the explanation legible:
+
+> *"They asked for revised pricing by Friday."* — Ben Whitaker, 16 Sep, in this thread
+
+Bounds: **≤ 240 characters**, at most **2 per item**, only where a derived claim depends on it, stored
+with the item and **deleted with it**, classified `COMMUNICATION_CONTENT`, and excluded from any email
+Loop sends (§19.4). An employee — or an organization — can turn quotes off and fall back to links.
+
+#### Subject lines
+
+Google's metadata scope permits them, so V1 stores them: without a subject, a thread is unrecognisable
+and the whole surface fails. They are nevertheless treated as **`COMMUNICATION_CONTENT`** for
+sensitivity purposes, which means they never enter a model context whose ceiling is `OPERATIONAL`, and
+they follow the content rules for logging and email.
 
 ---
 
@@ -1174,7 +1411,7 @@ Detail is in §10; this section is the storage-side answer.
 4. **Full-text is a later, separate decision.** If subject search proves necessary, Postgres full-text
    over one employee's `work_threads.subject` is the smallest honest step — bounded corpus, no new
    dependency. Embeddings are a bigger decision still, and the repository currently forbids them by
-   test; reversing that deserves its own record, not a paragraph in this one (§29).
+   test; reversing that deserves its own record, not a paragraph in this one.
 
 ---
 
@@ -1245,11 +1482,21 @@ Enforced structurally, not by review:
    the same fix Sprint 29A applied to the CRM.
 2. **The `userId` always comes from the signed session**, never from a form, query, path or body.
 3. **A new IAM resource, `employeeIntelligence`**, with `view`/`update` granted to every human role
-   **for their own data only**, and — this is the important part — **no `manage` action at all**, so
-   there is no permission that could later be read as "see someone else's". `AI_EMPLOYEE` is denied,
-   as it is for `googleWorkspace`.
+   **for their own data only**, and — this is the important part — **no `manage` action and no
+   `approve` action at all**, so there is no permission that could later be read as "see someone
+   else's". `AI_EMPLOYEE` is denied, as it is for `googleWorkspace`. The grant table carries a comment
+   saying that adding `manage` to this resource is a product decision about surveillance, not a
+   refactor, and a test asserts the action list stays exactly `['view','update']` for every role.
 4. **Admin surfaces see counts, never content**: whether a connection exists, when it last synced,
    whether it is expired. That is enough to run onboarding and support.
+5. **The existing `googleWorkspace:manage` is fenced.** That action already exists and is granted to
+   OWNER and ADMIN (`GOOGLE_WORKSPACE_GRANTS`), meaning *"acting on another member's connection"* —
+   and **nothing uses it today**. It must never become a door into mail-derived data. Two things
+   follow: the record states that `googleWorkspace:manage` may authorise only connection lifecycle
+   acts (see that a connection exists, revoke it), never a read of any `work_*` row; and a test
+   asserts no Daily Loop read path consults it. **Recommendation (§29, D13): narrow it now** — either
+   delete the action until a real admin use case exists, or rename the intent in the grant comment —
+   because an unused permission with a broad name is exactly what a future implementer reaches for.
 5. A test asserts that no Daily Loop repository method exists whose parameters omit `userId`, and that
    no page under the Daily Loop tree reads work tables without the session's own user id — the same
    source-scanning style `public-surface-security.test.tsx` already uses.
@@ -1268,12 +1515,35 @@ Enforced structurally, not by review:
 | 8 | Content in the AI ledger | Already structurally impossible: `ai_invocations` has **no prompt and no response column**, by design |
 | 9 | Content in audit rows | Audit records the act (`work.item.resolved`), ids and the actor — never the mail |
 | 10 | Support/debugging exposure | Google's Limited Use policy prohibits human review without documented explicit consent. Debugging must be possible from ids, classes and counts alone; if an engineer ever needs content, it requires the employee's explicit, recorded consent — a workflow, not an ad-hoc query |
-| 11 | Shared mailboxes / delegated access | A delegated mailbox is somebody else's correspondence arriving under one grant. V1 ingests the connected account's own mailbox and records the account (`emailAtLink`); delegation detection is an open question (§29) |
+| 11 | Shared mailboxes / delegated access | A delegated mailbox is somebody else's correspondence arriving under one grant. V1 ingests the connected account's own mailbox and records the account (`emailAtLink`); delegation detection is open decision **O5** (§29.2) |
 | 12 | Shared documents and calendars | A document shared into the mailbox owner's Drive is metadata they can already see; Loop stores metadata only and shows it only to them |
 | 13 | Model provider retention | OpenAI adapter sets `store: false`; provider data-handling remains `UNCONFIRMED` in the catalog until gate G2, and Stage 2 must not ship before that gate is honestly closed |
 | 14 | Training on customer data | Forbidden by Google's Limited Use policy beyond that user's own personalized model; Loop's corrections therefore stay per-employee (§12.5) and no cross-user learning may be built |
 | 15 | An inference becoming truth | §12: proposals are not state; only a person's act confirms |
 | 16 | Revocation not honoured | §21 |
+
+### 20.2a No organization-level aggregation, and no shortcut to it
+
+**Decided: private Daily Loop intelligence belongs to the employee.** There is no org-level roll-up of
+mail-derived data in V1, and the architecture must make an accidental one impossible rather than
+merely unintended:
+
+- **No repository method takes an organization without a user.** Every work-state query signature is
+  `(organizationId, userId, …)`; there is no `listForOrganization`, no `countByOrganization`, no view
+  and no index that would serve one. A test asserts every exported method's first two parameters.
+- **No aggregate endpoint, no admin report, no export** reads a `work_*` table.
+- **The outbox events Daily Loop publishes carry no content and no per-person detail** that a
+  subscriber could accumulate into an org picture — an event says *an item was raised for a user*,
+  and the subscriber that would fan that out does not exist (§16.4).
+- **If organization-level intelligence over employee mail is ever wanted**, it is a **separate
+  capability with its own architecture record**: its own policy (what may be aggregated), its own
+  permissions (who may see it), its own disclosure (every employee told, before it starts), its own
+  minimum group sizes, and its own review. It may not arrive as an increment of Daily Loop, and this
+  record does not design it.
+- **The standing test of intent:** if a feature would let a manager learn something about an
+  employee's correspondence that the employee did not choose to share, it is surveillance and it is
+  out of scope here — whatever its stated purpose. Company-wide intelligence is a legitimate product;
+  it is built from company data and explicit sharing, not from silently pooling private mailboxes.
 
 ### 20.3 Data minimisation
 
@@ -1314,20 +1584,63 @@ layer over somebody's mail that they cannot inspect is not defensible.
 | Grace period expires (default 30 days after disconnect) | Work rows are deleted by a scheduled sweep; the audit trail of *acts* remains, as audit always does |
 | Employee asks for deletion | Immediate delete of all `work_*` rows for that (org, user), recorded as an act |
 
-### 21.3 Retention
+### 21.3 Retention — a window per category, not one number
 
-| Data | Retention | Why |
-|---|---|---|
-| Message/thread/event/document **metadata** | While connected, plus a 30-day grace | It is a cache of Google's truth; Google remains the authority |
-| Work items and their observation log | 12 months | The accuracy signal (§12.5) needs history; these hold no content |
-| Briefs | 12 months | "What happened last week" is the product |
-| *(Stage 2)* content-derived text | 90 days, configurable, shorter by default than metadata | It is the most sensitive derived data Loop would hold |
-| Audit rows | Unchanged (indefinite) | They record acts, never content |
-| Sync run rows | 30 days | Operational only |
+Eleven categories. Each names the product capability that depends on the window, so a shorter window
+is a product conversation and not a guess. **Expiry is a delete, performed by the categorised sweep of
+§21.5, and it is tested** — a retention promise nobody runs is a lie with a date on it.
 
-Two rules that make retention real rather than stated: deletion is a **scheduled, tested sweep** with
-its own runbook, not a manual script; and every retention window is a named constant in one file, so
-"how long does Loop keep my mail data" has exactly one answer.
+| # | Category | Window | Why that long | What depends on it | Privacy / security | After expiry |
+|---|---|---|---|---|---|---|
+| 1 | **Google raw API responses** | **Not retained at all** (in memory for the duration of one call) | Nothing needs the envelope once the fields are normalised | Nothing | Raw bodies would be the largest possible surface for the smallest possible gain | Nothing to delete; never written |
+| 2 | **Normalized Gmail metadata** (`work_messages`) | **While connected + 30 days** | A thread's rhythm — median reply time, "moved every 2 days" — needs a few weeks of history to be meaningful | Waiting/gone-quiet classification, reply-latency facts, "what did I miss" | Headers and addresses, no content; per-user, hashed addresses | Deleted; derived facts on the thread survive (they carry their own evidence refs) |
+| 3 | **Thread state** (`work_threads`) | **While connected + 90 days** | Longer than messages so a dormant thread waking up is still recognised as "this one went quiet in June" | Gone-quiet detection, correspondent rhythm, Ask Loop by person | Subject lines are the sensitive part; treated as `COMMUNICATION_CONTENT` | Deleted; the thread simply looks new if it reappears |
+| 4 | **Selectively retained content — the processing cache** (§17.4) | **Hours; hard ceiling 24h, and deleted on run completion** | Only exists so multi-step analysis reads one consistent snapshot | Stage 2/3 summaries, commitments, Ask Loop over content | The single most sensitive store Loop would hold; sealed, unindexed, unlogged | Deleted by sweep; re-fetched from Google if needed again |
+| 5 | **Selectively retained content — evidence quotes** (§17.4) | **The life of the item that cites them** (so ≤ 12 months, usually days) | An explanation must survive as long as the claim it explains | "Why does this matter", the brief's readability | ≤240 chars, ≤2 per item, `COMMUNICATION_CONTENT`, excluded from email | Deleted with the item, in the same transaction |
+| 6 | **Derived work-state facts** (`work_items` + observations) | **12 months** | The accuracy signal: "how often did Loop raise something the employee said was not important" needs a year to mean anything | Rule tuning, the correction loop, "what did I resolve last quarter" | Ids, classes, rules and evidence refs — no correspondence | Deleted; the aggregate accuracy counts it fed are already recorded |
+| 7 | **Daily briefs** (`work_briefs`) | **12 months** | "What happened last week", "catch me up since the holiday", and year-over-year rhythm | The history surface, the "since you were away" experience | Counts and references; at Stage 3 a narrative sentence with citations | Deleted; older days become unanswerable, which the surface states plainly |
+| 8 | **Calendar-derived state** (`work_events`) | **While connected + 90 days after the event** | Meeting briefs need past meetings with the same people to say "since you last met" | Meeting preparation, "previous meetings", conflict detection | Times, counts and composition — not attendee lists as subjects | Deleted; Google remains the authority and can be re-read |
+| 9 | **Provenance / evidence references** | **As long as the conclusion they support** (categories 6–7) | Rule 3: the evidence outlives the conclusion, and a conclusion whose evidence expired first is uninterpretable | "Why is Loop telling me this", every drawer on every row | References and ids, not content — the cheapest thing Loop keeps | Deleted **with** their conclusion, never before it |
+| 10 | **Audit and security records** (`audit_logs`, connection lifecycle, deletion acts) | **Indefinite, unchanged** | They record *acts*, not correspondence: who connected, who revoked, who deleted, when | Security review, incident response, the offboarding story | Contains no mail data by construction | Not deleted |
+| 11 | **Disconnected / offboarded employee data** | **Disconnect: frozen, then deleted at 30 days. Membership ended: deleted immediately (cascade)** | 30 days covers an accidental disconnect or a token expiry over a holiday without leaving a silent archive | Reconnecting inside a month keeps continuity; after that it rebuilds | The strongest expectation to honour: somebody who left should not remain readable | All `work_*` rows deleted; audit of the acts remains |
+
+Three numbers are worth Matt's explicit sign-off because they trade privacy against product: **90 days
+for thread state** (3), **12 months for items and briefs** (6, 7), and **30 days after disconnect**
+(11). Everything else follows from them. They become named constants in one file, printed in the
+runbook, and reflected in the Connections page, so "how long does Loop keep this?" has exactly one
+answer in code, docs and UI.
+
+### 21.3a Deletion at the source
+
+If an employee deletes or trashes a message in Gmail, or a meeting is removed from their calendar,
+Loop must not keep behaving as though it exists. Both feeds report it: Gmail's history includes
+message deletions and label changes, and Calendar's incremental result *"will always contain deleted
+entries"*.
+
+The rule: **a deletion at the source is a fact, and it propagates.** The row is removed on the next
+cycle; any work item whose evidence rests solely on it is closed with an outcome naming the reason
+("the message it referred to was deleted"), not silently dropped; a brief already written is left
+alone, because it is an immutable record of what was true that morning, and it says so.
+
+The alternative — keeping a shadow copy of something the employee deleted — is precisely the
+"permanent duplicate archive" this design refuses.
+
+### 21.4 What the employee can see and do
+
+- A page listing, per source, exactly what Loop holds: row counts, date ranges, the oldest item, and
+  whether a processing cache currently exists.
+- **Empty the cache now** — one action, no consequences beyond a re-fetch.
+- **Delete everything** — removes every `work_*` row for that (org, user), recorded as an audited act,
+  leaving the Google connection intact or not, at their choice.
+- **Turn quotes off** — the explanation falls back to links, per §17.4.
+
+### 21.5 The sweep
+
+One scheduled sweep, driven by a **category table rather than scattered constants**: each row is
+(category, window, predicate), the sweep deletes what has aged past its window, and its run is
+recorded like any other cycle (§24.2). New categories — Stage 2 adds two — are rows, not new code.
+Tests cover each category with a clock, and a test asserts that **every `work_*` table appears in
+exactly one category**, so a new table cannot be added without a retention decision.
 
 ---
 
@@ -1366,7 +1679,25 @@ Three rules make this honest: the counts appear **only** for sources whose phase
 partial state names what is still running; and if a phase fails, that is what the screen says, with a
 retry — never a spinner that resolves into a wrong zero.
 
-### 22.4 Reconnect and repeat runs
+### 22.4 Graceful degradation when a source is missing
+
+Every block on Home must be honest about a source it does not have. Nothing renders as empty when the
+truth is "not connected".
+
+| Connected | What Daily Loop gives | What it says about the rest |
+|---|---|---|
+| **Calendar only** | Your Day, Tomorrow, meeting times and composition, conflicts | "Connect Gmail to see who is waiting on you." NEEDS YOU / WAITING ON / GONE QUIET are absent, with that sentence, not shown as zero |
+| **Gmail only** | Needs You, Waiting On, Gone Quiet, Yesterday, the brief | "Connect Calendar to see your day." Meeting preparation is unavailable, and the brief says so in its coverage |
+| **Gmail + Calendar** | Everything in V1 except document context | "Connect Drive to see related documents." Meeting cards show correspondence only |
+| **All three** | Full V1 | — |
+| **None** | The connect card, and nothing else | No empty queue is rendered at all |
+| **One source stale or expired** | Everything else, unchanged | The coverage line names the source and its last successful read; the brief records reduced coverage (§7) |
+
+The rule behind the table: **a missing source is a stated fact, never an empty state.** The kernel
+already draws this distinction (`attention-state.ts`), and the design-system primitive for it exists
+(`StateBlock` kind `unavailable`).
+
+### 22.5 Reconnect and repeat runs
 
 A reconnect after an expiry resumes from the stored cursor if history is still available, and
 otherwise re-backfills the 7-day window and rebuilds thread state from what it has. Because every
@@ -1489,293 +1820,115 @@ what makes Google's Limited Use human-access rule survivable in practice (§20.2
 
 ## 26. Phased implementation plan
 
-Thirteen PRs across three phases. **Phase A needs no scope change, no AWS, no model and no new
-infrastructure** — it is the whole V1. Phase B is a scope decision. Phase C is Brain. Each PR is
-independently reviewable and independently revertible; none is a "foundation" PR whose value only
-arrives later.
+### 26.1 How this is sequenced
 
-Standing requirements for every PR below, so they are not repeated each time: draft PR only; branch
-per objective; `next-env.d.ts` reverted; build + typecheck + tests reported honestly; no secret in any
-file; nothing deployed.
+Four phases with **an explicit review point between each**. Phase 1 is the whole of V1: no scope
+change, no infrastructure beyond one workflow and one secret, no model call, nothing deployed to AWS.
+Phases 2–4 each need their own authorization, and each is gated on something outside the code (a scope
+decision, an AWS deployment, a consent design).
 
----
+Within Phase 1, the order is chosen so that **something is visible early and the riskiest thing is
+reviewed first**: the isolation boundary lands in PR 1, Calendar produces a real screen by PR 4, and
+Gmail — the larger surface — follows once the pipeline has been proven on the smaller one.
 
-### A1 — Employee time and work preferences
+Standing requirements for every PR: draft only; one objective per branch; `next-env.d.ts` reverted;
+build, typecheck and tests reported honestly; no secret in any file; no production data touched;
+nothing merged by me.
 
-- **Objective.** Give Loop a per-employee timezone and workday start, because every later PR needs to
-  know when "today" begins for a person. Today `User` has no timezone at all and the web app resolves
-  the display zone from the device only (`apps/web/src/time/viewer-time.ts`), which cannot schedule
-  anything.
-- **Files/systems.** New `employee_work_preferences` table + repository in `@emgloop/database`; a
-  preferences read in `apps/web/src/time/viewer-time.ts` so the stored zone becomes the `preference`
-  input `resolveDisplayTimeZone` already accepts; a small settings surface under `/app/connections`.
-- **Schema.** One additive table (§17.1). **Migration: yes.**
-- **Infrastructure / Google scope.** None / none.
-- **Security.** Row is per (org, user); written only from the session's own principal; no admin write
-  path.
-- **Tests.** Zone validation through `parseTimeZone`; the display zone precedence (preference beats
-  device beats UTC fallback, already modelled in `loop-time.ts`); guard test on the settings action.
-- **Deployment.** Migration dispatched by Matt after merge.
-- **Prerequisites.** None.
-- **Acceptance.** An employee sets their zone; `viewerTime()` uses it; a repository function answers
-  "is it after this employee's start hour, on a local date with no brief yet".
+### 26.2 Phase 1 — Daily Loop V1, at a glance
 
----
+| # | PR | Depends on | Schema | Infra | Google scope | Calls a model | Employee-visible UI | What you can test when it lands |
+|---|---|---|---|---|---|---|---|---|
+| **DL-1** | Work-state foundation: tables, `employeeIntelligence` IAM, repositories, preferences | — | **Yes** (additive) | No | **No** | No | No | The isolation suite: one user cannot read another's rows, and no repository method exists without a `userId`. A local replay of the migration |
+| **DL-2** | Calendar sensor (adapter only) | — | No | No | **No** | No | No | Adapter tests against a recorded double: sync tokens, `410` recovery, bounded windows. No live call |
+| **DL-3** | Calendar ingestion + cycle runner + manual trigger | DL-1, DL-2 | No | One secret | **No** | No | No | **You connect your own Calendar, trigger a cycle by hand, and see your events ingested — for your user only** |
+| **DL-4** | Home: YOUR DAY + TOMORROW, and the degradation states | DL-3 | No | No | **No** | No | **Yes** | Your real calendar rendered as your day, on desktop and phone; the honest states when Gmail and Drive are not connected |
+| **DL-5** | The scheduled cycle workflow | DL-3 | No | **Workflow + repo variable** | **No** | No | No | Cycles running every 15 minutes with the variable set; a failure showing as a red run |
+| **DL-6** | Gmail sensor (metadata adapter only) | — | No | No | **No** | No | No | Adapter tests: backfill paging, history cursor, `404` recovery, and a test asserting `q` is never sent |
+| **DL-7** | Gmail ingestion: correspondents, threads, messages, bounded backfill | DL-3, DL-6 | No | No | **No** | No | No | **Your own mailbox metadata ingested inside the caps** (30 days, 2,000 messages), with the run record showing exactly what was read |
+| **DL-8** | Work-state rules: needs you / waiting on / gone quiet, with evidence | DL-7 | No | No | **No** | No | No | The rules against fixture mailboxes, including cc-only, automated senders, out-of-office and one-message threads |
+| **DL-9** | Home: NEEDS YOU, WAITING ON, GONE QUIET, the why-drawer, and corrections | DL-8 | No | No | **No** | No | **Yes** | **The core product**: your real queue, each row explaining itself, and "handled / not mine / snooze" changing it |
+| **DL-10** | The daily brief and YESTERDAY | DL-8 | No | No | **No** | No | **Yes** | A brief written for your local day, its history, and a brief that records reduced coverage when a source failed |
+| **DL-11** | Ask Loop, Stage 1 | DL-8 | No | No | **No** | No | **Yes** | The supported questions answered from rows, and an honest refusal for the ones that need message content |
+| **DL-12** | Drive: sensor, ingestion, document relations | DL-3 | No | No | **No** | No | **Yes** | Documents related to a meeting appearing on its card, labelled as related-by-metadata |
+| **DL-13** | Retention sweep, self-inspection, deletion | DL-7 | No | No | **No** | No | **Yes** | Seeing exactly what Loop holds about you, deleting it, and the sweep deleting an aged category on a clock |
+| **DL-14** | Observability and the runbook | DL-5 | No | No | **No** | No | No | A stale employee, a truncating cycle and an expired connection each visible within minutes |
 
-### A2 — Work-state schema, IAM resource and repositories (no ingestion)
+**Review point 1** — after DL-14: is the queue trusted? Are the corrections telling us the rules are
+right? Only then is Phase 2 worth its consent cost.
 
-- **Objective.** The storage and the isolation boundary, with nothing writing to it yet.
-- **Files/systems.** Migration for `work_source_cursors`, `work_correspondents`, `work_threads`,
-  `work_messages`, `work_events`, `work_documents`, `work_items`, `work_item_observations`,
-  `work_briefs`, `work_feedback`, `work_sync_runs`; repositories in
-  `packages/database/src/repositories/work-state/`; new IAM resource `employeeIntelligence` in
-  `iam.repository.ts` with its own grant table and **no `manage` action**.
-- **Schema.** Additive; composite FK `(userId, organizationId) → organization_memberships`; the CHECK
-  constraints in §17.2. **Migration: yes.**
-- **Infrastructure / Google scope.** None / none.
-- **Security.** The core PR for §20.1: every method takes `(organizationId, userId)`; a source-scan
-  test asserts no method omits `userId` and that no cross-user read exists; `AI_EMPLOYEE` denied.
-- **Tests.** Repository CRUD against the in-memory Prisma double; the real-Postgres opt-in suite for
-  the CHECKs and the membership cascade (the pattern `google-connection.postgres.test.ts` uses);
-  isolation tests proving one user cannot read another's rows.
-- **Deployment.** Migration dispatched after merge.
-- **Prerequisites.** A1 (not strictly, but the preferences table joins here).
-- **Acceptance.** Tables exist; the isolation tests pass; nothing reads Google yet.
+### 26.3 Phase 2 — message content (`gmail.readonly`), authorized separately
 
----
+| # | PR | Depends on | Schema | Infra | Google scope | Model | UI | What you can test |
+|---|---|---|---|---|---|---|---|---|
+| **S2-1** | Scope decision record + the consent card; **no scope requested until you approve** | Review point 1 | No | No | **Adds `gmail.readonly` to the contract** | No | **Yes** (a card that explains, and can be declined) | The consent copy, and that nothing requests the scope until the capability is enabled |
+| **S2-2** | `ThreadContentReader` implemented, plus the sealed short-lived processing cache (§17.4) | S2-1 | **Yes** (cache table) | No | Uses the new scope | No | No | Content fetched, used, and gone: the cache emptied on completion and by TTL, and nothing written to a body column (there is none) |
+| **S2-3** | Content-derived items and thread summaries **through the existing governed runtime**, invoked when a person opens or asks — never on a timer (§15.5) | S2-2 | No | No | — | **Yes** | **Yes** | "Why this matters" with quotes and citations, budget refusals, and an invalid model answer being withheld rather than shown |
 
-### A3 — Google read adapters (sensors)
+**Review point 2** — after S2-3: is content-derived output accurate enough to schedule? That is the
+question Phase 3 exists to answer, and it needs real usage data, not an opinion.
 
-- **Objective.** Bounded, injected-fetch adapters for Gmail metadata, Calendar events and Drive
-  metadata that emit facts and interpret nothing.
-- **Files/systems.** `packages/providers/src/google-workspace/gmail.ts`, `calendar.ts`, `drive.ts`
-  (+ exports); shared types for a page of changes and a cursor.
-- **Schema / infrastructure.** None / none.
-- **Google scope.** **Unchanged.** The adapters must refuse to build a request needing a scope Loop
-  does not hold — notably no `q` parameter on Gmail (it is rejected under `gmail.metadata`), and
-  primary-calendar reads only.
-- **Security.** No environment, no key, no storage; failures are classes; no token, address, subject
-  or body in any error.
-- **Tests.** Request shapes against a recording network double (the existing
-  `google-workspace-oauth.test.ts` pattern); pagination; `404` history-expired and `410` sync-token
-  cases; quota-cost accounting; a test that asserts `q` is never sent.
-- **Deployment.** None.
-- **Prerequisites.** None (it is pure protocol).
-- **Acceptance.** Every documented request/response shape is covered by tests, with no live call.
+### 26.4 Phase 3 — Brain intelligence (scheduled model work)
 
----
+| # | PR | Depends on | Schema | Infra | Scope | Model | UI | What you can test |
+|---|---|---|---|---|---|---|---|---|
+| **C1** | The Brain prerequisites 1–3 of §15.3a: a `SYSTEM` submitter kind, system-issued `START` for allowlisted tasks, an `EMPLOYEE_WORKSTATE` subject and a registered owner gate | Review point 2 | **Yes** (CHECK change) | No | No | No | No | That a system submission is admitted **only** for the allowlisted tasks and refused for everything else — reviewed as a security change |
+| **C2** | The first DURABLE task and a `MODEL_CALL` executor revision: `workstate.brief.compose` | C1 + **AWS deployed** | No | **AWS** | No | **Yes** | **Yes** | A brief narrative produced by a scheduled job, with its ledger row, its citations, and a kill switch that stops it |
+| **C3** | Content-ceiling tasks: summary, significance | C2 | No | No | No | **Yes** | **Yes** | Ranking and explanations from content, with the context builder counting what it withheld |
+| **C4** | Commitments as **proposals** through the governed acceptance path | C3 | **Yes** | No | No | **Yes** | **Yes** | A detected promise appearing as a proposal with evidence, and becoming state only when you accept it |
 
-### A4 — Ingestion: cursors, upserts and a manually triggered cycle
+**Review point 3** — after C4: are proposals accurate enough that anyone would want Loop to act?
 
-- **Objective.** Turn adapter pages into rows, idempotently, for one employee at a time — triggered by
-  hand, so ingestion can be proven before it is scheduled.
-- **Files/systems.** `packages/database/src/services/work-state/ingestion.service.ts`;
-  `DailyLoopCycleRunner`; `POST /api/internal/daily-loop/cycle` (shared secret, `timingSafeEqual`, no
-  organization in the body, `OutboxDrainRunner` shape); first production caller of
-  `GoogleWorkspaceService.accessToken()`.
-- **Schema.** None (A2 delivered it).
-- **Infrastructure.** None. **Google scope.** Unchanged.
-- **Security.** Tenant and principal derived from the connection rows, never from the request; the
-  endpoint takes no organization; secret compared in constant time; failure classes only.
-- **Tests.** Idempotency (same page twice → no change); monotonic cursor advance; expiry path marks
-  the connection `EXPIRED`; per-employee failure does not stop the pass; deadline truncation; the
-  full-vs-incremental decision for both Gmail and Calendar.
-- **Deployment.** One new secret (`DAILY_LOOP_CYCLE_SECRET`) set by Matt in Netlify. No migration.
-- **Prerequisites.** A2, A3; a Google connection that exists in production.
-- **Acceptance.** Matt connects his account, triggers a cycle by hand, and rows appear for **his user
-  only**, with cursors advanced and a run record written.
+### 26.5 Phase 4 — safe actions
 
----
+Not planned in detail here. Each write scope is its own PR, its own consent card, its own confirmation
+design proportional to consequence, its own audit surface, and its own entry in the scope test.
 
-### A5 — The scheduled cycle
+### 26.6 The single first implementation PR to authorize
 
-- **Objective.** Make ingestion automatic, following the `drain-outbox` shape exactly.
-- **Files/systems.** `.github/workflows/daily-loop-cycle.yml` (cron `*/15 * * * *`, gated by a repo
-  variable, `concurrency` group, `timeout-minutes` under the cadence, fail-closed secret check,
-  machine-readable summary).
-- **Schema / Google scope.** None / unchanged.
-- **Security.** No new endpoint; the workflow holds a secret that is named and never printed.
-- **Tests.** Workflow-shape test in the `test:operations` family (the repository already tests
-  workflow source text this way); runner-level tests for bounded passes.
-- **Deployment.** Matt sets the repo variable to enable it; until then the workflow runs and exits 0
-  with a summary.
-- **Prerequisites.** A4 proven by hand.
-- **Acceptance.** With the variable set, cycles run every 15 minutes, are idempotent, and a failure is
-  a red run.
+> **DL-1 — the per-employee work-state foundation.**
 
----
-
-### A6 — Derived work state (the rules)
-
-- **Objective.** The deterministic classification: needs you, waiting on them, went quiet, FYI — plus
-  reply-latency statistics per correspondent. No model.
-- **Files/systems.** `packages/shared/src/work-state.ts` (pure rules, versioned ids); a projection
-  service in `@emgloop/database` that recomputes only touched threads and writes `work_items` with
-  their evidence.
-- **Schema.** None. **Infrastructure / scope.** None / unchanged.
-- **Security.** Pure functions; no I/O; the projection writes only the acting user's rows.
-- **Tests.** Table-driven rule tests including the awkward cases: a thread you started, a thread where
-  you were cc'd, an automated sender, a thread with a reply after a long gap, a one-message thread, a
-  thread with an out-of-office reply. Rule-version stability tests (changing a rule changes the
-  version).
-- **Deployment.** None.
-- **Prerequisites.** A4.
-- **Acceptance.** For a seeded mailbox the classes match a hand-written expectation, and every item
-  carries the rule id, version and evidence that produced it.
-
----
-
-### A7 — Daily Loop Home
-
-- **Objective.** Replace the employee's launcher grid with the composition the design system already
-  scheduled: the counts, Needs You Now, Your Day, Waiting.
-- **Files/systems.** `apps/web/src/app/app/_home/` (a new employee home composed from `_loop-os`
-  primitives); `page.tsx` branch; read functions in `apps/web/src/daily-loop/`; `LOOP_NAV` unchanged
-  (Home already exists).
-- **Schema / infrastructure / scope.** None.
-- **Security.** Page guards itself first (`requireWorkspaceSession`), reads only the session's user;
-  no new server action without a guard.
-- **Tests.** Markup tests via `renderToStaticMarkup`; the earned-all-clear vs insufficient-coverage
-  states; the mobile order at 390px; no new CSS file; no new palette token; `public-surface-security`
-  stays green.
-- **Deployment.** None.
-- **Prerequisites.** A6.
-- **Acceptance.** An employee with a connection sees a queue with explanations; one without sees the
-  connect card; one whose sync is stale sees the coverage line, never a false all-clear.
-
----
-
-### A8 — The daily brief
-
-- **Objective.** Compose, store and show the brief; keep history.
-- **Files/systems.** A brief service adapting work state into `projectBrainBriefing`
-  (`packages/brain/src/brain-briefing.ts` — its first consumer); `work_briefs` writes; `/app/brief` and
-  `/app/brief/[date]`; the "Since yesterday" block on Home.
-- **Schema.** None (A2). **Infrastructure / scope.** None.
-- **Security.** Per-user reads; no content in the brief under Stage 1.
-- **Tests.** Idempotent generation per `(userId, localDate)`; a brief written with reduced coverage
-  when a source failed; regeneration writes a new version; history reads.
-- **Deployment.** None.
-- **Prerequisites.** A6, A1 (local date), A5 (so briefs appear without a human).
-- **Acceptance.** "What happened while I was out on Friday" is answered by reading Friday's stored
-  brief, unchanged by anything that arrived since.
-
----
-
-### A9 — Day and meeting cards
-
-- **Objective.** Today/tomorrow with related correspondence, and the V1 meeting card.
-- **Files/systems.** Calendar projection; relation between events and threads by correspondent overlap
-  in a window; `/app/day` plus the Home block; meeting card component.
-- **Schema.** None. **Scope.** Unchanged (primary calendar, `calendar.events.readonly`).
-- **Security.** Attendees counted, not listed as subjects; no identity claim (§11.1).
-- **Tests.** Relation rules (overlap window, external vs internal); cancelled and moved events;
-  recurring events; the "no preparation found" state.
-- **Prerequisites.** A6.
-- **Acceptance.** A meeting with correspondence shows it and links to it; one without says so.
-
----
-
-### A10 — Ask Loop, Stage 1 (no model)
-
-- **Objective.** The structured question set answered from rows.
-- **Files/systems.** A closed intent parser in `@emgloop/shared`; query functions in `@emgloop/database`;
-  an `/app/ask` surface (and a Home entry point).
-- **Schema.** None. **Scope.** Unchanged.
-- **Security.** Queries are constructed from the parsed intent plus the session principal — never from
-  raw user text; an unparsed question returns "I can answer these things", not a guess.
-- **Tests.** Every supported phrasing; refusal of unsupported ones; the isolation test that a question
-  naming another employee returns nothing about their mail.
-- **Prerequisites.** A6.
-- **Acceptance.** "What am I waiting on?", "Anything from <person> I haven't answered?", "What's
-  tomorrow?", "What happened Friday?" answer from rows, with links.
-
----
-
-### A11 — Drive metadata and documents
-
-- **Objective.** The document layer at the honest ceiling: what exists, what changed, what may relate.
-- **Files/systems.** Drive adapter wiring, `work_documents` ingestion, document relations on meeting
-  and thread cards.
-- **Schema.** None. **Scope.** Unchanged (`drive.metadata.readonly` — metadata only, no content).
-- **Security.** Names are metadata the employee can already see; still per-user only, never logged.
-- **Tests.** Change-token paging; relation rules and their "possibly related" labelling.
-- **Prerequisites.** A9.
-- **Acceptance.** Documents modified by meeting participants in the window appear on the meeting card,
-  labelled as related-by-metadata, and nothing claims to know their contents.
-
----
-
-### A12 — Retention, deletion and "what Loop holds about me"
-
-- **Objective.** Make §21 real before the data set grows.
-- **Files/systems.** A retention sweep in the cycle runner; a self-service delete action; a page
-  listing exactly what Loop stores for that employee, per source, with counts and dates.
-- **Schema.** None. **Scope.** Unchanged.
-- **Security.** Deletion is an audited act; the page reads only the session's own data.
-- **Tests.** Grace-period expiry deletes; disconnect freezes rather than deletes; membership removal
-  cascades; the page's counts match the rows.
-- **Prerequisites.** A4.
-- **Acceptance.** An employee can see and delete everything Loop derived from their Google account.
-
----
-
-### A13 — Observability and the runbook
-
-- **Objective.** Know it is working without opening the database.
-- **Files/systems.** Run-record reads, the cycle summary contract, `docs/runbooks/daily-loop.md`,
-  PROJECT_STATUS.
-- **Tests.** Summary shape; the log-allowlist test (no subject, address or file name may appear in any
-  log line emitted by the runner).
-- **Prerequisites.** A5.
-- **Acceptance.** A stale employee, a truncating cycle and an expired connection are each visible
-  within minutes, from the workflow summary and one admin page of counts.
-
----
-
-### Phase B — message content (separate decision, §14.2)
-
-| PR | Objective |
-|---|---|
-| **B1** | Scope decision record + consent UI for a `gmail.readonly` capability card; no request made until Matt approves |
-| **B2** | Content fetch path with **no persistence**: read on demand, derive, discard |
-| **B3** | Retention and redaction policy for derived text, plus the deletion sweep extension |
-
-### Phase C — model intelligence (needs Brain live, §15.3)
-
-| PR | Objective |
-|---|---|
-| **C1** | Brain prerequisites: `SYSTEM` submitter kind, an `EMPLOYEE_WORKSTATE` result subject, a registered owner gate |
-| **C2** | The first task — `workstate.brief.compose` at the `OPERATIONAL` ceiling (no raw mail) |
-| **C3** | `workstate.thread.summary` / `.significance` at the `COMMUNICATION_CONTENT` ceiling, with the context builder that counts what it withholds |
-| **C4** | Commitments as **proposals**, through the governed acceptance path |
-
-### Phase D — actions (§28)
-
-Not planned here beyond the principle: each write scope is its own PR, its own consent card, its own
-confirmation design, and its own audit surface.
+- **Objective.** The storage and the isolation boundary, with nothing writing to it and nothing reading
+  Google. It exists so that the most consequential review in this whole programme — *can anyone else
+  reach an employee's mail-derived data?* — happens once, early, on a small diff.
+- **Exactly what it changes.** One additive migration for the §17.1 tables (including
+  `employee_work_preferences` and the retention-category table); repositories under
+  `packages/database/src/repositories/work-state/`, every method `(organizationId, userId, …)`; the
+  `employeeIntelligence` IAM resource with `['view','update']` only — no `manage`, no `approve`; the
+  `googleWorkspace:manage` fence of §20.1.5; exports and tests.
+- **Dependencies.** None. It is the root of the graph.
+- **Schema:** yes, additive, no existing table touched. **Infrastructure:** none. **Google scope:**
+  unchanged. **Model:** none. **Employee-visible UI:** none.
+- **What you can test.** The isolation suite (a second user, an OWNER and an ADMIN each getting
+  nothing); a source-scan test proving no repository method omits `userId` and no org-only read path
+  exists; the migration replayed locally on PostgreSQL 18 with the CHECK constraints refusing bad rows.
+- **What it deliberately does not do.** No Google call, no ingestion, no UI, no schedule. If it merges
+  and Daily Loop is cancelled tomorrow, the cost is one unused migration.
 
 ---
 
 ## 27. Daily Loop V1 — what ships and what does not
 
-### 27.1 Ships (Phase A: no scope change, no AWS, no model)
+### 27.1 Ships (Phase 1: no scope change, no AWS, no model — PRs DL-1 to DL-14)
 
-- Per-employee timezone and workday start.
+- Per-employee timezone and workday start, and the isolation boundary that keeps all of it private.
 - Automatic 15-minute ingestion of Gmail **metadata**, Calendar events and Drive **metadata** for each
-  employee who connected, with bounded first-run backfill.
-- A personal work state: threads classified as **needs you / waiting on them / went quiet / FYI**,
-  with reply-latency facts per correspondent.
-- **Loop Home as Daily Loop:** the counts, Needs You Now with an explanation per row, Your Day,
-  Waiting on/from, Since Yesterday — on the existing shell and primitives, mobile-first.
+  employee who connected, with a bounded first run (30 days, 2,000 messages, 500 files).
+- A personal work state: threads classified **needs you / waiting on them / gone quiet / FYI**, with
+  reply-rhythm facts per correspondent, each carrying the rule and the evidence that produced it.
+- **Loop Home as Daily Loop**, in the settled hierarchy: NEEDS YOU · YESTERDAY · YOUR DAY · TOMORROW ·
+  WAITING ON · GONE QUIET · ASK LOOP — on the existing shell and primitives, mobile-first, no counter
+  dashboard.
 - A stored **daily brief** per employee per local day, with coverage, counts and references, kept as
-  history.
+  history and answering "what happened while I was away".
 - **Meeting cards** with related correspondence and documents, and honest absence when there is none.
-- **Ask Loop, Stage 1:** a closed set of questions answered from rows, instantly, with citations.
-- **Corrections:** handled / not important / not waiting / never flag this sender — per employee,
-  append-only, feeding the accuracy signal.
-- **Retention, deletion and full self-inspection** of everything Loop derived.
-- Observability: run records, coverage lines, alarms, a runbook.
+- **Ask Loop, Stage 1:** a closed set of questions answered from rows, instantly, with citations, and
+  an honest refusal for anything needing message content.
+- **Corrections:** handled / not mine / not waiting / never flag this sender — per employee,
+  append-only, feeding the accuracy signal and never a global rule.
+- **Retention by category, deletion, and full self-inspection** of everything Loop derived.
+- **Graceful degradation** when a source is missing, and observability that makes a stalled pipeline
+  visible before a person notices.
 
 ### 27.2 Does **not** ship in V1
 
@@ -1785,7 +1938,8 @@ confirmation design, and its own audit surface.
 | Reading threads inside Loop | Same. V1 links to Gmail |
 | Drafting or sending replies | Needs content **and** a write scope; §28 |
 | Commitment detection ("you said you'd send pricing") | Needs content; and it must arrive as proposals, not tasks (§12) |
-| Any model call at all | Brain is not deployed, AI is off, and V1 does not need one (§15.3) |
+| Any model call at all | Brain is not deployed, AI is off, and V1 does not need one (§15.3). Scheduled model work waits for the seven prerequisites (§15.3a) |
+| Organization-level views of anyone's mail intelligence | Decided: never by default, and not as an increment of this (§20.2a) |
 | Real-time alerts / push / SMS | No channel exists; the brief is the channel until the queue is trusted (§19) |
 | Meeting transcripts or a meeting bot | Explicitly out of scope in the meeting record; V2 there is a separate product decision |
 | Auto-linking correspondents to CRM People | Forbidden by the identity model; attribution stays a governed act (§11.1) |
@@ -1795,49 +1949,73 @@ confirmation design, and its own audit surface.
 ### 27.3 The honest V1 pitch
 
 > *Loop reads the shape of your work — who wrote, who answered, what is on your calendar — and tells
-> you what is waiting on you, what you are waiting on, and what your day looks like. It explains every
-> item by pointing at the messages that caused it. It does not read your mail, and it will ask you
-> plainly, later, if that changes.*
+> you what needs you, who is waiting on you, who you are waiting on, what has gone quiet and what your
+> day looks like. It explains every item by pointing at the messages that caused it. It does not read
+> your mail, and nobody else in your organization can see any of it. When Loop needs to read your
+> messages to go further, it will ask you plainly, and you can say no.*
 
-That last sentence is worth keeping as a product promise, because the alternative — quietly widening
-the scope once people are used to the surface — is exactly how integrations lose trust.
+Those last two sentences are the product promise. The alternative — quietly widening the scope once
+people are used to the surface, or quietly aggregating it upward — is exactly how an integration like
+this loses the trust it needs to be useful.
 
 ---
 
 ## 28. Future roadmap
 
-| Stage | What | Requires | Notes |
-|---|---|---|---|
-| **B. Content** | Why it matters, what changed, thread summaries, opportunities, commitments | `gmail.readonly` + CASA coverage + retention design | The single biggest product unlock; §14.2 |
-| **C. Model layer** | The AI tasks in §15.4 | Brain deployed + the four prerequisites in §15.3 | Arrives behind the same surfaces |
-| **D1. Email actions** | "Send this reply", "mark handled" | `gmail.send` (sensitive) or `gmail.modify` (restricted) | Each is its own consent card; a send is irreversible and needs an explicit confirm-with-preview, an audit row, and a visible outbox in Loop |
-| **D2. Calendar actions** | "Move tomorrow's meeting", "invite Charlie" | `calendar.events` | Same pattern; changes other people's calendars, so it needs a stronger confirmation than a send |
-| **D3. Drive content** | "What was in the pricing doc" | `drive.file` via the Picker **preferred** over `drive.readonly` | Per-file consent is narrower than whole-Drive read; prefer it even though it is more work |
-| **E. Cross-source relationships** | Meeting ↔ thread ↔ document ↔ CRM Relationship | Governed attribution (identity slice) | Only as proposals into `identityResolution` |
-| **F. Other providers** | Slack, Teams, phone, SMS | The same sensor/work-state shape | The work-state model is provider-neutral by design; a second provider should add rows, not tables |
-| **G. Org-level intelligence** | "The team owes this client three replies" | Aggregation over private data | **Needs an explicit privacy decision**: aggregates over mailboxes can leak individuals. Not a default (§29) |
+The stages are §4.3's; this is what each buys and what it costs to get there.
 
-Two things stay off the roadmap deliberately: a meeting bot (a separate consent product), and any
-cross-employee model learning (prohibited by Google's Limited Use policy).
+| Stage | What the employee gets | Requires | Notes |
+|---|---|---|---|
+| **1. V1** | Who is waiting, what you owe, what went quiet, your day, tomorrow, the brief, Ask Loop over facts | Nothing new | §27 |
+| **2. Content** | What messages say; summaries; questions needing answers; commitments; commercial and negotiation state; why it matters; contextual answers | `gmail.readonly` + the §14.2 gate + §17.4 minimisation | Planned, not optional |
+| **3. Brain** | A reasoned day: what to do first and why, drift, meeting briefs, the narrative brief | The seven prerequisites of §15.3a, including AWS | Where scheduled model work becomes legitimate |
+| **4. Actions** | Reply, send, mark handled, schedule, move, invite — from Loop | A write scope each, a consent card each, confirmation proportional to consequence | The point at which Gmail becomes optional for most days |
+| **4b. Drive content** | "What was in the pricing document" | `drive.file` via the Picker, **preferred** over `drive.readonly` | Per-file consent is narrower than whole-Drive read; prefer it even though it is more work |
+| **5. Other providers** | The same surface over Slack, Teams, phone, SMS | The same sensor + work-state shape | The model is provider-neutral by design: a second provider adds rows, not tables |
+
+**Explicitly not on this roadmap:**
+
+- **Organization-level intelligence derived from employee mail.** Decided (§20.2a): if it is ever
+  wanted it is a separate capability with its own architecture record, policy, permissions,
+  disclosure and review. It may not arrive as an increment of Daily Loop, and no shortcut to it exists
+  in the data model.
+- **A meeting bot.** A separate consent product; the meeting record already says so.
+- **Cross-employee model learning.** Prohibited by Google's Limited Use policy beyond a user's own
+  personalized model, and refused here regardless.
 
 ---
 
-## 29. Open decisions (Matt's judgment, before implementation)
+## 29. Decisions — settled, and still open
 
-| # | Decision | Options | Recommendation |
+### 29.1 Settled (Matt, 2026-09-17, on this record)
+
+| # | Question | **Decision** | Where it lands in the record |
 |---|---|---|---|
-| **D1** | **Does an employee's work queue live in its own per-user store, or in the org-wide Decision Center?** | (a) Per-user `work_items`, promotable to an `OperationalPriority`; (b) everything as decisions with a new visibility concept | **(a).** The Decision Center is org-visible by construction; adding per-row privacy to a shipped, tested system to hold private mail is a bigger risk than a separate store with the same vocabulary. §11.3 keeps Rule 5 by promotion |
-| **D2** | **When do we ask for `gmail.readonly`?** | (a) With V1; (b) after the metadata product is in daily use; (c) never | **(b).** §14.2. Asking early costs trust and blocks V1 behind verification work |
-| **D3** | **Under Stage 2, is message content stored or derived-and-discarded?** | (a) Store bodies; (b) store only derived text + citations; (c) store nothing derived either | **(b).** It bounds the breach surface and keeps citations meaningful; (a) makes Loop a second mail archive with a 90-day deletion promise it must then keep |
-| **D4** | **Is there ever an org-level aggregate over employees' work state?** ("the team owes 12 replies") | (a) No; (b) counts only, min group size; (c) per-manager visibility | **(a) for V1.** Any aggregate over mailboxes is a privacy decision with its own consent story; do not get it by accident |
-| **D5** | **Morning email digest in V1.1?** | (a) In-app only; (b) opt-in email with counts and subjects; (c) opt-in with content | **(b)** at most, and never (c): the digest lands in the mailbox it describes |
-| **D6** | **Delegated / shared mailboxes** | (a) Ignore; (b) detect and refuse; (c) support explicitly | **(b).** Detect that the connected account has delegated access and decline to ingest it, rather than silently building a queue over someone else's correspondence |
-| **D7** | **Full-text or embeddings for search** | (a) Structured only; (b) Postgres FTS over subjects; (c) embeddings | **(a) for V1**, (b) only if a real question demands it. (c) reverses an enforced repository position and needs its own record |
-| **D8** | **Retention windows** (§21.3) | The defaults proposed, or Matt's numbers | Confirm the four numbers explicitly; they become named constants |
-| **D9** | **Who may enable Daily Loop?** | (a) Every member automatically once connected; (b) per-organization switch; (c) per-employee opt-in beyond the Google grant | **(a)**, because the Google grant *is* the opt-in and a second switch adds no protection |
-| **D10** | **Where the cycle runs long-term** | (a) GitHub Actions cron → app endpoint; (b) Netlify scheduled functions; (c) Brain/EventBridge when live | **(a) now, (c) later.** (b) is not used anywhere in this repository and adds a third scheduling home |
-| **D11** | **Does Daily Loop replace `ModuleHome` for every non-admin role, or only EMPLOYEE?** | (a) Every human role with a connection; (b) EMPLOYEE only | **(a).** Admins are employees too and today get a business dashboard with no personal queue |
-| **D12** | **Brain prerequisites (§15.3) — separate hardening PR or part of Phase C?** | (a) Own PR; (b) inside C1 | **(a)/(b) as C1**, but it must be reviewed as a security change: a `SYSTEM` submitter kind is a new authority in a system built to refuse exactly that |
+| D1 | Per-user queue or the org-wide Decision Center? | **Per-user `work_items`, promotable to an `OperationalPriority` by the employee.** Privacy is the reason; the vocabularies stay shared | §11.3, §17.1 |
+| D2 | When do we request `gmail.readonly`? | **Not in V1. Stage 2 is planned, not optional**, behind the §14.2 gate | §4.3, §14.2, §26.3 |
+| D3 | Stage 2: store content or derive and discard? | **Derive and discard, with two bounded exceptions**: a sealed processing cache (≤24h, deleted on completion) and evidence quotes (≤240 chars, ≤2 per item, deleted with the item). No body column, ever; attachments never fetched | §17.4, §21.3 |
+| D4 | Any organization-level aggregate over employee mail? | **No, and no shortcut to one.** Every query names a user; there is no org-only read path; any future capability is separately designed, with policy, permissions, disclosure and review | §20.2a, §28 |
+| D5 | Employee privacy from OWNER/ADMIN | **Structural.** `employeeIntelligence` has `view`/`update` only — no `manage`, no `approve`; admin surfaces see counts, never content; `googleWorkspace:manage` is fenced to connection lifecycle | §20.1 |
+| D6 | Retention | **A window per category, not one number** — eleven categories, each with its rationale | §21.3 |
+| D7 | Brain | **No second AI runtime.** V1 is deterministic; scheduled model work waits for the seven prerequisites; an intermediate Stage 2 may use the existing governed in-process runtime, invoked by a person, never on a timer | §15.3a, §15.5 |
+| D8 | The Home experience | **NEEDS YOU · YESTERDAY · YOUR DAY · TOMORROW · WAITING ON · GONE QUIET · ASK LOOP**, in that order, with no counter dashboard | §5.2 |
+| D9 | Progressive intelligence | **Four stages**, each with stated capability boundaries and a list of sentences the earlier stages may not produce | §4.3 |
+| D10 | Onboarding | **Three capabilities, each explained in purpose terms**, optional and reversible, with graceful degradation when one is missing | §4.1, §22.4 |
+| D11 | Implementation | **Incremental, with review points between phases**; the first authorized PR is DL-1 | §26 |
+| D12 | Where the cycle runs | **GitHub Actions cron → authenticated app endpoint now** (the `drain-outbox` shape); Brain/EventBridge later, as a substitution | §16.2 |
+
+### 29.2 Still open — I need an answer before the PR that depends on it
+
+| # | Question | Why it cannot be defaulted | Needed by |
+|---|---|---|---|
+| **O1** | **The three retention numbers**: 90 days for thread state, 12 months for items and briefs, 30 days after disconnect. Confirm or change | They are product/privacy tradeoffs, not technical constants, and they become the numbers printed in the UI and the runbook | **DL-1** (the category table is seeded there) |
+| **O2** | **`googleWorkspace:manage`**: delete the action now, or keep it fenced by documentation and a test? | It exists, is granted to OWNER/ADMIN, is unused, and is the one permission a future implementer could mistake for "admin access to an employee's Google data". Deleting it is a five-line change today | **DL-1** |
+| **O3** | **Evidence quotes on or off by default** at Stage 2, and may an organization disable them for everyone? | It is the only place correspondence text persists beyond the cache; the product is materially better with them and materially smaller without | **S2-2** |
+| **O4** | **The morning email digest**: in-app only, or an opt-in email with counts and subjects? | The digest lands in the very mailbox it describes; subjects in an email are content leaving Loop's boundary | **DL-10** (design), later to build |
+| **O5** | **Delegated and shared mailboxes**: detect and refuse, or ignore? | If a connected account has delegated access to someone else's mail, Loop would build a private queue over a third party's correspondence | **DL-7** |
+| **O6** | **Testing mode**: do we start Google verification now, or run V1 on test users for a while? | Until the app is published, refresh tokens expire every 7 days, so an employee reconnects weekly — friction that argues against "primary work surface" (§30.3) | Before rollout beyond you and Charlie |
+
+Everything else previously listed as open is now settled in §29.1.
 
 ---
 
@@ -1845,16 +2023,41 @@ cross-employee model learning (prohibited by Google's Limited Use policy).
 
 Where this proposal departs from the brief, or where the brief runs into the repository's reality.
 
-### 30.1 Disagreements with the product vision
+### 30.0 What the re-review against `main` found (2026-09-17, `e16a07c` unchanged)
 
-1. **"An employee should run most of their workday inside Loop" is not reachable under the current
-   scopes, and V1 should not pretend otherwise.** Without message content, Loop cannot show why
-   something matters or let someone read a thread. V1 is a *queue and a day view* that sends people to
-   Gmail to read. Positioning it as a Gmail replacement would set an expectation the grant cannot
-   meet.
+Five things surfaced when this record was re-checked against the decisions above.
+
+1. **`googleWorkspace:manage` already exists and is granted to OWNER and ADMIN.** It is defined as
+   *"acting on ANOTHER member's connection"*, it is used by no code path, and it is the one existing
+   permission that could later be read as admin authority over an employee's Google integration. It
+   does not today reach any mail-derived data — nothing reads Google at all — but it is a door in the
+   wall the privacy decision just built. Fenced in §20.1.5; **O2 asks whether to delete it outright.**
+2. **Deletion at the source was unspecified.** If an employee deletes a message, Loop would have kept
+   a derived item citing it. Now specified: deletions propagate, items citing only the deleted fact
+   are closed with a reason, and already-written briefs stay as the record of that morning (§21.3a).
+3. **Subject lines are content in everything but Google's scope taxonomy.** The metadata scope permits
+   them and the product cannot work without them, so V1 stores them — but they are now classified
+   `COMMUNICATION_CONTENT`, which keeps them out of `OPERATIONAL`-ceiling model contexts and out of any
+   email Loop sends (§17.4).
+4. **Testing mode's 7-day refresh expiry works against the north star.** Until the app is verified and
+   published, every employee reconnects weekly. A "primary work surface" that asks you to reconnect
+   every Monday is not one. This is a scheduling fact, not an architectural flaw, and **O6** puts the
+   decision in front of you now rather than after rollout.
+5. **Loop's other intelligence surfaces are organization-level.** `AdminHome` shows business status,
+   and the CRM is org-visible by construction. Someone reasonably assumes Daily Loop feeds them. It
+   does not, and the UI must say so where the two meet — the Connections page states plainly that
+   nobody else in the organization can see anything derived from a connected mailbox.
+
+### 30.1 Where this record still argues with the brief
+
+1. **The north star is a Stage 2–4 promise, and V1 must not be sold as it.** Without message content
+   Loop cannot show why something matters or let anyone read a thread; V1 is a queue and a day view
+   that still sends people to Gmail to *read*. That is agreed sequencing now (§4.3), but the language
+   used around V1 matters: "Loop tells you what needs you" is true, "you won't need Gmail" is not,
+   yet.
 2. **Most of the brief's examples are Stage 2.** "Ben responded yesterday… they are interested in 3–5
    videos… EMG proposed $2,000" is a content-derived narrative. It is the right target; it is not V1,
-   and every mock that shows it should be labelled as Stage 2 so nobody plans a demo around it.
+   and every mock that shows it should be labelled Stage 2 so nobody plans a demo around it.
 3. **The daily brief's "intelligent summary" should start as counts and references, not prose.** A
    sentence costs a model call, needs content, and is the part most likely to be wrong. Counts with
    links are useful on day one and are never wrong.
@@ -1870,11 +2073,11 @@ Where this proposal departs from the brief, or where the brief runs into the rep
 
 | Conflict | Status |
 |---|---|
-| **Brain cannot run scheduled, system-initiated work today.** Only a human may submit; a system START is refused at dispatch; no owner gate is registered; no `MODEL_CALL` step exists; nothing is deployed | Real blocker for Phase C. Resolved by C1's four contract changes, each of which weakens a deliberate refusal and must be reviewed as such |
-| **Rule 5 says producers emit generic decisions, not their own queues.** Daily Loop proposes its own per-user store | Accepted deviation, argued in §11.3 and D1: privacy is the reason, promotion is the bridge, vocabularies are shared |
+| **Brain cannot run scheduled, system-initiated work today.** Only a human may submit; a system START is refused at dispatch; no owner gate is registered; no `MODEL_CALL` step exists; nothing is deployed | Real blocker for Phase 3. Resolved by the seven prerequisites of §15.3a; items 1-3 weaken a deliberate refusal and are reviewed as security changes |
+| **Rule 5 says producers emit generic decisions, not their own queues.** Daily Loop proposes its own per-user store | Accepted deviation, decided in D1: privacy is the reason, promotion is the bridge, vocabularies are shared |
 | **Loop already has `Conversation` / `Message`.** Daily Loop adds `work_threads` / `work_messages` | Accepted, argued in §11.4: different authority, different privacy class. Cost: two "message" concepts. Mitigation: they never mix in one read path, and names differ in code and UI |
 | **The repository forbids embeddings and similarity search by test** | Respected. §18 keeps retrieval structured; reversing it is D7 |
-| **Tenancy rules are organization-first; this is the first user-first boundary** | Handled structurally in §20.1, but it is genuinely new and deserves the most careful review in A2 |
+| **Tenancy rules are organization-first; this is the first user-first boundary** | Handled structurally in §20.1, but it is genuinely new and deserves the most careful review in DL-1 |
 | **`docs/EVENT_BUS.md` precedent: no aspirational docs** | This record is explicitly a proposal with nothing built, and §2/§3 separate what exists from what does not |
 | **Rule 6: the outbox has no consumers.** Daily Loop publishes into it | It will be the second producer with no subscriber. Honest position: publish anyway (it is free and correct), but do not claim notification behaviour that depends on a subscriber nobody has built |
 
@@ -1886,6 +2089,8 @@ Where this proposal departs from the brief, or where the brief runs into the rep
 | **A calm surface hides a broken pipeline** | Coverage is rendered, and an all-clear must be earned (`attention-state.ts`) |
 | **Quota exhaustion on a big mailbox** | Hard caps and bounded passes (§22), backoff, and a stated "Loop read the last 30 days" |
 | **Scope creep into "just read the body for this one feature"** | The scope map is a decision record (§14) and the database CHECK plus the source-scan test refuse it mechanically |
+| **"Just call a model from the web app" when Stage 2 lands before Brain** | §15.5: the governed in-process runtime with a new task is the sanctioned intermediate step; the SDK fence test is the enforcement, and scheduled model work waits |
+| **An org-level roll-up appearing by accident** | §20.2a: no method, view, index, endpoint or event carries org-wide mail data; a test asserts every query names a user |
 | **Private mail leaking through an aggregate, a log, a support query or an admin screen** | §20.2, and no `manage` action exists to grow into |
 | **A future engineer adds a body column** | There is deliberately no body column and no nullable placeholder: adding one requires a migration that says so |
 | **Verification delay blocks the whole product** | V1 depends on the *existing* Testing-mode grant (Matt and Charlie), so it can be used internally while verification proceeds; the 7-day refresh-token expiry in Testing means reconnects are frequent and the UI must make that a non-event |

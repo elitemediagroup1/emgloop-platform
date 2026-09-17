@@ -1734,9 +1734,10 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 
 ## Daily Loop / Employee Intelligence — PROPOSED, NOTHING BUILT (draft #287)
 
-**Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17). **No code, no
-schema, no scope change, no infrastructure.** It designs the employee surface on top of the Google
-connection #286 shipped: Google as a sensor, per-employee work state, Home as Daily Loop.
+**Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
+product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
+employee surface on top of the Google connection #286 shipped: Google as a sensor, per-employee work
+state, Home as Daily Loop, in four stages (metadata -> content -> Brain -> actions).
 
 **What the research settled:**
 - `gmail.metadata` forbids Gmail's `q` parameter, so there is no date-filtered search; reading bodies
@@ -1755,9 +1756,22 @@ record's M0-M4 slices, and `GoogleWorkspaceService.accessToken()` — which stil
 **The new boundary:** user-first isolation. This is the first data an OWNER must not be able to read;
 §20 makes it structural (no repository method without `userId`, no `manage` action).
 
-**Next:** Matt reviews #287, answers the twelve open decisions in §29 (the four that gate everything:
-when to ask for `gmail.readonly`; store content or derive-and-discard; whether any org-level aggregate
-is ever allowed; retention windows). Then phase A1 (per-employee timezone) and A2 (schema + isolation).
+**Decisions (Matt, 2026-09-17, recorded in §29.1):** V1 does not request `gmail.readonly`, but Stage 2
+is a planned stage, not an option; employee mail intelligence is private from OWNER/ADMIN structurally
+(`employeeIntelligence` has no `manage` action); Stage 2 derives and discards, with only a sealed
+<=24h processing cache and <=240-char evidence quotes; **no organization-level aggregation**, and no
+shortcut to one; retention is a window per category, not one number; no second AI runtime — scheduled
+model work waits for the seven Brain prerequisites; Home is NEEDS YOU / YESTERDAY / YOUR DAY /
+TOMORROW / WAITING ON / GONE QUIET / ASK LOOP, not a counter dashboard.
+
+**Still open (§29.2):** the three retention numbers; whether to delete the unused
+`googleWorkspace:manage` action; evidence quotes on by default; the morning email digest; delegated
+mailboxes; and when to start Google verification (Testing mode expires refresh tokens weekly).
+
+**Next:** Matt merges #287 and authorizes **DL-1** — the per-employee work-state foundation (schema,
+`employeeIntelligence` IAM with no `manage`, repositories whose every method takes a `userId`,
+isolation tests). Nothing is implemented before that authorization. The full 14-PR phase-1 sequence,
+with schema/infra/scope/model/UI impact per PR, is §26.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
