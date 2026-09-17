@@ -59,9 +59,17 @@ export function navItemVisible(
   return true;
 }
 
+/** The five operating areas (handoff 2026-09-16, p. 3). Administration is not one of them. */
+export const OPERATING_AREAS = ['HOME', 'CRM', 'WORK', 'INTELLIGENCE', 'OPERATIONS'] as const;
+export type OperatingArea = (typeof OPERATING_AREAS)[number];
+
 export interface NavGroup {
   label: string;
   items: NavItem[];
+  /** The operating area this group is. Absent for Administration. */
+  area?: OperatingArea;
+  /** The area's name in the compact mobile bar. */
+  short?: string;
   /** Renders separated at the bottom of the sidebar (Administration). */
   footer?: boolean;
 }
@@ -105,14 +113,12 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // ---------------------------------------------------------------------------
 // LOOP_NAV — the one navigation registry.
 //
-// Grouped as the 2026-09-14 D3 placed surfaces: Home, CRM, Intelligence, Work
-// OS, Creator Hub and Accounting, with Administration at the foot. D1/D3/D4/D5
-// have since been amended (Product C-01 to C-04, 2026-09-15): five operating
-// areas (Home, CRM, Work, Intelligence, Operations), no peer Creator Hub,
-// Accounting or Administration, CallGrid split by authority. Regrouping follows
-// Charlie and Lexi's approved navigation and route-transition proposal; this
-// registry has not been regrouped yet. It is NAVIGATION ONLY: every item opens a
-// route that already exists, wherever it lives today (/crm or /app/admin).
+// Grouped as the five operating areas of Charlie and Lexi's handoff (2026-09-16)
+// and Product C-01 to C-03: Home, CRM, Work, Intelligence and Operations, with
+// Administration (system and workspace settings, not an operating area) at the
+// foot. Engineering places routes (Matt, 2026-09-17); this registry is still
+// NAVIGATION ONLY. Every item opens a route that already exists, wherever it lives
+// today (/app/crm, /crm or /app/admin); no route moved.
 //
 // Each item carries the authority its destination enforces: `requires` for the
 // page's requirePermission, `workspace` for its route tree's requireWorkspace.
@@ -120,17 +126,22 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // the one item that asks for more (CallGrid Intelligence) says so below.
 //
 // Boundaries the grouping must not blur:
-//   - CRM entries open the real CRM under /crm, inside this same shell. There is
-//     no second CRM and no second sidebar.
+//   - People are established PERSON Parties (/app/crm/people), never Intake
+//     Records. Identity review is its own governed workflow, still served by the
+//     temporary operator screen (/crm/parties) until its redesign covers it.
 //   - The intake board is the legacy Customer.status board, never an
-//     Opportunity pipeline. Relationships, Opportunities and Campaigns are
-//     Phase 2 CRM domains and stay `soon` until built.
+//     Opportunity pipeline. Opportunities and Campaigns stay `soon` until their
+//     authorities exist.
 //   - CRM Automations (automation triggers) and Work OS Workflows (human work
-//     execution, not built) are different authorities under different groups.
+//     execution, not built) are different authorities under different areas.
 //   - "Your queue" is Commercial Intelligence's per-person attention queue, not
 //     Work OS work.
-//   - Two Brain surfaces exist until they are consolidated (D4); each keeps its
-//     own page name and authority rather than sharing one ambiguous label.
+//   - The deterministic Executive Brain is not the governed Brain, and is named
+//     for what it is.
+//   - Operations holds live execution and health (C-03) and creator
+//     administration (C-02). CallGrid's analytical surface stays in Intelligence.
+//   - Accounting is its own domain, surfaced contextually (C-01); it is not built,
+//     so it has no global entry. Its honest not-built route still exists.
 //   - The signed-in tenant's own Workspace Organization is administration, not
 //     a commercial Relationship.
 // ---------------------------------------------------------------------------
@@ -139,7 +150,7 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // requirePermission itself, and the read services check again before reading.
 const IDENTITY_VIEW = { resource: 'identityResolution', action: 'view' } as const;
 const RELATIONSHIPS_VIEW = { resource: 'relationships', action: 'view' } as const;
-const PEOPLE_VIEW = { resource: 'customers', action: 'view' } as const;
+const INTAKE_RECORDS_VIEW = { resource: 'customers', action: 'view' } as const;
 const CONVERSATIONS_VIEW = { resource: 'inbox', action: 'view' } as const;
 const INTAKE_VIEW = { resource: 'pipeline', action: 'view' } as const;
 const AUTOMATIONS_VIEW = { resource: 'workflows', action: 'view' } as const;
@@ -163,55 +174,39 @@ export const LOOP_NAV: ShellConfig = {
   nav: [
     {
       label: '',
+      area: 'HOME',
+      short: 'Home',
       items: [{ href: '/app', label: 'Home', icon: 'grid' }],
     },
     {
       label: 'CRM',
+      area: 'CRM',
+      short: 'CRM',
       items: [
+        // Canonical People first: the redesigned CRM slice.
+        { href: '/app/crm/people', label: 'People', icon: 'users', requires: IDENTITY_VIEW },
+        { href: '/app/crm/relationships', label: 'Relationships', icon: 'flow', requires: RELATIONSHIPS_VIEW },
         { href: '/crm', label: 'Command Center', icon: 'grid' },
-        { href: '/crm/customers', label: 'Intake Records', icon: 'users', requires: PEOPLE_VIEW },
-        // Canonical identity: established PERSON and COMPANY Parties, and the
-        // governed act that establishes one. NOT Intake Records, which are above.
-        { href: '/crm/parties', label: 'Parties', icon: 'users', requires: IDENTITY_VIEW },
-        { href: '/crm/relationships', label: 'Relationships', icon: 'flow', requires: RELATIONSHIPS_VIEW },
         { href: '/crm/opportunities', label: 'Opportunities', icon: 'target', soon: true },
         { href: '/crm/campaigns', label: 'Campaigns', icon: 'star', soon: true },
         { href: '/crm/conversations', label: 'Conversations', icon: 'chat', requires: CONVERSATIONS_VIEW },
+        { href: '/crm/customers', label: 'Intake Records', icon: 'users', requires: INTAKE_RECORDS_VIEW },
         { href: '/crm/pipeline', label: 'Intake Board', icon: 'columns', requires: INTAKE_VIEW },
+        // Establishing and reviewing identity: the governed workflow on the temporary
+        // operator screen, which also lists Companies until their redesign.
+        { href: '/crm/parties', label: 'Identity Review', icon: 'check', requires: IDENTITY_VIEW },
         // An activity inbox, not a calendar: no calendar surface exists.
-        { href: '/crm/inbox', label: 'Inbox', icon: 'activity', requires: PEOPLE_VIEW },
-        { href: '/crm/search', label: 'Search', icon: 'search', requires: PEOPLE_VIEW },
+        { href: '/crm/inbox', label: 'Inbox', icon: 'activity', requires: INTAKE_RECORDS_VIEW },
+        { href: '/crm/search', label: 'Search', icon: 'search', requires: INTAKE_RECORDS_VIEW },
         { href: '/crm/workflows', label: 'Automations', icon: 'flow', requires: AUTOMATIONS_VIEW },
-      ],
-    },
-    {
-      label: 'Intelligence',
-      items: [
-        // HEADLINES is the product noun Charlie and Lexi established. Gated on the
-        // READ half of commercialIntelligence plus the route tree's authority.
-        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: CI_VIEW, workspace: 'ADMIN' },
-        // The same intelligence, ordered for one person: "nothing is waiting on
-        // me" and "nothing needs the organization's attention" are different
-        // questions, so they are different destinations.
-        { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: CI_VIEW, workspace: 'ADMIN' },
-        { href: '/app/admin/brain', label: 'Brain', icon: 'brain', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
-        { href: '/crm/intelligence', label: 'Intelligence Flow', icon: 'brain', requires: INTELLIGENCE_VIEW },
-        // Its pages enforce ADMIN authority only. The item also asks for the
-        // intelligence read grant, as this sidebar entry always has, so an explicit
-        // DENY on intelligence hides it. Every ADMIN-authority role holds the grant.
-        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
-        { href: '/crm/analytics', label: 'Analytics', icon: 'chart', requires: ANALYTICS_VIEW },
-        { href: '/crm/traffic', label: 'Traffic', icon: 'chart', requires: ANALYTICS_VIEW },
-        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue', requires: ANALYTICS_VIEW },
-        { href: '/crm/live/activity', label: 'Live Operations', icon: 'activity', requires: INTELLIGENCE_VIEW },
-        { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat', requires: INTELLIGENCE_VIEW },
-        { href: '/crm/live/websites', label: 'Websites', icon: 'grid', requires: INTELLIGENCE_VIEW },
       ],
     },
     {
       // Work OS has no RBAC resource; its authority is the role. Owner, Admin and
       // Manager run the organization's work; Employees work their own queue.
-      label: 'Work OS',
+      label: 'Work',
+      area: 'WORK',
+      short: 'Work',
       items: [
         { href: '/app/admin/work', label: 'My Work', icon: 'check', workspace: 'ADMIN' },
         { href: '/app/employee/work', label: 'My Work', icon: 'check', workspace: 'EMPLOYEE' },
@@ -221,13 +216,39 @@ export const LOOP_NAV: ShellConfig = {
       ],
     },
     {
-      // One item each until their own sections exist; a header over a single
-      // same-named link would only repeat it. Both open the honest "not built"
-      // page in the /app/admin tree.
-      label: '',
+      label: 'Intelligence',
+      area: 'INTELLIGENCE',
+      short: 'Intel',
       items: [
-        { href: '/app/admin/creator-hub', label: 'Creator Hub', icon: 'star', workspace: 'ADMIN' },
-        { href: '/app/admin/accounting', label: 'Accounting', icon: 'revenue', workspace: 'ADMIN' },
+        // HEADLINES is the product noun Charlie and Lexi established. Gated on the
+        // READ half of commercialIntelligence plus the route tree's authority.
+        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: CI_VIEW, workspace: 'ADMIN' },
+        // The same intelligence, ordered for one person: "nothing is waiting on
+        // me" and "nothing needs the organization's attention" are different
+        // questions, so they are different destinations.
+        { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: CI_VIEW, workspace: 'ADMIN' },
+        { href: '/app/admin/brain', label: 'Executive Brain', icon: 'brain', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
+        { href: '/crm/intelligence', label: 'Intelligence Flow', icon: 'brain', requires: INTELLIGENCE_VIEW },
+        // Its pages enforce ADMIN authority only. The item also asks for the
+        // intelligence read grant, as this sidebar entry always has, so an explicit
+        // DENY on intelligence hides it. Every ADMIN-authority role holds the grant.
+        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
+        { href: '/crm/analytics', label: 'Analytics', icon: 'chart', requires: ANALYTICS_VIEW },
+        { href: '/crm/traffic', label: 'Traffic', icon: 'chart', requires: ANALYTICS_VIEW },
+        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue', requires: ANALYTICS_VIEW },
+      ],
+    },
+    {
+      label: 'Operations',
+      area: 'OPERATIONS',
+      short: 'Ops',
+      items: [
+        { href: '/crm/live/activity', label: 'Live Operations', icon: 'activity', requires: INTELLIGENCE_VIEW },
+        { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat', requires: INTELLIGENCE_VIEW },
+        { href: '/crm/live/websites', label: 'Websites', icon: 'grid', requires: INTELLIGENCE_VIEW },
+        // Internal creator administration (C-02). Not built: it opens the honest
+        // not-built page in the /app/admin tree.
+        { href: '/app/admin/creator-hub', label: 'Creators', icon: 'star', workspace: 'ADMIN' },
       ],
     },
     {
@@ -245,6 +266,27 @@ export const LOOP_NAV: ShellConfig = {
     },
   ],
 };
+
+/**
+ * One entry per operating area this person can open, for the compact mobile bar:
+ * the area's first openable item. An area with nothing openable is absent, never a
+ * dead tab.
+ */
+export function areaEntries(groups: readonly NavGroup[]): { area: OperatingArea; label: string; href: string }[] {
+  const out: { area: OperatingArea; label: string; href: string }[] = [];
+  for (const group of groups) {
+    if (!group.area) continue;
+    const first = group.items.find((i) => !i.soon);
+    if (first) out.push({ area: group.area, label: group.short ?? group.label, href: first.href });
+  }
+  return out;
+}
+
+/** The operating area that owns a nav item, through the one resolver. */
+export function areaOfItem(groups: readonly NavGroup[], item: NavItem | null): OperatingArea | null {
+  if (!item) return null;
+  return groups.find((g) => g.items.includes(item))?.area ?? null;
+}
 
 /**
  * The navigation one person is offered: the items whose authority they hold.

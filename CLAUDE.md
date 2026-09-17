@@ -94,6 +94,7 @@ apps/
   web/     Next.js 14 App Router. THE product. ~24k LOC.
            src/app/crm/      36 mature feature routes
            src/app/app/      Loop OS shell (5 workspaces; only ADMIN + EMPLOYEE/work are real)
+           src/app/app/crm/  the redesigned CRM slice (People, Person, Relationships), light canvas
            src/app/api/      19 route handlers — THE REAL API TIER
            src/auth/         session, scrypt, guards
            src/workspaces/   role router, workspace config, WorkspaceShell

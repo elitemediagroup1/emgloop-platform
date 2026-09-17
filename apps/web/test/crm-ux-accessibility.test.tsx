@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ActorDisplay, Timeline, TimelineItem, fromInboxItem } from '../src/crm/timeline';
 import { SectionTabs } from '../src/crm/section-tabs';
 import { CrmLoadError } from '../src/crm/load-error';
+import { DataUnavailable } from '../src/demo/db-health';
 import { LOOP_NAV } from '../src/workspaces/config';
 
 const render = (el: unknown) => renderToStaticMarkup(el as never);
@@ -76,10 +77,14 @@ describe('Shell and navigation', () => {
     }
   });
 
-  it('collapses the sidebar into a scrollable strip on small screens', () => {
-    const phone = SHELL_CSS.slice(SHELL_CSS.lastIndexOf('@media (max-width: 820px)'));
-    assert.match(phone, /\.loop-sb__scroll \{[^}]*overflow-x: auto/);
-    assert.match(phone, /\.loop-main \{ padding: 20px 16px/);
+  it('on small screens, folds the navigation behind Menu as a scrollable strip and keeps the areas in reach', () => {
+    const strip = SHELL_CSS.slice(SHELL_CSS.indexOf('/* Phone: the sidebar was stacking'));
+    assert.match(strip, /\.loop-sb__scroll \{[^}]*overflow-x: auto/);
+    assert.match(strip, /\.loop-main \{ padding: 20px 16px/);
+    const redesign = SHELL_CSS.slice(SHELL_CSS.indexOf('/* ---- Shell: narrow screens ---- */'));
+    assert.match(redesign, /\.loop-menu-toggle:not\(:checked\) ~ \.loop-sb__menu \{ display: none; \}/);
+    assert.match(redesign, /\.loop-areabar \{ display: grid;[^}]*position: fixed;[^}]*bottom: 0;/);
+    assert.match(redesign, /\.loop-main \{ padding-bottom: 96px; \}/, 'content clears the bar');
   });
 
   it('nav destinations carry the same names as their nav items', () => {
@@ -156,7 +161,7 @@ describe('Honest failure states', () => {
     for (const [name, src] of surfaces) {
       assert.match(src, /loadOrFallback\(/, `${name} loads through loadOrFallback`);
       assert.match(src, /<CrmLoadError failure=\{/, `${name} renders CrmLoadError`);
-      assert.equal(src.includes('DbNotConfigured'), false, `${name} no longer renders the legacy full-page notice`);
+      assert.equal(/DbNotConfigured|DataUnavailable/.test(src), false, `${name} no longer renders the generic page notice`);
     }
   });
 
@@ -308,5 +313,26 @@ describe('Rendered output', () => {
     const unconfigured = render(<CrmLoadError surface="Search" failure={{ ok: false, cause: 'not-configured', message: 'x' }} />);
     assert.match(unconfigured, /no database configured/);
     assert.notEqual(failed, unconfigured);
+  });
+
+  it('the generic page notice says "not configured" only when the environment has no database', () => {
+    const saved = process.env.DATABASE_URL;
+    try {
+      process.env.DATABASE_URL = 'postgresql://configured.example/db';
+      const configured = render(<DataUnavailable />);
+      assert.match(configured, /role="alert"/);
+      assert.match(configured, /could not be shown/);
+      assert.equal(/not configured|DATABASE_URL/i.test(configured), false, 'a failed read is not a configuration problem');
+      delete process.env.DATABASE_URL;
+      const missing = render(<DataUnavailable />);
+      assert.match(missing, /Database is not configured/);
+      assert.match(missing, /DATABASE_URL/);
+    } finally {
+      if (saved === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = saved;
+    }
+    for (const file of ['../src/app/crm/customers/page.tsx', '../src/app/crm/pipeline/page.tsx', '../src/app/crm/inbox/page.tsx']) {
+      assert.equal(read(file).includes('DbNotConfigured'), false, file);
+    }
   });
 });
