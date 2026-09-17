@@ -1483,6 +1483,12 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
   (2026-09-16), plus five prototype screenshots Matt supplied on 2026-09-17.
 - **UI-0 screen map:** merged (#280, `docs/product/ui-0-implementation-matrix.md`).
 - **UI-1: in review, branch `feat/ui-1-product-foundation`** (`docs/product/ui-1-implementation.md`).
+  - **Design system (revised on Matt's correction, 2026-09-17):** the redesign is Loop's global
+    design system (`docs/product/loop-design-system.md`).
+    - One `:root` palette, a navy rail and a light canvas; Loop Home is on the shared primitives.
+    - Every legacy surface is repainted from the same palette (`--crm-*` are aliases).
+    - The audit of 65 pages at three widths is clean.
+    - The ordered migration of the remaining page structures is in that record.
   - **Shell:** the five-area shell, with the mobile area bar and menu.
   - **Subject Display System:** six subjects, four densities.
   - **CRM slice:** `/app/crm/people`, `/app/crm/people/[partyId]` and `/app/crm/relationships[/id]`,
@@ -1491,8 +1497,8 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
   - **Honesty fix:** "Database not configured" is shown only when no database is configured.
   - **No migration and no authorization change.** The temporary operator screens remain for the
     governed acts.
-  - **Open decisions** are in its §11: display labels for roles and kinds, team participants, the light
-    canvas, filters, Search and Needs You, the People permission, and the prototype link.
+  - **Open decisions** are in its §11: display labels for roles and kinds, team participants, the navy
+    rail, filters, Search and Needs You, the People permission, and the prototype link.
 - **Open decisions** are listed in that document's §11. They include who approves route moves, the
   People permission, and the prototype link, which the PDF does not carry.
 

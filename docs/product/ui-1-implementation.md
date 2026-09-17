@@ -23,7 +23,7 @@ Email, Call and Message are never faked; the normal Brain UI is provider-neutral
 
 | Item | Where | Notes |
 |---|---|---|
-| **B1 Design primitives** | `apps/web/src/app/loop-os.css` (`.lx` section); `_loop-os/record.tsx` | See the list below |
+| **B1 Design primitives** | `apps/web/src/app/loop-os.css` (`:root` foundation, LOOP PRIMITIVES); `_loop-os/record.tsx` | See the list below |
 | **B2 Permanent shell** | `workspaces/config.ts` (`LOOP_NAV`), `ShellNav.tsx`, `WorkspaceShell.tsx` | Five operating areas; Administration at the foot; a mobile bar and menu. See §2 |
 | **B3 Subject Display System** | `crm/subject-display.ts` (model), `_loop-os/subject-card.tsx` (drawing) | Six-part anatomy; four densities; six subject types; the visual rules. See §3 |
 | **B4 People** | `/app/crm/people` | Established PERSON Parties only. See §4 |
@@ -256,29 +256,22 @@ No web page used `ActivityService` before this PR, and none does now. No Party f
 - Otherwise it shows the unfinished work `BrainWorkService.forSubject` reports, or "Nothing running".
 - It starts nothing. No live AI call is made anywhere.
 
-## 9. Tokens and the two canvases
+## 9. The design system (revised 2026-09-17)
 
-**Tokens.** The prototype is a light interface:
-- a light grey canvas and white surfaces;
-- a navy primary action;
-- teal for the current place and tab;
-- amber for attention and gated states;
-- green for established or active;
-- red for voided or failed;
-- initials avatars on a pale teal.
+**Matt's correction.** The redesign is Loop's **global** design system, not a CRM-local light layer.
+The first version of this PR drew the redesigned pages on a local `.lx` canvas with its own tokens,
+over the dark shell. That was two design systems, and it is gone.
 
-UI-1 encodes these as `.lx` tokens inside `loop-os.css`. **No new CSS file.** Faint text was darkened to
-meet WCAG AA (4.5:1 or better on every surface).
+**What replaced it:**
+- **Tokens.** One palette, the `:root` `--loop-*` tokens in `loop-os.css`, with the handoff's values.
+- **Shell.** A navy rail, a light top bar and a light canvas.
+- **Primitives.** The UI-1 primitives moved to the global `loop-*` names.
+- **Loop Home** is built from them.
+- **Legacy surfaces** are repainted: `--crm-*` are aliases, and hard-coded dark colours are mapped to
+  tokens.
 
-**Trade-off, stated plainly.** The rest of the app still uses the dark `.loop-os` canvas. Redesigned
-pages render on the light canvas, inside the unchanged dark rail.
-
-This is **a second canvas during the transition**, not a second design system to keep:
-- `.lx` is the handoff's token set, and it is meant to replace the dark canvas slice by slice. The
-  handoff's vertical-slice rule rejects a broad cosmetic rewrite.
-- Retiring the dark canvas is part of each later slice.
-
-Matt should confirm this direction (§11, decision 6).
+**The record** is `docs/product/loop-design-system.md`: the reconciliation, what is shared, the
+remaining older structures, the migration order, and the alias names that remain and when they go.
 
 ## 10. Screenshots (B9)
 
@@ -346,8 +339,8 @@ Matt should confirm this direction (§11, decision 6).
    or drop the controls from the design?
 5. **Search Loop and Needs You in the top bar.** Both need backend work (universal search; the Needs You
    projection).
-6. **The light canvas** (§9). Confirm the prototype's light theme as the permanent Loop token set, to be
-   rolled out slice by slice.
+6. **The navy rail.** UI-0's record of the handoff visuals shows a dark rail, while the prototype
+   screenshots show only the mobile light header. The rail is navy; confirm.
 7. **The People permission.** People and Relationships are still gated by `identityResolution:view` and
    `relationships:view`. AI principals and unknown roles hold neither, which is intended. Confirm that
    ordinary CRM roles should keep seeing People through identity authority.
