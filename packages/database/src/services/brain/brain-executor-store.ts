@@ -55,7 +55,14 @@ export type BrainClaimOutcome =
   | { readonly ok: false; readonly reason: 'NOT_FOUND' | Extract<BrainLeaseOutcome, { ok: false }>['reason'] };
 
 export type BrainCommandLookup =
-  | { readonly ok: true; readonly job: BrainExecutorJob; readonly commandType: string; readonly disposition: BrainCommandDisposition }
+  | {
+      readonly ok: true;
+      readonly job: BrainExecutorJob;
+      readonly commandType: string;
+      /** Which queue should carry the work. Read from the job, never from the ring. */
+      readonly executionClass: BrainJobSnapshot['executionClass'];
+      readonly disposition: BrainCommandDisposition;
+    }
   | { readonly ok: false; readonly reason: 'COMMAND_NOT_FOUND' };
 
 /** What a worker may transition by itself. Waits and stops have their own methods. */
@@ -110,6 +117,7 @@ export class BrainExecutorStore {
       ok: true,
       job: { organizationId: ref.organizationId, jobId: ref.jobId, generation: record.job.generation },
       commandType: stored.command.type,
+      executionClass: record.job.executionClass,
       disposition: brainCommandDisposition(stored.command, record.job, { replyRecorded }),
     };
   }

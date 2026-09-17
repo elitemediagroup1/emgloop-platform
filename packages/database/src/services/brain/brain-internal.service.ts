@@ -98,8 +98,14 @@ export interface BrainAccessAnswer {
   readonly decision: BrainAccessDecision;
 }
 
+/**
+ * Whether a result of this job could be handed to its owner at all. An executor reads it
+ * before any paid step: work whose result has nowhere to land is not worth paying for.
+ */
+export type BrainCommitGateState = 'AVAILABLE' | 'UNAVAILABLE';
+
 export type BrainContextAnswer =
-  | { readonly ok: true; readonly context: BrainTaskContext; readonly access: BrainAccessAnswer }
+  | { readonly ok: true; readonly context: BrainTaskContext; readonly access: BrainAccessAnswer; readonly commitGate: BrainCommitGateState }
   | { readonly ok: false; readonly refusal: 'NOT_PERMITTED' | 'NO_CONTEXT_FOR_TASK' | 'CONTEXT_UNAVAILABLE' | 'CONTEXT_REFUSED' };
 
 export type BrainCommitAnswer =
@@ -175,7 +181,7 @@ export class BrainInternalService {
       return { ok: false, refusal: 'CONTEXT_REFUSED' };
     }
     if (validateAiContextPackage(context.package).length > 0) return { ok: false, refusal: 'CONTEXT_REFUSED' };
-    return { ok: true, context, access };
+    return { ok: true, context, access, commitGate: ownerGateFor(this.owners, job) ? 'AVAILABLE' : 'UNAVAILABLE' };
   }
 
   /**
@@ -193,9 +199,12 @@ export class BrainInternalService {
     }
     const refusals = brainCommitRefusals(envelope, brainCommitExpectation(job), context.context.supplied);
     if (refusals.length > 0) return { ok: false, refusal: 'COMMIT_REFUSED', details: refusals };
-    const gate = this.owners.find(
-      (g) => g.resultType === envelope.resultType && g.authority === envelope.owner.authority && g.subjectType === envelope.owner.subjectType,
-    );
+    const gate =
+      envelope.resultType === job.resultType &&
+      envelope.owner.authority === job.resultOwner.authority &&
+      envelope.owner.subjectType === job.resultOwner.subjectType
+        ? ownerGateFor(this.owners, job)
+        : null;
     if (!gate) return { ok: false, refusal: 'OWNER_GATE_UNAVAILABLE', details: [`${envelope.resultType}:${envelope.owner.authority}`] };
     const commitKey = brainResultCommitKey(job.jobId, stepKey);
     const stored = await gate.commit({ organizationId: job.organizationId, job, envelope, commitKey });
@@ -206,6 +215,14 @@ export class BrainInternalService {
       ref: { owner: { authority: envelope.owner.authority, subjectType: envelope.owner.subjectType }, subjectId: job.subject.id, artifactId: stored.artifactId },
     };
   }
+}
+
+/** The owning authority's gate for what this job produces, if one is registered. */
+function ownerGateFor(owners: readonly BrainResultOwnerGate[], job: BrainJobSnapshot): BrainResultOwnerGate | null {
+  return (
+    owners.find((g) => g.resultType === job.resultType && g.authority === job.resultOwner.authority && g.subjectType === job.resultOwner.subjectType) ??
+    null
+  );
 }
 
 /**

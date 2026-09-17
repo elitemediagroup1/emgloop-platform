@@ -31,6 +31,9 @@ export const BRAIN_STEP_KINDS = [
   'REQUEST_USER_INPUT',
   'COMMIT_RESULT',
   'EMIT_EVENT',
+  // B6: a dark-verification step. It exercises the runner -- lease, checkpoint, resume --
+  // and calls no provider, spends nothing and produces no result.
+  'SYNTHETIC',
 ] as const;
 export type BrainStepKind = (typeof BRAIN_STEP_KINDS)[number];
 
@@ -65,6 +68,7 @@ export const BRAIN_DEFAULT_STEP_POLICIES: Readonly<Record<BrainStepKind, BrainSt
   REQUEST_USER_INPUT: policy('REQUEST_USER_INPUT', 3, TRANSIENT, false, 0),
   COMMIT_RESULT: policy('COMMIT_RESULT', 3, TRANSIENT, false, 0),
   EMIT_EVENT: policy('EMIT_EVENT', 5, TRANSIENT, false, 0),
+  SYNTHETIC: policy('SYNTHETIC', 3, TRANSIENT, false, 0),
 });
 
 function policy(kind: BrainStepKind, maxAttempts: number, retryOn: readonly string[], paid: boolean, maxPaidAttempts: number): BrainStepPolicy {

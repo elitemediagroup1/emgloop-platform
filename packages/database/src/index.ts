@@ -521,6 +521,7 @@ export type {
   BrainResultOwnerGate,
   BrainAccessAnswer,
   BrainContextAnswer,
+  BrainCommitGateState,
   BrainCommitAnswer,
 } from './services/brain/brain-internal.service';
 export { PrismaBrainSubjectResolver, brainSubjectHref, BRAIN_BUILT_SUBJECT_TYPES } from './services/brain/brain-subjects';

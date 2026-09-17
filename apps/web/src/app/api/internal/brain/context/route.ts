@@ -18,5 +18,8 @@ export async function POST(request: Request): Promise<Response> {
   if (!auth.ok) return NextResponse.json({ ok: false, refusals: auth.refusals }, { status: auth.status });
   const answer = await brainInternal().context(auth.job);
   if (!answer.ok) return NextResponse.json({ ok: false, refusals: [answer.refusal] }, { status: answer.refusal === 'NOT_PERMITTED' ? 403 : 409 });
-  return NextResponse.json({ ok: true, context: answer.context, decision: answer.access.decision }, { headers: { 'cache-control': 'no-store' } });
+  return NextResponse.json(
+    { ok: true, context: answer.context, decision: answer.access.decision, principal: answer.access.principal, commitGate: answer.commitGate },
+    { headers: { 'cache-control': 'no-store' } },
+  );
 }
