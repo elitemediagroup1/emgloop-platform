@@ -268,22 +268,37 @@ model Organization {
   workStageEvents          WorkStageEvent[]
   workDependencies         WorkDependency[]
 
-  crmRelationships      CrmRelationship[]
-  crmRelationshipEvents CrmRelationshipEvent[]
-  crmParticipants       CrmParticipant[]
-  aiInvocations         AiInvocation[]
+  crmRelationships        CrmRelationship[]
+  crmRelationshipEvents   CrmRelationshipEvent[]
+  crmParticipants         CrmParticipant[]
+  aiInvocations           AiInvocation[]
   // --- Brain durable execution (B4) ---
-  brainJobs             BrainJob[]
-  brainJobTransitions   BrainJobTransition[]
-  brainJobSteps         BrainJobStep[]
-  brainJobWaits         BrainJobWait[]
-  brainCommands         BrainCommand[]
-  brainEvents           BrainEvent[]
-  aiControls            AiControl[]
-  aiControlCurrent      AiControlCurrent[]
+  brainJobs               BrainJob[]
+  brainJobTransitions     BrainJobTransition[]
+  brainJobSteps           BrainJobStep[]
+  brainJobWaits           BrainJobWait[]
+  brainCommands           BrainCommand[]
+  brainEvents             BrainEvent[]
+  aiControls              AiControl[]
+  aiControlCurrent        AiControlCurrent[]
   /// Google Workspace connection (Private V1). One per member; see GoogleConnection.
-  googleConnections     GoogleConnection[]
-  googleOAuthStates     GoogleOAuthState[]
+  googleConnections       GoogleConnection[]
+  /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
+  workSourceCursors       WorkSourceCursor[]
+  workSyncRuns            WorkSyncRun[]
+  workCorrespondents      WorkCorrespondent[]
+  workThreads             WorkThread[]
+  workMessages            WorkMessage[]
+  workEvents              WorkEvent[]
+  workDocuments           WorkDocument[]
+  workItems               WorkItem[]
+  workItemObservations    WorkItemObservation[]
+  workBriefs              WorkBrief[]
+  workFeedback            WorkFeedback[]
+  employeeWorkPreferences EmployeeWorkPreferences[]
+  workRetentionOverrides  WorkRetentionOverride[]
+
+  googleOAuthStates GoogleOAuthState[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -404,23 +419,26 @@ model User {
   memberships        OrganizationMembership[] @relation("MembershipUser")
   invitedMemberships OrganizationMembership[] @relation("MembershipInviter")
 
-  crmRelationshipsOwned    CrmRelationship[]      @relation("CrmRelationshipOwner")
-  crmRelationshipsCreated  CrmRelationship[]      @relation("CrmRelationshipCreator")
-  crmRelationshipEvents    CrmRelationshipEvent[] @relation("CrmRelationshipEventActor")
-  crmParticipantsAdded     CrmParticipant[]       @relation("CrmParticipantCreator")
-  crmParticipantsEnded     CrmParticipant[]       @relation("CrmParticipantEnder")
-  crmParticipantsVoided    CrmParticipant[]       @relation("CrmParticipantVoider")
-  aiInvocations            AiInvocation[]         @relation("AiInvocationPrincipal")
+  crmRelationshipsOwned     CrmRelationship[]       @relation("CrmRelationshipOwner")
+  crmRelationshipsCreated   CrmRelationship[]       @relation("CrmRelationshipCreator")
+  crmRelationshipEvents     CrmRelationshipEvent[]  @relation("CrmRelationshipEventActor")
+  crmParticipantsAdded      CrmParticipant[]        @relation("CrmParticipantCreator")
+  crmParticipantsEnded      CrmParticipant[]        @relation("CrmParticipantEnder")
+  crmParticipantsVoided     CrmParticipant[]        @relation("CrmParticipantVoider")
+  aiInvocations             AiInvocation[]          @relation("AiInvocationPrincipal")
   /// Brain durable execution (B4). Attribution only; a job's principal is bound
   /// through its organization membership, not here.
-  brainJobsCancelled       BrainJob[]             @relation("BrainJobCancelActor")
-  brainJobTransitions      BrainJobTransition[]   @relation("BrainJobTransitionActor")
-  brainJobWaitsAnswered    BrainJobWait[]         @relation("BrainJobWaitResponder")
-  brainCommandsIssued      BrainCommand[]         @relation("BrainCommandIssuer")
-  brainEvents              BrainEvent[]           @relation("BrainEventActor")
-  aiControlsRecorded       AiControl[]            @relation("AiControlActor")
+  brainJobsCancelled        BrainJob[]              @relation("BrainJobCancelActor")
+  brainJobTransitions       BrainJobTransition[]    @relation("BrainJobTransitionActor")
+  brainJobWaitsAnswered     BrainJobWait[]          @relation("BrainJobWaitResponder")
+  brainCommandsIssued       BrainCommand[]          @relation("BrainCommandIssuer")
+  brainEvents               BrainEvent[]            @relation("BrainEventActor")
+  aiControlsRecorded        AiControl[]             @relation("AiControlActor")
   /// Google connections this person revoked (their own, or a member's). Attribution only.
-  googleConnectionsRevoked GoogleConnection[]     @relation("GoogleConnectionRevoker")
+  googleConnectionsRevoked  GoogleConnection[]      @relation("GoogleConnectionRevoker")
+  /// Daily Loop (DL-1). Corrections this person recorded, and retention overrides they set.
+  workFeedbackAuthored      WorkFeedback[]          @relation("WorkFeedbackAuthor")
+  workRetentionOverridesSet WorkRetentionOverride[] @relation("WorkRetentionOverrideAuthor")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -476,15 +494,29 @@ model OrganizationMembership {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user              User               @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
-  invitedBy         User?              @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  organization            Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                    User                      @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy               User?                     @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   /// B4. Brain work runs on a membership's authority: a job's principal must hold one here.
-  brainJobs         BrainJob[]         @relation("BrainJobPrincipal")
-  brainJobWaits     BrainJobWait[]     @relation("BrainJobWaitPrincipal")
+  brainJobs               BrainJob[]                @relation("BrainJobPrincipal")
+  brainJobWaits           BrainJobWait[]            @relation("BrainJobWaitPrincipal")
   /// A Google connection belongs to a membership: the person, in THIS organization.
-  googleConnection  GoogleConnection[] @relation("GoogleConnectionMember")
-  googleOAuthStates GoogleOAuthState[] @relation("GoogleOAuthStateMember")
+  googleConnection        GoogleConnection[]        @relation("GoogleConnectionMember")
+  googleOAuthStates       GoogleOAuthState[]        @relation("GoogleOAuthStateMember")
+  /// Daily Loop (DL-1). One person's own work state, in THIS organization: it belongs to the
+  /// membership, so offboarding takes it with them.
+  workSourceCursors       WorkSourceCursor[]        @relation("WorkSourceCursorMember")
+  workSyncRuns            WorkSyncRun[]             @relation("WorkSyncRunMember")
+  workCorrespondents      WorkCorrespondent[]       @relation("WorkCorrespondentMember")
+  workThreads             WorkThread[]              @relation("WorkThreadMember")
+  workMessages            WorkMessage[]             @relation("WorkMessageMember")
+  workEvents              WorkEvent[]               @relation("WorkEventMember")
+  workDocuments           WorkDocument[]            @relation("WorkDocumentMember")
+  workItems               WorkItem[]                @relation("WorkItemMember")
+  workItemObservations    WorkItemObservation[]     @relation("WorkItemObservationMember")
+  workBriefs              WorkBrief[]               @relation("WorkBriefMember")
+  workFeedback            WorkFeedback[]            @relation("WorkFeedbackMember")
+  employeeWorkPreferences EmployeeWorkPreferences[] @relation("EmployeeWorkPreferencesMember")
 
   @@unique([userId, organizationId])
   @@index([organizationId, status])
@@ -5648,4 +5680,470 @@ model GoogleOAuthState {
 
   @@index([organizationId, userId, expiresAt])
   @@map("google_oauth_states")
+}
+
+// ---------------------------------------------------------------------------
+// Daily Loop -- one employee's own work state (DL-1)
+//
+// docs/architecture/daily-loop-employee-intelligence.md §17.
+//
+// USER-FIRST, NOT MERELY ORGANIZATION-FIRST. Every table here belongs to ONE PERSON
+// inside one organization, and is readable only by that person: not by OWNER, not by
+// ADMIN, not by a report, not by an aggregate. Both ids are on every row, and every
+// repository method takes both -- there is no org-only read path, by construction.
+//
+// The composite foreign key is to the MEMBERSHIP, so a row cannot be filed under an
+// organization the person does not belong to, and offboarding cascades these away.
+//
+// WHAT IS NOT HERE, DELIBERATELY: no message body, no snippet, no attachment, no file
+// content -- under the current grant there is nothing to store, and a nullable column
+// would be an invitation. Stage 2 adds what it earns, in the migration that says so.
+// ---------------------------------------------------------------------------
+
+/// Where ingestion got to, per person per source. Advanced monotonically; never reset by a
+/// setter (the ProviderPollCheckpoint discipline).
+model WorkSourceCursor {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// `WORK_SOURCES`.
+  source     String
+  /// `WORK_CURSOR_KINDS` -- what the value means for this source.
+  cursorKind String?
+  /// Gmail historyId / Calendar syncToken / Drive pageToken. Opaque here.
+  cursor     String?
+
+  lastSyncStartedAt   DateTime?
+  lastSyncCompletedAt DateTime?
+  /// `WORK_SYNC_FAILURE_CLASSES`. Never a provider's text.
+  lastFailureClass    String?
+  /// Set when the provider asked Loop to wait. Nothing reads it until DL-3.
+  backoffUntil        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkSourceCursorMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, source])
+  @@map("work_source_cursors")
+}
+
+/// One ingestion pass, recorded so a stalled pipeline is visible without opening the database.
+model WorkSyncRun {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// `WORK_SOURCES`.
+  source       String
+  startedAt    DateTime
+  finishedAt   DateTime?
+  /// `WORK_SYNC_OUTCOMES`. NULL while the run is in flight.
+  outcome      String?
+  /// How many provider records this pass looked at, and how many rows it wrote. NULL means
+  /// not measured -- never 0, which is a different claim.
+  examined     Int?
+  written      Int?
+  /// `WORK_SYNC_FAILURE_CLASSES`, set only on a FAILED run.
+  failureClass String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkSyncRunMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, userId, startedAt])
+  @@map("work_sync_runs")
+}
+
+/// An address this employee corresponds with. NOT a Party, NOT a CRM contact, and never
+/// automatically either: turning one into canonical identity is a governed act under
+/// `identityResolution` (§11.1). The address is stored hashed for matching, with the
+/// readable form beside it because a person must recognise who it is.
+model WorkCorrespondent {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// SHA-256 of the normalized address. The join key; a raw address never goes here.
+  addressHash    String
+  /// The readable address and the display name the sender chose. Labels, never identity.
+  displayAddress String
+  displayName    String?
+  /// The address domain, lower-cased. Evidence for a company, never a company fact.
+  domain         String?
+
+  firstSeenAt   DateTime
+  lastSeenAt    DateTime
+  inboundCount  Int      @default(0)
+  outboundCount Int      @default(0)
+  /// Set by the person's own correction ("never flag this sender"). Per employee, reversible.
+  suppressed    Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkCorrespondentMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, addressHash])
+  @@index([organizationId, userId, domain])
+  @@index([organizationId, userId, lastSeenAt])
+  @@map("work_correspondents")
+}
+
+/// A mail conversation: THE unit of everything Daily Loop does, because a person thinks in
+/// conversations and because it is the cache key that keeps Stage 2 affordable (§14.4 seam 1).
+model WorkThread {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// `WORK_PROVIDERS` and the provider's own thread id.
+  provider String
+  threadId String
+
+  /// The sender's words. Treated as COMMUNICATION_CONTENT even though the metadata scope
+  /// permits it (§17.4).
+  subject           String?
+  /// Correspondent address hashes on the thread. Hashes, so a join never needs the address.
+  participantHashes String[]  @default([])
+  messageCount      Int       @default(0)
+  firstMessageAt    DateTime?
+  lastMessageAt     DateTime?
+  /// `WORK_DIRECTIONS` -- which way the newest message went.
+  lastDirection     String?
+  /// The newest message's provider id. With `threadId` it is the change gate: unchanged
+  /// means nothing to recompute, and at Stage 2 nothing to re-analyse.
+  lastMessageId     String?
+  labels            String[]  @default([])
+
+  /// `WORK_CLASSES`, and the version of the rule that decided it. DL-8 writes these; DL-1
+  /// leaves them null rather than guessing.
+  derivedClass       String?
+  classRuleVersion   String?
+  /// The rhythm this pair actually keeps, in minutes. NULL means not enough history -- not zero.
+  medianReplyMinutes Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkThreadMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider, threadId])
+  @@index([organizationId, userId, derivedClass, lastMessageAt])
+  @@index([organizationId, userId, lastMessageAt])
+  @@map("work_threads")
+}
+
+/// One message's METADATA. There is deliberately no body column, no snippet and no
+/// attachment: adding one requires a migration that says so out loud.
+model WorkMessage {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  provider  String
+  messageId String
+  threadId  String
+
+  /// The provider's own timestamp for the message.
+  internalDate    DateTime
+  /// `WORK_DIRECTIONS`.
+  direction       String
+  /// Header roles, as correspondent hashes.
+  fromHash        String?
+  toHashes        String[] @default([])
+  ccHashes        String[] @default([])
+  subject         String?
+  /// RFC 5322 threading headers, kept so a conversation can be reconstructed without Gmail.
+  headerMessageId String?
+  inReplyTo       String?
+  labels          String[] @default([])
+  /// When Loop read it, as against when it was sent.
+  observedAt      DateTime @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkMessageMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider, messageId])
+  @@index([organizationId, userId, threadId, internalDate])
+  @@map("work_messages")
+}
+
+/// A calendar event, as a work object. Attendees are COUNTED, never listed as subjects: an
+/// attendee address is a contact identifier, and matching one to a Party is the identity
+/// matching Loop forbids (meeting-intelligence.md §2).
+model WorkEvent {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  provider         String
+  eventId          String
+  recurringEventId String?
+
+  startsAt DateTime?
+  endsAt   DateTime?
+  allDay   Boolean   @default(false)
+  /// The provider's status (confirmed / tentative / cancelled), stored as given.
+  status   String?
+
+  organizerHash         String?
+  attendeeCount         Int?
+  externalAttendeeCount Int?
+  hasConference         Boolean @default(false)
+
+  /// The provider's own last-modified stamp, and when Loop read it.
+  providerUpdatedAt DateTime?
+  observedAt        DateTime  @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkEventMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider, eventId])
+  @@index([organizationId, userId, startsAt])
+  @@map("work_events")
+}
+
+/// A document's METADATA. `drive.metadata.readonly` returns no content, and Loop stores none.
+model WorkDocument {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  provider String
+  fileId   String
+
+  name        String?
+  mimeType    String?
+  ownerHashes String[]  @default([])
+  modifiedAt  DateTime?
+  webViewLink String?
+  observedAt  DateTime  @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkDocumentMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider, fileId])
+  @@index([organizationId, userId, modifiedAt])
+  @@map("work_documents")
+}
+
+/// Something that needs this person. The queue row.
+///
+/// PRODUCER-AGNOSTIC BY DESIGN (§14.4 seam 2): a rule writes it today and a Stage 3 task
+/// writes the same row with `producerKind = 'MODEL'`, so intelligence arriving later is not
+/// a second queue. `recurrenceKey` is the producer's rule plus its subject -- never a
+/// timestamp -- so the same situation tomorrow is this row with a later `lastDetectedAt`.
+model WorkItem {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  recurrenceKey String
+  /// `WORK_CLASSES`.
+  class         String
+  /// `WORK_SUBJECT_KINDS` and the subject's own reference (a thread id, an event id).
+  subjectKind   String
+  subjectRef    String
+  /// One line, in the person's language.
+  title         String?
+
+  /// `WORK_PRODUCER_KINDS`, the producer's id and its version, so history stays
+  /// interpretable after the producer's logic changes.
+  producerKind    String
+  producerId      String
+  producerVersion String
+  /// References to the facts that raised it: thread, message, event ids. Never content.
+  evidence        Json   @default("{}")
+
+  /// A Stage 2 seam, always NULL here: a short quotation that makes "why this matters"
+  /// legible without opening Gmail, capped at 240 characters by a CHECK (§17.4).
+  evidenceQuote    String?
+  /// The message the quote came from.
+  evidenceQuoteRef String?
+
+  firstDetectedAt DateTime
+  lastDetectedAt  DateTime
+  detectionCount  Int      @default(1)
+
+  /// Projection of `observations`, written in the same transaction as the observation that
+  /// causes it. `WORK_ITEM_STATES`.
+  state          String    @default("OPEN")
+  stateChangedAt DateTime?
+  snoozedUntil   DateTime?
+  resolvedAt     DateTime?
+  /// `WORK_ITEM_OUTCOMES`. Present exactly when the item is closed -- keeping "Loop should
+  /// not have raised it" apart from "real, and handled" is the only accuracy signal the
+  /// rules ever get.
+  outcome        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkItemMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  observations WorkItemObservation[]  @relation("WorkItemObservations")
+
+  @@unique([organizationId, userId, recurrenceKey])
+  @@index([organizationId, userId, state, lastDetectedAt])
+  @@map("work_items")
+}
+
+/// What happened to an item, append-only. The log is the truth; `WorkItem`'s state columns
+/// are its projection.
+model WorkItemObservation {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+  itemId         String
+
+  /// Monotonic per item. The ordering key for state.
+  sequence        Int
+  /// `WORK_OBSERVATION_TYPES`.
+  observationType String
+  /// When it happened in the world, and when Loop learned it.
+  occurredAt      DateTime
+  recordedAt      DateTime @default(now())
+  /// `WORK_ACTOR_TYPES`. There is no AI actor.
+  actorType       String
+  actorUserId     String?
+  /// Why the transition happened, from a closed vocabulary or the person's own reason.
+  reason          String?
+  previousState   String?
+  newState        String?
+
+  item         WorkItem               @relation("WorkItemObservations", fields: [itemId], references: [id], onDelete: Cascade)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkItemObservationMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([itemId, sequence])
+  @@index([organizationId, userId, itemId, sequence])
+  @@map("work_item_observations")
+}
+
+/// One day's brief: an immutable record of what Loop examined, what it found and what it
+/// could not see. Never recomputed in place -- a regeneration is a new version, so "what
+/// happened while I was out on Friday" answers with Friday's brief and not today's data.
+model WorkBrief {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// The calendar day in the employee's own zone that this brief covers.
+  localDate DateTime @db.Date
+  /// Regeneration writes a new version; nothing overwrites a brief.
+  version   Int      @default(1)
+
+  windowStart DateTime
+  windowEnd   DateTime
+  /// What Loop could and could not read, per source. An honest empty state depends on it.
+  coverage    Json     @default("{}")
+  /// Counts by class. A count Loop could not compute is absent, never 0.
+  counts      Json     @default("{}")
+  /// References to the items and threads this brief points at.
+  items       Json     @default("[]")
+
+  /// A Stage 3 seam, always NULL here: the narrative sentence, which needs content and a
+  /// model. Its absence is why the brief renders as counts today (§14.4 seam 4).
+  headline String?
+
+  generatedAt      DateTime @default(now())
+  generatorVersion String
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkBriefMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, localDate, version])
+  @@index([organizationId, userId, localDate])
+  @@map("work_briefs")
+}
+
+/// A correction, append-only. It tunes THIS person's surface and never becomes a global
+/// rule -- which is both Loop's rule (§12.5) and Google's Limited Use policy.
+model WorkFeedback {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// `WORK_FEEDBACK_KINDS`.
+  kind        String
+  /// `WORK_SUBJECT_KINDS` and the subject it is about.
+  subjectKind String
+  subjectRef  String
+  reason      String?
+
+  createdAt       DateTime @default(now())
+  createdByUserId String
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkFeedbackMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  createdBy    User                   @relation("WorkFeedbackAuthor", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, subjectKind, subjectRef])
+  @@index([organizationId, userId, createdAt])
+  @@map("work_feedback")
+}
+
+/// The employee's own settings. The timezone here is the first stored display zone in Loop:
+/// until now the web app resolved it from the device, which cannot schedule anything.
+model EmployeeWorkPreferences {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// An IANA zone, validated by the Loop Time Authority before it is written.
+  timeZone          String  @default("UTC")
+  /// Minutes past local midnight: when the working day starts, and the quiet window.
+  dayStartMinutes   Int     @default(480)
+  quietStartMinutes Int?
+  quietEndMinutes   Int?
+  briefEnabled      Boolean @default(true)
+  /// Which sources feed this person's surface, when they have chosen.
+  sources           Json    @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("EmployeeWorkPreferencesMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("employee_work_preferences")
+}
+
+/// An organization holding a different retention window from the approved default.
+///
+/// The POLICY lives in `@emgloop/shared` (`WORK_RETENTION_CATEGORIES`) as reviewed, versioned
+/// code -- one place, per category, never one universal number. This table exists so a window
+/// can be represented per organization without a deployment, and so the effective policy is
+/// auditable. No row here means the approved default applies.
+model WorkRetentionOverride {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// A category name from `WORK_RETENTION_CATEGORIES`.
+  category      String
+  /// The window in days. NULL is not "forever": it means this category is not a day count
+  /// (never stored, tied to its parent, governed elsewhere) and may not be overridden here.
+  days          Int?
+  /// The policy version this override was written against, so a later policy change is
+  /// detectable rather than silently mixed.
+  policyVersion String
+  reason        String?
+
+  setByUserId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  setBy        User?        @relation("WorkRetentionOverrideAuthor", fields: [setByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, category])
+  @@map("work_retention_overrides")
 }

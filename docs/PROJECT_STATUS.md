@@ -1733,7 +1733,7 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 2. Daily Loop (draft #287) — the read path is its first phase.
 3. Google verification and publishing (runbook §6).
 
-## Daily Loop / Employee Intelligence — PROPOSED, NOTHING BUILT (draft #287)
+## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-1 IN REVIEW
 
 **Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
 product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
@@ -1800,11 +1800,18 @@ heuristic, never a verdict.
 digest (DL-10); delegated mailboxes (DL-7); when to start Google verification (Testing mode expires
 refresh tokens weekly). The five relationship-capture decisions are closed (D17).
 
-**Next:** Matt merges #287, then authorizes **DL-0** (delete `googleWorkspace:manage`: four places, no
-runtime caller) and **DL-1** (the per-employee work-state foundation — schema, `employeeIntelligence`
-IAM with no `manage`, repositories whose every method takes a `userId`, isolation tests). Nothing is
-implemented before that authorization. The full sequence with schema/infra/scope/model/UI impact per
-PR is §26.
+**Shipped since:** #288 removed `googleWorkspace:manage` (DL-0), and #287 merged the record.
+
+**DL-1 (in review):** the per-employee work-state foundation. Thirteen additive tables in migration
+`20260920000000_daily_loop_work_state` (**not dispatched**); the `employeeIntelligence` IAM resource
+with exactly `view`/`update` and no `manage` or `approve`; repositories under
+`packages/database/src/repositories/work-state/` whose every employee-private method takes a
+`WorkPrincipal` (organization **and** user), so an org-only read is not expressible; the retention
+policy as versioned data with per-organization overrides. **No Google call, no model, no UI, no
+schedule** — nothing writes to these tables yet.
+
+**Next:** review DL-1, then authorize **DL-2** (the Calendar sensor: adapter only, no ingestion). The
+full sequence with schema/infra/scope/model/UI impact per PR is §26 of the record.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

@@ -493,3 +493,6 @@ export * from './evidence-use-policy';
 // capability at a time. Pure: the exact scopes, the granted-scope allowlist and the
 // per-capability states.
 export * from './google-workspace';
+// Daily Loop work state (DL-1): the closed vocabularies, the retention policy and the
+// sensitivity map for one employee's own work state. The rules that read them arrive in DL-8.
+export * from './work-state';
