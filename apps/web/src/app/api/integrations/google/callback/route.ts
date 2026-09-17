@@ -5,7 +5,8 @@
 //
 // Finishes a connect attempt (google-workspace-connection.md §11.4, step 2): the state is
 // consumed once, in the SAME session that started it, before anything else happens; the
-// code is exchanged server-side with the client secret; the ID token's claims are checked;
+// code is exchanged server-side with the client secret; the ID token is verified (signature
+// against Google's published keys, then its claims);
 // the GRANTED scopes are read from Google's answer; and only then is the person's
 // connection stored, with the refresh token sealed. Nothing from this request -- not the
 // organization, not the person, not the return page -- is taken from the query string.
