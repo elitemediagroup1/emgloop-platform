@@ -123,7 +123,7 @@ describe('the browser cannot reach a Google secret', () => {
         relative(REPO, RUNTIME),
         relative(REPO, join(SRC, 'daily-loop', 'calendar-runtime.ts')),
         relative(REPO, join(SRC, 'daily-loop', 'mail.ts')),
-        relative(REPO, join(SRC, 'daily-loop', 'mail-actions.ts')),
+        relative(REPO, join(SRC, 'daily-loop', 'mail-send-runtime.ts')),
         relative(REPO, join(SRC, 'daily-loop', 'mail-runtime.ts')),
       ].sort(),
     );

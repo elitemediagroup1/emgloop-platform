@@ -349,5 +349,8 @@ export {
   readGoogleGmailChanges,
   readGoogleGmailThread,
   sendGoogleGmailMessage,
+  lookupGoogleGmailSent,
+  GOOGLE_GMAIL_RECONCILE_RECENT,
+  GOOGLE_GMAIL_RECONCILE_MAX_PAGES,
 } from './google-workspace/gmail';
 export type { GmailCallOptions, GmailWindowRequest, GmailChangesRequest } from './google-workspace/gmail';

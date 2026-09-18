@@ -1,22 +1,34 @@
--- Migration 41: the reply an employee is writing (GM-2).
+-- Migration 41: the reply an employee is writing, and the state of sending it (GM-2).
 --
--- Architecture: docs/architecture/daily-loop-employee-intelligence.md 6.9-6.11.
+-- Architecture: docs/architecture/daily-loop-employee-intelligence.md 6.9-6.11a.
 -- ADDITIVE ONLY: one new table, one new array column, their indexes, foreign keys and CHECKs.
 --
 -- WHY LOOP STORES A BODY AT ALL, WHEN IT STORES NO OTHER ONE. `work_drafts` holds the employee's
 -- OWN WORDS -- what they typed, or what Loop proposed and they then accepted and edited. It is
 -- not correspondence, and the alternative is losing a half-written reply to ordinary navigation.
--- The body is CLEARED on a successful send: from that moment the message lives in Gmail, and it
--- comes back as an ordinary SENT message on the next sync. Nothing here becomes a mail archive.
+-- The body is CLEARED once the send is proven: from that moment the message lives in Gmail, and
+-- it comes back as an ordinary SENT message on the next sync. Nothing here becomes a mail archive.
 --
 -- WHY GMAIL DRAFTS ARE NOT USED. Creating a Gmail draft needs `gmail.compose`, which is a
 -- RESTRICTED scope covering drafts and sending; Loop asks for `gmail.send`, which is sensitive
--- and can do nothing but send. A Loop-local draft also cannot be duplicated in somebody's Gmail
--- by a retry, which a create-draft-per-keystroke design eventually does.
+-- and can do nothing but send.
 --
--- ONE OPEN DRAFT PER THREAD PER PERSON (the unique index), so a retry updates rather than
--- multiplies, and a send CLAIMS the row before Gmail is called: `sendClaimedAt` is what stops a
--- double-click becoming two messages, and `sentMessageId` is the only proof a send happened.
+-- THE SEND STATE MACHINE, AND WHY IT IS IN THE DATABASE. Gmail's `messages.send` has no
+-- idempotency key. An attempt whose answer is lost -- a timeout, a dropped connection, a 5xx, or
+-- a process that stops after Gmail accepted the message -- must never become "sendable again"
+-- by the passage of time. So:
+--
+--   DRAFT         editable, sendable. A DEFINITIVE failure returns here.
+--   SENDING       claimed; the attempt's id, start and body fingerprint stored BEFORE Gmail is
+--                 called, in the same conditional update that claims the row.
+--   SEND_UNKNOWN  the outcome could not be proven. Never retried automatically; it leaves only by
+--                 reconciliation against the employee's Sent mail, or by their explicit, recorded
+--                 decision (`sendResolution`).
+--   SENT          terminal, with Gmail's own message id as the proof.
+--
+-- The CHECKs below make the invariants the database's own: a SENT row has its proof and no body;
+-- an in-doubt row carries the attempt identity reconciliation needs; a DRAFT carries no attempt at
+-- all, so nothing about a finished attempt can be mistaken for a live one.
 --
 -- `work_messages.references` is the RFC 5322 chain, in order. Header identifiers only -- no
 -- address, no subject, no content -- kept so a reply can be threaded correctly without asking
@@ -42,7 +54,12 @@ CREATE TABLE "work_drafts" (
     "aiInvocationId" TEXT,
     "aiTaskVersion" TEXT,
     "aiUnedited" BOOLEAN NOT NULL DEFAULT false,
-    "sendClaimedAt" TIMESTAMP(3),
+    "sendState" TEXT NOT NULL DEFAULT 'DRAFT',
+    "sendAttemptId" TEXT,
+    "sendAttemptStartedAt" TIMESTAMP(3),
+    "sendAttemptBodyHash" TEXT,
+    "sendReconciledAt" TIMESTAMP(3),
+    "sendResolution" TEXT,
     "sentAt" TIMESTAMP(3),
     "sentMessageId" TEXT,
     "sendFailureClass" TEXT,
@@ -77,18 +94,35 @@ ALTER TABLE "work_drafts" ADD CONSTRAINT "work_drafts_source_check"
 ALTER TABLE "work_drafts" ADD CONSTRAINT "work_drafts_provider_check"
   CHECK ("provider" IN ('GOOGLE'));
 
+ALTER TABLE "work_drafts" ADD CONSTRAINT "work_drafts_send_state_check"
+  CHECK ("sendState" IN ('DRAFT', 'SENDING', 'SEND_UNKNOWN', 'SENT'));
+
+ALTER TABLE "work_drafts" ADD CONSTRAINT "work_drafts_send_resolution_check"
+  CHECK ("sendResolution" IS NULL OR "sendResolution" IN ('RECONCILED_SENT', 'RECONCILED_NOT_SENT', 'RELEASED_BY_EMPLOYEE'));
+
 ALTER TABLE "work_drafts" ADD CONSTRAINT "work_drafts_send_failure_class_check"
-  CHECK ("sendFailureClass" IS NULL OR "sendFailureClass" IN ('NOT_CONNECTED', 'CAPABILITY_NOT_GRANTED', 'AUTHORIZATION_EXPIRED', 'AUTH', 'FORBIDDEN', 'RATE_LIMITED', 'NETWORK', 'TIMEOUT', 'MALFORMED', 'UNAVAILABLE', 'REFUSED'));
+  CHECK ("sendFailureClass" IS NULL OR "sendFailureClass" IN ('NOT_CONNECTED', 'CAPABILITY_NOT_GRANTED', 'AUTHORIZATION_EXPIRED', 'AUTH', 'FORBIDDEN', 'RATE_LIMITED', 'NETWORK', 'TIMEOUT', 'MALFORMED', 'UNAVAILABLE', 'REFUSED', 'REJECTED', 'NOT_DELIVERED'));
 
 -- CheckConstraint: a sent draft is a fact with proof, and it keeps no body.
---   * a send has both its moment and Gmail's own id, or neither;
+--   * SENT exactly when a send moment is recorded, and a moment always comes with Gmail's own id;
 --   * a sent draft holds no body, because the message is in Gmail from then on;
 --   * a sent draft has no outstanding failure.
 ALTER TABLE "work_drafts" ADD CONSTRAINT "work_drafts_sent_check"
   CHECK (
-    (("sentAt" IS NULL) = ("sentMessageId" IS NULL))
-    AND ("sentAt" IS NULL OR "body" = '')
-    AND ("sentAt" IS NULL OR "sendFailureClass" IS NULL)
+    (("sendState" = 'SENT') = ("sentAt" IS NOT NULL))
+    AND (("sentAt" IS NULL) = ("sentMessageId" IS NULL))
+    AND ("sendState" <> 'SENT' OR "body" = '')
+    AND ("sendState" <> 'SENT' OR "sendFailureClass" IS NULL)
+  );
+
+-- CheckConstraint: an attempt in flight or in doubt carries everything reconciliation needs; a
+-- DRAFT carries no attempt at all. The fingerprint is a SHA-256, never text.
+ALTER TABLE "work_drafts" ADD CONSTRAINT "work_drafts_attempt_check"
+  CHECK (
+    ("sendState" NOT IN ('SENDING', 'SEND_UNKNOWN') OR ("sendAttemptId" IS NOT NULL AND "sendAttemptStartedAt" IS NOT NULL AND "sendAttemptBodyHash" IS NOT NULL))
+    AND ("sendState" <> 'DRAFT' OR ("sendAttemptId" IS NULL AND "sendAttemptStartedAt" IS NULL AND "sendAttemptBodyHash" IS NULL))
+    AND ("sendState" <> 'SENDING' OR "sendFailureClass" IS NULL)
+    AND ("sendAttemptBodyHash" IS NULL OR "sendAttemptBodyHash" ~ '^[0-9a-f]{64}$')
   );
 
 -- CheckConstraint: provenance travels together. A draft Loop proposed names the invocation that

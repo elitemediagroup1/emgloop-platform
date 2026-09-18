@@ -3904,3 +3904,10 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .loop-mail__when { grid-column: 2; grid-row: 1; }
   .loop-mail__subject { grid-column: 1 / -1; }
 }
+/* A reply whose delivery is in flight or in doubt (GM-2). Attention, not alarm: nothing has gone
+   wrong that the employee caused, and nothing will be sent twice. */
+.loop-compose__pending { margin: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--loop-body); padding: 10px 12px; border-radius: var(--loop-radius-sm); background: var(--loop-warn-soft); }
+.loop-compose__pending p { margin: 0; }
+.loop-compose__pending-title { font-weight: 650; color: var(--loop-ink); }
+.loop-compose__pending form { display: contents; }
+.loop-mail__tag--attention { color: var(--loop-warn); border-color: var(--loop-warn-soft); background: var(--loop-warn-soft); }

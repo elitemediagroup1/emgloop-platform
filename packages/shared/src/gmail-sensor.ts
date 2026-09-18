@@ -134,15 +134,57 @@ export type GmailThreadResult =
   | { readonly ok: true; readonly thread: GmailThreadView }
   | { readonly ok: false; readonly failure: GmailReadFailure };
 
-/** What a send did. A provider message id is the proof it happened; nothing else is. */
-export type GmailSendResult =
-  | { readonly ok: true; readonly messageId: string; readonly threadId: string }
+/**
+ * What a send did, IN THREE ANSWERS, NOT TWO.
+ *
+ *   SENT      Gmail answered 200 with the message it created. Its id is the proof.
+ *   NOT_SENT  it is KNOWN that nothing left: the request never reached Gmail (no connection could
+ *             be made), or Gmail answered and refused it (a 4xx). Safe to try again.
+ *   UNKNOWN   Loop cannot prove what Gmail did: the connection dropped or timed out after the
+ *             request may have been transmitted, Gmail answered 5xx, or it answered 200 with
+ *             something unreadable. Gmail has no idempotency key for `messages.send`, so trying
+ *             again here is how one reply becomes two. UNKNOWN is reconciled, never retried.
+ */
+export type GmailSendOutcome =
+  | { readonly delivery: 'SENT'; readonly messageId: string; readonly threadId: string }
+  | { readonly delivery: 'NOT_SENT'; readonly failure: GmailSendFailure }
+  | { readonly delivery: 'UNKNOWN'; readonly reason: 'TIMEOUT' | 'NETWORK' | 'UNAVAILABLE' | 'MALFORMED' };
+
+/**
+ * Why a send is known not to have happened. A history position cannot expire on a send, so
+ * `CURSOR_EXPIRED` is not among them -- and every value here is one `work_drafts` will store.
+ */
+export type GmailSendFailure = Exclude<GmailReadFailure, 'CURSOR_EXPIRED'> | 'REJECTED';
+
+/**
+ * One message from the employee's own Sent mail, as reconciliation needs it: where it is, when,
+ * to whom, and its words -- read to compare, and never stored.
+ */
+export interface GmailSentCandidate {
+  readonly messageId: string;
+  readonly threadId: string;
+  readonly internalDate: Date;
+  readonly subject: string | null;
+  readonly recipients: readonly string[];
+  /** The plain text of the message, or null when it has none Loop can read. */
+  readonly text: string | null;
+}
+
+/**
+ * What Gmail's Sent mail showed around one attempt.
+ *
+ * `complete` is true only when the listing provably covered the whole attempt window -- every
+ * page read, nothing truncated, and no request failed. An incomplete look that finds nothing
+ * proves nothing.
+ */
+export type GmailSentLookup =
+  | { readonly ok: true; readonly candidates: readonly GmailSentCandidate[]; readonly complete: boolean }
   | { readonly ok: false; readonly failure: GmailReadFailure };
 
 /** The connection states the database layer reports, mapped to why a read could not happen. */
 export function gmailFailureForConnectionState(
   state: 'NOT_CONFIGURED' | 'NOT_PERMITTED' | 'NOT_CONNECTED' | 'INSUFFICIENT_SCOPE' | 'EXPIRED' | 'UNAVAILABLE',
-): GmailReadFailure {
+): 'NOT_CONNECTED' | 'CAPABILITY_NOT_GRANTED' | 'AUTHORIZATION_EXPIRED' | 'UNAVAILABLE' {
   switch (state) {
     case 'NOT_CONNECTED':
     case 'NOT_CONFIGURED':

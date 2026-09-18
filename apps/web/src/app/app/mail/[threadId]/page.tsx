@@ -8,6 +8,7 @@ import { getSession } from '../../../../auth/auth';
 import { loginPathFor } from '../../../../auth/landing';
 import { requirePermission } from '../../../../auth/guard';
 import { loadThread } from '../../../../daily-loop/mail';
+import { mailSendService } from '../../../../daily-loop/mail-send-runtime';
 import { readerTimeZone } from '../../../../daily-loop/reader-zone';
 import WorkspaceShell from '../../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead, Panel, StateBlock } from '../../_loop-os/record';
@@ -33,9 +34,24 @@ export default async function MailThreadPage({ params }: { params: { threadId: s
 
   const principal = { organizationId: session.organizationId, userId: session.userId };
   const threadId = params.threadId;
+  // AN ATTEMPT IN DOUBT IS SETTLED WHEN ITS OWNER LOOKS AT IT. This is the crash path: a process
+  // that stopped after Gmail accepted a message ran no failure handler, and this view is what
+  // notices. It reconciles against the employee's own Sent mail -- read-only toward Gmail, and
+  // bounded by the service's own floor -- and it never sends.
+  const drafts = new WorkDraftRepository(prisma);
+  const pending = await drafts.draft(principal, 'GOOGLE', threadId);
+  if (pending && (pending.sendState === 'SENDING' || pending.sendState === 'SEND_UNKNOWN')) {
+    try {
+      await mailSendService().reconcile(principal, pending.id);
+    } catch {
+      // A check that could not run changes nothing: the reply stays frozen and in doubt, and the
+      // conversation still renders with "Check Gmail again" offered.
+    }
+  }
+
   const [result, draftRow, canSend] = await Promise.all([
     loadThread(principal, threadId),
-    new WorkDraftRepository(prisma).draft(principal, 'GOOGLE', threadId),
+    drafts.draft(principal, 'GOOGLE', threadId),
     repositories.iam.can({ organizationId: principal.organizationId, userId: principal.userId, resource: 'employeeMail', action: 'send' }),
   ]);
 
@@ -120,12 +136,16 @@ export default async function MailThreadPage({ params }: { params: { threadId: s
                       aiUnedited: draftRow.aiUnedited,
                       sendFailureClass: draftRow.sendFailureClass,
                       sentAt: draftRow.sentAt,
+                      sendState: draftRow.sendState as 'DRAFT' | 'SENDING' | 'SEND_UNKNOWN' | 'SENT',
+                      sendAttemptStartedAt: draftRow.sendAttemptStartedAt,
+                      sendResolution: draftRow.sendResolution,
                     }
                   : null
               }
               replyTo={reply.to}
               replyAllCc={replyAll.cc}
               canSend={canSend}
+              now={new Date()}
             />
           </Panel>
         ) : null}

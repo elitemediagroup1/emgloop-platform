@@ -514,6 +514,9 @@ export * from './gmail-sensor';
 // Google's own Message reference, and header-injection refusals. Pure, so what gets sent is
 // testable without sending mail.
 export * from './gmail-compose';
+// Deciding whether an unconfirmed send actually left (GM-2). Positive proof for SENT, proof of
+// absence for NOT_SENT, and UNKNOWN for everything else -- never a guess, never a resend.
+export * from './gmail-send-reconcile';
 // How current a work source is, and whether a visit should spend a provider call (DL-4, GM-1).
 // One policy shape; Calendar and Gmail differ only in their numbers.
 export * from './work-freshness';

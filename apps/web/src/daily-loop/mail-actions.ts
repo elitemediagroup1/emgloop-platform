@@ -26,12 +26,11 @@ import {
   type GmailAddress,
   type WorkReplyMode,
 } from '@emgloop/shared';
-import { MailSendService, WorkDraftRepository, WorkGraphRepository, prisma, sendEmployeeGmailMessage, employeeGmailIdentity } from '@emgloop/database';
+import { WorkDraftRepository, WorkGraphRepository, prisma } from '@emgloop/database';
 
 import { requirePermission } from '../auth/guard';
-import { readGoogleEnvironment } from '../google/google-environment';
-import { googleSigningKeys } from '../google/google-runtime';
 import { refreshMailByHand } from './mail-runtime';
+import { mailSendService } from './mail-send-runtime';
 
 const MAIL_PATH = '/app/mail';
 
@@ -39,10 +38,6 @@ function principalOf(session: { organizationId: string; userId: string }) {
   return { organizationId: session.organizationId, userId: session.userId };
 }
 
-function gmailConfig() {
-  const env = readGoogleEnvironment();
-  return { prisma, google: env.state === 'CONFIGURED' ? env : null, signingKeys: googleSigningKeys() };
-}
 
 /** Read this employee's mailbox again, if the floor allows it. Their own, always. */
 export async function refreshMailAction(): Promise<void> {
@@ -104,9 +99,13 @@ export async function discardDraftAction(form: FormData): Promise<void> {
 /**
  * Send the reply this employee has open on this conversation.
  *
- * It saves first and sends second, so what leaves is what they last saw -- and so the send itself
- * takes only a draft id. `employeeMail:send` is required, and the service claims the draft before
- * Gmail is called, which is what makes a double-click one message rather than two.
+ * It saves first and sends second, so what leaves is what they last saw -- and the send itself
+ * takes only a draft id. `employeeMail:send` is required.
+ *
+ * AND IT NEVER SENDS AN ATTEMPT THAT IS IN DOUBT. If the draft is already SENDING or
+ * SEND_UNKNOWN, the save below changes nothing (the words are frozen as evidence) and the service
+ * reconciles against Sent mail instead of transmitting. Pressing Send again on an unconfirmed
+ * reply is therefore a request to check, not a second message.
  */
 export async function sendReplyAction(form: FormData): Promise<void> {
   const session = await requirePermission('employeeMail', 'send');
@@ -115,20 +114,42 @@ export async function sendReplyAction(form: FormData): Promise<void> {
   if (threadId === '') return;
 
   await saveDraftAction(form);
-  const drafts = new WorkDraftRepository(prisma);
-  const draft = await drafts.draft(principal, 'GOOGLE', threadId);
-  if (!draft || draft.sentAt) return;
+  const draft = await new WorkDraftRepository(prisma).draft(principal, 'GOOGLE', threadId);
+  if (!draft || draft.sendState === 'SENT') return;
 
-  const config = gmailConfig();
-  const service = new MailSendService({
-    drafts,
-    graph: new WorkGraphRepository(prisma),
-    mail: {
-      identity: (p) => employeeGmailIdentity(config, p),
-      send: (p, message) => sendEmployeeGmailMessage(config, p, message),
-    },
-  });
-  await service.sendDraft(principal, draft.id);
+  await mailSendService().sendDraft(principal, draft.id);
   revalidatePath(`${MAIL_PATH}/${threadId}`);
   revalidatePath(MAIL_PATH);
+}
+
+/**
+ * "Check Gmail again" for a reply Loop could not confirm. It looks at the employee's own Sent
+ * mail and settles what it can. It never sends.
+ */
+export async function checkSendAction(form: FormData): Promise<void> {
+  const session = await requirePermission('employeeMail', 'send');
+  const principal = principalOf(session);
+  const threadId = String(form.get('threadId') ?? '');
+  if (threadId === '') return;
+  const draft = await new WorkDraftRepository(prisma).draft(principal, 'GOOGLE', threadId);
+  if (!draft) return;
+  await mailSendService().reconcile(principal, draft.id, { force: true });
+  revalidatePath(`${MAIL_PATH}/${threadId}`);
+}
+
+/**
+ * "I checked my Sent mail -- it was not sent." The employee's explicit, recorded decision about a
+ * reply Loop could not confirm. The service refuses it while the attempt could still be in flight,
+ * and looks once more first: if the message is there after all, it is marked sent and nothing is
+ * released. It does not send; it only makes Send available again.
+ */
+export async function releaseSendAction(form: FormData): Promise<void> {
+  const session = await requirePermission('employeeMail', 'send');
+  const principal = principalOf(session);
+  const threadId = String(form.get('threadId') ?? '');
+  if (threadId === '') return;
+  const draft = await new WorkDraftRepository(prisma).draft(principal, 'GOOGLE', threadId);
+  if (!draft) return;
+  await mailSendService().releaseUnconfirmed(principal, draft.id);
+  revalidatePath(`${MAIL_PATH}/${threadId}`);
 }

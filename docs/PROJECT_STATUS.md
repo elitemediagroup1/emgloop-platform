@@ -1915,7 +1915,7 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
 - **Freshness:** one policy shape for every source. Gmail's numbers are faster than Calendar's —
   stale after 30 min, visit refresh at most every 5 min, manual floor 30 s.
 
-**GM-2 (draft #GM2PR): the Inbox, the conversation, the composer and sending.**
+**GM-2 (draft #296): the Inbox, the conversation, the composer and sending.**
 
 - **`/app/mail`** — the employee's own conversations, from stored metadata, with the freshness line
   and a manual "Read my mail again" (30-second floor). A visit refreshes at most every 5 minutes.
@@ -1928,6 +1928,11 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
 - **Threading** — all three parts of Google's documented contract, built from stored headers.
 - **Migration 41** — `work_drafts` (the one body Loop stores, cleared on send) and
   `work_messages.references`.
+- **Sent once, never twice (review fix, 2026-09-18)** — `DRAFT → SENDING → SENT | DRAFT |
+  SEND_UNKNOWN`. The attempt's identity and body fingerprint are stored before Gmail is called.
+  Only a definitive failure returns a draft to sendable. An ambiguous one is reconciled against
+  the employee's own Sent mail and never retried. No clock releases a claim, and a crashed attempt
+  becomes `SEND_UNKNOWN`. Architecture §6.11a.
 
 **Next:** review GM-1 and GM-2, then GM-3 (Draft with Loop, Daily Loop attention, corrections,
 summary). §26 of the record has the full sequence.

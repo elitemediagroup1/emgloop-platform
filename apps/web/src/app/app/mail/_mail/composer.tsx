@@ -14,9 +14,9 @@
 // KEYBOARD AND MOBILE. Labels are real labels, the textarea is a textarea, the buttons are
 // buttons in reading order, and the whole thing is one column at any width.
 
-import type { GmailAddress } from '@emgloop/shared';
+import { WORK_SEND_POLICY, type GmailAddress } from '@emgloop/shared';
 
-import { discardDraftAction, saveDraftAction, sendReplyAction } from '../../../../daily-loop/mail-actions';
+import { checkSendAction, discardDraftAction, releaseSendAction, saveDraftAction, sendReplyAction } from '../../../../daily-loop/mail-actions';
 
 export interface ComposerDraft {
   readonly body: string;
@@ -27,6 +27,10 @@ export interface ComposerDraft {
   readonly aiUnedited: boolean;
   readonly sendFailureClass: string | null;
   readonly sentAt: Date | null;
+  /** Where the reply stands on its way out. Absent means an ordinary draft. */
+  readonly sendState?: 'DRAFT' | 'SENDING' | 'SEND_UNKNOWN' | 'SENT';
+  readonly sendAttemptStartedAt?: Date | null;
+  readonly sendResolution?: string | null;
 }
 
 const list = (addresses: readonly GmailAddress[] | readonly string[]): string =>
@@ -40,8 +44,20 @@ export function Composer(props: {
   readonly replyAllCc: readonly GmailAddress[];
   readonly canSend: boolean;
   readonly aiDraft?: React.ReactNode;
+  /** The render's clock, so "can the employee release this yet" is decided the same way twice. */
+  readonly now?: Date;
 }) {
   const { threadId, inReplyToMessageId, draft } = props;
+  const state = draft?.sendState ?? 'DRAFT';
+  // WHILE A SEND IS IN FLIGHT OR IN DOUBT, THE WORDS ARE EVIDENCE, NOT A DRAFT. They are shown and
+  // cannot be changed, and there is no Send button: pressing it again is exactly how one reply
+  // becomes two. What the employee CAN do is ask Loop to check, or -- once the attempt cannot
+  // possibly still be running -- tell Loop, on record, that it was not sent.
+  const frozen = state === 'SENDING' || state === 'SEND_UNKNOWN';
+  const releasable =
+    state === 'SEND_UNKNOWN' &&
+    !!draft?.sendAttemptStartedAt &&
+    (props.now ?? new Date()).getTime() - draft.sendAttemptStartedAt.getTime() >= WORK_SEND_POLICY.releaseAfterMs;
   const mode = draft?.mode ?? 'REPLY';
   const to = draft && draft.to.length > 0 ? list(draft.to) : list(props.replyTo);
   const cc = draft && draft.cc.length > 0 ? list(draft.cc) : mode === 'REPLY_ALL' ? list(props.replyAllCc) : '';
@@ -59,7 +75,44 @@ export function Composer(props: {
         </p>
       ) : null}
 
-      {draft?.sendFailureClass ? (
+      {state === 'SENDING' ? (
+        <p className="loop-compose__pending" role="status">
+          Sending… Loop is waiting for Gmail to confirm. Refresh in a moment; this reply will not be sent twice.
+        </p>
+      ) : null}
+
+      {state === 'SEND_UNKNOWN' ? (
+        <div className="loop-compose__pending" role="alert">
+          <p className="loop-compose__pending-title">Loop could not confirm whether this reply was delivered.</p>
+          <p>
+            It will not be sent again automatically. Loop is checking your Gmail Sent mail, and will mark it sent the moment it
+            finds it. If it is not there, Loop will say so and let you send it again.
+          </p>
+          <div className="loop-compose__actions">
+            <form action={checkSendAction}>
+              <input type="hidden" name="threadId" value={threadId} />
+              <button type="submit" className="loop-btn">
+                Check Gmail again
+              </button>
+            </form>
+            {releasable ? (
+              <form action={releaseSendAction}>
+                <input type="hidden" name="threadId" value={threadId} />
+                <button type="submit" className="loop-btn loop-btn--quiet">
+                  I checked Sent — it was not sent
+                </button>
+              </form>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {state === 'DRAFT' && draft?.sendFailureClass === 'NOT_DELIVERED' ? (
+        <p className="loop-compose__failed" role="alert">
+          Loop checked your Gmail and this reply was never delivered. Nothing was sent, your words are still here, and you can send it
+          again.
+        </p>
+      ) : state === 'DRAFT' && draft?.sendFailureClass ? (
         <p className="loop-compose__failed" role="alert">
           That reply was not sent ({draft.sendFailureClass.toLowerCase().replace(/_/g, ' ')}). Nothing was delivered, and your words are still here.
         </p>
@@ -71,22 +124,22 @@ export function Composer(props: {
 
         <div className="loop-compose__modes">
           <label className="loop-compose__mode">
-            <input type="radio" name="mode" value="REPLY" defaultChecked={mode === 'REPLY'} />
+            <input type="radio" name="mode" value="REPLY" defaultChecked={mode === 'REPLY'} disabled={frozen} />
             Reply
           </label>
           <label className="loop-compose__mode">
-            <input type="radio" name="mode" value="REPLY_ALL" defaultChecked={mode === 'REPLY_ALL'} />
+            <input type="radio" name="mode" value="REPLY_ALL" defaultChecked={mode === 'REPLY_ALL'} disabled={frozen} />
             Reply all
           </label>
         </div>
 
         <label className="loop-compose__field">
           <span className="loop-compose__label">To</span>
-          <input type="text" name="to" defaultValue={to} className="loop-input" autoComplete="off" spellCheck={false} />
+          <input type="text" name="to" defaultValue={to} className="loop-input" autoComplete="off" spellCheck={false} readOnly={frozen} />
         </label>
         <label className="loop-compose__field">
           <span className="loop-compose__label">Cc</span>
-          <input type="text" name="cc" defaultValue={cc} className="loop-input" autoComplete="off" spellCheck={false} placeholder="Nobody" />
+          <input type="text" name="cc" defaultValue={cc} className="loop-input" autoComplete="off" spellCheck={false} placeholder="Nobody" readOnly={frozen} />
         </label>
         <label className="loop-compose__field">
           <span className="loop-compose__label">Message</span>
@@ -96,23 +149,26 @@ export function Composer(props: {
             className="loop-input loop-compose__body"
             rows={10}
             required
+            readOnly={frozen}
             placeholder="Write your reply…"
           />
         </label>
 
         <div className="loop-compose__actions">
-          {props.canSend ? (
+          {frozen ? null : props.canSend ? (
             <button type="submit" className="loop-btn loop-btn--primary">
               Send reply
             </button>
           ) : (
             <p className="loop-home__line muted">You do not have permission to send mail from Loop.</p>
           )}
-          <button type="submit" formAction={saveDraftAction} className="loop-btn">
-            Save draft
-          </button>
-          {props.aiDraft ?? null}
-          {draft ? (
+          {frozen ? null : (
+            <button type="submit" formAction={saveDraftAction} className="loop-btn">
+              Save draft
+            </button>
+          )}
+          {frozen ? null : props.aiDraft ?? null}
+          {draft && !frozen ? (
             <button type="submit" formAction={discardDraftAction} className="loop-btn loop-btn--quiet">
               Discard
             </button>

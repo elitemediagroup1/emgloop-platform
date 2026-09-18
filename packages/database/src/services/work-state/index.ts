@@ -47,6 +47,7 @@ export {
   gmailAccessPort,
   readEmployeeGmailThread,
   sendEmployeeGmailMessage,
+  lookupEmployeeGmailSent,
   employeeGmailIdentity,
   type EmployeeGmailConfig,
 } from './gmail-sync-runtime';

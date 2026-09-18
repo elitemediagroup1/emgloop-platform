@@ -52,6 +52,8 @@ export interface MailThreadSummary {
   readonly lastDirection: 'INBOUND' | 'OUTBOUND' | null;
   readonly people: readonly MailCorrespondent[];
   readonly hasDraft: boolean;
+  /** A reply to this conversation whose delivery Loop has not been able to confirm. */
+  readonly sendUnconfirmed: boolean;
 }
 
 export interface MailView {
@@ -113,7 +115,10 @@ export async function loadMail(
   const graph = new WorkGraphRepository(prisma);
   const drafts = new WorkDraftRepository(prisma);
   const rows = await graph.threads(principal, { limit: Math.min(Math.max(options.limit ?? 40, 1), 100) });
-  const open = new Set((await drafts.drafts(principal, 200)).filter((d) => d.sentAt === null).map((d) => d.threadId));
+  const mine = await drafts.drafts(principal, 200);
+  const open = new Set(mine.filter((d) => d.sendState === 'DRAFT').map((d) => d.threadId));
+  // In flight or in doubt: the inbox says so, because the conversation is where it gets settled.
+  const unconfirmed = new Set(mine.filter((d) => d.sendState === 'SENDING' || d.sendState === 'SEND_UNKNOWN').map((d) => d.threadId));
 
   // Correspondents are read once and joined by hash: the list has to show who wrote, and the
   // messages themselves hold only hashes.
@@ -129,6 +134,7 @@ export async function loadMail(
     lastDirection: (row.lastDirection as 'INBOUND' | 'OUTBOUND' | null) ?? null,
     people: row.participantHashes.map((hash) => byHash.get(hash)).filter((p): p is MailCorrespondent => p !== undefined),
     hasDraft: open.has(row.threadId),
+    sendUnconfirmed: unconfirmed.has(row.threadId),
   }));
 
   return {

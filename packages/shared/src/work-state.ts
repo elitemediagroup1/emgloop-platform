@@ -126,7 +126,10 @@ export type WorkReplyMode = (typeof WORK_REPLY_MODES)[number];
 export const WORK_DRAFT_SOURCES = ['MANUAL', 'AI_PROPOSED'] as const;
 export type WorkDraftSource = (typeof WORK_DRAFT_SOURCES)[number];
 
-/** Why a send did not happen. A class, never a provider's text. */
+/**
+ * Why a send did not happen -- or, in `SEND_UNKNOWN`, why Loop cannot yet say whether it did.
+ * A class, never a provider's text.
+ */
 export const WORK_SEND_FAILURE_CLASSES = [
   'NOT_CONNECTED',
   'CAPABILITY_NOT_GRANTED',
@@ -140,8 +143,61 @@ export const WORK_SEND_FAILURE_CLASSES = [
   'UNAVAILABLE',
   /** Loop itself refused to build the message -- an unsafe header, no recipient, an empty body. */
   'REFUSED',
+  /** Gmail answered and refused the message (a 4xx that is not about auth or rate). */
+  'REJECTED',
+  /** Loop checked Gmail after an ambiguous attempt and established the message was never sent. */
+  'NOT_DELIVERED',
 ] as const;
 export type WorkSendFailureClass = (typeof WORK_SEND_FAILURE_CLASSES)[number];
+
+/**
+ * Where one reply stands on its way out (GM-2). THE SEND STATE MACHINE.
+ *
+ *   DRAFT         editable, and sendable. A definitive failure returns here -- and only a
+ *                 DEFINITIVE one, because only then is it known that nothing left.
+ *   SENDING       claimed, with the attempt's identity already stored, while Gmail is called.
+ *   SEND_UNKNOWN  the attempt ended without Loop being able to prove what Gmail did: a timeout, a
+ *                 dropped connection, a 5xx, an unreadable 200, or a process that stopped between
+ *                 Gmail accepting the message and Loop recording it. IT IS NEVER RETRIED
+ *                 AUTOMATICALLY. It leaves only by reconciliation against Gmail's Sent mail, or by
+ *                 an explicit, recorded decision of the employee.
+ *   SENT          terminal, with Gmail's own message id as the proof.
+ *
+ * THERE IS NO TIME-BASED WAY OUT OF SENDING OR SEND_UNKNOWN. A claim that "expires" back into
+ * DRAFT is exactly how an accepted message gets sent twice; a stale SENDING becomes SEND_UNKNOWN
+ * and is reconciled, never released.
+ */
+export const WORK_DRAFT_SEND_STATES = ['DRAFT', 'SENDING', 'SEND_UNKNOWN', 'SENT'] as const;
+export type WorkDraftSendState = (typeof WORK_DRAFT_SEND_STATES)[number];
+
+/** How an attempt that was once in doubt was settled, so the answer can always be explained. */
+export const WORK_SEND_RESOLUTIONS = ['RECONCILED_SENT', 'RECONCILED_NOT_SENT', 'RELEASED_BY_EMPLOYEE'] as const;
+export type WorkSendResolution = (typeof WORK_SEND_RESOLUTIONS)[number];
+
+/**
+ * The clocks of an outbound attempt. Operating policy, stated once.
+ *
+ *   inFlightMs      a SENDING row younger than this may still be waiting on Gmail. Older, and the
+ *                   process that claimed it is gone (the provider call gives up after 10 s and the
+ *                   platform kills a request at 60 s), so it becomes SEND_UNKNOWN.
+ *   settleMs        before this, finding nothing in Gmail proves nothing: a request may still be
+ *                   landing, and Gmail's search index may not show it yet. After it, a COMPLETE
+ *                   search of the attempt window that finds nothing is proof it was not sent.
+ *   releaseAfterMs  the earliest an employee may explicitly release an unconfirmed attempt after
+ *                   checking Gmail themselves -- past the in-flight window, so they cannot race
+ *                   their own request.
+ *   reconcileFloorMs  Gmail is not asked again about the same attempt more often than this.
+ *   windowBeforeMs / windowAfterMs  the span of Sent mail an attempt could have produced,
+ *                   generous against clock skew between Loop and Gmail.
+ */
+export const WORK_SEND_POLICY = Object.freeze({
+  inFlightMs: 90 * 1000,
+  settleMs: 10 * 60 * 1000,
+  releaseAfterMs: 2 * 60 * 1000,
+  reconcileFloorMs: 15 * 1000,
+  windowBeforeMs: 2 * 60 * 1000,
+  windowAfterMs: 10 * 60 * 1000,
+});
 
 // --- Sync -----------------------------------------------------------------------------------------
 

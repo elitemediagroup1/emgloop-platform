@@ -73,6 +73,7 @@ export function ThreadRow({ thread, time }: { thread: MailThreadSummary; time: T
           {thread.subject?.trim() || 'No subject'}
           {thread.messageCount > 1 ? <span className="muted"> · {thread.messageCount} messages</span> : null}
           {thread.hasDraft ? <span className="loop-mail__tag">Draft</span> : null}
+          {thread.sendUnconfirmed ? <span className="loop-mail__tag loop-mail__tag--attention">Delivery unconfirmed</span> : null}
         </span>
         <span className="loop-mail__when">
           {thread.lastMessageAt ? <time dateTime={time.iso(thread.lastMessageAt)}>{time.relative(thread.lastMessageAt)}</time> : '—'}

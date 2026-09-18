@@ -33,6 +33,7 @@ function thread(over: Partial<MailThreadSummary> = {}): MailThreadSummary {
     lastDirection: 'INBOUND',
     people: [{ address: 'ben@cashion.example', name: 'Ben Cashion' }],
     hasDraft: false,
+    sendUnconfirmed: false,
     ...over,
   };
 }
@@ -77,6 +78,12 @@ describe('the inbox shows conversations, and says how current it is', () => {
     const read = renderToStaticMarkup(<ThreadRow thread={thread({ unread: false, hasDraft: true })} time={time} />);
     assert.equal(read.includes('loop-mail__row--unread'), false);
     assert.match(read, /Draft/);
+
+    // A reply whose delivery Loop could not confirm is flagged in the list, not buried in the thread.
+    const unconfirmed = renderToStaticMarkup(<ThreadRow thread={thread({ sendUnconfirmed: true })} time={time} />);
+    assert.match(unconfirmed, /Delivery unconfirmed/);
+    assert.match(unconfirmed, /loop-mail__tag--attention/);
+    assert.equal(html.includes('Delivery unconfirmed'), false);
   });
 
   it('names people the way a person would, and says so honestly when it cannot', () => {
@@ -227,6 +234,72 @@ describe('the composer is one box, and only a person can send from it', () => {
   });
 });
 
+describe('a reply in flight or in doubt cannot be sent again from the composer', () => {
+  const props = {
+    threadId: 't1',
+    inReplyToMessageId: 'm1',
+    replyTo: [{ address: 'ben@cashion.example', name: 'Ben Cashion' }],
+    replyAllCc: [],
+    canSend: true,
+    aiDraft: <button type="button">Draft with Loop</button>,
+    now: NOW,
+  };
+  const attempt = (sendState: 'SENDING' | 'SEND_UNKNOWN', startedSecondsAgo: number) => ({
+    body: 'Pricing attached.',
+    mode: 'REPLY' as const,
+    to: ['ben@cashion.example'],
+    cc: [],
+    source: 'MANUAL' as const,
+    aiUnedited: false,
+    sendFailureClass: sendState === 'SEND_UNKNOWN' ? 'TIMEOUT' : null,
+    sentAt: null,
+    sendState,
+    sendAttemptStartedAt: new Date(NOW.getTime() - startedSecondsAgo * 1000),
+    sendResolution: null,
+  });
+  const frozen = (html: string) => {
+    for (const control of ['Send reply', 'Save draft', 'Discard', 'Draft with Loop']) {
+      assert.equal(html.includes(control), false, `${control} is offered while the reply is in doubt`);
+    }
+    assert.match(html, /<textarea[^>]*readOnly=""[^>]*>Pricing attached\.<\/textarea>|<textarea[^>]*readonly=""/i, 'the words are shown, and frozen');
+    assert.match(html, /name="to"[^>]*readOnly=""|readOnly=""[^>]*name="to"/i);
+    assert.equal((html.match(/type="radio"[^>]*disabled=""/g) ?? []).length, 2);
+  };
+
+  it('while sending: says so, keeps the words, and offers nothing to press', () => {
+    const html = renderToStaticMarkup(<Composer {...props} draft={attempt('SENDING', 5)} />);
+    assert.match(html, /Sending…/);
+    assert.match(html, /will not be sent twice/);
+    assert.match(html, /role="status"/);
+    frozen(html);
+  });
+
+  it('in doubt: says Loop is checking Gmail, offers a check -- and a release only once it cannot still be running', () => {
+    const early = renderToStaticMarkup(<Composer {...props} draft={attempt('SEND_UNKNOWN', 30)} />);
+    assert.match(early, /could not confirm whether this reply was delivered/);
+    assert.match(early, /will not be sent again automatically/);
+    assert.match(early, /Check Gmail again/);
+    assert.equal(early.includes('it was not sent'), false, 'no release while the attempt could still be in flight');
+    assert.match(early, /role="alert"/);
+    frozen(early);
+
+    const later = renderToStaticMarkup(<Composer {...props} draft={attempt('SEND_UNKNOWN', 180)} />);
+    assert.match(later, /Check Gmail again/);
+    assert.match(later, /I checked Sent — it was not sent/);
+    frozen(later);
+  });
+
+  it('proven undelivered: says Loop checked, keeps the words, and offers Send again', () => {
+    const html = renderToStaticMarkup(
+      <Composer {...props} draft={{ ...attempt('SENDING', 0), sendState: 'DRAFT', sendAttemptStartedAt: null, sendFailureClass: 'NOT_DELIVERED', sendResolution: 'RECONCILED_NOT_SENT' }} />,
+    );
+    assert.match(html, /Loop checked your Gmail and this reply was never delivered/);
+    assert.match(html, /Pricing attached\./);
+    assert.match(html, /Send reply/);
+    assert.equal(/readOnly=""/i.test(html), false);
+  });
+});
+
 describe('nothing in the mail surface can send on its own, or be aimed at anybody else', () => {
   it('the send action requires the send authority, and takes only a stored draft', () => {
     const actions = code(read('../src/daily-loop/mail-actions.ts'));
@@ -242,8 +315,24 @@ describe('nothing in the mail surface can send on its own, or be aimed at anybod
     assert.match(actions, /sendDraft\(principal, draft\.id\)/);
   });
 
+  it('checking and releasing an unconfirmed reply need the send authority too -- and never send', () => {
+    const actions = code(read('../src/daily-loop/mail-actions.ts'));
+    for (const name of ['sendReplyAction', 'checkSendAction', 'releaseSendAction']) {
+      const start = actions.indexOf(`export async function ${name}(`);
+      assert.ok(start >= 0, name);
+      const next = actions.indexOf('export async function', start + 1);
+      const body = actions.slice(start, next === -1 ? undefined : next);
+      assert.match(body, /requirePermission\('employeeMail', 'send'\)/, name);
+      if (name !== 'sendReplyAction') assert.equal(body.includes('sendDraft('), false, `${name} must not send`);
+    }
+    // And the conversation page settles an attempt in doubt when it is looked at: the crash path.
+    const page = code(read('../src/app/app/mail/[threadId]/page.tsx'));
+    assert.match(page, /mailSendService\(\)\.reconcile\(principal, /);
+    assert.equal(page.includes('sendDraft('), false, 'viewing a conversation never sends');
+  });
+
   it('no model, prompt or generated text can reach the send path', () => {
-    for (const file of ['../src/daily-loop/mail-actions.ts', '../src/daily-loop/mail.ts', '../src/daily-loop/mail-runtime.ts']) {
+    for (const file of ['../src/daily-loop/mail-actions.ts', '../src/daily-loop/mail.ts', '../src/daily-loop/mail-runtime.ts', '../src/daily-loop/mail-send-runtime.ts']) {
       const src = code(read(file));
       for (const forbidden of ['anthropic', 'openai', 'AiRuntimeGateway', 'aiRuntime', 'generateDraft']) {
         assert.equal(src.toLowerCase().includes(forbidden.toLowerCase()), false, `${file}: ${forbidden}`);

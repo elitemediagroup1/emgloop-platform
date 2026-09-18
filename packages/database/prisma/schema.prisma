@@ -5919,11 +5919,27 @@ model WorkDraft {
   /// True while the employee has not changed a proposed draft. Presentation only; never authority.
   aiUnedited     Boolean @default(false)
 
-  /// The send, as facts: when it was claimed, when it completed, and what Gmail called it.
-  sendClaimedAt    DateTime?
+  /// `WORK_DRAFT_SEND_STATES`: DRAFT, SENDING, SEND_UNKNOWN, SENT. There is no time-based way out
+  /// of SENDING or SEND_UNKNOWN -- an expired claim is how an accepted message gets sent twice.
+  sendState String @default("DRAFT")
+
+  /// THE ATTEMPT, STORED BEFORE GMAIL IS CALLED, so an attempt whose answer is lost -- or whose
+  /// process stopped after Gmail accepted it -- can be reconciled against Sent mail instead of
+  /// being sent again. The id makes every later write conditional on THIS attempt; the
+  /// fingerprint is a SHA-256 of the exact words sent, which is what reconciliation matches.
+  sendAttemptId        String?
+  sendAttemptStartedAt DateTime?
+  sendAttemptBodyHash  String?
+  /// When Gmail was last asked about an unconfirmed attempt, and how the doubt was settled.
+  sendReconciledAt     DateTime?
+  /// `WORK_SEND_RESOLUTIONS`.
+  sendResolution       String?
+
+  /// The send, as facts: when it completed and what Gmail called it.
   sentAt           DateTime?
   sentMessageId    String?
-  /// `WORK_SEND_FAILURE_CLASSES`. Never a provider's text.
+  /// `WORK_SEND_FAILURE_CLASSES`. Never a provider's text. In SEND_UNKNOWN it says why Loop does
+  /// not know; in DRAFT, why the last attempt is known to have failed.
   sendFailureClass String?
 
   createdAt DateTime @default(now())

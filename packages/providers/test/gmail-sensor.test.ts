@@ -20,6 +20,7 @@ import {
   readGoogleGmailThread,
   readGoogleGmailWindow,
   sendGoogleGmailMessage,
+  lookupGoogleGmailSent,
 } from '../src/google-workspace/gmail';
 
 const SELF = 'matt@elitemediagroup.io';
@@ -310,26 +311,152 @@ test('a MIME tree that is hostile or deep is bounded rather than followed', () =
   assert.equal(broken.html, null);
 });
 
-test('send posts the raw message and the threadId, and reports what Gmail did', async () => {
+test('send posts the raw message and the threadId, and a 200 with the created message is SENT', async () => {
   const w = world([{ match: /\/messages\/send/, payload: { id: 'sent1', threadId: 't1' } }]);
   const result = await sendGoogleGmailMessage({ fetchImpl: w.fetchImpl, accessToken: 't', rawMessage: 'cmF3', threadId: 't1' });
-  assert.equal(result.ok, true);
-  if (!result.ok) return;
-  assert.equal(result.messageId, 'sent1');
-  assert.equal(result.threadId, 't1');
+  assert.deepEqual(result, { delivery: 'SENT', messageId: 'sent1', threadId: 't1' });
   const call = w.calls[0]!;
   assert.equal(call.method, 'POST');
   assert.deepEqual(JSON.parse(call.body!), { raw: 'cmF3', threadId: 't1' });
+});
 
-  // A send Gmail refused is a failure with a class, never a silent success.
-  const refused = world([{ match: /\/messages\/send/, status: 403, payload: { error: { errors: [{ reason: 'forbidden' }] } } }]);
-  const failed = await sendGoogleGmailMessage({ fetchImpl: refused.fetchImpl, accessToken: 't', rawMessage: 'cmF3', threadId: null });
-  assert.equal(failed.ok, false);
-  if (!failed.ok) assert.equal(failed.failure, 'FORBIDDEN');
+test('a send Gmail answered with a refusal is DEFINITIVELY not sent, and says why', async () => {
+  const cases: [number, unknown, string][] = [
+    [400, { error: { code: 400 } }, 'REJECTED'],
+    [401, {}, 'AUTH'],
+    [403, { error: { errors: [{ reason: 'forbidden' }] } }, 'FORBIDDEN'],
+    [403, { error: { errors: [{ reason: 'userRateLimitExceeded' }] } }, 'RATE_LIMITED'],
+    [404, {}, 'REJECTED'],
+    [413, {}, 'REJECTED'],
+    [429, {}, 'RATE_LIMITED'],
+  ];
+  for (const [status, payload, failure] of cases) {
+    const w = world([{ match: /\/messages\/send/, status, payload }]);
+    const result = await sendGoogleGmailMessage({ fetchImpl: w.fetchImpl, accessToken: 't', rawMessage: 'cmF3', threadId: null });
+    assert.deepEqual(result, { delivery: 'NOT_SENT', failure }, String(status));
+  }
+});
 
-  // A 200 that does not say what was sent is MALFORMED: Loop will not claim a send it cannot cite.
+test('a send whose answer was lost is UNKNOWN -- never a failure to retry', async () => {
+  // Gmail may have done the work and then failed to say so.
+  for (const status of [500, 502, 503, 504]) {
+    const w = world([{ match: /\/messages\/send/, status, payload: {} }]);
+    const result = await sendGoogleGmailMessage({ fetchImpl: w.fetchImpl, accessToken: 't', rawMessage: 'cmF3', threadId: null });
+    assert.deepEqual(result, { delivery: 'UNKNOWN', reason: 'UNAVAILABLE' }, String(status));
+  }
+  // Gmail said it accepted the message and did not say what it created.
   const vague = world([{ match: /\/messages\/send/, payload: { ok: true } }]);
-  const unproven = await sendGoogleGmailMessage({ fetchImpl: vague.fetchImpl, accessToken: 't', rawMessage: 'cmF3', threadId: null });
-  assert.equal(unproven.ok, false);
-  if (!unproven.ok) assert.equal(unproven.failure, 'MALFORMED');
+  assert.deepEqual(await sendGoogleGmailMessage({ fetchImpl: vague.fetchImpl, accessToken: 't', rawMessage: 'cmF3', threadId: null }), {
+    delivery: 'UNKNOWN',
+    reason: 'MALFORMED',
+  });
+  // Our own deadline, or a connection that dropped after the request may have been transmitted.
+  const timeout = async () => {
+    const error = new Error('aborted');
+    error.name = 'AbortError';
+    throw error;
+  };
+  assert.deepEqual(await sendGoogleGmailMessage({ fetchImpl: timeout as never, accessToken: 't', rawMessage: 'cmF3', threadId: null }), {
+    delivery: 'UNKNOWN',
+    reason: 'TIMEOUT',
+  });
+  for (const code of ['ECONNRESET', 'UND_ERR_SOCKET', 'EPIPE', undefined]) {
+    const dropped = async () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: code ? { code } : undefined });
+    };
+    const result = await sendGoogleGmailMessage({ fetchImpl: dropped as never, accessToken: 't', rawMessage: 'cmF3', threadId: null });
+    assert.deepEqual(result, { delivery: 'UNKNOWN', reason: 'NETWORK' }, String(code));
+  }
+});
+
+test('a request that never left is DEFINITIVELY not sent', async () => {
+  for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT', 'ERR_TLS_CERT_ALTNAME_INVALID']) {
+    const unreachable = async () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code } });
+    };
+    const result = await sendGoogleGmailMessage({ fetchImpl: unreachable as never, accessToken: 't', rawMessage: 'cmF3', threadId: null });
+    assert.deepEqual(result, { delivery: 'NOT_SENT', failure: 'NETWORK' }, code);
+  }
+});
+
+test('the Sent lookup reads recent Sent mail without the search index, and claims no completeness from it', async () => {
+  const sent = (id: string, at: number, text = 'hello') => ({
+    id,
+    threadId: 't1',
+    internalDate: String(at),
+    labelIds: ['SENT'],
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'From', value: SELF },
+        { name: 'To', value: 'ben@cashion.example' },
+        { name: 'Subject', value: 'Re: Cashion pricing' },
+      ],
+      body: { data: b64(text), size: text.length },
+    },
+  });
+  const from = new Date(Date.UTC(2026, 8, 18, 11, 58));
+  const to = new Date(Date.UTC(2026, 8, 18, 12, 10));
+  const w = world([
+    { match: /\/messages\?/, payload: { messages: [{ id: 'in' }, { id: 'old' }], nextPageToken: 'more' } },
+    { match: /\/messages\/in\?/, payload: sent('in', Date.UTC(2026, 8, 18, 12, 0, 3), 'the reply') },
+    { match: /\/messages\/old\?/, payload: sent('old', Date.UTC(2026, 8, 17, 9, 0)) },
+  ]);
+  const result = await lookupGoogleGmailSent({ fetchImpl: w.fetchImpl, accessToken: 't', selfAddress: SELF, from, to, settled: false });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.complete, false, 'recent-first is never proof of absence');
+
+  const list = w.urls().find((u) => /\/messages\?/.test(u))!;
+  assert.match(list, /labelIds=SENT/);
+  assert.match(list, /includeSpamTrash=true/);
+  assert.equal(/[?&]q=/.test(list), false, 'no search query, so no dependence on the index');
+
+  const inWindow = result.candidates.find((c) => c.messageId === 'in')!;
+  assert.equal(inWindow.text, 'the reply', 'words read for a message inside the window');
+  assert.deepEqual(inWindow.recipients, ['ben@cashion.example']);
+  const outside = result.candidates.find((c) => c.messageId === 'old')!;
+  assert.equal(outside.text, null, 'and not for one outside it');
+  assert.equal(w.urls().some((u) => /\/messages\/old\?format=full/.test(u)), false);
+});
+
+test('once settled, a windowed look that reads every page can prove absence -- and a partial one cannot', async () => {
+  const from = new Date(Date.UTC(2026, 8, 18, 11, 58));
+  const to = new Date(Date.UTC(2026, 8, 18, 12, 10));
+  const complete = world([{ match: /\/messages\?/, payload: { messages: [] } }]);
+  const done = await lookupGoogleGmailSent({ fetchImpl: complete.fetchImpl, accessToken: 't', selfAddress: SELF, from, to, settled: true });
+  assert.deepEqual(done, { ok: true, candidates: [], complete: true });
+  const windowed = complete.urls().find((u) => /q=/.test(u))!;
+  // Epoch seconds, which Gmail's filtering guide documents for after:/before:.
+  assert.equal(new URL(windowed).searchParams.get('q'), `after:${Math.floor(from.getTime() / 1000)} before:${Math.ceil(to.getTime() / 1000)}`);
+
+  // Page after page that never ends inside the bound is not a complete look.
+  const endless = world([{ match: /\/messages\?/, payload: { messages: [], nextPageToken: 'again' } }]);
+  const partial = await lookupGoogleGmailSent({ fetchImpl: endless.fetchImpl, accessToken: 't', selfAddress: SELF, from, to, settled: true });
+  assert.equal(partial.ok && partial.complete, false);
+
+  // A look that fails is a failure, not an empty mailbox.
+  const broken = world([{ match: /\/messages\?/, status: 503, payload: {} }]);
+  const failed = await lookupGoogleGmailSent({ fetchImpl: broken.fetchImpl, accessToken: 't', selfAddress: SELF, from, to, settled: true });
+  assert.equal(failed.ok, false);
+});
+
+test('a listed Sent message Loop could not read leaves a hole: the look can still prove SENT, never absence', async () => {
+  const from = new Date(Date.UTC(2026, 8, 18, 11, 58));
+  const to = new Date(Date.UTC(2026, 8, 18, 12, 10));
+  // Vanished between the list and the read.
+  const vanished = world([
+    { match: /\/messages\?/, payload: { messages: [{ id: 'gone' }] } },
+    { match: /\/messages\/gone\?/, status: 404, payload: { error: { code: 404 } } },
+  ]);
+  const a = await lookupGoogleGmailSent({ fetchImpl: vanished.fetchImpl, accessToken: 't', selfAddress: SELF, from, to, settled: true });
+  assert.deepEqual(a, { ok: true, candidates: [], complete: false });
+
+  // Listed, but with metadata Loop cannot make sense of.
+  const garbled = world([
+    { match: /\/messages\?/, payload: { messages: [{ id: 'odd' }] } },
+    { match: /\/messages\/odd\?/, payload: { id: 'odd' } },
+  ]);
+  const b = await lookupGoogleGmailSent({ fetchImpl: garbled.fetchImpl, accessToken: 't', selfAddress: SELF, from, to, settled: true });
+  assert.deepEqual(b, { ok: true, candidates: [], complete: false });
 });

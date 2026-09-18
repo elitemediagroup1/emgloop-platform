@@ -608,7 +608,7 @@ export {
   type GmailSyncOptions,
   type GmailSyncOutcome,
 } from './services/work-state';
-export { WorkDraftRepository, WORK_SEND_CLAIM_MS, type DraftContent } from './repositories/work-state';
+export { WorkDraftRepository, type DraftContent, type SendAttempt } from './repositories/work-state';
 export { createGoogleOAuthPort, googleFetch } from './services/google/google-oauth-port';
 export type { GoogleClientConfig, GoogleFetch } from './services/google/google-oauth-port';
 
@@ -620,6 +620,7 @@ export {
   gmailAccessPort,
   readEmployeeGmailThread,
   sendEmployeeGmailMessage,
+  lookupEmployeeGmailSent,
   employeeGmailIdentity,
   type EmployeeGmailConfig,
 } from './services/work-state';
