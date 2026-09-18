@@ -10,14 +10,25 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { createTimeView, type GmailThreadMessage } from '@emgloop/shared';
+import {
+  NO_CORRECTIONS,
+  classifyMailThread,
+  createTimeView,
+  recentImportant,
+  summarizeMail,
+  type GmailThreadMessage,
+  type MailCorrections,
+  type MailMessageEvidence,
+} from '@emgloop/shared';
 
 import { Composer } from '../src/app/app/mail/_mail/composer';
 import { Conversation } from '../src/app/app/mail/_mail/conversation';
-import { MailEmpty, ThreadRow, mailCurrency, peopleLine } from '../src/app/app/mail/_mail/mail-parts';
+import { MailEmpty, mailCurrency } from '../src/app/app/mail/_mail/mail-parts';
+import { ConversationRow, FilterBar, LaneSection, SummaryCards, mailFilterFrom, mailHref, type MailFilterState } from '../src/app/app/mail/_mail/dashboard';
+import { ThreadAttention } from '../src/app/app/mail/_mail/thread-attention';
 import type { MailThreadSummary } from '../src/daily-loop/mail';
-import type { MailAttentionItem, MailAttentionView } from '../src/daily-loop/mail-attention';
-import { YourMail } from '../src/app/app/_home/your-mail';
+import type { MailDashboard, MailDashboardRow } from '../src/daily-loop/mail-dashboard';
+import { YourMail, homeMailRows } from '../src/app/app/_home/your-mail';
 
 const NY = { timeZone: 'America/New_York', source: 'device' as const };
 const NOW = new Date('2026-09-18T16:00:00Z');
@@ -39,6 +50,99 @@ function thread(over: Partial<MailThreadSummary> = {}): MailThreadSummary {
     ...over,
   };
 }
+
+// --- A mailbox, classified by the real rules ------------------------------------------------------
+
+const H = 3_600_000;
+const D = 24 * H;
+const ago = (ms: number) => new Date(NOW.getTime() - ms);
+const inbound = (at: Date, from = 'ben@cashion.example', over: Partial<MailMessageEvidence> = {}): MailMessageEvidence => ({
+  at,
+  direction: 'INBOUND',
+  fromAddress: from,
+  fromName: null,
+  labels: ['INBOX'],
+  inReplyTo: '<prev@x>',
+  ...over,
+});
+const outbound = (at: Date, over: Partial<MailMessageEvidence> = {}): MailMessageEvidence => ({
+  at,
+  direction: 'OUTBOUND',
+  fromAddress: null,
+  fromName: null,
+  labels: ['SENT'],
+  inReplyTo: '<prev@x>',
+  ...over,
+});
+
+function convo(
+  threadId: string,
+  subject: string,
+  messages: MailMessageEvidence[],
+  person: { address: string; name: string | null },
+  over: { unread?: boolean; corrections?: MailCorrections; hasDraft?: boolean; sendUnconfirmed?: boolean } = {},
+): MailDashboardRow {
+  const last = messages.at(-1)!;
+  const people = [person];
+  const summary = thread({
+    threadId,
+    subject,
+    lastMessageAt: last.at,
+    lastDirection: last.direction,
+    messageCount: messages.length,
+    unread: over.unread ?? false,
+    people,
+    hasDraft: over.hasDraft ?? false,
+    sendUnconfirmed: over.sendUnconfirmed ?? false,
+  });
+  const insight = classifyMailThread(
+    { threadId, subject, lastMessageAt: last.at, lastDirection: last.direction, unread: summary.unread, messages, people },
+    over.corrections ?? NO_CORRECTIONS,
+    NOW,
+    ['elitemediagroup.io'],
+  );
+  return { thread: summary, insight };
+}
+
+const BEN = { address: 'ben@cashion.example', name: 'Ben Cashion' };
+const MAILBOX: MailDashboardRow[] = [
+  // They wrote six hours ago and nobody answered: needs a reply.
+  convo('reply', 'Cashion pricing', [outbound(ago(2 * D)), inbound(ago(6 * H))], BEN),
+  // A receipt from a no-reply sender, unread: notification mail, never "needs reply".
+  convo('receipt', 'Your receipt', [inbound(ago(5 * H), 'no-reply@payments.example', { labels: ['INBOX', 'CATEGORY_UPDATES'], inReplyTo: null })], {
+    address: 'no-reply@payments.example',
+    name: 'Payments',
+  }, { unread: true }),
+  // A promotion whose subject says "partnership": still never an opportunity.
+  convo('promo', 'Partnership opportunity inside', [inbound(ago(3 * H), 'deals@brand.example', { labels: ['INBOX', 'CATEGORY_PROMOTIONS'], inReplyTo: null })], {
+    address: 'deals@brand.example',
+    name: 'Brand Deals',
+  }),
+  // A person writing in, first message, about a partnership: an inbound inquiry.
+  convo('inquiry', 'Partnership inquiry', [inbound(ago(2 * H), 'ana@novabrand.example', { inReplyTo: null })], { address: 'ana@novabrand.example', name: 'Ana Silva' }, { unread: true }),
+  // They replied to outreach the employee started: an outreach reply.
+  convo('outreach', 'Intro: EMG x Northwind', [outbound(ago(4 * D), { inReplyTo: null }), inbound(ago(D))], { address: 'kim@northwind.example', name: 'Kim Lee' }),
+  // The employee wrote yesterday: waiting on them.
+  convo('waiting', 'Contract redlines', [inbound(ago(3 * D), 'jo@omnisure.example'), outbound(ago(D))], { address: 'jo@omnisure.example', name: 'Jo Park' }, { hasDraft: true }),
+  // The employee wrote five days ago and heard nothing: a follow-up is due.
+  convo('followup', 'Talent rate card', [inbound(ago(9 * D), 'max@agency.example'), outbound(ago(5 * D))], { address: 'max@agency.example', name: 'Max Ruiz' }, { sendUnconfirmed: true }),
+];
+
+function dashboard(rows: MailDashboardRow[] = MAILBOX, over: Partial<MailDashboard> = {}): MailDashboard {
+  const byId = new Map(rows.map((r) => [r.insight.threadId, r]));
+  return {
+    mail: { now: NOW, freshness: 'CURRENT', lastSyncedAt: ago(60_000), syncInProgress: false, refreshed: false, threads: rows.map((r) => r.thread), knows: true },
+    concludable: true,
+    current: true,
+    now: NOW,
+    rows,
+    summary: summarizeMail(rows.map((r) => r.insight), NOW),
+    recent: recentImportant(rows.map((r) => r.insight), NOW).map((i) => byId.get(i.threadId)!),
+    ...over,
+  };
+}
+
+const DASHBOARD_STATE: MailFilterState = { view: 'dashboard', query: '', unreadOnly: false, includeNotifications: false };
 
 function message(over: { text?: string | null; html?: string | null; from?: string; mine?: boolean; attachments?: { filename: string; mimeType: string; bytes: number }[] } = {}): GmailThreadMessage {
   return {
@@ -68,32 +172,27 @@ function message(over: { text?: string | null; html?: string | null; from?: stri
 }
 
 describe('the inbox shows conversations, and says how current it is', () => {
-  it('lists who wrote, what about, when, and whether it is unread', () => {
-    const html = renderToStaticMarkup(<ThreadRow thread={thread()} time={time} />);
+  it('a row names who, their company, what about, why it is here and when -- and opens the conversation', () => {
+    const row = MAILBOX.find((r) => r.insight.threadId === 'reply')!;
+    const html = renderToStaticMarkup(<ConversationRow row={row} time={time} context="lane" />);
     assert.match(html, /Ben Cashion/);
+    assert.match(html, /cashion\.example/, 'the company context is the sender’s domain, not a guess');
     assert.match(html, /Cashion pricing/);
-    assert.match(html, /3 messages/);
-    assert.match(html, /loop-mail__row--unread/);
-    assert.match(html, /href="\/app\/mail\/t1"/);
-    assert.match(html, /datetime="2026-09-18T15:30:00\.000Z"/i);
+    assert.match(html, /They wrote .* and you have not replied/);
+    assert.match(html, /Needs reply/);
+    assert.match(html, /href="\/app\/mail\/reply"/);
+    assert.match(html, /datetime="2026-09-18T10:00:00\.000Z"/i);
+    // A deterministic initials avatar: no remote image of anybody is ever fetched.
+    assert.equal(/<img\b/.test(html), false);
+    assert.match(html, />BC</);
 
-    const read = renderToStaticMarkup(<ThreadRow thread={thread({ unread: false, hasDraft: true })} time={time} />);
-    assert.equal(read.includes('loop-mail__row--unread'), false);
-    assert.match(read, /Draft/);
-
-    // A reply whose delivery Loop could not confirm is flagged in the list, not buried in the thread.
-    const unconfirmed = renderToStaticMarkup(<ThreadRow thread={thread({ sendUnconfirmed: true })} time={time} />);
+    // A draft in progress, and a reply whose delivery Loop could not confirm, are flagged in the row.
+    const draft = renderToStaticMarkup(<ConversationRow row={MAILBOX.find((r) => r.insight.threadId === 'waiting')!} time={time} context="lane" />);
+    assert.match(draft, /Draft/);
+    const unconfirmed = renderToStaticMarkup(<ConversationRow row={MAILBOX.find((r) => r.insight.threadId === 'followup')!} time={time} context="lane" />);
     assert.match(unconfirmed, /Delivery unconfirmed/);
     assert.match(unconfirmed, /loop-mail__tag--attention/);
     assert.equal(html.includes('Delivery unconfirmed'), false);
-  });
-
-  it('names people the way a person would, and says so honestly when it cannot', () => {
-    assert.equal(peopleLine([{ address: 'ben@cashion.example', name: 'Ben Cashion' }]), 'Ben Cashion');
-    assert.equal(peopleLine([{ address: 'ben@cashion.example', name: null }]), 'ben@cashion.example');
-    assert.equal(peopleLine([]), 'No correspondents recorded');
-    const many = ['a', 'b', 'c', 'd'].map((n) => ({ address: `${n}@x.example`, name: n }));
-    assert.equal(peopleLine(many), 'a, b and 2 others');
   });
 
   it('never presents stored mail as a fresh read, and offers the way back where there is one', () => {
@@ -348,10 +447,20 @@ describe('nothing in the mail surface can send on its own, or be aimed at anybod
       const src = code(read(page));
       assert.match(src, /organizationId: session\.organizationId, userId: session\.userId/);
       assert.match(src, /requirePermission\('employeeIntelligence', 'view'\)/);
-      for (const forbidden of ['searchParams', 'params.userId', 'params.organizationId']) {
+      for (const forbidden of ['params.userId', 'params.organizationId', 'searchParams.userId', 'searchParams.organizationId', "searchParams?.['user", "searchParams?.['org"]) {
         assert.equal(src.includes(forbidden), false, `${page}: ${forbidden}`);
       }
     }
+    // The conversation page reads nothing from the query string at all.
+    assert.equal(code(read('../src/app/app/mail/[threadId]/page.tsx')).includes('searchParams'), false);
+    // The list page hands the query string to ONE reader, which knows four keys -- a view, a search
+    // and two switches -- and none of them can name a person, a mailbox or an organization.
+    const list = code(read('../src/app/app/mail/page.tsx'));
+    assert.equal((list.match(/searchParams/g) ?? []).length, 3, 'the prop, its type, and the one call that reads it');
+    assert.match(list, /const state = mailFilterFrom\(searchParams\);/);
+    const hostile = mailFilterFrom({ view: 'needs-reply', q: 'pricing', userId: 'u_other', organizationId: 'org_other', mailbox: 'x@y.z' });
+    assert.deepEqual(hostile, { view: 'needs-reply', query: 'pricing', unreadOnly: false, includeNotifications: false });
+    assert.equal(mailFilterFrom({ view: 'someone-elses' }).view, 'dashboard', 'an unknown view is the dashboard, never an error');
     // The thread id comes from the route and is NOT authority: it is handed to a read scoped by
     // the principal, so another employee's thread is not-found rather than forbidden.
     const thread = code(read('../src/app/app/mail/[threadId]/page.tsx'));
@@ -360,7 +469,15 @@ describe('nothing in the mail surface can send on its own, or be aimed at anybod
 
   it('is drawn from the design system, and renders no email markup anywhere', () => {
     const css = read('../src/app/loop-os.css');
-    for (const file of ['../src/app/app/mail/_mail/composer.tsx', '../src/app/app/mail/_mail/conversation.tsx', '../src/app/app/mail/_mail/mail-parts.tsx']) {
+    for (const file of [
+      '../src/app/app/mail/_mail/composer.tsx',
+      '../src/app/app/mail/_mail/conversation.tsx',
+      '../src/app/app/mail/_mail/mail-parts.tsx',
+      '../src/app/app/mail/_mail/dashboard.tsx',
+      '../src/app/app/mail/_mail/thread-attention.tsx',
+      '../src/app/app/mail/page.tsx',
+      '../src/app/app/_home/your-mail.tsx',
+    ]) {
       const src = read(file);
       for (const forbidden of ['dangerouslySetInnerHTML', 'style=', 'styled', '<iframe']) {
         assert.equal(src.includes(forbidden), false, `${file}: ${forbidden}`);
@@ -376,128 +493,209 @@ describe('nothing in the mail surface can send on its own, or be aimed at anybod
   });
 });
 
-describe('Home says what mail needs the employee, with why and how to disagree', () => {
-  const item = (over: Partial<MailAttentionItem> = {}): MailAttentionItem => ({
-    id: 'item_1',
-    class: 'NEEDS_YOU',
-    threadId: 't1',
-    title: 'Cashion pricing',
-    lastMessageAt: new Date('2026-09-18T14:00:00Z'),
-    unread: true,
-    rule: 'INBOUND_UNREAD',
-    snoozedUntil: null,
-    ...over,
-  });
-  const view = (over: Partial<MailAttentionView> = {}): MailAttentionView => ({
-    needsYou: [item()],
-    waitingOnThem: [],
-    goneQuiet: [],
-    summary: { moved: 3, replies: 2, answered: 1, needsYou: 1, waitingOnThem: 0, goneQuiet: 0 },
-    since: new Date('2026-09-17T04:00:00Z'),
-    ...over,
+describe('the Mail dashboard: four lanes, each a stated rule, and filters that work', () => {
+  const summary = dashboard().summary;
+
+  it('counts come from the rules: notification mail never needs a reply, promotions are never opportunities', () => {
+    // Cashion pricing, the unread inquiry and the unanswered outreach reply -- and not the unread receipt.
+    assert.equal(summary.needsReply, 3);
+    assert.equal(summary.waiting, 1);
+    assert.equal(summary.followUps, 1);
+    // The inbound inquiry and the outreach reply; never the promotion that says "partnership".
+    assert.equal(summary.opportunities, 2);
+    const byId = new Map(MAILBOX.map((r) => [r.insight.threadId, r.insight]));
+    assert.equal(byId.get('receipt')!.lane, null);
+    assert.ok(byId.get('receipt')!.notification);
+    assert.equal(byId.get('promo')!.opportunity, null);
+    assert.equal(byId.get('inquiry')!.opportunity?.kind, 'INBOUND_INQUIRY');
+    assert.equal(byId.get('outreach')!.opportunity?.kind, 'OUTREACH_REPLY');
+    // Follow-ups due and waiting on them are different lanes, not one list twice.
+    assert.equal(byId.get('waiting')!.lane, 'WAITING');
+    assert.equal(byId.get('followup')!.lane, 'FOLLOW_UP');
   });
 
-  it('states why a row is there in the rule’s own terms, never as an adjective', () => {
-    const html = renderToStaticMarkup(<YourMail view={view()} time={time} />);
-    assert.match(html, /Cashion pricing/);
-    assert.match(html, /They wrote .* and it is unread\./);
-    assert.match(html, /3 conversations moved/);
-    assert.match(html, /2 replies arrived/);
-    // No adjective Loop cannot defend from a header.
-    for (const forbidden of ['urgent', 'important', 'critical', 'probably', 'seems', 'unhappy', 'priority']) {
-      assert.equal(html.toLowerCase().includes(forbidden), false, forbidden);
+  it('the four cards show those counts, each opening its own view -- and claim no comparison they cannot make', () => {
+    const html = renderToStaticMarkup(<SummaryCards summary={summary} state={DASHBOARD_STATE} />);
+    for (const [label, view] of [['Need my reply', 'needs-reply'], ['Follow-ups due', 'follow-ups'], ['Waiting on them', 'waiting'], ['New opportunities', 'opportunities']] as const) {
+      assert.ok(html.includes(label), label);
+      assert.ok(html.includes(`href="/app/mail?view=${view}"`), view);
     }
-
-    const waiting = renderToStaticMarkup(
-      <YourMail view={view({ needsYou: [], waitingOnThem: [item({ class: 'WAITING_ON_THEM', rule: 'OUTBOUND_UNANSWERED', unread: false })] })} time={time} />,
-    );
-    assert.match(waiting, /You wrote .* and there has been no reply\./);
+    // No percentage, no "vs last week": only a count of what arrived in the last day, when there is one.
+    assert.equal(/%|vs\.? last/i.test(html), false);
     const quiet = renderToStaticMarkup(
-      <YourMail view={view({ needsYou: [], goneQuiet: [item({ class: 'GONE_QUIET', rule: 'EXCHANGE_SILENT' })] })} time={time} />,
+      <SummaryCards summary={{ ...summary, inflow: { needsReply: 0, followUps: 0, waiting: 0, opportunities: 0 } }} state={DASHBOARD_STATE} />,
     );
-    assert.match(quiet, /This conversation last moved/);
+    assert.equal(quiet.includes('in the last day'), false, 'no inflow, no delta line');
+    // The active view is marked, for sight and for assistive technology.
+    const active = renderToStaticMarkup(<SummaryCards summary={summary} state={{ ...DASHBOARD_STATE, view: 'waiting' }} />);
+    assert.match(active, /loop-mx__card--active[^>]*aria-current="page"|aria-current="page"[^>]*loop-mx__card--active/);
   });
 
-  it('offers every correction beside the row, and the thread behind it', () => {
-    const html = renderToStaticMarkup(<YourMail view={view()} time={time} />);
-    assert.match(html, /href="\/app\/mail\/t1"/);
-    for (const action of ['Handled', 'I’m waiting on them', 'Snooze a day', 'Dismiss']) {
-      assert.ok(html.includes(action), action);
+  it('the filter bar: every view with its count, a search that submits, and filters that apply', () => {
+    const html = renderToStaticMarkup(<FilterBar summary={summary} state={{ ...DASHBOARD_STATE, view: 'talent', query: 'rate' }} />);
+    for (const label of ['All', 'Needs reply', 'Follow-ups', 'Waiting', 'Opportunities', 'Talent', 'Performance', 'Operations']) {
+      assert.ok(html.includes(`>${label}<`), label);
     }
-    assert.match(html, /name="itemId" value="item_1"/);
-    // "I'm waiting on them" is not offered on a row that already says exactly that.
-    const waiting = renderToStaticMarkup(<YourMail view={view({ needsYou: [], waitingOnThem: [item({ class: 'WAITING_ON_THEM' })] })} time={time} />);
-    assert.equal(waiting.includes('I’m waiting on them'), false);
+    assert.match(html, /<form[^>]*method="get"[^>]*action="\/app\/mail"/);
+    assert.match(html, /name="view" value="talent"/, 'searching keeps the view');
+    assert.match(html, /name="q"[^>]*value="rate"|value="rate"[^>]*name="q"/);
+    assert.match(html, /placeholder="Search conversations…"/);
+    assert.match(html, /name="unread" value="1"/);
+    assert.match(html, /name="notifications" value="1"/);
+    assert.match(html, /aria-current="page"[^>]*>Talent|Talent[\s\S]*?aria-current/);
+    // Links keep the search: moving between views does not lose what was typed.
+    assert.equal(mailHref({ ...DASHBOARD_STATE, query: 'rate' }, { view: 'waiting' }), '/app/mail?view=waiting&q=rate');
+    assert.equal(mailHref(DASHBOARD_STATE), '/app/mail');
+    assert.deepEqual(mailFilterFrom({ view: 'waiting', q: 'rate', unread: '1', notifications: '1' }), {
+      view: 'waiting',
+      query: 'rate',
+      unreadOnly: true,
+      includeNotifications: true,
+    });
+    assert.equal(mailFilterFrom({ q: 'x'.repeat(500) }).query.length, 200);
   });
 
-  it('says nothing is waiting when nothing is, and says it cannot tell when it cannot', () => {
-    const clear = renderToStaticMarkup(
-      <YourMail view={view({ needsYou: [], summary: { moved: 0, replies: 0, answered: 0, needsYou: 0, waitingOnThem: 0, goneQuiet: 0 } })} time={time} current />,
+  it('a lane shows its top rows and “View all (N)” only when there is something to view', () => {
+    const rows = MAILBOX.filter((r) => r.insight.lane === 'NEEDS_REPLY');
+    const html = renderToStaticMarkup(
+      <LaneSection title="Needs my reply" icon="mail" tone="crit" rows={rows} total={7} href="/app/mail?view=needs-reply" time={time} context="lane" empty="No conversation needs your reply." />,
     );
-    assert.match(clear, /Nothing in your mail is waiting on you/);
-    assert.match(clear, /Nothing has moved since/);
-
-    // Unreadable mail is never presented as an empty queue: the panel says why, and where to fix it.
-    const expired = mailCurrency('AUTHORIZATION_EXPIRED', new Date('2026-09-01T12:00:00Z'), false, time);
-    const cannot = renderToStaticMarkup(<YourMail view={null} time={time} currency={expired} />);
-    assert.match(cannot, /Google no longer accepts this connection/);
-    assert.match(cannot, /href="\/app\/connections"/);
-    assert.match(cannot, /Reconnect/);
-    assert.equal(cannot.includes('Nothing in your mail is waiting'), false);
-    assert.equal(renderToStaticMarkup(<YourMail view={null} time={time} />), '', 'no connection, no panel');
+    assert.match(html, /View all \(7\) →/);
+    assert.match(html, /href="\/app\/mail\?view=needs-reply"/);
+    const none = renderToStaticMarkup(
+      <LaneSection title="Needs my reply" icon="mail" tone="crit" rows={[]} total={0} href="/app/mail?view=needs-reply" time={time} context="lane" empty="No conversation needs your reply." />,
+    );
+    assert.match(none, /No conversation needs your reply\./);
+    assert.equal(none.includes('View all'), false);
   });
 
-  it('always says how current it is, and never presents an old read as if Loop just checked', () => {
-    const empty = view({ needsYou: [], summary: { moved: 0, replies: 0, answered: 0, needsYou: 0, waitingOnThem: 0, goneQuiet: 0 } });
-
-    // A current read says when it was.
-    const fresh = renderToStaticMarkup(
-      <YourMail view={empty} time={time} current currency={mailCurrency('CURRENT', new Date('2026-09-18T15:58:00Z'), false, time)} />,
-    );
-    assert.match(fresh, /Loop read your mail/);
-    assert.match(fresh, /Nothing in your mail is waiting on you/);
-
-    // A stale read still concludes, and says its age.
-    const stale = renderToStaticMarkup(
-      <YourMail view={empty} time={time} current currency={mailCurrency('STALE', new Date('2026-09-18T09:00:00Z'), false, time)} />,
-    );
-    assert.match(stale, /Loop last read your mail/);
-
-    // A failed sync shows the last good read AS the last good read, and claims nothing current.
-    const failed = renderToStaticMarkup(
-      <YourMail view={empty} time={time} current={false} currency={mailCurrency('SYNC_FAILED', new Date('2026-09-15T09:00:00Z'), false, time)} />,
-    );
-    assert.match(failed, /as Loop last read it/);
-    assert.equal(failed.includes('Nothing in your mail is waiting on you'), false);
-    assert.equal(failed.includes('Nothing has moved since'), false);
-    assert.match(failed, /when Loop last read your mail/);
+  it('an empty lane and an unreadable mailbox never look alike: lanes are concluded only from a read', () => {
+    const page = code(read('../src/app/app/mail/page.tsx'));
+    assert.match(page, /!dashboard\.concludable \? \(\s*<MailEmpty/);
+    // A stale read still concludes -- in the past tense.
+    assert.match(page, /current \? what : `\$\{what\.replace\(\/\\\.\$\/, ''\)\} when Loop last read your mail\.`/);
+    // A mailbox that cannot be read degrades to saying so, never to an error or an empty dashboard.
+    assert.match(page, /catch \{\s*dashboard = 'UNAVAILABLE';/);
+    const loader = code(read('../src/daily-loop/mail-dashboard.ts'));
+    assert.match(loader, /const concludable = mail\.lastSyncedAt !== null && \(mail\.knows \|\| mail\.freshness === 'SYNC_FAILED'\);/);
+    assert.match(loader, /if \(!concludable\) return empty;/);
   });
 
-  it('Home concludes attention only from a mailbox Loop has read, and passes the Inbox’s own currency line', () => {
-    const home = code(read('../src/app/app/page.tsx'));
-    // The same words the Inbox uses for how current Loop is -- never a second phrasing.
-    assert.match(home, /mailCurrency\(mail\.freshness, mail\.lastSyncedAt, mail\.syncInProgress/);
-    // Attention is computed only from a read Loop could make (or the last good one after a failure).
-    assert.match(home, /mail\.lastSyncedAt !== null && \(mail\.knows \|\| mail\.freshness === 'SYNC_FAILED'\)/);
-    assert.match(home, /concludable \? await loadMailAttention\(principal/);
-    // Not connected, or not configured: no panel at all.
-    assert.match(home, /mail\.freshness !== 'NOT_CONNECTED' && mail\.freshness !== 'NOT_CONFIGURED'/);
-    // And the Home surface renders no email body: it reads stored facts only.
-    for (const file of ['../src/app/app/_home/your-mail.tsx', '../src/daily-loop/mail-attention.ts']) {
+  it('the dashboard is a read model over what Gmail sync stored: nothing here talks to Google or writes mail', () => {
+    for (const file of ['../src/daily-loop/mail-dashboard.ts', '../src/app/app/mail/_mail/dashboard.tsx', '../src/app/app/mail/page.tsx', '../src/app/app/_home/your-mail.tsx']) {
       const src = code(read(file));
-      for (const forbidden of ['loadThread', 'mailReadableText', '.body.text', 'dangerouslySetInnerHTML']) {
+      for (const forbidden of ['googleapis', 'fetch(', 'sendDraft(', 'upsertMessage', 'upsertThread', 'loadThread', 'mailReadableText', '.body.text', 'dangerouslySetInnerHTML', 'anthropic', 'aiRuntime']) {
         assert.equal(src.includes(forbidden), false, `${file}: ${forbidden}`);
       }
     }
   });
 
-  it('counts what it shows: a row the employee handled is not still counted as needing them', () => {
-    // The rules' own counts (summary) still see the thread; the employee closed the item. The line
-    // under the lists counts the lists, after the correction.
-    const html = renderToStaticMarkup(
-      <YourMail view={view({ needsYou: [], summary: { moved: 1, replies: 1, answered: 0, needsYou: 1, waitingOnThem: 0, goneQuiet: 0 } })} time={time} current />,
+  it('lays out as two columns on a desktop and one on a phone, with no horizontal scroll', () => {
+    const css = read('../src/app/loop-os.css');
+    assert.match(css, /\.loop-mx__grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    assert.match(css, /@media \(max-width: 900px\) \{\s*\.loop-mx__grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+    // Two by two below 1180px -- four stacked cards would push every lane below the fold on a phone.
+    assert.match(css, /@media \(max-width: 1180px\) \{\s*\.loop-mx__cards \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+    // One row layout at every width: sender and company, subject, then why it is here.
+    assert.match(css, /\.loop-mx__row \{ display: grid; grid-template-columns: 36px minmax\(0, 1fr\) auto 16px; grid-template-areas: 'avatar who tags chevron' 'avatar subject subject chevron' 'avatar detail when chevron';/);
+    // The filter pills wrap rather than scroll sideways, and every track can shrink.
+    assert.match(css, /\.loop-mx__pills \{ display: flex; flex-wrap: wrap;/);
+    for (const m of css.matchAll(/\.loop-(?:mx|exec|cal|yourmail)[^{]*\{[^}]*min-width: ([0-9]+)px/g)) {
+      assert.ok(Number(m[1]) <= 320, `a ${m[1]}px minimum would scroll sideways on a phone`);
+    }
+  });
+});
+
+describe('Home: Your Mail is a few truly useful alerts, not a second inbox', () => {
+  it('shows three counts, at most three conversations, and the way to Mail', () => {
+    const many = [
+      ...MAILBOX,
+      ...[1, 2, 3, 4, 5].map((n) => convo(`r${n}`, `Question ${n}`, [outbound(ago(3 * D)), inbound(ago((5 + n) * H), `p${n}@client.example`)], { address: `p${n}@client.example`, name: `Person ${n}` })),
+    ];
+    const html = renderToStaticMarkup(<YourMail dashboard={dashboard(many)} time={time} />);
+    assert.match(html, /Needs reply/);
+    assert.match(html, /Follow-ups due/);
+    assert.match(html, /New opportunities/);
+    assert.equal((html.match(/class="loop-yourmail__row"/g) ?? []).length, 3, 'never a giant list');
+    assert.match(html, /href="\/app\/mail"[^>]*>Open Mail →/);
+    for (const view of ['needs-reply', 'follow-ups', 'opportunities']) assert.ok(html.includes(`href="/app/mail?view=${view}"`), view);
+    // Corrections live on the conversation, not as a wall of buttons on Home.
+    assert.equal(/<form\b/.test(html), false);
+    // No adjective Loop cannot defend from a header.
+    for (const forbidden of ['urgent', 'important', 'probably', 'seems', 'priority']) {
+      assert.equal(html.toLowerCase().includes(forbidden), false, forbidden);
+    }
+  });
+
+  it('needs-reply comes first, and a conversation already shown elsewhere on Home is not repeated', () => {
+    const rows = homeMailRows(dashboard());
+    assert.equal(rows.length, 3);
+    assert.ok(rows.every((r) => r.row.insight.lane === 'NEEDS_REPLY'), 'three need a reply, so all three shown do');
+    assert.equal(homeMailRows(dashboard(), 3, new Set(['reply'])).some((r) => r.row.insight.threadId === 'reply'), false);
+    // With the replies already shown elsewhere, the next most useful come through: follow-ups, then opportunities.
+    const rest = homeMailRows(dashboard(), 3, new Set(['reply', 'inquiry', 'outreach']));
+    assert.equal(rest[0]!.row.insight.threadId, 'followup');
+  });
+
+  it('says nothing needs you only about a current read, and says why when it cannot tell', () => {
+    const quiet = [MAILBOX.find((r) => r.insight.threadId === 'receipt')!];
+    const clear = renderToStaticMarkup(<YourMail dashboard={dashboard(quiet)} time={time} />);
+    assert.match(clear, /Nothing in your mail needs you right now\./);
+    const stale = renderToStaticMarkup(<YourMail dashboard={dashboard(quiet, { current: false })} time={time} />);
+    assert.match(stale, /Nothing in your mail needed you when Loop last read it\./);
+    assert.equal(stale.includes('right now'), false);
+
+    // Unreadable mail is never presented as an empty queue: the panel says why, and where to fix it.
+    const expired = mailCurrency('AUTHORIZATION_EXPIRED', new Date('2026-09-01T12:00:00Z'), false, time);
+    const cannot = renderToStaticMarkup(<YourMail dashboard={null} time={time} currency={expired} />);
+    assert.match(cannot, /Google no longer accepts this connection/);
+    assert.match(cannot, /href="\/app\/connections"/);
+    assert.equal(cannot.includes('Nothing in your mail'), false);
+    assert.equal(renderToStaticMarkup(<YourMail dashboard={null} time={time} />), '', 'no connection, no panel');
+
+    // A mailbox Loop has not read yet shows counts of nothing -- no counts at all.
+    const unread = renderToStaticMarkup(
+      <YourMail dashboard={dashboard([], { concludable: false, current: false })} time={time} currency={mailCurrency('NEVER_SYNCED', null, false, time)} />,
     );
-    assert.match(html, /0 needing you, 0 waiting on somebody else/);
+    assert.match(unread, /has not read your mail yet/);
+    assert.equal(unread.includes('loop-yourmail__counts'), false);
+  });
+
+  it('Home reads mail through the same read model as Mail, on its own, with the Inbox’s own currency line', () => {
+    const home = code(read('../src/app/app/page.tsx'));
+    assert.match(home, /settle\(\(\) => loadMailDashboard\(principal, \{ timeZone: zone\.timeZone \}\)\)/);
+    assert.match(home, /mailCurrency\(mail!\.mail\.freshness, mail!\.mail\.lastSyncedAt, mail!\.mail\.syncInProgress, time\)/);
+    assert.match(home, /mail\.mail\.freshness !== 'NOT_CONNECTED' && mail\.mail\.freshness !== 'NOT_CONFIGURED'/);
+    assert.equal(/loadMailAttention|loadMail\(/.test(home), false, 'one read model, not a second one');
+  });
+});
+
+describe('corrections live on the conversation they are about', () => {
+  it('offers Handled, Snooze and Dismiss -- and “I’m waiting on them” only where Loop says it needs a reply', () => {
+    const html = renderToStaticMarkup(<ThreadAttention item={{ id: 'item_1', class: 'NEEDS_YOU', snoozed: false }} threadId="t1" />);
+    assert.match(html, /needs your reply/);
+    for (const action of ['Handled', 'I’m waiting on them', 'Snooze a day', 'Dismiss']) assert.ok(html.includes(action), action);
+    assert.match(html, /name="itemId" value="item_1"/);
+    assert.match(html, /name="threadId" value="t1"/);
+    const waiting = renderToStaticMarkup(<ThreadAttention item={{ id: 'item_2', class: 'WAITING_ON_THEM', snoozed: true }} threadId="t1" />);
+    assert.equal(waiting.includes('I’m waiting on them'), false);
+    assert.match(waiting, /\(snoozed\)/);
+    assert.equal(renderToStaticMarkup(<ThreadAttention item={null} threadId="t1" />), '');
+  });
+
+  it('the conversation page finds the item within the employee’s own items, and the thread stays scoped', () => {
+    const page = code(read('../src/app/app/mail/[threadId]/page.tsx'));
+    assert.match(page, /new WorkItemRepository\(prisma\)\s*\.items\(principal,/);
+    assert.match(page, /<ThreadAttention /);
+    assert.match(page, /loadThread\(principal, threadId\)/);
+  });
+
+  it('an employee’s correction is respected by the lanes: “I’m waiting on them” moves the conversation out of Needs reply', () => {
+    const corrected = convo('reply', 'Cashion pricing', [outbound(ago(2 * D)), inbound(ago(6 * H))], BEN, {
+      corrections: { closed: [], snoozedUntil: null, waitingOnThemAt: ago(H) },
+    });
+    assert.notEqual(corrected.insight.lane, 'NEEDS_REPLY');
+    assert.equal(corrected.insight.lane, 'WAITING');
   });
 
   it('the correction actions are guarded, act on the asker’s own item, and edit no evidence', () => {

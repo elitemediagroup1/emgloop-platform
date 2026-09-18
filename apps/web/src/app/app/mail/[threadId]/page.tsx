@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { createTimeView, gmailReplyRecipients, resolveDisplayTimeZone, type GmailReplyTarget } from '@emgloop/shared';
-import { WorkDraftRepository, prisma, repositories } from '@emgloop/database';
+import { WorkDraftRepository, prisma, repositories, WorkItemRepository } from '@emgloop/database';
 
 import { getSession } from '../../../../auth/auth';
 import { loginPathFor } from '../../../../auth/landing';
@@ -14,6 +14,7 @@ import { readerTimeZone } from '../../../../daily-loop/reader-zone';
 import WorkspaceShell from '../../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead, Panel, StateBlock } from '../../_loop-os/record';
 import { Composer } from '../_mail/composer';
+import { ThreadAttention } from '../_mail/thread-attention';
 import { Conversation } from '../_mail/conversation';
 
 // ONE CONVERSATION, AND THE REPLY TO IT (GM-2).
@@ -41,6 +42,12 @@ export default async function MailThreadPage({ params }: { params: { threadId: s
   // bounded by the service's own floor -- and it never sends.
   const drafts = new WorkDraftRepository(prisma);
   const pending = await drafts.draft(principal, 'GOOGLE', threadId);
+  // GM-3's open, correctable item for this conversation, if Loop raised one. The employee's own,
+  // read by their principal; a thread id that is not theirs finds nothing.
+  const openItem = await new WorkItemRepository(prisma)
+    .items(principal, { limit: 200 })
+    .then((items) => items.find((i) => i.subjectKind === 'THREAD' && i.subjectRef === threadId && (i.state === 'OPEN' || i.state === 'SNOOZED')) ?? null)
+    .catch(() => null);
   if (pending && (pending.sendState === 'SENDING' || pending.sendState === 'SEND_UNKNOWN')) {
     try {
       await mailSendService().reconcile(principal, pending.id);
@@ -134,6 +141,7 @@ export default async function MailThreadPage({ params }: { params: { threadId: s
             </Link>
           }
         />
+        <ThreadAttention item={openItem ? { id: openItem.id, class: openItem.class, snoozed: openItem.state === 'SNOOZED' } : null} threadId={threadId} />
         <Panel title="Conversation">
           <Conversation messages={messages} selfAddress={result.selfAddress} time={time} />
         </Panel>

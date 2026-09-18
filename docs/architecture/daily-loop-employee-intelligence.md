@@ -473,6 +473,25 @@ Recorded here so the design and the code do not drift apart.
 - **"Prepare for this" does not appear at all.** Loop holds nothing to prepare with until Stage 2, and
   the sketch's condition for showing it is therefore never met.
 
+#### 5.2.2 What the executive Home shipped (Mail intelligence PR), and where it differs
+
+- **Owner / Admin / Manager Home is two columns**: TODAY'S REVIEW on the left (a headline, four
+  cards, Key updates, Needs attention, then the CallGrid scorecard, My Work and Quick Actions), the
+  day on the right (a timeline of the viewer's own calendar, then a concise Your Mail). On a phone:
+  review, then the day, then the rest.
+- **Four cards, against §5.2's "no counters"** — by product request, with the rule that made §5.2
+  say no kept: a card whose source Loop does not have says "not tracked yet", never 0, and a
+  comparison appears only where the same count exists for the period before.
+- **The headline is sentences, not a narrative**: each source (mail, calendar, CallGrid, work,
+  Headlines) offers ranked sentences built from its own counts and names, and one pure composer
+  (`@emgloop/shared` `executive-review`) takes the first few. No model writes any of it.
+- **Nothing is shown twice**: an item under Needs attention is not repeated under Key updates, and
+  Your Mail lists only conversations not already on the page.
+- **Corrections moved off Home**: Handled / Snooze / Dismiss / "I'm waiting on them" live on the
+  conversation (`/app/mail/[threadId]`), where the person has the context to make them.
+- **Every source loads on its own**: one unreadable source is one panel that says so.
+- Employees' Home keeps Your Day (the list, §5.2.1) and gets the same concise Your Mail.
+
 ### 5.3 What makes it feel like an assistant rather than a report
 
 1. **It opens with a judgment, not an inventory.** NEEDS YOU is first, and it is short.
@@ -878,15 +897,23 @@ facts seen again are not news. **No correction edits the evidence that raised th
 wrong about what the facts meant, and the facts stay as they are.
 
 "I'm waiting on them" closes the `NEEDS_YOU` item (resolved as handled, reason "waiting on them")
-and records `NOT_WAITING` feedback against the thread. The rules do not read feedback yet, so it
-does not create a `WAITING_ON_THEM` item; that is a Stage 2 refinement, not a claim this makes.
+and records `NOT_WAITING` feedback against the thread. The GM-3 item rules do not read feedback, so
+it does not create a `WAITING_ON_THEM` item. The Mail dashboard's lanes (`classifyMailThread`) DO
+read it: after that correction the conversation is in Waiting on them until they write again.
 "More than one message" stands in for "both sides spoke" until direction is summarised per thread.
 
+**The Mail dashboard (`/app/mail`) is a read model over the same stored metadata**
+(`loadMailDashboard`): lanes Needs my reply / Follow-ups due / Waiting on them, New opportunities,
+and the Talent / Performance / Operations views, each row saying which rule put it there. It reads
+the employee's corrections (closed items, snoozes, `NOT_WAITING`), and it concludes nothing from a
+mailbox Loop could not read. Notification mail -- an automated sender, or a Gmail bulk tab -- is
+never "needs reply" and never an opportunity; the same rule decides Home's "relevant emails".
+
 **Home says how current it is.** The Your Mail panel carries the Inbox's own currency line
-(`mailCurrency`). It concludes from a current or stale read, or -- after a failed sync -- from the
-last good read, labelled as such and never called empty. A mailbox Loop cannot read (not connected,
-not granted, expired, never read) shows why and concludes nothing, whatever an earlier read left in
-`work_items`. The counts under the lists count the lists: after the employee's corrections.
+(`mailCurrency`) and counts the dashboard's own lanes, so Home and Mail cannot disagree. It concludes
+from a current or stale read, or -- after a failed sync -- from the last good read, labelled as such
+and never called empty. A mailbox Loop cannot read (not connected, not granted, expired, never read)
+shows why and concludes nothing.
 
 ## 8. Calendar model
 

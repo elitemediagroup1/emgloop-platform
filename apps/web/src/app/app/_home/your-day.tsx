@@ -3,8 +3,10 @@
 // Architecture: docs/architecture/daily-loop-employee-intelligence.md 5.2, 8.4, 22.4.
 //
 // WHAT THIS IS, AND IS NOT. It is the answer to "what does my day look like, what is next, and is
-// Loop current" -- read in seconds, at the top of Home. It is not a calendar: there is no grid, no
-// month, no colour-coded event types, and no attempt to reproduce Google Calendar inside Loop.
+// Loop current" -- read in seconds, at the top of an employee's Home. It is a list, not a calendar:
+// no grid, no month, and no attempt to reproduce Google Calendar inside Loop. The executive Home
+// draws the SAME read as a timeline of today (./day-calendar), with these same words for how
+// current it is and what today and tomorrow hold (`currency`, `todayLine`, `tomorrowLine`).
 //
 // IT IS READ IN ONE ORDER, AND SAYS SO. How current Loop is, then what the employee is walking
 // into, then today, then tomorrow. Each of those is a named section rather than another sentence
@@ -40,7 +42,7 @@ function attendance(event: DayEvent): string | null {
 }
 
 /** The facts beside an event, each one a stored column. No location, no link, no attendee names. */
-function eventFacts(event: DayEvent): string[] {
+export function eventFacts(event: DayEvent): string[] {
   const facts: string[] = [];
   const people = attendance(event);
   if (people) facts.push(people);
@@ -90,7 +92,7 @@ function EventRow({ event, time, emphasis }: { event: DayEvent; time: TimeView; 
  * `current` is the difference between a day Loop can describe in the present tense and a day Loop
  * last saw some time ago: only the first may call an empty calendar clear.
  */
-function todayLine(view: YourDayView, time: TimeView, current: boolean): string {
+export function todayLine(view: YourDayView, time: TimeView, current: boolean): string {
   const { summary } = view;
   if (summary.total === 0) {
     return current ? 'Your calendar is clear today.' : 'Nothing was scheduled when Loop last read your calendar.';
@@ -118,7 +120,7 @@ function todayLine(view: YourDayView, time: TimeView, current: boolean): string 
   return parts.join(' ');
 }
 
-function tomorrowLine(view: YourDayView, time: TimeView, current: boolean): string {
+export function tomorrowLine(view: YourDayView, time: TimeView, current: boolean): string {
   const { tomorrowSummary: s, tomorrowSchedule } = view;
   if (s.total === 0) {
     return current ? 'Nothing scheduled tomorrow.' : 'Nothing was scheduled for tomorrow when Loop last read your calendar.';
@@ -131,7 +133,7 @@ function tomorrowLine(view: YourDayView, time: TimeView, current: boolean): stri
 }
 
 /** How current the picture is, and -- where there is one -- the way back. */
-function currency(view: YourDayView, time: TimeView): { line: string; href?: string; action?: string } {
+export function currency(view: YourDayView, time: TimeView): { line: string; href?: string; action?: string } {
   switch (view.freshness) {
     case 'CURRENT':
       return { line: view.lastSyncedAt ? `Loop read your calendar ${time.relative(view.lastSyncedAt)}.` : 'Loop read your calendar just now.' };

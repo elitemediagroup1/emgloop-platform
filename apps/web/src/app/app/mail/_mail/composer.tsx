@@ -119,6 +119,14 @@ export function Composer(props: {
         </p>
       ) : null}
 
+      {!frozen && props.canSend ? (
+        <p className="loop-compose__how">
+          {props.draftWithLoop?.available
+            ? 'Write your reply below — or press Draft with Loop and Loop will propose one in this box for you to edit. Nothing is sent until you press Send reply.'
+            : 'Write your reply below. Nothing is sent until you press Send reply.'}
+        </p>
+      ) : null}
+
       <form action={sendReplyAction} className="loop-compose__form">
         <input type="hidden" name="threadId" value={threadId} />
         <input type="hidden" name="inReplyToMessageId" value={inReplyToMessageId} />

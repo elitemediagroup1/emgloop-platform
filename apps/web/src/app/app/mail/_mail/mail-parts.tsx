@@ -1,20 +1,13 @@
-// The Mail surface's parts (GM-2).
+// The Mail surface's shared parts (GM-2): how current Loop is about a mailbox, and what an empty
+// list means. Home and Mail both say these in the same words.
 //
-// Drawn with the Loop design system's primitives and its existing classes. It is NOT a Gmail
-// clone: no label sidebar, no bulk selection, no starring, no folders. It is the list an employee
-// scans to find what needs them, and the conversation they answer.
-//
-// EVERY LINE IS A STORED FACT. Who wrote, when, how many messages, whether the newest is unread,
-// which way it went. Nothing here states what a conversation is about or whether it matters --
-// that is GM-3's job, and it arrives with its evidence.
+// The conversation rows themselves are the Mail dashboard's (./dashboard.tsx).
 
-import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import type { TimeView, WorkSourceFreshness } from '@emgloop/shared';
 
 import { CONNECTIONS_PATH } from '../../../../auth/landing';
-import type { MailCorrespondent, MailThreadSummary } from '../../../../daily-loop/mail';
 import { StateBlock } from '../../_loop-os/record';
 
 /** How current Loop is about this mailbox, and -- where there is one -- the way back. */
@@ -51,36 +44,6 @@ export function mailCurrency(
     default:
       return { line: 'Connect your Google account and Loop will show your mail.', href: CONNECTIONS_PATH, action: 'Connect Google' };
   }
-}
-
-/** Who is on a conversation, named the way a person would name them. */
-export function peopleLine(people: readonly MailCorrespondent[]): string {
-  const names = people.map((p) => p.name?.trim() || p.address);
-  if (names.length === 0) return 'No correspondents recorded';
-  if (names.length <= 3) return names.join(', ');
-  return `${names.slice(0, 2).join(', ')} and ${names.length - 2} others`;
-}
-
-export function ThreadRow({ thread, time }: { thread: MailThreadSummary; time: TimeView }) {
-  return (
-    <li className={'loop-mail__row' + (thread.unread ? ' loop-mail__row--unread' : '')}>
-      <Link href={`/app/mail/${encodeURIComponent(thread.threadId)}`} className="loop-mail__link">
-        <span className="loop-mail__who">
-          {thread.unread ? <span className="loop-mail__unread" aria-label="Unread" /> : null}
-          {peopleLine(thread.people)}
-        </span>
-        <span className="loop-mail__subject">
-          {thread.subject?.trim() || 'No subject'}
-          {thread.messageCount > 1 ? <span className="muted"> · {thread.messageCount} messages</span> : null}
-          {thread.hasDraft ? <span className="loop-mail__tag">Draft</span> : null}
-          {thread.sendUnconfirmed ? <span className="loop-mail__tag loop-mail__tag--attention">Delivery unconfirmed</span> : null}
-        </span>
-        <span className="loop-mail__when">
-          {thread.lastMessageAt ? <time dateTime={time.iso(thread.lastMessageAt)}>{time.relative(thread.lastMessageAt)}</time> : '—'}
-        </span>
-      </Link>
-    </li>
-  );
 }
 
 /** What an empty list means, which depends entirely on whether Loop could look. */

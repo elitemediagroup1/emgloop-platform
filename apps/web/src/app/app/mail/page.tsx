@@ -1,86 +1,200 @@
 import { redirect } from 'next/navigation';
-
-import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
-
+import { createTimeView, mailViewRows, resolveDisplayTimeZone } from '@emgloop/shared';
 import { getSession } from '../../../auth/auth';
-import { LOOP_HOME, loginPathFor } from '../../../auth/landing';
+import { loginPathFor } from '../../../auth/landing';
 import { requirePermission } from '../../../auth/guard';
-import { loadMail } from '../../../daily-loop/mail';
+import { loadMailDashboard, type MailDashboard } from '../../../daily-loop/mail-dashboard';
 import { readerTimeZone } from '../../../daily-loop/reader-zone';
 import WorkspaceShell from '../../../workspaces/WorkspaceShell';
-import { LoopPage, PageHead, Panel } from '../_loop-os/record';
-import { MailEmpty, ThreadRow, mailCurrency } from './_mail/mail-parts';
+import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
+import { LoopPage, PageHead, StateBlock } from '../_loop-os/record';
+import { MailEmpty, mailCurrency } from './_mail/mail-parts';
 import { RefreshMail } from './_mail/refresh-mail';
+import {
+  ConversationRow,
+  FilterBar,
+  LaneSection,
+  RecentThreads,
+  SummaryCards,
+  VIEW_TITLES,
+  mailFilterFrom,
+  mailHref,
+} from './_mail/dashboard';
 
-// MAIL -- the employee's own inbox, inside Loop (GM-2).
+// MAIL -- email intelligence for what matters, not another inbox.
 //
 // WHOSE MAIL. The principal comes from the signed session and from nowhere else. Every read is
 // scoped by organization AND user, so no role -- OWNER or ADMIN included -- can point this at
-// somebody else's mailbox, and there is no admin variant of this page.
+// somebody else's mailbox, and there is no admin variant of this page. The URL carries a view, a
+// search and two switches (`mailFilterFrom`), never a person.
 //
-// IT IS A LIST OF CONVERSATIONS, NOT A MAIL CLIENT. No labels, no folders, no bulk actions, no
-// starring: the things an employee opens Loop to do are find what needs them and answer it.
+// IT IS AN OPERATING SURFACE BUILT FROM GMAIL, NOT A MAIL CLIENT. Four lanes -- needs my reply,
+// follow-ups due, waiting on them, new opportunities -- decided by stated rules over what GM-1
+// stored (`classifyMailThread`), each row saying why it is there. Every row opens the existing
+// conversation, where the reply, Draft with Loop and Send are unchanged. Gmail itself is one link
+// away for everything Loop deliberately does not do.
 //
-// AN EMPTY LIST AND AN UNREADABLE ONE NEVER LOOK ALIKE. "Nothing in the last two weeks" is only
-// said in the states where Loop actually read the mailbox.
+// AN EMPTY LANE AND AN UNREADABLE MAILBOX NEVER LOOK ALIKE. Lanes are only concluded from a read
+// Loop made; "nothing needs your reply" is only said about a current one.
 
 export const dynamic = 'force-dynamic';
 
-export default async function MailPage() {
+const GMAIL_URL = 'https://mail.google.com/';
+
+export default async function MailPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await getSession();
   if (!session) redirect(loginPathFor('/app/mail'));
   // The authority to see one's own work state. It grants your own rows and nobody else's.
   await requirePermission('employeeIntelligence', 'view');
 
   const principal = { organizationId: session.organizationId, userId: session.userId };
-  const view = await loadMail(principal);
   const zone = resolveDisplayTimeZone({ preference: null, device: readerTimeZone() });
-  const time = createTimeView(zone, view?.now ?? new Date());
+  const state = mailFilterFrom(searchParams);
+
+  // A mailbox that cannot be read right now degrades this page to saying so -- never to an error.
+  let dashboard: MailDashboard | null | 'UNAVAILABLE';
+  try {
+    dashboard = await loadMailDashboard(principal, { timeZone: zone.timeZone });
+  } catch {
+    dashboard = 'UNAVAILABLE';
+  }
+  const time = createTimeView(zone, dashboard && dashboard !== 'UNAVAILABLE' ? dashboard.now : new Date());
 
   return (
     <WorkspaceShell session={session}>
       <LoopPage label="Mail">
-        <PageHead trail={[{ label: 'Your Loop' }, { label: 'Mail' }]} title="Mail" subtitle="Your own conversations, and what they are waiting on." />
-        {!view ? (
-          <Panel title="Mail">
-            <p className="loop-home__line muted">Loop has no mailbox for this account.</p>
-          </Panel>
-        ) : (
-          <Panel title="Inbox">
-            <div className="loop-mail">
-              <p className="loop-home__line muted">
-                {(() => {
-                  const state = mailCurrency(view.freshness, view.lastSyncedAt, view.syncInProgress, time);
-                  return (
-                    <>
-                      {state.line}
-                      {state.href ? (
-                        <>
-                          {' '}
-                          <a href={state.href}>{state.action}</a>
-                        </>
-                      ) : null}
-                    </>
-                  );
-                })()}
-              </p>
-
-              {view.threads.length === 0 ? (
-                <MailEmpty freshness={view.freshness} knows={view.knows} refresh={<RefreshMail />} />
-              ) : (
-                <>
-                  <ul className="loop-mail__list">
-                    {view.threads.map((thread) => (
-                      <ThreadRow key={thread.threadId} thread={thread} time={time} />
-                    ))}
-                  </ul>
-                  <RefreshMail />
-                </>
-              )}
+        <PageHead
+          trail={[{ label: 'Your Loop' }, { label: 'Mail' }]}
+          title="Mail"
+          subtitle="Email intelligence for what matters. Not another inbox."
+          actions={
+            <div className="loop-mx__head-actions">
+              <p className="loop-mx__tagline">“Turn email into opportunities.”</p>
+              <a href={GMAIL_URL} className="loop-btn" target="_blank" rel="noopener noreferrer">
+                Open Gmail
+                <SidebarIcon name="external" size={15} />
+              </a>
             </div>
-          </Panel>
+          }
+        />
+
+        {dashboard === 'UNAVAILABLE' ? (
+          <StateBlock
+            kind="attention"
+            title="Loop could not open your mail just now"
+            body="Nothing is wrong with your mailbox. Loop could not read what it stored about it, so it shows nothing rather than an empty inbox. Try again in a moment."
+          />
+        ) : !dashboard ? (
+          <StateBlock kind="empty" title="No mailbox" body="Loop has no mailbox for this account." />
+        ) : (
+          <MailBody dashboard={dashboard} state={state} time={time} />
         )}
       </LoopPage>
     </WorkspaceShell>
+  );
+}
+
+function MailBody({ dashboard, state, time }: { dashboard: MailDashboard; state: ReturnType<typeof mailFilterFrom>; time: ReturnType<typeof createTimeView> }) {
+  const { mail, summary, rows, current } = dashboard;
+  const currency = mailCurrency(mail.freshness, mail.lastSyncedAt, mail.syncInProgress, time);
+
+  return (
+    <div className="loop-mx">
+      <div className="loop-mx__status">
+        <p className="loop-mx__currency">
+          {currency.line}
+          {currency.href ? (
+            <>
+              {' '}
+              <a href={currency.href}>{currency.action}</a>
+            </>
+          ) : null}
+        </p>
+        <RefreshMail />
+      </div>
+
+      {!dashboard.concludable ? (
+        <MailEmpty freshness={mail.freshness} knows={mail.knows} refresh={<RefreshMail />} />
+      ) : (
+        <>
+          <SummaryCards summary={summary} state={state} />
+          <FilterBar summary={summary} state={state} />
+          {state.view === 'dashboard' && state.query.trim() === '' && !state.unreadOnly && !state.includeNotifications ? (
+            <Dashboard dashboard={dashboard} state={state} time={time} current={current} />
+          ) : (
+            <ListView dashboard={dashboard} state={state} time={time} current={current} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Dashboard({ dashboard, state, time, current }: { dashboard: MailDashboard; state: ReturnType<typeof mailFilterFrom>; time: ReturnType<typeof createTimeView>; current: boolean }) {
+  const byId = new Map(dashboard.rows.map((r) => [r.insight.threadId, r]));
+  const lane = (view: 'needs-reply' | 'follow-ups' | 'waiting' | 'opportunities') =>
+    mailViewRows(
+      dashboard.rows.map((r) => r.insight),
+      { view, query: '', unreadOnly: false, includeNotifications: false },
+    ).map((i) => byId.get(i.threadId)!);
+  const [needsReply, followUps, waiting, opportunities] = [lane('needs-reply'), lane('follow-ups'), lane('waiting'), lane('opportunities')];
+  const none = (what: string) => (current ? what : `${what.replace(/\.$/, '')} when Loop last read your mail.`);
+
+  return (
+    <>
+      <div className="loop-mx__grid">
+        <div className="loop-mx__col">
+          <LaneSection title="Needs my reply" icon="mail" tone="crit" rows={needsReply.slice(0, 5)} total={needsReply.length} href={mailHref(state, { view: 'needs-reply' })} time={time} context="lane" empty={none('No conversation needs your reply.')} />
+          <LaneSection title="Waiting on them" icon="clock" tone="warn" rows={waiting.slice(0, 5)} total={waiting.length} href={mailHref(state, { view: 'waiting' })} time={time} context="lane" empty={none('You are not waiting on anybody.')} />
+        </div>
+        <div className="loop-mx__col">
+          <LaneSection title="Follow-ups due" icon="send" tone="accent" rows={followUps.slice(0, 5)} total={followUps.length} href={mailHref(state, { view: 'follow-ups' })} time={time} context="lane" empty={none('No follow-up is due.')} />
+          <LaneSection title="New opportunities" icon="target" tone="good" rows={opportunities.slice(0, 5)} total={opportunities.length} href={mailHref(state, { view: 'opportunities' })} time={time} context="opportunity" empty={none('No new opportunity signals in your mail.')} />
+        </div>
+      </div>
+      <RecentThreads rows={dashboard.recent} time={time} href={mailHref(state, { view: 'all' })} />
+      <p className="loop-mx__footnote">
+        Loop decides these from who wrote last, when, and what Gmail itself filed as promotions or updates — never from reading a
+        message. Notification mail stays out unless you include it.
+      </p>
+    </>
+  );
+}
+
+function ListView({ dashboard, state, time, current }: { dashboard: MailDashboard; state: ReturnType<typeof mailFilterFrom>; time: ReturnType<typeof createTimeView>; current: boolean }) {
+  const view = state.view === 'dashboard' ? 'all' : state.view;
+  const byId = new Map(dashboard.rows.map((r) => [r.insight.threadId, r]));
+  const rows = mailViewRows(
+    dashboard.rows.map((r) => r.insight),
+    { view, query: state.query, unreadOnly: state.unreadOnly, includeNotifications: state.includeNotifications },
+  ).map((i) => byId.get(i.threadId)!);
+  const context = view === 'opportunities' ? 'opportunity' : view === 'needs-reply' || view === 'follow-ups' || view === 'waiting' ? 'lane' : 'any';
+  const title = VIEW_TITLES[view];
+
+  return (
+    <section className="loop-mx__lane" aria-label={title}>
+      <header className="loop-mx__lane-head">
+        <h2 className="loop-mx__lane-title">{title}</h2>
+        <span className="loop-mx__count">{rows.length === 1 ? '1 conversation' : `${rows.length} conversations`}</span>
+        <a href={mailHref(state, { view: 'dashboard', query: '', unreadOnly: false, includeNotifications: false })} className="loop-mx__viewall">
+          Back to dashboard
+        </a>
+      </header>
+      {rows.length === 0 ? (
+        <p className="loop-mx__empty">
+          {state.query.trim() !== ''
+            ? `No conversation matches “${state.query.trim()}”.`
+            : current
+              ? 'Nothing here right now.'
+              : 'Nothing was here when Loop last read your mail.'}
+        </p>
+      ) : (
+        <ul className="loop-mx__list">
+          {rows.slice(0, 100).map((row) => (
+            <ConversationRow key={row.insight.threadId} row={row} time={time} context={context} />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

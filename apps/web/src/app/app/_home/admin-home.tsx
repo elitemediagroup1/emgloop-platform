@@ -1,43 +1,54 @@
 import Link from 'next/link';
-import type { ReactNode } from 'react';
-import { loadDashboard, type DayScore } from '../admin/dashboard-data';
+import { loadDashboard, type DashboardData } from '../admin/dashboard-data';
 import { requireWorkspace } from '../../../workspaces/guard';
-import { trend, trendLabel, metricValue, type TrendResult } from '@emgloop/shared';
+import {
+  REVIEW_SOURCE_LABELS,
+  metricValue,
+  trend,
+  trendLabel,
+  type ExecutiveReview,
+  type ReviewAttention,
+  type ReviewMetric,
+  type ReviewMetricKey,
+  type ReviewPeriod,
+  type ReviewTone,
+  type ReviewUpdate,
+  type TimeView,
+  type TrendResult,
+} from '@emgloop/shared';
+import type { WorkPrincipal } from '@emgloop/database';
+import type { AuthSession } from '../../../auth/auth';
 import { viewerTime } from '../../../time/viewer-time';
-import { LoopPage, PageHead, Panel, StatePill } from '../_loop-os/record';
-import type { SubjectTone } from '../../../crm/subject-display';
+import type { MailDashboard } from '../../../daily-loop/mail-dashboard';
+import type { YourDayView } from '../../../daily-loop/your-day';
+import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
+import { LoopPage, PageHead, Panel, StateBlock } from '../_loop-os/record';
+import { DayCalendar, DayUnavailable } from './day-calendar';
+import { RefreshCalendar } from './refresh-calendar';
+import { loadExecutiveReview } from './review-data';
+import { settle } from './settle';
+import { YourMail } from './your-mail';
 
-// The Operational Home of Elite Media Group.
+// The executive Home of Elite Media Group: Today's Review on the left, the day on the right.
 //
-// Drawn with the Loop design system's shared primitives (page head, panels, state
-// pills; docs/product/loop-design-system.md), like every redesigned surface. The
-// handoff's Home composition (Needs You, What Changed, Loop Noticed, My Work,
-// Operating Pulse) is its own later slice; this keeps today's sections and data.
+// LEFT, WHAT LOOP CAN SAY ABOUT THE BUSINESS SINCE YESTERDAY. A headline of the few facts that
+// matter most, four counts, what changed, and what needs someone -- each from a source Loop already
+// reads (the viewer's own mail and calendar, CallGrid, Loop work, Headlines), merged by one pure
+// composer (@emgloop/shared executive-review). Below it, the operating panels that already worked:
+// the CallGrid scorecard, My Work, Quick Actions.
 //
-// One screen: a header (greeting + CRM search) and nine panels.
-// Within 15 seconds an employee sees how the business did yesterday and today,
-// whether anything needs them, whether they have work, and whether it can all be
-// trusted.
+// RIGHT, THE DAY. The viewer's own calendar as a timeline of today (./day-calendar), and a concise
+// Your Mail that points to Mail.
 //
-// CONSTITUTIONAL: Loop never fabricates business reality. Every value is real
-// org-scoped data or an honest Unknown / Unavailable. Money is never estimated.
-// CallGrid figures use CallGrid's Eastern reporting days (@emgloop/shared);
-// greetings, dates and relative times are the reader's (Loop Time Authority). The CRM
-// shows nothing off the shared Customer table. No developer vocabulary.
+// CONSTITUTIONAL: Loop never fabricates business reality. The headline is sentences assembled from
+// stored rows, not a model's summary; a card with no source says "not tracked yet" rather than 0; a
+// source Loop could not read is named as such. Money is never estimated: CallGrid figures use
+// CallGrid's Eastern reporting days; greetings, dates and relative times are the reader's (Loop
+// Time Authority). EVERY SOURCE LOADS ON ITS OWN, so one unreadable source never takes Home down.
+//
+// Drawn with the Loop design system's shared primitives and the one Loop stylesheet (.loop-exec).
 
-
-type Tone = 'good' | 'warn' | 'crit' | 'info' | 'idle';
-
-// Relative to the reader's calendar (Loop Time Authority).
-function relTime(iso: string): string {
-  return viewerTime().relative(iso);
-}
-
-function joinAnd(items: string[]): string {
-  if (items.length <= 1) return items[0] ?? '';
-  if (items.length === 2) return `${items[0]} and ${items[1]}`;
-  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-}
+type Currency = { readonly line: string; readonly href?: string; readonly action?: string } | null;
 
 // Scorecard value display: real value, or an honest Unknown / Unavailable.
 function showMoney(available: boolean, cents: number | null): string {
@@ -51,31 +62,6 @@ function showNum(available: boolean, n: number | null): string {
   return n.toLocaleString('en-US');
 }
 
-const PILL_TONE: Record<Tone, SubjectTone> = {
-  good: 'good',
-  warn: 'attention',
-  crit: 'critical',
-  info: 'neutral',
-  idle: 'neutral',
-};
-
-function StatusWord({ tone, label }: { tone: Tone; label: string }) {
-  return (
-    <p className="loop-home__status">
-      <StatePill state={{ label, tone: PILL_TONE[tone] }} />
-    </p>
-  );
-}
-
-function StatusNum({ value, label }: { value: number; label?: string }) {
-  return (
-    <p className="loop-home__num">
-      <span className="loop-home__num-value">{value.toLocaleString('en-US')}</span>
-      {label ? <span className="loop-home__num-label">{label}</span> : null}
-    </p>
-  );
-}
-
 // Trend beside the Today value. Semantic color for revenue/profit/billable;
 // Total Calls is contextual → neutral regardless of direction.
 function TrendBadge({ r, neutral }: { r: TrendResult; neutral?: boolean }) {
@@ -87,9 +73,7 @@ function TrendBadge({ r, neutral }: { r: TrendResult; neutral?: boolean }) {
   return <span className={'score__delta score__delta--' + tone}>{trendLabel(r)}</span>;
 }
 
-function ScoreRow({ label, yText, tText, r, neutral }: {
-  label: string; yText: string; tText: string; r: TrendResult; neutral?: boolean;
-}) {
+function ScoreRow({ label, yText, tText, r, neutral }: { label: string; yText: string; tText: string; r: TrendResult; neutral?: boolean }) {
   return (
     <div className="score__row">
       <span className="score__label">{label}</span>
@@ -102,207 +86,405 @@ function ScoreRow({ label, yText, tText, r, neutral }: {
   );
 }
 
-interface Priority { tone: Tone; text: string; href: string }
+// --- Today's Review ----------------------------------------------------------------------------------
 
-export async function AdminHome({ day, mail }: { day?: ReactNode; mail?: ReactNode }) {
-  // The Owner/Admin/Manager home. Its authority used to come only from the
-  // /app/admin layout; it now renders at /app, so it states that authority
-  // itself. (Its loader also re-checks it.)
-  await requireWorkspace('ADMIN');
-  const { home, callgrid } = await loadDashboard();
-  const { workspace: w, brain } = home;
-  const { header } = w;
-  const { yesterday: yd, today: td } = callgrid;
+const TONE_CLASS: Record<ReviewTone, string> = { critical: 'crit', attention: 'warn', good: 'good', neutral: 'neutral' };
 
-  const callgridConnected = callgrid.total > 0;
+function sourcesLine(review: ExecutiveReview): { read: string | null; missing: { label: string; note: string }[] } {
+  const read = review.sources.filter((s) => s.state === 'OK').map((s) => REVIEW_SOURCE_LABELS[s.source]);
+  const missing = review.sources
+    .filter((s) => s.state !== 'OK')
+    .map((s) => ({ label: REVIEW_SOURCE_LABELS[s.source], note: s.note ?? (s.state === 'UNAVAILABLE' ? 'Loop could not read this just now.' : 'Not connected.') }));
+  const joined = read.length <= 1 ? read[0] ?? null : `${read.slice(0, -1).join(', ')} and ${read[read.length - 1]}`;
+  return { read: joined, missing };
+}
 
+export function ReviewCard({ review, period, time }: { review: ExecutiveReview | null; period: ReviewPeriod | null; time: TimeView }) {
+  const sources = review ? sourcesLine(review) : null;
+  return (
+    <section className="loop-exec__review" aria-label="Today's review">
+      <div className="loop-exec__review-head">
+        <h2 className="loop-exec__review-title">
+          <SidebarIcon name="brain" size={18} /> Today&apos;s review
+        </h2>
+        {period ? (
+          <p className="loop-exec__period">
+            Since <time dateTime={time.iso(period.from)}>{time.format(period.from, 'weekdayMonthDay')}</time> · as of{' '}
+            <time dateTime={time.iso(period.to)}>{time.time(period.to)}</time>
+          </p>
+        ) : null}
+      </div>
+      {!review ? (
+        <p className="loop-exec__headline loop-exec__headline--quiet">Loop could not put today&apos;s review together just now.</p>
+      ) : review.headline ? (
+        <p className="loop-exec__headline">{review.headline}</p>
+      ) : (
+        <p className="loop-exec__headline loop-exec__headline--quiet">Nothing new needs saying from what Loop can read.</p>
+      )}
+      {sources ? (
+        <p className="loop-exec__sources">
+          {sources.read ? <>From {sources.read}.</> : 'Loop could not read any source for this review.'}
+          {sources.missing.map((m) => (
+            <span key={m.label} className="loop-exec__missing">
+              {' '}
+              Not included: {m.label} — {m.note}
+            </span>
+          ))}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+const METRICS: readonly { key: ReviewMetricKey; label: string; icon: string; tone: string }[] = [
+  { key: 'relevantEmails', label: 'Relevant emails', icon: 'mail', tone: 'accent' },
+  { key: 'newOpportunities', label: 'New opportunities', icon: 'star', tone: 'good' },
+  { key: 'needAttention', label: 'Need attention', icon: 'bell', tone: 'crit' },
+  { key: 'outreachSent', label: 'Outreach sent', icon: 'send', tone: 'warn' },
+];
+
+/** The comparison, only where the source can state the same count for the period before. */
+function comparison(metric: Extract<ReviewMetric, { state: 'VALUE' }>): string | null {
+  if (metric.prior === null) return null;
+  const diff = metric.value - metric.prior;
+  if (diff === 0) return 'Same as the period before';
+  return `${diff > 0 ? 'Up' : 'Down'} ${Math.abs(diff).toLocaleString('en-US')} on the period before`;
+}
+
+function MetricCard({ label, icon, tone, metric }: { label: string; icon: string; tone: string; metric: ReviewMetric }) {
+  const body =
+    metric.state === 'VALUE' ? (
+      <>
+        <span className="loop-mx__card-value">{metric.value.toLocaleString('en-US')}</span>
+        <span className="loop-mx__card-label">{label}</span>
+        <span className="loop-mx__card-delta">{comparison(metric) ?? metric.scope}</span>
+      </>
+    ) : (
+      <>
+        <span className="loop-mx__card-value loop-exec__card-none">—</span>
+        <span className="loop-mx__card-label">{label}</span>
+        <span className="loop-mx__card-delta">{metric.state === 'NOT_TRACKED' ? `Not tracked yet. ${metric.reason}` : metric.reason}</span>
+      </>
+    );
+  const icons = (
+    <span className="loop-mx__card-icon" aria-hidden="true">
+      <SidebarIcon name={icon} size={22} />
+    </span>
+  );
+  if (metric.state === 'VALUE' && metric.href) {
+    return (
+      <Link href={metric.href} className={`loop-mx__card loop-mx__card--${tone}`} title={`Counted from ${metric.scope}`}>
+        {icons}
+        <span className="loop-mx__card-body">{body}</span>
+        <span className="loop-mx__chevron" aria-hidden="true">
+          <SidebarIcon name="chevron" size={16} />
+        </span>
+      </Link>
+    );
+  }
+  return (
+    <div className={`loop-mx__card ${metric.state === 'VALUE' ? `loop-mx__card--${tone}` : 'loop-exec__card--none'}`}>
+      {icons}
+      <span className="loop-mx__card-body">{body}</span>
+      <span />
+    </div>
+  );
+}
+
+export function Metrics({ review }: { review: ExecutiveReview | null }) {
+  return (
+    <div className="loop-mx__cards loop-exec__cards">
+      {METRICS.map((m) => (
+        <MetricCard
+          key={m.key}
+          label={m.label}
+          icon={m.icon}
+          tone={m.tone}
+          metric={review ? review.metrics[m.key] : { state: 'UNAVAILABLE', reason: 'Loop could not read this just now.' }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function KeyUpdates({ updates, time }: { updates: readonly ReviewUpdate[]; time: TimeView }) {
+  return (
+    <section className="loop-exec__feed" aria-label="Key updates">
+      <div className="loop-exec__feed-head">
+        <h2 className="loop-exec__feed-title">Key updates</h2>
+      </div>
+      {updates.length === 0 ? (
+        <p className="loop-mx__empty">Nothing has changed since yesterday in what Loop can read.</p>
+      ) : (
+        <ul className="loop-exec__list">
+          {updates.map((u) => {
+            const inner = (
+              <>
+                <span className={`loop-exec__dot loop-exec__dot--${TONE_CLASS[u.tone]}`} aria-hidden="true" />
+                <span className="loop-exec__text">
+                  <span className="loop-exec__who">{u.who}</span>
+                  <span className="loop-exec__what">{u.what}</span>
+                </span>
+                <span className={`loop-pill loop-pill--${u.tone} loop-mx__pill`}>{u.status}</span>
+                <time className="loop-exec__when" dateTime={time.iso(u.at)}>
+                  {time.relative(u.at)}
+                </time>
+              </>
+            );
+            return (
+              <li key={u.key} className="loop-exec__item">
+                {u.href ? (
+                  <Link href={u.href} className="loop-exec__row">
+                    {inner}
+                  </Link>
+                ) : (
+                  <div className="loop-exec__row">{inner}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+export function NeedsAttention({
+  attention,
+  total,
+  elsewhere = [],
+  time,
+  readable,
+}: {
+  attention: readonly ReviewAttention[];
+  /** How many there are in all; null when the review could not be read, never a zero. */
+  total: number | null;
+  /** The ones not shown, per source, and where they are. */
+  elsewhere?: ExecutiveReview['attentionElsewhere'];
+  time: TimeView;
+  readable: boolean;
+}) {
+  return (
+    <section className="loop-exec__feed" aria-label="Needs attention" id="needs-attention">
+      <div className="loop-exec__feed-head">
+        <h2 className="loop-exec__feed-title">Needs attention</h2>
+        {total !== null && total > attention.length ? <span className="loop-mx__count">Showing {attention.length} of {total}</span> : null}
+      </div>
+      {!readable ? (
+        <p className="loop-mx__empty">Loop could not read the sources that raise attention items just now.</p>
+      ) : attention.length === 0 ? (
+        <p className="loop-mx__empty">Nothing needs you right now in what Loop can read.</p>
+      ) : (
+        <ul className="loop-exec__list">
+          {attention.map((a) => {
+            const inner = (
+              <>
+                <span className={`loop-exec__dot loop-exec__dot--${TONE_CLASS[a.tone]}`} aria-hidden="true" />
+                <span className="loop-exec__text">
+                  <span className="loop-exec__who">{a.who}</span>
+                  <span className="loop-exec__what">{a.happened}</span>
+                </span>
+                {a.since ? (
+                  <time className="loop-exec__when" dateTime={time.iso(a.since)}>
+                    {time.relative(a.since)}
+                  </time>
+                ) : (
+                  <span />
+                )}
+                <span className="loop-exec__next">
+                  {a.next}
+                  <SidebarIcon name="chevron" size={14} />
+                </span>
+              </>
+            );
+            return (
+              <li key={a.key} className="loop-exec__item">
+                {a.href ? (
+                  <Link href={a.href} className="loop-exec__row loop-exec__row--attention">
+                    {inner}
+                  </Link>
+                ) : (
+                  <div className="loop-exec__row loop-exec__row--attention">{inner}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {elsewhere.some((e) => e.href) ? (
+        <p className="loop-exec__more">
+          {elsewhere
+            .filter((e) => e.href)
+            .map((e) => (
+              <Link key={e.source} href={e.href!} className="loop-link">
+                {e.count.toLocaleString('en-US')} more in {REVIEW_SOURCE_LABELS[e.source]} →
+              </Link>
+            ))}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+// --- Operating panels that already worked ----------------------------------------------------------------
+
+function CallGridPanel({ data }: { data: DashboardData }) {
+  const { yesterday: yd, today: td, total } = data.callgrid;
+  if (total === 0) {
+    return (
+      <Panel title="CallGrid Intelligence">
+        <p className="loop-home__line">CallGrid has not sent any calls yet.</p>
+        <Link href="/app/admin/marketplace" className="loop-link">Open CallGrid Intelligence →</Link>
+      </Panel>
+    );
+  }
   // Per-metric trend (today vs yesterday), on exact cents / real counts.
   const revTrend = trend(metricValue(yd.revenueCents, yd.available), metricValue(td.revenueCents, td.available));
   const profitTrend = trend(metricValue(yd.profitCents, yd.available), metricValue(td.profitCents, td.available));
   const billableTrend = trend(metricValue(yd.billableCalls, yd.available), metricValue(td.billableCalls, td.available));
   const totalTrend = trend(metricValue(yd.totalCalls, yd.available), metricValue(td.totalCalls, td.available));
+  return (
+    <Panel title="CallGrid Intelligence">
+      <div className="score">
+        <div className="score__row score__head">
+          <span className="score__label" />
+          <span className="score__col">Yesterday<span className="score__sub">Completed</span></span>
+          <span className="score__col">Today<span className="score__sub">Live</span></span>
+        </div>
+        <ScoreRow label="Revenue" yText={showMoney(yd.available, yd.revenueCents)} tText={showMoney(td.available, td.revenueCents)} r={revTrend} />
+        <ScoreRow label="Net profit" yText={showMoney(yd.available, yd.profitCents)} tText={showMoney(td.available, td.profitCents)} r={profitTrend} />
+        <ScoreRow label="Billable calls" yText={showNum(yd.available, yd.billableCalls)} tText={showNum(td.available, td.billableCalls)} r={billableTrend} />
+        <ScoreRow label="Total calls" yText={showNum(yd.available, yd.totalCalls)} tText={showNum(td.available, td.totalCalls)} r={totalTrend} neutral />
+      </div>
+      <Link href="/app/admin/marketplace" className="loop-link">Open CallGrid Intelligence →</Link>
+    </Panel>
+  );
+}
 
-  // Business Status — connectivity/visibility, never invented health.
-  const systems = [
-    { name: 'CallGrid', connected: callgridConnected },
-    { name: 'CRM', connected: false },
-    { name: 'Accounting', connected: false },
-    { name: 'Creator Hub', connected: false },
-  ];
-  const connected = systems.filter((s) => s.connected).map((s) => s.name);
-  const notConnected = systems.filter((s) => !s.connected).map((s) => s.name);
-  const visibilityLabel = connected.length === 0 ? 'No Visibility' : 'Partial Visibility';
-  const visibilityText =
-    connected.length === 0
-      ? 'No systems are connected yet. Overall business health cannot yet be determined.'
-      : `${joinAnd(connected)} ${connected.length === 1 ? 'is' : 'are'} connected. ${joinAnd(notConnected)} ${notConnected.length === 1 ? 'is' : 'are'} not yet connected. Overall business health cannot yet be determined.`;
-
-  // Today's Priorities — evidence-backed only (CallGrid risks + unowned work).
-  const priorities: Priority[] = [
-    ...brain.signals.map((s) => ({ tone: s.tone as Tone, text: s.title, href: s.href })),
-    ...w.attention.filter((a) => a.kind === 'work').map((a) => ({ tone: 'warn' as Tone, text: a.title, href: a.href })),
-  ];
-
+function WorkPanels({ data }: { data: DashboardData }) {
+  const w = data.home.workspace;
   const assigned = w.workSummary.assignedToMe;
-  const acts = w.recentActivity;
+  return (
+    <>
+      <Panel title="My Work">
+        {assigned === 0 ? (
+          <p className="loop-home__line">You have no work assigned. When work is assigned it will appear here.</p>
+        ) : (
+          <>
+            <p className="loop-home__num">
+              <span className="loop-home__num-value">{assigned.toLocaleString('en-US')}</span>
+              <span className="loop-home__num-label">Assigned</span>
+            </p>
+            <p className="loop-home__line">
+              {w.nextAction ? `Next: ${w.nextAction.title}.` : `${assigned === 1 ? 'One item is' : `${assigned} items are`} waiting for you.`}
+            </p>
+          </>
+        )}
+        <div className="loop-home__actions">
+          <Link href="/app/admin/work" className="loop-link">View my work →</Link>
+          {w.canCreateWork ? <Link href="/app/admin/work/new" className="loop-link">Create work →</Link> : null}
+        </div>
+      </Panel>
+
+      {/* Quick Actions — only actions that exist */}
+      <Panel title="Quick Actions">
+        <div className="loop-btnrow">
+          {w.canCreateWork ? <Link href="/app/admin/work/new" className="loop-btn">Create work →</Link> : null}
+          {w.canInvite ? <Link href="/app/admin/administration/team" className="loop-btn">Invite team member →</Link> : null}
+          <Link href="/app/mail" className="loop-btn">Open Mail →</Link>
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+// --- The page --------------------------------------------------------------------------------------------
+
+export async function AdminHome({
+  session,
+  principal,
+  day,
+  dayFailed,
+  mail,
+  mailCurrency,
+}: {
+  session: AuthSession;
+  principal: WorkPrincipal;
+  /** The viewer's own calendar and mailbox, read once by the page for Home and Mail alike. */
+  day: YourDayView | null;
+  dayFailed: boolean;
+  mail: MailDashboard | null;
+  mailCurrency: Currency;
+}) {
+  // The Owner/Admin/Manager home. Its authority used to come only from the
+  // /app/admin layout; it now renders at /app, so it states that authority
+  // itself. (Its loader also re-checks it.)
+  await requireWorkspace('ADMIN');
+  const time = viewerTime();
+  const dashboardResult = await settle(() => loadDashboard());
+  const data = dashboardResult.ok ? dashboardResult.value : null;
+  const reviewResult = await settle(() =>
+    loadExecutiveReview({ session, principal, time, timeZone: time.timeZone, mail, day, dashboard: data }),
+  );
+  const review = reviewResult.ok ? reviewResult.value.review : null;
+  const period = reviewResult.ok ? reviewResult.value.period : null;
+
+  const header = data?.home.workspace.header;
+  // A conversation already on the page -- under Needs attention or Key updates -- is not listed
+  // again in Your Mail.
+  const shownMail = new Set(
+    [...(review?.attention ?? []), ...(review?.updates ?? [])]
+      .filter((item) => item.source === 'MAIL' && item.key.startsWith('mail:'))
+      .map((item) => item.key.slice('mail:'.length)),
+  );
+  const mailConnected = mail !== null && mail.mail.freshness !== 'NOT_CONNECTED' && mail.mail.freshness !== 'NOT_CONFIGURED';
 
   return (
     <LoopPage label="Loop Home">
-      {/* The date is not repeated in this head. YOUR DAY, directly below, is the surface that
-          states which day Loop is describing (DL-4), and printing the same date twice inches
-          apart read as an oversight. The greeting is still the reader's own time of day. */}
       <PageHead
         trail={[{ label: 'Your Loop' }]}
-        title={`${header.greeting}, ${header.displayName}`}
-        subtitle={header.organizationName}
+        title={`${header?.greeting ?? time.greeting()}, ${header?.displayName ?? session.name}`}
+        subtitle={header?.organizationName}
         actions={
           <form className="loop-searchform" method="get" action="/crm/search" role="search">
-            <input
-              type="search"
-              name="q"
-              className="loop-input"
-              placeholder="Search intake records and conversations"
-              aria-label="Search the CRM"
-            />
+            <input type="search" name="q" className="loop-input" placeholder="Search intake records and conversations" aria-label="Search the CRM" />
           </form>
         }
       />
 
-      {/* YOUR DAY (DL-4), inside this page rather than above it, so it shares the page's
-          rhythm. It renders the signed-in person's own calendar and nothing else; an owner
-          reading this page is reading their own day, not their organization's. */}
-      {day}
+      <div className="loop-exec">
+        <div className="loop-exec__top">
+          <ReviewCard review={review} period={period} time={time} />
+          <Metrics review={review} />
+        </div>
 
-      {/* YOUR MAIL (GM-3): what needs this person, what they are waiting on, and what changed.
-          Their own mailbox, and nobody else's. */}
-      {mail}
+        {/* THE DAY: the signed-in person's own calendar and mailbox, and nobody else's. */}
+        <aside className="loop-exec__side" aria-label="Your day">
+          {dayFailed ? <DayUnavailable /> : <DayCalendar view={day} refresh={<RefreshCalendar />} />}
+          <YourMail dashboard={mailConnected ? mail : null} time={time} currency={mailCurrency} exclude={shownMail} />
+        </aside>
 
-      <div className="loop-home">
+        <div className="loop-exec__bottom">
+          <div className="loop-exec__feeds">
+            <KeyUpdates updates={review?.updates ?? []} time={time} />
+            <NeedsAttention
+              attention={review?.attention ?? []}
+              total={review ? review.attentionTotal : null}
+              elsewhere={review?.attentionElsewhere ?? []}
+              time={time}
+              readable={review !== null && review.metrics.needAttention.state === 'VALUE'}
+            />
+          </div>
 
-          {/* ── Row 1 ───────────────────────────────────────────── */}
-
-          <Panel title="Business Status">
-            <StatusWord tone="idle" label={visibilityLabel} />
-            <p className="loop-home__line">{visibilityText}</p>
-          </Panel>
-
-          <Panel title="Today's Priorities">
-            {priorities.length === 0 ? (
-              <>
-                <StatusWord tone="idle" label="None" />
-                <p className="loop-home__line">No evidence-backed priorities require your attention.</p>
-              </>
-            ) : (
-              <ul className="loop-home__list">
-                {priorities.slice(0, 4).map((p, i) => (
-                  <li key={i} className="loop-home__item">
-                    <span className={'loop-home__dot loop-home__dot--' + p.tone} aria-hidden="true" />
-                    <Link href={p.href} className="loop-home__item-text">{p.text}</Link>
-                  </li>
-                ))}
-                {priorities.length > 4 ? <li className="loop-home__more">and {priorities.length - 4} more.</li> : null}
-              </ul>
-            )}
-          </Panel>
-
-          <Panel title="My Work">
-            {assigned === 0 ? (
-              <>
-                <StatusWord tone="idle" label="No work assigned" />
-                <p className="loop-home__line">You have no work assigned. When work is assigned it will appear here.</p>
-              </>
-            ) : (
-              <>
-                <StatusNum value={assigned} label="Assigned" />
-                <p className="loop-home__line">
-                  {w.nextAction ? `Next: ${w.nextAction.title}.` : `${assigned === 1 ? 'One item is' : `${assigned} items are`} waiting for you.`}
-                </p>
-              </>
-            )}
-            <div className="loop-home__actions">
-              <Link href="/app/admin/work" className="loop-link">View my work →</Link>
-              {w.canCreateWork ? <Link href="/app/admin/work/new" className="loop-link">Create work →</Link> : null}
+          {data ? (
+            <div className="loop-exec__ops">
+              <CallGridPanel data={data} />
+              <WorkPanels data={data} />
             </div>
-          </Panel>
-
-          {/* ── Row 2 ───────────────────────────────────────────── */}
-
-          {/* CallGrid Intelligence — the Executive Scorecard */}
-          <Panel title="CallGrid Intelligence">
-            {!callgridConnected ? (
-              <>
-                <StatusWord tone="idle" label="No call data yet" />
-                <p className="loop-home__line">CallGrid has not sent any calls yet.</p>
-                <Link href="/app/admin/marketplace" className="loop-link">Open CallGrid Intelligence →</Link>
-              </>
-            ) : (
-              <>
-                <div className="score">
-                  <div className="score__row score__head">
-                    <span className="score__label" />
-                    <span className="score__col">Yesterday<span className="score__sub">Completed</span></span>
-                    <span className="score__col">Today<span className="score__sub">Live</span></span>
-                  </div>
-                  <ScoreRow label="Revenue" yText={showMoney(yd.available, yd.revenueCents)} tText={showMoney(td.available, td.revenueCents)} r={revTrend} />
-                  <ScoreRow label="Net profit" yText={showMoney(yd.available, yd.profitCents)} tText={showMoney(td.available, td.profitCents)} r={profitTrend} />
-                  <ScoreRow label="Billable calls" yText={showNum(yd.available, yd.billableCalls)} tText={showNum(td.available, td.billableCalls)} r={billableTrend} />
-                  <ScoreRow label="Total calls" yText={showNum(yd.available, yd.totalCalls)} tText={showNum(td.available, td.totalCalls)} r={totalTrend} neutral />
-                </div>
-                <Link href="/app/admin/marketplace" className="loop-link">Open CallGrid Intelligence →</Link>
-              </>
-            )}
-          </Panel>
-
-          {/* CRM — Phase 1: real command center with org-scoped data */}
-          <Panel title="CRM">
-            <StatusWord tone="good" label="Active" />
-            <p className="loop-home__line">Phase 1 CRM is live with people, conversations, intake status and activity.</p>
-            <Link href="/crm" className="loop-link">Open CRM →</Link>
-          </Panel>
-
-          {/* Creator Hub */}
-          <Panel title="Creator Hub">
-            <StatusWord tone="idle" label="Not Configured" />
-            <p className="loop-home__line">Creator Hub has not yet been built.</p>
-          </Panel>
-
-          {/* ── Row 3 ───────────────────────────────────────────── */}
-
-          {/* Accounting */}
-          <Panel title="Accounting">
-            <StatusWord tone="idle" label="Not Connected" />
-            <p className="loop-home__line">Accounting integration has not yet been configured.</p>
-          </Panel>
-
-          {/* Recent Business Activity */}
-          <Panel title="Recent Business Activity">
-            {acts.length === 0 ? (
-              <>
-                <StatusWord tone="idle" label="None yet" />
-                <p className="loop-home__line">No recent business activity.</p>
-              </>
-            ) : (
-              <ul className="loop-home__list">
-                {acts.slice(0, 4).map((a) => (
-                  <li key={a.id} className="loop-home__item">
-                    <span className="loop-home__dot loop-home__dot--info" aria-hidden="true" />
-                    <span className="loop-home__item-text">{a.label}</span>
-                    <span className="loop-home__item-time">{relTime(a.createdAtIso)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          {/* Quick Actions — only actions that exist */}
-          <Panel title="Quick Actions">
-            <div className="loop-btnrow">
-              {w.canCreateWork ? <Link href="/app/admin/work/new" className="loop-btn">Create work →</Link> : null}
-              {w.canInvite ? <Link href="/app/admin/administration/team" className="loop-btn">Invite team member →</Link> : null}
-              {!w.canCreateWork && !w.canInvite ? <p className="loop-home__line">No quick actions available for your role.</p> : null}
-            </div>
-          </Panel>
-
+          ) : (
+            <StateBlock kind="attention" title="Loop could not read CallGrid and work just now" body="The rest of Home is current. Try again in a moment." compact />
+          )}
+        </div>
       </div>
     </LoopPage>
   );

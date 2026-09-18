@@ -25,7 +25,16 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — ALIGNED AT 39 (Daily Loop work state + calendar facts; 2026-09-18)
+## Production migration state — AT 39 · `main` IS AT 41 · 40 AND 41 NOT APPLIED (2026-09-18)
+
+**Production is behind `main`, and it is visible.** GM-1 (#295) and GM-2 (#296) merged migrations
+**40** (`20260922000000_gmail_read_and_send_scopes`) and **41** (`20260923000000_gmail_reply_drafts`);
+neither has been dispatched. With #297 deployed, `/app` and `/app/mail` return 500 in production
+(Prisma `P2021`: `public.work_drafts` does not exist). The remedy is the existing manual
+`Deploy Prisma Migrations` workflow from `main` — not run by any session; it needs a human. Gmail
+commissioning stays paused until it has run. (The Home/Mail PR below makes each Home source load on
+its own, so a missing table degrades one panel instead of the page — it does not replace the
+migration.)
 
 **Latest:** migrations **38** (`20260920000000_daily_loop_work_state`) and **39**
 (`20260921000000_work_event_calendar_facts`) were dispatched together and applied successfully on
@@ -1751,7 +1760,7 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 2. Daily Loop (draft #287) — the read path is its first phase.
 3. Google verification and publishing (runbook §6).
 
-## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-0..DL-5 MERGED · GMAIL (GM-1..GM-3) IN REVIEW
+## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-0..DL-5 MERGED · GMAIL (GM-1..GM-3) MERGED
 
 **Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
 product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
@@ -1901,7 +1910,7 @@ depends on it.
 `scripts/operations/cycle-employee-sources.ts` against `DIRECT_DATABASE_URL`: hourly incremental,
 weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZATIONS`.
 
-## GMAIL — the employee's mail as a work surface (GM-1..GM-3, in review)
+## GMAIL — the employee's mail as a work surface (GM-1..GM-3 MERGED #295–#297 · NOT COMMISSIONED · Mail intelligence + executive Home IN REVIEW)
 
 **GM-1 (draft #295): the Gmail sensor, ingestion and the three freshness paths.**
 
@@ -1970,8 +1979,25 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
   Loop drafts; and Home's Your Mail carries the Inbox's currency line and concludes nothing from an
   unreadable mailbox.
 
-**Next:** review GM-1, GM-2 and GM-3 in that order, then commission Gmail in production (scopes,
-reconnect, secrets, the gate variable) as recorded in the GM-3 PR.
+**Mail intelligence + executive Home (draft PR on `feat/home-executive-review`, off `main` `fee2798`).**
+No migration, no new Google call, no autonomous sending.
+
+- **`/app/mail` is a dashboard, not an inbox**: four lanes (needs my reply, follow-ups due, waiting
+  on them, new opportunities) plus Talent / Performance / Operations views, each a stated rule over
+  stored metadata (`classifyMailThread`, @emgloop/shared `mail-intelligence`). Notification mail is
+  an automated sender or a Gmail bulk tab and never "needs reply"; an opportunity is an outreach
+  reply or a new inbound conversation whose subject names one — never a promotion. Search and the
+  filters are a GET form. GM-3 corrections moved from Home onto the conversation itself.
+- **Home (Owner/Admin/Manager) is Today's Review + the day**: a headline of ranked, source-built
+  sentences, four cards (a card with no source says "not tracked yet"), Key updates, Needs
+  attention, and a timeline of the viewer's own calendar. Composed by one pure contract
+  (`executive-review`); each source loads on its own. Employees keep Your Day, and get the concise
+  Your Mail (three counts, three rows, Open Mail).
+- **Relevant email has one definition** (`notificationMessageReason`), shared by Home and Mail.
+
+**Next:** Matt reviews the PR. Before either surface works in production, migrations 40 and 41
+must be dispatched (above); then commission Gmail (scopes, reconnect, secrets, the gate variable)
+as recorded in the GM-3 PR.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

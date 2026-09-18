@@ -526,3 +526,5 @@ export * from './mail-text';
 // What a mailbox is waiting on (GM-3): deterministic states over stored headers. No body is read,
 // no importance is scored, and significance never collapses into relevance.
 export * from './mail-attention';
+export * from './executive-review';
+export * from './mail-intelligence';
