@@ -22,7 +22,7 @@ import { easternWallTimeToUtc, easternYmd, type EasternYmd } from './business-ti
 import { profitCents } from './callgrid-metric-contract';
 import type { CallGridWindow } from './callgrid-window';
 import type { HealthBand } from './callgrid-health';
-import type { Situation } from './callgrid-situation';
+import { voiceOf, type Situation } from './callgrid-situation';
 import type { FindingType } from './callgrid-intelligence';
 
 const DAY = 86_400_000;
@@ -531,7 +531,8 @@ export const METRIC_GOOD_DIRECTION: Readonly<Record<string, 'up' | 'down'>> = Ob
  */
 export function situationKind(situation: Situation): SituationKind {
   if (situation.opportunity) return 'OPPORTUNITY';
-  const lead = situation.observations[0];
+  // The kind of the finding the Situation speaks for, so the label matches its headline.
+  const lead = voiceOf(situation) ?? situation.observations[0];
   if (!lead) return 'WATCH';
   if (ALWAYS_RISK.has(lead.findingType)) return 'RISK';
   if (lead.findingType === 'OPPORTUNITY') return 'OPPORTUNITY';

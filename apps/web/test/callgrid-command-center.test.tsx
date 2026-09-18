@@ -13,18 +13,21 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
+  analyzeCallGrid,
   assessCallGridFreshness,
   callGridBuckets,
   callGridKpis,
   describeCallGridWindow,
   readCallGridSelection,
   type CallGridBrief,
+  type IntelligenceInput,
 } from '@emgloop/shared';
 
 import { CallGridNav, CALLGRID_SECTIONS } from '../src/app/app/admin/marketplace/_CallGridNav';
 import { FreshnessBadge, KpiRow, PeriodBar, TrendChart, BarList } from '../src/app/app/admin/marketplace/command-ui';
 import { TodaysBrief, TopPriorities } from '../src/app/app/admin/marketplace/executive-ui';
 import { withQuery, type CommandContext } from '../src/app/app/admin/marketplace/command-data';
+import { priorityOf } from '../src/app/app/admin/marketplace/executive-data';
 import { readIntelFilter, intelQuery, matchesIntelFilter } from '../src/app/app/admin/marketplace/intelligence-filter';
 
 const NOW = new Date('2026-09-18T18:30:00.000Z'); // Fri 2:30 PM EDT
@@ -93,6 +96,38 @@ describe('the executive layer', () => {
     assert.match(overview, /const priorities = topPriorities\(ctx, analysis\);/);
     assert.equal(/QueueSection|SituationRow/.test(overview), false, 'the full queue is not on the Overview');
     assert.match(code(read(`${MKT}/executive-data.ts`)), /selectTopPriorities\(analysis\.ops\.items, \(i\) => i\.state === 'NEEDS_REVIEW'\)/);
+  });
+
+  it('REGRESSION (PR #300 review): a priority’s headline, explanation and action come from one finding', () => {
+    // The case that shipped: "Total calls decreased 17%" rendered with the merged
+    // billable-rate finding's explanation and its "Confirm which sources improved…" advice.
+    const dims = (calls: number, billable: number, rev: number) => ({
+      buyers: [
+        { key: 'markytek', label: 'Markytek', calls: Math.round(calls * 0.4), monetized: Math.round(billable * 0.4), revenueCents: Math.round(rev * 0.35), marginCents: null },
+        { key: 'harbor', label: 'Harbor Insurance', calls: Math.round(calls * 0.6), monetized: Math.round(billable * 0.6), revenueCents: Math.round(rev * 0.65), marginCents: null },
+      ],
+      vendors: [], sources: [], campaigns: [],
+    });
+    const intel = analyzeCallGrid({
+      now: NOW, reportOk: true, windowLabel: 'Today · Live', comparisonLabel: 'Yesterday · through 2:30 PM',
+      comparisonBasis: 'elapsed_matched', includesLiveData: true, periodsPerYear: null,
+      metrics: { available: true, totalCalls: 289, billableCalls: 96, revenueCents: 413_200, profitCents: 158_100, payoutCents: 247_200, costCents: 7_900, revenueCoverage: 0.89, profitCoverage: 0.89 },
+      comparison: { available: true, totalCalls: 349, billableCalls: 89, revenueCents: 378_300, profitCents: 141_400, payoutCents: 227_700, costCents: 9_200, revenueCoverage: 0.9, profitCoverage: 0.9 },
+      dimensions: dims(289, 96, 413_200),
+      comparisonDimensions: dims(349, 89, 378_300),
+    } as unknown as IntelligenceInput);
+    const calls = intel.queue.situations.find((s) => s.title.startsWith('Total calls decreased'));
+    assert.ok(calls, 'the call-decline situation exists');
+    assert.ok(calls!.observations.some((o) => o.primaryMetric === 'billableRate'), 'the billable-rate finding is still merged in');
+
+    const p = priorityOf(calls!, '/app/admin/marketplace/intelligence/x');
+    assert.match(p.title, /^Total calls decreased/);
+    assert.match(p.action ?? '', /^Compare total calls by source and campaign/);
+    for (const line of [p.explanation, p.action ?? '']) {
+      assert.doesNotMatch(line, /improved|billable rate/i, `"${line}" belongs to another finding`);
+    }
+    const html = renderToStaticMarkup(<TopPriorities priorities={[p]} allHref="/i" emptyLine="-" unavailable={null} />);
+    assert.doesNotMatch(html, /Confirm which sources improved/);
   });
 
   it('the brief shows each sentence’s basis behind View details, and claims to be nothing but arithmetic', () => {

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { SITUATION_KIND_LABELS, confidenceOf, groupUnknowns, situationKind, type PriorityState } from "@emgloop/shared";
+import { SITUATION_KIND_LABELS, confidenceOf, groupUnknowns, situationKind, voiceOf, type PriorityState } from "@emgloop/shared";
 import { decisionEngine, type OperationalPriority } from "@emgloop/database";
 
 import { loadCommandContext, withQuery, type SearchParams } from "../command-data";
@@ -64,7 +64,7 @@ export default async function IntelligencePage({ searchParams }: { searchParams?
   const returnTo = withQuery(`${BASE}/intelligence`, intelQuery(ctx.query, filter));
 
   const shown = ops.items.filter((i) => matchesIntelFilter(i, filter));
-  const metrics = [...new Set(ops.items.map((i) => i.situation.observations[0]?.primaryMetric).filter((m): m is string => Boolean(m)))].sort();
+  const metrics = [...new Set(ops.items.map((i) => (voiceOf(i.situation) ?? i.situation.observations[0])?.primaryMetric).filter((m): m is string => Boolean(m)))].sort();
 
   // The lane's items from EARLIER periods: in the durable record, in this state, not
   // detected by this period's analysis. Only for a lane, and only when no filter that

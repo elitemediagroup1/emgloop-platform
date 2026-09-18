@@ -43,7 +43,7 @@ import type {
 import {
   ESCALATION_LABEL, REVIEW_URGENCY_LABEL, HEALTH_BAND_LABEL,
   standingOf, confidenceOf, whyItMatters, outcomeChoices, tierDecisions,
-  ownershipOf, storyDigest, formatMetricValue, formatRelativeChange,
+  ownershipOf, storyDigest, formatMetricValue, formatRelativeChange, voiceOf,
 } from '@emgloop/shared';
 import { EvidenceDrawer } from './intelligence-ui';
 import type { LivePriority } from './operational-queue-data';
@@ -795,10 +795,11 @@ export function SituationDetail({
     accountable: nameOf(members, item.ownerUserId),
     working: nameOf(members, item.assigneeUserId),
   });
-  const lead = s.observations[0] ?? null;
+  // The finding this Situation speaks for: its measured values and its advice are shown
+  // here; every other merged finding keeps its own advice beside its own evidence below.
+  const lead = voiceOf(s) ?? s.observations[0] ?? null;
   const limitations = [...new Set(s.observations.flatMap((o) => o.limitations))];
   const unknowns = [...new Set([...s.unknowns, ...s.observations.flatMap((o) => o.unknowns)])];
-  const review = [...new Set(s.observations.map((o) => o.recommendedReview).filter((r): r is string => Boolean(r)))];
 
   return (
     <article className="cgx-situation" aria-label={s.title}>
@@ -828,9 +829,7 @@ export function SituationDetail({
         </section>
         <section className="cgx-situation__block cgx-situation__block--action">
           <h3 className="cgx-situation__h">Suggested action</h3>
-          {s.decision ? <p className="cgx-situation__action">{s.decision}</p> : null}
-          {review.length > 0 ? <ul className="cgx-situation__list">{review.map((r) => <li key={r}>{r}</li>)}</ul> : null}
-          {!s.decision && review.length === 0 ? <p className="cgx-muted">Loop has no review to suggest for this.</p> : null}
+          {s.decision ? <p className="cgx-situation__action">{s.decision}</p> : <p className="cgx-muted">Loop has no review to suggest for this.</p>}
         </section>
       </div>
 
@@ -890,8 +889,9 @@ export function SituationDetail({
         </summary>
         {s.observations.map((o) => (
           <div className="q-obs__item" key={o.id}>
-            <p className="q-obs__title">{o.title}</p>
+            <p className="q-obs__title">{o.title}{o.id === s.voiceFindingId ? ' — the finding this situation is named for' : ''}</p>
             <p className="q-obs__sum">{o.plainLanguageSummary}</p>
+            {o.id !== s.voiceFindingId && o.recommendedReview ? <p className="q-obs__sum">Its own suggested review: {o.recommendedReview}</p> : null}
             <EvidenceDrawer finding={o} />
           </div>
         ))}

@@ -5,6 +5,7 @@
 import {
   confidenceOf,
   situationKind,
+  voiceOf,
   type PriorityState,
   type Situation,
   type SituationKind,
@@ -63,7 +64,7 @@ const KIND_OF: Readonly<Record<SituationKind, IntelFilter['kind']>> = {
 
 /** What a Situation is about, by the entity its lead finding names. No entity: the market as a whole. */
 export function situationEntity(s: Situation): IntelEntity {
-  const t = s.observations[0]?.affectedEntities[0]?.entityType;
+  const t = (voiceOf(s) ?? s.observations[0])?.affectedEntities[0]?.entityType;
   switch (t) {
     case 'buyer': return 'buyer';
     case 'vendor': return 'vendor';
@@ -81,7 +82,7 @@ export function matchesIntelFilter(item: { readonly situation: Situation; readon
   if (f.entity && situationEntity(s) !== f.entity) return false;
   if (f.kind && KIND_OF[situationKind(s)] !== f.kind) return false;
   if (f.confidence && confidenceOf(s).strength.toLowerCase() !== f.confidence) return false;
-  if (f.metric && (s.observations[0]?.primaryMetric ?? null) !== f.metric) return false;
+  if (f.metric && ((voiceOf(s) ?? s.observations[0])?.primaryMetric ?? null) !== f.metric) return false;
   return true;
 }
 

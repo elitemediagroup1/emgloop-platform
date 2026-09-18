@@ -433,7 +433,13 @@ function headlineFinding(spec: HeadlineSpec, input: IntelligenceInput): CallGrid
     ],
     limitations,
     unknowns: [],
-    recommendedReview: null,
+    // Its own review, in the safe vocabulary, so a Situation named by a headline change
+    // is advised by that change -- never by another finding merged beside it.
+    recommendedReview: abs === 0
+      ? null
+      : abs < 0
+        ? `Compare ${spec.label.toLowerCase()} by source and campaign across the two periods to see where the decline came from.`
+        : `Check which sources and campaigns the increase came from before treating it as lasting.`,
     actionSafety: 'SAFE_TO_REVIEW',
     ruleId: spec.ruleId,
     ruleVersion: 'v1',

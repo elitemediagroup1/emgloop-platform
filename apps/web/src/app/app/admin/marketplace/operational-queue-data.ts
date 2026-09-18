@@ -31,6 +31,7 @@ import {
   summarizeHistory,
   summarizeDecisionActivity,
   buildEvidenceSnapshot,
+  voiceOf,
   type Situation,
   type SituationQueue,
   type CallGridWindow,
@@ -151,9 +152,9 @@ function evidenceFor(situation: Situation) {
   return buildEvidenceSnapshot({
     producer: CALLGRID_SOURCE,
     rules: situation.observations.map((f) => ({ ruleId: f.ruleId, ruleVersion: f.ruleVersion })),
-    // The lead finding's confidence. Averaging across merged findings would
+    // The voice finding's confidence. Averaging across merged findings would
     // invent a number none of the rules produced.
-    confidence: situation.observations[0]?.confidence ?? null,
+    confidence: (voiceOf(situation) ?? situation.observations[0])?.confidence ?? null,
     observationCount: situation.observationCount,
     claims,
     values,
@@ -208,9 +209,9 @@ export async function loadOperationalQueue(
         severity: situation.severity,
         impactCents: situation.impact.amountCents,
         impactLabel: situation.impact.label,
-        sourceReference: situation.observations[0]?.affectedEntities[0]?.entityId ?? null,
+        sourceReference: (voiceOf(situation) ?? situation.observations[0])?.affectedEntities[0]?.entityId ?? null,
         producerVersion: situation.version,
-        confidence: situation.observations[0]?.confidence ?? null,
+        confidence: (voiceOf(situation) ?? situation.observations[0])?.confidence ?? null,
         // Evidence as first-class rows, so it can be appended to later. The
         // snapshot is kept too: it is the opening picture, which stays true even
         // as evidence accumulates.
@@ -239,11 +240,11 @@ export async function loadOperationalQueue(
         // The belief, recorded alongside the operational thread on a FIRST
         // sighting only. Always PROPOSED — Loop never accepts its own guess.
         hypothesis: {
-          hypothesisType: situation.observations[0]?.ruleId ?? "callgrid.situation",
+          hypothesisType: (voiceOf(situation) ?? situation.observations[0])?.ruleId ?? "callgrid.situation",
           title: situation.title,
           summary: situation.read.claim,
-          confidence: situation.observations[0]?.confidence ?? null,
-          ruleVersion: situation.observations[0]?.ruleVersion ?? null,
+          confidence: (voiceOf(situation) ?? situation.observations[0])?.confidence ?? null,
+          ruleVersion: (voiceOf(situation) ?? situation.observations[0])?.ruleVersion ?? null,
           supportingWindowStart: context.window.start,
           supportingWindowEnd: context.window.end,
         },

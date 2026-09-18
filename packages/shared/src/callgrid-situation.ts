@@ -293,6 +293,13 @@ export interface Situation {
   key: string;
   /** Unique within one analysis. */
   id: string;
+  /**
+   * The ONE finding this Situation speaks for -- its anchor. The title, what happened,
+   * why it matters, the recommended review and "if nothing changes" all come from this
+   * finding and no other, so a merged Situation can never put one finding's headline
+   * beside another finding's advice. The other members stay as observations.
+   */
+  voiceFindingId: string;
   title: string;
   /** What happened. Measured, no interpretation. */
   whatHappened: string;
@@ -304,8 +311,14 @@ export interface Situation {
   reviewPriority: ReviewUrgency;
   queueState: QueueState;
   escalation: Escalation;
-  /** The money. Carries its own label — exposure, decline, or gap; never upside. */
+  /**
+   * The event's money: the largest measured amount among the merged findings, used
+   * for ordering and shown with its own label. Not the explanation -- that is the
+   * voice's, below.
+   */
   impact: BusinessImpact;
+  /** The voice finding's own money, which "why it matters" and "if ignored" state. */
+  voiceImpact: BusinessImpact;
   /** The decision the operator must make, in review language. */
   decision: string | null;
   /** What continues if nothing is done. Arithmetic on a measured rate. */
@@ -342,6 +355,11 @@ export interface SituationQueue {
    */
   emptyReason: string | null;
   version: string;
+}
+
+/** The finding a Situation speaks for. Every surface names, explains and advises from this one. */
+export function voiceOf(situation: Pick<Situation, 'observations' | 'voiceFindingId'>): CallGridFinding | null {
+  return situation.observations.find((o) => o.id === situation.voiceFindingId) ?? null;
 }
 
 /**
@@ -383,7 +401,14 @@ export function buildSituations(input: SituationInput): Situation[] {
       .sort((a, b) => Math.abs(b.businessImpact.amountCents!) - Math.abs(a.businessImpact.amountCents!));
     const impact = withMoney[0]?.businessImpact ?? cards[0]?.businessImpact ?? NO_IMPACT_FALLBACK;
 
-    const leadCard = cardsByFinding.get(lead.finding.id) ?? cards[0] ?? null;
+    // ONE VOICE. The Situation is named, explained and advised by its anchor alone.
+    // It used to take the title from the anchor and the explanation and advice from
+    // the best-scoring member -- so "Total calls decreased 17%" once carried the
+    // billable-rate finding's "Confirm which sources improved". Ranking still uses
+    // the best-scoring member; the words never mix findings.
+    const voice = cluster.anchor;
+    const voiceCard = cardsByFinding.get(voice.id) ?? null;
+    const voiceImpact = voiceCard?.businessImpact ?? NO_IMPACT_FALLBACK;
     const chain = chainOf(cluster);
 
     // Review priority is the most urgent among the merged cards. Merging must
@@ -406,9 +431,10 @@ export function buildSituations(input: SituationInput): Situation[] {
     situations.push({
       key: recurrenceKey(cluster.anchor),
       id: cluster.id,
-      title: cluster.anchor.title,
-      whatHappened: leadCard?.observation ?? cluster.anchor.plainLanguageSummary,
-      whyItMatters: leadCard?.interpretation ?? cluster.narrative,
+      voiceFindingId: voice.id,
+      title: voice.title,
+      whatHappened: voiceCard?.observation ?? voice.plainLanguageSummary,
+      whyItMatters: voiceCard?.interpretation ?? voice.plainLanguageSummary,
       severity,
       score: lead.score,
       reviewPriority: priority,
@@ -417,8 +443,9 @@ export function buildSituations(input: SituationInput): Situation[] {
       queueState: 'NEEDS_REVIEW',
       escalation: escalationOf(cluster),
       impact,
-      decision: leadCard?.recommendedReview ?? cluster.anchor.recommendedReview,
-      ifIgnored: ifIgnoredOf(impact),
+      voiceImpact,
+      decision: voiceCard?.recommendedReview ?? voice.recommendedReview,
+      ifIgnored: ifIgnoredOf(voiceImpact),
       read: readOf(cluster, chain),
       chain,
       observationCount: cluster.members.length,

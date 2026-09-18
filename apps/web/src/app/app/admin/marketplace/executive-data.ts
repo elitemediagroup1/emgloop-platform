@@ -15,6 +15,7 @@ import {
   selectTopPriorities,
   situationKind,
   whyItMatters,
+  voiceOf,
   SITUATION_KIND_LABELS,
   type CallGridBrief,
   type CallGridIntelligence,
@@ -80,7 +81,7 @@ const ENTITY_ROUTE: Readonly<Record<string, string>> = {
  * is invented when there is none.
  */
 export function numbersHref(ctx: CommandContext, s: Situation): string {
-  const entity = s.observations[0]?.affectedEntities[0];
+  const entity = (voiceOf(s) ?? s.observations[0])?.affectedEntities[0];
   const base = '/app/admin/marketplace';
   if (entity && ENTITY_ROUTE[entity.entityType]) {
     const key = (entity.entityId || entity.entityName).toLowerCase();
@@ -112,21 +113,27 @@ export interface TopPriority {
 
 /** At most three undecided Situations, in the engine's order. */
 export function topPriorities(ctx: CommandContext, analysis: ExecutiveAnalysis): TopPriority[] {
-  return selectTopPriorities(analysis.ops.items, (i) => i.state === 'NEEDS_REVIEW').map((item) => {
-    const s = item.situation;
-    const kind = situationKind(s);
-    return {
-      key: s.key,
-      title: s.title,
-      kind,
-      kindLabel: SITUATION_KIND_LABELS[kind],
-      // One line: why it matters when the engine measured a consequence, otherwise the
-      // lead finding's own plain-language summary. Never the raw observation string.
-      explanation: firstSentence(whyItMatters(s)) ?? firstSentence(s.observations[0]?.plainLanguageSummary) ?? s.whatHappened,
-      action: s.decision ?? s.observations[0]?.recommendedReview ?? null,
-      href: situationHref(ctx, item),
-    };
-  });
+  return selectTopPriorities(analysis.ops.items, (i) => i.state === 'NEEDS_REVIEW').map((item) => priorityOf(item.situation, situationHref(ctx, item)));
+}
+
+/**
+ * One priority, from ONE finding: the Situation's voice. The headline is its title, the
+ * explanation its measured consequence (or its own plain-language summary), and the
+ * action its own review -- or none, which is said as none rather than borrowed from
+ * another finding merged into the same Situation.
+ */
+export function priorityOf(s: Situation, href: string): TopPriority {
+  const voice = voiceOf(s);
+  const kind = situationKind(s);
+  return {
+    key: s.key,
+    title: s.title,
+    kind,
+    kindLabel: SITUATION_KIND_LABELS[kind],
+    explanation: firstSentence(whyItMatters(s)) ?? firstSentence(voice?.plainLanguageSummary) ?? s.whatHappened,
+    action: s.decision,
+    href,
+  };
 }
 
 export function executiveBrief(ctx: CommandContext, analysis: ExecutiveAnalysis): CallGridBrief {
