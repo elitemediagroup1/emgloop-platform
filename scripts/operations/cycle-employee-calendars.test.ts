@@ -47,6 +47,11 @@ import {
 } from './cycle-employee-calendars';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** The workflow with its comment lines removed: a comment saying "do NOT add push:" is not a trigger. */
+const WORKFLOW = readFileSync(join(HERE, '..', '..', '.github', 'workflows', 'cycle-employee-calendars.yml'), 'utf8')
+  .split('\n')
+  .filter((l) => !/^\s*#/.test(l))
+  .join('\n');
 /** The runner's code with its comments removed: a prose mention is not a capability. */
 const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const SOURCE = code(readFileSync(join(HERE, 'cycle-employee-calendars.ts'), 'utf8'));
@@ -338,5 +343,44 @@ test('nothing in this runner can name a person, a window or a date', () => {
   // And it is not reachable over HTTP: there is no route, no handler and no server here.
   for (const forbidden of ['NextRequest', 'export async function GET', 'export async function POST']) {
     assert.equal(SOURCE.includes(forbidden), false, forbidden);
+  }
+});
+
+// --- The schedule ----------------------------------------------------------------------------
+//
+// The cadence is a product decision, so it is a checked fact rather than a line somebody can move
+// while reviewing something else. Three parts, and only one of them is this workflow's:
+//
+//   an employee using Loop   DL-4's visit refresh -- not here, and not changed by this job
+//   the background cycle     hourly
+//   the rolling re-baseline  weekly, Sunday
+
+test('the workflow runs hourly, re-baselines weekly, and serialises against itself', () => {
+  const crons = [...WORKFLOW.matchAll(/- cron: '([^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual(crons, ['0 * * * *', '25 4 * * 0'], 'hourly on the hour, and a weekly Sunday baseline');
+
+  // The weekly cron is what selects a baseline pass, so the two cannot drift apart.
+  assert.ok(WORKFLOW.includes('[ "${SCHEDULE:-}" = "25 4 * * 0" ]'), 'the weekly cron chooses --baseline');
+  assert.ok(WORKFLOW.includes('--baseline'));
+
+  assert.ok(/concurrency:\s*\n\s*group: cycle-employee-calendars/.test(WORKFLOW));
+  assert.ok(WORKFLOW.includes('cancel-in-progress: false'), 'a late run waits, it does not kill');
+
+  // Under the cadence, so a hung pass can never still be running when the next one fires -- and
+  // above the runner's own deadline, which is what actually stops it.
+  const timeout = Number(WORKFLOW.match(/timeout-minutes:\s*(\d+)/)![1]);
+  assert.ok(timeout < 60, `timeout ${timeout} must be under the hourly cadence`);
+  assert.ok(timeout * 60_000 > CYCLE_DEADLINE_MS, 'the runner stops attempting before the job is killed');
+});
+
+test('the workflow is off until somebody switches it on, and nothing else can start it', () => {
+  assert.ok(WORKFLOW.includes('vars.DAILY_LOOP_CALENDAR_ORGANIZATIONS'), 'a repository variable is the gate');
+  for (const trigger of ['push:', 'pull_request:', 'repository_dispatch:']) {
+    assert.equal(WORKFLOW.includes(trigger), false, trigger);
+  }
+  // It names tenants on the command line, and never a person.
+  assert.ok(WORKFLOW.includes('--organizations "${ORGANIZATIONS}"'));
+  for (const forbidden of ['--user', '--email', 'userId']) {
+    assert.equal(WORKFLOW.includes(forbidden), false, forbidden);
   }
 });

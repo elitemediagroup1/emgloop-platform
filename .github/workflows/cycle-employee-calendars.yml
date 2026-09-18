@@ -10,25 +10,31 @@
 # in reverse.
 #
 # ------------------------------------------------------------------------------
-# CADENCE: EVERY 15 MINUTES, PLUS A WEEKLY BASELINE. OPERATING POLICY, NOT PROVIDER TRUTH.
+# CADENCE: HOURLY, PLUS A WEEKLY BASELINE. OPERATING POLICY, NOT PROVIDER TRUTH.
 # ------------------------------------------------------------------------------
 #
-# Fifteen minutes is the number the architecture record names (§26), and it is the number Your Day
-# already uses: a visit refreshes at most once every fifteen minutes (DL-4), so the two policies
-# agree and Loop's promise is one sentence -- "your day is never more than fifteen minutes old".
+# THIS JOB IS NOT WHAT KEEPS AN ACTIVE EMPLOYEE CURRENT. Somebody looking at Loop already refreshes
+# their own calendar on their own visit (DL-4), unchanged by this workflow, so the person most
+# likely to notice staleness never waits for this schedule at all. What this job buys is currency
+# for people who are NOT looking -- so the first render after a gap is already right -- and the
+# weekly horizon correction below, which no visit performs.
 #
-# The cost is runner minutes, and it is worth stating before anybody enables this:
+# Given that, the cadence is chosen on cost:
 #
-#   passes per month        ~2,880   (96 a day)
+#   passes per month        ~720     (24 a day)
 #   minutes per pass        ~1.5-2   (checkout, install, the boundary suite, the cycle itself)
-#   runner minutes/month    ~4,300-5,800
+#   runner minutes/month    ~1,100-1,450
 #
-# That is beyond the free allowance for a private repository. If that matters more than latency,
-# change the first cron to '0 * * * *' -- hourly is ~1,100-1,450 minutes a month and, because an
-# employee looking at Loop already triggers their own refresh, costs currency only for people who
-# are NOT looking. Nothing else in this file changes. GitHub does not guarantee either cadence
-# under load, and a late pass is harmless: each one reads from the stored cursor, not from when
-# the job happened to fire.
+# Quarter-hourly would be ~4,300-5,800 minutes a month, beyond the free allowance for a private
+# repository, to shorten a gap that only affects a calendar nobody is currently reading. If that
+# trade ever changes, the whole change is this file's first cron. GitHub does not guarantee either
+# cadence under load, and a late pass is harmless: each one reads from the stored cursor, not from
+# when the job happened to fire.
+#
+# So Loop's promise has three parts, deliberately:
+#   an employee using Loop      DL-4's visit refresh, unchanged
+#   the background cycle        hourly
+#   the rolling-window rebase   weekly
 #
 # THE WEEKLY PASS IS NOT A BIGGER VERSION OF THE SAME THING. A Google sync token inherits the
 # window that minted it, so a cursor kept alive for months keeps reporting against a horizon
@@ -66,8 +72,8 @@ name: Cycle Employee Calendars
 
 on:
   schedule:
-    # The ordinary incremental pass.
-    - cron: '*/15 * * * *'
+    # The ordinary incremental pass, hourly on the hour.
+    - cron: '0 * * * *'
     # The weekly window re-baseline, Sunday 04:25 UTC -- off the hour, so it does not queue behind
     # every other scheduled job in the account.
     - cron: '25 4 * * 0'
@@ -96,8 +102,8 @@ jobs:
   cycle:
     name: Calendar cycle
     runs-on: ubuntu-latest
-    # Under the cadence on purpose: a hung pass can never still be running when the next fires.
-    # The runner itself stops attempting after 10 minutes, so this is the outer bound, not the plan.
+    # Well under the cadence on purpose: a hung pass can never still be running when the next
+    # fires. The runner itself stops attempting after 10 minutes, so this is the outer bound.
     timeout-minutes: 13
 
     steps:
@@ -211,7 +217,7 @@ jobs:
         # user, a window or a date, and asserts that no line it prints carries an identity or a
         # calendar's contents. A red step here means the boundary moved, and no connection is
         # opened. It is the cheap suite on purpose: the sync itself is proved in the database
-        # package, which this job does not re-prove every quarter hour.
+        # package, which this job does not re-prove every hour.
         run: npm run test:operations
 
       - name: Cycle

@@ -1864,9 +1864,11 @@ depends on it.
 - **Shipped OFF.** It exits immediately unless the repository variable
   `DAILY_LOOP_CALENDAR_ORGANIZATIONS` is set. Enabling it is one configuration action with no code
   change.
-- **Cadence:** every 15 minutes (matching DL-4's own visit-refresh floor, so Loop's promise is one
-  sentence), plus a **weekly window re-baseline** on Sunday 04:25 UTC. The workflow header carries the
-  runner-minute arithmetic and the one-line change to hourly.
+- **Cadence, in three parts:** an employee **using** Loop still refreshes their own calendar on their
+  own visit (DL-4, unchanged); the **background cycle is hourly**; the **rolling-window re-baseline is
+  weekly** (Sunday 04:25 UTC). The background pass is priced for the people who are *not* looking --
+  hourly is ~1,100-1,450 runner minutes a month against ~4,300-5,800 at quarter-hourly, to shorten a
+  gap on a calendar nobody is currently reading. The arithmetic is in the workflow header.
 - **The #292 follow-up is closed.** A sync token inherits the window that minted it; the weekly
   baseline re-reads the rolling window and replaces the token, keeping the forward horizon at today +
   23 days or better. A failed or truncated baseline replaces nothing and leaves the employee on the

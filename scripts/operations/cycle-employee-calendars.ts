@@ -29,13 +29,17 @@
 //
 // TWO CADENCES, ONE PASS
 //
-//   INCREMENTAL  the normal pass. Each employee's stored sync token, so Google returns only what
-//                changed. Cheap, and the usual case is an empty answer.
-//   BASELINE     the periodic correction. A Google sync token inherits the window that minted it,
+//   INCREMENTAL  the normal pass, hourly. Each employee's stored sync token, so Google returns
+//                only what changed. Cheap, and the usual case is an empty answer.
+//   BASELINE     the weekly correction. A Google sync token inherits the window that minted it,
 //                so a cursor kept alive for months keeps reporting against a horizon months in
 //                the past and never learns about a meeting booked beyond it (§8.2; the follow-up
 //                recorded in #292). A baseline pass re-reads the rolling window and replaces the
 //                token with one whose horizon starts today.
+//
+// NEITHER IS WHAT KEEPS AN ACTIVE EMPLOYEE CURRENT. Somebody looking at Loop refreshes their own
+// calendar on their own visit (DL-4), unchanged by this job. This one serves the people who are
+// not looking, and performs the horizon correction that no visit does.
 //
 // A FAILED BASELINE CHANGES NOTHING. The cursor is only ever replaced by a read that succeeded,
 // so an employee whose baseline fails stays on the incremental path they were already on and the

@@ -664,8 +664,8 @@ handle — and now does:
   window instead of the stored token, and replaces the cursor with the token that read returns. The
   window is the same width as the first pass (−7 days, +30 days), computed from the current clock,
   so a re-baseline can never become a crawl.
-- The scheduled cycle asks for it **weekly** (Sunday 04:25 UTC). Between baselines the guaranteed
-  forward horizon is therefore today + 23 days or better.
+- The scheduled cycle asks for it **weekly** (Sunday 04:25 UTC); its ordinary incremental pass is
+  **hourly**. Between baselines the guaranteed forward horizon is therefore today + 23 days or better.
 - **A failed or truncated baseline changes nothing.** The cursor is only ever replaced by a read that
   succeeded, so the employee stays on the incremental path they were already on and the next weekly
   pass retries. No gap, no re-read of history, no lost cursor.
@@ -1311,7 +1311,7 @@ is forbidden, and the record states why in advance:
 replaceable when Brain/EventBridge arrives.
 
 ```
-.github/workflows/daily-loop-cycle.yml      cron "*/15 * * * *"  (gated by a repo variable)
+.github/workflows/cycle-employee-calendars.yml  cron "0 * * * *" + weekly baseline (gated by a repo variable)
    → POST /api/internal/daily-loop/cycle    (shared secret, timing-safe, no org in the body)
        → DailyLoopCycleRunner.run({ deadlineMs, maxEmployees })
             asks the DATABASE which employees are due          ← never a caller-supplied tenant
@@ -1950,7 +1950,7 @@ full database suite unchanged.
 | **DL-2** | Calendar sensor (adapter only) | — | No | No | **No** | No | No | Adapter tests against a recorded double: sync tokens, `410` recovery, bounded windows. No live call |
 | **DL-3** | Calendar ingestion + cycle runner + manual trigger | DL-1, DL-2 | No | One secret | **No** | No | No | **You connect your own Calendar, trigger a cycle by hand, and see your events ingested — for your user only** |
 | **DL-4** | Home: YOUR DAY + TOMORROW, and the degradation states | DL-3 | No | No | **No** | No | **Yes** | Your real calendar rendered as your day, on desktop and phone; the honest states when Gmail and Drive are not connected |
-| **DL-5** | The scheduled cycle workflow, **and the periodic window re-baseline of §8.2** | DL-3 | No | **Workflow + repo variable** | **No** | No | No | Cycles running every 15 minutes with the variable set; a failure showing as a red run; and events beyond the original window coming into view |
+| **DL-5** | The scheduled cycle workflow, **and the periodic window re-baseline of §8.2** | DL-3 | No | **Workflow + repo variable** | **No** | No | No | Cycles running hourly with the variable set, and a weekly baseline pass; a failure showing as a red run; and events beyond the original window coming into view |
 | **DL-6** | Gmail sensor (metadata adapter only) | — | No | No | **No** | No | No | Adapter tests: backfill paging, history cursor, `404` recovery, and a test asserting `q` is never sent |
 | **DL-7** | Gmail ingestion: correspondents, threads, messages, bounded backfill | DL-3, DL-6 | No | No | **No** | No | No | **Your own mailbox metadata ingested inside the caps** (30 days, 2,000 messages), with the run record showing exactly what was read |
 | **DL-8** | Work-state rules: needs you / waiting on / gone quiet, with evidence | DL-7 | No | No | **No** | No | No | The rules against fixture mailboxes, including cc-only, automated senders, out-of-office and one-message threads |
