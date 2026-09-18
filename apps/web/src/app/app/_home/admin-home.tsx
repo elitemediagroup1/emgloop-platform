@@ -148,10 +148,13 @@ export async function AdminHome({ day }: { day?: ReactNode }) {
 
   return (
     <LoopPage label="Loop Home">
+      {/* The date is not repeated in this head. YOUR DAY, directly below, is the surface that
+          states which day Loop is describing (DL-4), and printing the same date twice inches
+          apart read as an oversight. The greeting is still the reader's own time of day. */}
       <PageHead
         trail={[{ label: 'Your Loop' }]}
         title={`${header.greeting}, ${header.displayName}`}
-        subtitle={`${header.dateLabel} · ${header.organizationName}`}
+        subtitle={header.organizationName}
         actions={
           <form className="loop-searchform" method="get" action="/crm/search" role="search">
             <input
