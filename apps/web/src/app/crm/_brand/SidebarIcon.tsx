@@ -135,6 +135,39 @@ const PATHS: Record<string, React.ReactNode> = {
   activity: (
     <path d="M3 12h4l3 8 4-16 3 8h4" />
   ),
+  // Mail intelligence: a follow-up going out, and time spent waiting.
+  send: (
+    <>
+      <path d="M21 3 10.5 13.5" />
+      <path d="M21 3 14.5 21l-4-7.5L3 9.5 21 3Z" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  external: (
+    <>
+      <path d="M14 4h6v6" />
+      <path d="M20 4 11 13" />
+      <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+    </>
+  ),
+  chevron: (
+    <path d="m9 6 6 6-6 6" />
+  ),
+  filter: (
+    <path d="M4 5h16l-6 7.5V19l-4-2v-4.5L4 5Z" />
+  ),
+  // Calendar: a meeting with a video call.
+  video: (
+    <>
+      <rect x="3" y="6" width="13" height="12" rx="2" />
+      <path d="m16 10.5 5-3v9l-5-3" />
+    </>
+  ),
 };
 
 export function SidebarIcon({

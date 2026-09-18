@@ -213,6 +213,9 @@ async function actOnItem(
   await act(new WorkItemRepository(prisma), principalOf(session), itemId, new Date());
   revalidatePath(HOME_PATH);
   revalidatePath(MAIL_PATH);
+  // Corrected from the conversation itself: that page shows the new state at once.
+  const threadId = String(form.get('threadId') ?? '');
+  if (threadId !== '') revalidatePath(`${MAIL_PATH}/${threadId}`);
 }
 
 /** "I have dealt with this." It closes the item; the conversation is untouched. */
@@ -266,4 +269,5 @@ export async function markWaitingOnThemAction(form: FormData): Promise<void> {
   await items.record(principal, itemId, { state: 'RESOLVED', observationType: 'RESOLVED', occurredAt: now, outcome: 'HANDLED', reason: 'waiting on them' });
   revalidatePath(HOME_PATH);
   revalidatePath(MAIL_PATH);
+  revalidatePath(`${MAIL_PATH}/${threadId}`);
 }
