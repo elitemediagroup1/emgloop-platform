@@ -462,9 +462,15 @@ test('the service reaches no network, no model and no other employee', () => {
   for (const forbidden of ['fetch(', 'googleapis.com', 'anthropic', 'openai', 'AiRuntimeGateway', 'console.', 'process.env', 'findMany({ where: { organizationId }']) {
     assert.equal(source.includes(forbidden), false, forbidden);
   }
-  // Every seam is injected, and the principal is the only scope it knows.
+  // Every seam is injected, and the principal is the only scope it knows. The options a caller
+  // may pass say HOW to read, never WHOSE calendar: there is exactly one, and it is a boolean.
   assert.equal(source.includes('WorkPrincipal'), true);
-  assert.equal(/syncCalendar\(principal: WorkPrincipal\)/.test(source), true);
+  assert.equal(/syncCalendar\(principal: WorkPrincipal, options: CalendarSyncOptions = \{\}\)/.test(source), true);
+  const options = source.slice(source.indexOf('export interface CalendarSyncOptions'));
+  assert.match(options.slice(0, options.indexOf('}')), /^[^}]*readonly baseline\?: boolean;[^}]*$/);
+  for (const forbidden of ['userId?', 'organizationId?', 'principal?']) {
+    assert.equal(options.slice(0, options.indexOf('}')).includes(forbidden), false, forbidden);
+  }
 });
 
 test('the fact-to-row mapping carries every approved field and invents none', () => {
@@ -478,5 +484,108 @@ test('the fact-to-row mapping carries every approved field and invents none', ()
   // Nothing the sensor refused to expose appears in the row at all.
   for (const key of Object.keys(row)) {
     assert.equal(['description', 'location', 'attendees', 'conferenceUrl', 'organizerEmail'].includes(key), false, key);
+  }
+});
+
+// --- The periodic re-baseline (DL-5) ---------------------------------------------------------
+//
+// A Google sync token inherits the window that minted it. A cursor kept alive for months keeps
+// reporting against a horizon months in the past, so a meeting booked beyond it never arrives --
+// the follow-up #292 recorded and assigned here. These prove the correction, and prove that it
+// cannot cost an employee the cursor they already had.
+
+const DAY = 86_400_000;
+
+test('a requested baseline re-reads the ROLLING window although a live cursor exists', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+
+  w.sensor.onWindow(okPage([fact()], { syncToken: 'sync-first' }));
+  const first = await w.service.syncCalendar(alice);
+  assert.equal(first.mode, 'WINDOW');
+  const firstWindow = w.sensor.windowCalls[0]!;
+
+  // Six weeks later, the stored token's horizon is six weeks in the past.
+  w.advance(42 * DAY);
+  w.sensor.onWindow(okPage([fact({ eventId: 'far-future' })], { syncToken: 'sync-second' }));
+  const baseline = await w.service.syncCalendar(alice, { baseline: true });
+
+  assert.equal(baseline.mode, 'REBASELINE', 'a window read with a cursor in hand is a re-baseline');
+  assert.equal(w.sensor.changeCalls.length, 0, 'the stored token was not used for this pass');
+  const secondWindow = w.sensor.windowCalls[1]!;
+  assert.equal(secondWindow.timeMax.getTime() - firstWindow.timeMax.getTime(), 42 * DAY, 'the horizon moved with the clock');
+  assert.ok(secondWindow.timeMin > firstWindow.timeMin);
+
+  // The cursor is replaced, so the next ordinary pass is incremental against the NEW token.
+  const cursor = await w.sources.cursor(alice, 'CALENDAR');
+  assert.equal(cursor?.cursor, 'sync-second');
+  w.sensor.onChanges(okPage([], { syncToken: 'sync-third' }));
+  const after = await w.service.syncCalendar(alice);
+  assert.equal(after.mode, 'INCREMENTAL');
+  assert.deepEqual(w.sensor.changeCalls.map((c) => c.syncToken), ['sync-second']);
+});
+
+test('a failed baseline leaves the employee exactly where they were', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  w.sensor.onWindow(okPage([fact()], { syncToken: 'sync-first' }));
+  await w.service.syncCalendar(alice);
+  const before = events(w, alice).length;
+
+  w.advance(7 * DAY);
+  w.sensor.onWindow({ ok: false, failure: 'UNAVAILABLE' });
+  const failed = await w.service.syncCalendar(alice, { baseline: true });
+
+  assert.equal(failed.outcome, 'FAILED');
+  assert.equal(failed.mode, 'REBASELINE');
+  assert.equal(failed.cursorAdvanced, false);
+  const cursor = await w.sources.cursor(alice, 'CALENDAR');
+  assert.equal(cursor?.cursor, 'sync-first', 'the cursor a failure found is the cursor it leaves');
+  assert.equal(cursor?.lastFailureClass, 'UNAVAILABLE');
+  assert.equal(events(w, alice).length, before, 'and nothing stored was touched');
+
+  // The next ordinary pass carries on incrementally, so a failed correction costs nothing.
+  w.sensor.onChanges(okPage([]));
+  assert.equal((await w.service.syncCalendar(alice)).mode, 'INCREMENTAL');
+});
+
+test('a truncated baseline keeps the old cursor rather than storing half a picture', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  w.sensor.onWindow(okPage([fact()], { syncToken: 'sync-first' }));
+  await w.service.syncCalendar(alice);
+
+  w.advance(7 * DAY);
+  w.sensor.onWindow(okPage([fact({ eventId: 'partial' })], { syncToken: null, truncated: true }));
+  const truncated = await w.service.syncCalendar(alice, { baseline: true });
+
+  assert.equal(truncated.outcome, 'TRUNCATED');
+  assert.equal(truncated.cursorAdvanced, false);
+  assert.equal((await w.sources.cursor(alice, 'CALENDAR'))?.cursor, 'sync-first');
+  // What it did read is still stored: an upsert on the provider key is safe to repeat.
+  assert.ok(events(w, alice).some((r: any) => r.eventId === 'partial'));
+});
+
+test('a baseline asked for before there is any cursor is simply the first window', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  w.sensor.onWindow(okPage([fact()], { syncToken: 'sync-first' }));
+  const result = await w.service.syncCalendar(alice, { baseline: true });
+  assert.equal(result.mode, 'WINDOW');
+  assert.equal(result.cursorAdvanced, true);
+});
+
+test('a baseline is still one employee, and still bounded', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  const bob = await person(w, ORG_A);
+  w.sensor.onWindow(okPage([fact()], { syncToken: 'sync-first' }));
+  await w.service.syncCalendar(alice, { baseline: true });
+  await w.service.syncCalendar(bob, { baseline: true });
+
+  assert.deepEqual(w.tokenRequests, [alice, bob], 'each pass asked for its own principal’s token');
+  for (const call of w.sensor.windowCalls) {
+    const span = call.timeMax.getTime() - call.timeMin.getTime();
+    assert.equal(span, 37 * DAY, 'the same bounded window as the first pass -- never a crawl');
   }
 });

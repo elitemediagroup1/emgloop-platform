@@ -87,9 +87,24 @@ export interface CalendarSyncDeps {
  *
  *   WINDOW        the bounded first read, because there was no cursor.
  *   INCREMENTAL   changes since the stored cursor.
- *   REBASELINE    the cursor had expired, so ONE bounded window was read again.
+ *   REBASELINE    ONE bounded window was read again although a cursor existed -- because Google
+ *                 had forgotten it (410), or because the caller asked for a fresh baseline.
  */
 export type CalendarSyncMode = 'WINDOW' | 'INCREMENTAL' | 'REBASELINE';
+
+/**
+ * How this pass should read.
+ *
+ * `baseline` asks for a bounded window read even though a usable cursor exists. IT IS NOT AN
+ * OPTIMIZATION, IT IS A CORRECTION: a Google sync token inherits the window that minted it, so a
+ * cursor kept alive for months keeps reporting against a `timeMax` that is months in the past,
+ * and events scheduled beyond that horizon never arrive. Re-reading the rolling window replaces
+ * the token with one whose horizon starts from today (§8.2, and the DL-5 follow-up recorded in
+ * #292). The scheduled cycle asks for it on its own cadence; nothing else does.
+ */
+export interface CalendarSyncOptions {
+  readonly baseline?: boolean;
+}
 
 export interface CalendarSyncOutcome {
   readonly outcome: 'SUCCEEDED' | 'TRUNCATED' | 'FAILED';
@@ -157,7 +172,7 @@ export class CalendarSyncService {
    * The principal is the whole authorization: the token is fetched for it, and the rows are
    * written for it. Nothing in the call can name a different person.
    */
-  async syncCalendar(principal: WorkPrincipal): Promise<CalendarSyncOutcome> {
+  async syncCalendar(principal: WorkPrincipal, options: CalendarSyncOptions = {}): Promise<CalendarSyncOutcome> {
     const startedAt = this.now();
     const run = await this.deps.sources.startRun(principal, 'CALENDAR', startedAt);
 
@@ -171,16 +186,23 @@ export class CalendarSyncService {
     const identity = await this.deps.access.identity(principal);
     const cursor = await this.deps.sources.cursor(principal, 'CALENDAR');
     const storedToken = cursor?.cursorKind === 'CALENDAR_SYNC_TOKEN' ? cursor.cursor : null;
+    // A requested baseline sets the stored token aside for this pass. It is NOT deleted: the
+    // cursor is only ever replaced by a read that actually succeeded, so a failed baseline
+    // leaves the employee on the incremental path they were already on.
+    const readToken = options.baseline ? null : storedToken;
     const observedAt = this.now();
 
-    let mode: CalendarSyncMode = storedToken ? 'INCREMENTAL' : 'WINDOW';
-    let result: CalendarReadResult = storedToken
-      ? await this.deps.sensor.readChanges({ accessToken: token.accessToken, syncToken: storedToken, observedAt, ...identity })
+    // Re-reading the window while a cursor exists is a REBASELINE whoever asked for it; reading
+    // it with no cursor at all is still the first WINDOW.
+    let mode: CalendarSyncMode = readToken ? 'INCREMENTAL' : storedToken ? 'REBASELINE' : 'WINDOW';
+    let result: CalendarReadResult = readToken
+      ? await this.deps.sensor.readChanges({ accessToken: token.accessToken, syncToken: readToken, observedAt, ...identity })
       : await this.deps.sensor.readWindow({ accessToken: token.accessToken, ...this.window(observedAt), observedAt, ...identity });
 
     if (!result.ok && result.failure === 'CURSOR_EXPIRED') {
       // Google forgot the cursor. The architecture's answer is ONE bounded window read -- the
       // same window as the first pass -- and never a walk back through the calendar's history.
+      // One retry, because this branch is only reachable from the incremental read above.
       mode = 'REBASELINE';
       result = await this.deps.sensor.readWindow({ accessToken: token.accessToken, ...this.window(observedAt), observedAt, ...identity });
     }

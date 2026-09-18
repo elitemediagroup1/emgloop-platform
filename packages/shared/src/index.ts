@@ -502,3 +502,7 @@ export * from './calendar-sensor';
 // Your Day (DL-4): the pure projection of stored calendar facts into the day an employee is
 // actually having, and how current that picture is. No formatting, no zone arithmetic, no model.
 export * from './your-day';
+// The Google connection's deployment configuration (names, validation, redirect URI). Pure, and
+// shared because the Next.js server and the scheduled Calendar cycle must agree exactly on what
+// "configured" means -- a laxer second reader is how a wrong token key reaches the sealer.
+export * from './google-environment';

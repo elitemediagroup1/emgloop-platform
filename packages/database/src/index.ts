@@ -582,6 +582,18 @@ export type {
   CalendarSensorPort,
   CalendarSyncDeps,
   CalendarSyncMode,
+  CalendarSyncOptions,
   CalendarSyncOutcome,
   CalendarConnectionState,
 } from './services/work-state';
+// The Calendar sync as a runtime assembles it (DL-5). One assembly, so the scheduled cycle and
+// the web server read a calendar the same way, with the same hardened network and the same IAM.
+export {
+  createEmployeeCalendarSync,
+  calendarAccessPort,
+  calendarGoogleWorkspace,
+  googleCalendarSensor,
+  type EmployeeCalendarSyncConfig,
+} from './services/work-state';
+export { createGoogleOAuthPort, googleFetch } from './services/google/google-oauth-port';
+export type { GoogleClientConfig, GoogleFetch } from './services/google/google-oauth-port';
