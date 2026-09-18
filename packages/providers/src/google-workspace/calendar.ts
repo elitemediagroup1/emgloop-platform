@@ -346,11 +346,26 @@ function pageSizeOf(options: CalendarCallOptions): string {
 }
 
 /**
- * The first read: one explicit window of the primary calendar.
+ * The first read: one explicit window of the primary calendar, AND the read that has to come
+ * back with a sync token, because every later read depends on one.
  *
- * `singleEvents=true` expands a recurring event into the instances a person actually has, which
- * is what a day is made of. `orderBy=startTime` is only legal with it, and is what makes a
- * truncated read a prefix of the day rather than an arbitrary sample.
+ * `singleEvents=true` expands a recurring event into the instances a person actually has,
+ * which is what a day is made of.
+ *
+ * THERE IS DELIBERATELY NO `orderBy`. Google's events.list reference lists the parameters that
+ * cannot be combined with a sync token -- `iCalUID`, `orderBy`, `privateExtendedProperty`, `q`,
+ * `sharedExtendedProperty`, `timeMin`, `timeMax`, `updatedMin` -- and a request carrying one it
+ * cannot replay incrementally is answered WITHOUT a `nextSyncToken`. `timeMin` and `timeMax`
+ * are the documented exception: the sync guide's own sample limits a full sync by date range
+ * and still receives a token. `orderBy` is not, so asking for sorted results silently cost the
+ * cursor, and every pass re-read the whole window instead of the changes (first seen in
+ * production on 2026-09-17: two identical WINDOW syncs in a row).
+ *
+ * NOTHING NEEDED THE SORT. Events are stored and later read back ordered by their own start
+ * time, so ordering here bought nothing -- except that a truncated read is now an arbitrary
+ * subset of the window rather than its earliest events. That is acceptable because a truncated
+ * pass stores no cursor and re-reads next time, and because 10 pages of 250 is 2,500 events
+ * inside a 37-day window.
  */
 export function readGoogleCalendarWindow(request: CalendarWindowRequest): Promise<CalendarReadResult> {
   if (!(request.timeMax > request.timeMin)) {
@@ -359,7 +374,6 @@ export function readGoogleCalendarWindow(request: CalendarWindowRequest): Promis
   return readPages(request, () => {
     const params = new URLSearchParams({
       singleEvents: 'true',
-      orderBy: 'startTime',
       maxResults: pageSizeOf(request),
       timeMin: request.timeMin.toISOString(),
       timeMax: request.timeMax.toISOString(),
