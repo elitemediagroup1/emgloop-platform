@@ -14,7 +14,7 @@ import { LoopPage, PageHead, Panel } from '../_loop-os/record';
 // person cannot open is shown. It shows no business data, so it invents none.
 // Drawn with the Loop design system's shared primitives.
 
-export function ModuleHome({ name, groups, day }: { name: string; groups: readonly NavGroup[]; day?: ReactNode }) {
+export function ModuleHome({ name, groups, day, mail }: { name: string; groups: readonly NavGroup[]; day?: ReactNode; mail?: ReactNode }) {
   const areas = groups
     .map((group) => ({
       label: group.label || 'More',
@@ -27,6 +27,10 @@ export function ModuleHome({ name, groups, day }: { name: string; groups: readon
       <PageHead trail={[{ label: 'Your Loop' }]} title={`Welcome, ${name}`} subtitle="Everything you have access to in Loop." />
       {/* YOUR DAY (DL-4): this person's own calendar, above the areas they can open. */}
       {day}
+
+      {/* YOUR MAIL (GM-3): what needs this person, what they are waiting on, and what changed.
+          Their own mailbox, and nobody else's. */}
+      {mail}
       <div className="loop-home">
         {areas.map((area) => (
           <Panel title={area.label} key={area.label}>

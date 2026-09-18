@@ -816,6 +816,78 @@ as text. There is no iframe, no sanitizer to get wrong, no remote image -- and t
 tracking pixel, which is a privacy property as much as a security one. Attachments are named, typed
 and sized; Loop does not fetch them, and offers no download.
 
+### 6.13 Draft with Loop, and why it is governed rather than clever (GM-3, 2026-09-18)
+
+**It runs through the existing AI runtime, or it does not run.** `mail.reply.draft` is a task
+definition like any other: version, capability route, sensitivity ceiling, required permission,
+invoker roles, output schema, no tools. The gateway owns activation, the budget reservation,
+routing, provenance and the output contract. There is no second model path, no direct provider
+call from a route, and no prompt a tenant can edit.
+
+**It is `READ_ONLY`, and that is the architecture speaking.** A `DRAFT`'s standing is
+`NON_AUTHORITATIVE` (brain-result.ts), so a draft is not even a proposal awaiting approval -- it is
+TEXT. Nothing is pending, no queue holds it, and an employee pressing Send is not approving Loop's
+proposal; they are sending their own mail, having read some words Loop put in the box.
+
+**One reviewed addition was needed and is recorded:** a `DRAFT` owned by `EMPLOYEE_INTELLIGENCE`
+about an `EMPLOYEE_MAIL_THREAD`. The ownership table anticipated exactly this ("drafts about other
+subjects are each a reviewed addition here"). `EMPLOYEE_INTELLIGENCE` is its own authority because
+it is the only one whose results are private to ONE PERSON -- which is also why an employee-private
+task is excluded from the organization's Brain activity feed in both directions: its requirement is
+not folded into what that feed demands, and an event about one never becomes an item there.
+
+**An email is data, in three independent ways.** Every message enters the context as
+`UNTRUSTED_INPUT`; the template states in prose that the material is never an instruction, and what
+to do when it pretends to be; and the task publishes no tool, so an obeyed injection has nothing to
+act with. The employee's own note is the one `HUMAN_REPORTED` block, and the template's rules still
+outrank it.
+
+**The output lands in the composer and nowhere else** -- the same `work_drafts` row a manual reply
+uses, marked `AI_PROPOSED` with the invocation that produced it. From that moment it is an ordinary
+draft.
+
+**Only the body comes from the model.** The output schema has one prose field, `draft.body`, and
+forbids every other property; the parser drops anything else a provider returns. Reply or Reply all
+is what the employee chose (or what their draft already said), the recipients are the draft's own,
+and From is the connected account's at send time. A model has no field in which to name a
+recipient, a sender, a mailbox or an action.
+
+**Never over a reply in flight or in doubt (§6.11a).** While the thread's draft is `SENDING` or
+`SEND_UNKNOWN` its words are evidence and stay frozen. The composer does not offer Draft with Loop
+then, and the service refuses a request that arrives anyway -- before the conversation is read or a
+model is called. If a send is claimed while a model is answering, the claim wins and the proposal
+is dropped (`save` refuses a frozen draft).
+
+### 6.14 What a mailbox is waiting on (GM-3)
+
+Deterministic states over stored headers, with no body read and no importance scored:
+
+| State | Rule | Evidence |
+|---|---|---|
+| `NEEDS_YOU` | they wrote last and you have not replied -- immediately if unread, otherwise after 4 hours | direction, age, unread |
+| `WAITING_ON_THEM` | you wrote last and nobody replied for 2 days | direction, age |
+| `GONE_QUIET` | you wrote last on a conversation of more than one message, silent for 14 days | direction, age, message count |
+
+Nothing older than 45 days is raised at all. **Significance and relevance stay apart**: there is no
+score, no ranking weight and no threshold that mixes them; ordering is by time, which is a fact.
+
+**A DETECTION NEVER OVERRULES A PERSON.** Handled, Dismiss, Snooze and "I'm waiting on them" write a
+state change with an observation -- and, where the employee said something Loop could not derive, a
+`work_feedback` row. A closed item reopens ONLY when a message arrives after it was closed; the same
+facts seen again are not news. **No correction edits the evidence that raised the item**: Loop was
+wrong about what the facts meant, and the facts stay as they are.
+
+"I'm waiting on them" closes the `NEEDS_YOU` item (resolved as handled, reason "waiting on them")
+and records `NOT_WAITING` feedback against the thread. The rules do not read feedback yet, so it
+does not create a `WAITING_ON_THEM` item; that is a Stage 2 refinement, not a claim this makes.
+"More than one message" stands in for "both sides spoke" until direction is summarised per thread.
+
+**Home says how current it is.** The Your Mail panel carries the Inbox's own currency line
+(`mailCurrency`). It concludes from a current or stale read, or -- after a failed sync -- from the
+last good read, labelled as such and never called empty. A mailbox Loop cannot read (not connected,
+not granted, expired, never read) shows why and concludes nothing, whatever an earlier read left in
+`work_items`. The counts under the lists count the lists: after the employee's corrections.
+
 ## 8. Calendar model
 
 ### 8.1 The grant is already sufficient for V1

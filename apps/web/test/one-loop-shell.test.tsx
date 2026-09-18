@@ -512,7 +512,7 @@ describe('The active item and breadcrumb follow the page actually shown', () => 
 describe('Loop Home', () => {
   it('Owner/Admin/Manager get the operational overview; everyone else gets the areas they can open', () => {
     const app = code(read('app/app/page.tsx'));
-    assert.match(app, /\{role === 'ADMIN' \? <AdminHome day=\{day\} \/> : <ModuleHome name=\{session\.name\} groups=\{await navFor\(session\)\} day=\{day\} \/>\}/);
+    assert.match(app, /<AdminHome day=\{day\} mail=\{yourMail\} \/>[\s\S]*<ModuleHome name=\{session\.name\} groups=\{await navFor\(session\)\} day=\{day\} mail=\{yourMail\} \/>/);
     assert.equal(existsSync(join(APP, 'app', '_home', 'workspace-home.tsx')), false, 'the role-branded placeholder home is gone');
   });
 

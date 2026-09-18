@@ -55,3 +55,7 @@ export {
 // Sending one employee's reply, as themselves (GM-2). The only path out of Loop into somebody
 // else's inbox, and the only place its rules live.
 export { MailSendService, type MailSendDeps, type MailSendPort, type MailSendOutcome } from './mail-send.service';
+
+// A mailbox's state as the employee's own work items (GM-3). A detection never overrules a person:
+// a closed item reopens only on new evidence, and a correction is recorded beside the facts.
+export { MailAttentionService, type MailAttentionDeps, type MailAttentionOutcome } from './mail-attention.service';

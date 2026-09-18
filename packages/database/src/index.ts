@@ -629,3 +629,19 @@ export {
 // Sending one employee's reply, as themselves (GM-2). The only path out of Loop into somebody
 // else's inbox, and the only place its rules live.
 export { MailSendService, type MailSendDeps, type MailSendPort, type MailSendOutcome } from './services/work-state';
+
+// Draft with Loop (GM-3): a proposed reply, in the employee's own composer. It has no send port
+// and no path to one -- sending is a separate act, by a person, under its own authority.
+export { MailReplyDraftService, type MailReplyDraftDeps, type MailReplyDraftResult, type MailThreadReader } from './services/ai-runtime/mail-reply-draft.service';
+export { buildMailReplyContext, MAIL_DRAFT_CONTEXT_LIMITS } from './services/ai-runtime/mail-reply-context';
+export {
+  MAIL_REPLY_DRAFT_SCHEMA,
+  MAIL_REPLY_DRAFT_SCHEMA_ID,
+  MAIL_REPLY_DRAFT_TEMPLATE_ID,
+  MAIL_REPLY_DRAFT_TEMPLATE_VERSION,
+  renderMailReplyDraftInstructions,
+} from './services/ai-runtime/templates/mail-reply-draft';
+
+// A mailbox's state as the employee's own work items (GM-3). A detection never overrules a person:
+// a closed item reopens only on new evidence, and a correction is recorded beside the facts.
+export { MailAttentionService, type MailAttentionDeps, type MailAttentionOutcome } from './services/work-state';

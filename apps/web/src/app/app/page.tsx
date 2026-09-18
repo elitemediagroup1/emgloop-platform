@@ -9,6 +9,12 @@ import { ModuleHome } from './_home/module-home';
 import { YourDay } from './_home/your-day';
 import { RefreshCalendar } from './_home/refresh-calendar';
 import { loadYourDay } from '../../daily-loop/your-day';
+import { YourMail } from './_home/your-mail';
+import { loadMail } from '../../daily-loop/mail';
+import { mailCurrency } from './mail/_mail/mail-parts';
+import { loadMailAttention } from '../../daily-loop/mail-attention';
+import { readerTimeZone } from '../../daily-loop/reader-zone';
+import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 
 // Loop Home — the first destination after sign-in, for every role.
 //
@@ -33,9 +39,30 @@ export default async function LoopHome() {
   const principal = { organizationId: session.organizationId, userId: session.userId };
   const day = <YourDay view={await loadYourDay(principal)} refresh={<RefreshCalendar />} />;
 
+  // YOUR MAIL (GM-3). A visit refreshes the mailbox at most every five minutes; the attention
+  // items are then recomputed from what is stored, so one sync serves Home and the Inbox alike.
+  // A person with no Google connection gets nothing here rather than an empty promise.
+  //
+  // HOW CURRENT IT IS TRAVELS WITH IT. Attention is concluded only from a mailbox Loop has read:
+  // a current or stale read, or -- after a failed sync -- the last good one, labelled as such. A
+  // mailbox Loop cannot read (not granted, expired, never read) shows why and concludes nothing,
+  // however many items an earlier read left behind. Not connected at all: no panel, as before.
+  const mail = await loadMail(principal, { limit: 1 });
+  const zone = resolveDisplayTimeZone({ preference: null, device: readerTimeZone() });
+  const mailTime = createTimeView(zone, new Date());
+  const connected = mail !== null && mail.freshness !== 'NOT_CONNECTED' && mail.freshness !== 'NOT_CONFIGURED';
+  const currency = connected ? mailCurrency(mail.freshness, mail.lastSyncedAt, mail.syncInProgress, mailTime) : null;
+  const concludable = mail !== null && mail.lastSyncedAt !== null && (mail.knows || mail.freshness === 'SYNC_FAILED');
+  const attention = concludable ? await loadMailAttention(principal, { timeZone: zone.timeZone }) : null;
+  const yourMail = <YourMail view={attention} time={mailTime} currency={currency} current={mail?.knows ?? false} />;
+
   return (
     <WorkspaceShell session={session}>
-      {role === 'ADMIN' ? <AdminHome day={day} /> : <ModuleHome name={session.name} groups={await navFor(session)} day={day} />}
+      {role === 'ADMIN' ? (
+        <AdminHome day={day} mail={yourMail} />
+      ) : (
+        <ModuleHome name={session.name} groups={await navFor(session)} day={day} mail={yourMail} />
+      )}
     </WorkspaceShell>
   );
 }

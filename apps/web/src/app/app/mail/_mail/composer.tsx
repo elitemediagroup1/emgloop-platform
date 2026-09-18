@@ -16,7 +16,7 @@
 
 import { WORK_SEND_POLICY, type GmailAddress } from '@emgloop/shared';
 
-import { checkSendAction, discardDraftAction, releaseSendAction, saveDraftAction, sendReplyAction } from '../../../../daily-loop/mail-actions';
+import { checkSendAction, discardDraftAction, draftWithLoopAction, releaseSendAction, saveDraftAction, sendReplyAction } from '../../../../daily-loop/mail-actions';
 
 export interface ComposerDraft {
   readonly body: string;
@@ -43,9 +43,10 @@ export function Composer(props: {
   readonly replyTo: readonly GmailAddress[];
   readonly replyAllCc: readonly GmailAddress[];
   readonly canSend: boolean;
-  readonly aiDraft?: React.ReactNode;
   /** The render's clock, so "can the employee release this yet" is decided the same way twice. */
   readonly now?: Date;
+  /** Whether Loop can draft here, and if not, why -- an honest state, never a hidden button. */
+  readonly draftWithLoop?: { readonly available: boolean; readonly reason: string | null };
 }) {
   const { threadId, inReplyToMessageId, draft } = props;
   const state = draft?.sendState ?? 'DRAFT';
@@ -167,7 +168,14 @@ export function Composer(props: {
               Save draft
             </button>
           )}
-          {frozen ? null : props.aiDraft ?? null}
+          {!frozen && props.draftWithLoop?.available ? (
+            // Same form, so whatever the employee has already typed travels with it as their
+            // instruction. It fills this box; it does not send anything. Not offered while a reply
+            // is in flight or in doubt: those words are frozen as evidence.
+            <button type="submit" formAction={draftWithLoopAction} className="loop-btn">
+              Draft with Loop
+            </button>
+          ) : null}
           {draft && !frozen ? (
             <button type="submit" formAction={discardDraftAction} className="loop-btn loop-btn--quiet">
               Discard
@@ -176,8 +184,12 @@ export function Composer(props: {
         </div>
       </form>
 
+      {props.draftWithLoop && !props.draftWithLoop.available && props.draftWithLoop.reason ? (
+        <p className="loop-compose__note muted">Draft with Loop is unavailable: {props.draftWithLoop.reason}.</p>
+      ) : null}
       <p className="loop-compose__note muted">
-        Sent from your own Gmail account, as you. Loop never sends mail on its own.
+        Sent from your own Gmail account, as you. Loop never sends mail on its own, and never
+        sends anything it drafted without you.
       </p>
     </section>
   );

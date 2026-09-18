@@ -63,6 +63,12 @@ export const BRAIN_RESULT_OWNERS = [
   // communication and the only one whose people may send it.
   'COMMUNICATIONS',
   'DECISION_ENGINE',
+  // One employee's own work context (Daily Loop; daily-loop-employee-intelligence.md §20.1).
+  // It is its own authority because it is the only one whose results are PRIVATE TO ONE PERSON:
+  // an OWNER does not hold them, an ADMIN does not hold them, and nothing here may be published
+  // into an organization-level surface. It owns what Loop concludes or proposes about that
+  // person's own mail and calendar, and nothing about anybody else's.
+  'EMPLOYEE_INTELLIGENCE',
 ] as const;
 export type BrainResultOwnerAuthority = (typeof BRAIN_RESULT_OWNERS)[number];
 
@@ -84,6 +90,10 @@ export const BRAIN_RESULT_SUBJECT_TYPES = [
   'CAMPAIGN',
   'CUSTOMER_CONVERSATION',
   'DECISION',
+  // One conversation in one employee's own mailbox. Deliberately not CUSTOMER_CONVERSATION: that
+  // is the CRM's shared record of the business talking to a customer, and this is somebody's
+  // private correspondence, which never becomes the other by being drafted against.
+  'EMPLOYEE_MAIL_THREAD',
 ] as const;
 export type BrainResultSubjectType = (typeof BRAIN_RESULT_SUBJECT_TYPES)[number];
 
@@ -115,6 +125,11 @@ export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freez
   // this path. Drafts about other subjects (a Relationship's outreach, a Campaign's
   // copy) are each a reviewed addition here when their first task is defined.
   rule('DRAFT', 'COMMUNICATIONS', 'CUSTOMER_CONVERSATION', 'a draft held by Communications, sent only by a separate act'),
+  // GM-3, and the reviewed addition the line above anticipated. A reply Loop proposes is held as
+  // a draft on the employee's own thread, by the authority that is that employee -- and sending
+  // it is a separate act, performed by them, under an authority (`employeeMail:send`) that no
+  // machine principal can hold.
+  rule('DRAFT', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_MAIL_THREAD', 'a reply drafted for the employee whose mail it is, sent only by that employee'),
   rule('PROPOSED_ACTION', 'DECISION_ENGINE', 'DECISION', 'a Decision Engine approval item'),
 ]);
 

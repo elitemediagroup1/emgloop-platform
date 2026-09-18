@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-18 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-18 (Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -1903,7 +1903,7 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
 
 ## GMAIL — the employee's mail as a work surface (GM-1..GM-3, in review)
 
-**GM-1 (draft #GM1PR): the Gmail sensor, ingestion and the three freshness paths.**
+**GM-1 (draft #295): the Gmail sensor, ingestion and the three freshness paths.**
 
 - **Scopes decided and verified against Google's current documentation (2026-09-18):**
   `gmail.readonly` (restricted — the narrowest scope that returns a body, and the one that permits
@@ -1946,8 +1946,32 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
   the employee's own Sent mail and never retried. No clock releases a claim, and a crashed attempt
   becomes `SEND_UNKNOWN`. Architecture §6.11a.
 
-**Next:** review GM-1 and GM-2, then GM-3 (Draft with Loop, Daily Loop attention, corrections,
-summary). §26 of the record has the full sequence.
+**GM-3 (draft #297): Draft with Loop, and what the mailbox is waiting on.**
+
+- **`mail.reply.draft`** — a governed AI task through the existing runtime (activation, budget,
+  routing, provenance, output contract, no tools). `READ_ONLY`, because a `DRAFT`'s standing is
+  `NON_AUTHORITATIVE`: it is text, not an approval item. One reviewed ownership addition —
+  `DRAFT` / `EMPLOYEE_INTELLIGENCE` / `EMPLOYEE_MAIL_THREAD` — which the ownership table
+  anticipated. Routing policy `routing.2026-09-18.3` adds the route (COMMUNICATION → OpenAI
+  primary, Anthropic fallback); budget adds a `mail-reply-draft` class, worst case still under
+  $50/day.
+- **Prompt injection** — every message enters as `UNTRUSTED_INPUT`, the template says so in prose,
+  and the task publishes no tool. Three independent reasons an injected instruction reaches nothing.
+- **Attention** — deterministic `NEEDS_YOU` / `WAITING_ON_THEM` / `GONE_QUIET` over stored headers,
+  each row carrying why it is there. Handled / Dismiss / Snooze / "I'm waiting on them" record
+  corrections beside the evidence; a closed item reopens only on new evidence.
+- **Home** — Your Mail sits beside Your Day: what needs you, what you are waiting on, what changed
+  since yesterday (counts, never narrative).
+- **An organization-feed leak was closed on the way**: employee-private tasks are now excluded from
+  the Brain activity feed's requirements and items.
+- **Final refresh onto main after #296 (2026-09-18)**: rebased onto `8f2d78c` without conflicts.
+  Three fixes from the re-review: Draft with Loop is refused while a reply is `SENDING` /
+  `SEND_UNKNOWN`, before any read or model call; Reply no longer silently becomes Reply all when
+  Loop drafts; and Home's Your Mail carries the Inbox's currency line and concludes nothing from an
+  unreadable mailbox.
+
+**Next:** review GM-1, GM-2 and GM-3 in that order, then commission Gmail in production (scopes,
+reconnect, secrets, the gate variable) as recorded in the GM-3 PR.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

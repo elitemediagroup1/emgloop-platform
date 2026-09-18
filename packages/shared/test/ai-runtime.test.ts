@@ -24,7 +24,8 @@
 // A BUDGET INCLUDES THE CALL BEING ASKED FOR. "Is there room for one more of this
 // size" -- not "is anything left" -- or the call that crosses the line is admitted.
 
-import { test } from 'node:test';
+import {
+  test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -34,6 +35,7 @@ import {
   AI_PROVIDER_IDS,
   AI_TASKS,
   AI_TASK_CASE_EXPLANATION,
+  AI_TASK_MAIL_REPLY_DRAFT,
   AI_ACTIVATION_OFF,
   AI_NO_SPEND,
   admitAiInvocation,
@@ -154,7 +156,7 @@ function output(patch: Partial<AiTaskOutput> = {}): AiTaskOutput {
 
 test('the first task is read-only, operational, structured, and tool-free', () => {
   assert.equal(AI_CONTRACT_VERSION, 'loop-ai.v1');
-  assert.deepEqual(AI_TASKS.map((t) => t.taskId), ['case.explanation']);
+  assert.deepEqual(AI_TASKS.map((t) => t.taskId), ['case.explanation', 'mail.reply.draft']);
   const task = aiTask('case.explanation')!;
   assert.equal(task, AI_TASK_CASE_EXPLANATION);
   assert.equal(task.consequence, 'READ_ONLY');
@@ -167,8 +169,32 @@ test('the first task is read-only, operational, structured, and tool-free', () =
   assert.deepEqual([...task.invokerRoles], ['OWNER', 'ADMIN']);
   for (const t of AI_TASKS) assert.ok(!t.invokerRoles.includes('AI_EMPLOYEE'), `${t.taskId} is never invoked by a machine`);
   assert.equal(aiTask('anything.else'), null);
-  // No task may write. The vocabulary allows a proposing task later; none exists.
+  // No task may write, and none proposes either. A DRAFT is NON_AUTHORITATIVE by the ownership
+  // table -- it is text, not an item in somebody's approval queue -- so the drafting task is
+  // READ_ONLY too, and an employee pressing Send is sending their own mail rather than approving
+  // a proposal of Loop's.
   for (const t of AI_TASKS) assert.equal(t.consequence, 'READ_ONLY', t.taskId);
+  // And no tool: a task that publishes no tool has nothing to act WITH, whatever it proposes.
+  for (const t of AI_TASKS) assert.deepEqual([...t.tools], [], `${t.taskId} publishes no tool`);
+});
+
+test('the drafting task proposes text for a person, and can reach nothing itself', () => {
+  const task = aiTask('mail.reply.draft')!;
+  assert.equal(task, AI_TASK_MAIL_REPLY_DRAFT);
+  assert.equal(task.resultType, 'DRAFT');
+  assert.equal(task.capabilityRoute, 'COMMUNICATION');
+  assert.equal(task.consequence, 'READ_ONLY', 'text, not an approval item');
+  // The evidence IS the correspondence, so the ceiling is content -- and the read authority is
+  // the employee's own work state, which grants their own rows and nobody else's.
+  assert.equal(task.sensitivityCeiling, 'COMMUNICATION_CONTENT');
+  assert.deepEqual([...task.requires], [{ resource: 'employeeIntelligence', action: 'view' }]);
+  // Every human role may answer their own mail; a machine is never an invoker.
+  assert.equal(task.invokerRoles.includes('AI_EMPLOYEE'), false);
+  assert.deepEqual([...task.invokerRoles], ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']);
+  // The draft is held by the employee whose mail it is, on their own thread -- never by a shared
+  // authority, and never against a CRM conversation.
+  assert.deepEqual({ ...task.resultOwner }, { authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_MAIL_THREAD' });
+  assert.deepEqual([...task.tools], []);
 });
 
 // --- 2. Context -------------------------------------------------------------------

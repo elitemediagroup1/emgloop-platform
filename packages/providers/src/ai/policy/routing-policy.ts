@@ -60,7 +60,12 @@ function target(
 }
 
 // .2: reviewed against Case Explanation task 2.0.0 (sectioned answer, per-source figures).
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-16.2';
+// .3 (2026-09-18, GM-3): adds Mail Reply Draft 1.0.0. Its route is COMMUNICATION, whose reviewed
+// preference is OpenAI -- "work whose main output is language meant for a person" is exactly a
+// reply somebody will send -- so the primary follows the preference and needs no written
+// departure. The fallback is Anthropic, because a draft that cannot be produced is a person
+// typing it themselves, not an outage worth failing over twice for.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-18.3';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
@@ -75,10 +80,23 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
       fallbackPermitted: true,
       budgetClass: 'case-explanation',
     }),
+    // GM-3. Smaller ceilings than an explanation: a reply is a few hundred words, and the
+    // deadlines leave room inside the platform's 60-second synchronous limit for the thread read
+    // that precedes the call.
+    'mail.reply.draft': Object.freeze({
+      taskId: 'mail.reply.draft',
+      taskVersion: '1.0.0',
+      primary: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
+      fallback: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 2_000 }),
+      fallbackPermitted: true,
+      budgetClass: 'mail-reply-draft',
+    }),
   }),
 });
 
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-16.1-proposed';
+// .2 (GM-3): adds the mail-reply-draft class and raises the organization and global ceilings to
+// cover it. Still a proposal until Matt approves the figures.
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-18.2-proposed';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
@@ -88,7 +106,19 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
       maxOutputTokensPerCall: 6_000,
       taskDaily: Object.freeze({ maxInvocations: 20, maxInputTokens: 800_000, maxOutputTokens: 120_000 }),
     }),
+    // A drafting task is used far more often than an investigation and costs far less per call:
+    // one conversation in, a few hundred words out. The daily ceiling is what one person can
+    // plausibly send in a day, not what a mailbox could ask for.
+    'mail-reply-draft': Object.freeze({
+      maxInputTokensPerCall: 20_000,
+      maxOutputTokensPerCall: 2_000,
+      taskDaily: Object.freeze({ maxInvocations: 50, maxInputTokens: 800_000, maxOutputTokens: 120_000 }),
+    }),
   }),
-  organizationDaily: Object.freeze({ maxInvocations: 30, maxInputTokens: 1_200_000, maxOutputTokens: 180_000 }),
-  globalDaily: Object.freeze({ maxInvocations: 50, maxInputTokens: 2_000_000, maxOutputTokens: 300_000 }),
+  // The ceilings still bound the WORST case, which is every call being the dearest class at its
+  // per-call limit: 70 x ~$0.70 is under the $50 a day this policy promises. Drafting is far
+  // cheaper than that per call, so in practice the drafting class buys many more than 70 replies
+  // -- the global number is a blast radius, not a forecast.
+  organizationDaily: Object.freeze({ maxInvocations: 60, maxInputTokens: 2_000_000, maxOutputTokens: 300_000 }),
+  globalDaily: Object.freeze({ maxInvocations: 70, maxInputTokens: 3_000_000, maxOutputTokens: 450_000 }),
 });

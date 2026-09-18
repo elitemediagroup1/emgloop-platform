@@ -523,3 +523,6 @@ export * from './work-freshness';
 // Reading an email as text (GM-2). Loop renders mail as text and only as text: a body is
 // attacker-controlled markup, and the words are what an employee needs.
 export * from './mail-text';
+// What a mailbox is waiting on (GM-3): deterministic states over stored headers. No body is read,
+// no importance is scored, and significance never collapses into relevance.
+export * from './mail-attention';

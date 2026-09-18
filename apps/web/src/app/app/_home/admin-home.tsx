@@ -104,7 +104,7 @@ function ScoreRow({ label, yText, tText, r, neutral }: {
 
 interface Priority { tone: Tone; text: string; href: string }
 
-export async function AdminHome({ day }: { day?: ReactNode }) {
+export async function AdminHome({ day, mail }: { day?: ReactNode; mail?: ReactNode }) {
   // The Owner/Admin/Manager home. Its authority used to come only from the
   // /app/admin layout; it now renders at /app, so it states that authority
   // itself. (Its loader also re-checks it.)
@@ -172,6 +172,10 @@ export async function AdminHome({ day }: { day?: ReactNode }) {
           rhythm. It renders the signed-in person's own calendar and nothing else; an owner
           reading this page is reading their own day, not their organization's. */}
       {day}
+
+      {/* YOUR MAIL (GM-3): what needs this person, what they are waiting on, and what changed.
+          Their own mailbox, and nobody else's. */}
+      {mail}
 
       <div className="loop-home">
 

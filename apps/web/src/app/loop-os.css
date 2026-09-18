@@ -3911,3 +3911,22 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-compose__pending-title { font-weight: 650; color: var(--loop-ink); }
 .loop-compose__pending form { display: contents; }
 .loop-mail__tag--attention { color: var(--loop-warn); border-color: var(--loop-warn-soft); background: var(--loop-warn-soft); }
+
+/* ===================== YOUR MAIL (attention) =====================
+   What needs the employee, what they are waiting on, and what changed (GM-3).
+   Every row carries why it is here and how to disagree with it. */
+.loop-attend { display: flex; flex-direction: column; gap: 16px; }
+.loop-attend .muted { color: var(--loop-muted); }
+.loop-attend .loop-eyebrow { margin: 0 0 8px; }
+.loop-attend__group { display: flex; flex-direction: column; }
+.loop-attend__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.loop-attend__item { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.loop-attend__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 24em; }
+.loop-attend__title { font-size: 14px; font-weight: 650; color: var(--loop-ink); text-decoration: none; overflow-wrap: anywhere; }
+.loop-page a.loop-attend__title { color: var(--loop-ink); }
+.loop-attend__title:hover { color: var(--loop-accent); }
+.loop-attend__why { margin: 0; font-size: 12.5px; }
+.loop-attend__acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.loop-attend__acts .loop-btn { min-height: 30px; padding: 4px 9px; font-size: 12.5px; }
+.loop-attend__acts form { display: contents; }
+@media (max-width: 760px) { .loop-attend__acts { width: 100%; } }
