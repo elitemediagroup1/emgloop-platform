@@ -1,238 +1,178 @@
 // CallGrid Intelligence — Sources.
 //
-// HYBRID by provenance (verified per metric, never blended silently):
-//   • Source counts (Total / Active Sources) come from the canonical call
-//     projection and HONOR the selected calendar range.
-//   • Bid performance (opportunities / submitted / won / win rate / rejections)
-//     is snapshot-only — the provider's report endpoints accept no arbitrary
-//     range — so it reflects the LATEST synchronized snapshot and says so. It is
-//     never filtered by the calendar range and never fabricated for history.
+// SUPPLY, AS FAR AS CALLGRID LETS US FOLLOW IT: bid opportunities → bids → won from
+// the provider's bid snapshot, beside calls → billable → revenue → net profit from
+// the calls, per source. The two are DIFFERENT GRAINS and stay fenced: the bid
+// snapshot is one provider day in UTC and does not follow the selected period; the
+// calls do. They are shown side by side, joined on CallGrid's own source id, and
+// never added together. A source with bids and no calls in the period is listed --
+// that is exactly the row an operator needs to see.
+//
+// The source intelligence the page carried before (call intelligence, bid
+// intelligence, contribution, rejection analysis, unknowns) is kept, behind one
+// disclosure.
 
-import { requireCrmContext } from '../../../../../crm/crm-data';
+import Link from 'next/link';
 import {
-  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow,
   sumReported, sourceWinRate, rejectionClassification,
 } from '@emgloop/shared';
-import { num } from '../../../_loop-os';
-import { loadCallGridReport } from '../callgrid-report';
+import { loadCommandContext, withQuery, type SearchParams } from '../command-data';
+import { CommandShell, Card, money, count, pct } from '../command-ui';
 import { loadBidReport, bidSnapshotMatches, type BidSourceRow } from '../bid-report';
-import { summarizeRows, revPerBillable } from '../dimension-metrics';
+import { trend } from '../dimension-metrics';
 import { dimensionIntelligence, bidIntelligence } from '../intelligence-data';
-import {
-  DimensionShell, SummaryTiles, PerformanceTable, SnapshotNotice, ActivitySection,
-  type PerfColumn, type SummaryTile,
-} from '../dimension-ui';
+import { SnapshotNotice, TrendCell } from '../dimension-ui';
 import { FindingList, UnknownsSection, ContributionTable } from '../intelligence-ui';
-import { requireWorkspace } from '../../../../../workspaces/guard';
+import type { CallGridDimRow } from '../callgrid-report';
+import { requireWorkspacePermission } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
-const bidNum = (n: number | null) => (n === null ? '—' : num(n));
-const pct = (n: number | null) => (n === null ? '—' : n + '%');
-/** Money that never dresses an unknown as $0. */
-function money(cents: number | null): string {
-  if (cents === null) return 'Unknown';
-  const sign = cents < 0 ? '-' : '';
-  return sign + '$' + Math.round(Math.abs(cents) / 100).toLocaleString('en-US');
-}
-
-// Source-side rejection categories. The operational meaning of each comes from
-// the shared classification registry — this page does not author its own copy,
-// so "closed target is expected configuration" means the same thing everywhere.
-const REJECTION_KEYS: { key: keyof BidSourceRow['rejections']; classification: string }[] = [
-  { key: 'failedAcceptance', classification: 'failedAcceptance' },
-  { key: 'duplicateBids', classification: 'duplicateBids' },
-  { key: 'closed', classification: 'closed' },
-  { key: 'paused', classification: 'paused' },
-  { key: 'failedTagRules', classification: 'failedTagRules' },
-  { key: 'duplicateCaller', classification: 'duplicateCaller' },
-  { key: 'callerIdRejected', classification: 'callerIdRejected' },
+const BASE = '/app/admin/marketplace';
+const REJECTION_KEYS: (keyof BidSourceRow['rejections'])[] = [
+  'failedAcceptance', 'duplicateBids', 'closed', 'paused', 'failedTagRules', 'duplicateCaller', 'callerIdRejected',
 ];
 
-export default async function SourcesPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
-  await requireWorkspace('ADMIN');
-  const { organizationId: org } = await requireCrmContext();
+interface SourceLine {
+  key: string;
+  label: string;
+  call: CallGridDimRow | null;
+  bid: BidSourceRow | null;
+}
 
-  const now = new Date();
-  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, now);
-  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
-  const desc = describeCallGridWindow(window, now);
+export default async function SourcesPage({ searchParams }: { searchParams?: SearchParams }) {
+  const session = await requireWorkspacePermission('ADMIN', 'intelligence', 'view');
+  const ctx = await loadCommandContext(session, searchParams);
+  const { report, now, window, query } = ctx;
+  const bid = await loadBidReport(ctx.organizationId);
+  const matches = bidSnapshotMatches(bid.meta, window);
+  const callIntel = dimensionIntelligence(report, 'sources', now);
+  const bidIntel = bidIntelligence(bid, now, ctx.desc.periodTitle, matches);
 
-  const [callReport, bidReport] = await Promise.all([loadCallGridReport(org, window), loadBidReport(org)]);
+  // One line per source: joined on CallGrid's source id (the call row's key), and on
+  // name only when the snapshot carried no id match.
+  const lines = new Map<string, SourceLine>();
+  for (const r of report.dimensions.sources) lines.set(r.key, { key: r.key, label: r.label, call: r, bid: null });
+  for (const b of bid.sources) {
+    const byId = lines.get(b.key.toLowerCase());
+    const byName = byId ? null : [...lines.values()].find((l) => l.label.toLowerCase() === b.name.toLowerCase() && l.bid === null);
+    const target = byId ?? byName;
+    if (target) target.bid = b;
+    else lines.set(b.key.toLowerCase(), { key: b.key.toLowerCase(), label: b.name, call: null, bid: b });
+  }
+  const rows = [...lines.values()].sort((a, b) =>
+    (b.call?.revenueCents ?? -1) - (a.call?.revenueCents ?? -1) || (b.bid?.total ?? -1) - (a.bid?.total ?? -1),
+  );
+  const prior = report.comparisonByKey.sources;
 
-  const matches = bidSnapshotMatches(bidReport.meta, window);
-  const callIntel = dimensionIntelligence(callReport, 'sources', now);
-  const bidIntel = bidIntelligence(bidReport, now, desc.periodTitle, matches);
-
-  // Range-honoring source CALL performance (call projection).
-  const callSources = callReport.dimensions.sources;
-  const s = summarizeRows(callSources);
-  const periodTiles: SummaryTile[] = [
-    { title: 'Sources Observed', value: callReport.ok ? num(s.observed) : 'Unavailable', sub: 'With calls this period' },
-    { title: 'Active Sources', value: callReport.ok ? num(s.active) : 'Unavailable', sub: 'Produced revenue or a billable call' },
-    { title: 'Revenue', value: callReport.ok ? money(s.revenueCents) : 'Unavailable' },
-    { title: 'Billable Calls', value: callReport.ok ? num(s.billableCalls) : 'Unavailable' },
-    { title: 'Total Calls', value: callReport.ok ? num(s.totalCalls) : 'Unavailable' },
-    { title: 'Avg Revenue / Billable Call', value: callReport.ok ? money(s.avgRevPerBillableCents) : 'Unavailable' },
-  ];
-
-  // Snapshot-only bid metrics (latest synchronized window). Sums count only the
-  // sources that reported each field — absence is never totalled as zero.
-  const bidSources = [...bidReport.sources].sort((a, b) => (b.won ?? -1) - (a.won ?? -1));
-  const totalOpportunities = sumReported(bidSources, (r) => r.total);
-  const bidsSubmitted = sumReported(bidSources, (r) => r.bids);
-  const bidsWon = sumReported(bidSources, (r) => r.won);
-  const winRate = sourceWinRate(bidsWon.total, bidsSubmitted.total);
-  const bidTiles: SummaryTile[] = [
-    { title: 'Total Bid Opportunities', value: bidNum(totalOpportunities.total) },
-    { title: 'Bids Submitted', value: bidNum(bidsSubmitted.total) },
-    { title: 'Bids Won', value: bidNum(bidsWon.total) },
-    { title: 'Source Win Rate', value: winRate === null ? '—' : Math.round(winRate * 100) + '%', sub: 'Won ÷ bids submitted' },
-  ];
-
-  // Source CALL performance table (honors the selected range).
-  const callColumns: PerfColumn<(typeof callSources)[number]>[] = [
-    { label: 'Source', render: (r) => r.label },
-    { label: 'Revenue', align: 'right', render: (r) => money(r.revenueCents) },
-    { label: 'Billable', align: 'right', render: (r) => num(r.monetized) },
-    { label: 'Total Calls', align: 'right', render: (r) => num(r.calls) },
-    { label: 'Rev / Billable', align: 'right', render: (r) => money(revPerBillable(r.revenueCents, r.monetized)) },
-  ];
-
-  const columns: PerfColumn<BidSourceRow>[] = [
-    { label: 'Source', render: (r) => r.name },
-    { label: 'Bid Opportunities', align: 'right', render: (r) => bidNum(r.total) },
-    { label: 'Bids Submitted', align: 'right', render: (r) => bidNum(r.bids) },
-    { label: 'Bids Won', align: 'right', render: (r) => bidNum(r.won) },
-    { label: 'Win Rate', align: 'right', render: (r) => pct(r.winRatePct) },
-    { label: 'Rejected', align: 'right', render: (r) => bidNum(r.rejected) },
-    { label: 'Reject Rate', align: 'right', render: (r) => (r.rejectRatePct === null ? '—' : Math.round(r.rejectRatePct) + '%') },
-  ];
-
+  const bidOnly = rows.filter((r) => r.bid && (r.bid.bids ?? 0) > 0 && !r.call).length;
+  const opportunities = sumReported(bid.sources, (r) => r.total);
+  const submitted = sumReported(bid.sources, (r) => r.bids);
+  const won = sumReported(bid.sources, (r) => r.won);
+  const winRate = sourceWinRate(won.total, submitted.total);
   const rejectionTotals = REJECTION_KEYS
-    .map((rj) => {
-      const cls = rejectionClassification(rj.classification);
-      const sum = sumReported(bidSources, (r) => r.rejections[rj.key]);
-      return { key: rj.key, cls, count: sum.total, reported: sum.reported, of: sum.of };
-    })
-    .filter((rj) => rj.count !== null && rj.cls !== null);
+    .map((key) => ({ key, cls: rejectionClassification(key), sum: sumReported(bid.sources, (r) => r.rejections[key]) }))
+    .filter((x) => x.cls && x.sum.total !== null && x.sum.total > 0)
+    .sort((a, b) => b.sum.total! - a.sum.total!);
 
   return (
-    <DimensionShell
-      active="sources"
-      title="Sources"
-      subtitle="Traffic-source performance for the selected period."
-      window={window}
-      now={now}
-      customStart={range.start}
-      customEnd={range.end}
-      rangeQuery={rangeQuery}
-    >
-      <SummaryTiles tiles={periodTiles} label={`Source Call Performance · ${desc.periodTitle}`} />
+    <CommandShell ctx={ctx} active="sources" path={`${BASE}/sources`}>
+      <div className="cgx-strip">
+        <div className="cgx-strip__item"><span className="cgx-strip__n">{count(report.dimensions.sources.length)}</span><span className="cgx-strip__l">sources with calls in {ctx.selection.label}</span></div>
+        <div className="cgx-strip__item"><span className="cgx-strip__n">{opportunities.total === null ? '—' : count(opportunities.total)}</span><span className="cgx-strip__l">bid opportunities in the snapshot</span></div>
+        <div className="cgx-strip__item"><span className="cgx-strip__n">{winRate === null ? '—' : `${Math.round(winRate * 100)}%`}</span><span className="cgx-strip__l">won of bids submitted</span></div>
+        <div className="cgx-strip__item"><span className="cgx-strip__n">{count(bidOnly)}</span><span className="cgx-strip__l">sources bidding with no calls this period</span></div>
+      </div>
 
-      <FindingList
-        sectionLabel="Source Call Intelligence"
-        findings={callIntel.findings}
-        emptyLine={
-          callReport.comparison
-            ? 'No source movement in this period clears the significance thresholds.'
-            : 'No comparison period is defined for this selection, so no change can be analysed.'
-        }
-      />
-
-      <PerformanceTable
-        sectionLabel={`Source Call Performance · ${desc.periodTitle}`}
-        columns={callColumns}
-        rows={callSources}
-        getKey={(r) => r.key}
-        emptyLine="No source call activity for this period."
-      />
-
-      <ContributionTable contributions={callIntel.contributions} entityLabel="Source" money={money} />
-
-      {!bidReport.ok ? (
-        <div className="cg-sec">
-          <section className="tile tile--wide"><p className="tile__line cg-muted">Bid reporting could not be loaded.</p></section>
-        </div>
-      ) : !bidReport.hasData || !bidReport.meta ? (
-        <div className="cg-sec">
-          <section className="tile tile--wide"><p className="tile__line">No source bid data has been synchronized yet.</p></section>
-        </div>
+      {bid.meta ? (
+        <SnapshotNotice
+          windowStart={bid.meta.windowStart}
+          windowEnd={bid.meta.windowEnd}
+          fetchedAt={bid.meta.fetchedAt}
+          reportTimezone={bid.meta.reportTimezone}
+          selectedPeriodLabel={ctx.desc.periodTitle}
+          matchesSelectedPeriod={matches}
+        />
       ) : (
-        <>
-          <SnapshotNotice
-            windowStart={bidReport.meta.windowStart}
-            windowEnd={bidReport.meta.windowEnd}
-            fetchedAt={bidReport.meta.fetchedAt}
-            reportTimezone={bidReport.meta.reportTimezone}
-            selectedPeriodLabel={desc.periodTitle}
-            matchesSelectedPeriod={bidSnapshotMatches(bidReport.meta, window)}
-          />
-          <div className="cg-sec">
-            <p className="cg-seclabel">Source Bid Summary · latest snapshot (does not honor the selected period)</p>
-            <div className="dim-tiles">
-              {bidTiles.map((t) => (
-                <section className="tile" aria-label={t.title} key={t.title}>
-                  <div className="tile__head"><span className="tile__title">{t.title}</span></div>
-                  <div className="tile__num">{t.value}</div>
-                </section>
-              ))}
-            </div>
-          </div>
-
-          <FindingList
-            sectionLabel="Source Bid Intelligence"
-            findings={bidIntel.findings.filter((f) => f.findingType !== 'BID_DESTINATION')}
-            emptyLine="No source-side bid rejections were reported in this snapshot."
-          />
-
-          <PerformanceTable
-            sectionLabel="Source Bid Performance"
-            columns={columns}
-            rows={bidSources}
-            getKey={(r) => r.key}
-            emptyLine="No source bid data for this snapshot."
-          />
-          <p className="cg-tablenote">
-            Win rate is wins divided by bids <em>submitted</em>, not by opportunities presented. These are source-grain
-            counts and are never combined with destination-grain ping outcomes.
-          </p>
-
-          {rejectionTotals.length > 0 ? (
-            <div className="cg-sec">
-              <p className="cg-seclabel">Rejection Analysis</p>
-              <div className="cg-reasons">
-                {rejectionTotals.map((rj) => (
-                  <div className="cg-reason" key={rj.key}>
-                    <div className="cg-reason__head">
-                      <span className="cg-reason__label">{rj.cls!.displayName}</span>
-                      <span className="cg-reason__count">{num(rj.count!)}</span>
-                    </div>
-                    <p className="cg-reason__note">{rj.cls!.operationalMeaning}</p>
-                    <p className="cg-reason__meta">
-                      {rj.cls!.preventability === 'EXPECTED'
-                        ? 'Expected configuration'
-                        : rj.cls!.preventability === 'POSSIBLY_PREVENTABLE'
-                          ? 'Possibly preventable'
-                          : 'Not determinable from the report'}
-                      {' · '}Reported by {rj.reported} of {rj.of} sources
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <p className="cg-tablenote">
-                These are observed COUNTS. A source with the highest count is not necessarily the worst performer —
-                without a proven denominator per category, a count is not a rate.
-              </p>
-            </div>
-          ) : null}
-        </>
+        <p className="cgx-note">{bid.ok ? 'No bid snapshot has been synchronized yet, so only call figures are shown.' : 'Bid reporting could not be loaded, so only call figures are shown.'}</p>
       )}
 
-      <UnknownsSection unknowns={[...callIntel.unknowns, ...bidIntel.unknowns]} />
+      <Card title={`Sources · ${ctx.selection.label}`} wide>
+        {rows.length === 0 ? (
+          <p className="cgx-empty">No source activity in this period or the bid snapshot.</p>
+        ) : (
+          <div className="adm-tablewrap">
+            <table className="adm-table dim-table cgx-table">
+              <thead>
+                <tr>
+                  <th rowSpan={2}>Source</th>
+                  <th colSpan={4} className="cgx-th-group">Bid snapshot · provider day, UTC</th>
+                  <th colSpan={6} className="cgx-th-group">Calls · {ctx.selection.label}</th>
+                </tr>
+                <tr>
+                  <th className="dim-num">Opportunities</th><th className="dim-num">Bids</th><th className="dim-num">Won</th><th className="dim-num">Win rate</th>
+                  <th className="dim-num">Calls</th><th className="dim-num">Billable</th><th className="dim-num">Rate</th><th className="dim-num">Revenue</th><th className="dim-num">Net profit</th><th className="dim-num">vs prior</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key} className="dim-row">
+                    <td><Link href={withQuery(`${BASE}/sources/${encodeURIComponent(r.key)}`, query)} className="dim-rowlink">{r.label}</Link></td>
+                    <td className="dim-num">{r.bid ? (r.bid.total === null ? '—' : count(r.bid.total)) : '—'}</td>
+                    <td className="dim-num">{r.bid ? (r.bid.bids === null ? '—' : count(r.bid.bids)) : '—'}</td>
+                    <td className="dim-num">{r.bid ? (r.bid.won === null ? '—' : count(r.bid.won)) : '—'}</td>
+                    <td className="dim-num">{r.bid ? pct(r.bid.winRatePct) : '—'}</td>
+                    {/* No call rows for a source in a period Loop read: a real zero. */}
+                    <td className="dim-num">{!report.ok ? '—' : r.call ? count(r.call.calls) : '0'}</td>
+                    <td className="dim-num">{r.call ? count(r.call.monetized) : report.ok ? '0' : '—'}</td>
+                    <td className="dim-num">{r.call && r.call.calls > 0 ? pct((r.call.monetized / r.call.calls) * 100) : '—'}</td>
+                    <td className="dim-num">{r.call ? money(r.call.revenueCents) : '—'}</td>
+                    <td className="dim-num">{r.call ? money(r.call.marginCents) : '—'}</td>
+                    <td className="dim-num">{r.call ? <TrendCell t={trend(r.call.revenueCents, prior.get(r.key)?.revenueCents ?? null)} /> : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="cgx-foot">
+          “—” means not reported, never zero. Win rate is won ÷ bids submitted. The two halves of each row are different grains and are never added; open a source to see what CallGrid reports about why its bids did not become calls.
+        </p>
+      </Card>
 
-      <ActivitySection items={[]} emptyLine="No durable source-level CallGrid events for this period." />
-    </DimensionShell>
+      {rejectionTotals.length > 0 ? (
+        <Card title="Why bids were rejected — as CallGrid reported it" wide>
+          <div className="cg-reasons">
+            {rejectionTotals.map((rj) => (
+              <div className="cg-reason" key={rj.key}>
+                <div className="cg-reason__head">
+                  <span className="cg-reason__label">{rj.cls!.displayName}</span>
+                  <span className="cg-reason__count">{count(rj.sum.total)}</span>
+                </div>
+                <p className="cg-reason__note">{rj.cls!.operationalMeaning}</p>
+                <p className="cg-reason__meta">Reported by {rj.sum.reported} of {rj.sum.of} sources</p>
+              </div>
+            ))}
+          </div>
+          <p className="cgx-foot">Counts, not rates: without a proven denominator per category, the source with the highest count is not necessarily the worst.</p>
+        </Card>
+      ) : null}
+
+      <details className="cgx-more-section">
+        <summary className="cgx-more-section__summary">Source intelligence — the full analysis</summary>
+        <FindingList
+          sectionLabel="Source Call Intelligence"
+          findings={callIntel.findings}
+          emptyLine={report.comparison ? 'No source movement in this period clears the significance thresholds.' : 'No comparison period is defined for this selection.'}
+        />
+        <ContributionTable contributions={callIntel.contributions} entityLabel="Source" money={money} />
+        <FindingList
+          sectionLabel="Source Bid Intelligence"
+          findings={bidIntel.findings.filter((f) => f.findingType !== 'BID_DESTINATION')}
+          emptyLine="No source-side bid rejections were reported in this snapshot."
+        />
+        <UnknownsSection unknowns={[...callIntel.unknowns, ...bidIntel.unknowns]} />
+      </details>
+    </CommandShell>
   );
 }

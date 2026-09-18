@@ -1,33 +1,31 @@
-// The shared call-projection dimension page. Buyers, Vendors and Campaigns are
-// the SAME page with different data + labels — one implementation, configured.
-// Each route file is a thin wrapper that passes its config. Sources is bid-grain
-// and does not use this (it composes the same shell + primitives with its own data).
+// The shared dimension workspace. Buyers, Vendors and Campaigns are the SAME
+// workspace with different data and labels -- one implementation, configured; each
+// route file is a thin wrapper. (Sources composes the same pieces with its bid
+// snapshot beside it.)
 //
-// Sections: Header · Date · Summary · Intelligence · Performance table · Selected
-// detail · Contribution analysis · Unknowns · Activity.
+// THE WORKSPACE IS A TABLE THAT OPENS ENTITIES: calls, billable calls and rate,
+// revenue, net profit, margin, share and movement per entity, each row opening that
+// entity's own page. Concentration is stated as arithmetic (top one and top three
+// shares), not as a verdict.
 //
-// The intelligence comes from the same engine the Overview uses, scoped to this
-// dimension — so a driver named on the Overview is the same finding, with the
-// same evidence and the same rule version, when the operator clicks through.
+// THE DIMENSION'S INTELLIGENCE IS KEPT, ONE CLICK AWAY. Decision support, health,
+// stability, opportunities, risks, the timeline, contribution and the business story
+// -- the same engine, scoped to this dimension, exactly as before -- sit behind one
+// disclosure beneath the table instead of above it.
 
-import { requireCrmContext } from '../../../../crm/crm-data';
-import {
-  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow,
-  type IntelligenceDimension,
-} from '@emgloop/shared';
-import { num } from '../../_loop-os';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import type { IntelligenceDimension } from '@emgloop/shared';
+
+import type { AuthSession } from '../../../../auth/auth';
+import { loadCommandContext, withQuery, type SearchParams } from './command-data';
+import { CommandShell, money, count, pct } from './command-ui';
 import type { CallGridNavKey } from './_CallGridNav';
-import { loadCallGridReport, type CallGridDimRow, type Dimension } from './callgrid-report';
-import {
-  summarizeRows, revPerBillable, trend, shareOfRevenue, shareOfVolume,
-  parseDimSort, sortRows, buildDimQuery,
-} from './dimension-metrics';
+import type { CallGridDimRow, Dimension } from './callgrid-report';
+import { summarizeRows, trend, parseDimSort, sortRows } from './dimension-metrics';
 import { dimensionIntelligence } from './intelligence-data';
 import { loadCallGridHistory } from './callgrid-history-data';
-import {
-  DimensionShell, SummaryTiles, PerformanceTable, TrendCell, DetailPanel, ActivitySection,
-  type PerfColumn, type SummaryTile,
-} from './dimension-ui';
+import { PerformanceTable, TrendCell, type PerfColumn } from './dimension-ui';
 import {
   FindingList, UnknownsSection, ContributionTable,
   BusinessHealthSection, OpportunitiesSection, DecisionSupportSection,
@@ -41,226 +39,130 @@ export interface CallDimensionConfig {
   subtitle: string;
   entityLabel: string;      // "Buyer"
   entityLabelLower: string; // "buyer"
-  selectionParam: string;   // "buyer"
+  /** Kept for old links (?buyer=<key>): a selection now opens the entity's own page. */
+  selectionParam: string;
   share: 'revenue' | 'volume' | 'none';
 }
 
-type SP = Record<string, string | undefined>;
+const BASE = '/app/admin/marketplace';
 
-/** Money that never dresses an unknown as $0. */
-function money(cents: number | null): string {
-  if (cents === null) return 'Unknown';
-  const sign = cents < 0 ? '-' : '';
-  return sign + '$' + Math.round(Math.abs(cents) / 100).toLocaleString('en-US');
+/** Revenue share of the top N rows with known revenue -- arithmetic, not a verdict. */
+export function topShare(rows: readonly CallGridDimRow[], total: number | null, n: number): number | null {
+  if (total === null || total <= 0) return null;
+  // Only entities that reported revenue take part: an unpriced entity is not a zero.
+  const known = rows.flatMap((r) => (r.revenueCents === null ? [] : [r.revenueCents])).slice(0, n);
+  if (known.length === 0) return null;
+  return known.reduce((s, v) => s + v, 0) / total;
 }
-function pctOrDash(v: number | null): string {
-  return v === null ? '—' : v + '%';
-}
 
-export async function CallDimensionPage({ config, searchParams }: { config: CallDimensionConfig; searchParams?: SP }) {
-  const { organizationId: org } = await requireCrmContext();
+export async function CallDimensionPage({ config, session, searchParams }: { config: CallDimensionConfig; session: AuthSession; searchParams?: SearchParams }) {
+  const ctx = await loadCommandContext(session, searchParams);
+  const { report, window, now, query } = ctx;
+  const path = `${BASE}/${config.dim}`;
+  const sp = (k: string) => {
+    const v = searchParams?.[k];
+    return typeof v === 'string' ? v : undefined;
+  };
 
-  const now = new Date();
-  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, now);
-  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
-  const desc = describeCallGridWindow(window, now);
-  const sort = parseDimSort(searchParams?.sort, searchParams?.dir);
+  // An old link that selected a row (?buyer=<key>) now opens that entity's page.
+  const selected = sp(config.selectionParam);
+  if (selected) redirect(withQuery(`${path}/${encodeURIComponent(selected)}`, query));
 
-  // History powers the per-entity series findings (record periods, sustained
-  // fades, rising dominance, emergence, consistency) — the ones a delta against a
-  // single prior period cannot support. A live window yields an empty series by
-  // construction, so this costs nothing on Today.
-  const [report, history] = await Promise.all([
-    loadCallGridReport(org, window),
-    loadCallGridHistory(org, window),
-  ]);
+  const history = await loadCallGridHistory(ctx.organizationId, window);
+  const sort = parseDimSort(sp('sort'), sp('dir'));
   const allRows = report.dimensions[config.dim];
   const rows = sortRows(allRows, sort.key, sort.dir);
   const priorByKey = report.comparisonByKey[config.dim];
+  const priorRank = new Map(report.comparisonDimensions[config.dim].map((r, i) => [r.key, i + 1] as const));
   const s = summarizeRows(allRows);
-  const totalCalls = s.totalCalls;
-
+  const total = report.metrics.revenueCents;
   const intel = dimensionIntelligence(report, config.dim as IntelligenceDimension, now, { history });
-
-  // Attention-ordered: the top five lead the page, the rest fall below the
-  // metrics as "also worth reviewing". Ordering by score rather than severity is
-  // what stops an INFORMATIONAL record-high from outranking a live problem.
   const topIds = new Set(intel.decisionSupport.slice(0, 5).map((c) => c.findingId));
-  const remainingFindings = intel.ranked
-    .map((r) => r.finding)
-    .filter((f) => !topIds.has(f.id));
+  const remainingFindings = intel.ranked.map((r) => r.finding).filter((f) => !topIds.has(f.id));
 
-  const selectedKey = searchParams?.[config.selectionParam] ?? null;
-  const selected: CallGridDimRow | null = selectedKey ? allRows.find((r) => r.key === selectedKey) ?? null : null;
-  const selectedPrior = selected ? priorByKey.get(selected.key) : undefined;
-
-  // URL builders — every link preserves range + selection + sort. The preset is
-  // always explicit (Today included) so navigation never drops the selection.
-  const rangeBits = {
-    range: window.preset,
-    s: window.preset === 'custom' ? range.start : undefined,
-    e: window.preset === 'custom' ? range.end : undefined,
-  };
-  const rowHref = (key: string) =>
-    '?' + buildDimQuery({ ...rangeBits, sort: sort.key, dir: sort.dir, [config.selectionParam]: key });
   const sortHref = (key: string) =>
-    '?' + buildDimQuery({
-      ...rangeBits,
-      [config.selectionParam]: selectedKey ?? undefined,
-      sort: key,
-      dir: key === sort.key && sort.dir === 'desc' ? 'asc' : 'desc',
-    });
+    withQuery(path, query, { sort: key, dir: key === sort.key && sort.dir === 'desc' ? 'asc' : 'desc' });
+  const detailHref = (key: string) => withQuery(`${path}/${encodeURIComponent(key)}`, query);
+  const rate = (r: CallGridDimRow) => (r.calls > 0 ? (r.monetized / r.calls) * 100 : null);
+  const margin = (r: CallGridDimRow) => (r.marginCents !== null && r.revenueCents !== null && r.revenueCents > 0 ? (r.marginCents / r.revenueCents) * 100 : null);
 
-  // Summary tiles. "Observed" and "Active" are genuinely different measures:
-  // CallGrid exposes no roster, so observed = appeared this period, and active
-  // narrows that to entities that actually produced revenue or a billable call.
-  const tiles: SummaryTile[] = [
-    { title: `${config.entityLabel}s Observed`, value: num(s.observed), sub: 'With calls this period' },
-    { title: `Active ${config.entityLabel}s`, value: num(s.active), sub: 'Produced revenue or a billable call' },
-    { title: 'Revenue', value: report.metrics.available ? money(s.revenueCents) : 'Unavailable' },
-    { title: 'Billable Calls', value: num(s.billableCalls) },
-    { title: 'Total Calls', value: num(s.totalCalls) },
-    { title: 'Avg Revenue / Billable Call', value: money(s.avgRevPerBillableCents) },
-  ];
-
-  // Performance-table columns.
   const columns: PerfColumn<CallGridDimRow>[] = [
-    { label: config.entityLabel, render: (r) => <a href={rowHref(r.key)} className="dim-rowlink">{r.label}</a> },
+    { label: config.entityLabel, render: (r) => <Link href={detailHref(r.key)} className="dim-rowlink">{r.label}</Link> },
+    { label: 'Calls', align: 'right', sortKey: 'calls', render: (r) => count(r.calls) },
+    { label: 'Billable', align: 'right', sortKey: 'billable', render: (r) => count(r.monetized) },
+    { label: 'Billable rate', align: 'right', render: (r) => pct(rate(r)) },
     { label: 'Revenue', align: 'right', sortKey: 'revenue', render: (r) => money(r.revenueCents) },
-    { label: 'Billable', align: 'right', sortKey: 'billable', render: (r) => num(r.monetized) },
-    { label: 'Total Calls', align: 'right', sortKey: 'calls', render: (r) => num(r.calls) },
-    { label: 'Rev / Billable', align: 'right', sortKey: 'revPerBillable', render: (r) => money(revPerBillable(r.revenueCents, r.monetized)) },
+    { label: 'Net profit', align: 'right', sortKey: 'profit', render: (r) => money(r.marginCents) },
+    { label: 'Margin', align: 'right', render: (r) => pct(margin(r), 1) },
   ];
   if (config.share === 'revenue') {
-    columns.push({ label: 'Share of Revenue', align: 'right', render: (r) => pctOrDash(shareOfRevenue(r, s.revenueCents)) });
+    columns.push({ label: 'Share of revenue', align: 'right', render: (r) => pct(r.revenueCents !== null && total ? (r.revenueCents / total) * 100 : null) });
   } else if (config.share === 'volume') {
-    columns.push({ label: 'Share of Call Volume', align: 'right', render: (r) => pctOrDash(shareOfVolume(r, totalCalls)) });
+    columns.push({ label: 'Share of calls', align: 'right', render: (r) => pct(s.totalCalls > 0 ? (r.calls / s.totalCalls) * 100 : null) });
   }
-  columns.push({ label: 'Trend', align: 'right', render: (r) => <TrendCell t={trend(r.revenueCents, priorByKey.get(r.key)?.revenueCents ?? null)} /> });
+  columns.push({ label: 'Revenue vs prior', align: 'right', render: (r) => <TrendCell t={trend(r.revenueCents, priorByKey.get(r.key)?.revenueCents ?? null)} /> });
+  columns.push({
+    label: 'Rank',
+    align: 'right',
+    render: (r) => {
+      const now = allRows.indexOf(r) + 1;
+      const was = priorRank.get(r.key) ?? null;
+      return was === null ? 'New' : was === now ? `#${now}` : `#${now} (was #${was})`;
+    },
+  });
+
+  const top1 = topShare(allRows, total, 1);
+  const top3 = topShare(allRows, total, 3);
 
   return (
-    <DimensionShell
-      active={config.navKey}
-      title={config.title}
-      subtitle={config.subtitle}
-      window={window}
-      now={now}
-      customStart={range.start}
-      customEnd={range.end}
-      rangeQuery={rangeQuery}
-    >
+    <CommandShell ctx={ctx} active={config.navKey} path={path}>
       {!report.ok ? (
-        <div className="cg-sec">
-          <section className="tile tile--wide"><p className="tile__line cg-muted">CallGrid data could not be loaded. Reload to try again.</p></section>
-        </div>
+        <p className="cgx-note">CallGrid data could not be loaded. Reload to try again.</p>
       ) : (
         <>
-          {/* ORDER: intelligence, then health, then opportunities, then risks,
-              then metrics, then tables. The summary tiles used to sit first; they
-              answer "what happened", which CallGrid already answers. They are now
-              evidence beneath the conclusions that read them. */}
-
-          <DecisionSupportSection
-            cards={intel.decisionSupport}
-            limit={5}
-            sectionLabel={`Executive ${config.entityLabel} Intelligence`}
-            emptyLine={
-              report.comparison
-                ? `No ${config.entityLabelLower} movement in this period clears the significance thresholds.`
-                : 'No comparison period is defined for this selection, so no change can be analysed.'
-            }
-          />
-
-          <ReasoningSection reasoning={intel.reasoning} />
-
-          <BusinessHealthSection
-            health={{ overall: intel.health, dimensions: [intel.health], modelVersion: 'v1' }}
-            sectionLabel={`${config.entityLabel} Health`}
-          />
-
-          <StabilitySection
-            assessments={intel.reasoning.stability}
-            sectionLabel={`${config.entityLabel} Stability`}
-          />
-
-          <OpportunitiesSection
-            opportunities={intel.opportunities}
-            sectionLabel={`${config.entityLabel} Opportunities`}
-          />
-
-          <FindingList
-            sectionLabel={`${config.entityLabel} Risks`}
-            findings={intel.risks.slice(0, 4)}
-            emptyLine={`No evidence-backed ${config.entityLabelLower} risk for this period.`}
-            compact
-          />
-
-          {remainingFindings.length > 0 ? (
-            <FindingList
-              sectionLabel="Also Worth Reviewing"
-              findings={remainingFindings}
-              emptyLine=""
-              compact
-            />
-          ) : null}
-
-          <IntelligenceTimeline events={intel.reasoning.timeline} />
-
-          <UnknownsSection unknowns={intel.unknowns} />
-
-          <SummaryTiles tiles={tiles} label={`${config.title} · ${desc.periodTitle}`} />
+          <div className="cgx-strip" aria-label={`${config.title} summary`}>
+            <div className="cgx-strip__item"><span className="cgx-strip__n">{count(s.observed)}</span><span className="cgx-strip__l">{config.entityLabel}s with calls</span></div>
+            <div className="cgx-strip__item"><span className="cgx-strip__n">{count(s.active)}</span><span className="cgx-strip__l">produced revenue or a billable call</span></div>
+            <div className="cgx-strip__item"><span className="cgx-strip__n">{top1 === null ? '—' : `${Math.round(top1 * 100)}%`}</span><span className="cgx-strip__l">of revenue from the top {config.entityLabelLower}</span></div>
+            <div className="cgx-strip__item"><span className="cgx-strip__n">{top3 === null ? '—' : `${Math.round(top3 * 100)}%`}</span><span className="cgx-strip__l">from the top three</span></div>
+          </div>
           {s.revenueCoverage !== null && s.revenueCoverage < 1 && s.revenueCoverage > 0 ? (
-            <p className="cg-covnote">
-              {Math.round(s.revenueCoverage * 100)}% of {config.entityLabelLower}s reported a revenue value, so revenue
-              totals here are lower bounds.
-            </p>
+            <p className="cgx-note">{Math.round(s.revenueCoverage * 100)}% of {config.entityLabelLower}s reported a revenue value, so revenue here is incomplete.</p>
           ) : null}
 
           <PerformanceTable
-            sectionLabel={`${config.entityLabel} Performance`}
+            sectionLabel={`${config.title} · ${ctx.selection.label}`}
             columns={columns}
             rows={rows}
             getKey={(r) => r.key}
-            selectedKey={selectedKey}
+            selectedKey={null}
             sort={sort}
             sortHref={sortHref}
             emptyLine={`No ${config.entityLabelLower} activity for this period.`}
           />
+          <p className="cgx-foot">Net profit is revenue minus payout minus telco cost on this {config.entityLabelLower}’s own calls. Open a {config.entityLabelLower} for its trend, funnel and composition.</p>
 
-          <DetailPanel
-            sectionLabel={`${config.entityLabel} Detail`}
-            name={selected ? selected.label : null}
-            period={window.label}
-            facts={selected ? [
-              { label: 'Revenue', value: money(selected.revenueCents) },
-              { label: 'Billable Calls', value: num(selected.monetized) },
-              { label: 'Total Calls', value: num(selected.calls) },
-              { label: 'Rev / Billable', value: money(revPerBillable(selected.revenueCents, selected.monetized)) },
-              { label: 'Revenue trend', value: trend(selected.revenueCents, selectedPrior?.revenueCents ?? null).text },
-              { label: 'Call trend', value: trend(selected.calls, selectedPrior?.calls ?? null).text },
-            ] : []}
-            note={`Per-${config.entityLabelLower} cross-dimension attribution is not exposed at the ${config.entityLabelLower} grain by the current CallGrid data.`}
-            emptyPrompt={`Select a ${config.entityLabelLower} to view performance details.`}
-          />
-
-          <ContributionTable
-            contributions={intel.contributions}
-            entityLabel={config.entityLabel}
-            money={money}
-          />
-
-          {/* Unknowns moved ABOVE the metrics with the rest of the intelligence.
-              Rendering them here as well would repeat the section on one page. */}
-
-          <ActivitySection
-            items={[]}
-            emptyLine={`No durable ${config.entityLabelLower}-level CallGrid events for this period.`}
-          />
-
-          <BusinessStorySection reasoning={intel.reasoning} />
+          <details className="cgx-more-section">
+            <summary className="cgx-more-section__summary">{config.entityLabel} intelligence — the full analysis ({intel.ranked.length} finding{intel.ranked.length === 1 ? '' : 's'})</summary>
+            <DecisionSupportSection
+              cards={intel.decisionSupport}
+              limit={5}
+              sectionLabel={`Executive ${config.entityLabel} Intelligence`}
+              emptyLine={report.comparison ? `No ${config.entityLabelLower} movement in this period clears the significance thresholds.` : 'No comparison period is defined for this selection, so no change can be analysed.'}
+            />
+            <ReasoningSection reasoning={intel.reasoning} />
+            <BusinessHealthSection health={{ overall: intel.health, dimensions: [intel.health], modelVersion: 'v1' }} sectionLabel={`${config.entityLabel} Health`} />
+            <StabilitySection assessments={intel.reasoning.stability} sectionLabel={`${config.entityLabel} Stability`} />
+            <OpportunitiesSection opportunities={intel.opportunities} sectionLabel={`${config.entityLabel} Opportunities`} />
+            <FindingList sectionLabel={`${config.entityLabel} Risks`} findings={intel.risks.slice(0, 4)} emptyLine={`No evidence-backed ${config.entityLabelLower} risk for this period.`} compact />
+            {remainingFindings.length > 0 ? <FindingList sectionLabel="Also Worth Reviewing" findings={remainingFindings} emptyLine="" compact /> : null}
+            <IntelligenceTimeline events={intel.reasoning.timeline} />
+            <ContributionTable contributions={intel.contributions} entityLabel={config.entityLabel} money={money} />
+            <UnknownsSection unknowns={intel.unknowns} />
+            <BusinessStorySection reasoning={intel.reasoning} />
+          </details>
         </>
       )}
-    </DimensionShell>
+    </CommandShell>
   );
 }

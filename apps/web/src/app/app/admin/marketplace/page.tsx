@@ -1,499 +1,195 @@
 import Link from "next/link";
-import { requireCrmContext } from "../../../../crm/crm-data";
-import {
-  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery,
-  describeCallGridWindow, callGridDayNav, sumReported, sourceWinRate,
-} from "@emgloop/shared";
-import { num } from "../../_loop-os";
-import { loadCallGridReport, type CallGridDimRow, type CallGridMetrics } from "./callgrid-report";
-import { loadBidReport, bidSnapshotMatches, overallRejectRate, destinationRateLimitedShare } from "./bid-report";
-import { callGridIntelligence, bidIntelligence } from "./intelligence-data";
-import CallGridDateRange from "./CallGridDateRange";
-import { SnapshotNotice, updatedClock } from "./dimension-ui";
-import {
-  MarketplaceRiskPanel, OpportunitiesSection, FindingList,
-} from "./intelligence-ui";
-import {
-  ExecutiveBrief, LaneRail, QueueSection, DecisionActivitySection, OpenWorkSection,
-  UnknownGroups, TodaysStorySection, anchorForFinding, type QueueMember,
-} from "./queue-ui";
-import { groupUnknowns } from "@emgloop/shared";
-import { loadOperationalQueue } from "./operational-queue-data";
-import { hasPermission } from "../../../../auth/guard";
+
 import { repositories } from "@emgloop/database";
-import { CallGridNav } from "./_CallGridNav";
-import { loadCallGridHistory } from "./callgrid-history-data";
-import type { Situation } from "@emgloop/shared";
-import { requireWorkspace } from "../../../../workspaces/guard";
-import { formatCalendarDate } from "@emgloop/shared";
+import { findingsByRank } from "./overview-parts";
+import { viewerTime } from "../../../../time/viewer-time";
+import { loadCommandContext, withQuery, type SearchParams } from "./command-data";
+import { CommandShell, Card, TrendChart, BarList, money, count } from "./command-ui";
+import { loadExecutiveAnalysis, topPriorities, executiveBrief } from "./executive-data";
+import { TodaysBrief, TopPriorities } from "./executive-ui";
+import { loadOrFallback } from "../../../../demo/db-health";
+import { requireWorkspacePermission } from "../../../../workspaces/guard";
 
 export const dynamic = "force-dynamic";
 
-
-// CallGrid Intelligence — the Executive Queue.
+// CallGrid Intelligence — the Overview: an executive command center.
 //
-// THIS PAGE IS A QUEUE, NOT A DOCUMENT. It is cleared, not read. The first screen
-// answers "is there a fire", names at most three things that need a decision, and
-// says which to start with and why. Everything else is below it or one expansion
-// behind it.
+// IT ANSWERS ONE QUESTION: how is the CallGrid business doing right now, what
+// changed, and what deserves attention? In that order: the five KPIs, Today's
+// Brief, at most three priorities, then a compact workspace (volume against the
+// comparison period, revenue by buyer, top sources, notable changes, live
+// activity, quick actions).
 //
-// Order: Nav · Period · Briefing · Lanes · The queue (≤3) · Money · Story ·
-// The numbers · What Loop could not determine · Provenance.
+// IT DOES NOT SHOW EVERYTHING LOOP FOUND. Loop may hold dozens of findings; the
+// executive surface names the few that are undecided and points to Intelligence,
+// where every finding, its evidence and its limits live -- moved, not removed.
 //
-// The ordering rule that produced this: a section earns its place by changing a
-// decision. Metrics answer "what happened", which CallGrid already answers, so
-// they sit last and are framed as the audit trail for the conclusions above them
-// rather than as information in their own right.
-//
-// The queue's rows are SITUATIONS, not findings — related observations merged
-// before anything was ranked, so one business event is one row rather than four.
-// See `callgrid-situation.ts` for the three constraints on that merge.
-//
-// Every number comes from the canonical report service for the selected window,
-// and every conclusion from the deterministic intelligence engine — which reads
-// only those same reports. Nothing on this page is computed locally, so Overview
-// and a subpage cannot disagree.
-//
-// THE QUEUE IS NOW DURABLE. Assign / watch / resolve / dismiss write an immutable
-// observation through the operational lifecycle primitives, and the state an
-// operator leaves behind is the state they come back to. The lanes are filled
-// from that record rather than derived from one analysis run, which is why they
-// count every open priority and not just the ones this period detected.
-//
-// The analysis above is unchanged and still the only source of every conclusion:
-// the lifecycle layer records what was DECIDED, never what is TRUE.
+// Every number is the canonical report's (see `command-data.ts`), every priority
+// the engine's own ranking, and every sentence in the brief carries its basis.
+// "Live" is earned by a recent CallGrid delivery, never by the render clock.
 
-function money(cents: number | null, available: boolean): string {
-  if (!available) return "Unavailable";
-  if (cents === null) return "Unknown";
-  return "$" + Math.round(cents / 100).toLocaleString("en-US");
-}
-function count(n: number | null, available: boolean): string {
-  if (!available) return "Unavailable";
-  if (n === null) return "Unknown";
-  return num(n);
-}
-// A provider reporting day CallGrid was asked for in UTC: a calendar date in the
-// window's own zone, shown as that date to every reader (Loop Time Authority).
-function utcDate(d: Date): string {
-  return formatCalendarDate(d);
-}
+const BASE = "/app/admin/marketplace";
 
-// A per-tile comparison indicator. Null (→ "No valid comparison") whenever the
-// prior value is unavailable, unknown or zero — never a percentage off nothing.
-function deltaOf(cur: number | null, prior: number | null, curAvail: boolean, priorAvail: boolean) {
-  if (!curAvail || !priorAvail || cur === null || prior === null || prior === 0) return null;
-  const change = Math.round(((cur - prior) / prior) * 100);
-  const dir = change > 0 ? "up" : change < 0 ? "down" : "flat";
-  const arrow = change > 0 ? "↑" : change < 0 ? "↓" : "→";
-  return { text: `${arrow} ${Math.abs(change)}%`, dir };
-}
+export default async function CallGridOverviewPage({ searchParams }: { searchParams?: SearchParams }) {
+  const session = await requireWorkspacePermission("ADMIN", "intelligence", "view");
+  const ctx = await loadCommandContext(session, searchParams);
+  const analysis = await loadExecutiveAnalysis(ctx);
+  const { report, buckets, facts, comparisonFacts, query } = ctx;
+  const intelHref = withQuery(`${BASE}/intelligence`, query);
 
-function MetricTiles({
-  score, compare, compareLabel, coverageNote,
-}: {
-  score: CallGridMetrics;
-  compare?: CallGridMetrics | null;
-  compareLabel?: string;
-  coverageNote?: string | null;
-}) {
-  const fields = [
-    { key: "Revenue", val: money(score.revenueCents, score.available), cur: score.revenueCents, prior: compare?.revenueCents ?? null },
-    { key: "Net Profit", val: money(score.profitCents, score.available), cur: score.profitCents, prior: compare?.profitCents ?? null },
-    { key: "Billable Calls", val: count(score.billableCalls, score.available), cur: score.billableCalls, prior: compare?.billableCalls ?? null },
-    { key: "Total Calls", val: count(score.totalCalls, score.available), cur: score.totalCalls, prior: compare?.totalCalls ?? null },
-  ];
-  return (
-    <>
-      <div className="cg-tiles">
-        {fields.map((f) => {
-          const d = compare ? deltaOf(f.cur, f.prior, score.available, compare.available) : undefined;
-          return (
-            <section className="tile tile--metric" aria-label={f.key} key={f.key}>
-              <div className="tile__head"><span className="tile__title">{f.key}</span></div>
-              <div className="tile__num">{f.val}</div>
-              {compare ? (
-                d ? (
-                  <p className={"cg-delta cg-delta--" + d.dir}>{d.text}{compareLabel ? ` vs ${compareLabel}` : ""}</p>
-                ) : (
-                  <p className="cg-delta cg-delta--na">No valid comparison</p>
-                )
-              ) : null}
-            </section>
-          );
-        })}
-      </div>
-      {coverageNote ? <p className="cg-covnote">{coverageNote}</p> : null}
-    </>
-  );
-}
+  const recentR = await loadOrFallback(() => repositories.marketplaceCalls.recentCalls(ctx.organizationId, 6));
+  const time = viewerTime();
 
-function PerformerTile({ label, row, href }: { label: string; row: CallGridDimRow | null; href: string }) {
-  return (
-    <Link className="tile tile--metric cg-perftile" aria-label={label} href={href}>
-      <div className="tile__head"><span className="tile__title">{label}</span></div>
-      {row ? (
-        <>
-          <div className="tile__num cg-name">{row.label}</div>
-          <p className="tile__line">
-            {row.revenueCents === null ? "Revenue unknown" : money(row.revenueCents, true)} · {num(row.calls)} calls
-          </p>
-        </>
-      ) : (
-        <>
-          <div className="tile__num cg-name cg-muted">—</div>
-          <p className="tile__line">No data for this period</p>
-        </>
-      )}
-    </Link>
-  );
-}
+  // Revenue by buyer: the top four, then everything else as one row that says how many.
+  const buyers = report.dimensions.buyers;
+  const total = report.metrics.revenueCents;
+  const share = (v: number | null) => (v === null || total === null || total <= 0 ? null : v / total);
+  const topBuyers = buyers.slice(0, 4).map((b) => ({ key: b.key, label: b.label, value: b.revenueCents, share: share(b.revenueCents) }));
+  const rest = buyers.slice(4);
+  // The rest's revenue is the sum of what was reported; none reported is unknown.
+  const restKnown = rest.flatMap((b) => (b.revenueCents === null ? [] : [b.revenueCents]));
+  const restRevenue = restKnown.length > 0 ? restKnown.reduce((s, v) => s + v, 0) : null;
+  const buyerRows = rest.length > 0 ? [...topBuyers, { key: "__other", label: `Other (${rest.length})`, value: restRevenue, share: share(restRevenue) }] : topBuyers;
 
-function BidTile({ label, value }: { label: string; value: string }) {
-  return (
-    <section className="tile tile--metric" aria-label={label}>
-      <div className="tile__head"><span className="tile__title">{label}</span></div>
-      <div className="tile__num tile__num--sm">{value}</div>
-    </section>
-  );
-}
+  // Top sources, with how each moved against the comparison period.
+  const priorSources = report.comparisonByKey.sources;
+  const priorRank = new Map(report.comparisonDimensions.sources.map((r, i) => [r.key, i + 1] as const));
+  const sources = report.dimensions.sources.slice(0, 5).map((s, i) => {
+    const prior = priorSources.get(s.key)?.revenueCents ?? null;
+    const change = s.revenueCents !== null && prior !== null && prior > 0 ? Math.round(((s.revenueCents - prior) / prior) * 100) : null;
+    return { row: s, rank: i + 1, priorRank: priorRank.get(s.key) ?? null, change };
+  });
 
-/** Disclose partial economic coverage where it changes how a total should be read. */
-function coverageNote(metrics: CallGridMetrics): string | null {
-  const cov = metrics.revenueCoverage;
-  if (cov === null || cov >= 1 || cov <= 0) return null;
-  return `${Math.round(cov * 100)}% of calls in this period carried a revenue value, so Revenue and Profit are lower bounds for the period.`;
-}
+  const priorities = topPriorities(ctx, analysis);
+  const brief = executiveBrief(ctx, analysis);
+  const notable = findingsByRank(analysis.intel).slice(0, 4);
+  const current = ctx.window.includesLiveData && ctx.window.isSingleDay;
 
-export default async function CallGridIntelligencePage({
-  searchParams,
-}: {
-  searchParams?: { range?: string; s?: string; e?: string };
-}) {
-  await requireWorkspace("ADMIN");
-  const { organizationId: org, session } = await requireCrmContext();
-
-  const now = new Date();
-  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, now);
-  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
-  const desc = describeCallGridWindow(window, now);
-  const dayNav = callGridDayNav(window, now);
-
-  // History is loaded ONLY here. It costs one read per prior period, and only the
-  // Overview runs the distribution rules (anomalies, volatility, novelty) that
-  // need it. A live window returns an empty series by construction, so this is
-  // free on Today.
-  const [report, bid, history] = await Promise.all([
-    loadCallGridReport(org, window),
-    loadBidReport(org),
-    loadCallGridHistory(org, window),
-  ]);
-
-  const bidMatches = bidSnapshotMatches(bid.meta, window);
-
-  // Bid-derived risk inputs. Both are null when the provider did not report them,
-  // which makes the risk model WITHHOLD those factors rather than score them safe.
-  const bidRejectRate = overallRejectRate(bid.sources);
-  const rateLimitedShare = destinationRateLimitedShare(bid.destinations);
-
-  const intel = callGridIntelligence(report, now, { history, bidRejectRate, rateLimitedShare });
-
-  // The analysis becomes an operational record here, and only here. Detection is
-  // idempotent per analysis period, so re-rendering this page cannot inflate the
-  // log; see `callGridDetectionKey`.
-  const canAct = await hasPermission("intelligence", "update");
-  const ops = await loadOperationalQueue(
-    org,
-    intel.queue,
-    { window, now },
-  );
-  // Names for owners. Read-only, and only the roster this organization can see.
-  const members: QueueMember[] = (await repositories.iam.listUsers(org))
-    .filter((m) => m.status === "ACTIVE")
-    .map((m) => ({ id: m.id, name: m.name, email: m.email }));
-  const returnTo = `/app/admin/marketplace${rangeQuery ? `?${rangeQuery}` : ""}`;
-  // The reader's own name, from the roster already loaded for the assignee
-  // selector. Null when the row cannot be found — the brief then greets without
-  // a name rather than inventing one.
-  const operatorName =
-    members.find((m) => m.id === session.userId)?.name?.trim() || null;
-  const bidIntel = bidIntelligence(bid, now, desc.periodTitle, bidMatches);
-  const compareShort = desc.comparisonTitle.split(" · ")[0];
-
-  // Bids Overview — snapshot grain. Sums count only sources that reported the
-  // field, so an unreported metric shows as "—" rather than a manufactured 0.
-  const opportunities = sumReported(bid.sources, (r) => r.total);
-  const submitted = sumReported(bid.sources, (r) => r.bids);
-  const won = sumReported(bid.sources, (r) => r.won);
-  const rejected = sumReported(bid.sources, (r) => r.rejected);
-  const winRate = sourceWinRate(won.total, submitted.total);
-  const bidNum = (v: number | null) => (v === null ? "—" : num(v));
-
-  const topBidConcern = bidIntel.priorityQueue[0] ?? null;
-
-  // Where a Situation's numbers live. The queue names a business event; this is
-  // how an operator reaches the rows behind it. Derived from the entity the
-  // Situation is about — nothing is invented when there is no entity.
-  const DIM_ROUTE: Record<string, string> = {
-    buyer: "buyers", vendor: "vendors", source: "sources", campaign: "campaigns",
-    bid_source: "bids", bid_destination: "bids",
-  };
-  const hrefFor = (s: Situation): string | null => {
-    const entity = s.observations[0]?.affectedEntities[0];
-    const route = entity ? DIM_ROUTE[entity.entityType] : undefined;
-    if (!route) return null;
-    const q = rangeQuery ? `?${rangeQuery}` : "";
-    return `/app/admin/marketplace/${route}${q}`;
-  };
-
-  return (
-    <div className="loop-os">
-      <div className="cmd cg-page">
-        {/* Header. The product's own nav renders here too — it already exists and
-            already carries the range, so the Overview no longer keeps a second
-            navigation of its own. */}
-        <div className="cmd-head">
-          <div className="cmd-head__main">
-            {/* An <h1>, not a <p>. The page had no top-level heading at all, so
-                every section heading below floated under nothing and a screen
-                reader's document outline started at level 2. The class already
-                sets margin: 0, so nothing moves. */}
-            <h1 className="cmd-head__greeting">CallGrid Intelligence</h1>
-            <p className="cmd-head__meta">{desc.headerLine}</p>
-          </div>
-        </div>
-        <CallGridNav active="overview" rangeQuery={rangeQuery} />
-
-        {/* Period control */}
-        <CallGridDateRange
-          preset={window.preset}
-          customStart={range.start}
-          customEnd={range.end}
-          label={window.label}
-          dayNav={dayNav}
-          live={desc.live}
-          updatedLabel={updatedClock(now)}
-        />
-        {!window.isValid ? (
-          <p className="cg-covnote">The requested date range was not valid, so Today is shown.</p>
-        ) : null}
-
-        {/* ------------------------------------------------------------------
-            THE FIRST SCREEN. Briefing, then the lanes, then at most three rows.
-
-            Nothing else may go above this. A section wanting to be here has to
-            displace one of the three, and the answer is almost always no — if the
-            operator has to scroll before they understand their business, the page
-            has failed.
-           ------------------------------------------------------------------ */}
-
-        <ExecutiveBrief
-          briefing={intel.briefing}
-          health={intel.health}
-          // From the durable record, not from this period's analysis. An item
-          // assigned last week is part of today's workload even when the selected
-          // window does not contain it.
-          counts={{
-            needsDecision: ops.counts.NEEDS_REVIEW,
-            assigned: ops.counts.ASSIGNED,
-            watching: ops.counts.WATCHING,
-            closed: ops.counts.RESOLVED + ops.counts.DISMISSED,
-          }}
-          operatorName={operatorName}
-          periodLabel={desc.periodTitle}
-          live={desc.live}
-          updatedLabel={updatedClock(now)}
-          now={now}
-          // The two facts that most change what an operator does first. Both are
-          // findings the engine already ranked; neither is computed here, and
-          // both were previously two collapses deep in the supporting drawer.
-          topRisk={intel.risks[0] ?? null}
-          topOpportunity={intel.opportunityFindings[0] ?? null}
-          // To the Situation that MERGED the finding, since the queue ranks
-          // Situations. Falls back to the queue itself rather than to an anchor
-          // that does not resolve.
-          riskHref={
-            anchorForFinding(intel.queue.situations, intel.risks[0]?.id ?? null)
-            ?? (intel.risks[0] ? "#decision-queue" : null)
-          }
-          opportunityHref={
-            anchorForFinding(
-              intel.queue.situations,
-              intel.opportunityFindings[0]?.finding.id ?? null,
-            ) ?? (intel.opportunityFindings[0] ? "#decision-queue" : null)
-          }
-          persistenceError={ops.persistenceError}
-        />
-
-        <LaneRail counts={ops.counts} unavailable={Boolean(ops.persistenceError)} />
-
-        <QueueSection
-          items={ops.items}
-          emptyReason={intel.queue.emptyReason}
-          hrefFor={hrefFor}
-          members={members}
-          canAct={canAct}
-          returnTo={returnTo}
-          now={now}
-        />
-
-        <OpenWorkSection openWork={ops.openWork} members={members} now={now} />
-
-        {/* The narrative, promoted OUT of the supporting drawer. It explains the
-            queue rather than measuring the business, so it belongs beside the
-            decisions and not with the metrics — as one paragraph in a tile three
-            collapses down, nobody reached it. */}
-        <TodaysStorySection reasoning={intel.reasoning} />
-
-        <DecisionActivitySection activity={ops.activity} />
-
-        {/* ------------------------------------------------------------------
-            BELOW THE FOLD. Reached by choosing to, never on the way to the queue.
-           ------------------------------------------------------------------ */}
-
-        {/* Money. Losses and available amounts are the same question — where is
-            the money — so they are one section ranked by magnitude rather than two
-            ranked by sign. Opportunities keep their impact-basis label: the amount
-            is measured exposure or an arithmetic gap, never predicted upside. */}
-        {/* ------------------------------------------------------------------
-            THE SUPPORTING LAYER.
-
-            Everything below is evidence FOR the decisions above, not information
-            in its own right — an operator should understand the business before
-            they see revenue. Nothing has been removed and no figure has changed;
-            it is one expansion away instead of competing for the same attention
-            as the queue. That is the whole difference between a command centre
-            and a dashboard.
-           ------------------------------------------------------------------ */}
-        <details className="cg-supporting">
-          <summary>The numbers behind this — money, risk, the story, metrics and bids</summary>
-          <div className="cg-supporting__body">
-        <OpportunitiesSection opportunities={intel.opportunityFindings} sectionLabel="Money Available" />
-
-        <FindingList
-          sectionLabel="Risks Worth Attention"
-          findings={intel.risks.slice(0, 4)}
-          emptyLine="No evidence-backed risk for this period."
-          compact
-        />
-
-        {/* Structural fragility. The band is a business statement; its determinacy
-            is the reason a LOW built from three of nine factors is not a clean
-            bill of health. */}
-        <MarketplaceRiskPanel risk={intel.risk} />
-
-        {/* The numbers. Last, and framed as the audit trail for everything above
-             rather than as information in its own right. */}
-        <div className="cg-sec">
-          <p className="cg-seclabel">{desc.periodTitle}</p>
-          <MetricTiles
-            score={report.metrics}
-            compare={report.comparison}
-            compareLabel={compareShort}
-            coverageNote={coverageNote(report.metrics)}
-          />
-        </div>
-
-        {/* The comparison period, and the biggest names, both folded into the
-             numbers rather than given sections of their own. A second identical
-             four-tile grid restated what the per-tile delta already carries, and
-             "Top Buyer" is a leaderboard restatement of what CallGrid shows — it
-             survives here because it is also how an operator navigates. */}
-        <details className="cg-sec cg-numdetail">
-          <summary className="cg-seclabel cg-numdetail__summary">
-            Prior period, coverage and the biggest names
-          </summary>
-          <div className="cg-numdetail__body">
-            {report.comparison ? (
-              <>
-                <p className="cg-seclabel">{desc.comparisonTitle}</p>
-                <MetricTiles score={report.comparison} />
-                {desc.comparisonNote ? <p className="cg-covnote">{desc.comparisonNote}</p> : null}
-              </>
-            ) : (
-              <p className="cg-covnote">No comparison period is defined for this selection.</p>
-            )}
-            <div className="cg-tiles">
-              <PerformerTile label="Top Buyer" row={report.dimensions.buyers[0] ?? null} href={`/app/admin/marketplace/buyers?${rangeQuery}`} />
-              <PerformerTile label="Top Vendor" row={report.dimensions.vendors[0] ?? null} href={`/app/admin/marketplace/vendors?${rangeQuery}`} />
-              <PerformerTile label="Top Source" row={report.dimensions.sources[0] ?? null} href={`/app/admin/marketplace/sources?${rangeQuery}`} />
-              <PerformerTile label="Top Campaign" row={report.dimensions.campaigns[0] ?? null} href={`/app/admin/marketplace/campaigns?${rangeQuery}`} />
-            </div>
-          </div>
-        </details>
-
-        {/* Bids. Snapshot grain, fenced with its own window label because it does
-             not honour the selected period — a provenance fact, not a caveat. */}
-        <div className="cg-sec">
-          <div className="cg-sechead">
-            <p className="cg-seclabel">Bids · latest snapshot</p>
-            <Link className="cg-seclink" href={`/app/admin/marketplace/bids?${rangeQuery}`}>Open Bids →</Link>
-          </div>
-          {!bid.ok ? (
-            <section className="tile tile--wide"><p className="tile__line cg-muted">Bid reporting could not be loaded.</p></section>
-          ) : !bid.hasData || !bid.meta ? (
-            <section className="tile tile--wide"><p className="tile__line">No bid report data has been synchronized yet.</p></section>
-          ) : (
-            <>
-              <SnapshotNotice
-                windowStart={bid.meta.windowStart}
-                windowEnd={bid.meta.windowEnd}
-                fetchedAt={bid.meta.fetchedAt}
-                reportTimezone={bid.meta.reportTimezone}
-                selectedPeriodLabel={desc.periodTitle}
-                matchesSelectedPeriod={bidMatches}
-              />
-              <div className="cg-bidcallout">
-                <p className="cg-bidcallout__lead">{bidIntel.headline}</p>
-                {topBidConcern ? (
-                  <p className="cg-bidcallout__review">
-                    <span className="cg-finding__reviewlabel">Recommended review</span>
-                    {topBidConcern.recommendedReview}
-                  </p>
-                ) : null}
-                <p className="cg-bidcallout__limit">
-                  Bid metrics come from the latest synchronized snapshot and do not honor the selected calendar period.
-                  {bidIntel.snapshotChanges.length === 0 ? " No earlier snapshot is stored, so no bid trend is shown." : ""}
-                </p>
-              </div>
-              <div className="cg-bidtiles">
-                <BidTile label="Bid Opportunities" value={bidNum(opportunities.total)} />
-                <BidTile label="Bids Submitted" value={bidNum(submitted.total)} />
-                <BidTile label="Bids Won" value={bidNum(won.total)} />
-                <BidTile label="Source Win Rate" value={winRate === null ? "—" : Math.round(winRate * 100) + "%"} />
-                <BidTile label="Rejected Opportunities" value={bidNum(rejected.total)} />
-                <BidTile label="Latest Bid Snapshot" value={utcDate(bid.meta.windowStart)} />
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* What Loop could not determine. One line at the foot, expandable —
-             demoted from a section, but never deleted. A product that shows
-             conclusions while hiding their limits is not one you can delegate to,
-             and this is what makes the rest believable. */}
-          </div>
-        </details>
-
-        {/* What Loop could not determine — grouped by the KIND of limit, so it
-            teaches rather than warns. A flat list of a dozen caveats reads as a
-            wall and gets skipped, which is the worst possible outcome for the
-            block that makes everything above it believable. Nothing is dropped:
-            an id with no group is kept in a visible "everything else", and a test
-            fails when the engines emit one. */}
-        <UnknownGroups
-          groups={groupUnknowns([...intel.unknowns, ...bidIntel.unknowns])}
-          sectionLabel="What Loop could not determine about this period"
-        />
-
-        {/* Provenance. The last line on the page. */}
-        <p className="q-prov">
-          {desc.headerLine}
-          {desc.comparisonNote ? ` · ${desc.comparisonNote}` : ""}
-          {` · read ${updatedClock(now)}`}
-        </p>
-      </div>
+  const executive = (
+    <div className="cgx-exec">
+      <TodaysBrief
+        brief={brief}
+        title={current ? "Today’s brief" : `Brief · ${ctx.selection.label}`}
+        analyzedAt={ctx.now}
+        detailsHref={intelHref}
+        healthNote={analysis.intel.health.overall.determinacy < 1 ? `Measured on ${Math.round(analysis.intel.health.overall.determinacy * 100)}% of the health model’s weight.` : null}
+      />
+      <TopPriorities
+        priorities={priorities}
+        allHref={intelHref}
+        emptyLine={analysis.intel.queue.emptyReason ?? "Nothing undecided needs you for this period."}
+        unavailable={analysis.ops.persistenceError}
+      />
     </div>
+  );
+
+  return (
+    <CommandShell ctx={ctx} active="overview" path={BASE} executive={executive}>
+      <div className="cgx-grid">
+        <Card title="Call volume" action={{ label: "Money", href: withQuery(`${BASE}/money`, query) }}>
+          {facts ? (
+            <TrendChart
+              buckets={buckets.current.length >= buckets.comparison.length ? buckets.current : buckets.comparison}
+              current={facts.series.map((p) => p.calls)}
+              comparison={comparisonFacts ? comparisonFacts.series.map((p) => p.calls) : null}
+              currentLabel={ctx.selection.label}
+              comparisonLabel={report.comparison ? ctx.desc.comparisonTitle : null}
+              format={(v) => Math.round(v).toLocaleString("en-US")}
+              cumulative
+              title="Calls so far, against the comparison period at the same point"
+            />
+          ) : (
+            <p className="cgx-empty">Loop could not read the calls for this period.</p>
+          )}
+          <p className="cgx-foot">Running total of calls. {report.comparison ? "The comparison stops at the same elapsed point." : ""}</p>
+        </Card>
+
+        <Card title="Revenue by buyer" action={{ label: "Buyers", href: withQuery(`${BASE}/buyers`, query) }}>
+          <BarList
+            rows={buyerRows}
+            format={money}
+            empty={report.ok ? "No buyer revenue in this period." : "Loop could not read CallGrid data."}
+            hrefFor={(key) => (key === "__other" ? withQuery(`${BASE}/buyers`, query) : withQuery(`${BASE}/buyers/${encodeURIComponent(key)}`, query))}
+          />
+        </Card>
+
+        <Card title="Top sources by revenue" action={{ label: "Sources", href: withQuery(`${BASE}/sources`, query) }}>
+          {sources.length === 0 ? (
+            <p className="cgx-empty">No source activity in this period.</p>
+          ) : (
+            <ol className="cgx-rank">
+              {sources.map(({ row, rank, priorRank: was, change }) => (
+                <li key={row.key}>
+                  <Link href={withQuery(`${BASE}/sources/${encodeURIComponent(row.key)}`, query)} className="cgx-rank__row">
+                    <span className="cgx-rank__n">{rank}</span>
+                    <span className="cgx-rank__name">{row.label}</span>
+                    <span className="cgx-rank__value">{money(row.revenueCents)}</span>
+                    <span className={"cgx-rank__move cgx-rank__move--" + (change === null ? "none" : change > 0 ? "up" : change < 0 ? "down" : "flat")}>
+                      {change === null ? (was === null ? "New" : "—") : `${change > 0 ? "↑" : change < 0 ? "↓" : "→"} ${Math.abs(change)}%`}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+
+        <Card title="Recent notable changes" action={{ label: "All findings", href: intelHref }}>
+          {notable.length === 0 ? (
+            <p className="cgx-empty">{report.comparison ? "No change in this period clears Loop’s significance thresholds." : "No comparison period, so no change can be measured."}</p>
+          ) : (
+            <ul className="cgx-changes">
+              {notable.map((f) => {
+                const dir = f.percentageChange === null ? "flat" : f.percentageChange > 0 ? "up" : f.percentageChange < 0 ? "down" : "flat";
+                return (
+                  <li key={f.id} className="cgx-changes__item">
+                    <span className={"cgx-changes__dir cgx-changes__dir--" + dir} aria-hidden="true">{dir === "up" ? "↑" : dir === "down" ? "↓" : "•"}</span>
+                    <span className="cgx-changes__text">{f.title}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+
+        <Card title="Live activity" action={{ label: "Live calls", href: "/crm/live/calls" }}>
+          {!recentR.ok ? (
+            <p className="cgx-empty">Loop could not read recent calls.</p>
+          ) : recentR.data.length === 0 ? (
+            <p className="cgx-empty">No calls have been received from CallGrid yet.</p>
+          ) : (
+            <ul className="cgx-live">
+              {recentR.data.map((c) => {
+                const word = c.noRoute ? "No route" : c.monetized ? "Billable" : c.completed ? "Completed" : c.completed === false ? "Not completed" : "Call received";
+                const tone = c.noRoute ? "crit" : c.monetized ? "good" : "neutral";
+                return (
+                  <li key={c.id} className="cgx-live__item">
+                    <span className={`cgx-live__dot cgx-live__dot--${tone}`} aria-hidden="true" />
+                    <span className="cgx-live__text">
+                      {word} — {c.campaignLabel ?? c.sourceLabel ?? "Unattributed"}
+                      {c.buyerLabel ? <span className="cgx-live__to"> → {c.buyerLabel}</span> : null}
+                    </span>
+                    <time className="cgx-live__when" dateTime={c.sourceOccurredAt.toISOString()}>{time.relative(c.sourceOccurredAt)}</time>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p className="cgx-foot">Calls as CallGrid last reported them. Bids and postbacks are not stored per event.</p>
+        </Card>
+
+        <Card title="Quick actions">
+          <div className="cgx-actions">
+            <Link className="cgx-action" href={intelHref}>Review intelligence</Link>
+            <Link className="cgx-action" href={withQuery(`${BASE}/buyers`, query)}>View buyers</Link>
+            <Link className="cgx-action" href={withQuery(`${BASE}/bids`, query)}>Review bids</Link>
+            <Link className="cgx-action" href={withQuery(`${BASE}/money`, query)}>Open money</Link>
+            <Link className="cgx-action" href="/crm/live/calls">Open live calls</Link>
+            <Link className="cgx-action" href={withQuery(`${BASE}/activity`, query)}>Findings stream</Link>
+          </div>
+          <p className="cgx-foot">{count(report.metrics.totalCalls)} calls and {count(report.metrics.billableCalls)} billable in {ctx.selection.label}.</p>
+        </Card>
+      </div>
+    </CommandShell>
   );
 }

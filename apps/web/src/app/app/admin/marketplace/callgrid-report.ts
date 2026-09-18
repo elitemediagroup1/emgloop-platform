@@ -22,7 +22,11 @@ export interface CallGridMetrics {
   totalCalls: number | null;
   billableCalls: number | null;
   revenueCents: number | null;
+  /** Net Profit: revenue − payout − telco cost (`profitCents`). Null when revenue is unknown. */
   profitCents: number | null;
+  /** Payout to vendors and telco cost, each null when no call reported it (a real 0 when there were no calls). */
+  payoutCents: number | null;
+  costCents: number | null;
   /** Fraction of calls that carried a revenue value — below 1 the economic
    *  totals are lower bounds and every surface must say so. Null when unknowable. */
   revenueCoverage: number | null;
@@ -60,7 +64,7 @@ type Agg = Awaited<ReturnType<typeof crmRepos.marketplaceCalls.aggregateWindow>>
 
 const UNAVAILABLE: CallGridMetrics = {
   available: false, totalCalls: null, billableCalls: null,
-  revenueCents: null, profitCents: null, revenueCoverage: null, profitCoverage: null,
+  revenueCents: null, profitCents: null, payoutCents: null, costCents: null, revenueCoverage: null, profitCoverage: null,
 };
 
 function metricsOf(agg: Agg | null): CallGridMetrics {
@@ -76,6 +80,8 @@ function metricsOf(agg: Agg | null): CallGridMetrics {
     billableCalls: agg.monetized,
     revenueCents: revenue,
     profitCents: noCalls ? 0 : profitCents(revenue, agg.payoutCents, agg.costCents),
+    payoutCents: noCalls ? 0 : agg.callsWithPayout > 0 ? agg.payoutCents : null,
+    costCents: noCalls ? 0 : agg.callsWithCost > 0 ? agg.costCents : null,
     revenueCoverage: coverage(agg.callsWithRevenue, agg.calls),
     // The weakest of the three inputs — profit cannot be more complete than the
     // component with the least coverage.

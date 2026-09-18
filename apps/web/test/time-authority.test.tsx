@@ -153,8 +153,6 @@ describe('Surfaces present time through the authority', () => {
       'app/api/integrations/callgrid/reconcile/route.ts',
       // Detects the browser's zone -- the one legitimate read of the device clock's zone.
       'time/TimeZoneSync.tsx',
-      // CallGrid Eastern-window picker's "today" (browser-local): tracked Time Authority debt.
-      'app/app/admin/marketplace/CallGridDateRange.tsx',
     ]);
     // A bare `.toLocaleString()` formats numbers too, so only date-shaped receivers count there.
     const DATE_FORMAT = /toLocaleDateString\(|toLocaleTimeString\(|(?:Date\([^()]*\)|\b\w*(?:At|Date|date|Time|iso|Iso|ts|when)\)?)\.toLocaleString\(\s*\)|toLocaleString\((?:undefined|'en-US'|"en-US"),\s*\{[^}]*(?:month|day|hour|minute|weekday|year)|\.getHours\(\)|\.setHours\(|\.getDate\(\)|\.setDate\(|new Intl\.DateTimeFormat\(/;

@@ -2,7 +2,7 @@
 // supply-side data and share-of-call-volume. Reads the canonical call projection.
 
 import { CallDimensionPage, type CallDimensionConfig } from '../call-dimension-page';
-import { requireWorkspace } from '../../../../../workspaces/guard';
+import { requireWorkspacePermission } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +18,6 @@ const CONFIG: CallDimensionConfig = {
 };
 
 export default async function VendorsPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
-  await requireWorkspace('ADMIN');
-  return CallDimensionPage({ config: CONFIG, searchParams });
+  const session = await requireWorkspacePermission('ADMIN', 'intelligence', 'view');
+  return CallDimensionPage({ config: CONFIG, session, searchParams });
 }

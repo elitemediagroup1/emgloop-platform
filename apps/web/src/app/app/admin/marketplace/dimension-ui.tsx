@@ -1,78 +1,13 @@
-// Shared CallGrid dimension-page UI — the one design language for Buyers, Vendors,
-// Sources and Campaigns: the page shell (header + section nav + date control), the
-// summary-tile grid, the sortable performance table, the selected-entity detail
-// panel, and the recent-activity section. Presentational server components only —
-// no data access. A page composes these; it never re-implements the chrome.
+// Shared CallGrid workspace UI: the summary-tile grid, the sortable performance
+// table, the trend cell, the bid-snapshot notice and the activity section.
+// Presentational server components only — no data access. The page chrome (header,
+// period, KPIs, section selector) is `CommandShell` in ./command-ui.
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { describeCallGridWindow, callGridDayNav, formatCalendarDate, formatInstant, type CallGridWindow } from '@emgloop/shared';
-import { CallGridNav, type CallGridNavKey } from './_CallGridNav';
-import CallGridDateRange from './CallGridDateRange';
+import { formatCalendarDate, formatInstant } from '@emgloop/shared';
 import type { Trend } from './dimension-metrics';
 import { viewerTime } from '../../../../time/viewer-time';
-
-/**
- * The "last updated" time, e.g. "2:31 PM EDT": in the reader's timezone, with
- * its zone named. It is an instant, so it follows the reader (Loop Time
- * Authority); the reporting WINDOW beside it stays on CallGrid's Eastern days.
- */
-export function updatedClock(d: Date): string {
-  return formatInstant(d, viewerTime().timeZone, 'time', { withZone: true });
-}
-
-// The page shell — identical chrome on every CallGrid tab. It owns the header
-// status line, the section nav, and the shared date control (with live/refresh
-// and single-day navigation), all derived from the resolved window + `now`.
-export function DimensionShell({
-  active,
-  title,
-  subtitle,
-  window,
-  now,
-  customStart,
-  customEnd,
-  rangeQuery,
-  children,
-}: {
-  active: CallGridNavKey;
-  title: string;
-  subtitle: string;
-  window: CallGridWindow;
-  now: Date;
-  customStart?: string;
-  customEnd?: string;
-  rangeQuery: string;
-  children: ReactNode;
-}) {
-  const desc = describeCallGridWindow(window, now);
-  const dayNav = callGridDayNav(window, now);
-  return (
-    <div className="loop-os">
-      <div className="cmd cg-page dim-page">
-        <div className="cmd-head">
-          <div className="cmd-head__main">
-            <p className="cmd-head__greeting">CallGrid Intelligence</p>
-            <p className="cmd-head__meta">{desc.headerLine}</p>
-          </div>
-        </div>
-        <h1 className="dim-title">{title}</h1>
-        <p className="dim-sub">{subtitle}</p>
-        <CallGridNav active={active} rangeQuery={rangeQuery} />
-        <CallGridDateRange
-          preset={window.preset}
-          customStart={customStart}
-          customEnd={customEnd}
-          label={window.label}
-          dayNav={dayNav}
-          live={desc.live}
-          updatedLabel={updatedClock(now)}
-        />
-        {children}
-      </div>
-    </div>
-  );
-}
 
 export interface SummaryTile {
   title: string;
@@ -176,51 +111,6 @@ export function PerformanceTable<T>({
 
 export function TrendCell({ t }: { t: Trend }) {
   return <span className={'dim-trend dim-trend--' + t.dir}>{t.text}</span>;
-}
-
-export interface DetailFact {
-  label: string;
-  value: string;
-}
-
-export function DetailPanel({
-  sectionLabel,
-  name,
-  period,
-  facts,
-  note,
-  emptyPrompt,
-}: {
-  sectionLabel: string;
-  name: string | null;
-  period: string;
-  facts: DetailFact[];
-  note?: string;
-  emptyPrompt: string;
-}) {
-  return (
-    <div className="cg-sec">
-      <p className="cg-seclabel">{sectionLabel}</p>
-      <section className="tile tile--wide dim-detail" aria-label={sectionLabel}>
-        {!name ? (
-          <p className="tile__line cg-muted">{emptyPrompt}</p>
-        ) : (
-          <>
-            <div className="dim-detail__head">
-              <span className="dim-detail__name">{name}</span>
-              <span className="dim-detail__period">{period} · Eastern Time</span>
-            </div>
-            <dl className="dim-detail__grid">
-              {facts.map((f) => (
-                <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>
-              ))}
-            </dl>
-            {note ? <p className="dim-detail__note cg-muted">{note}</p> : null}
-          </>
-        )}
-      </section>
-    </div>
-  );
 }
 
 // The honesty banner for snapshot-only bid data: it does NOT honor the calendar
