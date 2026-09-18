@@ -62,8 +62,10 @@ export async function mailThreadFacts(principal: WorkPrincipal, limit = 200): Pr
     lastDirection: (row.lastDirection as 'INBOUND' | 'OUTBOUND' | null) ?? null,
     messageCount: row.messageCount,
     unread: row.labels.includes('UNREAD'),
-    // Both sides have spoken when the conversation has more than one message and did not start
-    // and end in the same direction. It is a coarse test and it is a fact, which is the point.
+    // Treated as a two-sided conversation when it holds more than one message. That is coarser
+    // than "both sides have spoken" -- two messages from the same side also pass -- and it is
+    // stated as what it is: a count, which is a fact, standing in until direction per message is
+    // summarised on the thread.
     hasExchange: row.messageCount > 1,
   }));
 }

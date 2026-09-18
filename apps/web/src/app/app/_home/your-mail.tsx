@@ -10,6 +10,10 @@
 // AND DISAGREEING IS A FIRST-CLASS ACTION. Handled, Waiting on them, Snooze and Dismiss sit beside
 // every row. They record a correction; they never edit the evidence that produced the row.
 //
+// IT SAYS HOW CURRENT IT IS. Every conclusion here is only as fresh as Loop's last read of the
+// mailbox, so the panel carries the same currency line the Inbox does (`mailCurrency`), and it
+// never calls a queue empty from a read it could not make or a read that has since failed.
+//
 // Drawn with the Loop design system's primitives and its existing Home classes.
 
 import Link from 'next/link';
@@ -89,20 +93,45 @@ function Row({ item, time, waiting }: { item: MailAttentionItem; time: TimeView;
 }
 
 /** What changed, as counts. A number here traces to rows; there is no narrative and no adjective. */
-function changedLine(view: MailAttentionView, time: TimeView): string {
+function changedLine(view: MailAttentionView, time: TimeView, current: boolean): string {
   const s = view.summary;
-  if (s.moved === 0) return `Nothing has moved since ${time.relative(view.since)}.`;
+  if (s.moved === 0) {
+    return current
+      ? `Nothing has moved since ${time.relative(view.since)}.`
+      : `Nothing had moved since ${time.relative(view.since)} when Loop last read your mail.`;
+  }
   const parts = [`${s.moved} ${s.moved === 1 ? 'conversation' : 'conversations'} moved`];
   if (s.replies > 0) parts.push(`${s.replies} ${s.replies === 1 ? 'reply' : 'replies'} arrived`);
   if (s.answered > 0) parts.push(`you answered ${s.answered}`);
   return `${parts.join(', ')}.`;
 }
 
-export function YourMail({ view, time, unavailable }: { view: MailAttentionView | null; time: TimeView; unavailable?: string | null }) {
+export function YourMail({
+  view,
+  time,
+  currency,
+  current = false,
+}: {
+  view: MailAttentionView | null;
+  time: TimeView;
+  /** How current Loop is about this mailbox, in the Inbox's own words (`mailCurrency`). */
+  currency?: { readonly line: string; readonly href?: string; readonly action?: string } | null;
+  /** True only when the last read is one an empty queue may be concluded from (CURRENT or STALE). */
+  current?: boolean;
+}) {
   if (!view) {
-    return unavailable ? (
+    // Nothing Loop can conclude from: say why, and where to fix it. No connection at all, no panel.
+    return currency ? (
       <Panel title="Your mail">
-        <p className="loop-home__line muted">{unavailable}</p>
+        <p className="loop-home__line muted">
+          {currency.line}
+          {currency.href && currency.action ? (
+            <>
+              {' '}
+              <Link href={currency.href}>{currency.action}</Link>.
+            </>
+          ) : null}
+        </p>
       </Panel>
     ) : null;
   }
@@ -111,11 +140,15 @@ export function YourMail({ view, time, unavailable }: { view: MailAttentionView 
   const nothing = needsYou.length === 0 && waitingOnThem.length === 0 && goneQuiet.length === 0;
 
   return (
-    <Panel title="Your mail" lead={changedLine(view, time)}>
+    <Panel title="Your mail" lead={changedLine(view, time, current)}>
       <div className="loop-attend">
+        {currency ? <p className="loop-home__line muted">{currency.line}</p> : null}
         {nothing ? (
           <p className="loop-home__line muted">
-            Nothing in your mail is waiting on you or on anybody else. <Link href="/app/mail">Open your inbox</Link>.
+            {current
+              ? 'Nothing in your mail is waiting on you or on anybody else.'
+              : 'Nothing was waiting on you or on anybody else when Loop last read your mail.'}{' '}
+            <Link href="/app/mail">Open your inbox</Link>.
           </p>
         ) : null}
 
@@ -154,8 +187,9 @@ export function YourMail({ view, time, unavailable }: { view: MailAttentionView 
         ) : null}
 
         <p className="loop-home__line muted">
-          <Link href="/app/mail">Open your inbox</Link> — {view.summary.needsYou} needing you, {view.summary.waitingOnThem} waiting on
-          somebody else.
+          {/* The lists above, counted: after the employee's own corrections, not before them. */}
+          <Link href="/app/mail">Open your inbox</Link> — {needsYou.length} needing you, {waitingOnThem.length} waiting on somebody
+          else.
         </p>
       </div>
     </Panel>

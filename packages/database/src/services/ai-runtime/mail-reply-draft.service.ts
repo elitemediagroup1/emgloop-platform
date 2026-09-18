@@ -2,8 +2,15 @@
 //
 // Architecture: docs/architecture/daily-loop-employee-intelligence.md §6.11, §6.13.
 //
-// THE ORDER: authorize, then read, then run, then store as a draft. A person who may not invoke
-// the task is refused before their mailbox is read, so the refusal reveals nothing.
+// THE ORDER: authorize, then check no reply is in flight, then read, then run, then store as a
+// draft. A person who may not invoke the task is refused before their mailbox is read, so the
+// refusal reveals nothing.
+//
+// NOT WHILE A REPLY IS SENDING OR IN DOUBT. While the draft on this conversation is SENDING or
+// SEND_UNKNOWN its words are the evidence of what may already be in somebody's inbox (GM-2,
+// §6.11a), and they stay frozen until reconciliation settles them. So a request to draft is
+// refused before the conversation is read or any model is called -- the composer does not offer
+// the button then, and this is the server saying the same thing to a request that arrives anyway.
 //
 // WHAT IT PRODUCES IS TEXT IN A BOX. The answer is written into the SAME `work_drafts` row a
 // manual reply uses, marked `AI_PROPOSED` with the invocation that produced it. From that moment
@@ -69,7 +76,7 @@ export type MailReplyDraftResult =
     }
   | { readonly outcome: 'NOT_AVAILABLE'; readonly refusals: readonly AiAdmissionRefusal[] }
   | { readonly outcome: 'REJECTED_OUTPUT'; readonly rejections: readonly AiOutputRejection[] }
-  | { readonly outcome: 'FAILED'; readonly reason: 'THREAD_UNREADABLE' | 'NO_CONVERSATION' | 'PROVIDER' };
+  | { readonly outcome: 'FAILED'; readonly reason: 'THREAD_UNREADABLE' | 'NO_CONVERSATION' | 'PROVIDER' | 'REPLY_IN_FLIGHT' };
 
 export class MailReplyDraftService {
   constructor(private readonly deps: MailReplyDraftDeps) {}
@@ -91,7 +98,13 @@ export class MailReplyDraftService {
     );
     if (!allowed) return { outcome: 'NOT_AVAILABLE', refusals: ['NOT_AUTHORIZED'] };
 
-    // 2. The conversation, read for this request and kept nowhere.
+    // 2. Not over a reply whose delivery is in flight or in doubt. Its own draft, by principal.
+    const before = await this.deps.drafts.draft(principal, 'GOOGLE', request.threadId);
+    if (before && (before.sendState === 'SENDING' || before.sendState === 'SEND_UNKNOWN')) {
+      return { outcome: 'FAILED', reason: 'REPLY_IN_FLIGHT' };
+    }
+
+    // 3. The conversation, read for this request and kept nowhere.
     const thread = await this.deps.threads.read(principal, request.threadId);
     if (!thread.ok) return { outcome: 'FAILED', reason: 'THREAD_UNREADABLE' };
     if (thread.messages.length === 0) return { outcome: 'FAILED', reason: 'NO_CONVERSATION' };
@@ -105,7 +118,7 @@ export class MailReplyDraftService {
       selfAddress: thread.selfAddress,
     });
 
-    // 3. One governed call. The gateway owns activation, budget, routing, provenance and the
+    // 4. One governed call. The gateway owns activation, budget, routing, provenance and the
     // output contract; nothing here names a provider or a model.
     const result = await this.deps.runtime.run(
       { organizationId: principal.organizationId, userId: principal.userId },
@@ -129,14 +142,19 @@ export class MailReplyDraftService {
       return { outcome: 'REJECTED_OUTPUT', rejections: ['WRONG_SCHEMA'] };
     }
 
-    // 4. Into the composer -- the same draft a manual reply uses, marked with where it came from.
+    // 5. Into the composer -- the same draft a manual reply uses, marked with where it came from.
+    // ONLY THE BODY comes from the model. Reply or Reply all is what the employee chose (or what
+    // their draft already said), and the recipients are the draft's own: the composer and thread
+    // logic decide who a reply goes to, and the model has no field in which to say.
+    // The draft as it is NOW, not as it was before the model answered: an edit to the recipients
+    // made meanwhile is the employee's, and is kept.
     const newest = [...thread.messages].sort((a, b) => a.fact.internalDate.getTime() - b.fact.internalDate.getTime()).at(-1)!;
     const existing = await this.deps.drafts.draft(principal, 'GOOGLE', request.threadId);
-    await this.deps.drafts.save(principal, {
+    const saved = await this.deps.drafts.save(principal, {
       provider: 'GOOGLE',
       threadId: request.threadId,
       inReplyToMessageId: request.inReplyToMessageId ?? newest.fact.messageId,
-      mode: request.mode ?? existing?.mode === 'REPLY_ALL' ? 'REPLY_ALL' : 'REPLY',
+      mode: request.mode ?? (existing?.mode === 'REPLY_ALL' ? 'REPLY_ALL' : 'REPLY'),
       // The recipients a manual reply would have had: the employee sees and may change them.
       toAddresses: existing?.toAddresses ?? [],
       ccAddresses: existing?.ccAddresses ?? [],
@@ -147,6 +165,9 @@ export class MailReplyDraftService {
       aiTaskVersion: AI_TASK_MAIL_REPLY_DRAFT.version,
       aiUnedited: true,
     });
+    // A send was claimed while the model was answering: the frozen words win, and nothing was
+    // written over them.
+    if (saved === null) return { outcome: 'FAILED', reason: 'REPLY_IN_FLIGHT' };
 
     return {
       outcome: 'DRAFTED',

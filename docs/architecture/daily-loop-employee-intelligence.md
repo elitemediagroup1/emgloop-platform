@@ -846,6 +846,18 @@ outrank it.
 uses, marked `AI_PROPOSED` with the invocation that produced it. From that moment it is an ordinary
 draft.
 
+**Only the body comes from the model.** The output schema has one prose field, `draft.body`, and
+forbids every other property; the parser drops anything else a provider returns. Reply or Reply all
+is what the employee chose (or what their draft already said), the recipients are the draft's own,
+and From is the connected account's at send time. A model has no field in which to name a
+recipient, a sender, a mailbox or an action.
+
+**Never over a reply in flight or in doubt (§6.11a).** While the thread's draft is `SENDING` or
+`SEND_UNKNOWN` its words are evidence and stay frozen. The composer does not offer Draft with Loop
+then, and the service refuses a request that arrives anyway -- before the conversation is read or a
+model is called. If a send is claimed while a model is answering, the claim wins and the proposal
+is dropped (`save` refuses a frozen draft).
+
 ### 6.14 What a mailbox is waiting on (GM-3)
 
 Deterministic states over stored headers, with no body read and no importance scored:
@@ -854,7 +866,7 @@ Deterministic states over stored headers, with no body read and no importance sc
 |---|---|---|
 | `NEEDS_YOU` | they wrote last and you have not replied -- immediately if unread, otherwise after 4 hours | direction, age, unread |
 | `WAITING_ON_THEM` | you wrote last and nobody replied for 2 days | direction, age |
-| `GONE_QUIET` | a conversation both sides were having, silent for 14 days | direction, age, message count |
+| `GONE_QUIET` | you wrote last on a conversation of more than one message, silent for 14 days | direction, age, message count |
 
 Nothing older than 45 days is raised at all. **Significance and relevance stay apart**: there is no
 score, no ranking weight and no threshold that mixes them; ordering is by time, which is a fact.
@@ -864,6 +876,17 @@ state change with an observation -- and, where the employee said something Loop 
 `work_feedback` row. A closed item reopens ONLY when a message arrives after it was closed; the same
 facts seen again are not news. **No correction edits the evidence that raised the item**: Loop was
 wrong about what the facts meant, and the facts stay as they are.
+
+"I'm waiting on them" closes the `NEEDS_YOU` item (resolved as handled, reason "waiting on them")
+and records `NOT_WAITING` feedback against the thread. The rules do not read feedback yet, so it
+does not create a `WAITING_ON_THEM` item; that is a Stage 2 refinement, not a claim this makes.
+"More than one message" stands in for "both sides spoke" until direction is summarised per thread.
+
+**Home says how current it is.** The Your Mail panel carries the Inbox's own currency line
+(`mailCurrency`). It concludes from a current or stale read, or -- after a failed sync -- from the
+last good read, labelled as such and never called empty. A mailbox Loop cannot read (not connected,
+not granted, expired, never read) shows why and concludes nothing, whatever an earlier read left in
+`work_items`. The counts under the lists count the lists: after the employee's corrections.
 
 ## 8. Calendar model
 

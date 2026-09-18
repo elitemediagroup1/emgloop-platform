@@ -1964,6 +1964,11 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
   since yesterday (counts, never narrative).
 - **An organization-feed leak was closed on the way**: employee-private tasks are now excluded from
   the Brain activity feed's requirements and items.
+- **Final refresh onto main after #296 (2026-09-18)**: rebased onto `8f2d78c` without conflicts.
+  Three fixes from the re-review: Draft with Loop is refused while a reply is `SENDING` /
+  `SEND_UNKNOWN`, before any read or model call; Reply no longer silently becomes Reply all when
+  Loop drafts; and Home's Your Mail carries the Inbox's currency line and concludes nothing from an
+  unreadable mailbox.
 
 **Next:** review GM-1, GM-2 and GM-3 in that order, then commission Gmail in production (scopes,
 reconnect, secrets, the gate variable) as recorded in the GM-3 PR.

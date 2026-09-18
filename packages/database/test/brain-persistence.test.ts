@@ -996,6 +996,19 @@ test('a Brain event becomes a valid Activity item that points at work, never at 
   assert.equal((await adapter.page({ organizationId: ORG, subject: { kind: 'ORGANIZATION' }, filter: 'COMMUNICATIONS', cursor: null, limit: 10, interactionsIncluded: false })).items.length, 0);
   const unknown = (await w.events.listForJob(OTHER, (w.fake.brainJob.__rows.find((r: any) => r.organizationId === OTHER)).id))[0]!;
   assert.equal(brainEventActivityItem(unknown), null, 'relationship.review is not a shipped task, so its events are not shown');
+
+  // THE GM-3 LEAK, AS A REGRESSION. The very same event, in this organization, about the
+  // employee-private Draft with Loop task: it becomes no organization activity item at all, so
+  // the existence of one person's private work never reaches a shared feed.
+  const shown = (await w.events.listForJob(ORG, jobId))[0]!;
+  assert.notEqual(brainEventActivityItem(shown), null, 'the organization task is shown');
+  const privateTwin = { ...shown, event: { ...shown.event, taskId: 'mail.reply.draft' } } as typeof shown;
+  assert.equal(brainEventActivityItem(privateTwin), null, 'an employee-private task never becomes an organization activity item');
+  // And the organization lane never demands the employee-private authority to be read.
+  assert.equal(
+    adapter.requiresFor({ kind: 'ORGANIZATION' }).some((r) => r.resource === 'employeeIntelligence'),
+    false,
+  );
 });
 
 // --- Fences -------------------------------------------------------------------------------

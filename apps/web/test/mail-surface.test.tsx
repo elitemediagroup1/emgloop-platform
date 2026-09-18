@@ -432,16 +432,72 @@ describe('Home says what mail needs the employee, with why and how to disagree',
 
   it('says nothing is waiting when nothing is, and says it cannot tell when it cannot', () => {
     const clear = renderToStaticMarkup(
-      <YourMail view={view({ needsYou: [], summary: { moved: 0, replies: 0, answered: 0, needsYou: 0, waitingOnThem: 0, goneQuiet: 0 } })} time={time} />,
+      <YourMail view={view({ needsYou: [], summary: { moved: 0, replies: 0, answered: 0, needsYou: 0, waitingOnThem: 0, goneQuiet: 0 } })} time={time} current />,
     );
     assert.match(clear, /Nothing in your mail is waiting on you/);
     assert.match(clear, /Nothing has moved since/);
 
-    // Stale or unreadable mail is never presented as an empty queue.
-    const cannot = renderToStaticMarkup(<YourMail view={null} time={time} unavailable="Loop has not read your mail recently enough to say what it is waiting on." />);
-    assert.match(cannot, /has not read your mail recently enough/);
+    // Unreadable mail is never presented as an empty queue: the panel says why, and where to fix it.
+    const expired = mailCurrency('AUTHORIZATION_EXPIRED', new Date('2026-09-01T12:00:00Z'), false, time);
+    const cannot = renderToStaticMarkup(<YourMail view={null} time={time} currency={expired} />);
+    assert.match(cannot, /Google no longer accepts this connection/);
+    assert.match(cannot, /href="\/app\/connections"/);
+    assert.match(cannot, /Reconnect/);
     assert.equal(cannot.includes('Nothing in your mail is waiting'), false);
     assert.equal(renderToStaticMarkup(<YourMail view={null} time={time} />), '', 'no connection, no panel');
+  });
+
+  it('always says how current it is, and never presents an old read as if Loop just checked', () => {
+    const empty = view({ needsYou: [], summary: { moved: 0, replies: 0, answered: 0, needsYou: 0, waitingOnThem: 0, goneQuiet: 0 } });
+
+    // A current read says when it was.
+    const fresh = renderToStaticMarkup(
+      <YourMail view={empty} time={time} current currency={mailCurrency('CURRENT', new Date('2026-09-18T15:58:00Z'), false, time)} />,
+    );
+    assert.match(fresh, /Loop read your mail/);
+    assert.match(fresh, /Nothing in your mail is waiting on you/);
+
+    // A stale read still concludes, and says its age.
+    const stale = renderToStaticMarkup(
+      <YourMail view={empty} time={time} current currency={mailCurrency('STALE', new Date('2026-09-18T09:00:00Z'), false, time)} />,
+    );
+    assert.match(stale, /Loop last read your mail/);
+
+    // A failed sync shows the last good read AS the last good read, and claims nothing current.
+    const failed = renderToStaticMarkup(
+      <YourMail view={empty} time={time} current={false} currency={mailCurrency('SYNC_FAILED', new Date('2026-09-15T09:00:00Z'), false, time)} />,
+    );
+    assert.match(failed, /as Loop last read it/);
+    assert.equal(failed.includes('Nothing in your mail is waiting on you'), false);
+    assert.equal(failed.includes('Nothing has moved since'), false);
+    assert.match(failed, /when Loop last read your mail/);
+  });
+
+  it('Home concludes attention only from a mailbox Loop has read, and passes the Inbox’s own currency line', () => {
+    const home = code(read('../src/app/app/page.tsx'));
+    // The same words the Inbox uses for how current Loop is -- never a second phrasing.
+    assert.match(home, /mailCurrency\(mail\.freshness, mail\.lastSyncedAt, mail\.syncInProgress/);
+    // Attention is computed only from a read Loop could make (or the last good one after a failure).
+    assert.match(home, /mail\.lastSyncedAt !== null && \(mail\.knows \|\| mail\.freshness === 'SYNC_FAILED'\)/);
+    assert.match(home, /concludable \? await loadMailAttention\(principal/);
+    // Not connected, or not configured: no panel at all.
+    assert.match(home, /mail\.freshness !== 'NOT_CONNECTED' && mail\.freshness !== 'NOT_CONFIGURED'/);
+    // And the Home surface renders no email body: it reads stored facts only.
+    for (const file of ['../src/app/app/_home/your-mail.tsx', '../src/daily-loop/mail-attention.ts']) {
+      const src = code(read(file));
+      for (const forbidden of ['loadThread', 'mailReadableText', '.body.text', 'dangerouslySetInnerHTML']) {
+        assert.equal(src.includes(forbidden), false, `${file}: ${forbidden}`);
+      }
+    }
+  });
+
+  it('counts what it shows: a row the employee handled is not still counted as needing them', () => {
+    // The rules' own counts (summary) still see the thread; the employee closed the item. The line
+    // under the lists counts the lists, after the correction.
+    const html = renderToStaticMarkup(
+      <YourMail view={view({ needsYou: [], summary: { moved: 1, replies: 1, answered: 0, needsYou: 1, waitingOnThem: 0, goneQuiet: 0 } })} time={time} current />,
+    );
+    assert.match(html, /0 needing you, 0 waiting on somebody else/);
   });
 
   it('the correction actions are guarded, act on the asker’s own item, and edit no evidence', () => {
