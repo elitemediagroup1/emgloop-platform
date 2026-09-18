@@ -243,7 +243,8 @@ describe('a reply in flight or in doubt cannot be sent again from the composer',
     replyTo: [{ address: 'ben@cashion.example', name: 'Ben Cashion' }],
     replyAllCc: [],
     canSend: true,
-    aiDraft: <button type="button">Draft with Loop</button>,
+    // Loop could draft here -- and still must not offer to while the reply is in flight or in doubt.
+    draftWithLoop: { available: true, reason: null },
     now: NOW,
   };
   const attempt = (sendState: 'SENDING' | 'SEND_UNKNOWN', startedSecondsAgo: number) => ({
