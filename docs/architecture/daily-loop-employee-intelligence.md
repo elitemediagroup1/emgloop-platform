@@ -628,6 +628,58 @@ valuable — Rule 8: history compounds. Retention: references indefinitely; any 
 
 ---
 
+### 6.9 The Gmail scopes, decided (GM-1, 2026-09-18)
+
+Verified against Google's current scope reference and synchronization guide on 2026-09-18.
+
+**What changed and why.** `gmail.metadata` is defined as "labels and headers, but not the email
+body". The approved product -- an employee reading and answering business correspondence inside
+Loop, and asking Loop to draft a reply -- cannot be built on headers. Two scopes replace it:
+
+| Scope | Class | Why it is the narrowest that works |
+|---|---|---|
+| `gmail.readonly` | **Restricted** | The only scope short of `gmail.modify` / `mail.google.com/` that returns a body. Both alternatives also grant writing and deleting a mailbox, which Loop must never hold. It also permits `q`, which is what lets the first read be bounded by age -- metadata forbids `q` (§6.2). |
+| `gmail.send` | **Sensitive** | Sends as the connected person and can do nothing else: it cannot read, label, delete or draft. `gmail.compose` would also cover drafts and is *restricted*, so Loop keeps drafts in its own store and asks only for this. |
+
+**Deliberately not requested:** `gmail.modify`, `gmail.labels`, `gmail.insert`, `gmail.settings.*`,
+`mail.google.com/`. Loop keeps its own work state and never writes to a mailbox -- it does not mark
+a message read in Gmail, does not apply a label and does not delete anything.
+
+**Consent consequence.** A connection made before this decision holds `gmail.metadata`, which no
+longer covers the Gmail capability. Such a connection reports `INSUFFICIENT_SCOPE` and asks the
+person to reconnect; nothing is rewritten and no grant is refused. Loop stores what Google granted
+and only Google can change that.
+
+**Verification consequence.** `gmail.readonly` is a restricted scope, so a CASA assessment is
+implicated for production use exactly as `gmail.metadata` already was -- the class does not change.
+`gmail.send` is *sensitive*, which requires verification but not CASA. In Testing mode both work for
+listed test users, with refresh tokens expiring after seven days (§29.2).
+
+### 6.10 What Gmail persists, and what it never does (GM-1)
+
+**The sync read asks for `format=metadata` and nothing else.** Gmail does not return a payload for
+that request, so the only Gmail read that is ever persisted *cannot* carry correspondence, even by
+accident. Headers, labels and timestamps become `work_messages` / `work_threads` /
+`work_correspondents` exactly as DL-1 shaped them -- no new table, and no body column.
+
+**Bodies are read through, never stored.** When an employee opens a conversation, or asks Loop to
+draft a reply, the server reads that one thread with `format=full`, renders it (or hands it to a
+governed AI context), and discards it. This is what `GOOGLE_RAW_RESPONSES -> NEVER_STORED` in §21.3
+already required, and it keeps D-11's content-minimization decision intact: Loop does not become a
+second copy of anybody's mailbox.
+
+**Synchronization follows Google's own guide.** The first pass is `messages.list` bounded by
+`q=newer_than:14d`, with the mailbox's current `historyId` captured from `getProfile` *before* the
+listing so a message arriving mid-read is replayed rather than missed. Every later pass is
+`history.list` from the stored position. Gmail answers **404** when that position is older than it
+keeps ("at least one week, often longer"), which is `CURSOR_EXPIRED` and causes ONE bounded
+re-baseline -- never a mailbox crawl. A weekly baseline re-establishes a position before it can
+expire, which matters most for the employee nobody noticed was away.
+
+**The initial window is 14 days**, against Calendar's 7-back/30-ahead. Daily Loop reasons about the
+current work period; the thread graph builds forward from there, and a bounded first read that
+finishes is worth more than a complete one that truncates.
+
 ## 8. Calendar model
 
 ### 8.1 The grant is already sufficient for V1

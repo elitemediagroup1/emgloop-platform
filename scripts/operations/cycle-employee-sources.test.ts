@@ -30,10 +30,15 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { CalendarSyncOutcome, WorkPrincipal } from '@emgloop/database';
+import type { WorkPrincipal } from '@emgloop/database';
 
 import {
   CYCLE_BREAKER_THRESHOLD,
+  CYCLE_SOURCES,
+  CYCLE_SOURCE_CAPABILITY,
+  CYCLE_SOURCE_WORK_SOURCE,
+  parseSource,
+  type CycleSyncOutcome,
   CYCLE_DEADLINE_MS,
   CYCLE_IN_FLIGHT_MS,
   REFUSED_ORGANIZATION_STATUSES,
@@ -44,28 +49,31 @@ import {
   readEnvironment,
   runCalendarCycle,
   type CalendarCycleDeps,
-} from './cycle-employee-calendars';
+} from './cycle-employee-sources';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** The workflow with its comment lines removed: a comment saying "do NOT add push:" is not a trigger. */
-const WORKFLOW = readFileSync(join(HERE, '..', '..', '.github', 'workflows', 'cycle-employee-calendars.yml'), 'utf8')
-  .split('\n')
-  .filter((l) => !/^\s*#/.test(l))
-  .join('\n');
+const workflow = (name: string) =>
+  readFileSync(join(HERE, '..', '..', '.github', 'workflows', `${name}.yml`), 'utf8')
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+const WORKFLOW = workflow('cycle-employee-calendars');
+const GMAIL_WORKFLOW = workflow('cycle-employee-gmail');
 /** The runner's code with its comments removed: a prose mention is not a capability. */
 const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-const SOURCE = code(readFileSync(join(HERE, 'cycle-employee-calendars.ts'), 'utf8'));
+const SOURCE = code(readFileSync(join(HERE, 'cycle-employee-sources.ts'), 'utf8'));
 
 const ORG = { id: 'org_1', slug: 'emg', status: 'ACTIVE' };
 
-function outcome(over: Partial<CalendarSyncOutcome> = {}): CalendarSyncOutcome {
-  return { outcome: 'SUCCEEDED', mode: 'INCREMENTAL', examined: 2, written: 2, failure: null, cursorAdvanced: true, ...over };
+function outcome(over: Partial<CycleSyncOutcome> = {}): CycleSyncOutcome {
+  return { outcome: 'SUCCEEDED', mode: 'INCREMENTAL', failure: null, cursorAdvanced: true, ...over };
 }
 
 /** A world with a movable clock, so a deadline and an in-flight lease are testable facts. */
 function world(options: {
   members?: string[];
-  sync?: (principal: WorkPrincipal, options: { baseline: boolean }) => Promise<CalendarSyncOutcome>;
+  sync?: (principal: WorkPrincipal, options: { baseline: boolean }) => Promise<CycleSyncOutcome>;
   lastRun?: (principal: WorkPrincipal) => Promise<{ startedAt: Date; finishedAt: Date | null } | null>;
   organization?: { id: string; slug: string; status: string } | null;
 } = {}) {
@@ -99,7 +107,7 @@ function world(options: {
 
 test('every employee is synchronized under their own principal, one at a time', async () => {
   const w = world();
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
 
   assert.equal(result.overall, 'COMPLETED');
   assert.equal(result.eligible, 3);
@@ -119,7 +127,7 @@ test('every employee is synchronized under their own principal, one at a time', 
 
 test('the same employee reached twice is attempted once', async () => {
   const w = world();
-  const result = await runCalendarCycle({ organizationSlugs: ['emg', 'emg-again'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg', 'emg-again'], baseline: false }, w.deps);
   assert.equal(result.attempted, 3, 'two slugs resolving to one organization is still three people');
   assert.equal(w.calls.length, 3);
 });
@@ -128,10 +136,10 @@ test('one employee failing does not end the cycle for anybody else', async () =>
   const w = world({
     sync: async (principal) =>
       principal.userId === 'u2'
-        ? outcome({ outcome: 'FAILED', failure: 'RATE_LIMITED', cursorAdvanced: false, examined: 0, written: 0 })
+        ? outcome({ outcome: 'FAILED', failure: 'RATE_LIMITED', cursorAdvanced: false })
         : outcome(),
   });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
 
   assert.equal(result.attempted, 3);
   assert.equal(result.synced, 2);
@@ -147,7 +155,7 @@ test('an employee whose pass throws is a failure of that pass only, and its mess
       return outcome();
     },
   });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
 
   assert.equal(result.failed, 1);
   assert.equal(result.synced, 2);
@@ -157,9 +165,9 @@ test('an employee whose pass throws is a failure of that pass only, and its mess
 test('three consecutive credential failures stop the cycle instead of expiring everybody', async () => {
   const w = world({
     members: ['u1', 'u2', 'u3', 'u4', 'u5'],
-    sync: async () => outcome({ outcome: 'FAILED', failure: 'AUTHORIZATION_EXPIRED', cursorAdvanced: false, examined: 0, written: 0 }),
+    sync: async () => outcome({ outcome: 'FAILED', failure: 'AUTHORIZATION_EXPIRED', cursorAdvanced: false }),
   });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
 
   assert.equal(result.overall, 'ABORTED');
   assert.equal(w.calls.length, CYCLE_BREAKER_THRESHOLD, 'it stops attempting, it does not just report');
@@ -172,10 +180,10 @@ test('a lapsed grant among healthy ones does not trip the breaker', async () => 
     members: ['u1', 'u2', 'u3', 'u4'],
     sync: async (principal) =>
       principal.userId === 'u1' || principal.userId === 'u3'
-        ? outcome({ outcome: 'FAILED', failure: 'AUTHORIZATION_EXPIRED', cursorAdvanced: false, examined: 0, written: 0 })
+        ? outcome({ outcome: 'FAILED', failure: 'AUTHORIZATION_EXPIRED', cursorAdvanced: false })
         : outcome(),
   });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
   assert.equal(result.overall, 'COMPLETED_WITH_FAILURES');
   assert.equal(w.calls.length, 4, 'every employee was still attempted');
 });
@@ -187,7 +195,7 @@ test('an employee whose pass is already running is left alone, and one that fini
     lastRun: async (principal) =>
       principal.userId === 'busy' ? { startedAt, finishedAt: null } : { startedAt, finishedAt: new Date('2026-09-18T11:58:30Z') },
   });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
 
   assert.equal(result.skipped, 1);
   assert.equal(result.attempted, 1);
@@ -197,7 +205,7 @@ test('an employee whose pass is already running is left alone, and one that fini
 test('a run that never finished stops being a reason to skip, so a crash cannot freeze a calendar', async () => {
   const stale = new Date('2026-09-18T12:00:00Z').getTime() - CYCLE_IN_FLIGHT_MS - 1;
   const w = world({ members: ['stuck'], lastRun: async () => ({ startedAt: new Date(stale), finishedAt: null }) });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
   assert.equal(result.attempted, 1);
   assert.equal(result.skipped, 0);
 });
@@ -208,7 +216,7 @@ test('the cycle stops attempting at its deadline, in a stable order, so the next
     w.advance(CYCLE_DEADLINE_MS / 2);
     return w.deps.sync(principal, o);
   } };
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, slow);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, slow);
 
   assert.equal(result.attempted, 2);
   assert.equal(result.notAttempted, 2);
@@ -217,11 +225,11 @@ test('the cycle stops attempting at its deadline, in a stable order, so the next
 
 test('a baseline pass asks for a fresh window for everybody; the normal pass never does', async () => {
   const normal = world();
-  await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, normal.deps);
+  await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, normal.deps);
   assert.deepEqual(normal.calls.map((c) => c.baseline), [false, false, false]);
 
   const rebaseline = world({ sync: async () => outcome({ mode: 'REBASELINE' }) });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: true }, rebaseline.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: true }, rebaseline.deps);
   assert.deepEqual(rebaseline.calls.map((c) => c.baseline), [true, true, true]);
   assert.equal(result.rebaselined, 3);
   assert.equal(rebaseline.field('CYCLE_START', 'mode'), 'BASELINE');
@@ -232,10 +240,10 @@ test('a failed baseline is reported and changes nothing else about the cycle', a
     members: ['u1', 'u2'],
     sync: async (principal) =>
       principal.userId === 'u1'
-        ? outcome({ outcome: 'FAILED', mode: 'REBASELINE', failure: 'UNAVAILABLE', cursorAdvanced: false, examined: 0, written: 0 })
+        ? outcome({ outcome: 'FAILED', mode: 'REBASELINE', failure: 'UNAVAILABLE', cursorAdvanced: false })
         : outcome({ mode: 'REBASELINE' }),
   });
-  const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: true }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: true }, w.deps);
   assert.equal(result.failed, 1);
   assert.equal(result.synced, 1);
   assert.ok(cycleSucceeded(result.overall));
@@ -244,21 +252,21 @@ test('a failed baseline is reported and changes nothing else about the cycle', a
 test('an organization that cannot be operated against is refused, and its people are never read', async () => {
   for (const status of REFUSED_ORGANIZATION_STATUSES) {
     const w = world({ organization: { ...ORG, status } });
-    const result = await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+    const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
     assert.equal(result.overall, 'PRECONDITION_FAILED', status);
     assert.equal(w.calls.length, 0, status);
     assert.equal(cycleSucceeded(result.overall), false, status);
   }
 
   const missing = world({ organization: null });
-  const result = await runCalendarCycle({ organizationSlugs: ['nope'], baseline: false }, missing.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['nope'], baseline: false }, missing.deps);
   assert.equal(result.overall, 'PRECONDITION_FAILED');
   assert.equal(missing.calls.length, 0);
 });
 
 test('with nothing configured it reads nothing at all', async () => {
   const w = world();
-  const result = await runCalendarCycle({ organizationSlugs: [], baseline: false }, w.deps);
+  const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: [], baseline: false }, w.deps);
   assert.equal(result.overall, 'PRECONDITION_FAILED');
   assert.equal(w.calls.length, 0);
 });
@@ -268,7 +276,7 @@ test('the summary counts what an operator needs, and names nobody', async () => 
     members: ['u1', 'u2', 'u3'],
     sync: async (principal) => (principal.userId === 'u3' ? outcome({ outcome: 'TRUNCATED' }) : outcome()),
   });
-  await runCalendarCycle({ organizationSlugs: ['emg'], baseline: false }, w.deps);
+  await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg'], baseline: false }, w.deps);
 
   const summary = w.lines.find((l) => l.startsWith('event=CYCLE_SUMMARY'));
   assert.ok(summary);
@@ -324,10 +332,13 @@ test('it refuses to start without a database and a Google client, naming what is
 });
 
 test('nothing in this runner can name a person, a window or a date', () => {
-  const { organizations, baseline } = parseArgs(['--organizations', ' emg , emg ', '--baseline']);
+  const { organizations, baseline, source } = parseArgs(['--organizations', ' emg , emg ', '--baseline', '--source', 'GMAIL']);
   assert.deepEqual(parseOrganizations(organizations), ['emg']);
   assert.equal(baseline, true);
+  assert.equal(parseSource(source), 'gmail', 'the source is named, and is case-insensitive');
   assert.equal(parseArgs(['--organizations', 'emg']).baseline, false);
+  // A pass with no source, or an unknown one, is refused rather than defaulted to a mailbox.
+  for (const bad of ['', 'mail', 'drive', 'CALENDAR '])  assert.equal(parseSource(bad), null, bad);
 
   // Source-level, because "nobody would point the scheduler at one person" is a memory rather
   // than a property.
@@ -337,7 +348,20 @@ test('nothing in this runner can name a person, a window or a date', () => {
   // It reaches no Prisma model, builds no Google request and holds no token. It may hold the
   // client's lifecycle (`$disconnect`) and nothing else.
   assert.equal(/prisma\.[a-z]/.test(SOURCE), false, 'no Prisma model');
-  for (const forbidden of ['$queryRaw', '$executeRaw', 'googleapis.com', 'accessToken', 'refreshToken', 'Authorization', "'gmail'", "'drive'"]) {
+  // It names a SOURCE (`gmail`, `calendar`) and never reaches one: no request, no token, and
+  // nothing off anybody's mailbox can pass through it.
+  for (const forbidden of [
+    '$queryRaw',
+    '$executeRaw',
+    'googleapis.com',
+    'accessToken',
+    'refreshToken',
+    'Authorization',
+    'subject',
+    'snippet',
+    'rawMessage',
+    'messages.get',
+  ]) {
     assert.equal(SOURCE.includes(forbidden), false, forbidden);
   }
   // And it is not reachable over HTTP: there is no route, no handler and no server here.
@@ -383,4 +407,61 @@ test('the workflow is off until somebody switches it on, and nothing else can st
   for (const forbidden of ['--user', '--email', 'userId']) {
     assert.equal(WORKFLOW.includes(forbidden), false, forbidden);
   }
+});
+
+// --- One runner, one source per pass (GM-1) --------------------------------------------------
+
+test('a source names its own capability and its own work source, and nothing defaults', () => {
+  assert.deepEqual([...CYCLE_SOURCES], ['calendar', 'gmail']);
+  assert.deepEqual({ ...CYCLE_SOURCE_CAPABILITY }, { calendar: 'calendar', gmail: 'gmail' });
+  assert.deepEqual({ ...CYCLE_SOURCE_WORK_SOURCE }, { calendar: 'CALENDAR', gmail: 'GMAIL' });
+});
+
+test('a Gmail cycle is the same cycle: same isolation, same breaker, same summary', async () => {
+  const w = world({ members: ['u1', 'u2'] });
+  const result = await runCalendarCycle({ source: 'gmail', organizationSlugs: ['emg'], baseline: false }, w.deps);
+  assert.equal(result.source, 'gmail');
+  assert.equal(result.synced, 2);
+  assert.deepEqual(w.calls.map((c) => c.principal.userId), ['u1', 'u2']);
+  assert.equal(w.field('CYCLE_START', 'source'), 'gmail');
+  assert.equal(w.field('CYCLE_SUMMARY', 'source'), 'gmail');
+
+  // The per-employee lines still carry a digest and nothing off anybody's mailbox.
+  for (const l of w.lines.filter((x) => x.startsWith('event=EMPLOYEE'))) {
+    assert.match(l, /ref=[0-9a-f]{12}\b/);
+    for (const forbidden of ['subject', 'snippet', '@', 'body', 'u1', 'u2']) {
+      assert.equal(l.includes(forbidden), false, `${forbidden} in ${l}`);
+    }
+  }
+});
+
+test('a Gmail baseline asks for a fresh window for everybody, exactly as Calendar does', async () => {
+  const w = world({ members: ['u1'], sync: async () => outcome({ mode: 'REBASELINE' }) });
+  const result = await runCalendarCycle({ source: 'gmail', organizationSlugs: ['emg'], baseline: true }, w.deps);
+  assert.deepEqual(w.calls.map((c) => c.baseline), [true]);
+  assert.equal(result.rebaselined, 1);
+});
+
+test('the Gmail workflow runs hourly, baselines weekly, and is off until somebody switches it on', () => {
+  const crons = [...GMAIL_WORKFLOW.matchAll(/- cron: '([^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual(crons, ['0 * * * *', '55 4 * * 0'], 'hourly, and a weekly baseline');
+  // Not the same minute as the Calendar baseline: two long passes should not queue behind each
+  // other for no reason.
+  const calendarCrons = [...WORKFLOW.matchAll(/- cron: '([^']+)'/g)].map((m) => m[1]);
+  assert.notEqual(crons[1], calendarCrons[1]);
+  assert.ok(GMAIL_WORKFLOW.includes('[ "${SCHEDULE:-}" = "55 4 * * 0" ]'), 'the weekly cron chooses --baseline');
+
+  assert.ok(GMAIL_WORKFLOW.includes('vars.DAILY_LOOP_GMAIL_ORGANIZATIONS'), 'its own gate, separate from Calendar');
+  assert.equal(GMAIL_WORKFLOW.includes('DAILY_LOOP_CALENDAR_ORGANIZATIONS'), false, 'enabling one does not enable the other');
+  assert.ok(/concurrency:\s*\n\s*group: cycle-employee-gmail/.test(GMAIL_WORKFLOW), 'its own concurrency group');
+  assert.ok(GMAIL_WORKFLOW.includes('npm run cycle:gmail'));
+  for (const trigger of ['push:', 'pull_request:', 'repository_dispatch:']) {
+    assert.equal(GMAIL_WORKFLOW.includes(trigger), false, trigger);
+  }
+  // The same four secrets as Calendar, and no mailbox-specific credential of its own.
+  for (const secret of ['DIRECT_DATABASE_URL', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'LOOP_GOOGLE_TOKEN_KEY']) {
+    assert.ok(GMAIL_WORKFLOW.includes(secret), secret);
+  }
+  const timeout = Number(GMAIL_WORKFLOW.match(/timeout-minutes:\s*(\d+)/)![1]);
+  assert.ok(timeout < 60 && timeout * 60_000 > CYCLE_DEADLINE_MS);
 });

@@ -592,8 +592,33 @@ export {
   createEmployeeCalendarSync,
   calendarAccessPort,
   calendarGoogleWorkspace,
+  employeeGoogleAccessPort,
+  employeeGoogleWorkspace,
   googleCalendarSensor,
   type EmployeeCalendarSyncConfig,
 } from './services/work-state';
+// Gmail ingestion (GM-1).
+export {
+  GmailSyncService,
+  GMAIL_INITIAL_DAYS,
+  type GmailAccessPort,
+  type GmailSensorPort,
+  type GmailSyncDeps,
+  type GmailSyncMode,
+  type GmailSyncOptions,
+  type GmailSyncOutcome,
+} from './services/work-state';
 export { createGoogleOAuthPort, googleFetch } from './services/google/google-oauth-port';
 export type { GoogleClientConfig, GoogleFetch } from './services/google/google-oauth-port';
+
+// The Gmail sync as a runtime assembles it (GM-1): one assembly for the visit refresh, the
+// manual refresh and the scheduled cycle, plus the two on-demand reads that are never stored.
+export {
+  createEmployeeGmailSync,
+  googleGmailSensor,
+  gmailAccessPort,
+  readEmployeeGmailThread,
+  sendEmployeeGmailMessage,
+  employeeGmailIdentity,
+  type EmployeeGmailConfig,
+} from './services/work-state';

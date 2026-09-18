@@ -38,7 +38,13 @@ import { AesGcmBrainPayloadSealer } from '../src/services/brain/brain-payload-se
 const ORG_A = 'org_a';
 const ORG_B = 'org_b';
 const CLIENT_ID = '123456789012-abcdef.apps.googleusercontent.com';
-const GMAIL = 'https://www.googleapis.com/auth/gmail.metadata';
+// GM-1: the Gmail capability is two scopes -- reading a thread and sending the reply are
+// different grants. `GMAIL` is the space-delimited pair, as Google reports it in a token
+// response; `GMAIL_SCOPES` is the same pair as Loop stores it.
+const GMAIL_READ = 'https://www.googleapis.com/auth/gmail.readonly';
+const GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send';
+const GMAIL = `${GMAIL_READ} ${GMAIL_SEND}`;
+const GMAIL_SCOPES = [GMAIL_READ, GMAIL_SEND];
 const CALENDAR = 'https://www.googleapis.com/auth/calendar.events.readonly';
 const DRIVE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 const T0 = new Date('2026-09-17T12:00:00Z');
@@ -274,7 +280,7 @@ test('a connect attempt is stored hashed, used once, within ten minutes, by the 
   assert.equal(begin.kind, 'redirect');
   const { state, nonce, scopes, loginHint } = w.google.last();
   assert.match(state, /^[A-Za-z0-9_-]{43}$/);
-  assert.deepEqual(scopes, ['openid', 'email', GMAIL], 'identity plus the one capability');
+  assert.deepEqual(scopes, ['openid', 'email', GMAIL_READ, GMAIL_SEND], 'identity plus the one capability');
   assert.equal(loginHint, null);
   const row = w.fake.googleOAuthState.__rows[0];
   assert.equal(row.stateHash, sha(state));
@@ -340,8 +346,8 @@ test('a granted capability is stored sealed, audited by id and scope, and nothin
   assert.equal(row.activeGoogleSubject, ALICE.sub);
   assert.equal(row.emailAtLink, ALICE.email);
   assert.equal(row.hostedDomain, 'example.com');
-  assert.deepEqual(row.grantedScopes, [GMAIL]);
-  assert.deepEqual(row.requestedScopes, [GMAIL]);
+  assert.deepEqual(row.grantedScopes, GMAIL_SCOPES);
+  assert.deepEqual(row.requestedScopes, GMAIL_SCOPES);
   const sealed = { sealVersion: row.sealVersion, keyRef: row.keyRef, sealed: new Uint8Array(row.refreshTokenSealed) };
   assert.equal(new GoogleTokenSealer(w.key).open({ organizationId: ORG_A, userId: alice.userId, googleSubject: ALICE.sub }, sealed), `1//refresh-${ALICE.sub}-1`);
 
@@ -372,8 +378,8 @@ test('capabilities are added one at a time to the same grant; Google offers the 
   assert.deepEqual(w.google.last().scopes, ['openid', 'email', CALENDAR], 'only the new capability is asked for');
   assert.equal(w.google.last().loginHint, ALICE.sub);
   const row = connection(w, alice);
-  assert.deepEqual(row.grantedScopes, [GMAIL, CALENDAR]);
-  assert.deepEqual(row.requestedScopes.sort(), [CALENDAR, GMAIL].sort());
+  assert.deepEqual(row.grantedScopes, [...GMAIL_SCOPES, CALENDAR]);
+  assert.deepEqual([...row.requestedScopes].sort(), [CALENDAR, ...GMAIL_SCOPES].sort());
   assert.notDeepEqual(row.refreshTokenSealed, before, 'the refresh token is replaced');
   assert.equal(w.fake.googleConnection.__rows.length, 1, 'still one connection');
   assert.equal(audits(w, 'google.connection.scope_changed').length, 1);
@@ -398,13 +404,13 @@ test('a capability declined on Google’s screen is INSUFFICIENT_SCOPE; declinin
     await w.service.completeConnect(alice, { state: w.google.last().state, error: 'access_denied' }),
     { returnTo: 'ONBOARDING', outcome: 'DECLINED' },
   );
-  assert.deepEqual(connection(w, alice).grantedScopes, [GMAIL], 'a refused screen changes nothing');
+  assert.deepEqual(connection(w, alice).grantedScopes, GMAIL_SCOPES, 'a refused screen changes nothing');
 });
 
 test('a grant broader than Loop asks for is refused whole; nothing is stored', async () => {
   const w = world();
   const alice = await person(w, ORG_A);
-  for (const broader of ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/calendar']) {
+  for (const broader of ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/calendar']) {
     assert.deepEqual(await connect(w, alice, 'gmail', ALICE, `openid email ${GMAIL} ${broader}`), { returnTo: 'ONBOARDING', outcome: 'UNEXPECTED_SCOPE' }, broader);
   }
   assert.equal(w.fake.googleConnection.__rows.length, 0);
@@ -492,7 +498,7 @@ test('a different Google account is refused while one is connected; after discon
   await connect(w, alice, 'gmail', ALICE, `openid email ${GMAIL}`);
   assert.deepEqual(await connect(w, alice, 'calendar', BOB, `openid email ${CALENDAR}`), { returnTo: 'ONBOARDING', outcome: 'DIFFERENT_ACCOUNT' });
   assert.equal(connection(w, alice).googleSubject, ALICE.sub);
-  assert.deepEqual(connection(w, alice).grantedScopes, [GMAIL]);
+  assert.deepEqual(connection(w, alice).grantedScopes, GMAIL_SCOPES);
   // The repository refuses it on its own too, whoever calls it.
   const direct = await w.repo.storeGrant(
     ORG_A,
@@ -763,14 +769,29 @@ test('every human role connects its own account, nobody holds authority over ano
 
 // --- The migration ------------------------------------------------------------------------------
 
-test('the migration only adds, is ASCII, and pins the three approved scopes in the database', () => {
+test('the migration only adds, is ASCII, and pins the approved scopes in the database', () => {
   const sql = readFileSync(join(__dirname, '..', 'prisma', 'migrations', '20260917172545_google_workspace_connections', 'migration.sql'), 'utf8');
   assert.equal(/[^\x00-\x7f]/.test(sql), false, 'ASCII only');
   const statements = sql.replace(/--.*$/gm, '');
   assert.equal(/\bDROP\b|\bUPDATE\s+"|\bDELETE\s+FROM\b|\bINSERT\s+INTO\b|\bTRUNCATE\b|RENAME/i.test(statements), false, 'additive only');
   assert.deepEqual([...statements.matchAll(/CREATE TABLE "(\w+)"/g)].map((m) => m[1]), ['google_connections', 'google_oauth_states']);
   const scopes = [...new Set([...statements.matchAll(/'(https:\/\/[^']+)'/g)].map((m) => m[1]))].sort();
-  assert.deepEqual(scopes, [CALENDAR, DRIVE, GMAIL].sort());
+  assert.deepEqual(scopes, [CALENDAR, DRIVE, 'https://www.googleapis.com/auth/gmail.metadata'].sort(), 'as migration 37 pinned them');
+
+  // GM-1 widened that allowlist, additively, in its own migration: Gmail's read and send scopes
+  // are permitted, the pre-GM-1 metadata scope still is (so an existing row stays legal), and
+  // nothing that writes to a mailbox was added.
+  const gm1 = readFileSync(join(__dirname, '..', 'prisma', 'migrations', '20260922000000_gmail_read_and_send_scopes', 'migration.sql'), 'utf8');
+  assert.equal(/[^\x00-\x7f]/.test(gm1), false, 'ASCII only');
+  const widened = gm1.replace(/--.*$/gm, '');
+  assert.equal(/CREATE TABLE|\bDELETE\s+FROM\b|\bTRUNCATE\b|\bUPDATE\s+"/i.test(widened), false, 'it changes one constraint and no data');
+  assert.deepEqual(
+    [...new Set([...widened.matchAll(/'(https:\/\/[^']+)'/g)].map((m) => m[1]))].sort(),
+    [CALENDAR, DRIVE, GMAIL_READ, GMAIL_SEND, 'https://www.googleapis.com/auth/gmail.metadata'].sort(),
+  );
+  for (const forbidden of ['gmail.modify', 'gmail.compose', 'gmail.insert', 'gmail.labels', 'mail.google.com']) {
+    assert.equal(widened.includes(forbidden), false, forbidden);
+  }
   for (const constraint of [
     'google_connections_status_check',
     'google_connections_credential_check',

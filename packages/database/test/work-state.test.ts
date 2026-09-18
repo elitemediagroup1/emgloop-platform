@@ -575,7 +575,13 @@ test('the migration only adds, is ASCII, stores no message body, and pins every 
 
 test('DL-1 reads no Google API, calls no model, and adds no employee-visible surface', () => {
   const dir = join(__dirname, '..', 'src', 'repositories', 'work-state');
-  const sources = readdirSync(dir).map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+  // Comments stripped: a comment explaining that a row exists because GMAIL said a message is
+  // gone is documentation. A CALL to Gmail from a repository is the thing this forbids.
+  const sources = readdirSync(dir)
+    .map((f) => readFileSync(join(dir, f), 'utf8'))
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ');
   for (const forbidden of ['googleapis.com', 'gmail', 'fetch(', 'anthropic', 'openai', 'AiRuntimeGateway', 'accessToken(']) {
     assert.equal(sources.toLowerCase().includes(forbidden.toLowerCase()), false, `${forbidden} has no place in DL-1`);
   }

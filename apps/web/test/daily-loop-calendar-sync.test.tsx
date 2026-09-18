@@ -70,7 +70,11 @@ describe('Calendar sync is the signed-in person’s own, and cannot be aimed at 
     // And the one assembly both runtimes bind to still goes through the one token path and the
     // DL-2 sensor, with each principal's OWN IAM decision rather than a caller's.
     const assembly = code(ASSEMBLY);
-    assert.match(assembly, /google\.accessToken\(principal, 'calendar'\)/);
+    // The capability is a parameter since GM-1 -- Gmail reads a token through the same path --
+    // so what matters is that the CALENDAR assembly passes 'calendar' and each surface passes
+    // its own, never a caller's.
+    assert.match(assembly, /google\.accessToken\(principal, capability\)/);
+    assert.match(assembly, /employeeGoogleAccessPort\(config\.prisma, employeeGoogleWorkspace\(config\), 'calendar'\)/);
     assert.match(assembly, /readGoogleCalendarWindow|readGoogleCalendarChanges/, 'the DL-2 sensor, not a new adapter');
     assert.match(assembly, /resource: 'googleWorkspace'/);
     assert.match(assembly, /organizationId: principal\.organizationId, userId: principal\.userId/);

@@ -194,7 +194,7 @@ export class GoogleWorkspaceService {
     if (!configured) return back('NOT_CONFIGURED');
 
     const record = await this.connections.find(principal.organizationId, principal.userId);
-    if (record?.status === 'CONNECTED' && capabilities.every((c) => record.grantedScopes.includes(GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c]))) {
+    if (record?.status === 'CONNECTED' && capabilities.every((c) => GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c].every((scope) => record.grantedScopes.includes(scope)))) {
       return back('ALREADY_CONNECTED');
     }
 
@@ -329,8 +329,10 @@ export class GoogleWorkspaceService {
       const record = await this.connections.find(organizationId, userId);
       return { ok: false, state: record?.status === 'EXPIRED' ? 'EXPIRED' : 'NOT_CONNECTED' };
     }
-    const scope = GOOGLE_WORKSPACE_CAPABILITY_SCOPES[capability];
-    if (!credential.record.grantedScopes.includes(scope)) return { ok: false, state: 'INSUFFICIENT_SCOPE' };
+    // EVERY scope the capability needs. Gmail needs two -- reading a thread and sending the
+    // reply are different grants, and half of them is not the capability.
+    const scopes = GOOGLE_WORKSPACE_CAPABILITY_SCOPES[capability];
+    if (!scopes.every((scope) => credential.record.grantedScopes.includes(scope))) return { ok: false, state: 'INSUFFICIENT_SCOPE' };
 
     const now = this.now();
     let refreshToken: string;
@@ -357,7 +359,7 @@ export class GoogleWorkspaceService {
       grantedScopes = granted.capabilityScopes;
     }
     await this.connections.recordUse(organizationId, userId, credential.record.id, grantedScopes, now);
-    if (grantedScopes !== null && !grantedScopes.includes(scope)) return { ok: false, state: 'INSUFFICIENT_SCOPE' };
+    if (grantedScopes !== null && !scopes.every((scope) => grantedScopes.includes(scope))) return { ok: false, state: 'INSUFFICIENT_SCOPE' };
     return { ok: true, accessToken: refreshed.grant.accessToken, expiresAt: new Date(now.getTime() + refreshed.grant.expiresInSeconds * 1000) };
   }
 

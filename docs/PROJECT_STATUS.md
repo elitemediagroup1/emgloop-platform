@@ -1739,7 +1739,7 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 2. Daily Loop (draft #287) — the read path is its first phase.
 3. Google verification and publishing (runbook §6).
 
-## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-0..DL-4 MERGED · DL-5 IN REVIEW
+## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-0..DL-5 MERGED · GMAIL (GM-1..GM-3) IN REVIEW
 
 **Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
 product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
@@ -1885,8 +1885,38 @@ depends on it.
   configuration reader moved into `@emgloop/database` / `@emgloop/shared`, so the web server and the
   cycle read a calendar the same way rather than drifting apart. No schema change and **no migration**.
 
-**Next:** review DL-5. Then **DL-14** (observability: a durable staleness signal an external monitor
-can watch, so a cycle that stops running is not silent) and the DL-6+ sequence in §26 of the record.
+**DL-5 merged as #294** — the automated Calendar cycle. A GitHub Actions workflow running
+`scripts/operations/cycle-employee-sources.ts` against `DIRECT_DATABASE_URL`: hourly incremental,
+weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZATIONS`.
+
+## GMAIL — the employee's mail as a work surface (GM-1..GM-3, in review)
+
+**GM-1 (draft #GM1PR): the Gmail sensor, ingestion and the three freshness paths.**
+
+- **Scopes decided and verified against Google's current documentation (2026-09-18):**
+  `gmail.readonly` (restricted — the narrowest scope that returns a body, and the one that permits
+  `q` so the first read can be bounded) and `gmail.send` (sensitive — sends as the connected person
+  and can do nothing else). `gmail.metadata` is replaced. **Not requested:** `gmail.modify`,
+  `gmail.labels`, `gmail.insert`, `gmail.settings.*`, `mail.google.com/`. Migration 40 widens the
+  `google_connections` scope CHECK additively and keeps the legacy metadata scope legal, so an
+  existing connection asks to reconnect rather than becoming an illegal row.
+- **Metadata only is persisted.** The sync read asks Gmail for `format=metadata`, so the only Gmail
+  read that is ever stored cannot carry correspondence. Bodies are read through on demand when an
+  employee opens a thread and are never stored (§21.3 `GOOGLE_RAW_RESPONSES -> NEVER_STORED`).
+- **Synchronization follows Google's own guide:** `messages.list` bounded by `q=newer_than:14d` with
+  the boundary `historyId` captured first, then `history.list` for every later pass; a 404 is
+  `CURSOR_EXPIRED` and causes ONE bounded re-baseline; weekly baseline before the position can
+  expire (Gmail keeps history "at least one week").
+- **No new tables.** DL-1's `work_threads`, `work_messages` and `work_correspondents` were designed
+  for this and are used as designed.
+- **Background cycle:** the DL-5 runner, generalized to `--source calendar|gmail` (one runner, one
+  source per pass) plus `cycle-employee-gmail.yml` — hourly, weekly baseline, OFF behind
+  `DAILY_LOOP_GMAIL_ORGANIZATIONS`.
+- **Freshness:** one policy shape for every source. Gmail's numbers are faster than Calendar's —
+  stale after 30 min, visit refresh at most every 5 min, manual floor 30 s.
+
+**Next:** review GM-1, then GM-2 (Inbox, thread, composer, manual send) and GM-3 (Draft with Loop,
+Daily Loop attention, corrections, summary). §26 of the record has the full sequence.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

@@ -1,0 +1,269 @@
+# The automated Gmail cycle -- Daily Loop GM-1.
+#
+# Keeps every connected employee's mailbox context current in Loop without anybody pressing
+# anything. Each pass reads each employee's own Gmail through their own connection, incrementally,
+# and writes METADATA ONLY into their own private work state. It is READ-ONLY against Google.
+#
+# WHAT IT READS AND WHAT IT CANNOT. The sync asks Gmail for `format=metadata`: headers, labels and
+# timestamps. Gmail does not send a body for that request, so the only Gmail read that is ever
+# persisted cannot carry correspondence even by accident. Bodies are read when an employee opens a
+# thread, in the web server, and are never stored.
+#
+# THIS IS SHIPPED OFF. The job exits immediately unless the repository variable
+# DAILY_LOOP_GMAIL_ORGANIZATIONS is set. Merging this changes nothing; enabling it is one
+# deliberate configuration action with no code change, and disabling it again is the same action
+# in reverse.
+#
+# ------------------------------------------------------------------------------
+# CADENCE: HOURLY, PLUS A WEEKLY BASELINE. OPERATING POLICY, NOT PROVIDER TRUTH.
+# ------------------------------------------------------------------------------
+#
+# THIS JOB IS NOT WHAT KEEPS AN ACTIVE EMPLOYEE CURRENT. Somebody working in Loop refreshes their
+# own mailbox on their own visit -- at most once every FIVE minutes (GM-1's freshness policy, and
+# faster than Calendar's fifteen because a mailbox moves faster) -- and can ask for a read by hand
+# no more often than every thirty seconds. Neither waits for this schedule. What this job buys is
+# currency for the hours nobody is looking, so the first render after a gap is already right, and
+# the weekly baseline below, which no visit performs.
+#
+# Given that, the cadence is chosen on cost:
+#
+#   passes per month        ~720     (24 a day)
+#   minutes per pass        ~1.5-2   (checkout, install, the boundary suite, the cycle itself)
+#   runner minutes/month    ~1,100-1,450
+#
+# Quarter-hourly would be ~4,300-5,800 minutes a month, beyond the free allowance for a private
+# repository, to shorten a gap that only affects a calendar nobody is currently reading. If that
+# trade ever changes, the whole change is this file's first cron. GitHub does not guarantee either
+# cadence under load, and a late pass is harmless: each one reads from the stored cursor, not from
+# when the job happened to fire.
+#
+# So Loop's promise has three parts, deliberately:
+#   an employee using Loop      DL-4's visit refresh, unchanged
+#   the background cycle        hourly
+#   the rolling-window rebase   weekly
+#
+# THE WEEKLY PASS EXISTS FOR A DIFFERENT REASON HERE, AND IT MATTERS MORE. Gmail keeps history
+# records for "at least one week, often longer" (its own synchronization guide). A history
+# position that is not used inside that window is GONE, and the employee it belongs to is exactly
+# the one nobody noticed -- somebody on leave, or whose grant lapsed and was fixed. The Sunday
+# baseline re-reads the bounded window and establishes a fresh position before it can expire, and
+# repairs anything a truncated pass left behind. An expired position is not a failure either way:
+# Gmail answers 404, and the runner performs one bounded re-baseline on the spot.
+#
+# ------------------------------------------------------------------------------
+# WHAT A RED RUN MEANS, AND WHAT IT DOES NOT
+# ------------------------------------------------------------------------------
+#
+# An employee whose grant lapsed, whose connection was revoked or who was rate-limited is a
+# per-employee fact: it is recorded on that person's own sync run, it is counted in the summary,
+# and it does NOT fail the job. Your Day already tells them what happened and offers the way back.
+#
+# The job goes red for three things only: it could not start (missing configuration), an
+# organization could not be operated against, or the credential breaker tripped -- three
+# consecutive credential failures, which is far more likely to be THIS JOB'S OWN token key than
+# three grants lapsing in a row. The breaker exists because a wrong LOOP_GOOGLE_TOKEN_KEY marks a
+# connection expired on the way past, and marching on would make a whole organization reconnect.
+#
+# AND A JOB THAT STOPS RUNNING IS SILENT. drain-outbox.yml failed its last hundred runs for months
+# because two secrets were never set and nobody was watching a colour. Every pass therefore prints
+# `event=CYCLE_SUMMARY` with eligible/attempted/synced/failed/skipped counts -- no identity, no
+# title, no attendee, nothing off anybody's calendar. A durable staleness signal an external
+# monitor can watch is DL-14's, deliberately: it is an observability surface, not a scheduler.
+#
+# CREDENTIALS. Four secrets, named here and never printed:
+#   DIRECT_DATABASE_URL          the direct (non-pooled) production endpoint
+#   GOOGLE_OAUTH_CLIENT_ID       ) the SAME client and key the web application holds. A different
+#   GOOGLE_OAUTH_CLIENT_SECRET   ) key cannot open a sealed refresh token, and the breaker above
+#   LOOP_GOOGLE_TOKEN_KEY        ) is what stops that from expiring everybody.
+
+name: Cycle Employee Gmail
+
+on:
+  schedule:
+    # The ordinary incremental pass, hourly on the hour.
+    - cron: '0 * * * *'
+    # The weekly baseline, Sunday 04:55 UTC -- off the hour, and off the Calendar baseline's
+    # slot, so the two never queue behind each other.
+    - cron: '55 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Re-read the bounded window instead of the stored history position'
+        type: boolean
+        default: false
+        required: false
+
+# Do NOT add push: or pull_request: triggers here.
+
+permissions:
+  contents: read
+
+# One cycle at a time. Overlapping passes cannot corrupt a row -- every write is an upsert on the
+# provider key -- but the later one would store the older sync token, so the next pass would
+# re-read what it already had. A late run waits rather than piling on; the runner also skips any
+# employee whose own pass is still in flight.
+concurrency:
+  group: cycle-employee-gmail
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    name: Gmail cycle
+    runs-on: ubuntu-latest
+    # Well under the cadence on purpose: a hung pass can never still be running when the next
+    # fires. The runner itself stops attempting after 10 minutes, so this is the outer bound.
+    timeout-minutes: 13
+
+    steps:
+      - name: Stop unless the Gmail cycle has been switched on
+        id: gate
+        env:
+          ORGANIZATIONS: ${{ vars.DAILY_LOOP_GMAIL_ORGANIZATIONS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ORGANIZATIONS:-}" ]; then
+            echo "DAILY_LOOP_GMAIL_ORGANIZATIONS is not set. The Gmail cycle is OFF and nothing was read."
+            {
+              echo "### The automated Gmail cycle is not enabled"
+              echo ""
+              echo "No Google request was made and no row was written."
+              echo ""
+              echo "To enable: set the repository variable \`DAILY_LOOP_GMAIL_ORGANIZATIONS\` to the"
+              echo "organization slug (or a comma-separated list). To disable again: clear it."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Fail closed when a production credential is missing
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          LOOP_GOOGLE_TOKEN_KEY: ${{ secrets.LOOP_GOOGLE_TOKEN_KEY }}
+        run: |
+          set -euo pipefail
+          # Names only. A value is never echoed, never printed and never written to the summary.
+          missing=""
+          if [ -z "${DATABASE_URL:-}" ]; then missing="${missing} DIRECT_DATABASE_URL"; fi
+          if [ -z "${GOOGLE_OAUTH_CLIENT_ID:-}" ]; then missing="${missing} GOOGLE_OAUTH_CLIENT_ID"; fi
+          if [ -z "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]; then missing="${missing} GOOGLE_OAUTH_CLIENT_SECRET"; fi
+          if [ -z "${LOOP_GOOGLE_TOKEN_KEY:-}" ]; then missing="${missing} LOOP_GOOGLE_TOKEN_KEY"; fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing repository secret(s):${missing}"
+            echo "The Gmail cycle cannot run. Add them under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          echo "All four required secrets are present."
+
+      - name: Validate the configured organizations
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          # Through the environment, never interpolated into the script body: a ${{ }} expansion
+          # inside `run` is pasted as literal shell text, which is how a configured value becomes
+          # a command.
+          ORGANIZATIONS: ${{ vars.DAILY_LOOP_GMAIL_ORGANIZATIONS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=0
+          IFS=',' read -ra PARTS <<< "${ORGANIZATIONS}"
+          for raw in "${PARTS[@]}"; do
+            slug="$(printf '%s' "${raw}" | tr -d '[:space:]')"
+            [ -z "${slug}" ] && continue
+            if ! printf '%s' "${slug}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+              echo "::error::Not an organization slug: ${slug}"
+              exit 1
+            fi
+            count=$((count + 1))
+          done
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::DAILY_LOOP_GMAIL_ORGANIZATIONS is set but names no organization."
+            exit 1
+          fi
+          echo "Validated ${count} organization(s)."
+
+      - name: Decide which pass this is
+        id: pass
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          REQUESTED: ${{ inputs.baseline }}
+        run: |
+          set -euo pipefail
+          # The weekly cron, or a person asking for one by hand. Everything else is incremental.
+          if [ "${SCHEDULE:-}" = "55 4 * * 0" ] || [ "${REQUESTED:-false}" = "true" ]; then
+            echo "flag=--baseline" >> "$GITHUB_OUTPUT"
+            echo "mode=BASELINE" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+            echo "mode=INCREMENTAL" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.enabled == 'true'
+        # `npm install`, matching every other operations workflow. This step also runs
+        # `prisma generate` through the database package's postinstall.
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner still cannot name a person
+        if: steps.gate.outputs.enabled == 'true'
+        # RUN BEFORE PRODUCTION IS TOUCHED, and deliberately blocking. This suite reads the
+        # runner's own source and fails if it grows a flag, a route or a query that could select a
+        # user, a window or a date, and asserts that no line it prints carries an identity, a
+        # subject or anything else off a mailbox. A red step here means the boundary moved, and no connection is
+        # opened. It is the cheap suite on purpose: the sync itself is proved in the database
+        # package, which this job does not re-prove every hour.
+        run: npm run test:operations
+
+      - name: Cycle
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          # DIRECT, non-pooled, matching every other operations workflow.
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          LOOP_GOOGLE_TOKEN_KEY: ${{ secrets.LOOP_GOOGLE_TOKEN_KEY }}
+          # Optional: only used to validate the client's registered redirect URI. Unset, the
+          # canonical production origin is used.
+          APP_URL: ${{ vars.APP_URL }}
+          ORGANIZATIONS: ${{ vars.DAILY_LOOP_GMAIL_ORGANIZATIONS }}
+        run: |
+          set -euo pipefail
+          # No user, no email, no date, no window. The only argument names tenants.
+          npm run cycle:gmail -- --organizations "${ORGANIZATIONS}" ${{ steps.pass.outputs.flag }}
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          {
+            echo "### The Gmail cycle did not complete"
+            echo ""
+            echo "Read the \`event=CYCLE_SUMMARY\` line's \`overall=\` field:"
+            echo ""
+            echo "- \`ABORTED\` - three consecutive credential failures. Suspect **this job's**"
+            echo "  \`LOOP_GOOGLE_TOKEN_KEY\`, \`GOOGLE_OAUTH_CLIENT_ID\` or \`GOOGLE_OAUTH_CLIENT_SECRET\`"
+            echo "  before concluding that three employees' grants lapsed at once. The cycle stopped"
+            echo "  on purpose: continuing would mark every remaining connection expired."
+            echo "- \`PRECONDITION_FAILED\` - an organization could not be resolved, or is suspended."
+            echo ""
+            echo "A \`COMPLETED_WITH_FAILURES\` run is GREEN and is not a fault of this job: an expired"
+            echo "grant, a revoked connection or a rate limit belongs to one employee, is recorded on"
+            echo "their own sync run, and Your Day already tells them what happened."
+            echo ""
+            echo "Re-running is safe: every write is an upsert on the provider key, a cursor is only"
+            echo "replaced by a read that succeeded, and an employee whose pass is still in flight is"
+            echo "skipped rather than duplicated."
+          } >> "$GITHUB_STEP_SUMMARY"

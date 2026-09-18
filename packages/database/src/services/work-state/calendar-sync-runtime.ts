@@ -17,6 +17,7 @@
 
 import { readGoogleCalendarChanges, readGoogleCalendarWindow } from '@emgloop/providers';
 import type { GoogleSigningKeys } from '@emgloop/providers';
+import type { GoogleWorkspaceCapability } from '@emgloop/shared';
 
 import type { PrismaClient } from '@prisma/client';
 import { GoogleConnectionRepository } from '../../repositories/google-connection.repository';
@@ -59,11 +60,15 @@ export function googleCalendarSensor(fetchImpl: GoogleFetch = googleFetch): Cale
  * belongs to, plus any domain the organization configured. With neither, external attendance is
  * reported UNKNOWN rather than guessed.
  */
-export function calendarAccessPort(prisma: PrismaClient, google: GoogleWorkspaceService): CalendarAccessPort {
+export function employeeGoogleAccessPort(
+  prisma: PrismaClient,
+  google: GoogleWorkspaceService,
+  capability: GoogleWorkspaceCapability,
+): CalendarAccessPort {
   const connections = new GoogleConnectionRepository(prisma);
   return {
     accessToken: async (principal: WorkPrincipal) => {
-      const result = await google.accessToken(principal, 'calendar');
+      const result = await google.accessToken(principal, capability);
       return result.ok ? { ok: true, accessToken: result.accessToken } : { ok: false, state: result.state };
     },
     identity: async (principal: WorkPrincipal) => {
@@ -82,7 +87,7 @@ export function calendarAccessPort(prisma: PrismaClient, google: GoogleWorkspace
  * The Google Workspace service as a calendar read needs it: this deployment's client, and each
  * principal's OWN IAM decision. The authorization is never the caller's -- there is no caller.
  */
-export function calendarGoogleWorkspace(config: EmployeeCalendarSyncConfig): GoogleWorkspaceService {
+export function employeeGoogleWorkspace(config: EmployeeCalendarSyncConfig): GoogleWorkspaceService {
   const iam = new IamRepository(config.prisma);
   const google = config.google;
   return new GoogleWorkspaceService(config.prisma, {
@@ -102,8 +107,17 @@ export function createEmployeeCalendarSync(config: EmployeeCalendarSyncConfig): 
   return new CalendarSyncService({
     sources: new WorkSourceRepository(config.prisma),
     graph: new WorkGraphRepository(config.prisma),
-    access: calendarAccessPort(config.prisma, calendarGoogleWorkspace(config)),
+    access: employeeGoogleAccessPort(config.prisma, employeeGoogleWorkspace(config), 'calendar'),
     sensor: googleCalendarSensor(config.fetchImpl),
     ...(config.now ? { now: config.now } : {}),
   });
 }
+
+/**
+ * The names these had while Calendar was the only surface using them. Kept so a reader of DL-3
+ * or DL-5 finds what those records describe; both are now capability-agnostic, because Gmail
+ * reads a token through exactly the same path.
+ */
+export const calendarAccessPort = (prisma: PrismaClient, google: GoogleWorkspaceService): CalendarAccessPort =>
+  employeeGoogleAccessPort(prisma, google, 'calendar');
+export const calendarGoogleWorkspace = employeeGoogleWorkspace;

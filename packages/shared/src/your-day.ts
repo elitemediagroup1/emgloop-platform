@@ -60,6 +60,16 @@ export interface DayBounds {
  * rather than hidden, because a day that quietly loses a meeting is a day the employee cannot
  * trust.
  */
+import {
+  CALENDAR_FRESHNESS_POLICY,
+  WORK_FRESHNESS_ADMITS_EMPTY,
+  WORK_SOURCE_FRESHNESS,
+  shouldRefreshWorkSourceOnVisit,
+  workSourceFreshness,
+  type WorkSourceFreshness,
+  type WorkSourceStateInput,
+} from './work-freshness';
+
 export const DAY_EXCLUSIONS = ['CANCELLED', 'DECLINED'] as const;
 export type DayExclusion = (typeof DAY_EXCLUSIONS)[number];
 
@@ -228,55 +238,29 @@ export function summarizeDay(schedule: DaySchedule, day: DayBounds, now: Date): 
  *   AUTHORIZATION_EXPIRED   the grant no longer works; reconnecting is the way back.
  *   NOT_CONFIGURED          this deployment has no Google client; nothing to offer.
  */
-export const CALENDAR_FRESHNESS = [
-  'CURRENT',
-  'STALE',
-  'NEVER_SYNCED',
-  'SYNC_FAILED',
-  'NOT_CONNECTED',
-  'CAPABILITY_NOT_GRANTED',
-  'AUTHORIZATION_EXPIRED',
-  'NOT_CONFIGURED',
-] as const;
-export type CalendarFreshness = (typeof CALENDAR_FRESHNESS)[number];
+export const CALENDAR_FRESHNESS = WORK_SOURCE_FRESHNESS;
+export type CalendarFreshness = WorkSourceFreshness;
 
 /** The states in which an empty day means "nothing is scheduled" rather than "I could not look". */
-export const FRESHNESS_ADMITS_EMPTY: readonly CalendarFreshness[] = Object.freeze(['CURRENT', 'STALE']);
+export const FRESHNESS_ADMITS_EMPTY: readonly CalendarFreshness[] = WORK_FRESHNESS_ADMITS_EMPTY;
 
 /** A successful read older than this is shown as stale, with its age. */
-export const CALENDAR_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+export const CALENDAR_STALE_AFTER_MS = CALENDAR_FRESHNESS_POLICY.staleAfterMs;
 
 /** Loop refreshes on a visit at most this often. A page render is not a reason to call Google. */
-export const CALENDAR_REFRESH_AFTER_MS = 15 * 60 * 1000;
+export const CALENDAR_REFRESH_AFTER_MS = CALENDAR_FRESHNESS_POLICY.refreshAfterMs;
 
 /** A person asking for a refresh by hand is honoured no more often than this. */
-export const CALENDAR_MANUAL_REFRESH_FLOOR_MS = 60 * 1000;
+export const CALENDAR_MANUAL_REFRESH_FLOOR_MS = CALENDAR_FRESHNESS_POLICY.manualFloorMs;
 
-export interface CalendarStateInput {
-  /** From the Google connection: is Calendar connected, and is the grant still good. */
-  readonly configured: boolean;
-  readonly capability: 'CONNECTED' | 'NOT_CONNECTED' | 'INSUFFICIENT_SCOPE' | 'EXPIRED';
-  /** From the DL-1 cursor and sync runs. */
-  readonly lastSyncCompletedAt: Date | null;
-  readonly lastRunOutcome: 'SUCCEEDED' | 'TRUNCATED' | 'FAILED' | null;
-}
+export type CalendarStateInput = WorkSourceStateInput;
 
 /** Which of the eight states the surface is in. Connection first: it outranks any stored read. */
 export function calendarFreshness(input: CalendarStateInput, now: Date): CalendarFreshness {
-  if (!input.configured) return 'NOT_CONFIGURED';
-  if (input.capability === 'EXPIRED') return 'AUTHORIZATION_EXPIRED';
-  if (input.capability === 'INSUFFICIENT_SCOPE') return 'CAPABILITY_NOT_GRANTED';
-  if (input.capability === 'NOT_CONNECTED') return 'NOT_CONNECTED';
-  if (!input.lastSyncCompletedAt) return 'NEVER_SYNCED';
-  if (input.lastRunOutcome === 'FAILED') return 'SYNC_FAILED';
-  return now.getTime() - input.lastSyncCompletedAt.getTime() > CALENDAR_STALE_AFTER_MS ? 'STALE' : 'CURRENT';
+  return workSourceFreshness(input, now, CALENDAR_FRESHNESS_POLICY);
 }
 
 /** Whether a visit should spend a Google call, given when the last successful read finished. */
 export function shouldRefreshOnVisit(freshness: CalendarFreshness, lastSyncCompletedAt: Date | null, now: Date): boolean {
-  if (freshness === 'NOT_CONNECTED' || freshness === 'NOT_CONFIGURED' || freshness === 'CAPABILITY_NOT_GRANTED' || freshness === 'AUTHORIZATION_EXPIRED') {
-    return false;
-  }
-  if (!lastSyncCompletedAt) return true;
-  return now.getTime() - lastSyncCompletedAt.getTime() >= CALENDAR_REFRESH_AFTER_MS;
+  return shouldRefreshWorkSourceOnVisit(freshness, lastSyncCompletedAt, now, CALENDAR_FRESHNESS_POLICY);
 }

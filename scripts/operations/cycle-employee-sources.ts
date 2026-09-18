@@ -1,17 +1,23 @@
-// The automated Calendar cycle -- one scheduled pass over the employees who connected Calendar.
+// The automated employee-source cycle -- one scheduled pass over the employees who connected a
+// Google capability. ONE RUNNER, ONE SOURCE PER PASS (DL-5 for Calendar, GM-1 for Gmail).
 //
-// Architecture: docs/architecture/daily-loop-employee-intelligence.md §8.2 and §26 (DL-5).
+// Architecture: docs/architecture/daily-loop-employee-intelligence.md §6, §8.2 and §26.
 //
 // WHAT IT IS
 //
-// For each configured organization: ask which of its members hold a usable Calendar connection,
-// and synchronize each of them, one at a time, under their own principal. That is the whole job.
-// It is the thinnest possible front end over `CalendarSyncService.syncCalendar`, which DL-3
-// already shipped and which the web server already calls for a person who is looking.
+// For each configured organization: ask which of its members hold a usable connection for the
+// named source, and synchronize each of them, one at a time, under their own principal. That is
+// the whole job. It is the thinnest possible front end over the sync service that source already
+// has, which the web server also calls for a person who is looking.
 //
-// WHY IT EXISTS: Your Day should be current for an employee who has not opened Loop, and for one
-// who has not pressed anything. The manual control stays as a recovery path; normal use no longer
-// depends on it.
+// WHY ONE RUNNER AND NOT TWO. Eligibility, isolation, the in-flight lease, the credential
+// breaker, the deadline and the summary are identical for every source -- they are properties of
+// synchronizing one employee at a time under their own principal, not properties of a calendar.
+// A second copy would be a second place for those to drift, and the one nobody watched would.
+//
+// WHY IT EXISTS: Your Day and the Inbox should be current for an employee who has not opened
+// Loop, and for one who has not pressed anything. The manual control stays as a recovery path;
+// normal use no longer depends on it.
 //
 // WHOSE CALENDAR -- AND WHY A SCHEDULED JOB CANNOT WIDEN THAT
 //
@@ -48,6 +54,9 @@
 // USAGE
 //
 //   npm run cycle:calendars -- --organizations <slug>[,<slug>] [--baseline]
+//   npm run cycle:gmail     -- --organizations <slug>[,<slug>] [--baseline]
+//
+// (both are this file, with --source calendar or --source gmail)
 //
 // Credentials come from the environment and are never printed:
 //   DATABASE_URL                 the DIRECT (non-pooled) production endpoint
@@ -58,8 +67,41 @@
 
 import { createHash } from 'node:crypto';
 
-import { readGoogleEnvironment, appOrigin, type CalendarReadFailure } from '@emgloop/shared';
-import type { CalendarSyncOutcome, WorkPrincipal } from '@emgloop/database';
+import {
+  readGoogleEnvironment,
+  appOrigin,
+  type CalendarReadFailure,
+  type GoogleWorkspaceCapability,
+  type WorkSource,
+} from '@emgloop/shared';
+import type { WorkPrincipal } from '@emgloop/database';
+
+/**
+ * The sources this runner can cycle, and what each one needs.
+ *
+ * A source is a Google capability, a work-state source and a sync. Adding Drive later is a row
+ * here and a workflow, not another runner.
+ */
+export const CYCLE_SOURCES = ['calendar', 'gmail'] as const;
+export type CycleSource = (typeof CYCLE_SOURCES)[number];
+
+export const CYCLE_SOURCE_CAPABILITY: Readonly<Record<CycleSource, GoogleWorkspaceCapability>> = Object.freeze({
+  calendar: 'calendar',
+  gmail: 'gmail',
+});
+
+export const CYCLE_SOURCE_WORK_SOURCE: Readonly<Record<CycleSource, WorkSource>> = Object.freeze({
+  calendar: 'CALENDAR',
+  gmail: 'GMAIL',
+});
+
+/** What any of the sync services reports back. Only these fields are read here. */
+export interface CycleSyncOutcome {
+  readonly outcome: 'SUCCEEDED' | 'TRUNCATED' | 'FAILED';
+  readonly mode: 'WINDOW' | 'INCREMENTAL' | 'REBASELINE';
+  readonly failure: CalendarReadFailure | null;
+  readonly cursorAdvanced: boolean;
+}
 
 // --- The seams this file is tested through -------------------------------------------------
 //
@@ -77,7 +119,7 @@ export interface CalendarCycleDeps {
   eligible(organizationId: string): Promise<readonly { readonly userId: string }[]>;
   /** This employee's most recent pass, so a cycle does not pile onto one already running. */
   lastRun(principal: WorkPrincipal): Promise<{ readonly startedAt: Date; readonly finishedAt: Date | null } | null>;
-  sync(principal: WorkPrincipal, options: { readonly baseline: boolean }): Promise<CalendarSyncOutcome>;
+  sync(principal: WorkPrincipal, options: { readonly baseline: boolean }): Promise<CycleSyncOutcome>;
   /** Injected so tests read every line, and so nothing writes to stdout directly. */
   log: (line: string) => void;
   /** Injected so the caller owns the clock -- including the tests that move it. */
@@ -85,6 +127,7 @@ export interface CalendarCycleDeps {
 }
 
 export interface CalendarCycleRequest {
+  readonly source: CycleSource;
   readonly organizationSlugs: readonly string[];
   /** True on the periodic correction pass. The normal pass leaves it false. */
   readonly baseline: boolean;
@@ -126,13 +169,14 @@ export interface EmployeePass {
   /** A stable digest, so one employee's passes can be followed without naming them. */
   readonly ref: string;
   readonly result: EmployeeResult;
-  readonly mode: CalendarSyncOutcome['mode'] | null;
+  readonly mode: CycleSyncOutcome['mode'] | null;
   readonly failure: CalendarReadFailure | null;
 }
 
 export type CycleOverall = 'COMPLETED' | 'COMPLETED_WITH_FAILURES' | 'ABORTED' | 'PRECONDITION_FAILED';
 
 export interface CalendarCycleResult {
+  readonly source: CycleSource;
   readonly overall: CycleOverall;
   readonly eligible: number;
   readonly attempted: number;
@@ -163,19 +207,28 @@ export function parseOrganizations(raw: string): string[] {
 }
 
 /** Minimal flag parsing. Deliberately not a CLI framework, and deliberately naming no person. */
-export function parseArgs(argv: readonly string[]): { organizations: string; baseline: boolean } {
+export function parseArgs(argv: readonly string[]): { organizations: string; baseline: boolean; source: string } {
   let organizations = '';
   let baseline = false;
+  let source = '';
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === '--organizations' || flag === '--organization' || flag === '--org') {
       organizations = (argv[i + 1] ?? '').trim();
       i += 1;
+    } else if (flag === '--source') {
+      source = (argv[i + 1] ?? '').trim().toLowerCase();
+      i += 1;
     } else if (flag === '--baseline') {
       baseline = true;
     }
   }
-  return { organizations, baseline };
+  return { organizations, baseline, source };
+}
+
+/** The named source, or null. A pass with no source is refused rather than defaulted. */
+export function parseSource(value: string): CycleSource | null {
+  return (CYCLE_SOURCES as readonly string[]).includes(value) ? (value as CycleSource) : null;
 }
 
 /** Names of the environment values this run needs. Values are never returned or printed. */
@@ -234,6 +287,7 @@ export async function runCalendarCycle(request: CalendarCycleRequest, deps: Cale
   deps.log(
     line({
       event: 'CYCLE_START',
+      source: request.source,
       mode: request.baseline ? 'BASELINE' : 'INCREMENTAL',
       organizations: request.organizationSlugs.join(','),
       count: request.organizationSlugs.length,
@@ -244,8 +298,8 @@ export async function runCalendarCycle(request: CalendarCycleRequest, deps: Cale
   );
 
   if (request.organizationSlugs.length === 0) {
-    deps.log(line({ event: 'PRECONDITION_FAILED', reason: 'no organizations are configured for the calendar cycle' }));
-    return summarize('PRECONDITION_FAILED', passes, 0, startedAt, deps);
+    deps.log(line({ event: 'PRECONDITION_FAILED', reason: 'no organizations are configured for this cycle' }));
+    return summarize(request.source, 'PRECONDITION_FAILED', passes, 0, startedAt, deps);
   }
 
   // One entry per principal, so the same employee named twice -- two slugs resolving to one
@@ -307,7 +361,7 @@ export async function runCalendarCycle(request: CalendarCycleRequest, deps: Cale
 
   if (aborted) overall = 'ABORTED';
   else if (overall !== 'PRECONDITION_FAILED' && passes.some((p) => p.result === 'FAILED')) overall = 'COMPLETED_WITH_FAILURES';
-  return summarize(overall, passes, eligibleCount, startedAt, deps);
+  return summarize(request.source, overall, passes, eligibleCount, startedAt, deps);
 }
 
 async function onePass(
@@ -327,7 +381,7 @@ async function onePass(
   }
 
   const startedAt = deps.now().getTime();
-  let outcome: CalendarSyncOutcome;
+  let outcome: CycleSyncOutcome;
   try {
     outcome = await deps.sync(principal, { baseline });
   } catch {
@@ -354,6 +408,7 @@ async function onePass(
 }
 
 function summarize(
+  source: CycleSource,
   overall: CycleOverall,
   passes: readonly EmployeePass[],
   eligible: number,
@@ -362,6 +417,7 @@ function summarize(
 ): CalendarCycleResult {
   const count = (result: EmployeeResult) => passes.filter((p) => p.result === result).length;
   const result: CalendarCycleResult = {
+    source,
     overall,
     eligible,
     attempted: passes.filter((p) => p.result !== 'SKIPPED_IN_FLIGHT' && p.result !== 'NOT_ATTEMPTED').length,
@@ -377,6 +433,7 @@ function summarize(
   deps.log(
     line({
       event: 'CYCLE_SUMMARY',
+      source: result.source,
       overall: result.overall,
       eligible: result.eligible,
       attempted: result.attempted,
@@ -397,6 +454,11 @@ function summarize(
 async function main(): Promise<number> {
   const log = (text: string) => process.stdout.write(text + '\n');
   const args = parseArgs(process.argv.slice(2));
+  const source = parseSource(args.source);
+  if (!source) {
+    log(line({ event: 'PRECONDITION_FAILED', reason: `--source <${CYCLE_SOURCES.join('|')}> is required` }));
+    return 2;
+  }
   const organizationSlugs = parseOrganizations(args.organizations);
   if (organizationSlugs.length === 0) {
     log(line({ event: 'PRECONDITION_FAILED', reason: '--organizations <slug>[,<slug>] is required' }));
@@ -412,24 +474,28 @@ async function main(): Promise<number> {
 
   // Imported here rather than at module scope so the orchestration above can be tested without a
   // database client being constructed as a side effect.
-  const { prisma, repositories, createEmployeeCalendarSync, GoogleConnectionRepository, WorkSourceRepository } = await import('@emgloop/database');
+  const { prisma, repositories, createEmployeeCalendarSync, createEmployeeGmailSync, GoogleConnectionRepository, WorkSourceRepository } =
+    await import('@emgloop/database');
   const google = readGoogleEnvironment(process.env, origin);
   if (google.state !== 'CONFIGURED') return 2;
 
-  // The SAME assembly the web server uses (DL-3, DL-5): the same token path, the same sensor and
-  // the same store. A second definition of "read my calendar" is exactly what this avoids.
+  // The SAME assembly the web server uses (DL-3, DL-5, GM-1): the same token path, the same
+  // sensor and the same store. A second definition of "read my mail" is what this avoids.
   const calendars = createEmployeeCalendarSync({ prisma, google });
+  const mailboxes = createEmployeeGmailSync({ prisma, google });
   const connections = new GoogleConnectionRepository(prisma);
   const sources = new WorkSourceRepository(prisma);
 
   try {
     const result = await runCalendarCycle(
-      { organizationSlugs, baseline: args.baseline },
+      { source, organizationSlugs, baseline: args.baseline },
       {
         organizations: repositories.organizations,
-        eligible: (organizationId) => connections.connectedMembers(organizationId, 'calendar'),
-        lastRun: async (principal) => (await sources.recentRuns(principal, 1))[0] ?? null,
-        sync: (principal, options) => calendars.syncCalendar(principal, options),
+        eligible: (organizationId) => connections.connectedMembers(organizationId, CYCLE_SOURCE_CAPABILITY[source]),
+        // This source's own runs: a calendar pass in flight is not a reason to skip a mailbox.
+        lastRun: async (principal) => (await sources.recentRuns(principal, 1, CYCLE_SOURCE_WORK_SOURCE[source]))[0] ?? null,
+        sync: (principal, options) =>
+          source === 'gmail' ? mailboxes.syncGmail(principal, options) : calendars.syncCalendar(principal, options),
         log,
         now: () => new Date(),
       },
@@ -443,7 +509,7 @@ async function main(): Promise<number> {
 // Executed only when run directly, so importing this file does not start a cycle. The match is
 // ANCHORED to the exact filename: a substring check would fire on the test file, whose own name
 // contains this one.
-const ENTRY_POINT = /[\\/]cycle-employee-calendars\.ts$/;
+const ENTRY_POINT = /[\\/]cycle-employee-sources\.ts$/;
 if (process.argv[1] && ENTRY_POINT.test(process.argv[1])) {
   main().then(
     (code) => {

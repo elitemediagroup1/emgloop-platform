@@ -17,11 +17,54 @@
 export const GOOGLE_WORKSPACE_CAPABILITIES = ['gmail', 'calendar', 'drive'] as const;
 export type GoogleWorkspaceCapability = (typeof GOOGLE_WORKSPACE_CAPABILITIES)[number];
 
-/** The exact scope each capability requests. Nothing broader, ever. */
-export const GOOGLE_WORKSPACE_CAPABILITY_SCOPES: Readonly<Record<GoogleWorkspaceCapability, string>> = Object.freeze({
-  gmail: 'https://www.googleapis.com/auth/gmail.metadata',
-  calendar: 'https://www.googleapis.com/auth/calendar.events.readonly',
-  drive: 'https://www.googleapis.com/auth/drive.metadata.readonly',
+/**
+ * The exact scopes each capability requests. Nothing broader, ever.
+ *
+ * GMAIL CARRIES TWO, AND WHY IT CHANGED (GM-1). Until 2026-09-18 it was `gmail.metadata`
+ * alone, which cannot return a message body -- verified against Google's scope reference:
+ * metadata is "labels and headers, but not the email body". Loop's product is an employee
+ * reading and answering business correspondence inside Loop, so it needs:
+ *
+ *   gmail.readonly  RESTRICTED. Reads threads, messages and labels INCLUDING bodies. It is
+ *                   the narrowest scope that returns a body: the alternatives (`gmail.modify`,
+ *                   `mail.google.com/`) also grant writing and deleting, which Loop must not
+ *                   hold. It replaces `gmail.metadata` rather than joining it -- readonly is a
+ *                   superset, and asking for both would be asking twice for less.
+ *   gmail.send      SENSITIVE, not restricted. Sends a message AS the connected person and can
+ *                   do nothing else: it cannot read, label, delete or draft. `gmail.compose`
+ *                   would also cover drafts and is RESTRICTED, so Loop keeps its drafts in its
+ *                   own store and asks only for the narrower send.
+ *
+ * DELIBERATELY ABSENT: `gmail.modify` and `gmail.labels`. Loop keeps its own work state, so it
+ * never needs to write a label, mark a message read or delete anything in somebody's mailbox.
+ */
+export const GOOGLE_WORKSPACE_CAPABILITY_SCOPES: Readonly<Record<GoogleWorkspaceCapability, readonly string[]>> = Object.freeze({
+  gmail: Object.freeze(['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send']),
+  calendar: Object.freeze(['https://www.googleapis.com/auth/calendar.events.readonly']),
+  drive: Object.freeze(['https://www.googleapis.com/auth/drive.metadata.readonly']),
+});
+
+/**
+ * Scopes Loop granted in an earlier version and still recognises on a stored connection.
+ *
+ * A connection linked before GM-1 holds `gmail.metadata`. It is not an error and it is not a
+ * wider grant -- it is a NARROWER one, and it no longer covers the Gmail capability, so that
+ * connection reports INSUFFICIENT_SCOPE until the person reconnects. Keeping it recognised is
+ * what makes that an honest reconnect prompt rather than a refused grant.
+ */
+export const GOOGLE_WORKSPACE_LEGACY_SCOPES: readonly string[] = Object.freeze([
+  'https://www.googleapis.com/auth/gmail.metadata',
+]);
+
+/**
+ * Which capability a legacy scope was once the whole of.
+ *
+ * It answers one question only: did this person ever ASK for this capability. Somebody who
+ * connected Gmail in September asked for Gmail, and their connection should say "reconnect",
+ * not "never connected" -- the second would be Loop forgetting something the person did.
+ */
+export const GOOGLE_WORKSPACE_LEGACY_CAPABILITY: Readonly<Record<string, GoogleWorkspaceCapability>> = Object.freeze({
+  'https://www.googleapis.com/auth/gmail.metadata': 'gmail',
 });
 
 /**
@@ -51,8 +94,14 @@ export const GOOGLE_WORKSPACE_CAPABILITY_READS: Readonly<Record<GoogleWorkspaceC
 });
 
 const CAPABILITY_BY_SCOPE: ReadonlyMap<string, GoogleWorkspaceCapability> = new Map(
-  GOOGLE_WORKSPACE_CAPABILITIES.map((c) => [GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c], c]),
+  GOOGLE_WORKSPACE_CAPABILITIES.flatMap((c) => GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c].map((scope) => [scope, c] as const)),
 );
+
+/** Every scope Loop may ever hold on a connection, current or legacy. Nothing else is stored. */
+export const GOOGLE_WORKSPACE_ALL_SCOPES: readonly string[] = Object.freeze([
+  ...GOOGLE_WORKSPACE_CAPABILITIES.flatMap((c) => [...GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c]]),
+  ...GOOGLE_WORKSPACE_LEGACY_SCOPES,
+]);
 
 /** Canonical order, no duplicates. */
 function inOrder(capabilities: Iterable<GoogleWorkspaceCapability>): GoogleWorkspaceCapability[] {
@@ -80,22 +129,24 @@ export function parseGoogleWorkspaceCapabilities(raw: unknown): GoogleWorkspaceC
 
 /** The scopes an authorization request asks for: identity first, then the capabilities. */
 export function googleScopesFor(capabilities: readonly GoogleWorkspaceCapability[]): string[] {
-  return [...GOOGLE_IDENTITY_SCOPES, ...inOrder(capabilities).map((c) => GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c])];
+  return [...GOOGLE_IDENTITY_SCOPES, ...googleCapabilityScopes(capabilities)];
 }
 
 /** The capability scopes of a set of capabilities, in canonical order. */
 export function googleCapabilityScopes(capabilities: Iterable<GoogleWorkspaceCapability>): string[] {
-  return inOrder(capabilities).map((c) => GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c]);
+  return inOrder(capabilities).flatMap((c) => [...GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c]]);
 }
 
-/** The capabilities a set of stored capability scopes covers, in canonical order. */
+/**
+ * The capabilities a set of stored scopes COVERS, in canonical order.
+ *
+ * A capability is covered only when EVERY scope it needs is present. A Gmail connection
+ * holding the read scope and not the send scope is a partly granted Gmail, and reporting it
+ * as Gmail would promise a reply the employee could never send.
+ */
 export function googleCapabilitiesOf(scopes: Iterable<string>): GoogleWorkspaceCapability[] {
-  const found: GoogleWorkspaceCapability[] = [];
-  for (const scope of scopes) {
-    const capability = CAPABILITY_BY_SCOPE.get(scope);
-    if (capability) found.push(capability);
-  }
-  return inOrder(found);
+  const held = new Set(scopes);
+  return GOOGLE_WORKSPACE_CAPABILITIES.filter((c) => GOOGLE_WORKSPACE_CAPABILITY_SCOPES[c].every((scope) => held.has(scope)));
 }
 
 export type GoogleGrantedScopes =
@@ -112,14 +163,17 @@ export type GoogleGrantedScopes =
 export function parseGoogleGrantedScopes(scope: unknown): GoogleGrantedScopes {
   if (typeof scope !== 'string' || scope.trim() === '') return { ok: false, reason: 'MISSING' };
   const granted = [...new Set(scope.trim().split(/\s+/))];
-  const capabilities: GoogleWorkspaceCapability[] = [];
+  const capabilityScopes: string[] = [];
   for (const entry of granted) {
-    const capability = CAPABILITY_BY_SCOPE.get(entry);
-    if (capability) capabilities.push(capability);
+    if (CAPABILITY_BY_SCOPE.has(entry) || GOOGLE_WORKSPACE_LEGACY_SCOPES.includes(entry)) capabilityScopes.push(entry);
     else if (!GOOGLE_IDENTITY_GRANTS.has(entry)) return { ok: false, reason: 'UNEXPECTED_SCOPE' };
   }
-  const ordered = inOrder(capabilities);
-  return { ok: true, capabilities: ordered, capabilityScopes: googleCapabilityScopes(ordered) };
+  // The scopes are stored as granted -- including a partial grant, which is a real thing a
+  // person can choose on Google's consent screen. The capabilities are what those scopes
+  // actually cover, which is a different question and never the wider answer.
+  const ordered = googleCapabilitiesOf(capabilityScopes);
+  const stored = GOOGLE_WORKSPACE_ALL_SCOPES.filter((s) => capabilityScopes.includes(s));
+  return { ok: true, capabilities: ordered, capabilityScopes: stored };
 }
 
 /**
@@ -153,9 +207,16 @@ export function googleCapabilityStates(
 ): Readonly<Record<GoogleWorkspaceCapability, GoogleCapabilityState>> {
   const states = {} as Record<GoogleWorkspaceCapability, GoogleCapabilityState>;
   for (const capability of GOOGLE_WORKSPACE_CAPABILITIES) {
-    const scope = GOOGLE_WORKSPACE_CAPABILITY_SCOPES[capability];
-    const granted = connection?.grantedScopes.includes(scope) ?? false;
-    const requested = connection?.requestedScopes.includes(scope) ?? false;
+    const scopes = GOOGLE_WORKSPACE_CAPABILITY_SCOPES[capability];
+    // EVERY scope, not any: a half-granted capability is not granted. A connection made before
+    // Gmail needed a body scope lands here as INSUFFICIENT_SCOPE, which is the honest answer --
+    // it was asked for, it is not covered, and reconnecting fixes it.
+    const granted = scopes.every((scope) => connection?.grantedScopes.includes(scope) ?? false);
+    const asked = [
+      ...scopes,
+      ...GOOGLE_WORKSPACE_LEGACY_SCOPES.filter((scope) => GOOGLE_WORKSPACE_LEGACY_CAPABILITY[scope] === capability),
+    ];
+    const requested = asked.some((scope) => (connection?.requestedScopes.includes(scope) ?? false) || (connection?.grantedScopes.includes(scope) ?? false));
     if (!connection || connection.status === 'REVOKED') states[capability] = 'NOT_CONNECTED';
     else if (connection.status === 'EXPIRED') states[capability] = granted ? 'EXPIRED' : 'NOT_CONNECTED';
     else if (granted) states[capability] = 'CONNECTED';

@@ -101,7 +101,13 @@ export interface CalendarChangesRequest extends CalendarCallOptions {
   readonly syncToken: string;
 }
 
-/** SHA-256 of a normalized address: the stable key DL-1 stores, with the address left behind. */
+/**
+ * SHA-256 of a normalized address: the stable key DL-1 stores, with the address left behind.
+ *
+ * ONE FUNCTION FOR EVERY GOOGLE SURFACE. A meeting organizer and a mail correspondent are the
+ * same person, and two hash implementations would make them two rows. `googleAddressHash` is
+ * the name to use from anywhere that is not a calendar.
+ */
 export function googleCalendarAddressHash(address: string): string {
   return createHash('sha256').update(address.trim().toLowerCase()).digest('hex');
 }
@@ -402,3 +408,6 @@ export function readGoogleCalendarChanges(request: CalendarChangesRequest): Prom
     }),
   );
 }
+
+/** The canonical address hash, for any Google surface. See `googleCalendarAddressHash`. */
+export const googleAddressHash = googleCalendarAddressHash;
