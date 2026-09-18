@@ -335,7 +335,9 @@ export class GoogleConnectionRepository {
         organizationId,
         status: 'CONNECTED',
         refreshTokenSealed: { not: null },
-        grantedScopes: { has: GOOGLE_WORKSPACE_CAPABILITY_SCOPES[capability] },
+        // hasEvery: a capability whose scopes are only partly granted cannot be read or sent
+        // with, so the cycle must not spend a Google request discovering that.
+        grantedScopes: { hasEvery: [...GOOGLE_WORKSPACE_CAPABILITY_SCOPES[capability]] },
         membership: { status: 'ACTIVE' },
       },
       // Stable order, so two passes attempt the same people in the same sequence and a cycle

@@ -252,6 +252,22 @@ export class WorkGraphRepository {
     });
   }
 
+  /** One stored message by its provider id, so a deletion can find the thread it was on. */
+  async messageByProviderId(principal: WorkPrincipal, provider: WorkProvider, messageId: string) {
+    return this.prisma.workMessage.findFirst({ where: { ...workScope(principal), provider, messageId } });
+  }
+
+  /**
+   * A thread whose every message is gone goes too.
+   *
+   * It is not a tidy-up: a thread row with no messages would still be counted, listed and
+   * classified, and an employee would be told a conversation exists that Gmail no longer has.
+   */
+  async forgetThread(principal: WorkPrincipal, provider: WorkProvider, threadId: string): Promise<boolean> {
+    const done = await this.prisma.workThread.deleteMany({ where: { ...workScope(principal), provider, threadId } });
+    return done.count === 1;
+  }
+
   /** Deleted at the source is a fact: the row goes, on the next cycle (§21.3a). */
   async forgetMessage(principal: WorkPrincipal, provider: WorkProvider, messageId: string): Promise<boolean> {
     const done = await this.prisma.workMessage.deleteMany({ where: { ...workScope(principal), provider, messageId } });

@@ -299,6 +299,7 @@ export {
   GOOGLE_CALENDAR_MAX_PAGE_SIZE,
   GOOGLE_CALENDAR_MAX_PAGES,
   googleCalendarAddressHash,
+  googleAddressHash,
   normalizeGoogleCalendarEvent,
   readGoogleCalendarWindow,
   readGoogleCalendarChanges,
@@ -328,3 +329,25 @@ export type {
   GoogleIdTokenResult,
   GoogleIdTokenExpectations,
 } from './google-workspace/id-token';
+
+// The Gmail sensor (GM-1): bounded reads of one employee's own mailbox, normalized into the
+// provider-neutral facts in @emgloop/shared. The sync read asks for metadata only; a thread
+// read carries bodies and is never persisted.
+export {
+  GOOGLE_GMAIL_ENDPOINT,
+  GOOGLE_GMAIL_PAGE_SIZE,
+  GOOGLE_GMAIL_MAX_PAGE_SIZE,
+  GOOGLE_GMAIL_MAX_PAGES,
+  GOOGLE_GMAIL_MAX_MESSAGES_PER_PASS,
+  GOOGLE_GMAIL_INITIAL_DAYS,
+  GOOGLE_GMAIL_METADATA_HEADERS,
+  GOOGLE_GMAIL_MAX_MIME_DEPTH,
+  GOOGLE_GMAIL_MAX_BODY_CHARS,
+  gmailMessageFact,
+  gmailMessageBody,
+  readGoogleGmailWindow,
+  readGoogleGmailChanges,
+  readGoogleGmailThread,
+  sendGoogleGmailMessage,
+} from './google-workspace/gmail';
+export type { GmailCallOptions, GmailWindowRequest, GmailChangesRequest } from './google-workspace/gmail';

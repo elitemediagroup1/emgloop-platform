@@ -32,7 +32,9 @@ const URL = process.env.LOOP_TEST_POSTGRES_URL ?? '';
 const LOCAL = /^postgres(ql)?:\/\/[^@]*@(localhost|127\.0\.0\.1)(:\d+)?\//.test(URL);
 const skip = !URL ? 'LOOP_TEST_POSTGRES_URL is not set' : !LOCAL ? 'refusing a non-local database' : false;
 
-const GMAIL = 'https://www.googleapis.com/auth/gmail.metadata';
+const GMAIL = 'https://www.googleapis.com/auth/gmail.readonly';
+const GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send';
+const GMAIL_LEGACY = 'https://www.googleapis.com/auth/gmail.metadata';
 const CALENDAR = 'https://www.googleapis.com/auth/calendar.events.readonly';
 const NOW = new Date('2026-09-17T12:00:00Z');
 
@@ -86,7 +88,7 @@ test('the database refuses what the contract forbids, even without the repositor
       connectedAt: NOW,
     };
     const bad = (data: Record<string, unknown>) => prisma.googleConnection.create({ data: { ...base, ...data } as any });
-    await refused(bad({ grantedScopes: [GMAIL, 'https://www.googleapis.com/auth/gmail.readonly'] }), '23514', 'a broader granted scope');
+    await refused(bad({ grantedScopes: [GMAIL, 'https://www.googleapis.com/auth/gmail.modify'] }), '23514', 'a broader granted scope');
     await refused(bad({ requestedScopes: ['https://www.googleapis.com/auth/drive'] }), '23514', 'a broader requested scope');
     await refused(bad({ refreshTokenSealed: null, sealVersion: null, keyRef: null }), '23514', 'connected without a credential');
     await refused(bad({ keyRef: null }), '23514', 'a credential without its key reference');
@@ -257,7 +259,7 @@ test('eligibility is one organization, one capability, and a connection that can
     };
 
     await connection(ready!.userId);
-    await connection(gmailOnly!.userId, { grantedScopes: [GMAIL], requestedScopes: [GMAIL] });
+    await connection(gmailOnly!.userId, { grantedScopes: [GMAIL, GMAIL_SEND], requestedScopes: [GMAIL, GMAIL_SEND] });
     // A lapsed or withdrawn grant keeps no credential, by CHECK constraint. Neither is worth a
     // Google request: both need the employee, not the scheduler.
     await connection(expired!.userId, { status: 'EXPIRED', expiredAt: NOW, refreshTokenSealed: null, sealVersion: null, keyRef: null });
@@ -281,8 +283,11 @@ test('eligibility is one organization, one capability, and a connection that can
     assert.deepEqual(eligible, [{ userId: ready!.userId }], 'only a live, calendar-scoped connection behind an active membership');
     assert.equal(eligible.some((m) => m.userId === unconnected!.userId), false);
 
-    // The capability is the filter, not "has any Google connection".
+    // The capability is the filter, not "has any Google connection" -- and Gmail's filter is
+    // BOTH its scopes, so a half-granted Gmail is not eligible for a pass that would fail.
     assert.deepEqual(await repo.connectedMembers(home.organizationId, 'gmail'), [{ userId: gmailOnly!.userId }]);
+    await prisma.googleConnection.updateMany({ where: { organizationId: home.organizationId, userId: gmailOnly!.userId }, data: { grantedScopes: [GMAIL] } });
+    assert.deepEqual(await repo.connectedMembers(home.organizationId, 'gmail'), [], 'read without send cannot answer mail');
     assert.deepEqual(await repo.connectedMembers(home.organizationId, 'drive'), []);
 
     // And it is one tenant's question. Another organization's connected member is not returned
@@ -310,6 +315,66 @@ test('eligibility is one organization, one capability, and a connection that can
     assert.deepEqual(await repo.connectedMembers(away.organizationId, 'calendar'), [{ userId: visitor!.userId }]);
   } finally {
     for (const id of organizations) await prisma.organization.delete({ where: { id } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+// --- The Gmail scopes the database itself permits (GM-1) -------------------------------------
+
+test('the database permits exactly the approved scopes, including the two Gmail now needs', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  let organizationId = '';
+  try {
+    const home = await tenant(prisma, 'scopes', 1);
+    organizationId = home.organizationId;
+    const [{ userId }] = home.users as [{ userId: string }];
+    const sub = `sub_${randomUUID().slice(0, 12)}`;
+    const sealed = sealedFor(organizationId, userId, sub);
+    const base = {
+      organizationId,
+      userId,
+      googleSubject: sub,
+      activeGoogleSubject: sub,
+      emailAtLink: 'person@example.com',
+      status: 'CONNECTED',
+      refreshTokenSealed: Buffer.from(sealed.sealed),
+      sealVersion: sealed.sealVersion,
+      keyRef: sealed.keyRef,
+      connectedAt: NOW,
+    };
+
+    // The Gmail capability's two scopes are accepted together...
+    const accepted = await prisma.googleConnection.create({
+      data: { ...base, grantedScopes: [GMAIL, GMAIL_SEND], requestedScopes: [GMAIL, GMAIL_SEND] } as any,
+    });
+    assert.deepEqual([...accepted.grantedScopes].sort(), [GMAIL, GMAIL_SEND].sort());
+    await prisma.googleConnection.delete({ where: { id: accepted.id } });
+
+    // ...and so is a connection made before GM-1, which is why it can ask to reconnect rather
+    // than being a row the database now refuses.
+    const legacy = await prisma.googleConnection.create({
+      data: { ...base, grantedScopes: [GMAIL_LEGACY], requestedScopes: [GMAIL_LEGACY] } as any,
+    });
+    await prisma.googleConnection.delete({ where: { id: legacy.id } });
+
+    // Every scope that would let Loop write to, relabel or delete a mailbox is still refused by
+    // the database itself, whatever any caller believes.
+    for (const broader of [
+      'https://www.googleapis.com/auth/gmail.modify',
+      'https://www.googleapis.com/auth/gmail.compose',
+      'https://www.googleapis.com/auth/gmail.insert',
+      'https://www.googleapis.com/auth/gmail.labels',
+      'https://mail.google.com/',
+      'https://www.googleapis.com/auth/drive',
+    ]) {
+      await refused(
+        prisma.googleConnection.create({ data: { ...base, grantedScopes: [GMAIL, broader], requestedScopes: [GMAIL] } as any }),
+        '23514',
+        broader,
+      );
+    }
+  } finally {
+    if (organizationId) await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
     await prisma.$disconnect();
   }
 });

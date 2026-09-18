@@ -506,3 +506,14 @@ export * from './your-day';
 // shared because the Next.js server and the scheduled Calendar cycle must agree exactly on what
 // "configured" means -- a laxer second reader is how a wrong token key reaches the sealer.
 export * from './google-environment';
+// The Gmail sensor contract (GM-1): Loop-owned mailbox facts, provider-neutral by design. The
+// sync read is metadata only and is the only Gmail read that is persisted; a thread read
+// carries bodies, happens when an employee opens a conversation, and is never stored.
+export * from './gmail-sensor';
+// Composing a reply Gmail will thread correctly (GM-2): the three-part threading contract from
+// Google's own Message reference, and header-injection refusals. Pure, so what gets sent is
+// testable without sending mail.
+export * from './gmail-compose';
+// How current a work source is, and whether a visit should spend a provider call (DL-4, GM-1).
+// One policy shape; Calendar and Gmail differ only in their numbers.
+export * from './work-freshness';

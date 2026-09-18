@@ -133,10 +133,16 @@ export class WorkSourceRepository {
     return done.count === 1;
   }
 
-  /** The recent passes, newest first, for this person only. */
-  async recentRuns(principal: WorkPrincipal, limit = 20): Promise<WorkSyncRunRecord[]> {
+  /**
+   * The recent passes, newest first, for this person only -- and, when asked, for one source.
+   *
+   * The source filter matters to anything deciding whether to start a pass: a calendar sync in
+   * flight says nothing about whether a mailbox is being read, and treating the two as one
+   * queue would have each source blocking the other for no reason.
+   */
+  async recentRuns(principal: WorkPrincipal, limit = 20, source?: WorkSource): Promise<WorkSyncRunRecord[]> {
     const rows = await this.prisma.workSyncRun.findMany({
-      where: workScope(principal),
+      where: { ...workScope(principal), ...(source ? { source } : {}) },
       orderBy: { startedAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 100),
     });
