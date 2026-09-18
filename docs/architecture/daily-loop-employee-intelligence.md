@@ -457,6 +457,22 @@ blocks themselves* — a person scanning the page sees seven rows under NEEDS YO
 there are seven. Where a count carries information the rows do not (41 messages needed nothing), it
 belongs in YESTERDAY as part of a sentence.
 
+#### 5.2.1 What DL-4 shipped, and where it differs from the sketch above
+
+Recorded here so the design and the code do not drift apart.
+
+- **YOUR DAY is one surface, and TOMORROW is a section inside it**, not a separate Home block. Blocks
+  1, 2, 5, 6 and 7 do not exist yet, so a standalone TOMORROW block would have been a lone line on an
+  otherwise unchanged Home. It is the sketch's "one line unless something needs preparing", plus at
+  most three rows, beside TODAY on a wide screen and under it on a phone.
+- **The currency line lives inside the panel, not in the Home header.** DL-4 redesigns no part of Home
+  it does not own; when the header above arrives it can take that sentence over.
+- **Two facts, not one, decide the words.** Whether Loop has ever completed a read, and whether that
+  read is current enough to speak in the present tense. A state with no read shows no schedule rather
+  than a day that looks empty; a read Loop cannot refresh shows what it last saw and says so.
+- **"Prepare for this" does not appear at all.** Loop holds nothing to prepare with until Stage 2, and
+  the sketch's condition for showing it is therefore never met.
+
 ### 5.3 What makes it feel like an assistant rather than a report
 
 1. **It opens with a judgment, not an inventory.** NEEDS YOU is first, and it is short.

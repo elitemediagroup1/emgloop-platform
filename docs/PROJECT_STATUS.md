@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-17 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence proposed in draft #287, nothing built; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-18 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -25,9 +25,15 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — ALIGNED AT 36 (Brain durable persistence; 2026-09-17)
+## Production migration state — ALIGNED AT 39 (Daily Loop work state + calendar facts; 2026-09-18)
 
-**Latest:** run `35160530756` applied migration 36, `20260919000000_brain_durable_persistence`, from
+**Latest:** migrations **38** (`20260920000000_daily_loop_work_state`) and **39**
+(`20260921000000_work_event_calendar_facts`) were dispatched together and applied successfully on
+2026-09-18, after **37** (`20260920000000_google_workspace_connections`). DL-3 was then verified against
+production: a real Calendar sync ran for one employee and stored its cursor. Run IDs are in the
+`Deploy Prisma Migrations` history — read that, not this file, for the authoritative state.
+
+Migration 36 and earlier, for history: run `35160530756` applied migration 36, `20260919000000_brain_durable_persistence`, from
 `main` at `f744fca` (B4, #277).
 - **What it added:** eight Brain tables, plus three nullable columns on `ai_invocations`.
 - **Evidence:** a fresh PostgreSQL 18 replay of all 36 showed no drift beforehand. The dossier is
@@ -1733,7 +1739,7 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 2. Daily Loop (draft #287) — the read path is its first phase.
 3. Google verification and publishing (runbook §6).
 
-## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-1, DL-2 MERGED · DL-3 IN REVIEW
+## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-0..DL-3 MERGED AND PRODUCTION VERIFIED · DL-4 IN REVIEW
 
 **Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
 product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
@@ -1802,44 +1808,54 @@ refresh tokens weekly). The five relationship-capture decisions are closed (D17)
 
 **Shipped since:** #288 removed `googleWorkspace:manage` (DL-0), and #287 merged the record.
 
-**DL-1 (in review):** the per-employee work-state foundation. Thirteen additive tables in migration
-`20260920000000_daily_loop_work_state` (**not dispatched**); the `employeeIntelligence` IAM resource
-with exactly `view`/`update` and no `manage` or `approve`; repositories under
+**DL-1 merged as #289** — the per-employee work-state foundation. Thirteen additive tables in migration
+`20260920000000_daily_loop_work_state` (38); the `employeeIntelligence` IAM resource with exactly
+`view`/`update` and no `manage` or `approve`; repositories under
 `packages/database/src/repositories/work-state/` whose every employee-private method takes a
-`WorkPrincipal` (organization **and** user), so an org-only read is not expressible; the retention
-policy as versioned data with per-organization overrides. **No Google call, no model, no UI, no
-schedule** — nothing writes to these tables yet.
+`WorkPrincipal` (organization **and** user), so an org-only read of another employee's work state is not
+expressible; retention as versioned data with per-organization overrides.
 
-**DL-1 merged as #289.** Migration `20260920000000_daily_loop_work_state` is on `main` and **NOT
-applied**: production's last deploy ran at `e16a07c` (migration 37). Nothing reads those tables yet, so
-there is no urgency, but `main` is one migration ahead of production.
-
-**DL-2 (in review):** the Calendar sensor, provider layer only. A Loop-owned, provider-neutral contract
-(`packages/shared/src/calendar-sensor.ts`) and the Google adapter
+**DL-2 merged as #290** — the Calendar sensor, provider layer only. A Loop-owned, provider-neutral
+contract (`packages/shared/src/calendar-sensor.ts`) and the Google adapter
 (`packages/providers/src/google-workspace/calendar.ts`): bounded `events.list` reads of the **primary
-calendar** with `singleEvents=true`, pagination with a 10-page bound, incremental reads by `syncToken`
-(410 -> `CURSOR_EXPIRED`), and normalization into event facts -- attendees **counted**, organizer
-**hashed**, no description, location, attendee list or joining link. **No schema, no ingestion, no
-cursor persistence, no model, no UI, no scope change.** DL-3 owns writing these facts to `work_events`.
+calendar** with `singleEvents=true`, a 10-page bound, incremental reads by `syncToken`
+(410 -> `CURSOR_EXPIRED`), and normalization into event facts — attendees **counted**, organizer
+**hashed**, no description, location, attendee list or joining link.
 
-**DL-3 (in review):** the first complete private data path — the employee's own Google connection,
+**DL-3 merged as #291** — the first complete private data path: the employee's own Google connection,
 through `GoogleWorkspaceService.accessToken()` (its first production caller), through the DL-2 sensor,
-into their own DL-1 work state. A bounded first window (7 days back, 30 ahead), then incremental reads
-by `syncToken`; an expired cursor causes ONE bounded re-baseline, never a crawl. Idempotent upserts on
-the provider key; a cancelled event is kept as cancelled rather than deleted. The manual trigger is
-`POST /api/integrations/google/calendar/sync`, which takes the principal from the session and reads no
-body, query or header that could name anybody else.
+into their own DL-1 work state. A bounded first window (7 days back, 30 ahead), then incremental reads;
+an expired cursor causes ONE bounded re-baseline, never a crawl. Idempotent upserts on the provider key;
+a cancelled event is kept as cancelled rather than deleted. Migration 39
+`20260921000000_work_event_calendar_facts` adds the ten calendar-fact columns and one CHECK. The manual
+trigger is `POST /api/integrations/google/calendar/sync`, which takes the principal from the session and
+reads no body, query or header that could name anybody else.
 
-**Migration 39** `20260921000000_work_event_calendar_facts` adds ten additive columns to `work_events`
-(the title DL-2 flagged as missing, the all-day date/zone columns, kind, blocking, original start,
-organizer-self, attendance-known, self response) plus one CHECK. **Neither 38 nor 39 is dispatched.**
+**Migrations 38 and 39 are APPLIED, and DL-3 is PRODUCTION VERIFIED (2026-09-18).** A real Calendar sync
+ran for one employee: a bounded WINDOW read first, then INCREMENTAL reads against the stored sync token.
 
-**Production migration sequence after merge:** one run of `Deploy Prisma Migrations` applies
-`20260920000000_daily_loop_work_state` (38) then `20260921000000_work_event_calendar_facts` (39), in
-that order. Production is currently at 37.
+**#292 merged** — the reason the second production run repeated the window. Google does not return
+`nextSyncToken` when `orderBy` is set; it is documented, and it fails silently. The initial window read
+no longer sorts, so every run after the first is incremental. A **periodic re-baseline is a DL-5
+follow-up**, deliberately not in that fix.
 
-**Next:** review DL-3, then authorize **DL-4** (Your Day / Tomorrow on Home — the first
-employee-visible Daily Loop surface). §26 of the record has the full sequence.
+**DL-4 (in review, draft #293): YOUR DAY — the first employee-facing Daily Loop surface.** Loop Home
+opens with the employee's own day, for every role, above whatever else that person can open: how current
+Loop is, what is happening now or next, today, tomorrow. The projection is pure
+(`packages/shared/src/your-day.ts`); the read model (`apps/web/src/daily-loop/your-day.ts`) resolves the
+day in the employee's own zone and reads only through the DL-1 principal repositories.
+
+Two facts decide the words, and they are different facts: whether Loop has **ever completed a read**, and
+whether that read is **current enough to describe in the present tense**. A state with no read shows no
+schedule at all rather than a day that looks empty, and a read Loop cannot refresh shows what it last saw
+and never calls it current — "I could not look" is never rendered as "nothing is scheduled". Every
+sentence traces to a stored row: no meeting purpose, no preparation advice, no participant identity, no
+location, link or attachment, no model call, and no Gmail or Drive. A visit refreshes at most once every
+15 minutes and only when the connection is usable; a person asking by hand is honoured once a minute.
+**No schema change, no migration, no new scope, no scheduler** — DL-5 still owns background sync.
+
+**Next:** review DL-4, then **DL-5** (the scheduler: background sync off the render path, plus the
+periodic re-baseline #292 deferred). §26 of the record has the full sequence.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

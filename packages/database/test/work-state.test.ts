@@ -495,6 +495,38 @@ test('cursors advance and never rewind through a setter; a run records what a pa
   assert.equal(await w.sources.finishRun(alice, bobsRun.id, { finishedAt: T0, outcome: 'SUCCEEDED' }), false);
 });
 
+test('a day query returns one person’s events, timed by instant and all-day by civil date', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  const bob = await person(w, ORG_A);
+  const owner = await person(w, ORG_A, 'OWNER');
+
+  const day = { fromInstant: new Date('2026-09-18T04:00:00Z'), toInstant: new Date('2026-09-20T04:00:00Z') };
+  const dates = { fromDate: new Date('2026-09-18T00:00:00Z'), toDate: new Date('2026-09-19T00:00:00Z') };
+
+  for (const [who, prefix] of [[alice, 'a'], [bob, 'b']] as const) {
+    await w.graph.upsertEvent(who, { provider: 'GOOGLE', eventId: `${prefix}-timed`, startsAt: new Date('2026-09-18T13:30:00Z'), endsAt: new Date('2026-09-18T14:00:00Z'), summary: 'Standup', observedAt: T0 });
+    await w.graph.upsertEvent(who, {
+      provider: 'GOOGLE', eventId: `${prefix}-allday`, allDay: true,
+      startDate: new Date('2026-09-18T00:00:00Z'), endDateExclusive: new Date('2026-09-19T00:00:00Z'),
+      summary: 'Conference', observedAt: T0,
+    });
+    // Outside the window entirely.
+    await w.graph.upsertEvent(who, { provider: 'GOOGLE', eventId: `${prefix}-old`, startsAt: new Date('2026-09-01T13:30:00Z'), observedAt: T0 });
+  }
+
+  const hers = await w.graph.eventsForDays(alice, { ...day, ...dates });
+  assert.deepEqual(hers.map((r: any) => r.eventId).sort(), ['a-allday', 'a-timed'], 'both shapes, and only in the window');
+
+  // An all-day row has no instant, so an instant-only query would have missed it entirely.
+  assert.equal(hers.find((r: any) => r.eventId === 'a-allday')!.startsAt, null);
+
+  // Nobody else's day is reachable through it.
+  assert.deepEqual((await w.graph.eventsForDays(bob, { ...day, ...dates })).map((r: any) => r.eventId).sort(), ['b-allday', 'b-timed']);
+  assert.deepEqual(await w.graph.eventsForDays(owner, { ...day, ...dates }), [], 'OWNER sees their own day, which is empty');
+  assert.deepEqual(await w.graph.eventsForDays({ organizationId: ORG_B, userId: alice.userId }, { ...day, ...dates }), [], 'and not across organizations');
+});
+
 // --- The migration ----------------------------------------------------------------------------------
 
 test('the migration only adds, is ASCII, stores no message body, and pins every vocabulary', () => {

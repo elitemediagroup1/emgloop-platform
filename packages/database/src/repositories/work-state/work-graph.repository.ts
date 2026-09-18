@@ -302,6 +302,33 @@ export class WorkGraphRepository {
     });
   }
 
+  /**
+   * The events on a span of local days: timed ones by INSTANT, all-day ones by CIVIL DATE.
+   *
+   * Two shapes, two comparisons, on purpose. A timed event has a moment, so it is selected by
+   * one; an all-day event has dates and no moment, so selecting it by an instant would mean
+   * inventing a midnight for it -- exactly what DL-2 and DL-3 refused to do. The caller resolves
+   * the day's boundaries in the employee's own zone (the Loop Time Authority) and passes both.
+   *
+   * The `from`/`to` dates are inclusive civil dates, and an all-day entry matches when it covers
+   * any day in the span -- Google's end date being exclusive is handled by the comparison.
+   */
+  async eventsForDays(
+    principal: WorkPrincipal,
+    span: { readonly fromInstant: Date; readonly toInstant: Date; readonly fromDate: Date; readonly toDate: Date },
+  ) {
+    return this.prisma.workEvent.findMany({
+      where: {
+        ...workScope(principal),
+        OR: [
+          { allDay: false, startsAt: { gte: span.fromInstant, lt: span.toInstant } },
+          { allDay: true, startDate: { lte: span.toDate }, OR: [{ endDateExclusive: null }, { endDateExclusive: { gt: span.fromDate } }] },
+        ],
+      },
+      orderBy: [{ startsAt: 'asc' }, { startDate: 'asc' }],
+    });
+  }
+
   async forgetEvent(principal: WorkPrincipal, provider: WorkProvider, eventId: string): Promise<boolean> {
     const done = await this.prisma.workEvent.deleteMany({ where: { ...workScope(principal), provider, eventId } });
     return done.count === 1;

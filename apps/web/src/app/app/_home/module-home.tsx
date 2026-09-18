@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
 import { LOOP_HOME } from '../../../auth/landing';
 import type { NavGroup } from '../../../workspaces/config';
@@ -13,7 +14,7 @@ import { LoopPage, PageHead, Panel } from '../_loop-os/record';
 // person cannot open is shown. It shows no business data, so it invents none.
 // Drawn with the Loop design system's shared primitives.
 
-export function ModuleHome({ name, groups }: { name: string; groups: readonly NavGroup[] }) {
+export function ModuleHome({ name, groups, day }: { name: string; groups: readonly NavGroup[]; day?: ReactNode }) {
   const areas = groups
     .map((group) => ({
       label: group.label || 'More',
@@ -24,6 +25,8 @@ export function ModuleHome({ name, groups }: { name: string; groups: readonly Na
   return (
     <LoopPage label="Loop Home">
       <PageHead trail={[{ label: 'Your Loop' }]} title={`Welcome, ${name}`} subtitle="Everything you have access to in Loop." />
+      {/* YOUR DAY (DL-4): this person's own calendar, above the areas they can open. */}
+      {day}
       <div className="loop-home">
         {areas.map((area) => (
           <Panel title={area.label} key={area.label}>

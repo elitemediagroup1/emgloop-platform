@@ -68,7 +68,6 @@ export interface WorkspaceHomeHeader {
   greeting: string;
   displayName: string;
   organizationName: string;
-  dateLabel: string;
   roleLabel: string;
 }
 
@@ -369,7 +368,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     greeting: time.greeting(),
     displayName: resolveDisplayName(actingUser, session.name, session.email),
     organizationName: organization?.name ?? 'Your organization',
-    dateLabel: time.format(now, 'weekdayMonthDay'),
     roleLabel: session.roleLabel || roleLabel(session.systemRole),
   };
 
