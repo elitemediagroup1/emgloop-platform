@@ -499,3 +499,6 @@ export * from './work-state';
 // The calendar sensor contract (DL-2): Loop-owned event facts, provider-neutral by design, so
 // a second calendar provider implements the same shape and Daily Loop does not change.
 export * from './calendar-sensor';
+// Your Day (DL-4): the pure projection of stored calendar facts into the day an employee is
+// actually having, and how current that picture is. No formatting, no zone arithmetic, no model.
+export * from './your-day';

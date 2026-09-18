@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { loadDashboard, type DayScore } from '../admin/dashboard-data';
 import { requireWorkspace } from '../../../workspaces/guard';
 import { trend, trendLabel, metricValue, type TrendResult } from '@emgloop/shared';
@@ -103,7 +104,7 @@ function ScoreRow({ label, yText, tText, r, neutral }: {
 
 interface Priority { tone: Tone; text: string; href: string }
 
-export async function AdminHome() {
+export async function AdminHome({ day }: { day?: ReactNode }) {
   // The Owner/Admin/Manager home. Its authority used to come only from the
   // /app/admin layout; it now renders at /app, so it states that authority
   // itself. (Its loader also re-checks it.)
@@ -163,6 +164,11 @@ export async function AdminHome() {
           </form>
         }
       />
+
+      {/* YOUR DAY (DL-4), inside this page rather than above it, so it shares the page's
+          rhythm. It renders the signed-in person's own calendar and nothing else; an owner
+          reading this page is reading their own day, not their organization's. */}
+      {day}
 
       <div className="loop-home">
 

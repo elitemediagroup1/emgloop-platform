@@ -3827,3 +3827,23 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-home .loop-launch:hover { transform: none; background: var(--loop-hover); border-color: var(--loop-line-strong); }
 @media (max-width: 1100px) { .loop-home { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .loop-home { grid-template-columns: 1fr; } }
+
+/* ===================== YOUR DAY =====================
+   The Daily Loop's employee surface (DL-4). Not a new component family: the
+   panel, the eyebrow, the Home list, line and dot are the primitives it is
+   drawn with, and the CRM's `.val` / `.muted` emphasis pair is bound here for
+   the same reason `.loop-row` binds it -- it is scoped, never global.
+   These rules carry the reading order the surface exists for: how current
+   Loop is, then what is next, then today, then tomorrow -- at every width. */
+.loop-day { display: flex; flex-direction: column; gap: 16px; }
+.loop-day .loop-eyebrow { margin: 0; }
+.loop-day .val { color: var(--loop-ink); font-weight: 650; }
+.loop-day .muted { color: var(--loop-muted); }
+/* What the employee is walking into. The rule is the emphasis; nothing here is a card. */
+.loop-day__next { display: flex; flex-direction: column; gap: 5px; padding-left: 14px; border-left: 2px solid var(--loop-accent); }
+.loop-day__next--idle { border-left-color: var(--loop-line-strong); }
+.loop-day__title { margin: 0; font-size: 17px; font-weight: 650; line-height: 1.3; letter-spacing: -0.01em; color: var(--loop-ink); text-wrap: balance; }
+.loop-day__when { margin: 0; font-size: 13px; color: var(--loop-muted); font-variant-numeric: tabular-nums; }
+.loop-day__sections { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px 32px; align-items: start; }
+.loop-day__section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+@media (max-width: 760px) { .loop-day__sections { grid-template-columns: 1fr; } }
