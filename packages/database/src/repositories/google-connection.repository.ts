@@ -22,6 +22,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import {
   GOOGLE_CONNECTION_AUDIT_ACTIONS,
   GOOGLE_WORKSPACE_CAPABILITIES,
+  GOOGLE_WORKSPACE_CAPABILITY_SCOPES,
   googleCapabilitiesOf,
   type GoogleConnectReturnTarget,
   type GoogleConnectionFailureClass,
@@ -309,6 +310,40 @@ export class GoogleConnectionRepository {
   async find(organizationId: string, userId: string): Promise<GoogleConnectionRecord | null> {
     const row = await this.prisma.googleConnection.findFirst({ where: { organizationId, userId } });
     return row ? record(row) : null;
+  }
+
+  /**
+   * Every member of ONE organization whose own connection can be read for `capability` (DL-5).
+   *
+   * THIS IS A DISCOVERY QUERY, NOT AN AUTHORIZATION. It answers "who is worth attempting", so
+   * the scheduled cycle does not spend a Google request on a connection that cannot work. It
+   * returns user ids and nothing else -- no address, no token, no Google account -- and every
+   * pass that follows still goes through `GoogleWorkspaceService.accessToken`, which re-derives
+   * that employee's own IAM decision. A row this query returned in error is refused there.
+   *
+   * ONE ORGANIZATION AT A TIME, by argument, like every other tenant-owned read in this
+   * repository. There is no platform-wide sweep here, and the cycle cannot invent one.
+   *
+   * Eligible means all of: a live CONNECTED connection, a credential still stored, the
+   * capability's scope actually granted, and an ACTIVE membership. An EXPIRED or REVOKED
+   * connection is deliberately absent: it needs the employee to reconnect, and re-attempting
+   * it every cycle would spend Google's quota to re-learn a fact Loop already recorded.
+   */
+  async connectedMembers(organizationId: string, capability: GoogleWorkspaceCapability): Promise<{ readonly userId: string }[]> {
+    const rows = await this.prisma.googleConnection.findMany({
+      where: {
+        organizationId,
+        status: 'CONNECTED',
+        refreshTokenSealed: { not: null },
+        grantedScopes: { has: GOOGLE_WORKSPACE_CAPABILITY_SCOPES[capability] },
+        membership: { status: 'ACTIVE' },
+      },
+      // Stable order, so two passes attempt the same people in the same sequence and a cycle
+      // that runs out of time always gets further rather than shuffling who it reaches.
+      orderBy: { userId: 'asc' },
+      select: { userId: true },
+    });
+    return rows.map((row) => ({ userId: row.userId }));
   }
 
   /** The sealed credential of this person's CONNECTED connection, or null. */

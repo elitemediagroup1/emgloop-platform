@@ -655,10 +655,27 @@ exception — the sync guide's own sample limits a full sync by date range and s
 `orderBy` is not: sending it costs the cursor silently, and every pass then re-reads the whole window
 (observed in production on 2026-09-17, two identical WINDOW syncs in a row).
 
-**Open, assigned to DL-5:** a token inherits the scope of the window that minted it, so a long-lived
-cursor keeps reporting against that original window. The scheduled runner should re-baseline the
-window periodically — a weekly bounded window read — so events beyond the original `timeMax` come into
-view. Not a defect in the sync path; a property of Google's tokens that the schedule has to handle.
+**Closed in DL-5.** A token inherits the scope of the window that minted it, so a long-lived cursor
+keeps reporting against that original window and never learns about a meeting booked beyond its
+`timeMax`. Not a defect in the sync path; a property of Google's tokens that the schedule has to
+handle — and now does:
+
+- `CalendarSyncService.syncCalendar(principal, { baseline: true })` reads the **rolling** bounded
+  window instead of the stored token, and replaces the cursor with the token that read returns. The
+  window is the same width as the first pass (−7 days, +30 days), computed from the current clock,
+  so a re-baseline can never become a crawl.
+- The scheduled cycle asks for it **weekly** (Sunday 04:25 UTC). Between baselines the guaranteed
+  forward horizon is therefore today + 23 days or better.
+- **A failed or truncated baseline changes nothing.** The cursor is only ever replaced by a read that
+  succeeded, so the employee stays on the incremental path they were already on and the next weekly
+  pass retries. No gap, no re-read of history, no lost cursor.
+- A `410 GONE` still triggers the same bounded window read, unchanged from DL-3.
+
+**Known and deliberately not fixed here:** §8.2 above says a `410` should "clear the employee's event
+rows". DL-3 chose to keep them and upsert instead, because deleting an employee's stored day to
+recover from a provider error is the more expensive mistake; the cost is that an event deleted in
+Google *while Loop's cursor was invalid* can persist as a stale row until it is next returned. That
+is a DL-8 reconciliation concern, not a scheduling one.
 
 ### 8.3 An event becomes a work object
 

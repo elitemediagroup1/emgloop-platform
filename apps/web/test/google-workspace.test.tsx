@@ -96,13 +96,27 @@ describe('the deployment environment', () => {
 
 describe('the browser cannot reach a Google secret', () => {
   const ENV_MODULE = join(SRC, 'google', 'google-environment.ts');
+  const SHARED_ENV_MODULE = join(REPO, 'packages', 'shared', 'src', 'google-environment.ts');
   const RUNTIME = join(SRC, 'google', 'google-runtime.ts');
   const SEALER = join(REPO, 'packages', 'database', 'src', 'services', 'google', 'google-token-sealer.ts');
 
-  it('only the environment module reads the three names, anywhere in the product or packages', () => {
-    const files = [...walk(SRC), ...walk(join(REPO, 'packages')).filter((f) => !f.includes(`${join('packages', 'database', 'prisma')}`))];
+  it('one module reads the three names, anywhere in the product, the packages or the operations runners', () => {
+    // ONE, since DL-5: the pure reader in @emgloop/shared owns the names and the validation, and
+    // every runtime that holds this configuration -- this app's server-only edge, and the
+    // scheduled Calendar cycle -- passes it their own environment rather than naming a variable.
+    // A laxer second reader is how a wrong token key reaches the sealer, and a wrong key marks
+    // every employee's connection expired on its way past.
+    const files = [
+      ...walk(SRC),
+      ...walk(join(REPO, 'packages')).filter((f) => !f.includes(`${join('packages', 'database', 'prisma')}`)),
+      ...walk(join(REPO, 'scripts')),
+    ].filter((f) => !/\.test\.tsx?$/.test(f));
     const readers = files.filter((f) => Object.values(GOOGLE_ENVIRONMENT).some((name) => code(readFileSync(f, 'utf8')).includes(name)));
-    assert.deepEqual(readers.map((f) => relative(REPO, f)), [relative(REPO, ENV_MODULE)]);
+    assert.deepEqual(readers.map((f) => relative(REPO, f)), [relative(REPO, SHARED_ENV_MODULE)]);
+    // And this app still reaches it through its one server-only edge: nothing else in the web
+    // source calls the shared reader directly.
+    const callers = files.filter((f) => f.startsWith(SRC) && /readGoogleEnvironment(From)?\(/.test(code(readFileSync(f, 'utf8'))));
+    assert.deepEqual(callers.map((f) => relative(REPO, f)).sort(), [relative(REPO, ENV_MODULE), relative(REPO, RUNTIME), relative(REPO, join(SRC, 'daily-loop', 'calendar-runtime.ts'))].sort());
     const offenders = files.filter((f) => /NEXT_PUBLIC_[A-Z_]*GOOGLE/.test(readFileSync(f, 'utf8')));
     assert.deepEqual(offenders, []);
   });

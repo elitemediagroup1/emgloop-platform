@@ -219,3 +219,97 @@ test('the repository and IAM offboarding commit against the real schema; one acc
     await prisma.$disconnect();
   }
 });
+
+// --- Who the scheduled Calendar cycle may attempt (DL-5) -------------------------------------
+
+test('eligibility is one organization, one capability, and a connection that can actually be read', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const organizations: string[] = [];
+  try {
+    const home = await tenant(prisma, 'cycle', 6);
+    const away = await tenant(prisma, 'cycle_away', 1);
+    organizations.push(home.organizationId, away.organizationId);
+    const repo = new GoogleConnectionRepository(prisma);
+    const [ready, gmailOnly, expired, revoked, disabled, unconnected] = home.users as {
+      userId: string;
+      sessionId: string;
+    }[];
+    const connection = (userId: string, over: Record<string, unknown> = {}) => {
+      const sub = `sub_${randomUUID().slice(0, 12)}`;
+      const sealed = sealedFor(home.organizationId, userId, sub);
+      return prisma.googleConnection.create({
+        data: {
+          organizationId: home.organizationId,
+          userId,
+          googleSubject: sub,
+          activeGoogleSubject: sub,
+          emailAtLink: `${userId}@example.com`,
+          status: 'CONNECTED',
+          grantedScopes: [CALENDAR],
+          requestedScopes: [CALENDAR],
+          refreshTokenSealed: Buffer.from(sealed.sealed),
+          sealVersion: sealed.sealVersion,
+          keyRef: sealed.keyRef,
+          connectedAt: NOW,
+          ...over,
+        } as any,
+      });
+    };
+
+    await connection(ready!.userId);
+    await connection(gmailOnly!.userId, { grantedScopes: [GMAIL], requestedScopes: [GMAIL] });
+    // A lapsed or withdrawn grant keeps no credential, by CHECK constraint. Neither is worth a
+    // Google request: both need the employee, not the scheduler.
+    await connection(expired!.userId, { status: 'EXPIRED', expiredAt: NOW, refreshTokenSealed: null, sealVersion: null, keyRef: null });
+    await connection(revoked!.userId, {
+      status: 'REVOKED',
+      activeGoogleSubject: null,
+      revokedAt: NOW,
+      revocationReason: 'SELF_DISCONNECT',
+      refreshTokenSealed: null,
+      sealVersion: null,
+      keyRef: null,
+    });
+    await connection(disabled!.userId);
+    await prisma.organizationMembership.update({
+      where: { userId_organizationId: { userId: disabled!.userId, organizationId: home.organizationId } },
+      data: { status: 'DISABLED' },
+    });
+    // `unconnected` holds no connection at all.
+
+    const eligible = await repo.connectedMembers(home.organizationId, 'calendar');
+    assert.deepEqual(eligible, [{ userId: ready!.userId }], 'only a live, calendar-scoped connection behind an active membership');
+    assert.equal(eligible.some((m) => m.userId === unconnected!.userId), false);
+
+    // The capability is the filter, not "has any Google connection".
+    assert.deepEqual(await repo.connectedMembers(home.organizationId, 'gmail'), [{ userId: gmailOnly!.userId }]);
+    assert.deepEqual(await repo.connectedMembers(home.organizationId, 'drive'), []);
+
+    // And it is one tenant's question. Another organization's connected member is not returned
+    // here, whoever asks -- there is no platform-wide sweep to be had from this method.
+    const [visitor] = away.users as { userId: string }[];
+    const sub = `sub_${randomUUID().slice(0, 12)}`;
+    const sealed = sealer.seal({ organizationId: away.organizationId, userId: visitor!.userId, googleSubject: sub }, `1//refresh-${sub}`);
+    await prisma.googleConnection.create({
+      data: {
+        organizationId: away.organizationId,
+        userId: visitor!.userId,
+        googleSubject: sub,
+        activeGoogleSubject: sub,
+        emailAtLink: 'visitor@example.com',
+        status: 'CONNECTED',
+        grantedScopes: [CALENDAR],
+        requestedScopes: [CALENDAR],
+        refreshTokenSealed: Buffer.from(sealed.sealed),
+        sealVersion: sealed.sealVersion,
+        keyRef: sealed.keyRef,
+        connectedAt: NOW,
+      } as any,
+    });
+    assert.deepEqual(await repo.connectedMembers(home.organizationId, 'calendar'), [{ userId: ready!.userId }]);
+    assert.deepEqual(await repo.connectedMembers(away.organizationId, 'calendar'), [{ userId: visitor!.userId }]);
+  } finally {
+    for (const id of organizations) await prisma.organization.delete({ where: { id } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});

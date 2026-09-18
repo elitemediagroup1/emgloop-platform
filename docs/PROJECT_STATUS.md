@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-18 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-18 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -1739,7 +1739,7 @@ Google's Testing mode (test users only; refresh tokens expire every 7 days).
 2. Daily Loop (draft #287) — the read path is its first phase.
 3. Google verification and publishing (runbook §6).
 
-## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-0..DL-3 MERGED AND PRODUCTION VERIFIED · DL-4 IN REVIEW
+## Daily Loop / Employee Intelligence — ARCHITECTURE MERGED (#287) · DL-0..DL-4 MERGED · DL-5 IN REVIEW
 
 **Record:** `docs/architecture/daily-loop-employee-intelligence.md` (2026-09-17, direction approved,
 product decisions recorded). **No code, no schema, no scope change, no infrastructure.** It designs the
@@ -1839,23 +1839,52 @@ ran for one employee: a bounded WINDOW read first, then INCREMENTAL reads agains
 no longer sorts, so every run after the first is incremental. A **periodic re-baseline is a DL-5
 follow-up**, deliberately not in that fix.
 
-**DL-4 (in review, draft #293): YOUR DAY — the first employee-facing Daily Loop surface.** Loop Home
-opens with the employee's own day, for every role, above whatever else that person can open: how current
+**DL-4 merged as #293: YOUR DAY — the first employee-facing Daily Loop surface.** Loop Home opens
+with the employee's own day, for every role, above whatever else that person can open: how current
 Loop is, what is happening now or next, today, tomorrow. The projection is pure
-(`packages/shared/src/your-day.ts`); the read model (`apps/web/src/daily-loop/your-day.ts`) resolves the
-day in the employee's own zone and reads only through the DL-1 principal repositories.
+(`packages/shared/src/your-day.ts`); the read model (`apps/web/src/daily-loop/your-day.ts`) resolves
+the day in the employee's own zone and reads only through the DL-1 principal repositories.
 
-Two facts decide the words, and they are different facts: whether Loop has **ever completed a read**, and
-whether that read is **current enough to describe in the present tense**. A state with no read shows no
-schedule at all rather than a day that looks empty, and a read Loop cannot refresh shows what it last saw
-and never calls it current — "I could not look" is never rendered as "nothing is scheduled". Every
-sentence traces to a stored row: no meeting purpose, no preparation advice, no participant identity, no
-location, link or attachment, no model call, and no Gmail or Drive. A visit refreshes at most once every
-15 minutes and only when the connection is usable; a person asking by hand is honoured once a minute.
-**No schema change, no migration, no new scope, no scheduler** — DL-5 still owns background sync.
+Two facts decide the words, and they are different facts: whether Loop has **ever completed a read**,
+and whether that read is **current enough to describe in the present tense**. A state with no read
+shows no schedule at all rather than a day that looks empty, and a read Loop cannot refresh shows what
+it last saw and never calls it current. Every sentence traces to a stored row: no meeting purpose, no
+preparation advice, no participant identity, no location, link or attachment, no model call. No schema
+change and no migration.
 
-**Next:** review DL-4, then **DL-5** (the scheduler: background sync off the render path, plus the
-periodic re-baseline #292 deferred). §26 of the record has the full sequence.
+**DL-5 (in review, draft #294): THE AUTOMATED CALENDAR CYCLE.** Google Calendar maintains itself for
+every employee who connected it; "Read my calendar again" stays as recovery, and normal use no longer
+depends on it.
+
+- **The established mechanism, not a second runtime:** a GitHub Actions workflow
+  (`cycle-employee-calendars.yml`) running an operations script
+  (`scripts/operations/cycle-employee-calendars.ts`) against `DIRECT_DATABASE_URL` — the same shape as
+  `poll-callgrid-routine`. **No HTTP route**, so there is no endpoint that could be pointed at an
+  employee, and no Netlify function, scheduler or queue is introduced.
+- **Shipped OFF.** It exits immediately unless the repository variable
+  `DAILY_LOOP_CALENDAR_ORGANIZATIONS` is set. Enabling it is one configuration action with no code
+  change.
+- **Cadence:** every 15 minutes (matching DL-4's own visit-refresh floor, so Loop's promise is one
+  sentence), plus a **weekly window re-baseline** on Sunday 04:25 UTC. The workflow header carries the
+  runner-minute arithmetic and the one-line change to hourly.
+- **The #292 follow-up is closed.** A sync token inherits the window that minted it; the weekly
+  baseline re-reads the rolling window and replaces the token, keeping the forward horizon at today +
+  23 days or better. A failed or truncated baseline replaces nothing and leaves the employee on the
+  cursor they had.
+- **Isolation:** each pass names one `{organizationId, userId}` and goes through the same token path,
+  which re-derives that employee's own membership and IAM. One expired, revoked or rate-limited
+  connection ends that employee's pass and nothing else. Three *consecutive* credential failures abort
+  the cycle deliberately — that pattern is far more likely to be the job's own key than three lapsed
+  grants, and marching on would mark a whole organization's connections expired.
+- **Observability:** structured `event=` lines and a `CYCLE_SUMMARY` with
+  eligible/attempted/synced/truncated/failed/skipped/notAttempted/rebaselined. No identity, no title,
+  no attendee, no count of anybody's meetings — an employee appears as a salted digest.
+- **One assembly, two runtimes.** The Google OAuth port, the Calendar sync wiring and the deployment
+  configuration reader moved into `@emgloop/database` / `@emgloop/shared`, so the web server and the
+  cycle read a calendar the same way rather than drifting apart. No schema change and **no migration**.
+
+**Next:** review DL-5. Then **DL-14** (observability: a durable staleness signal an external monitor
+can watch, so a cycle that stops running is not silent) and the DL-6+ sequence in §26 of the record.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

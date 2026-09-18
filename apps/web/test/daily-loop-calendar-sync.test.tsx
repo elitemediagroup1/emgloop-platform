@@ -11,6 +11,13 @@ import { fileURLToPath } from 'node:url';
 
 const ROUTE = readFileSync(fileURLToPath(new URL('../src/app/api/integrations/google/calendar/sync/route.ts', import.meta.url)), 'utf8');
 const RUNTIME = readFileSync(fileURLToPath(new URL('../src/daily-loop/calendar-runtime.ts', import.meta.url)), 'utf8');
+// The assembly the runtime binds to. It moved into the database package when the scheduled cycle
+// (DL-5) became a second runtime performing the same sync; the guarantee below is about the one
+// path both of them use, so it is read where that path now lives.
+const ASSEMBLY = readFileSync(
+  fileURLToPath(new URL('../../../packages/database/src/services/work-state/calendar-sync-runtime.ts', import.meta.url)),
+  'utf8',
+);
 const code = (source: string) => source.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('Calendar sync is the signed-in person’s own, and cannot be aimed at anybody else', () => {
@@ -51,13 +58,25 @@ describe('Calendar sync is the signed-in person’s own, and cannot be aimed at 
 
   it('the runtime reuses the one Google path and opens no second one', () => {
     const runtime = code(RUNTIME);
-    assert.match(runtime, /googleWorkspace\(\)\.accessToken\(principal, 'calendar'\)/);
-    // No second OAuth flow, token store, refresh implementation or Calendar adapter.
+    // This runtime binds; it does not assemble. What it still owns is this deployment's
+    // environment and the signing keys it shares across requests.
+    assert.match(runtime, /createEmployeeCalendarSync\(/);
+    assert.match(runtime, /\.syncCalendar\(principal\)/);
+    assert.match(runtime, /import 'server-only'/);
     for (const forbidden of ['GOOGLE_OAUTH_CLIENT', 'refreshToken', 'client_secret', 'oauth2.googleapis.com', 'new GoogleTokenSealer', 'calendar/v3']) {
       assert.equal(runtime.includes(forbidden), false, forbidden);
     }
-    assert.match(runtime, /readGoogleCalendarWindow|readGoogleCalendarChanges/, 'the DL-2 sensor, not a new adapter');
-    assert.match(runtime, /import 'server-only'/);
+
+    // And the one assembly both runtimes bind to still goes through the one token path and the
+    // DL-2 sensor, with each principal's OWN IAM decision rather than a caller's.
+    const assembly = code(ASSEMBLY);
+    assert.match(assembly, /google\.accessToken\(principal, 'calendar'\)/);
+    assert.match(assembly, /readGoogleCalendarWindow|readGoogleCalendarChanges/, 'the DL-2 sensor, not a new adapter');
+    assert.match(assembly, /resource: 'googleWorkspace'/);
+    assert.match(assembly, /organizationId: principal\.organizationId, userId: principal\.userId/);
+    for (const forbidden of ['oauth2.googleapis.com', 'calendar/v3', 'client_secret', "'manage'", "'approve'"]) {
+      assert.equal(assembly.includes(forbidden), false, forbidden);
+    }
   });
 
   it('adds no employee-visible surface', () => {
