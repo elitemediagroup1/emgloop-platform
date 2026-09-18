@@ -321,6 +321,7 @@ export {
   reconcile,
   formatReconcileReport,
 } from './services/callgrid-reconciliation.harness';
+export { callGridSourceCallFromRecord, CALLGRID_SOURCE_FIELDS } from './services/callgrid-reconciliation-source';
 export type {
   CallGridSourceCall,
   LoopCall,

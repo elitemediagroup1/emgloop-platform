@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { crmRepos, requireCrmContext } from '../../../../../crm/crm-data';
 import { can } from '../../../../../auth/auth';
-import { fetchCallGridCallsPage, pickField, toNumber, resolveCallOccurrence } from '@emgloop/providers';
+import { fetchCallGridCallsPage } from '@emgloop/providers';
 import {
+  callGridSourceCallFromRecord,
   reconcile,
   type CallGridSourceCall,
   type LoopCall,
@@ -159,28 +160,11 @@ export async function GET(req: Request) {
     );
   }
 
-  // Project the provider records onto the harness's source shape. Field names
-  // are the ones the confirmed webhook template uses.
-  const source: CallGridSourceCall[] = raw.slice(0, MAX_RECORDS).map((r) => ({
-    call_id: pickField(r, ['id', 'CallId', 'Id', 'call_id', 'callId']) ?? '',
-    // Canonical precedence: UTCUnixTimeMs > UTCISODate > UTCUnixTime > legacy.
-    // `createdAt` was FIRST here and is record-creation time — it ran ~16s after
-    // the event on a real record, producing a phantom timestamp mismatch.
-    started_at: resolveCallOccurrence(r).at?.toISOString() ?? '',
-    // CallDuration = CONNECTED duration. BillableDuration is a different
-    // quantity and is deliberately not accepted as a fallback.
-    duration_seconds: toNumber(pickField(r, ['callDuration', 'CallDuration', 'Duration', 'duration'])) ?? null,
-    revenue: toNumber(pickField(r, ['revenue', 'Revenue'])) ?? null,
-    payout: toNumber(pickField(r, ['payout', 'Payout'])) ?? null,
-    cost: toNumber(pickField(r, ['cost', 'Cost'])) ?? null,
-    profit: toNumber(pickField(r, ['profit', 'Profit', 'net_profit'])) ?? null,
-    buyer: pickField(r, ['buyerName', 'BuyerName', 'buyer']) ?? null,
-    campaign: pickField(r, ['campaignName', 'CampaignName', 'campaign']) ?? null,
-    source: pickField(r, ['sourceName', 'SourceName', 'source']) ?? null,
-    qualified: null,
-    converted: null,
-    duplicate: null,
-  }));
+  // Project the provider records onto the harness's source shape, reading the
+  // LIST endpoint's own spellings (CallRevenue, CallPayout, CallProfit ...). The
+  // mapping is a tested function; it used to be spelled here, after the webhook
+  // template, and every money figure it compared came back blank.
+  const source: CallGridSourceCall[] = raw.slice(0, MAX_RECORDS).map(callGridSourceCallFromRecord);
 
   // Loop's side of the comparison, from the canonical read model only.
   const loopRows = await crmRepos.marketplaceCalls.listWindowForReconciliation(
