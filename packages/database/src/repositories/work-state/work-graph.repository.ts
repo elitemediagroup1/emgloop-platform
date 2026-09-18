@@ -255,6 +255,69 @@ export class WorkGraphRepository {
     });
   }
 
+  /**
+   * This person's messages over one window, as COUNTING needs them: which thread, when, which way,
+   * whether it replies to something, Gmail's own labels, and -- for a message that arrived -- the
+   * sender's stored address, so "notification mail" is decided by the same rule the Mail dashboard
+   * uses (an automated sender, or a Gmail bulk tab). No subject, no body.
+   *
+   * AN EXPLICIT COLUMN LIST, ON PURPOSE. A read that selects every column breaks the moment one
+   * column it never uses is missing -- which is how a Home that only needed counts went down with a
+   * migration that had not been applied (2026-09-18). This read depends on exactly what it uses.
+   *
+   * Each outbound message's thread is read too, for the thread's first message: the only way to
+   * tell a conversation the employee started from a reply to one somebody else did.
+   */
+  async messageActivity(principal: WorkPrincipal, window: { readonly from: Date; readonly to: Date }, limit = 5000) {
+    const take = Math.min(Math.max(limit, 1), 5000);
+    const messages = await this.prisma.workMessage.findMany({
+      where: { ...workScope(principal), internalDate: { gte: window.from, lt: window.to } },
+      select: { threadId: true, internalDate: true, direction: true, labels: true, inReplyTo: true, fromHash: true },
+      orderBy: { internalDate: 'asc' },
+      take,
+    });
+    const senderHashes = [...new Set(messages.filter((m) => m.direction === 'INBOUND' && m.fromHash).map((m) => m.fromHash!))];
+    const senders =
+      senderHashes.length === 0
+        ? []
+        : await this.prisma.workCorrespondent.findMany({
+            where: { ...workScope(principal), addressHash: { in: senderHashes } },
+            select: { addressHash: true, displayAddress: true },
+          });
+    const addressOf = new Map(senders.map((c) => [c.addressHash, c.displayAddress]));
+    const outboundThreads = [...new Set(messages.filter((m) => m.direction === 'OUTBOUND').map((m) => m.threadId))];
+    const threads =
+      outboundThreads.length === 0
+        ? []
+        : await this.prisma.workThread.findMany({
+            where: { ...workScope(principal), threadId: { in: outboundThreads } },
+            select: { threadId: true, firstMessageAt: true },
+          });
+    const firstMessageAt = new Map<string, Date>();
+    for (const t of threads) if (t.firstMessageAt) firstMessageAt.set(t.threadId, t.firstMessageAt);
+    return {
+      messages: messages.map(({ fromHash, ...m }) => ({ ...m, fromAddress: fromHash ? addressOf.get(fromHash) ?? null : null })),
+      firstMessageAt,
+      truncated: messages.length >= take,
+    };
+  }
+
+  /**
+   * The stored messages of some of this person's own conversations, as the Mail dashboard's rules
+   * need them: which thread, when, which way, who sent it (as the correspondent hash), whether it
+   * replies to something, and Gmail's labels. Oldest first. No subject, no address, no body -- and,
+   * like `messageActivity`, an explicit column list, so the read depends on exactly what it uses.
+   */
+  async threadEvidence(principal: WorkPrincipal, threadIds: readonly string[], limit = 4000) {
+    if (threadIds.length === 0) return [];
+    return this.prisma.workMessage.findMany({
+      where: { ...workScope(principal), threadId: { in: [...threadIds] } },
+      select: { threadId: true, internalDate: true, direction: true, fromHash: true, labels: true, inReplyTo: true },
+      orderBy: { internalDate: 'asc' },
+      take: Math.min(Math.max(limit, 1), 4000),
+    });
+  }
+
   /** One stored message by its provider id, so a deletion can find the thread it was on. */
   async messageByProviderId(principal: WorkPrincipal, provider: WorkProvider, messageId: string) {
     return this.prisma.workMessage.findFirst({ where: { ...workScope(principal), provider, messageId } });
