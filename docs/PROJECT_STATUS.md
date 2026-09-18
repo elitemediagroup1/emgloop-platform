@@ -202,17 +202,27 @@ vendor profit is not attributable at that grain and says so; entity counts mean 
 period" (CallGrid exposes no roster). **No LLM anywhere** — every string is deterministic template
 language.
 
-## CallGrid webhook convergence — DRAFT PR (fix/callgrid-webhook-convergence, off main `8f2d78c`)
+## CallGrid webhook convergence — MERGED (#298, main `1f735ba`)
 
-_Last updated: 2026-09-18._ CallGrid fires Ended, Billable and Payable for one call at essentially
-the same moment (confirmed by CallGrid). Proven against real Postgres: overlapping deliveries lost
-revenue and payout behind an HTTP 200, returned 500s on the insert race, and created up to three
-Interactions per call; `monetized` ("Billable Calls") stayed false when Ended arrived first; the
-backfill rebuilt calls from the oldest copy; the reconcile route read the wrong money fields; and
-"Profit" on Home / Marketplace was Net Profit. The PR fixes all of those (see
-`docs/CALLGRID_WEBHOOK_CONTRACT.md` §Several deliveries per call). No migration. Routine polling
-stays OFF (`ROUTINE_POLL_ORGANIZATIONS` unset, 255 no-op runs since 2026-08-21) and is to become
-reconciliation only. **Next:** review; then Matt verifies the three CallGrid webhook templates.
+CallGrid fires Ended, Billable and Payable for one call at essentially the same moment; every
+delivery order now converges on one call with its revenue, payout and flags, late values are never
+overwritten by stale zeros, the backfill and reconcile route read the right fields, and Home and
+CallGrid label Net Profit (revenue − payout − telco cost). No migration. Routine polling stays OFF
+(`ROUTINE_POLL_ORGANIZATIONS` unset) and is to become reconciliation only. **Next:** Matt verifies
+the three CallGrid webhook templates.
+
+## CallGrid command center — IN REVIEW (draft PR on `feat/callgrid-command-center`, off main `91cadee`)
+
+`/app/admin/marketplace` restructured from one long diagnostic page into layers: Overview (five
+KPIs, Today's Brief, at most three priorities, a compact workspace) → Money / Buyers / Vendors /
+Sources / Campaigns / Bids / Intelligence → entity pages (`/buyers/[key]` etc.) → a Situation page
+(`/intelligence/[id]`) → evidence and limits behind disclosures. Daily / Weekly / Monthly periods
+(`callgrid-period`) resolve through the one window contract; old `?range=` links still work.
+"Live" now comes from when CallGrid last delivered data, not the render clock. Pages now enforce
+`intelligence:view` (the permission their nav item always stated). Nothing was deleted from the
+old Overview: the queue, story, risk model, Loop's record and every limit are in Intelligence. No
+migration. **Next:** Matt reviews; after merge, confirm the freshness badge against a real day of
+CallGrid deliveries (production has had no routine poll, so "Live" rests on webhooks alone).
 
 ## The Decision Engine — DONE (merged #154)
 The final platform layer between intelligence producers and every consumer. **CallGrid now
