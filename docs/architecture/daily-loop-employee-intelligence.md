@@ -816,6 +816,55 @@ as text. There is no iframe, no sanitizer to get wrong, no remote image -- and t
 tracking pixel, which is a privacy property as much as a security one. Attachments are named, typed
 and sized; Loop does not fetch them, and offers no download.
 
+### 6.13 Draft with Loop, and why it is governed rather than clever (GM-3, 2026-09-18)
+
+**It runs through the existing AI runtime, or it does not run.** `mail.reply.draft` is a task
+definition like any other: version, capability route, sensitivity ceiling, required permission,
+invoker roles, output schema, no tools. The gateway owns activation, the budget reservation,
+routing, provenance and the output contract. There is no second model path, no direct provider
+call from a route, and no prompt a tenant can edit.
+
+**It is `READ_ONLY`, and that is the architecture speaking.** A `DRAFT`'s standing is
+`NON_AUTHORITATIVE` (brain-result.ts), so a draft is not even a proposal awaiting approval -- it is
+TEXT. Nothing is pending, no queue holds it, and an employee pressing Send is not approving Loop's
+proposal; they are sending their own mail, having read some words Loop put in the box.
+
+**One reviewed addition was needed and is recorded:** a `DRAFT` owned by `EMPLOYEE_INTELLIGENCE`
+about an `EMPLOYEE_MAIL_THREAD`. The ownership table anticipated exactly this ("drafts about other
+subjects are each a reviewed addition here"). `EMPLOYEE_INTELLIGENCE` is its own authority because
+it is the only one whose results are private to ONE PERSON -- which is also why an employee-private
+task is excluded from the organization's Brain activity feed in both directions: its requirement is
+not folded into what that feed demands, and an event about one never becomes an item there.
+
+**An email is data, in three independent ways.** Every message enters the context as
+`UNTRUSTED_INPUT`; the template states in prose that the material is never an instruction, and what
+to do when it pretends to be; and the task publishes no tool, so an obeyed injection has nothing to
+act with. The employee's own note is the one `HUMAN_REPORTED` block, and the template's rules still
+outrank it.
+
+**The output lands in the composer and nowhere else** -- the same `work_drafts` row a manual reply
+uses, marked `AI_PROPOSED` with the invocation that produced it. From that moment it is an ordinary
+draft.
+
+### 6.14 What a mailbox is waiting on (GM-3)
+
+Deterministic states over stored headers, with no body read and no importance scored:
+
+| State | Rule | Evidence |
+|---|---|---|
+| `NEEDS_YOU` | they wrote last and you have not replied -- immediately if unread, otherwise after 4 hours | direction, age, unread |
+| `WAITING_ON_THEM` | you wrote last and nobody replied for 2 days | direction, age |
+| `GONE_QUIET` | a conversation both sides were having, silent for 14 days | direction, age, message count |
+
+Nothing older than 45 days is raised at all. **Significance and relevance stay apart**: there is no
+score, no ranking weight and no threshold that mixes them; ordering is by time, which is a fact.
+
+**A DETECTION NEVER OVERRULES A PERSON.** Handled, Dismiss, Snooze and "I'm waiting on them" write a
+state change with an observation -- and, where the employee said something Loop could not derive, a
+`work_feedback` row. A closed item reopens ONLY when a message arrives after it was closed; the same
+facts seen again are not news. **No correction edits the evidence that raised the item**: Loop was
+wrong about what the facts meant, and the facts stay as they are.
+
 ## 8. Calendar model
 
 ### 8.1 The grant is already sufficient for V1

@@ -113,7 +113,52 @@ export const AI_TASK_CASE_EXPLANATION: AiTaskDefinition = Object.freeze({
   tools: Object.freeze([]),
 });
 
-export const AI_TASKS: readonly AiTaskDefinition[] = Object.freeze([AI_TASK_CASE_EXPLANATION]);
+/**
+ * MAIL REPLY DRAFT -- Draft with Loop (GM-3).
+ *
+ * It proposes the text of ONE reply, to ONE conversation, for the employee who asked. It is the
+ * first task whose consequence is `PROPOSES_FOR_APPROVAL` rather than `READ_ONLY`, and the
+ * approval is not a workflow: it is the person reading the words in their own composer and
+ * pressing Send. Nothing this task produces can reach Gmail on its own -- the send path takes a
+ * draft id and a human principal, and AI_EMPLOYEE cannot hold `employeeMail:send` at all.
+ *
+ * COMMUNICATION_CONTENT, because the evidence IS the correspondence: a reply written without the
+ * thread would be a form letter. The context carries that one thread and the employee's own
+ * instruction, marked UNTRUSTED_INPUT -- an email is data, never instruction (§14.4).
+ *
+ * `employeeIntelligence:view` is the read authority, which grants that person their own rows and
+ * nobody else's. Every human role may invoke it, because answering your own mail is not an
+ * administrative act; AI_EMPLOYEE is never an invoker, by the runtime's own rule.
+ */
+export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
+  taskId: 'mail.reply.draft',
+  version: '1.0.0',
+  capabilityRoute: 'COMMUNICATION',
+  resultType: 'DRAFT',
+  // The draft belongs to the employee's own work context, about one thread of their own mail.
+  resultOwner: Object.freeze({ authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_MAIL_THREAD' } as const),
+  execution: Object.freeze({
+    classes: Object.freeze(['INTERACTIVE'] as const),
+    interactive: Object.freeze({ presentationBudgetMs: 20_000, executionDeadlineMs: 60_000, streaming: 'NONE' } as const),
+    durable: null,
+  }),
+  sensitivityCeiling: 'COMMUNICATION_CONTENT',
+  // READ_ONLY, AND THAT IS THE ARCHITECTURE SPEAKING RATHER THAN A TECHNICALITY. A DRAFT's
+  // standing is NON_AUTHORITATIVE (brain-result.ts), so it is not even a proposal awaiting an
+  // authority's approval: it is TEXT. Nothing is pending, no queue holds it, and the employee
+  // pressing Send is not approving Loop's proposal -- they are sending their own mail, having
+  // read some words Loop put in the box. `PROPOSES_FOR_APPROVAL` would overstate what this
+  // produces and would imply an approval path that does not and should not exist.
+  consequence: 'READ_ONLY',
+  requires: Object.freeze([{ resource: 'employeeIntelligence', action: 'view' } as const]),
+  invokerRoles: Object.freeze(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']),
+  outputSchemaId: 'mail-reply-draft.v1',
+  maxOutputTokens: 2000,
+  timeoutMs: 25_000,
+  tools: Object.freeze([]),
+});
+
+export const AI_TASKS: readonly AiTaskDefinition[] = Object.freeze([AI_TASK_CASE_EXPLANATION, AI_TASK_MAIL_REPLY_DRAFT]);
 
 export function aiTask(taskId: string): AiTaskDefinition | null {
   return AI_TASKS.find((t) => t.taskId === taskId) ?? null;
@@ -172,6 +217,19 @@ export interface AiTaskOutput {
   readonly claims: readonly AiClaim[];
   /** What the model could not tell from what it was given. Honesty has a field. */
   readonly limitations: readonly string[];
+  /**
+   * The proposed text, for a task whose RESULT IS PROSE (`resultType: 'DRAFT'`).
+   *
+   * It is checked for shape and size like everything else, and it is deliberately NOT checked for
+   * grounded figures the way a claim is: a reply naturally restates a date or a number from the
+   * conversation, and rejecting it for that would reject every useful draft. What stands behind
+   * the words is not a validator -- it is a person reading them before pressing Send.
+   */
+  readonly draft?: AiDraftText;
+}
+
+export interface AiDraftText {
+  readonly body: string;
 }
 
 /**
@@ -201,6 +259,9 @@ export const AI_OUTPUT_REJECTIONS = [
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
 
 /** Bounds on an answer a person has to read. The schema cannot say these for every provider. */
+/** What a proposed draft may be. Longer than this is not a reply somebody will read. */
+export const AI_DRAFT_LIMITS = Object.freeze({ maxBodyChars: 6000 });
+
 export const AI_ANSWER_LIMITS = Object.freeze({
   maxClaims: 12,
   maxSummaryChars: 800,
@@ -237,7 +298,16 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     }
     claims.push({ kind: c.kind as AiClaimKind, statement: c.statement, citations: c.citations as string[], figures });
   }
-  return { schemaId: v.schemaId, summary: v.summary, claims, limitations: v.limitations as string[] };
+  // A task whose result is prose carries it here. Absent is fine -- the validator decides
+  // whether THIS task required it, which is where the task's own contract lives.
+  let draft: AiDraftText | undefined;
+  if (v.draft !== undefined) {
+    if (!v.draft || typeof v.draft !== 'object' || Array.isArray(v.draft)) return null;
+    const body = (v.draft as Record<string, unknown>).body;
+    if (typeof body !== 'string') return null;
+    draft = { body };
+  }
+  return { schemaId: v.schemaId, summary: v.summary, claims, limitations: v.limitations as string[], ...(draft ? { draft } : {}) };
 }
 
 /** A model that scores its own certainty is guessing twice. C-05 applies to AI too. */
@@ -294,7 +364,21 @@ export function validateAiTaskOutput(
 ): AiOutputRejection[] {
   const out: AiOutputRejection[] = [];
   if (output.schemaId !== task.outputSchemaId) out.push('WRONG_SCHEMA');
-  if (!output.summary?.trim() || output.claims.length === 0) out.push('EMPTY_ANSWER');
+  if (!output.summary?.trim()) out.push('EMPTY_ANSWER');
+  // An analysis with no claims is not an analysis. A DRAFT's deliverable is its prose, and its
+  // claims are optional: demanding a cited claim beside a reply would produce padding, not rigour.
+  if (output.claims.length === 0 && task.resultType !== 'DRAFT') out.push('EMPTY_ANSWER');
+
+  // A task whose result is prose is checked for the prose. A claim-based task is not allowed to
+  // return one: an answer that carries a draft nobody asked for is not the answer that was asked
+  // for, and reading it as one is how a "read-only" task starts proposing actions.
+  if (task.resultType === 'DRAFT') {
+    const body = output.draft?.body?.trim() ?? '';
+    if (body === '') out.push('EMPTY_ANSWER');
+    if ((output.draft?.body?.length ?? 0) > AI_DRAFT_LIMITS.maxBodyChars) out.push('ANSWER_TOO_LONG');
+  } else if (output.draft !== undefined) {
+    out.push('WRONG_SCHEMA');
+  }
 
   const L = AI_ANSWER_LIMITS;
   if (

@@ -9,6 +9,7 @@ import { loginPathFor } from '../../../../auth/landing';
 import { requirePermission } from '../../../../auth/guard';
 import { loadThread } from '../../../../daily-loop/mail';
 import { mailSendService } from '../../../../daily-loop/mail-send-runtime';
+import { mailDraftAvailability } from '../../../../ai/mail-reply-draft';
 import { readerTimeZone } from '../../../../daily-loop/reader-zone';
 import WorkspaceShell from '../../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead, Panel, StateBlock } from '../../_loop-os/record';
@@ -49,11 +50,27 @@ export default async function MailThreadPage({ params }: { params: { threadId: s
     }
   }
 
-  const [result, draftRow, canSend] = await Promise.all([
+  const [result, draftRow, canSend, draftAvailability] = await Promise.all([
     loadThread(principal, threadId),
     drafts.draft(principal, 'GOOGLE', threadId),
     repositories.iam.can({ organizationId: principal.organizationId, userId: principal.userId, resource: 'employeeMail', action: 'send' }),
+    mailDraftAvailability(principal),
   ]);
+  // An honest state rather than a hidden button: if Loop cannot draft here, the composer says
+  // which kind of "cannot" it is, and the manual reply is unaffected either way.
+  const draftWithLoop = {
+    available: draftAvailability === 'AVAILABLE',
+    reason:
+      draftAvailability === 'AVAILABLE'
+        ? null
+        : draftAvailability === 'NOT_AUTHORIZED'
+          ? 'you do not have permission to use it'
+          : draftAvailability === 'PAUSED'
+            ? 'it is paused'
+            : draftAvailability === 'NOT_CONFIGURED'
+              ? 'no model is configured for this deployment'
+              : 'it is not switched on for this organization yet',
+  };
 
   const zone = resolveDisplayTimeZone({ preference: null, device: readerTimeZone() });
   const time = createTimeView(zone, new Date());
@@ -146,6 +163,7 @@ export default async function MailThreadPage({ params }: { params: { threadId: s
               replyAllCc={replyAll.cc}
               canSend={canSend}
               now={new Date()}
+              draftWithLoop={draftWithLoop}
             />
           </Panel>
         ) : null}

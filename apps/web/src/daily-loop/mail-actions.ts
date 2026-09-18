@@ -26,7 +26,7 @@ import {
   type GmailAddress,
   type WorkReplyMode,
 } from '@emgloop/shared';
-import { WorkDraftRepository, WorkGraphRepository, prisma } from '@emgloop/database';
+import { WorkDraftRepository, WorkGraphRepository, WorkItemRepository, prisma } from '@emgloop/database';
 
 import { requirePermission } from '../auth/guard';
 import { refreshMailByHand } from './mail-runtime';
@@ -152,4 +152,110 @@ export async function releaseSendAction(form: FormData): Promise<void> {
   if (!draft) return;
   await mailSendService().releaseUnconfirmed(principal, draft.id);
   revalidatePath(`${MAIL_PATH}/${threadId}`);
+}
+
+/**
+ * Ask Loop to draft this reply.
+ *
+ * IT WRITES INTO THE COMPOSER AND NOTHING ELSE. The answer becomes the same `work_drafts` row a
+ * manual reply uses, marked as Loop's proposal with the invocation that produced it. The employee
+ * then edits it, discards it, or sends it -- and sending is a different action, with a different
+ * authority, that takes a draft id. There is no path from this action to Gmail.
+ *
+ * It requires only `employeeIntelligence:update`: putting words in somebody's own box is not
+ * sending them. The AI runtime re-checks the task's own permission and every activation gate.
+ */
+export async function draftWithLoopAction(form: FormData): Promise<void> {
+  const session = await requirePermission('employeeIntelligence', 'update');
+  const principal = principalOf(session);
+  const threadId = String(form.get('threadId') ?? '');
+  const inReplyToMessageId = String(form.get('inReplyToMessageId') ?? '');
+  if (threadId === '' || inReplyToMessageId === '') return;
+
+  // Whatever the employee has already typed is kept: their words are the instruction, and a
+  // proposal must never silently discard what they wrote.
+  const instruction = String(form.get('body') ?? '').slice(0, 1000);
+  const modeRaw = String(form.get('mode') ?? 'REPLY');
+  const mode: WorkReplyMode = (WORK_REPLY_MODES as readonly string[]).includes(modeRaw) ? (modeRaw as WorkReplyMode) : 'REPLY';
+
+  const { draftMailReply } = await import('../ai/mail-reply-draft');
+  await draftMailReply(principal, { threadId, inReplyToMessageId, instruction, mode });
+  revalidatePath(`${MAIL_PATH}/${threadId}`);
+}
+
+// --- The employee correcting Loop (GM-3) ------------------------------------------------------
+//
+// LOOP CAN BE WRONG ABOUT WHAT FACTS MEAN, AND THE EMPLOYEE IS THE AUTHORITY ON THAT. Each of
+// these records their correction beside the evidence -- a state change with an observation, and
+// where it says something Loop could not derive, a `work_feedback` row. NOTHING HERE REWRITES A
+// STORED FACT: the headers stay exactly as Gmail reported them, because Loop being wrong about
+// meaning is not a reason to edit history.
+
+const HOME_PATH = '/app';
+
+async function actOnItem(
+  form: FormData,
+  act: (items: InstanceType<typeof WorkItemRepository>, principal: { organizationId: string; userId: string }, itemId: string, now: Date) => Promise<unknown>,
+): Promise<void> {
+  const session = await requirePermission('employeeIntelligence', 'update');
+  const itemId = String(form.get('itemId') ?? '');
+  if (itemId === '') return;
+  // The item id is scoped by the principal inside the repository: somebody else's item is
+  // not-found, which is the same answer as one that does not exist.
+  await act(new WorkItemRepository(prisma), principalOf(session), itemId, new Date());
+  revalidatePath(HOME_PATH);
+  revalidatePath(MAIL_PATH);
+}
+
+/** "I have dealt with this." It closes the item; the conversation is untouched. */
+export async function markHandledAction(form: FormData): Promise<void> {
+  await actOnItem(form, (items, principal, itemId, now) =>
+    items.record(principal, itemId, { state: 'RESOLVED', observationType: 'RESOLVED', occurredAt: now, outcome: 'HANDLED' }),
+  );
+}
+
+/** "This is not mine, or not worth surfacing." It closes the item without claiming it was done. */
+export async function dismissItemAction(form: FormData): Promise<void> {
+  await actOnItem(form, (items, principal, itemId, now) =>
+    items.record(principal, itemId, { state: 'DISMISSED', observationType: 'DISMISSED', occurredAt: now, outcome: 'NOT_MINE' }),
+  );
+}
+
+/** "Not now." It sleeps until the time they chose, and wakes by itself. */
+export async function snoozeItemAction(form: FormData): Promise<void> {
+  const hoursRaw = Number(form.get('hours') ?? 24);
+  const hours = Number.isFinite(hoursRaw) ? Math.min(Math.max(Math.round(hoursRaw), 1), 24 * 30) : 24;
+  await actOnItem(form, (items, principal, itemId, now) =>
+    items.record(principal, itemId, {
+      state: 'SNOOZED',
+      observationType: 'SNOOZED',
+      occurredAt: now,
+      snoozedUntil: new Date(now.getTime() + hours * 3_600_000),
+    }),
+  );
+}
+
+/**
+ * "You have this backwards -- I am waiting on them."
+ *
+ * The correction Loop cannot derive: the headers say the newest message is theirs, and the
+ * employee knows they already answered another way, or that the ball is not in their court. It
+ * closes the item AND records the correction as feedback against the thread, so a later rule can
+ * learn from it. The evidence is not touched.
+ */
+export async function markWaitingOnThemAction(form: FormData): Promise<void> {
+  const session = await requirePermission('employeeIntelligence', 'update');
+  const principal = principalOf(session);
+  const itemId = String(form.get('itemId') ?? '');
+  const threadId = String(form.get('threadId') ?? '');
+  if (itemId === '' || threadId === '') return;
+
+  const items = new WorkItemRepository(prisma);
+  const now = new Date();
+  const item = await items.item(principal, itemId);
+  if (!item) return;
+  await items.recordFeedback(principal, { kind: 'NOT_WAITING', subjectKind: 'THREAD', subjectRef: threadId, reason: 'the employee is waiting on them' });
+  await items.record(principal, itemId, { state: 'RESOLVED', observationType: 'RESOLVED', occurredAt: now, outcome: 'HANDLED', reason: 'waiting on them' });
+  revalidatePath(HOME_PATH);
+  revalidatePath(MAIL_PATH);
 }

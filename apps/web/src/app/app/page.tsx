@@ -9,6 +9,11 @@ import { ModuleHome } from './_home/module-home';
 import { YourDay } from './_home/your-day';
 import { RefreshCalendar } from './_home/refresh-calendar';
 import { loadYourDay } from '../../daily-loop/your-day';
+import { YourMail } from './_home/your-mail';
+import { loadMail } from '../../daily-loop/mail';
+import { loadMailAttention } from '../../daily-loop/mail-attention';
+import { readerTimeZone } from '../../daily-loop/reader-zone';
+import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 
 // Loop Home — the first destination after sign-in, for every role.
 //
@@ -33,9 +38,27 @@ export default async function LoopHome() {
   const principal = { organizationId: session.organizationId, userId: session.userId };
   const day = <YourDay view={await loadYourDay(principal)} refresh={<RefreshCalendar />} />;
 
+  // YOUR MAIL (GM-3). A visit refreshes the mailbox at most every five minutes; the attention
+  // items are then recomputed from what is stored, so one sync serves Home and the Inbox alike.
+  // A person with no Google connection gets nothing here rather than an empty promise.
+  const mail = await loadMail(principal, { limit: 1 });
+  const zone = resolveDisplayTimeZone({ preference: null, device: readerTimeZone() });
+  const attention = mail ? await loadMailAttention(principal, { timeZone: zone.timeZone }) : null;
+  const yourMail = (
+    <YourMail
+      view={attention}
+      time={createTimeView(zone, new Date())}
+      unavailable={mail && !mail.knows ? 'Loop has not read your mail recently enough to say what it is waiting on.' : null}
+    />
+  );
+
   return (
     <WorkspaceShell session={session}>
-      {role === 'ADMIN' ? <AdminHome day={day} /> : <ModuleHome name={session.name} groups={await navFor(session)} day={day} />}
+      {role === 'ADMIN' ? (
+        <AdminHome day={day} mail={yourMail} />
+      ) : (
+        <ModuleHome name={session.name} groups={await navFor(session)} day={day} mail={yourMail} />
+      )}
     </WorkspaceShell>
   );
 }

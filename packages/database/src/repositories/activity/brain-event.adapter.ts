@@ -100,17 +100,36 @@ const STATE_AFTER: Readonly<Record<string, string | null>> = {
   'brain.job.cancelled': 'CANCELLED',
 };
 
+/**
+ * Tasks whose results belong to ONE EMPLOYEE, and which therefore never appear in an
+ * organization's activity feed (GM-3).
+ *
+ * The activity feed is an organization-level surface: it shows what happened in the business to
+ * anybody holding the organization's read authorities. A task owned by `EMPLOYEE_INTELLIGENCE`
+ * produces results that are private to one person by construction -- an OWNER does not hold them
+ * and an ADMIN does not hold them -- so an event about one must not become an item there, and its
+ * read authority must not be folded into what the feed demands.
+ *
+ * Excluding it in BOTH directions is deliberate: including the requirement would make the
+ * organization feed ask for an employee-private permission, and including the ITEM would leak the
+ * existence of somebody's private work into a shared surface. Neither is a feed anybody asked for.
+ */
+const EMPLOYEE_PRIVATE_AUTHORITY = 'EMPLOYEE_INTELLIGENCE';
+const isOrganizationTask = (task: (typeof AI_TASKS)[number]): boolean => task.resultOwner.authority !== EMPLOYEE_PRIVATE_AUTHORITY;
+
 /** The permissions each task's surface requires, from the task definitions themselves. */
 export function brainTaskRequirements(taskId: string): readonly ActivityRequirement[] | null {
   const task = AI_TASKS.find((t) => t.taskId === taskId);
   if (!task || task.requires.length === 0) return null;
+  // An employee-private task has no organization-level activity item at all.
+  if (!isOrganizationTask(task)) return null;
   return task.requires.map((r) => ({ resource: r.resource as Resource, action: 'view' as const }));
 }
 
-/** Everything any Brain task requires: what an organization-wide read must hold. */
+/** Everything any organization-level Brain task requires: what an organization-wide read must hold. */
 export function brainOrganizationRequirements(): readonly ActivityRequirement[] {
   const seen = new Map<string, ActivityRequirement>();
-  for (const task of AI_TASKS) {
+  for (const task of AI_TASKS.filter(isOrganizationTask)) {
     for (const r of task.requires) seen.set(`${r.resource}:view`, { resource: r.resource as Resource, action: 'view' });
   }
   return [...seen.values()];

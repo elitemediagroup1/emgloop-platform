@@ -160,7 +160,7 @@ describe('/app renders Loop Home for every role', () => {
   });
 
   it('the Owner/Admin/Manager home renders only for that authority and enforces it itself', () => {
-    assert.match(app, /\{role === 'ADMIN' \? <AdminHome day=\{day\} \/> : <ModuleHome name=\{session\.name\} groups=\{await navFor\(session\)\} day=\{day\} \/>\}/);
+    assert.match(app, /<AdminHome day=\{day\} mail=\{yourMail\} \/>[\s\S]*<ModuleHome name=\{session\.name\} groups=\{await navFor\(session\)\} day=\{day\} mail=\{yourMail\} \/>/);
     const home = code(read('app/app/_home/admin-home.tsx'));
     const body = home.slice(home.indexOf('export async function AdminHome'));
     assert.ok(body.indexOf("await requireWorkspace('ADMIN');") > -1);
