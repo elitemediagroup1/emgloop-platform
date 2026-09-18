@@ -66,8 +66,12 @@ const processedRow = () => ({
 
 function harness(storedFacts: Facts | null) {
   const state = {
-    event: processedRow() as Record<string, unknown>,
-    call: storedFacts ? { id: 'call_1', ...storedFacts } : null,
+    event: processedRow() as Record<string, unknown> | null,
+    // `monetized` as a real row holds it: derived from the flags when the call was projected.
+    call: storedFacts
+      ? { id: 'call_1', organizationId: ORG, interactionId: 'int_1', monetized: storedFacts.billable || storedFacts.paid || storedFacts.converted ? true : null, ...storedFacts }
+      : null,
+    callCreates: [] as Array<Record<string, unknown>>,
     callUpdates: [] as Array<Record<string, unknown>>,
     revisions: [] as Array<Record<string, unknown>>,
     eventUpdates: [] as Array<Record<string, unknown>>,
@@ -77,22 +81,34 @@ function harness(storedFacts: Facts | null) {
       async findFirst() {
         return state.event;
       },
+      async create({ data }: { data: Record<string, unknown> }) {
+        state.event = { id: 'evt_new', ...data };
+        return state.event;
+      },
       async update({ data }: { data: Record<string, unknown> }) {
         state.eventUpdates.push(data);
         state.event = { ...state.event, ...data };
         return state.event;
       },
     },
+    // The repository's three writes: read the one row by its unique key, create it,
+    // or move exactly the columns convergence approved -- conditional on each still
+    // holding the value it was decided from (compare-and-set).
     marketplaceCall: {
-      async findFirst({ select }: { select?: Record<string, boolean> }) {
-        if (!state.call) return null;
-        if (select && 'id' in select && Object.keys(select).length === 1) return { id: state.call.id };
+      async findUnique() {
         return state.call;
       },
-      async update({ data }: { data: Record<string, unknown> }) {
-        state.callUpdates.push(data);
-        state.call = { ...(state.call as Record<string, unknown>), ...data } as never;
+      async create({ data }: { data: Record<string, unknown> }) {
+        state.callCreates.push(data);
+        state.call = { id: 'call_new', ...data } as never;
         return state.call;
+      },
+      async updateMany({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+        const row = state.call as Record<string, unknown> | null;
+        if (!row || !Object.entries(where).every(([k, v]) => (row[k] ?? null) === (v ?? null))) return { count: 0 };
+        state.callUpdates.push(data);
+        state.call = { ...row, ...data } as never;
+        return { count: 1 };
       },
     },
     providerFactRevision: {
@@ -126,7 +142,10 @@ test('1. webhook UNKNOWN strengthened by a REST positive, and recorded', async (
   await observe(prisma, { id: CALL_ID, revenue: 17, billable: true });
 
   assert.equal(state.callUpdates.length, 1, 'one narrow write');
-  assert.deepEqual(state.callUpdates[0], { revenueCents: 1700, billable: true });
+  // `monetized` is derived from the flags (billable OR paid OR converted), so it
+  // follows billable in the same write. It used to stay as the FIRST observation
+  // left it -- false forever when CallGrid's Ended webhook arrived before Billable.
+  assert.deepEqual(state.callUpdates[0], { revenueCents: 1700, billable: true, monetized: true });
 
   const revenue = revisionFor(state, 'revenue')!;
   assert.equal(revenue.decision, 'UPDATE');
@@ -234,27 +253,31 @@ test('silence is reported as silence: an identical observation names no fact at 
 });
 
 test('a first ingestion names no strengthened fact, because there was nothing to strengthen', async () => {
-  const { prisma, state } = harness({ ...UNKNOWN_FACTS });
-  state.event = { ...state.event, status: 'RECEIVED' };
+  // No delivery and no call yet: this one creates both, exactly as CallGrid said.
+  const { prisma, state } = harness(null);
+  state.event = null;
   const [result] = await observe(prisma, { id: CALL_ID, revenue: 17 });
   assert.notEqual(result!.status, 'duplicate');
   assert.deepEqual(result!.strengthenedFacts, []);
   assert.deepEqual(result!.conflictedFacts, []);
+  assert.equal(state.callCreates.length, 1, 'the call is created from what the provider stated');
+  assert.equal(state.callCreates[0]!.revenueCents, 1700);
 });
 
 test('the duplicate branch is chosen by ONE shared predicate, not a status literal', () => {
   // The dry run of the manual poll asks the same question of the same column. Two
   // spellings of "PROCESSED" is how a dry run starts describing a run that no
   // longer exists.
-  assert.ok(SERVICE_SOURCE.includes('isDuplicateObservation(existing.status)'));
+  assert.ok(SERVICE_SOURCE.includes('isDuplicateObservation(existing.status, existing.lastObservedAt'));
   assert.equal(
     (SERVICE_SOURCE.match(/===\s*'PROCESSED'/g) ?? []).length,
     1,
     'the status literal appears exactly once, and it is the predicate itself',
   );
+  const predicate = SERVICE_SOURCE.slice(SERVICE_SOURCE.indexOf('export function isDuplicateObservation('));
   assert.match(
-    SERVICE_SOURCE,
-    /export function isDuplicateObservation\(status: string\): boolean \{\s*\n\s*return status === 'PROCESSED';/,
+    predicate.slice(0, predicate.indexOf('\n}') + 2),
+    /if \(status === 'PROCESSED'\) return true;/,
     'and that one occurrence is inside isDuplicateObservation',
   );
 });
@@ -286,11 +309,19 @@ test('16/17. no duplicate call is created, and the raw payload is not destroyed'
   assert.deepEqual(state.event.payload, { id: CALL_ID, original: true }, 'original evidence stands');
 });
 
-test('a call with no projection yet is left alone rather than built from a re-observation', async () => {
+test('a call with no projection yet is BUILT from the observation, so its facts are never dropped', async () => {
+  // This used to leave the call alone. With CallGrid firing Ended, Billable and
+  // Payable at once, "no projection yet" is the ordinary state of a call whose
+  // first delivery is still being ingested -- and leaving it alone is how
+  // Billable's revenue was lost. The observation creates the call from its own
+  // facts, by the same mapper and exclusions as the first ingestion; whichever
+  // delivery arrives next merges into it.
   const { prisma, state } = harness(null);
   await observe(prisma, { id: CALL_ID, revenue: 17 });
-  assert.equal(state.callUpdates.length, 0);
-  assert.equal(state.revisions.length, 0, 'nothing changed, so nothing is recorded');
+  assert.equal(state.callCreates.length, 1);
+  assert.equal(state.callCreates[0]!.revenueCents, 1700);
+  assert.equal(state.callCreates[0]!.interactionId, null, 'linked later, by the delivery that normalizes the call');
+  assert.equal(state.revisions.length, 0, 'a first statement is not a revision of anything');
 });
 
 // --- 18-21: boundaries --------------------------------------------------------------------
@@ -298,20 +329,25 @@ test('a call with no projection yet is left alone rather than built from a re-ob
 test('18. the field-specific decisions live in ONE pure rule, not in this service', () => {
   // The moment "revenue is special" is written in two places, the two disagree
   // about a postback.
-  assert.ok(SERVICE_SOURCE.includes('convergeFact'));
-  assert.ok(SERVICE_SOURCE.includes('CALLGRID_FACT_KINDS'));
+  // The per-fact loop lives in the PURE planner beside the projection, shared by
+  // live ingestion and the backfill; the service only hands it an observation.
+  const PLANNER = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'repositories', 'marketplace-call-projection.ts'),
+    'utf8',
+  );
+  const planner = PLANNER.slice(PLANNER.indexOf('const CONVERGED_FACTS'));
+  assert.ok(planner.includes('convergeFact'));
+  assert.ok(planner.includes('CALLGRID_FACT_KINDS'));
   for (const smell of ['> 0 ?', 'revenue === 0', 'billable === false', 'lastWriteWins']) {
-    assert.ok(!SERVICE_SOURCE.includes(smell), `no field-specific branching: ${smell}`);
+    assert.ok(!SERVICE_SOURCE.includes(smell), `no field-specific branching in the service: ${smell}`);
+    assert.ok(!planner.includes(smell), `no field-specific branching in the planner: ${smell}`);
   }
-  // And descriptive facts are not converged at all. Scoped to the convergence
-  // method's own body: `durationSeconds` legitimately appears elsewhere in this
-  // file, in the FIRST-ingest normalization that this PR does not change.
-  const start = SERVICE_SOURCE.indexOf('private async convergeProviderFacts');
-  const end = SERVICE_SOURCE.indexOf('private async ingestOne');
-  assert.ok(start > 0 && end > start, 'the convergence method must be locatable');
-  const convergence = SERVICE_SOURCE.slice(start, end);
-  for (const absent of ['callerZip', 'callerState', 'campaignLabel', 'durationSeconds', 'status']) {
-    assert.ok(!convergence.includes(absent), `${absent} must not be converged`);
+  assert.ok(SERVICE_SOURCE.includes('this.marketplaceCalls.observe('), 'the service delegates to the one merge');
+  // And descriptive facts -- and cost -- are not converged at all: no provider
+  // evidence says how they settle, and since nothing rewrites the row, a later
+  // observation cannot erase them either.
+  for (const absent of ['callerZip', 'callerState', 'campaignLabel', 'connectedDurationSeconds', 'status', 'costCents']) {
+    assert.ok(!planner.includes(absent), `${absent} must not be converged`);
   }
 });
 

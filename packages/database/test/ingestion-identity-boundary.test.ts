@@ -80,12 +80,6 @@ async function harness(seed: { customers?: Row[]; workflows?: Row[] } = {}) {
     ],
   });
 
-  // MarketplaceCall is upserted on its named compound unique; the double matches
-  // plain columns, so the key is unwrapped here exactly as Postgres reads it.
-  const upsert = prisma.marketplaceCall.upsert.bind(prisma.marketplaceCall);
-  prisma.marketplaceCall.upsert = (args: Row) =>
-    upsert({ ...args, where: args.where.provider_externalId ?? args.where });
-
   for (const c of seed.customers ?? []) {
     await prisma.customer.create({ data: { organizationId: ORG, ...c } });
   }

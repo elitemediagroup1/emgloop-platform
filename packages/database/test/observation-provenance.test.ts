@@ -48,6 +48,9 @@ type Row = Record<string, unknown>;
  * it is also what makes the re-observation cases below reachable: a FAILED row
  * is re-ingested, a PROCESSED row is not.
  */
+const sameCell = (a: unknown, b: unknown): boolean =>
+  (a ?? null) === (b ?? null) || (a instanceof Date && b instanceof Date && a.getTime() === b.getTime());
+
 function prismaDouble(existing?: Row) {
   const state: { row: Row | null; writes: Array<{ kind: 'create' | 'update'; data: Row }> } = {
     row: existing ?? null,
@@ -67,6 +70,15 @@ function prismaDouble(existing?: Row) {
         state.writes.push({ kind: 'update', data });
         state.row = { ...(state.row ?? {}), ...data };
         return state.row;
+      },
+      // The conditional takeover of a FAILED or orphaned row: applied only if the
+      // row still holds what was read, exactly as Postgres evaluates the WHERE.
+      async updateMany({ where, data }: { where: Row; data: Row }) {
+        const row = state.row as Row | null;
+        if (!row || !Object.entries(where).every(([k, v]) => sameCell(row[k], v))) return { count: 0 };
+        state.writes.push({ kind: 'update', data });
+        state.row = { ...row, ...data };
+        return { count: 1 };
       },
     },
   };

@@ -63,6 +63,9 @@ interface Recorded {
  * Everything downstream is absent on purpose: this file is about what reaches
  * the row, not about the pipeline that runs afterwards.
  */
+const sameCell = (a: unknown, b: unknown): boolean =>
+  (a ?? null) === (b ?? null) || (a instanceof Date && b instanceof Date && a.getTime() === b.getTime());
+
 function prismaDouble(existing?: Record<string, unknown>): { prisma: unknown; recorded: Recorded } {
   const recorded: Recorded = { creates: [], updates: [], rows: existing ? [existing] : [] };
   let seq = 0;
@@ -85,6 +88,15 @@ function prismaDouble(existing?: Record<string, unknown>): { prisma: unknown; re
         recorded.updates.push({ where, data });
         recorded.rows[0] = { ...(recorded.rows[0] ?? {}), ...data };
         return recorded.rows[0];
+      },
+      // The conditional takeover of a FAILED or orphaned row: applied only if the
+      // row still holds what was read, exactly as Postgres evaluates the WHERE.
+      async updateMany({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+        const row = recorded.rows[0] as Record<string, unknown> | undefined;
+        if (!row || !Object.entries(where).every(([k, v]) => sameCell(row[k], v))) return { count: 0 };
+        recorded.updates.push({ where, data });
+        recorded.rows[0] = { ...row, ...data };
+        return { count: 1 };
       },
     },
   };

@@ -226,12 +226,12 @@ export class IntegrationRepository {
   }
 
   /**
-   * The stored status of one provider delivery, or null if this organization has
-   * never held it.
+   * The stored state of one provider delivery -- its status and when it was last
+   * observed -- or null if this organization has never held it.
    *
    * EXISTS FOR A DRY RUN, AND FOR NOTHING ELSE. A caller that wants to say what
-   * ingestion WOULD do without ingesting needs the one column ingestion branches
-   * on. It is a read: there is no sibling that writes, and the answer is fed to
+   * ingestion WOULD do without ingesting needs the columns ingestion branches on.
+   * It is a read: there is no sibling that writes, and the answer is fed to
    * `isDuplicateObservation` rather than compared against a status literal here.
    *
    * ORGANIZATION-SCOPED, and that has a consequence worth knowing. Ingestion's
@@ -241,16 +241,16 @@ export class IntegrationRepository {
    * as an existing row by ingestion. The scoped read is the correct one to write;
    * the divergence belongs to the unique key and is the caller's to disclose.
    */
-  async statusOfEvent(
+  async deliveryStateOfEvent(
     organizationId: string,
     provider: string,
     externalId: string,
-  ): Promise<string | null> {
+  ): Promise<{ readonly status: string; readonly lastObservedAt: Date | null } | null> {
     const row = await this.prisma.integrationEvent.findFirst({
       where: { organizationId, provider, externalId },
-      select: { status: true },
+      select: { status: true, lastObservedAt: true },
     });
-    return row ? String(row.status) : null;
+    return row ? { status: String(row.status), lastObservedAt: row.lastObservedAt ?? null } : null;
   }
 
   /**
