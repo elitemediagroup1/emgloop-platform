@@ -74,6 +74,11 @@ export async function saveDraftAction(form: FormData): Promise<void> {
 
   const to = addressesFrom(form.get('to'));
   const cc = addressesFrom(form.get('cc'));
+  // A reply Loop drafted KEEPS ITS PROVENANCE when the employee edits it. The words become
+  // theirs -- `aiUnedited` says so -- but where they came from is a fact, and dropping the
+  // invocation id the moment somebody fixes a sentence would make the origin unanswerable.
+  const existing = await drafts.draft(principal, 'GOOGLE', threadId);
+  const proposed = existing && existing.source === 'AI_PROPOSED' && existing.sentAt === null;
   await drafts.save(principal, {
     provider: 'GOOGLE',
     threadId,
@@ -83,7 +88,10 @@ export async function saveDraftAction(form: FormData): Promise<void> {
     ccAddresses: cc.map((a) => normalizeGmailAddress(a.address)),
     subject: thread.subject,
     body,
-    source: 'MANUAL',
+    source: proposed ? 'AI_PROPOSED' : 'MANUAL',
+    aiInvocationId: proposed ? existing!.aiInvocationId : null,
+    aiTaskVersion: proposed ? existing!.aiTaskVersion : null,
+    aiUnedited: proposed ? existing!.aiUnedited && body === existing!.body : false,
   });
   revalidatePath(`${MAIL_PATH}/${threadId}`);
 }

@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-18 (AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-18 (Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -1903,7 +1903,7 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
 
 ## GMAIL — the employee's mail as a work surface (GM-1..GM-3, in review)
 
-**GM-1 (draft #GM1PR): the Gmail sensor, ingestion and the three freshness paths.**
+**GM-1 (draft #295): the Gmail sensor, ingestion and the three freshness paths.**
 
 - **Scopes decided and verified against Google's current documentation (2026-09-18):**
   `gmail.readonly` (restricted — the narrowest scope that returns a body, and the one that permits
@@ -1946,7 +1946,7 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
   the employee's own Sent mail and never retried. No clock releases a claim, and a crashed attempt
   becomes `SEND_UNKNOWN`. Architecture §6.11a.
 
-**GM-3 (draft #GM3PR): Draft with Loop, and what the mailbox is waiting on.**
+**GM-3 (draft #297): Draft with Loop, and what the mailbox is waiting on.**
 
 - **`mail.reply.draft`** — a governed AI task through the existing runtime (activation, budget,
   routing, provenance, output contract, no tools). `READ_ONLY`, because a `DRAFT`'s standing is

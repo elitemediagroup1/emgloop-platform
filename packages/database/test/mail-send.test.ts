@@ -544,3 +544,50 @@ test('each employee’s draft on the same conversation is their own', async () =
   assert.equal((await w.drafts.draft(alice, 'GOOGLE', 't1'))!.body, 'hers');
   assert.equal((await w.drafts.draft(bob, 'GOOGLE', 't1'))!.body, 'his');
 });
+
+test('a reply Loop drafted keeps its provenance when the employee edits it, and loses it when replaced', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  await conversation(w, alice);
+
+  // Loop proposes.
+  const proposed = {
+    provider: 'GOOGLE' as const,
+    threadId: 't1',
+    inReplyToMessageId: 'm1',
+    mode: 'REPLY' as const,
+    toAddresses: ['ben@cashion.example'],
+    ccAddresses: [],
+    subject: 'Cashion pricing',
+    source: 'AI_PROPOSED' as const,
+    aiInvocationId: 'inv_1',
+    aiTaskVersion: '1.0.0',
+  };
+  await w.drafts.save(alice, { ...proposed, body: 'Loop wrote this.', aiUnedited: true });
+  let row = await w.drafts.draft(alice, 'GOOGLE', 't1');
+  assert.equal(row!.aiUnedited, true);
+
+  // The employee edits it: the words are theirs now, and where they came from is still recorded.
+  await w.drafts.save(alice, { ...proposed, body: 'Loop wrote this, and I fixed the second line.', aiUnedited: false });
+  row = await w.drafts.draft(alice, 'GOOGLE', 't1');
+  assert.equal(row!.source, 'AI_PROPOSED');
+  assert.equal(row!.aiInvocationId, 'inv_1');
+  assert.equal(row!.aiUnedited, false, 'Loop stops claiming it is a proposal');
+
+  // A reply they wrote from scratch carries no provenance at all, because there is none.
+  await w.drafts.save(alice, {
+    provider: 'GOOGLE',
+    threadId: 't1',
+    inReplyToMessageId: 'm1',
+    mode: 'REPLY',
+    toAddresses: ['ben@cashion.example'],
+    ccAddresses: [],
+    subject: 'Cashion pricing',
+    body: 'Mine entirely.',
+    source: 'MANUAL',
+  });
+  row = await w.drafts.draft(alice, 'GOOGLE', 't1');
+  assert.equal(row!.source, 'MANUAL');
+  assert.ok(!row!.aiInvocationId);
+  assert.equal(row!.aiUnedited, false);
+});
