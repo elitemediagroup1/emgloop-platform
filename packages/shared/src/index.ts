@@ -254,6 +254,8 @@ export * from './case-participation';
 // is a declared lexicographic walk that can always explain itself.
 export * from './personal-priority';
 export * from './callgrid-window';
+export * from './callgrid-period';
+export * from './callgrid-command';
 
 // --- The canonical CallGrid metric contract ---
 // Every CallGrid business metric: its provenance, grain, versioned formula, and
