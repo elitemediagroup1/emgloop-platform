@@ -98,7 +98,18 @@ export type Resource =
   // (organizationId, userId) and there is no org-only read path, so holding `view` grants
   // you your own rows and nothing else. Adding an action here is a product decision about
   // surveillance, not a refactor.
-  | 'employeeIntelligence';
+  | 'employeeIntelligence'
+  // Sending mail from inside Loop (GM-2; daily-loop-employee-intelligence.md §6.11). A person
+  // sending AS THEMSELVES, through their own connected Gmail identity, and never as anybody
+  // else. Grants: see EMPLOYEE_MAIL_GRANTS.
+  //
+  // IT IS ITS OWN RESOURCE ON PURPOSE. Sending mail is the first act in this platform that
+  // leaves the building under somebody's name, so it does not ride on `googleWorkspace:update`
+  // (which is about connecting an account) or on `employeeIntelligence:update` (which is about
+  // one's own work state). It has exactly one action, `send`; there is no `manage` and no
+  // `approve`, because an administrator sending as an employee is not a capability this
+  // platform has, and a delegated mailbox would be a reviewed architecture, not a grant.
+  | 'employeeMail';
 
 
 /**
@@ -106,7 +117,7 @@ export type Resource =
  * that may establish a Party as canonical identity or confirm that two records are
  * the same Party. `create` makes a Party record; it never establishes one.
  */
-export type Action = 'view' | 'create' | 'update' | 'delete' | 'manage' | 'approve';
+export type Action = 'view' | 'create' | 'update' | 'delete' | 'manage' | 'approve' | 'send';
 
 
 export const SYSTEM_ROLES: SystemRole[] = [
@@ -190,6 +201,30 @@ export const IDENTITY_RESOLUTION_GRANTS: Readonly<Record<string, readonly Action
 // AI_EMPLOYEE is denied everything, whatever a Permission row says: an AI Employee is an
 // assignable identity, not a person with a Google account, and no grant may make it one.
 // A role missing from this table is denied too.
+/**
+ * EMPLOYEE MAIL -- sending, as oneself (GM-2).
+ *
+ * Every human role may send their own mail, because every human member connects their own Google
+ * account and answering your own correspondence is not an administrative act. The authority is
+ * about WHOSE HANDS ARE ON IT: the principal comes from the signed session, the token comes from
+ * that principal's own connection, and the message is built from what that person submitted.
+ *
+ * AI_EMPLOYEE HOLDS NOTHING HERE, and that denial is the load-bearing one in this table. An AI
+ * Employee is an assignable identity, not a person with a mailbox; no Permission row may give it
+ * `send`, and no model output may reach this action -- generation and transmission are separate
+ * acts with a person between them (§6.11).
+ *
+ * A role missing from this table is denied, so nothing falls back into sending.
+ */
+export const EMPLOYEE_MAIL_GRANTS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
+  OWNER: ['send'],
+  ADMIN: ['send'],
+  MANAGER: ['send'],
+  EMPLOYEE: ['send'],
+  READ_ONLY: ['send'],
+  AI_EMPLOYEE: [],
+});
+
 export const GOOGLE_WORKSPACE_GRANTS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
   OWNER: ['view', 'update'],
   ADMIN: ['view', 'update'],
@@ -223,6 +258,15 @@ export const EMPLOYEE_INTELLIGENCE_GRANTS: Readonly<Record<string, readonly Acti
 
 /** Roles that may never hold employee work state, whatever a Permission row says. */
 const EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
+
+/**
+ * Roles that may never send mail, whatever a Permission row says (GM-2).
+ *
+ * An AI Employee is an assignable identity, not a person with a mailbox. This denial is what
+ * makes "no model output may send an email" structural rather than procedural: even an explicit
+ * ALLOW row cannot give a machine principal `employeeMail:send`.
+ */
+const EMPLOYEE_MAIL_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
 /** Roles that may never hold identity-resolution authority, whatever a Permission row says. */
 const IDENTITY_RESOLUTION_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
@@ -287,6 +331,9 @@ export function matrixAllows(role: string, resource: Resource, action: Action): 
   }
   if (resource === 'employeeIntelligence') {
     return (EMPLOYEE_INTELLIGENCE_GRANTS[role] ?? []).includes(action);
+  }
+  if (resource === 'employeeMail') {
+    return (EMPLOYEE_MAIL_GRANTS[role] ?? []).includes(action);
   }
   // PD-F-04 grants Relationship view to every authorized HUMAN workspace role, and
   // the recorded reading denies AI_EMPLOYEE because it is not one. Without this it
@@ -402,6 +449,8 @@ export class IamRepository {
     if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
     // Nor work state derived from one.
     if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;
+    // Nor sends mail as a person.
+    if (resource === 'employeeMail' && EMPLOYEE_MAIL_FORBIDDEN_ROLES.includes(role)) return false;
 
     // Check explicit DENY rules first (deny wins)
     const denyRules = await this.prisma.permission.findMany({
@@ -459,6 +508,7 @@ export class IamRepository {
       if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;
+      if (resource === 'employeeMail' && EMPLOYEE_MAIL_FORBIDDEN_ROLES.includes(role)) return false;
       const applicable = rules.filter((r) => r.resource === resource && r.action === action);
       if (applicable.some((r) => r.userId === userId && r.effect === 'DENY')) return false;
       if (applicable.some((r) => r.systemRole === role && r.effect === 'DENY')) return false;

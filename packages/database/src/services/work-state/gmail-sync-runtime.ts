@@ -14,13 +14,14 @@
 
 import {
   googleAddressHash,
+  lookupGoogleGmailSent,
   readGoogleGmailChanges,
   readGoogleGmailThread,
   readGoogleGmailWindow,
   sendGoogleGmailMessage,
   type GmailCallOptions,
 } from '@emgloop/providers';
-import type { GmailSendResult, GmailThreadResult } from '@emgloop/shared';
+import { gmailFailureForConnectionState, type GmailSendOutcome, type GmailSentLookup, type GmailThreadResult } from '@emgloop/shared';
 
 import type { PrismaClient } from '@prisma/client';
 import type { WorkPrincipal } from '../../repositories/work-state/work-principal';
@@ -74,7 +75,6 @@ export async function readEmployeeGmailThread(
   const access = gmailAccessPort(config);
   const token = await access.accessToken(principal);
   if (!token.ok) {
-    const { gmailFailureForConnectionState } = await import('@emgloop/shared');
     return { ok: false, failure: gmailFailureForConnectionState(token.state) };
   }
   const identity = await access.identity(principal);
@@ -98,12 +98,12 @@ export async function sendEmployeeGmailMessage(
   config: EmployeeGmailConfig,
   principal: WorkPrincipal,
   message: { readonly rawMessage: string; readonly threadId: string | null },
-): Promise<GmailSendResult> {
+): Promise<GmailSendOutcome> {
   const access = gmailAccessPort(config);
   const token = await access.accessToken(principal);
   if (!token.ok) {
-    const { gmailFailureForConnectionState } = await import('@emgloop/shared');
-    return { ok: false, failure: gmailFailureForConnectionState(token.state) };
+    // No token, no request: this is known not to have been sent.
+    return { delivery: 'NOT_SENT', failure: gmailFailureForConnectionState(token.state) };
   }
   return sendGoogleGmailMessage({
     fetchImpl: config.fetchImpl ?? googleFetch,
@@ -116,4 +116,27 @@ export async function sendEmployeeGmailMessage(
 /** The connected account's own address, which a composer needs to write `From`. */
 export async function employeeGmailIdentity(config: EmployeeGmailConfig, principal: WorkPrincipal): Promise<{ readonly selfAddress: string | null }> {
   return gmailAccessPort(config).identity(principal);
+}
+
+/**
+ * The employee's own Sent mail around one send attempt, for reconciliation. READ-ONLY toward
+ * Gmail and never stored: it answers "did that reply leave?", under the same principal's own token.
+ */
+export async function lookupEmployeeGmailSent(
+  config: EmployeeGmailConfig,
+  principal: WorkPrincipal,
+  query: { readonly from: Date; readonly to: Date; readonly settled: boolean },
+): Promise<GmailSentLookup> {
+  const access = gmailAccessPort(config);
+  const token = await access.accessToken(principal);
+  if (!token.ok) {
+    return { ok: false, failure: gmailFailureForConnectionState(token.state) };
+  }
+  const identity = await access.identity(principal);
+  return lookupGoogleGmailSent({
+    fetchImpl: config.fetchImpl ?? googleFetch,
+    accessToken: token.accessToken,
+    selfAddress: identity.selfAddress,
+    ...query,
+  });
 }

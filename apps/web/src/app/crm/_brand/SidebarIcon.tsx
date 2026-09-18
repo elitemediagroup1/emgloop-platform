@@ -41,6 +41,12 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M16 6.5a3 3 0 0 1 0 5.8M17 20a5.5 5.5 0 0 0-1.5-3.7" />
     </>
   ),
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3.5 7 8.5 6 8.5-6" />
+    </>
+  ),
   chat: (
     <path d="M21 12a8 8 0 0 1-11.5 7.2L4 21l1.8-5.5A8 8 0 1 1 21 12Z" />
   ),

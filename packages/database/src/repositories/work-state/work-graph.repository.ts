@@ -54,6 +54,8 @@ export interface MessageFacts {
   readonly subject?: string | null;
   readonly headerMessageId?: string | null;
   readonly inReplyTo?: string | null;
+  /** The RFC 5322 `References` chain, in order, so a reply can be threaded without Gmail. */
+  readonly references?: readonly string[];
   readonly labels?: readonly string[];
   readonly observedAt: Date;
 }
@@ -232,6 +234,7 @@ export class WorkGraphRepository {
       subject: facts.subject ?? null,
       headerMessageId: facts.headerMessageId ?? null,
       inReplyTo: facts.inReplyTo ?? null,
+      references: [...(facts.references ?? [])],
       labels: [...(facts.labels ?? [])],
       observedAt: facts.observedAt,
     };

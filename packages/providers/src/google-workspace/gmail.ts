@@ -32,7 +32,9 @@ import {
   type GmailMessageFact,
   type GmailReadFailure,
   type GmailReadResult,
-  type GmailSendResult,
+  type GmailSendOutcome,
+  type GmailSentCandidate,
+  type GmailSentLookup,
   type GmailThreadMessage,
   type GmailThreadResult,
 } from '@emgloop/shared';
@@ -419,45 +421,204 @@ export async function readGoogleGmailThread(request: GmailCallOptions & { readon
 // --- Send ---------------------------------------------------------------------------------------
 
 /**
- * Send one already-composed message, as the connected person.
+ * Errors that mean THE REQUEST NEVER LEFT: no address, no route, no connection, no TLS session.
+ * Nothing reached Gmail, so nothing can have been sent. Every other thrown error -- a reset, a
+ * socket that closed mid-response, our own timeout -- may have happened after the request was
+ * transmitted, and is therefore UNKNOWN rather than a failure.
+ */
+const NEVER_TRANSMITTED = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EAI_NONAME',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'ERR_INVALID_URL',
+  'CERT_HAS_EXPIRED',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
+function errorCode(error: unknown): string | null {
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  const code = e?.cause?.code ?? e?.code;
+  return typeof code === 'string' ? code : null;
+}
+
+/**
+ * Send one already-composed message, as the connected person, and say WHAT IS KNOWN about it.
  *
  * IT COMPOSES NOTHING. The raw RFC 5322 message is built and checked elsewhere (@emgloop/shared
  * `buildGmailReply`) so that what is sent can be tested without a network, and so that this
- * function cannot quietly decide a recipient. `threadId` is passed as Gmail's reference
- * documents: with matching `References`/`In-Reply-To` and Subject it is what places a reply in
- * the conversation rather than beside it.
+ * function cannot quietly decide a recipient. `threadId` is passed as Gmail's reference documents.
+ *
+ * THREE ANSWERS, NOT TWO. Gmail's `messages.send` has no idempotency key, so the difference
+ * between "Gmail refused this" and "Loop does not know what Gmail did" is the difference between
+ * a safe retry and a duplicate in somebody's inbox:
+ *
+ *   200 with the created message   SENT
+ *   a 4xx                          NOT_SENT -- Gmail answered, and refused it
+ *   no connection could be made    NOT_SENT -- the request never left
+ *   a timeout, a dropped
+ *   connection, a 5xx, or a 200
+ *   Loop cannot read               UNKNOWN  -- reconciled against Sent mail, never retried
  */
 export async function sendGoogleGmailMessage(request: GmailCallOptions & {
   readonly rawMessage: string;
   readonly threadId: string | null;
-}): Promise<GmailSendResult> {
+}): Promise<GmailSendOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.timeoutMs ?? GOOGLE_OAUTH_TIMEOUT_MS);
+  let response: { status: number; json(): Promise<unknown> };
   try {
     const body: Record<string, unknown> = { raw: request.rawMessage };
     if (request.threadId) body.threadId = request.threadId;
-    const response = await request.fetchImpl(`${GOOGLE_GMAIL_ENDPOINT}/messages/send`, {
+    response = await request.fetchImpl(`${GOOGLE_GMAIL_ENDPOINT}/messages/send`, {
       method: 'POST',
       headers: { authorization: `Bearer ${request.accessToken}`, 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    let payload: unknown = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    if (response.status !== 200) {
-      const failure = failureForStatus(response.status, payload);
-      return { ok: false, failure: failure === 'CURSOR_EXPIRED' ? 'UNAVAILABLE' : failure };
-    }
-    const sent = (payload ?? {}) as Record<string, unknown>;
-    if (typeof sent.id !== 'string' || typeof sent.threadId !== 'string') return { ok: false, failure: 'MALFORMED' };
-    return { ok: true, messageId: sent.id, threadId: sent.threadId };
   } catch (error) {
-    return { ok: false, failure: (error as { name?: string } | null)?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK' };
+    clearTimeout(timer);
+    const code = errorCode(error);
+    if (code && NEVER_TRANSMITTED.has(code)) return { delivery: 'NOT_SENT', failure: 'NETWORK' };
+    // Our own deadline fires whatever phase the request is in, so a timeout is never proof.
+    return { delivery: 'UNKNOWN', reason: (error as { name?: string } | null)?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK' };
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
   } finally {
     clearTimeout(timer);
   }
+
+  if (response.status === 200) {
+    const sent = (payload ?? {}) as Record<string, unknown>;
+    // Gmail said it accepted the message and did not say what it created. It may well be in Sent
+    // right now -- which is exactly why this is UNKNOWN and not a failure to retry.
+    if (typeof sent.id !== 'string' || typeof sent.threadId !== 'string') return { delivery: 'UNKNOWN', reason: 'MALFORMED' };
+    return { delivery: 'SENT', messageId: sent.id, threadId: sent.threadId };
+  }
+  if (response.status >= 400 && response.status < 500) {
+    const failure = failureForStatus(response.status, payload);
+    // A 404 on send is Gmail refusing the request, not a history position.
+    return { delivery: 'NOT_SENT', failure: failure === 'CURSOR_EXPIRED' || failure === 'UNAVAILABLE' ? 'REJECTED' : failure };
+  }
+  // 5xx (or anything else): Gmail may have done the work before failing to say so.
+  return { delivery: 'UNKNOWN', reason: 'UNAVAILABLE' };
+}
+
+// --- Reconciliation: the employee's own Sent mail around one attempt ---------------------------
+
+/** How many Sent messages one look may list, and how many list pages it may follow. */
+export const GOOGLE_GMAIL_RECONCILE_RECENT = 25;
+export const GOOGLE_GMAIL_RECONCILE_MAX_PAGES = 3;
+
+const RECONCILE_HEADERS = ['From', 'To', 'Cc', 'Subject'] as const;
+
+async function listSent(
+  options: GmailCallOptions,
+  query: string | null,
+  maxPages: number,
+): Promise<{ readonly ok: true; readonly ids: string[]; readonly exhausted: boolean } | { readonly ok: false; readonly failure: GmailReadFailure }> {
+  const ids: string[] = [];
+  let pageToken: string | null = null;
+  for (let page = 0; page < maxPages; page += 1) {
+    const params = new URLSearchParams({ labelIds: 'SENT', includeSpamTrash: 'true', maxResults: String(GOOGLE_GMAIL_RECONCILE_RECENT) });
+    if (query) params.set('q', query);
+    if (pageToken) params.set('pageToken', pageToken);
+    const answer = await get(options, '/messages', params);
+    if (!answer.ok) return { ok: false, failure: answer.failure === 'CURSOR_EXPIRED' ? 'UNAVAILABLE' : answer.failure };
+    const list = Array.isArray(answer.payload.messages) ? (answer.payload.messages as Record<string, unknown>[]) : [];
+    for (const entry of list) if (typeof entry.id === 'string') ids.push(entry.id);
+    pageToken = typeof answer.payload.nextPageToken === 'string' ? answer.payload.nextPageToken : null;
+    if (!pageToken) return { ok: true, ids, exhausted: true };
+    // A recent-first look answers "is it among the newest few", never "is it anywhere".
+    if (query === null) return { ok: true, ids, exhausted: false };
+  }
+  return { ok: true, ids, exhausted: false };
+}
+
+/**
+ * What the employee's own Sent mail shows around one send attempt. READ ONLY, NOT STORED.
+ *
+ * TWO LOOKS, FOR TWO DIFFERENT QUESTIONS:
+ *
+ *   RECENT  the newest Sent messages, listed by the SENT label with NO search query, so it does
+ *           not wait for Gmail's search index. It can find a just-sent reply seconds later, which
+ *           is the common case. It never claims completeness: it is ordered by recency, and
+ *           "not among the newest" is not "not there".
+ *   WINDOW  once the attempt has settled, Sent mail bounded by `after:`/`before:` in epoch seconds
+ *           (documented by Gmail's filtering guide). This one CAN be complete -- every page read --
+ *           and it is the only thing that can prove a reply was never sent.
+ *
+ * Words are read (`format=full`) only for messages inside the attempt's window, to compare them
+ * with the attempt's fingerprint. They are handed back and forgotten.
+ */
+export async function lookupGoogleGmailSent(request: GmailCallOptions & {
+  readonly from: Date;
+  readonly to: Date;
+  /** True once the attempt is old enough for the WINDOW look to be meaningful. */
+  readonly settled: boolean;
+}): Promise<GmailSentLookup> {
+  const recent = await listSent(request, null, 1);
+  if (!recent.ok) return { ok: false, failure: recent.failure };
+
+  let windowComplete = false;
+  const ids = new Set(recent.ids);
+  if (request.settled) {
+    const after = Math.floor(request.from.getTime() / 1000);
+    const before = Math.ceil(request.to.getTime() / 1000);
+    const windowed = await listSent(request, `after:${after} before:${before}`, GOOGLE_GMAIL_RECONCILE_MAX_PAGES);
+    if (!windowed.ok) return { ok: false, failure: windowed.failure };
+    windowComplete = windowed.exhausted;
+    for (const id of windowed.ids) ids.add(id);
+  }
+
+  const self = request.selfAddress ? request.selfAddress.trim().toLowerCase() : null;
+  const candidates: GmailSentCandidate[] = [];
+  // A listed message Loop could not read -- it vanished between the list and the read, or its
+  // metadata would not parse -- might be the very reply in question. The look carries on, because
+  // what it CAN read may still prove the reply was sent; but it is no longer complete, so it can
+  // never prove the reply was not.
+  let holes = false;
+  for (const id of ids) {
+    const params = new URLSearchParams({ format: 'metadata' });
+    for (const header of RECONCILE_HEADERS) params.append('metadataHeaders', header);
+    const meta = await get(request, `/messages/${encodeURIComponent(id)}`, params);
+    if (!meta.ok) {
+      if (meta.failure === 'CURSOR_EXPIRED') {
+        holes = true;
+        continue;
+      }
+      return { ok: false, failure: meta.failure };
+    }
+    const fact = gmailMessageFact(meta.payload, self);
+    if (!fact) {
+      holes = true;
+      continue;
+    }
+    const recipients = [...fact.to, ...fact.cc].map((a) => a.address);
+    let text: string | null = null;
+    if (fact.internalDate >= request.from && fact.internalDate <= request.to) {
+      const full = await get(request, `/messages/${encodeURIComponent(id)}`, new URLSearchParams({ format: 'full' }));
+      if (!full.ok) {
+        if (full.failure === 'CURSOR_EXPIRED') {
+          holes = true;
+          continue;
+        }
+        return { ok: false, failure: full.failure };
+      }
+      text = gmailMessageBody(id, (full.payload.payload ?? {}) as Record<string, unknown>).text;
+    }
+    candidates.push({ messageId: fact.messageId, threadId: fact.threadId, internalDate: fact.internalDate, subject: fact.subject, recipients, text });
+  }
+  return { ok: true, candidates, complete: request.settled && windowComplete && !holes };
 }

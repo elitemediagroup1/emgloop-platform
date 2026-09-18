@@ -116,7 +116,17 @@ describe('the browser cannot reach a Google secret', () => {
     // And this app still reaches it through its one server-only edge: nothing else in the web
     // source calls the shared reader directly.
     const callers = files.filter((f) => f.startsWith(SRC) && /readGoogleEnvironment(From)?\(/.test(code(readFileSync(f, 'utf8'))));
-    assert.deepEqual(callers.map((f) => relative(REPO, f)).sort(), [relative(REPO, ENV_MODULE), relative(REPO, RUNTIME), relative(REPO, join(SRC, 'daily-loop', 'calendar-runtime.ts'))].sort());
+    assert.deepEqual(
+      callers.map((f) => relative(REPO, f)).sort(),
+      [
+        relative(REPO, ENV_MODULE),
+        relative(REPO, RUNTIME),
+        relative(REPO, join(SRC, 'daily-loop', 'calendar-runtime.ts')),
+        relative(REPO, join(SRC, 'daily-loop', 'mail.ts')),
+        relative(REPO, join(SRC, 'daily-loop', 'mail-send-runtime.ts')),
+        relative(REPO, join(SRC, 'daily-loop', 'mail-runtime.ts')),
+      ].sort(),
+    );
     const offenders = files.filter((f) => /NEXT_PUBLIC_[A-Z_]*GOOGLE/.test(readFileSync(f, 'utf8')));
     assert.deepEqual(offenders, []);
   });

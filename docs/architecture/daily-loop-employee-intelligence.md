@@ -680,6 +680,142 @@ expire, which matters most for the employee nobody noticed was away.
 current work period; the thread graph builds forward from there, and a bounded first read that
 finishes is worth more than a complete one that truncates.
 
+### 6.11 Sending, and the boundary that makes it safe (GM-2, 2026-09-18)
+
+**Sending is its own authority.** `employeeMail:send` is a resource with exactly one action. It
+does not ride on `googleWorkspace:update` (connecting an account) or `employeeIntelligence:update`
+(one's own work state), because sending is the first act in this platform that leaves the building
+under somebody's name. There is no `manage` and no `approve`: an administrator sending as an
+employee is not a capability this platform has, and a delegated mailbox would be a reviewed
+architecture rather than a grant. **AI_EMPLOYEE is denied it by the matrix AND by a hard rule an
+explicit ALLOW row cannot override.**
+
+**Generation and transmission are separate acts, structurally.**
+
+1. A person asks, holding `employeeMail:send`, from a signed session.
+2. The send action takes a **draft id** -- never a body, a recipient or a model's output.
+3. The message is built from the **stored draft row**, so what leaves is what the employee last
+   saw and saved.
+4. The draft is **claimed** before Gmail is called, with the attempt's identity written in the
+   same conditional update, so a double-click, a retry and two tabs resolve to one message -- and an
+   attempt whose answer was lost is reconciled, never retried (§6.11a).
+5. The From address is the connected account's own. There is no parameter for sending as anybody
+   else.
+
+A reply Loop proposed is a stored draft like any other. Nothing about it is special at send time,
+which is the point: there is no "AI send" path to secure, because there is no second path at all.
+
+**Threading is Google's documented contract, all three parts** (verified 2026-09-18): the
+`threadId` on the message, RFC 2822 `References` / `In-Reply-To`, and a matching `Subject`. The
+headers come from the stored message being replied to (`work_messages` keeps `Message-ID`,
+`In-Reply-To` and `References`), so a reply is threaded without asking Gmail for the conversation
+again.
+
+**Drafts are Loop-local, and that is a decision, not an omission.** Creating a Gmail draft needs
+`gmail.compose`, a RESTRICTED scope covering drafts *and* sending; Loop asks for `gmail.send`,
+which is sensitive and can only send. A Loop-local draft also cannot be duplicated in somebody's
+Gmail by a retry. The body is **cleared on a successful send** -- from then on the message lives in
+Gmail and returns as an ordinary SENT message on the next sync -- so `work_drafts` never becomes an
+archive of outgoing mail.
+
+### 6.11a Once: the send state machine and reconciliation (GM-2, 2026-09-18)
+
+**The invariant.** A DEFINITIVE failure may be retried. An AMBIGUOUS outcome may not be retried
+until Loop can establish whether the original message was sent.
+
+**Why a lock is not enough.** Gmail's `messages.send` has no idempotency key -- its reference
+lists no parameter for one (verified 2026-09-18). A claim stops two clicks; it does nothing about
+the attempt whose *answer* was lost: a timeout, a dropped connection, a 5xx, a 200 Loop could not
+read, or a process that stopped after Gmail accepted the message and before Loop wrote that down.
+Any of those may already be in the recipient's inbox. GM-2 as first written let a claim expire back
+to sendable after two minutes and released it on every failure, ambiguous or not; both made an
+accepted message sendable again.
+
+**The states** (`work_drafts.sendState`, mirrored by `work_drafts_send_state_check`):
+
+| From | To | When | Writer |
+|---|---|---|---|
+| `DRAFT` | `SENDING` | A person presses Send. Attempt id, start and SHA-256 body fingerprint are written **in the same conditional update, before Gmail is called** | `claimForSend` |
+| `SENDING` | `SENT` | Gmail answered 200 with its message id | `recordSent` |
+| `SENDING` | `DRAFT` | **Definitive** failure: nothing left | `recordNotSent` |
+| `SENDING` | `SEND_UNKNOWN` | **Ambiguous** answer, or the attempt has been `SENDING` longer than any request can live (90 s; the crash path) | `recordUnknown`, `markStaleAttemptUnknown` |
+| `SEND_UNKNOWN` | `SENT` | Reconciliation found it in Sent mail (`sendResolution = RECONCILED_SENT`) | `recordSent` |
+| `SEND_UNKNOWN` | `DRAFT` | Reconciliation proved it absent (`RECONCILED_NOT_SENT`), or the employee released it explicitly (`RELEASED_BY_EMPLOYEE`) | `releaseUnknown` |
+
+Every transition is a conditional `updateMany` on (principal, state, attempt id), so a late answer
+for an old attempt settles nothing. **There is no time-based path back to `DRAFT`.** While
+`SENDING` or `SEND_UNKNOWN` the draft is frozen: `save` and `discard` refuse it, because its words
+are the evidence of what may be in somebody's inbox. The database enforces the shapes
+(`work_drafts_attempt_check`, `work_drafts_sent_check`): an attempt in flight or in doubt carries
+its id, start and a 64-hex fingerprint, a `DRAFT` carries no attempt, a `SENT` row carries Gmail's
+id and no body.
+
+**Definitive versus ambiguous** (`sendGoogleGmailMessage`):
+
+| Outcome | Classified as | Why |
+|---|---|---|
+| 200 with `id` and `threadId` | `SENT` | Gmail's own proof |
+| 4xx (400, 401, 403, 404, 413, 429 ...) | `NOT_SENT` | Gmail answered and refused |
+| `ECONNREFUSED`, `ENOTFOUND`, `EAI_AGAIN`, `ENETUNREACH`, `EHOSTUNREACH`, `UND_ERR_CONNECT_TIMEOUT`, TLS certificate errors | `NOT_SENT` | No connection was made, so no request was transmitted |
+| No access token | `NOT_SENT` | Gmail was never called |
+| Loop's own deadline (`AbortError`) | `UNKNOWN` | It fires in whatever phase the request is in |
+| `ECONNRESET`, `EPIPE`, `UND_ERR_SOCKET`, any other thrown error | `UNKNOWN` | The request may have been transmitted |
+| 5xx | `UNKNOWN` | Gmail may have done the work before failing to say so |
+| 200 without `id`/`threadId`, or an unreadable body | `UNKNOWN` | Gmail said yes and not what |
+
+**Reconciliation** (`reconcileGmailSend`, pure; `lookupGoogleGmailSent`, the read). It uses only
+`gmail.readonly`, which GM-1 already holds, and reads the employee's own Sent mail:
+
+* **Recent look:** `messages.list` with `labelIds=SENT`, `includeSpamTrash=true`, no `q`. This does
+  not depend on Gmail's search index, so it finds a just-sent reply seconds later. It never claims
+  completeness.
+* **Window look:** once the attempt has settled (10 minutes), `q=after:<s> before:<s>` in epoch
+  seconds over the attempt window (start - 2 min to start + 10 min), every page read (at most 3).
+  This is the only look that can be complete. A listed message Loop could not read makes it
+  incomplete.
+* Words (`format=full`) are fetched only for messages inside the window, compared, and discarded.
+  Nothing from the lookup is stored.
+
+A candidate *could be* the attempt if it is on the same thread, or has the same normalized subject
+and shares a recipient. The verdict is asymmetric:
+
+* **SENT** needs positive proof: a candidate that could be the attempt, in the window, whose
+  normalized text (CRLF to LF, trailing whitespace stripped) has the attempt's SHA-256. The
+  message is plain text Loop built itself, so Gmail's `text/plain` part is those words.
+* **NOT_SENT** needs proof of absence: settled, a complete window look, and no candidate that could
+  be the attempt.
+* **UNKNOWN** is everything else, including a candidate that could be the attempt but whose words
+  do not match. That could be the employee replying from Gmail at the same moment. Loop does not
+  guess.
+
+**What it deliberately does not rely on.** A Loop-generated RFC `Message-ID` searched with
+`rfc822msgid:` would be the obvious key, but the Gmail API does not honour a client-supplied
+`Message-ID` on send. It generates its own (reported by large API senders; nothing in Google's
+documentation says otherwise). Whether a custom `X-` header survives is undocumented. Neither is
+used, because a proof that depends on undocumented behaviour is not a proof.
+
+**When it runs.** Straight after an ambiguous answer (one look). Whenever the employee opens the
+conversation, at most every 15 seconds per attempt; this is also how a crashed attempt is found.
+And on "Check Gmail again". It never sends.
+
+**The explicit resolution.** If Gmail cannot settle it (the look failed, it could not be completed,
+or an unmatched lookalike exists), the reply stays `SEND_UNKNOWN`. Two minutes after the attempt
+started, the employee may say "I checked Sent -- it was not sent". Loop reconciles once more first,
+so a reply that did go out is marked `SENT` and not released. Otherwise the draft returns to
+`DRAFT` with `RELEASED_BY_EMPLOYEE` on record. It is not sent; Send becomes available again.
+
+**Residual limits, stated.** A reply that Gmail accepted and the employee then *permanently*
+deleted from Sent within the window cannot be found, and after settling Loop would report it
+undelivered. `includeSpamTrash` covers Trash, but nothing covers a permanent delete.
+
+### 6.12 Mail is rendered as text, and only as text (GM-2)
+
+An email body is attacker-controlled markup. Loop renders none of it: a `text/plain` part is shown
+as text, and a message that carried only HTML is reduced to text on the server and still rendered
+as text. There is no iframe, no sanitizer to get wrong, no remote image -- and therefore no
+tracking pixel, which is a privacy property as much as a security one. Attachments are named, typed
+and sized; Loop does not fetch them, and offers no download.
+
 ## 8. Calendar model
 
 ### 8.1 The grant is already sufficient for V1

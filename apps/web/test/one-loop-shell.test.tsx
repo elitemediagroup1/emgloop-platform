@@ -151,8 +151,15 @@ describe('Grouping', () => {
     assert.deepEqual(LOOP_NAV.nav.map((g) => g.area).filter(Boolean), [...config.OPERATING_AREAS]);
     // Home, and the person's own connections (their Google account), shown only to a
     // role that holds one.
-    assert.deepEqual(LOOP_NAV.nav[0]!.items.map((i) => [i.label, i.href]), [['Home', '/app'], ['Connections', '/app/connections']]);
-    assert.deepEqual(LOOP_NAV.nav[0]!.items[1]!.requires, { resource: 'googleWorkspace', action: 'view' });
+    assert.deepEqual(LOOP_NAV.nav[0]!.items.map((i) => [i.label, i.href]), [
+      ['Home', '/app'],
+      ['Mail', '/app/mail'],
+      ['Connections', '/app/connections'],
+    ]);
+    // Both personal entries state the authority their own page enforces: a person's own work
+    // state, and a person's own Google connection. Neither is an administrative surface.
+    assert.deepEqual(LOOP_NAV.nav[0]!.items[1]!.requires, { resource: 'employeeIntelligence', action: 'view' });
+    assert.deepEqual(LOOP_NAV.nav[0]!.items[2]!.requires, { resource: 'googleWorkspace', action: 'view' });
     // Operations: live execution and health (C-03) and creator administration (C-02).
     assert.deepEqual(LOOP_NAV.nav[4]!.items.map((i) => [i.label, i.href]), [
       ['Live Operations', '/crm/live/activity'], ['Live Calls', '/crm/live/calls'], ['Websites', '/crm/live/websites'],
@@ -286,7 +293,7 @@ describe('Navigation follows the authority each page enforces', () => {
     // grants view to human workspace roles and it is not one. Those two denials are
     // the whole reason these roles are asserted separately rather than in one loop.
     assert.deepEqual(labels(navForRole('EMPLOYEE')), [
-      ['', ['Home', 'Connections']],
+      ['', ['Home', 'Mail', 'Connections']],
       ['CRM', crm],
       ['Work', ['My Work', 'Workflows (soon)']],
       ['Intelligence', intelligence],
@@ -294,6 +301,8 @@ describe('Navigation follows the authority each page enforces', () => {
       ['Administration', ['AI Employees']],
     ]);
     assert.deepEqual(labels(navForRole('AI_EMPLOYEE')), [
+      // No Mail and no Connections: an AI Employee holds neither a Google connection nor the
+      // work state derived from one, and no Permission row can give it either.
       ['', ['Home']],
       ['CRM', crm.filter((l) => !['People', 'Relationships', 'Identity Review'].includes(l))],
       ['Work', ['My Work', 'Workflows (soon)']],
@@ -311,7 +320,7 @@ describe('Navigation follows the authority each page enforces', () => {
     const operations = ['Live Operations', 'Live Calls', 'Websites'];
     const expected = [
       // A read-only member still connects their OWN Google account (googleWorkspace).
-      ['', ['Home', 'Connections']],
+      ['', ['Home', 'Mail', 'Connections']],
       // READ_ONLY holds identityResolution:view and relationships:view, and may
       // perform no act through either -- capabilities decide that, not the nav.
       ['CRM', ['People', 'Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations']],
