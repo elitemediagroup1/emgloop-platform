@@ -110,8 +110,11 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
   },
   {
     metricKey: 'profit',
-    displayName: 'Profit',
-    description: 'Revenue less vendor payout and call cost for the selected period.',
+    // NET profit: telco cost IS subtracted, which is CallGrid's "Net Profit". CallGrid's
+    // own "Profit" is revenue less payout only, so labelling this "Profit" put a smaller
+    // number beside CallGrid's larger one under the same name.
+    displayName: 'Net profit',
+    description: 'Revenue less vendor payout and call cost for the selected period (CallGrid "Net Profit"; CallGrid "Profit" does not subtract cost).',
     classification: 'DERIVED',
     providerSource: CALL_SOURCE,
     providerFields: ['revenueCents', 'payoutCents', 'costCents'],
@@ -198,8 +201,8 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
   },
   {
     metricKey: 'profitPerBillableCall',
-    displayName: 'Profit per Billable Call',
-    description: 'Average profit per billable call — the margin side of performance.',
+    displayName: 'Net Profit per Billable Call',
+    description: 'Average net profit (after payout and call cost) per billable call — the margin side of performance.',
     classification: 'DERIVED',
     providerSource: CALL_SOURCE,
     providerFields: ['revenueCents', 'payoutCents', 'costCents', 'monetized'],

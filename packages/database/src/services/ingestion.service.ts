@@ -50,18 +50,14 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { NormalizedEvent, LoopEventType } from '@emgloop/shared';
 import type { InboundEvent } from '@emgloop/providers';
-import {
-  CALLGRID_FACT_KINDS,
-  convergeFact,
-  withObservation,
-  type ObservationSource,
-} from '@emgloop/shared';
+import { withObservation, type ObservationSource } from '@emgloop/shared';
 import {
   ProviderFactRevisionRepository,
   renderFactValue,
 } from '../repositories/provider-fact-revision.repository';
 import { NormalizationEngine } from '../repositories/normalization.repository';
-import { MarketplaceCallRepository } from '../repositories/marketplace-call.repository';
+import { MarketplaceCallRepository, isUniqueViolation } from '../repositories/marketplace-call.repository';
+import { projectCallObservation } from '../repositories/marketplace-call-projection';
 import { WorkflowsRepository } from '../repositories/workflows.repository';
 import { deriveSignals } from './signal-registry';
 import { NextBestActionService } from './next-best-action.service';
@@ -95,8 +91,10 @@ export interface IngestResult {
   nextBestActions: string[];
   error?: string;
   /**
-   * Canonical facts this observation MOVED, by name. Empty for a first ingestion
-   * -- there is nothing to strengthen about a call being created.
+   * Canonical facts this observation MOVED, by name. Empty when this delivery
+   * created the call -- there is nothing to strengthen about a call being
+   * created -- and filled when it merged into a call another delivery of the same
+   * CallId had already stored.
    */
   strengthenedFacts: string[];
   /**
@@ -138,19 +136,46 @@ export interface IngestInput {
 }
 
 /**
- * Whether an already-stored delivery short-circuits as a duplicate.
+ * How long a delivery that is RECEIVED or PROCESSING is presumed to be in flight in
+ * another request. A first ingestion is a few dozen queries -- well under a second
+ * -- so five minutes is far past any live request and still short enough that a
+ * crashed one is taken over by the next observation of the same call (a
+ * reconciliation poll, for instance).
+ */
+export const INGESTION_IN_FLIGHT_LEASE_MS = 5 * 60_000;
+
+/**
+ * Whether an already-stored delivery is only OBSERVED again -- its call converged
+ * with this delivery's facts -- rather than processed.
  *
- * ONE RULE, TWO READERS. `ingestOne` applies it to decide whether to re-observe
- * or reprocess; a caller that wants to say what a batch WOULD do without writing
- * anything applies the identical predicate to the identical column. Writing
+ * ONE RULE, TWO READERS. `ingestOne` applies it to decide whether to observe or
+ * process; a caller that wants to say what a batch WOULD do without writing
+ * anything applies the identical predicate to the identical columns. Writing
  * `status === 'PROCESSED'` a second time somewhere else is how a dry run starts
  * disagreeing with the run it is supposed to describe.
  *
- * RECEIVED and FAILED are deliberately NOT duplicates: those rows are retryable
- * and re-delivering one reprocesses it.
+ * TWO CASES ARE OBSERVATIONS:
+ *   * PROCESSED -- the call is fully ingested;
+ *   * RECEIVED or PROCESSING, seen within the lease -- ANOTHER REQUEST IS
+ *     INGESTING THIS VERY CALL RIGHT NOW. CallGrid fires Ended, Billable and
+ *     Payable together, so this is the ordinary case, not an edge. Processing it
+ *     a second time used to re-run normalization beside the first (duplicate
+ *     Interactions), overwrite the delivery's payload, rebuild the call from the
+ *     first delivery's copy, and skip convergence -- so Billable's revenue and
+ *     Payable's payout were silently lost with an HTTP 200.
+ *
+ * FAILED, IGNORED, and a RECEIVED/PROCESSING row older than the lease (a crashed
+ * request) are NOT observations: they are taken over and processed, by exactly one
+ * request (see `ingestOne`).
  */
-export function isDuplicateObservation(status: string): boolean {
-  return status === 'PROCESSED';
+export function isDuplicateObservation(
+  status: string,
+  lastObservedAt: Date | null = null,
+  now: Date = new Date(),
+): boolean {
+  if (status === 'PROCESSED') return true;
+  const inFlight = status === 'RECEIVED' || status === 'PROCESSING';
+  return inFlight && lastObservedAt !== null && now.getTime() - lastObservedAt.getTime() < INGESTION_IN_FLIGHT_LEASE_MS;
 }
 
 export class IngestionService {
@@ -177,17 +202,24 @@ export class IngestionService {
   }
 
   /**
-   * Let a later observation strengthen the canonical call, and never weaken it.
+   * Bring the canonical call up to date with THIS delivery's own facts.
    *
-   * THE DECISION IS NOT MADE HERE. `convergeFact` in @emgloop/shared decides,
-   * purely, one fact at a time, from a classification backed by provider
-   * evidence. This method reads what is stored, hands each pair to the rule, and
-   * persists only what the rule approved. There is no field-specific branching
-   * in this file and there must never be: the moment "revenue is special" is
-   * written in two places, the two will disagree about a postback.
+   * EVERY DELIVERY DOES THIS, whichever path it takes: the first delivery of a call
+   * creates the row, and every other one -- a duplicate, one that arrived while
+   * the first was still being ingested, a poll, a recovery -- merges into it. That
+   * is what makes the order in which CallGrid's near-simultaneous webhooks arrive
+   * irrelevant: the stored call converges to the strongest facts any of them
+   * stated.
    *
-   * A CONFLICT WRITES NOTHING TO THE CALL. Two settled amounts that disagree are
-   * a question for a person, not a race between observations. The disagreement is
+   * THE DECISION IS NOT MADE HERE. `convergeCallObservation` applies the one pure
+   * rule (`convergeFact`, kinds from `CALLGRID_FACT_KINDS`) fact by fact, and the
+   * repository writes only what it approved, atomically. There is no
+   * field-specific branching in this file and there must never be: the moment
+   * "revenue is special" is written in two places, the two will disagree about a
+   * postback.
+   *
+   * A CONFLICT WRITES NOTHING TO THE CALL. Two settled amounts that disagree are a
+   * question for a person, not a race between observations. The disagreement is
    * recorded with appliedAt NULL so the record says the canonical value did not
    * move.
    *
@@ -195,80 +227,37 @@ export class IngestionService {
    * observation into a failed ingestion: the delivery was real and is already
    * recorded. The error is reported and the run continues.
    */
-  private async convergeProviderFacts(
+  private async observeCall(
     input: IngestInput,
     ev: InboundEvent,
+    canonicalType: string,
     integrationEventId: string,
     observedAt: Date,
   ): Promise<FactConvergenceSummary> {
     const summary: FactConvergenceSummary = { strengthened: [], conflicted: [] };
     try {
-      const stored = await this.marketplaceCalls.factsFor(
-        input.organizationId,
-        input.provider,
-        ev.externalId,
-      );
-      // No projected call means there is nothing to strengthen. Building one
-      // from a re-observation would be a different operation with different
-      // risks, and it is not this one.
-      if (!stored) return summary;
+      const projection = projectCallObservation({
+        organizationId: input.organizationId,
+        provider: input.provider,
+        externalId: ev.externalId,
+        channel: channelFor(canonicalType),
+        occurredAt: ev.occurredAt,
+        // Exactly the metadata the Interaction for this delivery carries.
+        metadata: { ...ev.payload, eventType: canonicalType },
+        interactionId: null,
+      });
+      // Not a projectable call (not a phone call, or test traffic): nothing to converge.
+      if (!projection) return summary;
 
-      const incoming = ev.payload as Record<string, unknown>;
-      const approved: {
-        revenueCents?: number;
-        payoutCents?: number;
-        billable?: true;
-        paid?: true;
-        converted?: true;
-      } = {};
-
-      const money: Array<['revenue' | 'payout', 'revenueCents' | 'payoutCents']> = [
-        ['revenue', 'revenueCents'],
-        ['payout', 'payoutCents'],
-      ];
-      for (const [fact, column] of money) {
-        const raw = incoming[fact];
-        const converged = convergeFact<number>({
-          kind: CALLGRID_FACT_KINDS[fact],
-          existing: stored[column],
-          // Cents, so the comparison happens in the unit the column stores.
-          incoming: typeof raw === 'number' && Number.isFinite(raw) ? Math.round(raw * 100) : null,
-        });
-        if (converged.decision === 'UPDATE' && converged.value !== undefined) {
-          approved[column] = converged.value;
-          summary.strengthened.push(fact);
-        }
-        if (converged.decision === 'CONFLICT') summary.conflicted.push(fact);
-        await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, stored[column]);
+      const observed = await this.marketplaceCalls.observe(projection);
+      if (observed.outcome === 'FOREIGN' || observed.outcome === 'CONTENDED') {
+        // eslint-disable-next-line no-console
+        console.warn(JSON.stringify({ evt: 'marketplace_call_observation_not_applied', provider: input.provider, outcome: observed.outcome }));
       }
-
-      const flags: Array<['billable' | 'paid' | 'converted', 'billable' | 'paid' | 'converted']> = [
-        ['billable', 'billable'],
-        ['paid', 'paid'],
-        ['converted', 'converted'],
-      ];
-      for (const [fact, column] of flags) {
-        const raw = incoming[fact];
-        const converged = convergeFact<boolean>({
-          kind: CALLGRID_FACT_KINDS[fact],
-          existing: stored[column],
-          incoming: typeof raw === 'boolean' ? raw : null,
-        });
-        if (converged.decision === 'UPDATE' && converged.value === true) {
-          approved[column] = true;
-          summary.strengthened.push(fact);
-        }
+      for (const { fact, existing, converged } of observed.decisions) {
+        if (converged.decision === 'UPDATE' && observed.outcome === 'MERGED') summary.strengthened.push(fact);
         if (converged.decision === 'CONFLICT') summary.conflicted.push(fact);
-        await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, stored[column]);
-      }
-
-      if (Object.keys(approved).length > 0) {
-        await this.marketplaceCalls.strengthenFacts(
-          input.organizationId,
-          input.provider,
-          ev.externalId,
-          approved,
-        );
+        await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, existing, observed.outcome === 'MERGED');
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -292,8 +281,12 @@ export class IngestionService {
     fact: string,
     converged: { decision: string; value?: unknown; reason: string },
     existing: unknown,
+    applied: boolean,
   ): Promise<void> {
     if (converged.decision !== 'UPDATE' && converged.decision !== 'CONFLICT') return;
+    // An UPDATE that lost its race to an identical one was not applied by THIS
+    // observation, and a revision says what happened, not what was intended.
+    if (converged.decision === 'UPDATE' && !applied) return;
     await this.factRevisions.record(input.organizationId, {
       provider: input.provider,
       externalId: ev.externalId,
@@ -327,76 +320,33 @@ export class IngestionService {
       conflictedFacts: [],
     };
 
-    // 1. Idempotency: provider + externalId is unique in the schema. If we have
-    //    already PROCESSED this delivery, short-circuit as a duplicate.
-    const existing = await this.prisma.integrationEvent.findFirst({
+    // The canonical event type decides the Interaction's shape and whether this
+    // delivery is a phone call at all. Computed once, for every path below.
+    const canonicalType = (LOOP_EVENT_TYPES_SET.has(eventType)
+      ? eventType
+      : (provider === 'website' ? 'web.page_view' : 'call.inbound')) as LoopEventType;
+
+    // 1. WHO INGESTS THIS CALL, AND WHO ONLY OBSERVES IT.
+    //
+    // provider + externalId is unique in the schema, and for CallGrid the
+    // externalId is the CallId -- the SAME on every webhook for one call. CallGrid
+    // fires Ended, Billable and Payable for a call at essentially the same moment,
+    // so several requests for one call are the normal case. Exactly ONE of them
+    // runs the pipeline (Interaction, signals, domain event, workflows); every
+    // other one is an observation that converges the call with its own facts.
+    // The unique key decides the first; a conditional update decides any takeover.
+    const now = new Date();
+    let existing = await this.prisma.integrationEvent.findFirst({
       where: { provider, externalId: ev.externalId },
     });
-    if (existing && isDuplicateObservation(existing.status)) {
-      // AN OBSERVATION IS RECORDED EVEN WHEN NOTHING IS INGESTED.
-      //
-      // This branch used to return without writing anything, so asking the
-      // provider again -- and being answered -- left no trace. That is the fact
-      // a poller exists to produce, and it was being discarded.
-      //
-      // ONLY the observation is written. The payload is NOT replaced: it is the
-      // evidence that produced this row's Interaction and MarketplaceCall, and
-      // overwriting it would orphan a projection from its source. receivedAt,
-      // occurredAt, firstIngestionSource and status are all untouched. Whether a
-      // later provider answer should REPLACE an earlier fact is a merge policy,
-      // and it deliberately does not live here.
-      const observedAt = new Date();
-      await this.prisma.integrationEvent.update({
-        where: { id: existing.id },
-        data: {
-          lastObservedAt: observedAt,
-          observedSources: withObservation(existing.observedSources ?? [], input.observationSource),
-        },
-      });
+    let owned: { id: string } | null = null;
 
-      // AND THEN, SEPARATELY, WHETHER THIS OBSERVATION STRENGTHENS ANYTHING.
-      //
-      // The payload is still not replaced -- see above -- so the raw evidence
-      // that produced this row is intact. What may move is a small, explicitly
-      // classified set of canonical facts on the projected call, and only in the
-      // one direction the provider's semantics support.
-      const converged = await this.convergeProviderFacts(input, ev, existing.id, observedAt);
-      return {
-        ...base,
-        status: 'duplicate',
-        integrationEventId: existing.id,
-        strengthenedFacts: converged.strengthened,
-        conflictedFacts: converged.conflicted,
-      };
-    }
-
-    // 2. Persist the raw event FIRST in RECEIVED state (or reuse a prior
-    //    RECEIVED/FAILED row). This durably records the delivery before any
-    //    processing runs, so failures are always retryable from a known row.
-    const record = existing
-      ? await this.prisma.integrationEvent.update({
-          where: { id: existing.id },
-          data: {
-            status: 'RECEIVED',
-            error: null,
-            payload: ev.payload as object,
-            // The payload is being rewritten in this same statement, so the
-            // occurrence derived from it is written with it -- a row whose
-            // payload says August 11 while its occurredAt says nothing would be
-            // internally inconsistent. This is not a backfill: it touches only
-            // rows the provider is re-delivering right now.
-            //
-            // receivedAt is NOT in this object and must never be. Re-observing a
-            // call Loop already holds does not change when Loop first held it.
-            occurredAt: ev.occurredAt,
-            // The observation is recorded here too. firstIngestionSource is
-            // absent from this object and must stay absent: this row already
-            // exists, so something already observed it first.
-            lastObservedAt: new Date(),
-            observedSources: withObservation(existing.observedSources ?? [], input.observationSource),
-          },
-        })
-      : await this.prisma.integrationEvent.create({
+    if (!existing) {
+      // 2. Persist the raw event FIRST in RECEIVED state. This durably records the
+      //    delivery before any processing runs, so failures are always retryable
+      //    from a known row.
+      try {
+        owned = await this.prisma.integrationEvent.create({
           data: {
             organizationId,
             providerConnectionId: input.providerConnectionId ?? null,
@@ -422,9 +372,83 @@ export class IngestionService {
             // in observedSources beside it, not on top of it.
             firstIngestionSource: input.observationSource,
             observedSources: [input.observationSource],
-            lastObservedAt: new Date(),
+            lastObservedAt: now,
           },
         });
+      } catch (err) {
+        // ANOTHER DELIVERY OF THE SAME CALL WON THE INSERT, a moment ago. This
+        // used to escape as an unhandled error -- an HTTP 500 to CallGrid, and
+        // this delivery's facts lost unless it retried. It is an observation.
+        if (!isUniqueViolation(err)) throw err;
+        existing = await this.prisma.integrationEvent.findFirst({ where: { provider, externalId: ev.externalId } });
+        if (!existing) throw err;
+      }
+    }
+
+    if (existing && !owned && !isDuplicateObservation(existing.status, existing.lastObservedAt ?? null, now)) {
+      // FAILED, IGNORED, or orphaned by a crashed request: taken over and processed
+      // -- by exactly one request. The update is conditional on the row still
+      // being what was read, so of several deliveries racing to retry it, one
+      // wins and the rest are observations.
+      const takeover = await this.prisma.integrationEvent.updateMany({
+        where: { id: existing.id, status: existing.status, lastObservedAt: existing.lastObservedAt ?? null },
+        data: {
+          status: 'RECEIVED',
+          error: null,
+          payload: ev.payload as object,
+          // The payload is being rewritten in this same statement, so the
+          // occurrence derived from it is written with it -- a row whose
+          // payload says August 11 while its occurredAt says nothing would be
+          // internally inconsistent. This is not a backfill: it touches only
+          // rows the provider is re-delivering right now.
+          //
+          // receivedAt is NOT in this object and must never be. Re-observing a
+          // call Loop already holds does not change when Loop first held it.
+          occurredAt: ev.occurredAt,
+          // The observation is recorded here too. firstIngestionSource is
+          // absent from this object and must stay absent: this row already
+          // exists, so something already observed it first.
+          lastObservedAt: now,
+          observedSources: withObservation(existing.observedSources ?? [], input.observationSource),
+        },
+      });
+      if (takeover.count === 1) owned = { id: existing.id };
+    }
+
+    if (!owned) {
+      // AN OBSERVATION IS RECORDED EVEN WHEN NOTHING IS INGESTED.
+      //
+      // This branch used to return without writing anything, so asking the
+      // provider again -- and being answered -- left no trace. That is the fact
+      // a poller exists to produce, and it was being discarded.
+      //
+      // ONLY the observation is written. The payload is NOT replaced: it is the
+      // evidence that produced this row's Interaction and MarketplaceCall, and
+      // overwriting it would orphan a projection from its source. receivedAt,
+      // occurredAt, firstIngestionSource and status are all untouched.
+      const observed = existing!;
+      await this.prisma.integrationEvent.update({
+        where: { id: observed.id },
+        data: {
+          lastObservedAt: now,
+          observedSources: withObservation(observed.observedSources ?? [], input.observationSource),
+        },
+      });
+
+      // AND THEN, SEPARATELY, WHAT THIS OBSERVATION SAYS ABOUT THE CALL. The call
+      // is converged with this delivery's own facts -- created from them if the
+      // delivery that owns the pipeline has not reached it yet.
+      const converged = await this.observeCall(input, ev, canonicalType, observed.id, now);
+      return {
+        ...base,
+        status: 'duplicate',
+        integrationEventId: observed.id,
+        strengthenedFacts: converged.strengthened,
+        conflictedFacts: converged.conflicted,
+      };
+    }
+
+    const record = owned;
     base.integrationEventId = record.id;
 
     // Transition RECEIVED -> PROCESSING now that the raw event is safely stored.
@@ -434,11 +458,15 @@ export class IngestionService {
     });
 
     try {
-      const canonicalType = (LOOP_EVENT_TYPES_SET.has(eventType)
-        ? eventType
-        : (provider === 'website' ? 'web.page_view' : 'call.inbound')) as LoopEventType;
+      // 3. THE CALL FIRST. This delivery's facts reach the canonical call before
+      // anything slower runs, so the economics CallGrid just sent are visible
+      // within this request even if a later step fails -- and every delivery of
+      // the call, owner or not, converges it by the same rule.
+      const converged = await this.observeCall(input, ev, canonicalType, record.id, now);
+      base.strengthenedFacts = converged.strengthened;
+      base.conflictedFacts = converged.conflicted;
 
-      // 3. Build the provider-agnostic NormalizedEvent and normalize it. What the
+      // 3a. Build the provider-agnostic NormalizedEvent and normalize it. What the
       // source reported about who was involved travels in the payload, as a fact.
       const normalized: NormalizedEvent = {
         organizationId,
@@ -455,8 +483,10 @@ export class IngestionService {
       base.domainEventId = normResult.domainEventId;
       base.signalIds = [...normResult.signalIds];
 
-      // 3b. Project the call into MarketplaceCall — the canonical operational
-      // read model.
+      // 3b. Link the call to its Interaction -- the canonical operational read
+      // model. The call already holds this delivery's facts (step 3); projecting
+      // the Interaction MERGES, so it can only fill the link or confirm what is
+      // there, never overwrite it.
       //
       // This was the gap that made the read model empty. Ingestion wrote the
       // Interaction and stopped; nothing here referenced MarketplaceCall at

@@ -50,6 +50,40 @@ correct — it is no longer an inference.
   named `durationSeconds`. Unconfirmed.
 - **The API/polling path**, which uses different field names and a local-string timestamp.
 
+## Several deliveries per call — Ended, Billable, Payable (2026-09-18)
+
+CallGrid confirmed (Taylor Murray, to Matt) that one call can hit the webhook several times, and
+that Ended, Billable and Payable fire at essentially the same moment — about three hits per call —
+with the economics settled when the call completes. CallGrid's own webhook vocabulary for these is
+`CALL_ENDED`, `CALL_BILLABLE` and `CALL_PAID` (the API reference's `Webhook.event`; there is no
+`CALL_PAYABLE`).
+
+**The template carries no event name.** Every delivery carries the call's status (`callStatus`,
+`COMPLETED` for a finished call), so Loop classifies all three as `call.completed`: one call,
+observed three times. Each webhook in CallGrid has its own body template; they must all carry the
+fields above.
+
+**How Loop converges them** (`IngestionService.ingestOne`, `MarketplaceCallRepository.observe`):
+
+- The CallId is the identity. `integration_events` and `marketplace_calls` are unique on
+  `(provider, externalId)`: one delivery row and one canonical call per CallId.
+- Exactly ONE request per call runs the pipeline (Interaction, signals, domain event,
+  workflows) — the one whose insert won, or that took over a FAILED / crashed row by a
+  conditional update. Every other delivery, including one that arrives while the first is still
+  being ingested, is an **observation**: it never re-runs the pipeline and never fails.
+- EVERY delivery converges the call with its own facts, owner or not: the first to reach
+  `marketplace_calls` creates the row as stated, and every later one merges by
+  `convergeFact` — revenue and payout settle upward from an ambiguous zero, billable / paid /
+  converted are asserted only when true, two different settled amounts are a recorded
+  CONFLICT that writes nothing, and `monetized` follows the flags. Cost, attribution,
+  geography, status and duration keep the first statement; nothing rewrites the row. Writes are
+  compare-and-set, so concurrent deliveries cannot overwrite each other.
+- The backfill (`projectWindow`) merges the same way, so the first delivery's Interaction —
+  the oldest, weakest copy — can never erase what later deliveries settled.
+
+Proven against real Postgres in every delivery order, sequential and concurrent:
+`packages/database/test/callgrid-webhook-convergence.postgres.test.ts`.
+
 ## Fields absent from the template
 
 `duplicate`, `blocked`, `connected`, `connectFailed`, `noConnect`, recording URL, transcript. Loop's

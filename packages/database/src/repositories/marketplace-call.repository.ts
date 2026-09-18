@@ -1,9 +1,9 @@
 // MarketplaceCallRepository — persistence + read model for the sensor-neutral
 // call projection.
 //
-// Write path (idempotent): projectInteractionToMarketplaceCall → upsert on
-// (provider, externalId). Re-running the projection over the same or an updated
-// Interaction updates the one row; it never duplicates.
+// Write path (idempotent): a projection of one observation → `observe`, which
+// creates the one row on (provider, externalId) or MERGES into it by the shared
+// convergence rule. It never duplicates a call and never overwrites one.
 //
 // Read path: aggregateWindow returns per-window, per-dimension economics the
 // Intelligence module consumes — reading first-class, indexed columns instead of
@@ -11,7 +11,7 @@
 // null-aware and coverage counts record how many rows actually carried a value,
 // so the module stays honest about what it could see.
 //
-// Backfill: projectWindow reads existing Interactions and upserts their
+// Backfill: projectWindow reads existing Interactions and merges their
 // projections, so the table can be populated for history without waiting for new
 // ingestion — and the Intelligence loader can fall back to it.
 
@@ -28,9 +28,47 @@ import {
   type TruthMeta,
 } from '@emgloop/shared';
 import {
+  convergeCallObservation,
   projectInteractionToMarketplaceCall,
+  type CallFactDecision,
   type MarketplaceCallProjection,
+  type StoredCallFacts,
 } from './marketplace-call-projection';
+
+/** What one observation did to the stored call. */
+export interface CallObservationOutcome {
+  /**
+   * CREATED   the first observation to arrive; the row is exactly what it stated.
+   * MERGED    an existing row was strengthened by the shared rule.
+   * UNCHANGED an existing row already held everything this observation could say.
+   * FOREIGN   the key is held by another organization; nothing was touched.
+   * CONTENDED every attempt lost a race; nothing was written, and a later
+   *           observation (or reconciliation) will converge it.
+   */
+  readonly outcome: 'CREATED' | 'MERGED' | 'UNCHANGED' | 'FOREIGN' | 'CONTENDED';
+  /** Each provider fact's decision against the stored row -- for the revision record. */
+  readonly decisions: readonly CallFactDecision[];
+}
+
+/** How many times a merge re-reads after losing a race. Three webhooks per call. */
+const OBSERVE_ATTEMPTS = 6;
+
+const STORED_FACTS = {
+  id: true,
+  organizationId: true,
+  interactionId: true,
+  revenueCents: true,
+  payoutCents: true,
+  billable: true,
+  paid: true,
+  converted: true,
+  monetized: true,
+} as const;
+
+/** Postgres refused a second row for a unique key (Prisma P2002). */
+export function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002';
+}
 
 /**
  * One observed dimension member, offered for binding selection.
@@ -127,78 +165,81 @@ type CallRow = {
 export class MarketplaceCallRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  /** Upsert one projection idempotently on (provider, externalId). */
-  async upsertProjection(p: MarketplaceCallProjection): Promise<void> {
-    const data: Prisma.MarketplaceCallUncheckedCreateInput = { ...p };
-    await this.prisma.marketplaceCall.upsert({
-      where: { provider_externalId: { provider: p.provider, externalId: p.externalId } },
-      create: data,
-      update: data,
-    });
-  }
-
   /**
-   * The canonical facts a later observation is allowed to strengthen.
+   * Bring the one stored call up to date with ONE observation of it -- and never
+   * weaken it.
    *
-   * A NARROW WRITE, NOT AN UPSERT. `upsertProjection` replaces the whole row
-   * from a freshly built projection, which is right on the path that BUILDS a
-   * call and catastrophic on the path that RE-OBSERVES one: a postback-pending
-   * zero would overwrite a settled amount. This writes only the columns the pure
-   * convergence rule approved and touches nothing else -- not occurrence, not
-   * attribution, not status, not the columns nobody asserted anything about.
+   * CREATE OR MERGE, NEVER OVERWRITE. The first observation to reach the table
+   * creates the row exactly as the provider stated it (a zero included). Every
+   * later one -- a second webhook for the same call, a poll, a backfill over old
+   * Interactions -- is merged by `convergeCallObservation`, which moves only what
+   * the shared rule approves and nothing else. A full-row rewrite is how a stale
+   * copy erased newer economics, and it no longer exists on any path.
    *
-   * The decision itself is NOT made here. It is made once, purely, by
-   * `convergeFact`, and this method persists an answer it is handed.
+   * SAFE UNDER CONCURRENCY, WITHOUT A LOCK. CallGrid fires Ended, Billable and
+   * Payable for one call at essentially the same moment, so three requests race
+   * for this row:
+   *   * two creates: the unique key `(provider, externalId)` admits one, and the
+   *     loser merges into what the winner wrote;
+   *   * two merges: each update is conditional on the values it decided from
+   *     (compare-and-set). If another observation moved one of them first, the
+   *     update matches nothing, and this one re-reads and decides again.
+   *
+   * ONE ORGANIZATION'S CALL. The unique key is global (known tenancy debt), so a
+   * row held by another organization is refused -- never moved, never merged.
    */
-  async strengthenFacts(
-    organizationId: string,
-    provider: string,
-    externalId: string,
-    facts: { revenueCents?: number; payoutCents?: number; billable?: true; paid?: true; converted?: true },
-  ): Promise<boolean> {
-    if (Object.keys(facts).length === 0) return false;
-    // SCOPED BY ORGANIZATION, and resolved within it before anything is written.
-    // The unique key is global today (known tenancy debt); this read is not.
-    const existing = await this.prisma.marketplaceCall.findFirst({
-      where: { organizationId, provider, externalId },
-      select: { id: true },
-    });
-    if (!existing) return false;
-    await this.prisma.marketplaceCall.update({ where: { id: existing.id }, data: facts });
-    return true;
+  async observe(p: MarketplaceCallProjection): Promise<CallObservationOutcome> {
+    const key = { provider_externalId: { provider: p.provider, externalId: p.externalId } };
+    for (let attempt = 0; attempt < OBSERVE_ATTEMPTS; attempt += 1) {
+      const stored = await this.prisma.marketplaceCall.findUnique({ where: key, select: STORED_FACTS });
+      if (!stored) {
+        try {
+          const data: Prisma.MarketplaceCallUncheckedCreateInput = { ...p };
+          await this.prisma.marketplaceCall.create({ data });
+          return { outcome: 'CREATED', decisions: [] };
+        } catch (error) {
+          if (isUniqueViolation(error)) continue; // another observation created it first: merge instead
+          throw error;
+        }
+      }
+      if (stored.organizationId !== p.organizationId) return { outcome: 'FOREIGN', decisions: [] };
+
+      const plan = convergeCallObservation(stored, p);
+      const columns = Object.keys(plan.update) as (keyof StoredCallFacts)[];
+      if (columns.length === 0) return { outcome: 'UNCHANGED', decisions: plan.decisions };
+
+      // Compare-and-set: only if every column being moved still holds the value it
+      // was decided from.
+      const unchangedSince = Object.fromEntries(columns.map((column) => [column, stored[column]]));
+      const moved = await this.prisma.marketplaceCall.updateMany({
+        where: { id: stored.id, ...unchangedSince },
+        data: plan.update,
+      });
+      if (moved.count === 1) return { outcome: 'MERGED', decisions: plan.decisions };
+    }
+    return { outcome: 'CONTENDED', decisions: [] };
   }
 
-  /** The canonical facts as currently stored, for a convergence decision. */
-  async factsFor(
-    organizationId: string,
-    provider: string,
-    externalId: string,
-  ): Promise<{
-    revenueCents: number | null;
-    payoutCents: number | null;
-    billable: boolean | null;
-    paid: boolean | null;
-    converted: boolean | null;
-  } | null> {
-    return this.prisma.marketplaceCall.findFirst({
-      where: { organizationId, provider, externalId },
-      select: { revenueCents: true, payoutCents: true, billable: true, paid: true, converted: true },
-    });
-  }
-
-  /** Project one raw Interaction (write-through from the ingestion path). Returns
-   * true when a projection was written, false when the row was not projectable. */
+  /** Project one raw Interaction (write-through from the ingestion path, and the
+   * backfill). Returns true when the call was observed, false when the row was not
+   * projectable. It merges; it never overwrites. */
   async projectInteraction(interaction: Parameters<typeof projectInteractionToMarketplaceCall>[0]): Promise<boolean> {
     const projection = projectInteractionToMarketplaceCall(interaction);
     if (!projection) return false;
-    await this.upsertProjection(projection);
+    await this.observe(projection);
     return true;
   }
 
   /**
-   * Backfill/refresh the projection for a window from existing Interactions.
-   * Idempotent: re-running upserts the same rows. Org-scoped, demo-filtered by
-   * the pure mapper.
+   * Backfill the projection for a window from existing Interactions.
+   *
+   * Idempotent, org-scoped and demo-filtered by the pure mapper -- and it MERGES.
+   * An Interaction holds the FIRST observation of its call, so it is often older
+   * than what the call row now says (a later webhook settled the revenue). A
+   * backfill used to rebuild each row from that copy and overwrite whatever had
+   * been learned since; it now goes through the same convergence as live
+   * ingestion, so it can create a missing row or fill what is unknown, and can
+   * never erase a newer fact.
    */
   async projectWindow(organizationId: string, since: Date, until: Date): Promise<BackfillResult> {
     const rows = await this.prisma.interaction.findMany({
@@ -214,7 +255,7 @@ export class MarketplaceCallRepository {
     for (const row of rows) {
       const p = projectInteractionToMarketplaceCall(row);
       if (!p) { skipped += 1; continue; }
-      await this.upsertProjection(p);
+      await this.observe(p);
       projected += 1;
     }
     return { scanned: rows.length, projected, skipped };

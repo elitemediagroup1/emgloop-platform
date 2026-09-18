@@ -193,6 +193,18 @@ vendor profit is not attributable at that grain and says so; entity counts mean 
 period" (CallGrid exposes no roster). **No LLM anywhere** — every string is deterministic template
 language.
 
+## CallGrid webhook convergence — DRAFT PR (fix/callgrid-webhook-convergence, off main `8f2d78c`)
+
+_Last updated: 2026-09-18._ CallGrid fires Ended, Billable and Payable for one call at essentially
+the same moment (confirmed by CallGrid). Proven against real Postgres: overlapping deliveries lost
+revenue and payout behind an HTTP 200, returned 500s on the insert race, and created up to three
+Interactions per call; `monetized` ("Billable Calls") stayed false when Ended arrived first; the
+backfill rebuilt calls from the oldest copy; the reconcile route read the wrong money fields; and
+"Profit" on Home / Marketplace was Net Profit. The PR fixes all of those (see
+`docs/CALLGRID_WEBHOOK_CONTRACT.md` §Several deliveries per call). No migration. Routine polling
+stays OFF (`ROUTINE_POLL_ORGANIZATIONS` unset, 255 no-op runs since 2026-08-21) and is to become
+reconciliation only. **Next:** review; then Matt verifies the three CallGrid webhook templates.
+
 ## The Decision Engine — DONE (merged #154)
 The final platform layer between intelligence producers and every consumer. **CallGrid now
 consumes it and touches persistence nowhere** — `repositories.operationalPriorities` appears

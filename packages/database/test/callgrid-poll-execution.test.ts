@@ -111,7 +111,7 @@ function ingestResult(over: Partial<IngestResult> & { externalId: string }): Ing
 /**
  * A Prisma double that is ALLOWED to be read and forbidden to be written.
  *
- * `statusOfEvent` is the only read this service makes of its own accord, and it
+ * `deliveryStateOfEvent` is the only read this service makes of its own accord, and it
  * exists solely so a dry run can classify. Any create/update reaching this double
  * would mean the service had begun writing rows itself instead of going through
  * ingestion, so those throw rather than record.

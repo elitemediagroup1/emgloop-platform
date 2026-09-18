@@ -13,6 +13,10 @@ type Row = Record<string, any>;
 
 // Delegates that carry a @@unique constraint (org-scoped composite, or global).
 const UNIQUE_KEYS: Record<string, string[]> = {
+  // CallGrid ingestion. GLOBAL, not org-scoped, exactly as the schema declares them
+  // (known tenancy debt): one row per provider call, and one per provider delivery.
+  marketplaceCall: ['provider', 'externalId'],
+  integrationEvent: ['provider', 'externalId'],
   // Daily Loop work state (DL-1). Every key is USER-FIRST as well as org-scoped: the same
   // provider thread read for two people is two rows, and one person's row is never the other's.
   workSourceCursor: ['organizationId', 'userId', 'source'],
@@ -560,6 +564,7 @@ function condMatches(value: any, cond: any): boolean {
  * columns so a repository written against the real client works here unchanged.
  */
 const COMPOUND_UNIQUE_ALIASES: Record<string, string> = {
+  marketplaceCall: 'provider_externalId',
   providerObservationDay: 'observation_day_identity',
   providerReconciliationDay: 'reconciliation_day_identity',
   // The @@unique carries a `map:` for the INDEX name, which does not rename the

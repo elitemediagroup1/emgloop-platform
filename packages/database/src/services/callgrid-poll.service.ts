@@ -509,14 +509,15 @@ export class CallGridPollService {
     // --- 3. Dry run: say what would happen, mutate nothing --------------------
     if (input.dryRun === true) {
       for (const ev of read.events) {
-        const status = await this.integrations.statusOfEvent(
+        const stored = await this.integrations.deliveryStateOfEvent(
           input.organizationId,
           CALLGRID_POLL_PROVIDER,
           ev.externalId,
         );
-        // The SAME predicate ingestion branches on. Re-spelling the status literal
-        // here is how a dry run starts describing a run that no longer exists.
-        if (status !== null && isDuplicateObservation(status)) result.duplicateObservations += 1;
+        // The SAME predicate ingestion branches on, over the same columns.
+        // Re-spelling the status literal here is how a dry run starts describing a
+        // run that no longer exists.
+        if (stored !== null && isDuplicateObservation(stored.status, stored.lastObservedAt)) result.duplicateObservations += 1;
         else result.newEvents += 1;
       }
       result.notAttempted = read.events.length;
