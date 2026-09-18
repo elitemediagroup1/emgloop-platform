@@ -3847,3 +3847,60 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-day__sections { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px 32px; align-items: start; }
 .loop-day__section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 @media (max-width: 760px) { .loop-day__sections { grid-template-columns: 1fr; } }
+
+/* ===================== MAIL =====================
+   The employee's own conversations (GM-2). Not a mail client: no label rail, no
+   bulk selection, no folders. A list somebody scans to find what needs them, a
+   conversation rendered as TEXT (never as markup), and one composer.
+   Drawn with the existing tokens; no colour is declared here. */
+.loop-mail { display: flex; flex-direction: column; gap: 14px; }
+.loop-mail .val { color: var(--loop-ink); font-weight: 650; }
+.loop-mail .muted { color: var(--loop-muted); }
+.loop-mail__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.loop-mail__row { border-top: 1px solid var(--loop-line); }
+.loop-mail__row:first-child { border-top: none; }
+.loop-mail__link { display: grid; grid-template-columns: minmax(0, 15em) minmax(0, 1fr) auto; gap: 14px; align-items: baseline; padding: 11px 6px; text-decoration: none; color: var(--loop-body); border-radius: var(--loop-radius-sm); }
+.loop-page a.loop-mail__link { color: var(--loop-body); }
+.loop-mail__link:hover { background: var(--loop-hover); }
+.loop-mail__who { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; color: var(--loop-ink); overflow-wrap: anywhere; }
+.loop-mail__row--unread .loop-mail__who, .loop-mail__row--unread .loop-mail__subject { font-weight: 650; }
+.loop-mail__unread { width: 7px; height: 7px; border-radius: 50%; background: var(--loop-accent); flex: 0 0 7px; transform: translateY(-1px); }
+.loop-mail__subject { font-size: 13.5px; color: var(--loop-ink); overflow-wrap: anywhere; }
+.loop-mail__when { font-size: 12px; color: var(--loop-muted); white-space: nowrap; }
+.loop-mail__tag { margin-left: 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--loop-accent); border: 1px solid var(--loop-accent-soft); background: var(--loop-accent-soft); border-radius: 5px; padding: 1px 5px; }
+
+/* One conversation, oldest first. The employee's own messages are set apart by
+   position and weight rather than by colour. */
+.loop-thread { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
+.loop-thread__message { display: flex; flex-direction: column; gap: 4px; padding-left: 12px; border-left: 2px solid var(--loop-line); }
+.loop-thread__message--mine { border-left-color: var(--loop-accent); }
+.loop-thread__head { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 14px; color: var(--loop-ink); }
+.loop-thread__when { font-size: 12px; color: var(--loop-muted); font-variant-numeric: tabular-nums; }
+.loop-thread__to { margin: 0; font-size: 12.5px; }
+.loop-thread__body { margin: 6px 0 0; font-size: 14px; line-height: 1.6; color: var(--loop-body); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 78ch; }
+.loop-thread__quoted { margin: 6px 0 0; font-size: 12.5px; }
+.loop-thread__attachments { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; }
+
+/* The composer: one box, whoever wrote the first draft. */
+.loop-compose { display: flex; flex-direction: column; gap: 12px; }
+.loop-compose .val { color: var(--loop-ink); font-weight: 650; }
+.loop-compose .muted { color: var(--loop-muted); }
+.loop-compose .loop-eyebrow { margin: 0; }
+.loop-compose__provenance { margin: 0; font-size: 13px; color: var(--loop-body); padding: 10px 12px; border-radius: var(--loop-radius-sm); background: var(--loop-accent-soft); }
+.loop-compose__failed { margin: 0; font-size: 13px; color: var(--loop-crit); padding: 10px 12px; border-radius: var(--loop-radius-sm); background: var(--loop-crit-soft); }
+.loop-compose__form { display: flex; flex-direction: column; gap: 12px; }
+.loop-compose__modes { display: flex; flex-wrap: wrap; gap: 16px; }
+.loop-compose__mode { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--loop-body); }
+.loop-compose__field { display: flex; flex-direction: column; gap: 5px; }
+.loop-compose__label { font-size: 12px; font-weight: 650; color: var(--loop-muted); }
+.loop-compose__body { min-height: 190px; resize: vertical; line-height: 1.6; font-family: inherit; }
+.loop-compose__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.loop-compose__note { margin: 0; font-size: 12.5px; }
+.loop-btn--quiet { border-color: transparent; background: transparent; }
+
+@media (max-width: 760px) {
+  .loop-mail__link { grid-template-columns: 1fr auto; gap: 4px 12px; }
+  .loop-mail__who { grid-column: 1; }
+  .loop-mail__when { grid-column: 2; grid-row: 1; }
+  .loop-mail__subject { grid-column: 1 / -1; }
+}

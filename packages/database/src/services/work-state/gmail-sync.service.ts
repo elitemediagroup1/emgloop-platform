@@ -232,6 +232,7 @@ export class GmailSyncService {
           subject: fact.subject,
           headerMessageId: fact.headerMessageId,
           inReplyTo: fact.inReplyTo,
+          references: fact.references,
           labels: fact.labels,
           observedAt,
         });

@@ -50,3 +50,7 @@ export {
   employeeGmailIdentity,
   type EmployeeGmailConfig,
 } from './gmail-sync-runtime';
+
+// Sending one employee's reply, as themselves (GM-2). The only path out of Loop into somebody
+// else's inbox, and the only place its rules live.
+export { MailSendService, type MailSendDeps, type MailSendPort, type MailSendOutcome } from './mail-send.service';

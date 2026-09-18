@@ -608,6 +608,7 @@ export {
   type GmailSyncOptions,
   type GmailSyncOutcome,
 } from './services/work-state';
+export { WorkDraftRepository, WORK_SEND_CLAIM_MS, type DraftContent } from './repositories/work-state';
 export { createGoogleOAuthPort, googleFetch } from './services/google/google-oauth-port';
 export type { GoogleClientConfig, GoogleFetch } from './services/google/google-oauth-port';
 
@@ -622,3 +623,7 @@ export {
   employeeGmailIdentity,
   type EmployeeGmailConfig,
 } from './services/work-state';
+
+// Sending one employee's reply, as themselves (GM-2). The only path out of Loop into somebody
+// else's inbox, and the only place its rules live.
+export { MailSendService, type MailSendDeps, type MailSendPort, type MailSendOutcome } from './services/work-state';

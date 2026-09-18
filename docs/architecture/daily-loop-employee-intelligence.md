@@ -680,6 +680,51 @@ expire, which matters most for the employee nobody noticed was away.
 current work period; the thread graph builds forward from there, and a bounded first read that
 finishes is worth more than a complete one that truncates.
 
+### 6.11 Sending, and the boundary that makes it safe (GM-2, 2026-09-18)
+
+**Sending is its own authority.** `employeeMail:send` is a resource with exactly one action. It
+does not ride on `googleWorkspace:update` (connecting an account) or `employeeIntelligence:update`
+(one's own work state), because sending is the first act in this platform that leaves the building
+under somebody's name. There is no `manage` and no `approve`: an administrator sending as an
+employee is not a capability this platform has, and a delegated mailbox would be a reviewed
+architecture rather than a grant. **AI_EMPLOYEE is denied it by the matrix AND by a hard rule an
+explicit ALLOW row cannot override.**
+
+**Generation and transmission are separate acts, structurally.**
+
+1. A person asks, holding `employeeMail:send`, from a signed session.
+2. The send action takes a **draft id** -- never a body, a recipient or a model's output.
+3. The message is built from the **stored draft row**, so what leaves is what the employee last
+   saw and saved.
+4. The draft is **claimed** before Gmail is called, so a double-click, a retry and two tabs resolve
+   to one message.
+5. The From address is the connected account's own. There is no parameter for sending as anybody
+   else.
+
+A reply Loop proposed is a stored draft like any other. Nothing about it is special at send time,
+which is the point: there is no "AI send" path to secure, because there is no second path at all.
+
+**Threading is Google's documented contract, all three parts** (verified 2026-09-18): the
+`threadId` on the message, RFC 2822 `References` / `In-Reply-To`, and a matching `Subject`. The
+headers come from the stored message being replied to (`work_messages` keeps `Message-ID`,
+`In-Reply-To` and `References`), so a reply is threaded without asking Gmail for the conversation
+again.
+
+**Drafts are Loop-local, and that is a decision, not an omission.** Creating a Gmail draft needs
+`gmail.compose`, a RESTRICTED scope covering drafts *and* sending; Loop asks for `gmail.send`,
+which is sensitive and can only send. A Loop-local draft also cannot be duplicated in somebody's
+Gmail by a retry. The body is **cleared on a successful send** -- from then on the message lives in
+Gmail and returns as an ordinary SENT message on the next sync -- so `work_drafts` never becomes an
+archive of outgoing mail.
+
+### 6.12 Mail is rendered as text, and only as text (GM-2)
+
+An email body is attacker-controlled markup. Loop renders none of it: a `text/plain` part is shown
+as text, and a message that carried only HTML is reduced to text on the server and still rendered
+as text. There is no iframe, no sanitizer to get wrong, no remote image -- and therefore no
+tracking pixel, which is a privacy property as much as a security one. Attachments are named, typed
+and sized; Loop does not fetch them, and offers no download.
+
 ## 8. Calendar model
 
 ### 8.1 The grant is already sufficient for V1

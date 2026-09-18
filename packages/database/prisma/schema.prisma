@@ -285,6 +285,7 @@ model Organization {
   googleConnections       GoogleConnection[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
   workSourceCursors       WorkSourceCursor[]
+  workDrafts              WorkDraft[]
   workSyncRuns            WorkSyncRun[]
   workCorrespondents      WorkCorrespondent[]
   workThreads             WorkThread[]
@@ -506,6 +507,7 @@ model OrganizationMembership {
   /// Daily Loop (DL-1). One person's own work state, in THIS organization: it belongs to the
   /// membership, so offboarding takes it with them.
   workSourceCursors       WorkSourceCursor[]        @relation("WorkSourceCursorMember")
+  workDrafts              WorkDraft[]               @relation("WorkDraftMember")
   workSyncRuns            WorkSyncRun[]             @relation("WorkSyncRunMember")
   workCorrespondents      WorkCorrespondent[]       @relation("WorkCorrespondentMember")
   workThreads             WorkThread[]              @relation("WorkThreadMember")
@@ -5860,9 +5862,12 @@ model WorkMessage {
   toHashes        String[] @default([])
   ccHashes        String[] @default([])
   subject         String?
-  /// RFC 5322 threading headers, kept so a conversation can be reconstructed without Gmail.
+  /// RFC 5322 threading headers, kept so a conversation can be reconstructed without Gmail --
+  /// and so a reply can be threaded correctly without asking Gmail for the thread again.
   headerMessageId String?
   inReplyTo       String?
+  /// The `References` chain, in order. Header identifiers only: no address and no content.
+  references      String[] @default([])
   labels          String[] @default([])
   /// When Loop read it, as against when it was sent.
   observedAt      DateTime @default(now())
@@ -5873,6 +5878,63 @@ model WorkMessage {
   @@unique([organizationId, userId, provider, messageId])
   @@index([organizationId, userId, threadId, internalDate])
   @@map("work_messages")
+}
+
+/// One reply an employee is writing, or has sent, from inside Loop (GM-2).
+///
+/// IT HOLDS THE EMPLOYEE'S OWN WORDS, not correspondence: everything here was typed by them or
+/// proposed to them and then accepted by them. That is why it is the one place Loop stores a
+/// message body at all -- and why the body is CLEARED the moment it is sent, since from then on
+/// the message lives in Gmail and comes back as an ordinary SENT message on the next sync.
+///
+/// ONE OPEN DRAFT PER THREAD PER PERSON, so a half-written reply survives navigation and cannot
+/// be duplicated by a retry. A send CLAIMS the row before calling Gmail; a claim that has not
+/// completed blocks a second send rather than racing it.
+model WorkDraft {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// `WORK_PROVIDERS` and the conversation this reply belongs to.
+  provider           String
+  threadId           String
+  /// The message being replied to, and the headers that keep the reply in the conversation.
+  inReplyToMessageId String
+  /// `WORK_REPLY_MODES`.
+  mode               String
+
+  /// Recipients as the employee will send them. CONTACT_IDENTIFIER, never a hash: a person has
+  /// to be able to read and edit who they are writing to.
+  toAddresses String[] @default([])
+  ccAddresses String[] @default([])
+  subject     String?
+  /// The employee's own words. Empty once sent.
+  body        String   @default("")
+
+  /// `WORK_DRAFT_SOURCES` -- typed, or proposed by Loop and then edited by a person.
+  source         String  @default("MANUAL")
+  /// Provenance when Loop proposed it: the invocation that produced it, and the task version.
+  aiInvocationId String?
+  aiTaskVersion  String?
+  /// True while the employee has not changed a proposed draft. Presentation only; never authority.
+  aiUnedited     Boolean @default(false)
+
+  /// The send, as facts: when it was claimed, when it completed, and what Gmail called it.
+  sendClaimedAt    DateTime?
+  sentAt           DateTime?
+  sentMessageId    String?
+  /// `WORK_SEND_FAILURE_CLASSES`. Never a provider's text.
+  sendFailureClass String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("WorkDraftMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider, threadId])
+  @@index([organizationId, userId, updatedAt])
+  @@map("work_drafts")
 }
 
 /// A calendar event, as a work object. Attendees are COUNTED, never listed as subjects: an

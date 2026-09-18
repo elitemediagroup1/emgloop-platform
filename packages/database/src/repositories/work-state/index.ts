@@ -22,3 +22,4 @@ export {
 export { WorkItemRepository, type WorkItemDetection, type WorkItemRecord } from './work-item.repository';
 export { WorkBriefRepository, type BriefComposition } from './work-brief.repository';
 export { WorkPreferencesRepository, type WorkPreferences, type EffectiveRetention } from './work-preferences.repository';
+export { WorkDraftRepository, WORK_SEND_CLAIM_MS, type DraftContent } from './work-draft.repository';

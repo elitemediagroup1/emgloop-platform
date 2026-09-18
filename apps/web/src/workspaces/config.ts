@@ -169,6 +169,9 @@ const INTEGRATIONS_VIEW = { resource: 'integrations', action: 'view' } as const;
 // A person's OWN Google Workspace connection (google-workspace-connection.md §11). Every
 // human role holds it; an AI Employee does not.
 const GOOGLE_WORKSPACE_VIEW = { resource: 'googleWorkspace', action: 'view' } as const;
+// A person's OWN work state, derived from their OWN Google connection (DL-1 §20.1). Holding it
+// grants your own rows and nobody else's, for any role -- the isolation is structural.
+const EMPLOYEE_INTELLIGENCE_VIEW = { resource: 'employeeIntelligence', action: 'view' } as const;
 
 export const LOOP_NAV: ShellConfig = {
   label: 'Loop',
@@ -182,6 +185,9 @@ export const LOOP_NAV: ShellConfig = {
       items: [
         { href: '/app', label: 'Home', icon: 'grid' },
         // Personal, not administration: the signed-in person's own connected accounts.
+        // The employee's own mail, inside Loop (GM-2). Personal, like Connections: what it
+        // opens is their own mailbox, and no role widens it.
+        { href: '/app/mail', label: 'Mail', icon: 'mail', requires: EMPLOYEE_INTELLIGENCE_VIEW },
         { href: '/app/connections', label: 'Connections', icon: 'plug', requires: GOOGLE_WORKSPACE_VIEW },
       ],
     },

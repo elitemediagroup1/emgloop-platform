@@ -1915,8 +1915,22 @@ weekly rolling-window baseline, shipped OFF behind `DAILY_LOOP_CALENDAR_ORGANIZA
 - **Freshness:** one policy shape for every source. Gmail's numbers are faster than Calendar's —
   stale after 30 min, visit refresh at most every 5 min, manual floor 30 s.
 
-**Next:** review GM-1, then GM-2 (Inbox, thread, composer, manual send) and GM-3 (Draft with Loop,
-Daily Loop attention, corrections, summary). §26 of the record has the full sequence.
+**GM-2 (draft #GM2PR): the Inbox, the conversation, the composer and sending.**
+
+- **`/app/mail`** — the employee's own conversations, from stored metadata, with the freshness line
+  and a manual "Read my mail again" (30-second floor). A visit refreshes at most every 5 minutes.
+- **`/app/mail/[threadId]`** — the conversation, read through from Gmail for that request and kept
+  nowhere, rendered **as text only** (no markup, no iframe, no remote image, no tracking pixel).
+- **The composer** — Reply / Reply all, editable recipients, save draft, discard, send. One box,
+  whoever wrote the first draft.
+- **`employeeMail:send`** — a new IAM resource with exactly one action, denied to AI_EMPLOYEE by the
+  matrix and by a hard rule an explicit ALLOW row cannot override.
+- **Threading** — all three parts of Google's documented contract, built from stored headers.
+- **Migration 41** — `work_drafts` (the one body Loop stores, cleared on send) and
+  `work_messages.references`.
+
+**Next:** review GM-1 and GM-2, then GM-3 (Draft with Loop, Daily Loop attention, corrections,
+summary). §26 of the record has the full sequence.
 
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 

@@ -110,6 +110,39 @@ export const WORK_FEEDBACK_KINDS = [
 ] as const;
 export type WorkFeedbackKind = (typeof WORK_FEEDBACK_KINDS)[number];
 
+// --- Replies (GM-2) -------------------------------------------------------------------------------
+
+/** How a reply is addressed. The employee chooses; Loop never widens it for them. */
+export const WORK_REPLY_MODES = ['REPLY', 'REPLY_ALL'] as const;
+export type WorkReplyMode = (typeof WORK_REPLY_MODES)[number];
+
+/**
+ * Where a draft's words came from.
+ *
+ * `AI_PROPOSED` is a provenance fact, not a status: the employee edits and sends it exactly as
+ * they would their own, and Loop keeps the invocation that produced it so an answer can always be
+ * traced. There is no third value for "sent by Loop", because that is not a thing Loop does.
+ */
+export const WORK_DRAFT_SOURCES = ['MANUAL', 'AI_PROPOSED'] as const;
+export type WorkDraftSource = (typeof WORK_DRAFT_SOURCES)[number];
+
+/** Why a send did not happen. A class, never a provider's text. */
+export const WORK_SEND_FAILURE_CLASSES = [
+  'NOT_CONNECTED',
+  'CAPABILITY_NOT_GRANTED',
+  'AUTHORIZATION_EXPIRED',
+  'AUTH',
+  'FORBIDDEN',
+  'RATE_LIMITED',
+  'NETWORK',
+  'TIMEOUT',
+  'MALFORMED',
+  'UNAVAILABLE',
+  /** Loop itself refused to build the message -- an unsafe header, no recipient, an empty body. */
+  'REFUSED',
+] as const;
+export type WorkSendFailureClass = (typeof WORK_SEND_FAILURE_CLASSES)[number];
+
 // --- Sync -----------------------------------------------------------------------------------------
 
 /** How a sync pass ended. TRUNCATED is not a failure: it means the deadline came first. */
@@ -141,6 +174,9 @@ export const WORK_STATE_SENSITIVITY: Readonly<Record<string, Readonly<Record<str
   work_events: Object.freeze({ organizerHash: 'OPERATIONAL', attendeeCount: 'OPERATIONAL' }),
   work_documents: Object.freeze({ name: 'COMMUNICATION_CONTENT', ownerHashes: 'OPERATIONAL' }),
   work_items: Object.freeze({ title: 'COMMUNICATION_CONTENT', evidence: 'OPERATIONAL', evidenceQuote: 'COMMUNICATION_CONTENT' }),
+  // A draft is the employee's own words, and the addresses they are writing to. It is the only
+  // body Loop stores, and it is cleared the moment it is sent.
+  work_drafts: Object.freeze({ body: 'COMMUNICATION_CONTENT', subject: 'COMMUNICATION_CONTENT', toAddresses: 'CONTACT_IDENTIFIER', ccAddresses: 'CONTACT_IDENTIFIER' }),
   work_briefs: Object.freeze({ counts: 'OPERATIONAL', coverage: 'OPERATIONAL', headline: 'COMMUNICATION_CONTENT' }),
 });
 
@@ -185,6 +221,7 @@ export const WORK_RETENTION_CATEGORIES: readonly WorkRetentionCategory[] = Objec
   Object.freeze({ category: 'DRIVE_METADATA', rule: 'DAYS', days: 30, anchor: 'a voluntary disconnect; kept indefinitely while connected', tables: Object.freeze(['work_documents']), why: 'Document context follows the same shape as mail metadata.' }),
   Object.freeze({ category: 'CALENDAR_STATE', rule: 'DAYS', days: 90, anchor: 'the end of the event', tables: Object.freeze(['work_events']), why: 'Meeting briefs need past meetings with the same people.' }),
   Object.freeze({ category: 'DERIVED_WORK_FACTS', rule: 'DAYS', days: 365, anchor: 'the item last changing state', tables: Object.freeze(['work_items', 'work_item_observations', 'work_feedback']), why: 'The accuracy signal needs a year to mean anything.' }),
+  Object.freeze({ category: 'MAIL_DRAFTS', rule: 'DAYS', days: 30, anchor: 'the draft last changing, and cleared of its body on send', tables: Object.freeze(['work_drafts']), why: 'An unsent reply is worth keeping while the conversation is live, and worth nothing after.' }),
   Object.freeze({ category: 'BRIEFS', rule: 'DAYS', days: 365, anchor: 'the brief\'s local date', tables: Object.freeze(['work_briefs']), why: '"What happened last week" is the product.' }),
   Object.freeze({ category: 'EVIDENCE_QUOTES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the item that cites it', tables: Object.freeze([]), why: 'An explanation lives exactly as long as the claim it explains.' }),
   Object.freeze({ category: 'PROVENANCE_REFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the conclusion it supports', tables: Object.freeze([]), why: 'Evidence outliving its conclusion is the rule; the reverse is uninterpretable.' }),
@@ -215,6 +252,8 @@ export const WORK_STATE_TABLES: readonly string[] = Object.freeze([
   'work_item_observations',
   'work_briefs',
   'work_feedback',
+  // GM-2: the reply an employee is writing. The one body Loop stores, cleared on send.
+  'work_drafts',
   'employee_work_preferences',
   'work_retention_overrides',
 ]);
