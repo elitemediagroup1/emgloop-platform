@@ -654,3 +654,13 @@ export {
 // a closed item reopens only on new evidence, and a correction is recorded beside the facts.
 export { MailAttentionService, mailThreadFacts, type MailAttentionDeps, type MailAttentionOutcome } from './services/work-state';
 export * from './services/intelligence';
+
+// Provider connection secret sealing (Teams OAuth token / Telegram MTProto session).
+export {
+  ConnectionSecretSealer,
+  ConnectionSecretUnopenable,
+  connectionSecretKeyRef,
+  CONNECTION_SECRET_SEAL_VERSION,
+  CONNECTION_SECRET_PURPOSE,
+} from './services/connections/connection-secret-sealer';
+export type { ConnectionSecretBinding, SealedConnectionSecret } from './services/connections/connection-secret-sealer';
