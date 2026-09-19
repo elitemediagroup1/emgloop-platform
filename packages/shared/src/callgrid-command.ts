@@ -1,7 +1,7 @@
 // The CallGrid command center — what the executive layer says, composed from what
 // Loop already measured. PURE: no I/O, no clock (now is passed in), no model.
 //
-// Five things live here, each a projection over existing contracts rather than a new
+// Six things live here, each a projection over existing contracts rather than a new
 // source of truth:
 //
 //   • BUCKETS — the time buckets a period is charted in (Eastern hours for a day,
@@ -11,6 +11,8 @@
 //     `profitCents` defines it), each with its comparison and a sparkline.
 //   • FRESHNESS — Live, Current, Stale, Degraded or Unavailable, from when CallGrid
 //     last actually delivered data. Never from the clock the page was rendered by.
+//   • COVERAGE — whether Loop's call record covers the comparison period. A period
+//     before the record starts was not observed, so it is never compared against.
 //   • THE BRIEF — a handful of sentences, each carrying its basis: a measured fact,
 //     arithmetic on measured facts, Loop's reading, or an unknown. No sentence claims
 //     a cause.
@@ -185,6 +187,8 @@ export function callGridKpis(input: {
   readonly metrics: CommandMetrics;
   readonly comparison: CommandMetrics | null;
   readonly series: readonly CommandSeriesPoint[];
+  /** Set when the period has a comparison but Loop's record does not cover it (see `assessCallGridCoverage`). */
+  readonly comparisonWithheld?: boolean;
 }): CallGridKpi[] {
   const { metrics: m, comparison: c, series } = input;
   const unavailable = !m.available;
@@ -215,6 +219,7 @@ export function callGridKpis(input: {
     let change: CallGridKpi['change'] = null;
     let noChangeReason: string | null = null;
     if (unavailable) noChangeReason = 'CallGrid data could not be read.';
+    else if (!c && input.comparisonWithheld) noChangeReason = 'No valid comparison.';
     else if (!c) noChangeReason = 'No comparison period for this selection.';
     else if (!priorOk) noChangeReason = 'The comparison period could not be read.';
     else if (value === null || prior === null) noChangeReason = 'Not known for both periods.';
@@ -344,6 +349,97 @@ export function assessCallGridFreshness(input: CallGridFreshnessInput): CallGrid
     detail: `Nothing has arrived from CallGrid for ${ago(age).replace(' ago', '')}. That can mean no calls, or a delivery problem — calls since then may be missing.`,
     asOf: latest,
   };
+}
+
+// --- Coverage of Loop's record ------------------------------------------------------------------
+
+/**
+ * Whether Loop's call record covers the period being compared against.
+ *
+ * Loop's record of an organization's calls begins at the earliest call it holds.
+ * Before that, nothing was observed -- which is not the same as nothing happening.
+ * Comparing a month against a prior month the record only half covers would show
+ * a +305% "increase" that is really the record starting.
+ *
+ * THE RULES, deterministic and judged by Eastern business day:
+ *   1. The record covers a day from the Eastern day of its earliest call onward.
+ *   2. A comparison is VALID only when the record covers the comparison period's
+ *      first day. Otherwise it is withheld: BEFORE_RECORD.
+ *   3. The selected period is PARTIAL when it starts before the record does.
+ *      Its figures are real but cover only part of it, so it is never compared.
+ *   4. No record at all means no comparison: NO_RECORD.
+ *   5. If the record's start could not be read, the comparison is withheld:
+ *      UNKNOWN. This fails closed.
+ *   6. A period with no comparison window is NONE, and nothing is withheld.
+ *
+ * A gap inside the record (an ingestion outage) is not detected here. This
+ * rule is about where the record starts, not whether it is continuous.
+ */
+export type ComparisonCoverage = 'VALID' | 'NONE' | 'BEFORE_RECORD' | 'NO_RECORD' | 'UNKNOWN';
+
+export interface CallGridCoverage {
+  /** The earliest call Loop holds for the organization; null when none, or not read. */
+  readonly recordStartsAt: Date | null;
+  readonly comparison: ComparisonCoverage;
+  /** The selected period starts before Loop's record, so its figures cover only part of it. */
+  readonly currentPartial: boolean;
+  /** One short line when a comparison is withheld or the period is partial; null otherwise. */
+  readonly note: string | null;
+}
+
+function ymdKey(d: EasternYmd): number {
+  return d.year * 10_000 + d.month * 100 + d.day;
+}
+function shortDay(d: EasternYmd, yearOf: EasternYmd): string {
+  return `${MONTHS_SHORT[d.month - 1]} ${d.day}${d.year === yearOf.year ? '' : `, ${d.year}`}`;
+}
+
+/** Does Loop's record, starting at `recordStartsAt`, cover the Eastern day `start` falls on? */
+export function callGridRecordCovers(recordStartsAt: Date | null, start: Date): boolean {
+  return recordStartsAt !== null && ymdKey(easternYmd(recordStartsAt)) <= ymdKey(easternYmd(start));
+}
+
+export function assessCallGridCoverage(
+  window: CallGridWindow,
+  record: { readonly ok: boolean; readonly startsAt: Date | null },
+): CallGridCoverage {
+  const hasComparison = window.comparisonBasis !== 'none' && window.comparisonStart !== null && window.comparisonEnd !== null;
+  const startsAt = record.ok ? record.startsAt : null;
+  const first = easternYmd(window.start);
+  const currentPartial = startsAt !== null && !callGridRecordCovers(startsAt, window.start);
+  const day = startsAt ? shortDay(easternYmd(startsAt), first) : null;
+
+  let comparison: ComparisonCoverage;
+  if (!hasComparison) comparison = 'NONE';
+  else if (!record.ok) comparison = 'UNKNOWN';
+  else if (startsAt === null) comparison = 'NO_RECORD';
+  else comparison = callGridRecordCovers(startsAt, window.comparisonStart!) ? 'VALID' : 'BEFORE_RECORD';
+
+  let note: string | null = null;
+  if (currentPartial && startsAt !== null && startsAt.getTime() >= window.end.getTime()) {
+    note = `No data: Loop’s call record starts ${day}, after this period.`;
+  } else if (currentPartial) {
+    note = hasComparison
+      ? `Partial period: Loop’s call record starts ${day}, so there is no valid comparison.`
+      : `Partial period: Loop’s call record starts ${day}.`;
+  } else if (comparison === 'BEFORE_RECORD') {
+    note = `Not compared: Loop’s call record starts ${day}, after the comparison period began.`;
+  } else if (comparison === 'NO_RECORD') {
+    note = 'Not compared: Loop has no calls recorded yet.';
+  } else if (comparison === 'UNKNOWN') {
+    note = 'Not compared: Loop could not confirm when its call record starts.';
+  }
+  return { recordStartsAt: startsAt, comparison, currentPartial, note };
+}
+
+/**
+ * The window every read uses: the selected window, with its comparison removed when
+ * the record does not cover it. The report, the KPIs, the series, the engine and
+ * the entity pages then compare against nothing, instead of each one checking.
+ */
+export function effectiveCallGridWindow(window: CallGridWindow, coverage: CallGridCoverage): CallGridWindow {
+  if (coverage.comparison === 'VALID' || coverage.comparison === 'NONE') return window;
+  return { ...window, comparisonStart: null, comparisonEnd: null, comparisonBasis: 'none', comparisonLabel: null };
 }
 
 // --- The brief -----------------------------------------------------------------------------------

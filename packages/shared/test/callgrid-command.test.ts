@@ -12,6 +12,11 @@ import {
   callGridBuckets,
   callGridKpis,
   composeCallGridBrief,
+  assessCallGridCoverage,
+  callGridRecordCovers,
+  effectiveCallGridWindow,
+  selectCallGridPeriod,
+  callGridPeriodWindow,
   easternYmd,
   resolveCallGridWindow,
   selectTopPriorities,
@@ -144,6 +149,59 @@ test('the brief tags every sentence with its basis, names no cause, and says wha
     buyers: [], campaigns: [], health: { band: 'UNKNOWN', explanation: null },
   });
   assert.equal(empty.sentences[0]!.text, 'No calls were recorded for this period so far.');
+});
+
+// --- Coverage: incomplete periods are never compared ----------------------------------------------
+
+const RECORD = new Date('2026-08-14T13:05:00Z'); // Aug 14, 9:05 AM EDT: the seed's first call
+const monthly = (date: string) => callGridPeriodWindow(selectCallGridPeriod({ period: 'monthly', date }, NOW)!, NOW);
+
+test('coverage: a comparison is valid only when Loop’s record covers its first day', () => {
+  // September against August: the record starts Aug 14, inside August.
+  const sep = monthly('2026-09-18');
+  const cov = assessCallGridCoverage(sep, { ok: true, startsAt: RECORD });
+  assert.equal(cov.comparison, 'BEFORE_RECORD');
+  assert.equal(cov.currentPartial, false);
+  assert.equal(cov.note, 'Not compared: Loop’s call record starts Aug 14, after the comparison period began.');
+  const eff = effectiveCallGridWindow(sep, cov);
+  assert.equal(eff.comparisonStart, null);
+  assert.equal(eff.comparisonBasis, 'none');
+  assert.equal(eff.start.getTime(), sep.start.getTime(), 'the selected period itself is untouched');
+
+  // August itself is partial, and so has no valid comparison either.
+  const aug = assessCallGridCoverage(monthly('2026-08-20'), { ok: true, startsAt: RECORD });
+  assert.equal(aug.currentPartial, true);
+  assert.equal(aug.comparison, 'BEFORE_RECORD');
+  assert.equal(aug.note, 'Partial period: Loop’s call record starts Aug 14, so there is no valid comparison.');
+
+  // July is before the record entirely.
+  assert.equal(assessCallGridCoverage(monthly('2026-07-10'), { ok: true, startsAt: RECORD }).note, 'No data: Loop’s call record starts Aug 14, after this period.');
+
+  // Today against yesterday: covered, nothing withheld, nothing said.
+  const today = resolveCallGridWindow({ preset: 'today' }, NOW);
+  const ok = assessCallGridCoverage(today, { ok: true, startsAt: RECORD });
+  assert.deepEqual([ok.comparison, ok.currentPartial, ok.note], ['VALID', false, null]);
+  assert.equal(effectiveCallGridWindow(today, ok), today);
+});
+
+test('coverage is judged by Eastern business day, so the first call’s hour never voids its own day', () => {
+  // The record's first call at 9:05 AM on Aug 14 still covers a period starting that midnight.
+  assert.equal(callGridRecordCovers(RECORD, new Date('2026-08-14T04:00:00Z')), true);
+  assert.equal(callGridRecordCovers(RECORD, new Date('2026-08-13T04:00:00Z')), false);
+  // 11:30 PM Eastern on Aug 13 is still Aug 13, although it is Aug 14 in UTC.
+  assert.equal(callGridRecordCovers(new Date('2026-08-14T03:30:00Z'), new Date('2026-08-13T04:00:00Z')), true);
+  assert.equal(callGridRecordCovers(null, new Date('2026-08-13T04:00:00Z')), false);
+});
+
+test('coverage fails closed: no record, or a record that could not be read, compares against nothing', () => {
+  const today = resolveCallGridWindow({ preset: 'today' }, NOW);
+  const none = assessCallGridCoverage(today, { ok: true, startsAt: null });
+  assert.equal(none.comparison, 'NO_RECORD');
+  assert.equal(effectiveCallGridWindow(today, none).comparisonStart, null);
+  const unread = assessCallGridCoverage(today, { ok: false, startsAt: null });
+  assert.equal(unread.comparison, 'UNKNOWN');
+  assert.equal(unread.note, 'Not compared: Loop could not confirm when its call record starts.');
+  assert.equal(effectiveCallGridWindow(today, unread).comparisonStart, null);
 });
 
 test('the executive surface shows at most three priorities, in the engine’s order, undecided only', () => {

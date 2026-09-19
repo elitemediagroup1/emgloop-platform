@@ -10,6 +10,10 @@ import 'server-only';
 // The series comes from `windowFacts`, which reads the same rows under the same
 // filter and is tested to sum to the same totals.
 //
+// COVERAGE BEFORE COMPARISON. A comparison is read only when Loop's call record
+// covers it (`assessCallGridCoverage`); otherwise the window loses its comparison
+// here, once, and every section compares against nothing and says why.
+//
 // FRESHNESS FROM FACTS. "Live" is decided by when CallGrid last DELIVERED data --
 // the connection's last sync, the newest integration event, the poll checkpoint --
 // never by the clock this page was rendered at.
@@ -18,12 +22,15 @@ import 'server-only';
 // on a detail page, an entity key; neither is authority.
 
 import {
+  assessCallGridCoverage,
   assessCallGridFreshness,
   callGridBuckets,
   callGridKpis,
   describeCallGridWindow,
+  effectiveCallGridWindow,
   readCallGridSelection,
   type CallGridBuckets,
+  type CallGridCoverage,
   type CallGridFreshness,
   type CallGridKpi,
   type CallGridSelection,
@@ -46,7 +53,13 @@ export interface CommandContext {
   readonly organizationId: string;
   readonly now: Date;
   readonly selection: CallGridSelection;
+  /**
+   * The window every read uses: the selection's, with its comparison removed when
+   * Loop's call record does not cover it (see `coverage`).
+   */
   readonly window: CallGridWindow;
+  /** Whether Loop's record covers the comparison, and the one line that says so when it does not. */
+  readonly coverage: CallGridCoverage;
   readonly desc: CallGridWindowDescription;
   readonly report: CallGridReport;
   readonly buckets: CallGridBuckets;
@@ -72,7 +85,12 @@ export async function loadCommandContext(session: AuthSession, searchParams: Sea
   const organizationId = session.organizationId;
   const now = new Date();
   const selection = readCallGridSelection(searchParams, now);
-  const window = selection.window;
+  // Before any comparison is read: does Loop's record cover it? A period before the
+  // record starts was not observed, so it is never compared against (+305% was the
+  // record starting, not the business growing).
+  const recordR = await loadOrFallback(() => repositories.marketplaceCalls.firstCallAt(organizationId));
+  const coverage = assessCallGridCoverage(selection.window, { ok: recordR.ok, startsAt: recordR.ok ? recordR.data : null });
+  const window = effectiveCallGridWindow(selection.window, coverage);
   const buckets = callGridBuckets(window);
 
   const [report, factsR, comparisonR, freshnessFacts, canAct] = await Promise.all([
@@ -94,6 +112,7 @@ export async function loadCommandContext(session: AuthSession, searchParams: Sea
     metrics: report.metrics,
     comparison: report.comparison,
     series: facts?.series ?? [],
+    comparisonWithheld: window !== selection.window,
   });
   const freshness = assessCallGridFreshness({
     now,
@@ -108,6 +127,7 @@ export async function loadCommandContext(session: AuthSession, searchParams: Sea
     now,
     selection,
     window,
+    coverage,
     desc: describeCallGridWindow(window, now),
     report,
     buckets,

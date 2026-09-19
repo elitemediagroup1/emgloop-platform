@@ -4127,6 +4127,8 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .cgx-fresh--stale, .cgx-fresh--degraded { background: var(--loop-warn-soft); color: var(--loop-warn); }
 .cgx-fresh--unavailable { background: var(--loop-crit-soft); color: var(--loop-crit); }
 .cgx-period-line { margin: -6px 0 0; font-size: 12.5px; color: var(--loop-muted); }
+.cgx-period-line__cov { color: var(--loop-body); }
+.cgx-period-line__when + .cgx-period-line__cov::before { content: ' · '; color: var(--loop-muted); }
 .cgx-note { margin: 0; padding: 10px 14px; border-radius: var(--loop-radius-sm); background: var(--loop-warn-soft); color: var(--loop-body); font-size: 13px; }
 .cgx-muted { color: var(--loop-muted); }
 .cgx-empty { margin: 0; padding: 14px 0; font-size: 13px; color: var(--loop-muted); }

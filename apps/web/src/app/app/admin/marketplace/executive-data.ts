@@ -45,7 +45,7 @@ export async function loadExecutiveAnalysis(ctx: CommandContext): Promise<Execut
   const { organizationId: org, window, report, now, desc } = ctx;
   const [bid, history, roster] = await Promise.all([
     loadBidReport(org),
-    loadCallGridHistory(org, window),
+    loadCallGridHistory(org, window, ctx.coverage),
     repositories.iam.listUsers(org).catch(() => []),
   ]);
   const bidMatches = bidSnapshotMatches(bid.meta, window);

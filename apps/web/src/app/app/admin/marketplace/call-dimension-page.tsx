@@ -68,7 +68,7 @@ export async function CallDimensionPage({ config, session, searchParams }: { con
   const selected = sp(config.selectionParam);
   if (selected) redirect(withQuery(`${path}/${encodeURIComponent(selected)}`, query));
 
-  const history = await loadCallGridHistory(ctx.organizationId, window);
+  const history = await loadCallGridHistory(ctx.organizationId, window, ctx.coverage);
   const sort = parseDimSort(sp('sort'), sp('dir'));
   const allRows = report.dimensions[config.dim];
   const rows = sortRows(allRows, sort.key, sort.dir);

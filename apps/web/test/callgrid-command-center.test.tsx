@@ -24,7 +24,7 @@ import {
 } from '@emgloop/shared';
 
 import { CallGridNav, CALLGRID_SECTIONS } from '../src/app/app/admin/marketplace/_CallGridNav';
-import { FreshnessBadge, KpiRow, PeriodBar, TrendChart, BarList } from '../src/app/app/admin/marketplace/command-ui';
+import { CommandShell, FreshnessBadge, KpiRow, PeriodBar, TrendChart, BarList } from '../src/app/app/admin/marketplace/command-ui';
 import { TodaysBrief, TopPriorities } from '../src/app/app/admin/marketplace/executive-ui';
 import { withQuery, type CommandContext } from '../src/app/app/admin/marketplace/command-data';
 import { priorityOf } from '../src/app/app/admin/marketplace/executive-data';
@@ -49,6 +49,7 @@ function context(params?: Record<string, string>, over: Partial<CommandContext> 
     selection,
     window: selection.window,
     desc: describeCallGridWindow(selection.window, NOW),
+    coverage: { recordStartsAt: new Date('2026-08-14T13:00:00Z'), comparison: 'VALID', currentPartial: false, note: null },
     report: { ok: true, window: selection.window, metrics, comparison } as never,
     buckets: callGridBuckets(selection.window),
     facts: null,
@@ -146,6 +147,18 @@ describe('the executive layer', () => {
     assert.match(html, /Loop’s reading/);
     assert.match(html, /Not known/);
     assert.match(html, /Nothing here is a model’s summary/);
+  });
+
+  it('a withheld comparison is said once, in the header, where there is no brief to say it', () => {
+    const note = 'Not compared: Loop’s call record starts Aug 14, after the comparison period began.';
+    const ctx = context({ period: 'monthly', date: '2026-09-18' }, {
+      coverage: { recordStartsAt: new Date('2026-08-14T13:00:00Z'), comparison: 'BEFORE_RECORD', currentPartial: false, note },
+    });
+    const section = renderToStaticMarkup(<CommandShell ctx={ctx} active="money" path="/m"><p>w</p></CommandShell>);
+    assert.match(section, /class="cgx-period-line cgx-period-line--cov"/);
+    assert.ok(section.includes(`<span class="cgx-period-line__cov">${note}</span>`));
+    const overview = renderToStaticMarkup(<CommandShell ctx={ctx} active="overview" path="/m" executive={<p>brief</p>}><p>w</p></CommandShell>);
+    assert.equal(overview.includes(note), false, 'on the Overview the brief says it');
   });
 });
 

@@ -85,3 +85,16 @@ test('both reads are scoped to the organization that asked', async () => {
   const recent = await repo.recentCalls('org_a', 5);
   assert.deepEqual(recent.map((r) => r.id), ['m1']);
 });
+
+test('where the record begins: the organization’s own earliest call, or null when it has none', async () => {
+  const fake: any = makeCognitivePrisma({ also: ['marketplaceCall'] });
+  const repo = new MarketplaceCallRepository(fake as PrismaClient);
+  const base = { provider: 'callgrid', status: 'COMPLETED', updatedAt: at('2026-09-18T15:00:00Z') };
+  await fake.marketplaceCall.create({ data: { ...base, ...row({ sourceOccurredAt: at('2026-08-14T13:00:00Z') }), id: 'm1', externalId: 'x1', organizationId: 'org_a' } });
+  await fake.marketplaceCall.create({ data: { ...base, ...row({ sourceOccurredAt: at('2026-08-20T13:00:00Z') }), id: 'm2', externalId: 'x2', organizationId: 'org_a' } });
+  // Another tenant's older call never moves this organization's start.
+  await fake.marketplaceCall.create({ data: { ...base, ...row({ sourceOccurredAt: at('2026-01-02T13:00:00Z') }), id: 'm3', externalId: 'x3', organizationId: 'org_b' } });
+
+  assert.deepEqual(await repo.firstCallAt('org_a'), at('2026-08-14T13:00:00Z'));
+  assert.equal(await repo.firstCallAt('org_c'), null);
+});

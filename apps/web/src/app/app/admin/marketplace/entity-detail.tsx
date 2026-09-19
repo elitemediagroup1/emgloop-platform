@@ -171,7 +171,7 @@ export async function EntityDetailPage({ dim, entityKey, session, searchParams }
   const key = entityKey.toLowerCase();
   const [{ current, comparison }, history, records, bid] = await Promise.all([
     loadEntityFacts(ctx, { dimension: dim, key }),
-    loadCallGridHistory(ctx.organizationId, ctx.window),
+    loadCallGridHistory(ctx.organizationId, ctx.window, ctx.coverage),
     decisionEngine.list(ctx.organizationId, { producer: CALLGRID_SOURCE, take: 300 }).catch(() => null),
     dim === 'sources' ? loadBidReport(ctx.organizationId) : Promise.resolve(null),
   ]);

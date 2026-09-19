@@ -393,6 +393,21 @@ export class MarketplaceCallRepository {
   }
 
   /**
+   * When this organization's call record begins: the earliest `sourceOccurredAt` Loop
+   * holds, or null when it holds none. A period that starts before this was not
+   * observed, so it is not a period with zero calls, and the command center
+   * does not compare against it. One indexed row.
+   */
+  async firstCallAt(organizationId: string): Promise<Date | null> {
+    const first = await this.prisma.marketplaceCall.findFirst({
+      where: { organizationId },
+      orderBy: { sourceOccurredAt: 'asc' },
+      select: { sourceOccurredAt: true },
+    });
+    return first?.sourceOccurredAt ?? null;
+  }
+
+  /**
    * The most recent projected calls for this organization, newest first -- what
    * CallGrid most recently told Loop, as the projection holds it. Labels, outcome
    * flags and revenue only; no caller number, no zip.

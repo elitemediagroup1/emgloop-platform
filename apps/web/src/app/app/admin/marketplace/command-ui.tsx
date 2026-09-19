@@ -349,6 +349,8 @@ export function CommandShell({
   crumbs?: readonly Crumb[];
   children: ReactNode;
 }) {
+  // Why a comparison is missing, said once: here, or -- on the Overview -- by the brief.
+  const coverageNote = executive ? null : ctx.coverage.note;
   return (
     <div className="loop-os">
       <div className="cmd cg-page cgx">
@@ -364,9 +366,12 @@ export function CommandShell({
           </div>
         </header>
         {!ctx.window.isValid ? <p className="cgx-note">The requested dates were not a valid range, so today is shown.</p> : null}
-        <p className="cgx-period-line">
-          {ctx.desc.headerLine}
-          {ctx.report.comparison && ctx.desc.comparisonNote ? <> · <span title={ctx.desc.comparisonNote}>compared with {ctx.desc.comparisonTitle}</span></> : null}
+        <p className={'cgx-period-line' + (coverageNote ? ' cgx-period-line--cov' : '')}>
+          <span className="cgx-period-line__when">
+            {ctx.desc.headerLine}
+            {ctx.report.comparison && ctx.desc.comparisonNote ? <> · <span title={ctx.desc.comparisonNote}>compared with {ctx.desc.comparisonTitle}</span></> : null}
+          </span>
+          {coverageNote ? <span className="cgx-period-line__cov">{coverageNote}</span> : null}
         </p>
         <KpiRow ctx={ctx} />
         {executive ?? null}

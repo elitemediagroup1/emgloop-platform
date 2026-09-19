@@ -24,8 +24,10 @@ import { loadOrFallback } from '../../../../demo/db-health';
 import {
   DEFAULT_HISTORY_PERIODS,
   buildHistoryPeriods,
+  callGridRecordCovers,
   historyEntityKey,
   profitCents,
+  type CallGridCoverage,
   type CallGridWindow,
   type HistoryPoint,
   type HistorySeries,
@@ -41,13 +43,18 @@ const DIMS: Dimension[] = ['buyers', 'vendors', 'sources', 'campaigns'];
  * live or invalid — `buildHistoryPeriods` refuses those, because putting an
  * in-progress period into a distribution is the defect that made "Today" report
  * an -85% collapse every morning.
+ *
+ * A period that starts before Loop's call record does is dropped for the same
+ * reason a failed read is: it was not observed, so it is not a period of zero
+ * calls. With no record (or a record that could not be read) there is no history.
  */
 export async function loadCallGridHistory(
   organizationId: string,
   window: CallGridWindow,
+  coverage: Pick<CallGridCoverage, 'recordStartsAt'>,
   periods: number = DEFAULT_HISTORY_PERIODS,
 ): Promise<HistorySeries> {
-  const wanted = buildHistoryPeriods(window, periods);
+  const wanted = buildHistoryPeriods(window, periods).filter((p) => callGridRecordCovers(coverage.recordStartsAt, p.start));
   if (wanted.length === 0) {
     return {
       points: [],
