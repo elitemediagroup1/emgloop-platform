@@ -361,12 +361,8 @@ test('funnels never infer a stage the data does not carry', () => {
   assert.ok(bids.every((s) => s.value === null && s.grain === 'bid_snapshot'), 'no snapshot, no bid numbers');
 });
 
-test('a finding’s value is shown in its metric’s unit: cents as dollars, fractions as percentages', async () => {
-  const { formatMetricValue, formatRelativeChange } = await import('../src/callgrid-command');
-  assert.equal(formatMetricValue('revenue', 403_838), '$4,038');
-  assert.equal(formatMetricValue('billableRate', 0.336), '33.6%');
-  assert.equal(formatMetricValue('totalCalls', 277), '277');
-  assert.equal(formatMetricValue('revenue', null), 'Unknown');
+test('a relative change reads as a signed percentage', async () => {
+  const { formatRelativeChange } = await import('../src/callgrid-command');
   assert.equal(formatRelativeChange(0.12857817560901996), '+12.9%');
   assert.equal(formatRelativeChange(-0.15), '−15.0%');
   assert.equal(formatRelativeChange(null), '—');

@@ -12,7 +12,7 @@
 
 import type { ReactNode } from 'react';
 import type {
-  CallGridFinding, CallGridEvidenceReference, IntelligenceUnknown,
+  CallGridFinding, IntelligenceUnknown,
   MetricClassification, Severity, AffectedEntity,
   ExecutiveBrief, IntelligenceScore, ScoredFinding,
   MarketplaceRisk, RiskBand,
@@ -26,6 +26,7 @@ import {
   REVIEW_URGENCY_LABEL, REVIEW_CATEGORY_LABEL, EVIDENCE_STRENGTH_LABEL,
   RELATION_LABEL, RELATION_DEFINITION, STABILITY_LABEL,
   evidenceStrengthOf, evidenceStrengthFromDerivedConfidence,
+  formatEvidenceValue, humanizeFormula, metricLabel,
 } from '@emgloop/shared';
 
 const SEV_LABEL: Record<Severity, string> = {
@@ -65,14 +66,6 @@ export function SeverityTag({ value }: { value: Severity }) {
 
 // --- Evidence ------------------------------------------------------------------
 
-function evValue(e: CallGridEvidenceReference): string {
-  const v = e.derivedValue ?? e.normalizedValue ?? e.rawValue;
-  if (v === null) return 'Unknown';
-  // Fractions (shares, rates, changes) read as percentages; counts and cents do not.
-  if (Math.abs(v) <= 1 && !Number.isInteger(v)) return (v * 100).toFixed(1) + '%';
-  return v.toLocaleString('en-US');
-}
-
 /**
  * The inspectable basis for one finding: which report, which period, which
  * entity, the raw value, the formula and its version, and what limits it.
@@ -109,17 +102,17 @@ export function EvidenceDrawer({ finding }: { finding: CallGridFinding }) {
             <tbody>
               {finding.supportingEvidence.map((e) => (
                 <tr key={e.id}>
-                  <td>{e.metricKey}</td>
+                  <td>{metricLabel(e.metricKey)}</td>
                   <td>{e.window}</td>
                   <td>{e.entityName ?? '—'}</td>
-                  <td className="dim-num">{evValue(e)}</td>
+                  <td className="dim-num">{formatEvidenceValue(e)}</td>
                   <td>
                     {e.providerReport}
                     {e.providerField ? <span className="cg-evidfield"> · {e.providerField}</span> : null}
                   </td>
                   <td>
                     <ClassificationTag value={e.classification} />
-                    {e.formula ? <div className="cg-evidformula">{e.formula} ({e.formulaVersion})</div> : null}
+                    {e.formula ? <div className="cg-evidformula">{humanizeFormula(e.formula)} ({e.formulaVersion})</div> : null}
                     {e.completeness !== null && e.completeness < 1 ? (
                       <div className="cg-evidnote">{Math.round(e.completeness * 100)}% reported</div>
                     ) : null}

@@ -292,6 +292,7 @@ export * from './callgrid-opportunity';
 // reading of it, makes missing information first-class, and names the review a
 // person should make. Loop owns the facts; operators own the decisions.
 export * from './callgrid-decision-support';
+export * from './callgrid-metric-presentation';
 // Operational reasoning: findings as a connected system. It may claim arithmetic
 // attribution and metric-formula lineage; it may never claim mechanism.
 export * from './callgrid-reasoning';

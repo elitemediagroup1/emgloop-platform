@@ -898,23 +898,7 @@ export function easternSpanLabel(start: Date, end: Date): string {
   return `${MONTHS_SHORT[a.month - 1]} ${a.day} – ${MONTHS_SHORT[b.month - 1]} ${b.day}`;
 }
 
-// --- Metric values, as a person reads them -------------------------------------------------------
-
-/** Metrics the engine states in cents. */
-const MONEY_METRICS: ReadonlySet<string> = new Set(['revenue', 'profit', 'cost', 'costCents', 'payout', 'revenuePerBillableCall', 'contributionToChange']);
-/** Metrics the engine states as a fraction (0–1). */
-const RATE_METRICS: ReadonlySet<string> = new Set(['billableRate', 'sourceWinRate', 'revenueShare', 'rejectRate', 'margin']);
-
-/** A finding's value in its metric's own unit: dollars for cents, a percentage for a fraction, else a count. */
-export function formatMetricValue(metric: string, value: number | null): string {
-  if (value === null) return 'Unknown';
-  if (MONEY_METRICS.has(metric)) {
-    const sign = value < 0 ? '−' : '';
-    return `${sign}$${Math.round(Math.abs(value) / 100).toLocaleString('en-US')}`;
-  }
-  if (RATE_METRICS.has(metric)) return `${(value * 100).toFixed(1)}%`;
-  return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
-}
+// --- Changes, as a person reads them -------------------------------------------------------------
 
 /** A relative change stated as a fraction (the engine's `percentageChange`), as a signed percentage. */
 export function formatRelativeChange(fraction: number | null): string {

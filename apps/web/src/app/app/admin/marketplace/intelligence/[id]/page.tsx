@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
-  OPERATIONAL_OUTCOMES, SITUATION_KIND_LABELS, situationKind, ownershipOf, type PriorityState,
+  OPERATIONAL_OUTCOMES, SITUATION_KIND_LABELS, formatEvidenceValue, metricLabel, situationKind, ownershipOf, type PriorityState,
 } from "@emgloop/shared";
 
 import { loadCommandContext, withQuery, type SearchParams } from "../../command-data";
@@ -46,6 +46,18 @@ type Snapshot = {
   limitations?: string[];
   unknowns?: string[];
 };
+
+/** A recorded evidence value in its metric's unit; anything that is not a number is shown as it was stored. */
+function recordedValue(v: NonNullable<Snapshot["values"]>[number]): string {
+  const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
+  const derivedValue = num(v.derivedValue);
+  const rawValue = num(v.rawValue);
+  if (derivedValue === null && rawValue === null) {
+    const stored = v.derivedValue ?? v.rawValue;
+    return stored === undefined || stored === null ? "—" : String(stored);
+  }
+  return formatEvidenceValue({ metricKey: v.metricKey ?? "", formula: null, derivedValue, rawValue });
+}
 
 export default async function SituationPage({ params, searchParams }: { params: { id: string }; searchParams?: SearchParams }) {
   const session = await requireWorkspacePermission("ADMIN", "intelligence", "view");
@@ -146,7 +158,7 @@ export default async function SituationPage({ params, searchParams }: { params: 
             <summary className="cgx-more-section__summary">Observed evidence (as recorded)</summary>
             <ul className="cgx-situation__list">
               {snap.values.map((v, i) => (
-                <li key={i}>{v.metricKey}{v.entityName ? ` · ${v.entityName}` : ""}{v.window ? ` · ${v.window}` : ""}: {String(v.derivedValue ?? v.rawValue ?? "—")}</li>
+                <li key={i}>{v.metricKey ? metricLabel(v.metricKey) : "Value"}{v.entityName ? ` · ${v.entityName}` : ""}{v.window ? ` · ${v.window}` : ""}: {recordedValue(v)}</li>
               ))}
             </ul>
           </details>

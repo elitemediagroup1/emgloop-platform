@@ -43,7 +43,7 @@ import type {
 import {
   ESCALATION_LABEL, REVIEW_URGENCY_LABEL, HEALTH_BAND_LABEL,
   standingOf, confidenceOf, whyItMatters, outcomeChoices, tierDecisions,
-  ownershipOf, storyDigest, formatMetricValue, formatRelativeChange, voiceOf,
+  ownershipOf, storyDigest, formatRelativeChange, measuredValuesOf, voiceOf,
 } from '@emgloop/shared';
 import { EvidenceDrawer } from './intelligence-ui';
 import type { LivePriority } from './operational-queue-data';
@@ -798,6 +798,8 @@ export function SituationDetail({
   // The finding this Situation speaks for: its measured values and its advice are shown
   // here; every other merged finding keeps its own advice beside its own evidence below.
   const lead = voiceOf(s) ?? s.observations[0] ?? null;
+  // The voice's values in words and units, the comparison labelled by what it is.
+  const measured = lead ? measuredValuesOf(lead) : null;
   const limitations = [...new Set(s.observations.flatMap((o) => o.limitations))];
   const unknowns = [...new Set([...s.unknowns, ...s.observations.flatMap((o) => o.unknowns)])];
 
@@ -851,14 +853,14 @@ export function SituationDetail({
         )}
       </section>
 
-      {lead ? (
+      {measured ? (
         <section className="cgx-situation__block">
           <h3 className="cgx-situation__h">Measured values</h3>
           <dl className="cgx-facts">
-            <div><dt>Metric</dt><dd>{lead.primaryMetric}</dd></div>
-            <div><dt>{lead.currentWindow}</dt><dd>{formatMetricValue(lead.primaryMetric, lead.currentValue)}</dd></div>
-            <div><dt>{lead.comparisonWindow ?? 'Comparison'}</dt><dd>{lead.comparisonValue === null ? 'None' : formatMetricValue(lead.primaryMetric, lead.comparisonValue)}</dd></div>
-            <div><dt>Change</dt><dd>{formatRelativeChange(lead.percentageChange)}</dd></div>
+            <div><dt>Measure</dt><dd>{measured.subject}</dd></div>
+            <div><dt>{measured.current.label}</dt><dd>{measured.current.value}</dd></div>
+            {measured.comparison ? <div><dt>{measured.comparison.label}</dt><dd>{measured.comparison.value}</dd></div> : null}
+            {measured.comparison ? <div><dt>Change</dt><dd>{formatRelativeChange(lead!.percentageChange)}</dd></div> : null}
           </dl>
         </section>
       ) : null}

@@ -28,6 +28,7 @@ import { CommandShell, FreshnessBadge, KpiRow, PeriodBar, TrendChart, BarList } 
 import { TodaysBrief, TopPriorities } from '../src/app/app/admin/marketplace/executive-ui';
 import { withQuery, type CommandContext } from '../src/app/app/admin/marketplace/command-data';
 import { priorityOf } from '../src/app/app/admin/marketplace/executive-data';
+import { EvidenceDrawer } from '../src/app/app/admin/marketplace/intelligence-ui';
 import { readIntelFilter, intelQuery, matchesIntelFilter } from '../src/app/app/admin/marketplace/intelligence-filter';
 
 const NOW = new Date('2026-09-18T18:30:00.000Z'); // Fri 2:30 PM EDT
@@ -183,6 +184,43 @@ describe('the executive layer', () => {
     for (const kept of ['.cgx-kpis', '.cgx-kpi__value', '.cgx-kpi__change', '.cgx-health', '.cgx-prio']) {
       assert.equal(new RegExp(`\\${kept}[^{]*\\{[^}]*display: none`).test(phone), false, `${kept} is never hidden on a phone`);
     }
+  });
+});
+
+describe('a situation reads in words and units', () => {
+  it('REGRESSION (PR #300 review): no internal metric key or raw fraction on the situation page', () => {
+    const ev = (over: Record<string, unknown>) => ({
+      id: 'e', findingId: 'f', sourceType: 'call_projection', providerReport: 'CallGrid', metricKey: 'billableRate',
+      entityType: 'window', entityId: null, entityName: null, window: 'Today · Live', providerField: null,
+      rawValue: null, normalizedValue: null, derivedValue: null, formula: null, formulaVersion: null,
+      classification: 'DERIVED', completeness: 1, notes: null, ...over,
+    });
+    const finding = {
+      id: 'efficiency:billable-rate', findingType: 'OPERATIONAL', title: 'Billable rate increased 34%', plainLanguageSummary: 'x',
+      classification: 'DERIVED', severity: 'NOTABLE', confidence: 0.9, currentWindow: 'Today · Live', comparisonWindow: 'Yesterday · through 7:51 PM',
+      primaryMetric: 'billableRate', currentValue: 0.332, comparisonValue: 0.249, absoluteChange: null, percentageChange: 0.336,
+      affectedEntities: [], drivers: [], limitations: [], unknowns: [], recommendedReview: null, recommendedActionType: null,
+      actionTarget: null, actionSafety: 'SAFE_TO_REVIEW', createdAt: NOW.toISOString(), ruleId: 'billable-efficiency', ruleVersion: 'v1',
+      supportingEvidence: [
+        ev({ id: 'e1', metricKey: 'billableCalls', normalizedValue: 112, providerField: 'monetized' }),
+        ev({ id: 'e2', metricKey: 'revenue', normalizedValue: 413_200, providerField: 'revenueCents' }),
+        ev({ id: 'e3', metricKey: 'billableRate', derivedValue: 0.332, formula: 'billableCalls / totalCalls', formulaVersion: 'v1' }),
+      ],
+    } as never;
+    const html = renderToStaticMarkup(<EvidenceDrawer finding={finding} />);
+    const cells = [...html.matchAll(/<td[^>]*>([^<]*)</g)].map((m) => m[1]);
+    assert.ok(cells.includes('Billable rate') && cells.includes('Billable calls') && cells.includes('Revenue'), cells.join(' | '));
+    assert.ok(cells.includes('33.2%') && cells.includes('$4,132') && cells.includes('112'), cells.join(' | '));
+    assert.match(html, /billable calls \/ total calls \(v1\)/);
+    assert.equal(cells.some((c) => /^(billableRate|billableCalls|0\.332|413,200)$/.test(c ?? '')), false);
+
+    // The situation page takes its measured values and recorded evidence from the same words.
+    const queue = code(read(`${MKT}/queue-ui.tsx`));
+    assert.doesNotMatch(queue, /lead\.primaryMetric/);
+    assert.match(queue, /measuredValuesOf\(lead\)/);
+    const page = code(read(`${MKT}/intelligence/[id]/page.tsx`));
+    assert.doesNotMatch(page, /\{v\.metricKey\}/);
+    assert.match(page, /metricLabel\(v\.metricKey\)/);
   });
 });
 
