@@ -211,7 +211,7 @@ CallGrid label Net Profit (revenue − payout − telco cost). No migration. Rou
 (`ROUTINE_POLL_ORGANIZATIONS` unset) and is to become reconciliation only. **Next:** Matt verifies
 the three CallGrid webhook templates.
 
-## CallGrid command center — IN REVIEW (draft PR on `feat/callgrid-command-center`, off main `91cadee`)
+## CallGrid command center — IN REVIEW (draft PR #300 on `feat/callgrid-command-center`, off main `91cadee`)
 
 `/app/admin/marketplace` restructured from one long diagnostic page into layers: Overview (five
 KPIs, Today's Brief, at most three priorities, a compact workspace) → Money / Buyers / Vendors /
@@ -221,8 +221,47 @@ Sources / Campaigns / Bids / Intelligence → entity pages (`/buyers/[key]` etc.
 "Live" now comes from when CallGrid last delivered data, not the render clock. Pages now enforce
 `intelligence:view` (the permission their nav item always stated). Nothing was deleted from the
 old Overview: the queue, story, risk model, Loop's record and every limit are in Intelligence. No
-migration. **Next:** Matt reviews; after merge, confirm the freshness badge against a real day of
-CallGrid deliveries (production has had no routine poll, so "Live" rests on webhooks alone).
+migration.
+
+Pre-merge review fixes (same PR):
+- A Situation speaks with one finding's voice (`voiceFindingId`), so a priority's headline,
+  explanation and action cannot come from different findings.
+- The brief is a health band with a short reason plus at most two sentences (45-word cap).
+- Comparisons are withheld when Loop's call record (its first stored call, by Eastern day) does
+  not cover the comparison period, so there is no +305% on a half-covered month.
+- The phone layout keeps the health line and the first priority on the first screen.
+
+**Next:** Matt reviews. After merge, confirm the freshness badge against a real day of CallGrid
+deliveries (production has had no routine poll, so "Live" rests on webhooks alone).
+
+**Found, not fixed here (pre-existing on `main`):** a Situation's "What happened" can read
+"billableRate measured 0.332 … against 0.249". It shows the raw metric key and a fraction, because
+`observationOf` in `callgrid-decision-support.ts` formats only money. The fix is its own
+small PR.
+
+**NEXT CALLGRID MILESTONE: margin-setting intelligence. NOT STARTED, and deliberately not in #300.**
+Matt's requirements:
+- the historical margin-setting periods per campaign;
+- net profit per business day at each setting;
+- break-even volume;
+- realized-versus-set margin drift;
+- confidence;
+- a Hold / Adjust / Test / Watch recommendation.
+
+**Prerequisite, and a separate task:** audit whether CallGrid exposes, through an API Loop can
+ingest:
+- historical campaign margin / payout settings;
+- when each setting took effect;
+- schedules;
+- vendor-level overrides.
+
+Loop stores none of this today. `MarketplaceCall` carries revenue, payout, cost and rate per call;
+it holds no configured margin and no settings history. Do not assume the data exists. Do not
+substitute realized margin for configured margin: the milestone exists to compare the two.
+Hold/Adjust/Test also needs a written policy (thresholds, minimum sample, who may act), and it
+must stay inside the recommendation-safety vocabulary. Unverified lead for the audit: the CallGrid
+API surface has campaign, version-history and commission reads. Nobody has checked whether they
+carry settings history.
 
 ## The Decision Engine — DONE (merged #154)
 The final platform layer between intelligence producers and every consumer. **CallGrid now
