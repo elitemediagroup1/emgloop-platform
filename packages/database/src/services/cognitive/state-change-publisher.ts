@@ -42,6 +42,10 @@ import {
   type CognitiveRepositories,
 } from '../../repositories/cognitive';
 import { AuditRepository } from '../../repositories/audit.repository';
+import { CrmRelationshipReadModelRepository } from '../../repositories/crm-relationship-read-model.repository';
+import { PartyReadModelRepository } from '../../repositories/party-read-model.repository';
+import { DecisionEngine } from '../decision/decision-engine';
+import type { CreatorOnboardingDeps } from '../intelligence/creator-onboarding';
 import { CognitiveContextService } from './context-service';
 import {
   resolveSubscriber,
@@ -66,6 +70,7 @@ export interface PublisherDeps {
   repos?: CognitiveRepositories;
   contextService?: CognitiveContextService;
   audit?: Pick<AuditRepository, 'record'>;
+  intelligence?: CreatorOnboardingDeps;
 }
 
 export interface PublishResult {
@@ -116,6 +121,7 @@ export class StateChangePublisher {
   private readonly repos: CognitiveRepositories;
   private readonly contextService: CognitiveContextService;
   private readonly audit: Pick<AuditRepository, 'record'>;
+  private readonly intelligence: CreatorOnboardingDeps;
   private readonly maxAttempts: number;
   private readonly retryDelayMs: number;
   private readonly batchSize: number;
@@ -125,6 +131,11 @@ export class StateChangePublisher {
     this.repos = deps.repos ?? createCognitiveRepositories(prisma);
     this.contextService = deps.contextService ?? new CognitiveContextService(prisma, this.repos);
     this.audit = deps.audit ?? new AuditRepository(prisma);
+    this.intelligence = deps.intelligence ?? {
+      relationships: new CrmRelationshipReadModelRepository(prisma),
+      parties: new PartyReadModelRepository(prisma),
+      cases: new DecisionEngine(prisma),
+    };
     this.maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.retryDelayMs = opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
@@ -218,6 +229,7 @@ export class StateChangePublisher {
       contextService: this.contextService,
       decisions: this.repos.decisions,
       audit: this.audit,
+      intelligence: this.intelligence,
     };
 
     for (const delivery of deliveries) {

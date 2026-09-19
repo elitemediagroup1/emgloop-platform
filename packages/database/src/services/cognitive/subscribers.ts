@@ -19,6 +19,7 @@ import type {
 import type { AuditRepository } from '../../repositories/audit.repository';
 import type { CognitiveDecisionRepository } from '../../repositories/cognitive';
 import type { CognitiveContextService } from './context-service';
+import { onboardedCreator, reviewOnboardedCreator, type CreatorOnboardingDeps } from '../intelligence/creator-onboarding';
 import {
   DecisionPolicyRegistry,
   resolveDecisionPrecedence,
@@ -37,6 +38,11 @@ export interface SubscriberDeps {
   contextService: CognitiveContextService;
   decisions: CognitiveDecisionRepository;
   audit: Pick<AuditRepository, 'record'>;
+  /**
+   * Organization intelligence reviews (services/intelligence): governed reads of CRM Relationships
+   * and Parties, and the Decision Engine to record a Case. Absent: those reviews decline.
+   */
+  intelligence?: CreatorOnboardingDeps;
 }
 
 export interface HandlerResult {
@@ -204,7 +210,20 @@ const dashboardInvalidationSubscriber: SubscriberHandler = async () => ({
     'No org/projection-scoped cache-invalidation mechanism is callable from the database layer; revalidatePath is Next-runtime-only and not org-scoped. Deferred — see docs/architecture/loop-cognitive-architecture.md.',
 });
 
+// --- E. Creator-onboarding review ------------------------------------------------------------
+// When EMG starts representing a creator (a TALENT_REPRESENTATION Relationship becoming ACTIVE
+// today; Creator Hub's CreatorOnboarded event later), record ONE Case naming the brand
+// relationships worth a person's review, their known contacts, and what happened the last times.
+// Internal intelligence only: no outreach, no message, no work, no relationship written.
+const creatorOnboardingSubscriber: SubscriberHandler = async (ctx, deps) => {
+  if (!deps.intelligence) return { status: 'noop', summary: 'intelligence reviews are not wired here' };
+  const creator = await onboardedCreator(ctx.organizationId, ctx.outbox, deps.intelligence.relationships);
+  if (!creator) return { status: 'noop', summary: 'not a creator onboarding' };
+  return reviewOnboardedCreator(ctx.organizationId, { ...creator, eventId: ctx.outbox.id }, deps.intelligence, ctx.now);
+};
+
 export const SUBSCRIBER_HANDLERS: Record<string, SubscriberHandler> = {
+  'creator-onboarding-review': creatorOnboardingSubscriber,
   audit: auditSubscriber,
   'decision-evaluation': decisionEvaluationSubscriber,
   'work-os': workOsSubscriber,
