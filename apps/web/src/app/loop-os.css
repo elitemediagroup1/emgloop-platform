@@ -4340,11 +4340,42 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .cgx-prio__item { grid-template-columns: 30px minmax(0, 1fr); }
   .cgx-prio__open { grid-column: 2; justify-self: start; }
 }
+/* A phone: the health line and the first priority fit on the first screen. The header
+   keeps its title and controls, the KPIs keep all five figures in a compact grid (two
+   across, then three), and the brief and priorities tighten. Nothing is removed but
+   the eyebrow, the subtitle and the period sentence, which the controls restate. */
 @media (max-width: 480px) {
+  /* The shell already keeps a 16px gutter; the page adds none of its own. */
+  .cgx { gap: 10px; padding: 4px 0 16px; }
+  .cgx-eyebrow, .cgx-sub, .cgx-period-line__when { display: none; }
+  .cgx-period-line:not(.cgx-period-line--cov) { display: none; }
+  .cgx-period-line { margin: 0; }
+  .cgx-title { font-size: 20px; }
+  .cgx-head { gap: 8px; }
+  /* Period, date, then More ranges beside the freshness badge: two rows, not four. */
+  .cgx-head__side { width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .cgx-period { display: contents; }
+  .cgx-seg__item, .loop-page a.cgx-seg__item, .cgx a.cgx-seg__item { padding: 5px 8px; font-size: 12.5px; }
+  .cgx a.cgx-date__step, .cgx-date__step { width: 26px; height: 26px; }
+  .cgx-date__label { padding: 0 2px; font-size: 12px; }
+  .cgx-more__button { padding: 5px 10px; font-size: 12.5px; }
+  .cgx-fresh { padding: 4px 9px; font-size: 12px; }
+  .cgx-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+  .cgx a.cgx-kpi, .cgx-kpi { grid-column: span 2; grid-template-areas: 'label' 'value' 'sub' 'change' 'note'; grid-template-columns: minmax(0, 1fr); row-gap: 0; padding: 8px 10px; }
+  .cgx a.cgx-kpi:nth-child(-n+2), .cgx-kpi:nth-child(-n+2) { grid-column: span 3; }
   .cgx-kpi .cgx-spark { display: none; }
-  .cgx a.cgx-kpi, .cgx-kpi { grid-template-areas: 'label' 'value' 'change' 'note'; grid-template-columns: minmax(0, 1fr); }
-  .cgx-kpi__value { font-size: 20px; }
+  .cgx-kpi__label { font-size: 11.5px; }
+  .cgx-kpi__value { font-size: 18px; }
+  .cgx-kpi__value--none { font-size: 15px; }
+  .cgx-kpi__sub, .cgx-kpi__change, .cgx-kpi__note { font-size: 11px; }
+  .cgx-kpi__note { margin-top: 2px; }
   .cgx-kpi__vs { display: none; }
+  .cgx-brief, .cgx-prio { gap: 10px; padding: 14px; }
+  .cgx-brief__text { font-size: 13.5px; line-height: 1.5; }
+  .cgx-brief__title, .cgx-prio__title { font-size: 16px; }
+  .cgx-health { padding: 10px 12px; }
+  .cgx-health__text { font-size: 14px; }
+  .cgx-prio__item { gap: 10px; padding: 10px 0; }
   .cgx-actions { grid-template-columns: minmax(0, 1fr); }
 }
 .cgx-compose { display: flex; flex-direction: column; gap: 6px; }

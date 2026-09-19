@@ -3,7 +3,9 @@
 // ORDER, ON EVERY SECTION: header (what this is, which period, how current), the
 // five KPIs, the executive layer (Overview only: Today's Brief and Top Priorities),
 // the section selector, then the section's own workspace. A section REPLACES the
-// workspace; it never stacks onto one long page.
+// workspace; it never stacks onto one long page. On a phone the header and KPIs
+// compress (loop-os.css) so the health line and the first priority are on the
+// first screen; the KPIs are never dropped.
 //
 // Server components only. The period controls are links and a GET form, so they
 // work without JavaScript and keep every section on the same period. Charts are

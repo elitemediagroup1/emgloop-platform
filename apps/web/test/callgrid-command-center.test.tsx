@@ -174,6 +174,16 @@ describe('the executive layer', () => {
     const overview = renderToStaticMarkup(<CommandShell ctx={ctx} active="overview" path="/m" executive={<p>brief</p>}><p>w</p></CommandShell>);
     assert.equal(overview.includes(note), false, 'on the Overview the brief says it');
   });
+
+  it('on a phone the header and KPIs compress, and all five KPIs stay', () => {
+    const css = read('../src/app/loop-os.css');
+    const phone = /@media \(max-width: 480px\) \{([\s\S]*?)\n\}/.exec(css.slice(css.indexOf('/* A phone: the health line')))![1]!;
+    assert.match(phone, /\.cgx-kpis \{ grid-template-columns: repeat\(6, minmax\(0, 1fr\)\)/);
+    assert.match(phone, /\.cgx-eyebrow, \.cgx-sub, \.cgx-period-line__when \{ display: none; \}/);
+    for (const kept of ['.cgx-kpis', '.cgx-kpi__value', '.cgx-kpi__change', '.cgx-health', '.cgx-prio']) {
+      assert.equal(new RegExp(`\\${kept}[^{]*\\{[^}]*display: none`).test(phone), false, `${kept} is never hidden on a phone`);
+    }
+  });
 });
 
 describe('freshness is truthful', () => {
