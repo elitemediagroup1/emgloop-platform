@@ -542,6 +542,7 @@ export {
 export type {
   GoogleActor,
   GoogleConnectionRecord,
+  GoogleConnectionInventoryRow,
   ConsumedGoogleOAuthState,
   GoogleGrantToStore,
   GoogleStoreOutcome,

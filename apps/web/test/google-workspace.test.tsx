@@ -251,7 +251,8 @@ describe('onboarding and connections', () => {
 
 // --- The panel ------------------------------------------------------------------------------
 
-const time = createTimeView(resolveDisplayTimeZone({ device: 'UTC' }), new Date('2026-09-17T12:00:00Z'));
+const NOW = new Date('2026-09-17T12:00:00Z');
+const time = createTimeView(resolveDisplayTimeZone({ device: 'UTC' }), NOW);
 function status(over: Partial<GoogleWorkspaceStatus> = {}, capabilities: Partial<Record<'gmail' | 'calendar' | 'drive', GoogleCapabilityState>> = {}): GoogleWorkspaceStatus {
   return {
     permitted: true,
@@ -276,53 +277,147 @@ const render = (props: Parameters<typeof GoogleWorkspacePanel>[0]) => renderToSt
 const row = (html: string, capability: string) => html.match(new RegExp(`<div role="listitem" class="loop-row" data-capability="${capability}"[\\s\\S]*?(?=<div role="listitem"|</div></section>)`))?.[0] ?? '';
 
 describe('the panel', () => {
-  it('onboarding: three separate approvals, each a plain link for one capability, and a way on without any', () => {
+  it('onboarding: a separate approval for each source Loop reads, a plain link each, and a way on without any', () => {
     const html = render({ mode: 'ONBOARDING', status: status(), outcome: null, reconnect: [], time });
-    for (const [capability, label] of [['gmail', 'Gmail'], ['calendar', 'Calendar'], ['drive', 'Drive']]) {
+    for (const [capability, label] of [['gmail', 'Gmail'], ['calendar', 'Calendar']]) {
       const r = row(html, capability!);
       assert.match(r, /data-state="NOT_CONNECTED"/);
       assert.match(r, /Not connected/);
       assert.ok(r.includes(`<a class="loop-btn loop-btn--primary" href="/api/integrations/google/connect?capability=${capability}&amp;return=onboarding" rel="nofollow">Connect ${label}</a>`), capability);
     }
-    assert.match(html, /Never message bodies/);
-    assert.match(html, /Never file contents/);
+    // What is shown before consent is what the grant actually does (gmail.readonly + gmail.send).
+    assert.match(html, /a message body is read only when you open the conversation, and is never stored/);
+    assert.match(html, /Loop sends a reply only when you press Send/);
+    assert.doesNotMatch(html, /Never message bodies|Loop only ever reads/, 'the consent copy may not claim less access than the grant');
     assert.match(html, /<a class="loop-btn" href="\/app">Skip for now<\/a>/);
     assert.match(html, /Loop works without it/);
     assert.doesNotMatch(html, /Remove |Disconnect Google/, 'onboarding only adds');
     assert.doesNotMatch(html, /person@example\.com/);
   });
 
-  it('onboarding: continue once everything is connected', () => {
-    const html = render({ mode: 'ONBOARDING', status: status({ connection: live }, { gmail: 'CONNECTED', calendar: 'CONNECTED', drive: 'CONNECTED' }), outcome: 'CONNECTED', reconnect: [], time });
+  it('13. Drive: authorization never claims a Drive pipeline, and nothing offers to create one', () => {
+    for (const mode of ['ONBOARDING', 'CONNECTIONS'] as const) {
+      const none = row(render({ mode, status: status(), outcome: null, reconnect: [], time }), 'drive');
+      assert.match(none, /Not in use yet/);
+      assert.match(none, /Loop does not read Drive yet, so nothing from Drive appears in Loop/);
+      assert.doesNotMatch(none, /Connect Drive|Allow Drive|capability=drive/, `${mode}: no button for something nothing reads`);
+    }
+    // Charlie's existing authorization: shown as authorized and unused, and still removable.
+    const held = row(render({ mode: 'CONNECTIONS', status: status({ connection: live }, { drive: 'CONNECTED' }), outcome: null, reconnect: [], time }), 'drive');
+    assert.match(held, /data-readiness="NOT_IN_USE"/);
+    assert.match(held, /Authorized · not used/);
+    assert.equal((held.match(/Loop does not read Drive yet/g) ?? []).length, 1, 'said once, plainly');
+    assert.match(held, /Remove Drive/, 'an earlier authorization stays removable');
+    assert.doesNotMatch(held, />Ready<|>Connected<|Last read|Setting up/, 'no readiness for a source nothing reads');
+    // Asked for and refused is not "authorized".
+    const refused = row(render({ mode: 'CONNECTIONS', status: status({ connection: live }, { drive: 'INSUFFICIENT_SCOPE' }), outcome: null, reconnect: [], time }), 'drive');
+    assert.match(refused, /Not in use yet/);
+    assert.doesNotMatch(refused, /Allow Drive|Authorized/);
+  });
+
+  it('onboarding: continue once every source Loop reads is connected, whatever Drive holds', () => {
+    const html = render({
+      mode: 'ONBOARDING',
+      status: status({ connection: live }, { gmail: 'CONNECTED', calendar: 'CONNECTED', drive: 'NOT_CONNECTED' }),
+      outcome: 'CONNECTED',
+      reconnect: [],
+      sources: { gmail: { readiness: 'INITIALIZING', lastReadAt: null }, calendar: { readiness: 'READY', lastReadAt: new Date(NOW.getTime() - 8 * 60_000) } },
+      time,
+    });
     assert.match(html, /<a class="loop-btn loop-btn--primary" href="\/app">Continue to Loop<\/a>/);
     assert.match(html, /data-google-outcome="CONNECTED"/);
+    assert.match(html, /Each source below says whether Loop has read it yet/, 'granted is not read');
+    assert.doesNotMatch(html, /has not read anything/, 'another source may already be read');
     assert.match(html, /person@example\.com/);
     assert.match(html, /example\.com/);
     assert.doesNotMatch(html, /api\/integrations\/google\/connect/, 'nothing left to connect');
   });
 
-  it('connections: every state is shown for what it is, with the act that fits it', () => {
+  it('1–4. connected is not ready: each source says what Loop has actually read', () => {
+    const at = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000);
+    const shown = (readiness: 'INITIALIZING' | 'READY' | 'READING' | 'SYNC_FAILED', lastReadAt: Date | null, capability: 'gmail' | 'calendar' = 'gmail') =>
+      row(
+        render({
+          mode: 'CONNECTIONS',
+          status: status({ connection: live }, { gmail: 'CONNECTED', calendar: 'CONNECTED' }),
+          outcome: null,
+          reconnect: [],
+          sources: { [capability]: { readiness, lastReadAt } },
+          time,
+        }),
+        capability,
+      );
+
+    // 1. OAuth succeeded, nothing read yet: setting up -- never "Ready", never a bare "Connected".
+    const fresh = shown('INITIALIZING', null);
+    assert.match(fresh, /data-readiness="INITIALIZING"/);
+    assert.match(fresh, />Setting up</);
+    assert.match(fresh, /Loop is reading your mail for the first time, in the background\. It appears in Mail once that first read is done\./);
+    assert.doesNotMatch(fresh, />Ready<|>Connected<|Last read/);
+    assert.match(shown('INITIALIZING', null, 'calendar'), /Loop reads your calendar for the first time the next time you open Home, or in the background\./);
+
+    // 2. A completed read: ready, with when.
+    const ready = shown('READY', at(8));
+    assert.match(ready, />Ready</);
+    assert.ok(ready.includes(`Last read ${time.relative(at(8))}.`), ready);
+    assert.ok(shown('READING', at(40)).includes(`Loop is reading your mail now. Last read ${time.relative(at(40))}.`));
+
+    // 4. A failed read says so, and whether anything was ever read.
+    const failed = shown('SYNC_FAILED', at(90));
+    assert.match(failed, />Could not read</);
+    assert.ok(failed.includes(`Loop could not read your mail on its last try. It last read it ${time.relative(at(90))}, and tries again automatically.`), failed);
+    assert.match(shown('SYNC_FAILED', null), /Loop’s first read of your mail did not finish\. It tries again in the background\./);
+
+    // A deployment that cannot use Google: unavailable, never "setting up".
+    const unconfigured = row(
+      render({ mode: 'CONNECTIONS', status: status({ connection: live, configured: false }, { gmail: 'CONNECTED' }), outcome: null, reconnect: [], sources: { gmail: { readiness: 'NOT_CONFIGURED', lastReadAt: null } }, time }),
+      'gmail',
+    );
+    assert.match(unconfigured, />Unavailable</);
+    assert.doesNotMatch(unconfigured, /Setting up|reading your mail/);
+
+    // Connected, but Loop could not check its own reads: said, never guessed.
+    const unknown = row(render({ mode: 'CONNECTIONS', status: status({ connection: live }, { gmail: 'CONNECTED' }), outcome: null, reconnect: [], time }), 'gmail');
+    assert.match(unknown, /Loop could not check what it has read from your mail just now/);
+    assert.doesNotMatch(unknown, />Ready</);
+  });
+
+  it('3. an expired or withdrawn grant is "reconnect required"; a partial grant names what to allow', () => {
     const html = render({
       mode: 'CONNECTIONS',
-      status: status({ connection: { ...live, hostedDomain: null } }, { gmail: 'CONNECTED', calendar: 'EXPIRED', drive: 'INSUFFICIENT_SCOPE' }),
+      status: status({ connection: { ...live, hostedDomain: null } }, { gmail: 'INSUFFICIENT_SCOPE', calendar: 'EXPIRED', drive: 'NOT_CONNECTED' }),
       outcome: 'PARTIAL',
       reconnect: [],
+      sources: { gmail: { readiness: 'PERMISSION_NEEDED', lastReadAt: null }, calendar: { readiness: 'RECONNECT_REQUIRED', lastReadAt: null } },
       time,
     });
-    assert.match(row(html, 'gmail'), /Connected/);
-    assert.match(row(html, 'gmail'), /<input type="hidden" name="capability" value="gmail"\/>/);
-    assert.match(row(html, 'gmail'), /Remove Gmail/);
-    assert.match(row(html, 'calendar'), /Expired — reconnect/);
+    assert.match(row(html, 'gmail'), /Permission needed/);
+    assert.match(row(html, 'gmail'), /Loop needs permission to read your mail and to send the replies you write\. Choose Allow Gmail and tick every box/);
+    assert.match(row(html, 'gmail'), />Allow Gmail</);
+    assert.match(row(html, 'calendar'), /Reconnect required/);
+    assert.match(row(html, 'calendar'), /Google no longer accepts Loop’s access, so Loop cannot read your calendar/);
     assert.match(row(html, 'calendar'), /href="\/api\/integrations\/google\/connect\?capability=calendar" rel="nofollow">Reconnect Calendar</);
-    assert.match(row(html, 'drive'), /Access not allowed/);
-    assert.match(row(html, 'drive'), />Allow Drive</);
     assert.match(html, /Personal Google account \(no Workspace domain\)/);
     assert.match(html, /Disconnect Google/);
     assert.match(html, /<input type="hidden" name="return" value="CONNECTIONS"\/>/);
     assert.match(html, /Some access was not allowed/);
   });
 
-  it('after removing a capability, the kept ones are offered as one fresh approval', () => {
+  it('connections: a ready source can be removed on its own', () => {
+    const html = render({
+      mode: 'CONNECTIONS',
+      status: status({ connection: live }, { gmail: 'CONNECTED' }),
+      outcome: null,
+      reconnect: [],
+      sources: { gmail: { readiness: 'READY', lastReadAt: new Date(NOW.getTime() - 60_000) } },
+      time,
+    });
+    assert.match(row(html, 'gmail'), /<input type="hidden" name="capability" value="gmail"\/>/);
+    assert.match(row(html, 'gmail'), /Remove Gmail/);
+    assert.match(html, /Linked\. What Loop has read from it is shown under Access\./);
+  });
+
+  it('after removing a capability, the kept ones Loop reads are offered as one fresh approval', () => {
     const html = render({
       mode: 'CONNECTIONS',
       status: status({ connection: { ...live, status: 'REVOKED', revokedAt: new Date('2026-09-17T11:30:00Z') } }),
@@ -331,7 +426,7 @@ describe('the panel', () => {
       time,
     });
     assert.match(html, /Approve the access you kept/);
-    assert.match(html, /href="\/api\/integrations\/google\/connect\?capability=calendar%2Cdrive" rel="nofollow">Continue to Google</);
+    assert.match(html, /href="\/api\/integrations\/google\/connect\?capability=calendar" rel="nofollow">Continue to Google</, 'Drive is not re-offered: nothing reads it');
     assert.doesNotMatch(html, /person@example\.com/, 'a revoked account is not presented as connected');
     assert.doesNotMatch(html, /Disconnect Google/);
   });

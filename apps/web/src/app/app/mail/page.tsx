@@ -110,11 +110,13 @@ function MailBody({ dashboard, state, time }: { dashboard: MailDashboard; state:
             </>
           ) : null}
         </p>
-        <RefreshMail />
+        {/* Refresh reads what changed since Loop's position in the mailbox. Before the first read
+            there is no position, so there is nothing for it to do and it is not offered. */}
+        {mail.canRefresh ? <RefreshMail /> : null}
       </div>
 
       {!dashboard.concludable ? (
-        <MailEmpty freshness={mail.freshness} knows={mail.knows} refresh={<RefreshMail />} />
+        <MailEmpty freshness={mail.freshness} knows={mail.knows} refresh={mail.canRefresh ? <RefreshMail /> : undefined} />
       ) : (
         <>
           <SummaryCards summary={summary} state={state} />

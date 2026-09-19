@@ -494,8 +494,14 @@ async function main(): Promise<number> {
         eligible: (organizationId) => connections.connectedMembers(organizationId, CYCLE_SOURCE_CAPABILITY[source]),
         // This source's own runs: a calendar pass in flight is not a reason to skip a mailbox.
         lastRun: async (principal) => (await sources.recentRuns(principal, 1, CYCLE_SOURCE_WORK_SOURCE[source]))[0] ?? null,
-        sync: (principal, options) =>
-          source === 'gmail' ? mailboxes.syncGmail(principal, options) : calendars.syncCalendar(principal, options),
+        sync: async (principal, options) => {
+          if (source !== 'gmail') return calendars.syncCalendar(principal, options);
+          // THE CYCLE IS THE ONE CALLER WITH FULL REACH: it performs a mailbox's first 14-day read,
+          // which a page request never does (GmailSyncOptions.reach). FULL never defers; were it
+          // ever to, a pass that read nothing must not be counted as a read.
+          const pass = await mailboxes.syncGmail(principal, { ...options, reach: 'FULL' });
+          return { ...pass, outcome: pass.outcome === 'DEFERRED' ? 'FAILED' : pass.outcome };
+        },
         log,
         now: () => new Date(),
       },

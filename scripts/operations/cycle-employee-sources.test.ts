@@ -148,6 +148,23 @@ test('one employee failing does not end the cycle for anybody else', async () =>
   assert.ok(cycleSucceeded(result.overall), 'somebody being rate-limited is not a broken cycle');
 });
 
+test('14. Gmail: the first person’s failed read does not stop the next person’s -- Matt failing never blocks Charlie', async () => {
+  const w = world({
+    sync: async (principal) =>
+      principal.userId === 'u1' ? outcome({ outcome: 'FAILED', mode: 'WINDOW', failure: 'UNAVAILABLE', cursorAdvanced: false }) : outcome({ mode: 'WINDOW' }),
+  });
+  const result = await runCalendarCycle({ source: 'gmail', organizationSlugs: ['emg'], baseline: false }, w.deps);
+  assert.deepEqual(w.calls.map((c) => c.principal.userId), ['u1', 'u2', 'u3'], 'everybody after the failure is still attempted');
+  assert.equal(result.failed, 1);
+  assert.equal(result.synced, 2);
+  assert.equal(result.overall, 'COMPLETED_WITH_FAILURES');
+});
+
+test('the Gmail cycle is the one caller with FULL reach: it performs the first read that a page never does', () => {
+  const runner = readFileSync(join(__dirname, 'cycle-employee-sources.ts'), 'utf8');
+  assert.match(runner, /mailboxes\.syncGmail\(principal, \{ \.\.\.options, reach: 'FULL' \}\)/);
+});
+
 test('an employee whose pass throws is a failure of that pass only, and its message is dropped', async () => {
   const w = world({
     sync: async (principal) => {
@@ -444,7 +461,9 @@ test('a Gmail baseline asks for a fresh window for everybody, exactly as Calenda
 
 test('the Gmail workflow runs hourly, baselines weekly, and is off until somebody switches it on', () => {
   const crons = [...GMAIL_WORKFLOW.matchAll(/- cron: '([^']+)'/g)].map((m) => m[1]);
-  assert.deepEqual(crons, ['0 * * * *', '55 4 * * 0'], 'hourly, and a weekly baseline');
+  // Off the hour (:17): GitHub delays scheduled runs most at the start of each hour, and this pass
+  // is what turns a newly connected mailbox from "setting up" into mail.
+  assert.deepEqual(crons, ['17 * * * *', '55 4 * * 0'], 'hourly off the hour, and a weekly baseline');
   // Not the same minute as the Calendar baseline: two long passes should not queue behind each
   // other for no reason.
   const calendarCrons = [...WORKFLOW.matchAll(/- cron: '([^']+)'/g)].map((m) => m[1]);

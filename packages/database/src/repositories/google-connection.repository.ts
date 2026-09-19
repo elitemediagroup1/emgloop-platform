@@ -71,6 +71,16 @@ export interface GoogleConnectionRecord {
   readonly revocationConfirmedAt: Date | null;
 }
 
+/** One row of `inventory`: a connection and its holder's standing, with no credential. */
+export interface GoogleConnectionInventoryRow {
+  readonly userId: string;
+  readonly nameInitial: string | null;
+  readonly membershipStatus: string | null;
+  readonly systemRole: string | null;
+  readonly connection: GoogleConnectionRecord;
+  readonly hasCredential: boolean;
+}
+
 export interface ConsumedGoogleOAuthState {
   readonly capabilities: readonly GoogleWorkspaceCapability[];
   readonly returnTo: GoogleConnectReturnTarget;
@@ -346,6 +356,40 @@ export class GoogleConnectionRepository {
       select: { userId: true },
     });
     return rows.map((row) => ({ userId: row.userId }));
+  }
+
+  /**
+   * Every Google connection in ONE organization, for an operator's read-only diagnosis.
+   *
+   * It returns the connection's lifecycle, which scopes were asked for and granted, whether a
+   * credential is stored (a yes or a no -- never the bytes), the holder's membership standing, and
+   * the FIRST LETTER of their display name. That letter is the only identity it carries: an
+   * operator telling two test users apart needs no more, and an address, a Google account or a
+   * user id has no place in a CI log. Nothing here authorizes anything.
+   */
+  async inventory(organizationId: string): Promise<GoogleConnectionInventoryRow[]> {
+    const rows = await this.prisma.googleConnection.findMany({ where: { organizationId }, orderBy: { userId: 'asc' } });
+    if (rows.length === 0) return [];
+    const userIds = rows.map((r) => r.userId);
+    const [memberships, users] = await Promise.all([
+      this.prisma.organizationMembership.findMany({
+        where: { organizationId, userId: { in: userIds } },
+        select: { userId: true, status: true, systemRole: true },
+      }),
+      this.prisma.user.findMany({ where: { organizationId, id: { in: userIds } }, select: { id: true, name: true } }),
+    ]);
+    return rows.map((row) => {
+      const membership = memberships.find((m) => m.userId === row.userId) ?? null;
+      const name = users.find((u) => u.id === row.userId)?.name?.trim() ?? '';
+      return Object.freeze({
+        userId: row.userId,
+        nameInitial: name ? name.charAt(0).toUpperCase() : null,
+        membershipStatus: membership ? String(membership.status) : null,
+        systemRole: membership ? String(membership.systemRole) : null,
+        connection: record(row),
+        hasCredential: sealedOf(row) !== null,
+      });
+    });
   }
 
   /** The sealed credential of this person's CONNECTED connection, or null. */

@@ -6,7 +6,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -35,6 +36,12 @@ const NOW = new Date('2026-09-18T16:00:00Z');
 const time = createTimeView(NY, NOW);
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
 const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+const SRC = fileURLToPath(new URL('../src', import.meta.url));
+const walk = (dir: string): string[] =>
+  readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f);
+    return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(f) ? [p] : [];
+  });
 
 function thread(over: Partial<MailThreadSummary> = {}): MailThreadSummary {
   return {
@@ -131,7 +138,7 @@ const MAILBOX: MailDashboardRow[] = [
 function dashboard(rows: MailDashboardRow[] = MAILBOX, over: Partial<MailDashboard> = {}): MailDashboard {
   const byId = new Map(rows.map((r) => [r.insight.threadId, r]));
   return {
-    mail: { now: NOW, freshness: 'CURRENT', lastSyncedAt: ago(60_000), syncInProgress: false, refreshed: false, threads: rows.map((r) => r.thread), knows: true },
+    mail: { now: NOW, freshness: 'CURRENT', canRefresh: true, lastSyncedAt: ago(60_000), syncInProgress: false, refreshed: false, threads: rows.map((r) => r.thread), knows: true },
     concludable: true,
     current: true,
     now: NOW,
@@ -199,9 +206,11 @@ describe('the inbox shows conversations, and says how current it is', () => {
     const at = new Date('2026-09-18T15:00:00Z');
     assert.match(mailCurrency('CURRENT', at, false, time).line, /Loop read your mail/);
     assert.match(mailCurrency('STALE', at, false, time).line, /Loop last read your mail/);
-    assert.match(mailCurrency('NEVER_SYNCED', null, false, time).line, /has not read your mail yet/);
+    // Never read: the first read is the cycle's, in the background -- not "when you open Loop".
+    assert.equal(mailCurrency('NEVER_SYNCED', null, false, time).line, 'Loop is setting up your mail. It reads the last two weeks in the background, not while you wait.');
+    assert.equal(mailCurrency('NEVER_SYNCED', null, true, time).line, 'Loop is reading your mail for the first time.');
     assert.match(mailCurrency('SYNC_FAILED', at, false, time).line, /as Loop last read it/);
-    assert.match(mailCurrency('SYNC_FAILED', null, false, time).line, /could not reach Gmail/);
+    assert.match(mailCurrency('SYNC_FAILED', null, false, time).line, /first read of your mail did not finish\. It tries again in the background/);
     // A sync in flight is its own state, not a guess at how old the data is.
     assert.match(mailCurrency('STALE', at, true, time).line, /reading your mail now/);
 
@@ -218,7 +227,10 @@ describe('the inbox shows conversations, and says how current it is', () => {
     assert.match(empty, /Nothing in the last two weeks/);
 
     const never = renderToStaticMarkup(<MailEmpty freshness="NEVER_SYNCED" knows={false} />);
-    assert.match(never, /has not read your mail yet/);
+    assert.match(never, /Loop is setting up your mail/);
+    assert.match(never, /reads the last two weeks of it in the background, not while you wait/);
+    assert.equal(never.includes('when you open Loop'), false, 'a visit no longer performs the first read');
+    assert.equal(never.includes('Read my mail again'), false, 'no Refresh before there is anything it could read');
     assert.equal(never.includes('Nothing in the last two weeks'), false);
 
     const failed = renderToStaticMarkup(<MailEmpty freshness="SYNC_FAILED" knows={false} />);
@@ -657,8 +669,25 @@ describe('Home: Your Mail is a few truly useful alerts, not a second inbox', () 
     const unread = renderToStaticMarkup(
       <YourMail dashboard={dashboard([], { concludable: false, current: false })} time={time} currency={mailCurrency('NEVER_SYNCED', null, false, time)} />,
     );
-    assert.match(unread, /has not read your mail yet/);
+    assert.match(unread, /Loop is setting up your mail/);
     assert.equal(unread.includes('loop-yourmail__counts'), false);
+  });
+
+  it('5/6. neither Home nor Mail can perform the first 14-day read: every Gmail sync a page can start has FRESHNESS reach', () => {
+    const files = walk(SRC);
+    const syncCalls = files.flatMap((f) => [...code(readFileSync(f, 'utf8')).matchAll(/\.syncGmail\(([^)]*)\)/g)].map((m) => ({ f, args: m[1]! })));
+    assert.ok(syncCalls.length >= 1, 'the web tier still reads mail');
+    for (const { f, args } of syncCalls) assert.match(args, /reach: 'FRESHNESS'/, `${f} must not start a first read`);
+    // One assembly of the sync in the web tier, and Home and Mail reach it only through the read model.
+    const assemblers = files.filter((f) => /createEmployeeGmailSync\(/.test(code(readFileSync(f, 'utf8'))));
+    assert.deepEqual(assemblers.map((f) => f.slice(f.indexOf('/src/'))), ['/src/daily-loop/mail-runtime.ts']);
+    for (const page of ['../src/app/app/page.tsx', '../src/app/app/mail/page.tsx']) {
+      const text = code(read(page));
+      assert.equal(/mail-runtime|syncGmail|createEmployeeGmailSync/.test(text), false, `${page} reads mail only through loadMailDashboard`);
+      assert.match(text, /loadMailDashboard\(principal/);
+    }
+    // Refresh is offered only where it can do something: a stored position to read changes from.
+    assert.match(code(read('../src/app/app/mail/page.tsx')), /\{mail\.canRefresh \? <RefreshMail \/> : null\}/);
   });
 
   it('Home reads mail through the same read model as Mail, on its own, with the Inbox’s own currency line', () => {
