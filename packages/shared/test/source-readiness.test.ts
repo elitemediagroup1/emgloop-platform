@@ -6,6 +6,7 @@ import {
   GOOGLE_WORKSPACE_CAPABILITY_IN_USE,
   GOOGLE_WORKSPACE_CAPABILITY_READS,
   WORK_SYNC_IN_FLIGHT_MS,
+  deriveSourceState,
   sourceReadiness,
   syncRunInFlight,
   workSourceFreshness,
@@ -64,4 +65,37 @@ test('13. Drive is authorized but not used, and its description claims no readin
   assert.equal(GOOGLE_WORKSPACE_CAPABILITY_IN_USE.drive, false);
   assert.deepEqual([...GOOGLE_WORKSPACE_CAPABILITIES_IN_USE], ['gmail', 'calendar']);
   assert.match(GOOGLE_WORKSPACE_CAPABILITY_READS.drive, /^Loop does not read Drive yet, so nothing from Drive appears in Loop\./);
+});
+
+// --- deriveSourceState: the one derivation every reader uses ------------------------------------
+
+
+test('2. a valid grant and a successful read is READY; the grant alone never is', () => {
+  const read = { cursor: 'h-9100', lastSyncCompletedAt: ago(3 * MIN) };
+  const run = { startedAt: ago(4 * MIN), finishedAt: ago(3 * MIN), outcome: 'SUCCEEDED' as const };
+  assert.deepEqual(
+    { ...deriveSourceState('GMAIL', { configured: true, capability: 'CONNECTED', cursor: read, lastRun: run }, NOW) },
+    { freshness: 'CURRENT', readiness: 'READY', lastReadAt: ago(3 * MIN), inFlight: false, hasPosition: true },
+  );
+  assert.equal(deriveSourceState('GMAIL', { configured: true, capability: 'CONNECTED', cursor: null, lastRun: null }, NOW).readiness, 'INITIALIZING');
+});
+
+test('3. the current grant outranks history: stored reads never make a source ready without the permission to read it', () => {
+  const history = { cursor: null, lastSyncCompletedAt: ago(12 * 60 * MIN) };
+  const run = { startedAt: ago(12 * 60 * MIN + MIN), finishedAt: ago(12 * 60 * MIN), outcome: 'TRUNCATED' as const };
+  assert.equal(deriveSourceState('GMAIL', { configured: true, capability: 'INSUFFICIENT_SCOPE', cursor: history, lastRun: run }, NOW).readiness, 'PERMISSION_NEEDED');
+  assert.equal(deriveSourceState('GMAIL', { configured: true, capability: 'EXPIRED', cursor: history, lastRun: run }, NOW).readiness, 'RECONNECT_REQUIRED');
+  assert.equal(deriveSourceState('GMAIL', { configured: true, capability: 'NOT_CONNECTED', cursor: history, lastRun: run }, NOW).readiness, 'NOT_CONNECTED');
+  // ...and with the permission, the same history is a real read, twelve hours old.
+  const matt = deriveSourceState('GMAIL', { configured: true, capability: 'CONNECTED', cursor: history, lastRun: run }, NOW);
+  assert.equal(matt.readiness, 'READY');
+  assert.equal(matt.freshness, 'STALE');
+  assert.equal(matt.hasPosition, false, 'no position yet: only the cycle can re-read it');
+});
+
+test('Charlie’s production facts: three rate-limited first reads and no completed one is SYNC_FAILED, not ready and not "setting up"', () => {
+  const failed = { startedAt: new Date('2026-09-19T08:56:56Z'), finishedAt: new Date('2026-09-19T08:57:19Z'), outcome: 'FAILED' as const };
+  const state = deriveSourceState('GMAIL', { configured: true, capability: 'CONNECTED', cursor: null, lastRun: failed }, NOW);
+  assert.equal(state.readiness, 'SYNC_FAILED');
+  assert.equal(state.lastReadAt, null);
 });

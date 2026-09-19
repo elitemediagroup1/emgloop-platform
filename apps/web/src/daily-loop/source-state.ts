@@ -1,7 +1,7 @@
 // Where one person's Gmail or Calendar stands: connected, and what Loop has actually read. SERVER ONLY.
 //
 // Architecture: docs/architecture/daily-loop-employee-intelligence.md §22.4 (freshness) and
-// @emgloop/shared `sourceReadiness`.
+// @emgloop/shared `deriveSourceState` -- the same derivation Read Employee Sources prints.
 //
 // ONE DERIVATION FOR EVERY SURFACE. Connections, Mail and Home all ask the same question -- can
 // Loop stand behind this source, and if not, which kind of not -- so they read it from here and
@@ -12,21 +12,12 @@
 // scoped by organization AND person through the DL-1 repositories: there is no argument that
 // reports on somebody else's mailbox or calendar.
 import 'server-only';
-import {
-  CALENDAR_FRESHNESS_POLICY,
-  GMAIL_FRESHNESS_POLICY,
-  sourceReadiness,
-  syncRunInFlight,
-  workSourceFreshness,
-  type SourceReadiness,
-  type WorkSourceFreshness,
-} from '@emgloop/shared';
+import { deriveSourceState, type SourceReadiness, type WorkSourceFreshness } from '@emgloop/shared';
 import { WorkSourceRepository, prisma, type GoogleWorkspaceStatus, type WorkPrincipal } from '@emgloop/database';
 
 export type ReadSource = 'GMAIL' | 'CALENDAR';
 
 const CAPABILITY = { GMAIL: 'gmail', CALENDAR: 'calendar' } as const;
-const POLICY = { GMAIL: GMAIL_FRESHNESS_POLICY, CALENDAR: CALENDAR_FRESHNESS_POLICY } as const;
 
 export interface SourceState {
   readonly source: ReadSource;
@@ -48,27 +39,13 @@ export async function loadSourceState(
 ): Promise<SourceState> {
   const sources = new WorkSourceRepository(prisma);
   const [cursor, runs] = await Promise.all([sources.cursor(principal, source), sources.recentRuns(principal, 1, source)]);
-  const last = runs[0] ?? null;
-  const lastReadAt = cursor?.lastSyncCompletedAt ?? null;
-  const freshness = workSourceFreshness(
-    {
-      configured: status.configured,
-      capability: status.capabilities[CAPABILITY[source]] as 'CONNECTED' | 'NOT_CONNECTED' | 'INSUFFICIENT_SCOPE' | 'EXPIRED',
-      lastSyncCompletedAt: lastReadAt,
-      lastRunOutcome: last?.outcome ?? null,
-    },
-    now,
-    POLICY[source],
-  );
-  const inFlight = syncRunInFlight(last, now);
-  return {
+  // The one derivation every reader uses, including the operator's Read Employee Sources.
+  const derived = deriveSourceState(
     source,
-    freshness,
-    readiness: sourceReadiness({ freshness, inFlight, everRead: lastReadAt !== null }),
-    lastReadAt,
-    inFlight,
-    hasPosition: cursor?.cursor != null,
-  };
+    { configured: status.configured, capability: status.capabilities[CAPABILITY[source]], cursor, lastRun: runs[0] ?? null },
+    now,
+  );
+  return { source, ...derived };
 }
 
 /**

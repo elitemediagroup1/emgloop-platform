@@ -19,16 +19,12 @@
 // production, and a human should be the one asking.
 
 import {
-  CALENDAR_FRESHNESS_POLICY,
-  GMAIL_FRESHNESS_POLICY,
   GOOGLE_WORKSPACE_CAPABILITIES,
   GOOGLE_WORKSPACE_CAPABILITY_SCOPES,
   GOOGLE_WORKSPACE_LEGACY_SCOPES,
+  deriveSourceState,
   googleCapabilityStates,
-  workSourceFreshness,
-  type GoogleCapabilityState,
   type GoogleWorkspaceCapability,
-  type WorkFreshnessPolicy,
   type WorkSource,
 } from '@emgloop/shared';
 import type {
@@ -60,10 +56,10 @@ export interface EmployeeSourcesResult {
   readonly connections: number;
 }
 
-/** The sources the scheduled cycle reads, the capability each needs, and how fresh "fresh" is. */
-const READ_SOURCES: readonly { source: WorkSource; capability: GoogleWorkspaceCapability; policy: WorkFreshnessPolicy }[] = [
-  { source: 'GMAIL', capability: 'gmail', policy: GMAIL_FRESHNESS_POLICY },
-  { source: 'CALENDAR', capability: 'calendar', policy: CALENDAR_FRESHNESS_POLICY },
+/** The sources the scheduled cycle reads, and the capability each needs. */
+const READ_SOURCES: readonly { source: 'GMAIL' | 'CALENDAR'; capability: GoogleWorkspaceCapability }[] = [
+  { source: 'GMAIL', capability: 'gmail' },
+  { source: 'CALENDAR', capability: 'calendar' },
 ];
 
 /** How many recent runs per source are printed. Enough to see a first read and what followed. */
@@ -146,30 +142,26 @@ export async function runEmployeeSources(request: { organizationSlug: string }, 
 
     deps.log(line({ event: 'CAPABILITIES', ref, ...Object.fromEntries(GOOGLE_WORKSPACE_CAPABILITIES.map((cap) => [cap, states[cap]])) }));
 
-    for (const { source, capability, policy } of READ_SOURCES) {
+    for (const { source, capability } of READ_SOURCES) {
       const cursor = await deps.sources.cursor(principal, source);
       const runs = await deps.sources.recentRuns(principal, RECENT_RUNS, source);
-      const freshness = workSourceFreshness(
-        {
-          // The web tier's Google client is configured in production; this runner cannot see its
-          // environment, and "not configured" is a deployment fact, not this person's state.
-          configured: true,
-          capability: states[capability] as GoogleCapabilityState,
-          lastSyncCompletedAt: cursor?.lastSyncCompletedAt ?? null,
-          lastRunOutcome: runs[0]?.outcome ?? null,
-        },
-        now,
-        policy,
-      );
+      // THE SAME DERIVATION Connections, Mail and Home use (deriveSourceState), from the same stored
+      // facts, so this line and the person's own screen cannot disagree. One input differs by
+      // necessity: this runner cannot see the web tier's environment, so it takes the Google client
+      // as configured -- "not configured" is a deployment fact, visible on every page, not a
+      // property of this person.
+      const state = deriveSourceState(source, { configured: true, capability: states[capability], cursor, lastRun: runs[0] ?? null }, now);
       deps.log(line({
         event: 'SOURCE',
         ref,
         source,
         eligible: eligible.get(capability)?.has(row.userId) ?? false,
-        freshness,
+        readiness: state.readiness,
+        freshness: state.freshness,
+        position: state.hasPosition,
         cursor: cursor?.cursorKind ?? null,
         lastStarted: iso(cursor?.lastSyncStartedAt ?? null),
-        lastCompleted: iso(cursor?.lastSyncCompletedAt ?? null),
+        lastCompleted: iso(state.lastReadAt),
         lastFailure: cursor?.lastFailureClass ?? null,
         backoffUntil: iso(cursor?.backoffUntil ?? null),
         runs: runs.length,
