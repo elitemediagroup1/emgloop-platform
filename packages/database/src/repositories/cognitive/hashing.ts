@@ -50,6 +50,18 @@ export function identifierKeyConfigured(): boolean {
 }
 
 /**
+ * A one-way fingerprint of the key `hashIdentifier` uses right now: an HMAC of a fixed label under
+ * that key, truncated. It cannot recover the key. Stored beside every identifier hashed under it,
+ * it lets a reader in ANOTHER runtime (the Gmail cycle, in GitHub Actions) tell "this evidence was
+ * written under a different key, so I can never match it" apart from "nothing matched". Changing
+ * the key after evidence exists makes every earlier row unmatchable, and the raw values are not
+ * stored, so they cannot be re-hashed; this is how that mistake shows itself.
+ */
+export function identifierKeyFingerprint(): string {
+  return createHmac('sha256', resolveSecret()).update('loop.identity-key-fingerprint.v1').digest('hex').slice(0, 16);
+}
+
+/**
  * Normalize a raw identifier before hashing so trivially-different spellings
  * resolve to the same identity (case, surrounding whitespace, and — for
  * phone-like values — non-digit punctuation). Deliberately conservative: it

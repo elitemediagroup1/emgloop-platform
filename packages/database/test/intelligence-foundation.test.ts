@@ -738,3 +738,25 @@ test('D1f. without the configured identifier key the detector compares nothing, 
   }
 });
 
+test('D1g. identifiers recorded under a different key are counted as keyMismatch -- never silently "no match"', async () => {
+  const { identifierKeyFingerprint } = await import('../src/repositories/cognitive/hashing');
+  const w = world();
+  const matt = await person(w, ORG_A, 'OWNER', 'Matt');
+  const configured = process.env.COGNITIVE_HASH_SECRET!;
+  const fingerprintA = identifierKeyFingerprint();
+  await danaAtAcme(w, matt); // recorded under key A
+  assert.equal((w.fake.identityEvidence.__rows[0].metadata as { keyFingerprint?: string }).keyFingerprint, fingerprintA, 'each row says which key hashed it');
+  assert.equal(JSON.stringify(w.fake.identityEvidence.__rows).includes(configured), false, 'the fingerprint is not the key');
+  await inbound(w, matt, 't-dana', 'dana@acme.test', ago(3 * H), 'Renewal terms', 'Dana');
+  try {
+    process.env.COGNITIVE_HASH_SECRET = 'a-different-key-in-another-runtime';
+    assert.notEqual(identifierKeyFingerprint(), fingerprintA);
+    const counts = countsOf(await read(w, matt), 'identity-suggestions');
+    assert.equal(counts.keyMismatch, 1, 'the row this key can never match is reported');
+    assert.equal(counts.proposed, 0);
+  } finally {
+    process.env.COGNITIVE_HASH_SECRET = configured;
+  }
+  const counts = countsOf(await read(w, matt, new Date(NOW.getTime() + H)), 'identity-suggestions');
+  assert.deepEqual([counts.keyMismatch, counts.proposed], [0, 1], 'under the same key it matches');
+});
