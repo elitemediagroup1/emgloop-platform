@@ -122,16 +122,19 @@ connection state truthful and moves Gmail's first read off page requests. **No m
 - **Order matters:**
   1. Merge. The scheduled Gmail job runs `main`'s code, and before this PR a capped first read keeps
      no position, so a busy mailbox would never reach incremental reads.
-  2. Then, straight away, set `DAILY_LOOP_GMAIL_ORGANIZATIONS=servicesinmycity-demo`.
-  3. Then dispatch the Gmail cycle.
+  2. Dispatch `Read Employee Sources` for `servicesinmycity-demo`. It confirms which `ref` is whom, and
+     that both people hold `gmail.readonly` **and** `gmail.send`. A grant made before GM-1 holds only
+     the legacy `gmail.metadata`; that person must choose "Allow Gmail" on Connections first. It also
+     shows the grant dates: in Testing mode a grant stops working 7 days after it was issued.
+  3. Set `DAILY_LOOP_GMAIL_ORGANIZATIONS=servicesinmycity-demo`.
+  4. Dispatch the Gmail cycle with `baseline: true`, then once more without it (the second run must be
+     INCREMENTAL for both).
+  5. Dispatch `Read Employee Sources` again: each person's own rows.
 
-  Until the variable is set, a never-read mailbox truthfully shows "Setting up", and no page performs
-  its first read.
-- **Needs Matt:**
-  - merge the PR;
-  - dispatch `read-employee-sources` once it is on `main`;
-  - approve and set the Gmail variable;
-  - dispatch the Gmail cycle (baseline) and confirm `eligible=2`, then a second, incremental run.
+  Until step 3, a never-read mailbox truthfully shows "Setting up", and no page performs its first
+  read.
+- **Needs Matt:** every step above. Each is a merge, a dispatch or a production variable, and no
+  session performs them.
 
 ## Dashboard — DONE (merged: #128/#129)
 `/app/admin` is the one-screen 9-tile command center. Honest tiles only
