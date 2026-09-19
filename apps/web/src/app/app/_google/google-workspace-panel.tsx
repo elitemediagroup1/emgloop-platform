@@ -40,7 +40,7 @@ type Tone = 'good' | 'warn' | 'crit';
 
 /** What each outcome tells the person. Plain words; never Google's text. */
 export const GOOGLE_OUTCOME_MESSAGES: Readonly<Record<GoogleConnectOutcome, { readonly tone: Tone; readonly title: string; readonly body: string }>> = {
-  CONNECTED: { tone: 'good', title: 'Access granted', body: 'Google confirmed the access you approved. Loop has not read anything yet: each source below says when it is ready.' },
+  CONNECTED: { tone: 'good', title: 'Access granted', body: 'Google confirmed the access you approved. Each source below says whether Loop has read it yet.' },
   PARTIAL: { tone: 'warn', title: 'Some access was not allowed', body: 'Google did not grant everything that was asked. The list below shows exactly what Loop can use; you can allow the rest at any time.' },
   ALREADY_CONNECTED: { tone: 'good', title: 'Already connected', body: 'Loop already has that access.' },
   DECLINED: { tone: 'warn', title: 'Nothing was connected', body: 'You did not allow access on Google’s screen, so Loop stored nothing.' },
@@ -130,7 +130,10 @@ export function capabilityPresentation(
           : `Loop’s first read of your ${noun} did not finish. It tries again in the background.`,
         action: 'REMOVE',
       };
-    default:
+    case 'NOT_CONFIGURED':
+      // The grant is stored, but this deployment cannot use it. Never "setting up": nothing is.
+      return { pill: { label: 'Unavailable', tone: 'neutral' }, detail: 'This Loop deployment cannot read Google right now.', action: null };
+    case 'INITIALIZING':
       return {
         pill: { label: 'Setting up', tone: 'attention' },
         detail:
@@ -139,6 +142,10 @@ export function capabilityPresentation(
             : 'Loop reads your calendar for the first time the next time you open Home, or in the background.',
         action: 'REMOVE',
       };
+    default:
+      // A readiness that contradicts the grant (not connected, permission needed, reconnect) cannot
+      // come from the same status. Say Loop could not check, rather than guess.
+      return { pill: { label: 'Connected', tone: 'neutral' }, detail: `Loop could not check what it has read from your ${noun} just now.`, action: 'REMOVE' };
   }
 }
 

@@ -138,7 +138,7 @@ const MAILBOX: MailDashboardRow[] = [
 function dashboard(rows: MailDashboardRow[] = MAILBOX, over: Partial<MailDashboard> = {}): MailDashboard {
   const byId = new Map(rows.map((r) => [r.insight.threadId, r]));
   return {
-    mail: { now: NOW, freshness: 'CURRENT', readiness: 'READY', canRefresh: true, lastSyncedAt: ago(60_000), syncInProgress: false, refreshed: false, threads: rows.map((r) => r.thread), knows: true },
+    mail: { now: NOW, freshness: 'CURRENT', canRefresh: true, lastSyncedAt: ago(60_000), syncInProgress: false, refreshed: false, threads: rows.map((r) => r.thread), knows: true },
     concludable: true,
     current: true,
     now: NOW,

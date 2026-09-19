@@ -20,7 +20,6 @@ import {
   workSourceFreshness,
   type SourceReadiness,
   type WorkSourceFreshness,
-  type WorkSyncFailureClass,
 } from '@emgloop/shared';
 import { WorkSourceRepository, prisma, type GoogleWorkspaceStatus, type WorkPrincipal } from '@emgloop/database';
 
@@ -39,8 +38,6 @@ export interface SourceState {
   readonly inFlight: boolean;
   /** Whether Loop holds a position to read changes from. Without one, only the first read can help. */
   readonly hasPosition: boolean;
-  /** Why the most recent read failed, as a class -- never Google's text. */
-  readonly failure: WorkSyncFailureClass | null;
 }
 
 export async function loadSourceState(
@@ -71,7 +68,6 @@ export async function loadSourceState(
     lastReadAt,
     inFlight,
     hasPosition: cursor?.cursor != null,
-    failure: last?.outcome === 'FAILED' ? (last.failureClass ?? null) : null,
   };
 }
 

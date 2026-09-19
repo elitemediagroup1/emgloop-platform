@@ -326,7 +326,8 @@ describe('the panel', () => {
     });
     assert.match(html, /<a class="loop-btn loop-btn--primary" href="\/app">Continue to Loop<\/a>/);
     assert.match(html, /data-google-outcome="CONNECTED"/);
-    assert.match(html, /Loop has not read anything yet: each source below says when it is ready/, 'granted is not read');
+    assert.match(html, /Each source below says whether Loop has read it yet/, 'granted is not read');
+    assert.doesNotMatch(html, /has not read anything/, 'another source may already be read');
     assert.match(html, /person@example\.com/);
     assert.match(html, /example\.com/);
     assert.doesNotMatch(html, /api\/integrations\/google\/connect/, 'nothing left to connect');
@@ -366,6 +367,14 @@ describe('the panel', () => {
     assert.match(failed, />Could not read</);
     assert.ok(failed.includes(`Loop could not read your mail on its last try. It last read it ${time.relative(at(90))}, and tries again automatically.`), failed);
     assert.match(shown('SYNC_FAILED', null), /Loop’s first read of your mail did not finish\. It tries again in the background\./);
+
+    // A deployment that cannot use Google: unavailable, never "setting up".
+    const unconfigured = row(
+      render({ mode: 'CONNECTIONS', status: status({ connection: live, configured: false }, { gmail: 'CONNECTED' }), outcome: null, reconnect: [], sources: { gmail: { readiness: 'NOT_CONFIGURED', lastReadAt: null } }, time }),
+      'gmail',
+    );
+    assert.match(unconfigured, />Unavailable</);
+    assert.doesNotMatch(unconfigured, /Setting up|reading your mail/);
 
     // Connected, but Loop could not check its own reads: said, never guessed.
     const unknown = row(render({ mode: 'CONNECTIONS', status: status({ connection: live }, { gmail: 'CONNECTED' }), outcome: null, reconnect: [], time }), 'gmail');

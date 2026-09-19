@@ -86,8 +86,8 @@ name: Cycle Employee Gmail
 on:
   schedule:
     # The ordinary pass, hourly -- at :17, not on the hour. GitHub delays scheduled runs most at the
-    # start of each hour (the Calendar cycle's '0 * * * *' has fired every three to five hours in
-    # practice), and this pass is what turns a new connection from "setting up" into mail.
+    # start of each hour (the Calendar cycle's '0 * * * *' fired 2.5 to 5.4 hours apart on
+    # 2026-09-18/19), and this pass is what turns a new connection from "setting up" into mail.
     - cron: '17 * * * *'
     # The weekly baseline, Sunday 04:55 UTC -- off the hour, and off the Calendar baseline's
     # slot, so the two never queue behind each other.

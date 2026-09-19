@@ -24,7 +24,6 @@ import {
   WORK_FRESHNESS_ADMITS_EMPTY,
   shouldRefreshWorkSourceOnVisit,
   type GmailThreadView,
-  type SourceReadiness,
   type WorkSourceFreshness,
 } from '@emgloop/shared';
 import {
@@ -64,8 +63,6 @@ export interface MailView {
   readonly freshness: WorkSourceFreshness;
   readonly lastSyncedAt: Date | null;
   readonly syncInProgress: boolean;
-  /** Where this mailbox stands for its owner: initializing, ready, reading, failed, and so on. */
-  readonly readiness: SourceReadiness;
   /**
    * Whether Refresh can do anything. It reads only what changed since Loop's position in the
    * mailbox, so before the first read (which the scheduled cycle performs) it has nothing to do.
@@ -89,7 +86,6 @@ export async function mailFreshness(principal: WorkPrincipal, now: Date) {
   const state = await loadSourceState(principal, 'GMAIL', status, now);
   return {
     freshness: state.freshness,
-    readiness: state.readiness,
     lastSyncCompletedAt: state.lastReadAt,
     // Bounded: a run the platform cut off never records its end, and must not read as "reading
     // now" forever (WORK_SYNC_IN_FLIGHT_MS).
@@ -148,7 +144,6 @@ export async function loadMail(
     freshness: state.freshness,
     lastSyncedAt: state.lastSyncCompletedAt,
     syncInProgress: state.syncInProgress,
-    readiness: state.readiness,
     canRefresh: state.hasPosition,
     refreshed,
     threads,
