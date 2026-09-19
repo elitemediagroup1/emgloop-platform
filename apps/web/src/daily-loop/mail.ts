@@ -11,8 +11,11 @@
 // `work_threads` / `work_messages` / `work_correspondents`, which hold headers and never bodies.
 // Opening a thread reads that one conversation from Gmail, renders it, and keeps none of it.
 //
-// A VISIT MAY REFRESH, AT MOST EVERY FIVE MINUTES, and only when the connection is usable. A
-// refusal to refresh changes how current Loop says it is, never what it shows.
+// A VISIT MAY REFRESH, AT MOST EVERY FIVE MINUTES, and only when the connection is usable -- and
+// it reads only what CHANGED since Loop's position in the mailbox, a few seconds' worth at most.
+// The first 14-day read is never done here, while somebody waits: the scheduled cycle does it,
+// and until then the mailbox says it is initializing. A refusal to refresh changes how current
+// Loop says it is, never what it shows.
 
 import 'server-only';
 
@@ -20,14 +23,13 @@ import {
   GMAIL_FRESHNESS_POLICY,
   WORK_FRESHNESS_ADMITS_EMPTY,
   shouldRefreshWorkSourceOnVisit,
-  workSourceFreshness,
   type GmailThreadView,
+  type SourceReadiness,
   type WorkSourceFreshness,
 } from '@emgloop/shared';
 import {
   WorkDraftRepository,
   WorkGraphRepository,
-  WorkSourceRepository,
   prisma,
   readEmployeeGmailThread,
   type WorkPrincipal,
@@ -36,6 +38,7 @@ import {
 import { googleWorkspace, googleSigningKeys } from '../google/google-runtime';
 import { readGoogleEnvironment } from '../google/google-environment';
 import { refreshEmployeeGmail } from './mail-runtime';
+import { loadSourceState } from './source-state';
 
 export interface MailCorrespondent {
   readonly address: string;
@@ -61,6 +64,13 @@ export interface MailView {
   readonly freshness: WorkSourceFreshness;
   readonly lastSyncedAt: Date | null;
   readonly syncInProgress: boolean;
+  /** Where this mailbox stands for its owner: initializing, ready, reading, failed, and so on. */
+  readonly readiness: SourceReadiness;
+  /**
+   * Whether Refresh can do anything. It reads only what changed since Loop's position in the
+   * mailbox, so before the first read (which the scheduled cycle performs) it has nothing to do.
+   */
+  readonly canRefresh: boolean;
   readonly refreshed: boolean;
   readonly threads: readonly MailThreadSummary[];
   /** True in the states where an empty list means an empty inbox rather than "I could not look". */
@@ -76,19 +86,15 @@ const GMAIL_CONFIG = () => {
 export async function mailFreshness(principal: WorkPrincipal, now: Date) {
   const status = await googleWorkspace().status(principal);
   if (!status.permitted) return null;
-  const sources = new WorkSourceRepository(prisma);
-  const cursor = await sources.cursor(principal, 'GMAIL');
-  const runs = await sources.recentRuns(principal, 1, 'GMAIL');
-  const state = {
-    configured: status.configured,
-    capability: status.capabilities.gmail as 'CONNECTED' | 'NOT_CONNECTED' | 'INSUFFICIENT_SCOPE' | 'EXPIRED',
-    lastSyncCompletedAt: cursor?.lastSyncCompletedAt ?? null,
-    lastRunOutcome: runs[0]?.outcome ?? null,
-  };
+  const state = await loadSourceState(principal, 'GMAIL', status, now);
   return {
-    freshness: workSourceFreshness(state, now, GMAIL_FRESHNESS_POLICY),
-    lastSyncCompletedAt: state.lastSyncCompletedAt,
-    syncInProgress: runs[0] ? runs[0].finishedAt === null : false,
+    freshness: state.freshness,
+    readiness: state.readiness,
+    lastSyncCompletedAt: state.lastReadAt,
+    // Bounded: a run the platform cut off never records its end, and must not read as "reading
+    // now" forever (WORK_SYNC_IN_FLIGHT_MS).
+    syncInProgress: state.inFlight,
+    hasPosition: state.hasPosition,
   };
 }
 
@@ -142,6 +148,8 @@ export async function loadMail(
     freshness: state.freshness,
     lastSyncedAt: state.lastSyncCompletedAt,
     syncInProgress: state.syncInProgress,
+    readiness: state.readiness,
+    canRefresh: state.hasPosition,
     refreshed,
     threads,
     knows: WORK_FRESHNESS_ADMITS_EMPTY.includes(state.freshness),

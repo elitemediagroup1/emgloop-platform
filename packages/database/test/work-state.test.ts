@@ -202,6 +202,35 @@ test('an operator can count one person’s stored work state, and the count neve
   await assert.rejects(() => w.footprint.counts({ organizationId: ORG_A, userId: '' }), /requires both organizationId and userId/);
 });
 
+test('9–11. Matt cannot see Charlie’s mail or calendar, and Charlie cannot see Matt’s -- whichever of them is OWNER', async () => {
+  const w = world();
+  const matt = await person(w, ORG_A, 'OWNER');
+  const charlie = await person(w, ORG_A, 'ADMIN');
+  const own = async (who: WorkPrincipal, label: string) => {
+    await w.sources.advanceCursor(who, 'GMAIL', { cursor: `${label}-history`, cursorKind: 'GMAIL_HISTORY_ID', startedAt: T0, completedAt: T0 });
+    await w.sources.advanceCursor(who, 'CALENDAR', { cursor: `${label}-sync`, cursorKind: 'CALENDAR_SYNC_TOKEN', startedAt: T0, completedAt: T0 });
+    await w.graph.upsertThread(who, { provider: 'GOOGLE', threadId: `${label}-thread`, subject: `${label} private`, participantHashes: [], messageCount: 1, firstMessageAt: T0, lastMessageAt: T0, lastDirection: 'INBOUND', lastMessageId: `${label}-msg` });
+    await w.graph.upsertMessage(who, { provider: 'GOOGLE', messageId: `${label}-msg`, threadId: `${label}-thread`, internalDate: T0, direction: 'INBOUND', fromHash: hash(`${label}@x.test`), subject: `${label} private`, observedAt: T0 });
+    await w.graph.upsertEvent(who, { provider: 'GOOGLE', eventId: `${label}-event`, startsAt: T0, endsAt: T0, attendeeCount: 2, externalAttendeeCount: 0, observedAt: T0 });
+  };
+  await own(matt, 'matt');
+  await own(charlie, 'charlie');
+  const window = { from: new Date('2026-01-01'), to: new Date('2027-01-01') };
+
+  for (const [me, mine, theirs] of [[matt, 'matt', 'charlie'], [charlie, 'charlie', 'matt']] as const) {
+    const threads = (await w.graph.threads(me)).map((t: any) => t.threadId);
+    const events = (await w.graph.events(me, window)).map((e: any) => e.eventId);
+    assert.deepEqual(threads, [`${mine}-thread`], `${mine} sees only their own mail`);
+    assert.deepEqual(events, [`${mine}-event`], `${mine} sees only their own calendar`);
+    assert.equal((await w.sources.cursor(me, 'GMAIL'))?.cursor, `${mine}-history`);
+    assert.equal((await w.sources.cursor(me, 'CALENDAR'))?.cursor, `${mine}-sync`);
+    // Asking for the other person's thread by its id is not-found, not forbidden.
+    assert.deepEqual(await w.graph.messages(me, `${theirs}-thread`), []);
+    assert.equal(await w.graph.thread(me, 'GOOGLE', `${theirs}-thread`), null);
+    assert.deepEqual({ ...(await w.footprint.counts(me)) }, { threads: 1, messages: 1, correspondents: 0, items: 0, events: 1, documents: 0 });
+  }
+});
+
 test('organization authority does not reach another person’s work state, even with a Permission row', async () => {
   const w = world();
   const alice = await person(w, ORG_A);

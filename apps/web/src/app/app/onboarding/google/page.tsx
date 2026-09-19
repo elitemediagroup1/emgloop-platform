@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { LOOP_HOME, ONBOARDING_GOOGLE_PATH } from '../../../../auth/landing';
 import { googleWorkspace } from '../../../../google/google-runtime';
+import { loadGoogleSourceViews } from '../../../../daily-loop/source-state';
 import { viewerTime } from '../../../../time/viewer-time';
 import { requireWorkspaceSession } from '../../../../workspaces/guard';
 import WorkspaceShell from '../../../../workspaces/WorkspaceShell';
@@ -27,6 +28,7 @@ export default async function GoogleOnboardingPage({ searchParams }: { searchPar
     name: session.name,
   });
   if (!status.permitted) redirect(LOOP_HOME);
+  const sources = await loadGoogleSourceViews({ organizationId: session.organizationId, userId: session.userId }, status);
 
   const firstName = session.name.trim().split(/\s+/)[0] || session.name;
   return (
@@ -35,13 +37,14 @@ export default async function GoogleOnboardingPage({ searchParams }: { searchPar
         <PageHead
           trail={[{ label: 'Welcome' }, { label: 'Connect Google Workspace' }]}
           title={`Welcome to Loop, ${firstName}`}
-          subtitle="Connect your own Google account so Loop can reference your mail, calendar and files where they matter. It is optional, and each kind of access is a separate approval."
+          subtitle="Connect your own Google account so Loop can reference your mail and calendar where they matter. It is optional, and each kind of access is a separate approval."
         />
         <GoogleWorkspacePanel
           mode="ONBOARDING"
           status={status}
           outcome={googleOutcomeParam(searchParams)}
           reconnect={googleReconnectParam(searchParams)}
+          sources={sources}
           time={viewerTime()}
         />
       </LoopPage>

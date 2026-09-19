@@ -86,11 +86,31 @@ export const GOOGLE_WORKSPACE_CAPABILITY_LABELS: Readonly<Record<GoogleWorkspace
   drive: 'Drive',
 });
 
+/**
+ * Whether Loop actually USES a capability today: something reads it, stores it and shows it.
+ *
+ * DRIVE IS AUTHORIZED, NOT USED. The scope exists and a person may already hold a grant for it,
+ * but there is no Drive sensor, no cycle source, no stored Drive fact and no Drive surface. So
+ * Connections offers no "Connect Drive" (a button for something that is not built is a promise
+ * Loop cannot keep), says plainly that Drive is not read, and still lets a person remove an
+ * authorization they gave earlier. Flip this only together with the pipeline that reads it.
+ */
+export const GOOGLE_WORKSPACE_CAPABILITY_IN_USE: Readonly<Record<GoogleWorkspaceCapability, boolean>> = Object.freeze({
+  gmail: true,
+  calendar: true,
+  drive: false,
+});
+
+/** The capabilities Loop reads today, in canonical order. */
+export const GOOGLE_WORKSPACE_CAPABILITIES_IN_USE: readonly GoogleWorkspaceCapability[] = Object.freeze(
+  GOOGLE_WORKSPACE_CAPABILITIES.filter((c) => GOOGLE_WORKSPACE_CAPABILITY_IN_USE[c]),
+);
+
 /** What granting a capability lets Loop read -- and what it never can. Shown before consent. */
 export const GOOGLE_WORKSPACE_CAPABILITY_READS: Readonly<Record<GoogleWorkspaceCapability, string>> = Object.freeze({
   gmail: 'Your mail, so Loop can show it. Headers and labels are stored; a message body is read only when you open the conversation, and is never stored. Loop sends a reply only when you press Send, from your own account. It never sends on its own, and cannot change or delete mail.',
   calendar: 'Events on your calendars, read-only. Loop cannot create, change or delete events.',
-  drive: 'File names, types, owners and modified times. Never file contents, and Loop cannot create, change or delete files.',
+  drive: 'Loop does not read Drive yet, so nothing from Drive appears in Loop. If you allowed it earlier, Loop holds permission to see file names, types, owners and modified times, uses none of it, and cannot open, change or delete files.',
 });
 
 const CAPABILITY_BY_SCOPE: ReadonlyMap<string, GoogleWorkspaceCapability> = new Map(

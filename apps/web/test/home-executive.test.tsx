@@ -160,23 +160,24 @@ function event(over: Partial<DayEvent> = {}): DayEvent {
   };
 }
 
-function view(over: { events?: DayEvent[]; tomorrow?: DayEvent[]; freshness?: CalendarFreshness; lastSyncedAt?: Date | null } = {}): YourDayView {
-  const today = bounds(NOW);
+function view(over: { events?: DayEvent[]; tomorrow?: DayEvent[]; freshness?: CalendarFreshness; lastSyncedAt?: Date | null; now?: Date } = {}): YourDayView {
+  const now = over.now ?? NOW;
+  const today = bounds(now);
   const tomorrowBounds = bounds(new Date(today.endsAt.getTime() + 43_200_000));
   const todaySchedule = scheduleFor(over.events ?? [], today);
   const tomorrowSchedule = scheduleFor(over.tomorrow ?? [], tomorrowBounds);
   return {
     zone: { timeZone: NY, source: 'device' },
-    now: NOW,
+    now,
     today,
     tomorrow: tomorrowBounds,
     todaySchedule,
     tomorrowSchedule,
-    summary: summarizeDay(todaySchedule, today, NOW),
+    summary: summarizeDay(todaySchedule, today, now),
     tomorrowSummary: summarizeDay(tomorrowSchedule, tomorrowBounds, tomorrowBounds.startsAt),
-    position: positionInDay(todaySchedule, NOW),
+    position: positionInDay(todaySchedule, now),
     freshness: over.freshness ?? 'CURRENT',
-    lastSyncedAt: over.lastSyncedAt === undefined ? (over.freshness === 'NEVER_SYNCED' ? null : new Date(NOW.getTime() - 4 * 60_000)) : over.lastSyncedAt,
+    lastSyncedAt: over.lastSyncedAt === undefined ? (over.freshness === 'NEVER_SYNCED' ? null : new Date(now.getTime() - 4 * 60_000)) : over.lastSyncedAt,
     refreshed: false,
   };
 }
@@ -242,6 +243,20 @@ describe('the day, as a timeline of the viewer’s own calendar', () => {
     assert.match(html, /href="https:\/\/calendar\.google\.com\/"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);
     // Loop has no week or month view, so it offers none.
     for (const absent of ['>Week<', '>Month<', '>Day<', 'View Full Calendar']) assert.equal(html.includes(absent), false, absent);
+  });
+
+  it('12. an empty Saturday and Sunday are an empty weekend, never a failed connection', () => {
+    const saturday = new Date('2026-09-19T15:30:00Z'); // 11:30 in New York
+    const html = renderToStaticMarkup(<DayCalendar view={view({ now: saturday, events: [], tomorrow: [] })} />);
+    assert.match(html, /Saturday, September 19/);
+    assert.match(html, /Your calendar is clear today/);
+    assert.match(html, /Tomorrow/);
+    for (const failure of ['could not read', 'not connected', 'has not read', 'needs attention', 'Reconnect', 'could not open']) {
+      assert.equal(html.toLowerCase().includes(failure.toLowerCase()), false, failure);
+    }
+    // ...and the same empty day is NOT called clear when Loop never read the calendar.
+    const unread = renderToStaticMarkup(<DayCalendar view={view({ now: saturday, freshness: 'NEVER_SYNCED' })} />);
+    assert.equal(unread.includes('Your calendar is clear'), false);
   });
 
   it('never presents an old read as current: no now line on the last good read, and no grid without a read', () => {
