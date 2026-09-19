@@ -27,7 +27,7 @@ import type {
   DataPurpose,
   Prisma,
 } from '@prisma/client';
-import { hashIdentifier } from './hashing';
+import { hashIdentifier, identifierKeyFingerprint } from './hashing';
 
 const DEFAULT_TAKE = 50;
 const MAX_TAKE = 200;
@@ -278,7 +278,9 @@ export class IdentityEvidenceRepository {
         permittedPurposes: input.permittedPurposes ?? [],
         observedAt: input.observedAt ?? new Date(),
         expiresAt: input.expiresAt ?? null,
-        metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+        // Which key hashed this row (a one-way fingerprint, never the key), so a reader in another
+        // runtime can say it holds a different key instead of silently matching nothing.
+        metadata: { ...(input.metadata ?? {}), keyFingerprint: identifierKeyFingerprint() } as Prisma.InputJsonValue,
       },
     });
   }

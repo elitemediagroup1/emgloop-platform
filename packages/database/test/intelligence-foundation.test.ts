@@ -12,6 +12,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
+import { CALLGRID_DECISION_PRODUCER } from '@emgloop/shared';
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 import { IamRepository } from '../src/repositories/iam.repository';
 import { WorkGraphRepository, WorkItemRepository, type WorkPrincipal } from '../src/repositories/work-state';
@@ -147,8 +148,10 @@ test('2. Gmail and Calendar compose one item by the same correspondent key -- an
 
 // --- SCENARIO 3 and 10: memory, and outcomes that change the next suggestion --------------------
 
-const situation = (key: string, title: string, detectionKey: string, at: Date) => ({
-  producer: 'callgrid',
+// The producer the CallGrid pipeline really records (apps/web CALLGRID_SOURCE). This fixture once
+// said 'callgrid', which is why a reader comparing against the same wrong string passed its tests.
+const situation = (key: string, title: string, detectionKey: string, at: Date, producer: string = CALLGRID_DECISION_PRODUCER) => ({
+  producer,
   recurrenceKey: key,
   detectionKey,
   detectedAt: at,
@@ -170,6 +173,20 @@ test('3. a situation seen again brings back what happened last time', async () =
   assert.equal(item!.scope, 'ORGANIZATION');
   assert.deepEqual(item!.previously.map((p) => [p.relation, p.outcome, p.reason]), [['SAME', 'RECOVERED', 'came back by itself the next day']]);
   assert.match(item!.remembers.join(' '), /Reopened 1 time after being closed/);
+});
+
+test('3b. a CallGrid Case’s measurements are cited as CALLGRID’s, as the pipeline records them -- any other producer’s as LOOP', async () => {
+  const w = world();
+  const callgrid = await w.engine.create(ORG_A, situation('volume-drop::buyer-7', 'Buyer 7 volume fell 40%', 'today:2026-09-19', NOW));
+  const other = await w.engine.create(ORG_A, situation('volume-drop::buyer-8', 'Buyer 8 volume fell 40%', 'today:2026-09-19', NOW, 'CRM'));
+  assert.equal(callgrid.decision.sourceSystem, 'CALLGRID', 'the producer value the CallGrid pipeline writes');
+  const cited = await caseIntelligence(w.engine, ORG_A, callgrid.decision.id);
+  assert.deepEqual([...new Set(cited!.evidence.map((e) => e.authority))], ['CALLGRID']);
+  const loop = await caseIntelligence(w.engine, ORG_A, other.decision.id);
+  assert.deepEqual([...new Set(loop!.evidence.map((e) => e.authority))], ['LOOP']);
+  // And the one place the CallGrid pipeline names its producer agrees with the registry value.
+  const web = readFileSync(join(__dirname, '..', '..', '..', 'apps', 'web', 'src', 'app', 'app', 'admin', 'marketplace', 'operational-queue-data.ts'), 'utf8');
+  assert.match(web, new RegExp(`export const CALLGRID_SOURCE = "${CALLGRID_DECISION_PRODUCER}";`));
 });
 
 test('10. prior outcomes materially change the later suggestion, with the basis stated', async () => {
@@ -719,4 +736,27 @@ test('D1f. without the configured identifier key the detector compares nothing, 
   } finally {
     process.env.COGNITIVE_HASH_SECRET = configured;
   }
+});
+
+test('D1g. identifiers recorded under a different key are counted as keyMismatch -- never silently "no match"', async () => {
+  const { identifierKeyFingerprint } = await import('../src/repositories/cognitive/hashing');
+  const w = world();
+  const matt = await person(w, ORG_A, 'OWNER', 'Matt');
+  const configured = process.env.COGNITIVE_HASH_SECRET!;
+  const fingerprintA = identifierKeyFingerprint();
+  await danaAtAcme(w, matt); // recorded under key A
+  assert.equal((w.fake.identityEvidence.__rows[0].metadata as { keyFingerprint?: string }).keyFingerprint, fingerprintA, 'each row says which key hashed it');
+  assert.equal(JSON.stringify(w.fake.identityEvidence.__rows).includes(configured), false, 'the fingerprint is not the key');
+  await inbound(w, matt, 't-dana', 'dana@acme.test', ago(3 * H), 'Renewal terms', 'Dana');
+  try {
+    process.env.COGNITIVE_HASH_SECRET = 'a-different-key-in-another-runtime';
+    assert.notEqual(identifierKeyFingerprint(), fingerprintA);
+    const counts = countsOf(await read(w, matt), 'identity-suggestions');
+    assert.equal(counts.keyMismatch, 1, 'the row this key can never match is reported');
+    assert.equal(counts.proposed, 0);
+  } finally {
+    process.env.COGNITIVE_HASH_SECRET = configured;
+  }
+  const counts = countsOf(await read(w, matt, new Date(NOW.getTime() + H)), 'identity-suggestions');
+  assert.deepEqual([counts.keyMismatch, counts.proposed], [0, 1], 'under the same key it matches');
 });

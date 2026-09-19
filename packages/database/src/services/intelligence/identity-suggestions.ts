@@ -24,12 +24,15 @@
 // EMAIL identifier on any Party, the detector stops before reading a single correspondent. When the
 // identifier key is not configured where it runs, it stops too and reports `keyUnavailable`:
 // hashing with the development fallback could never match evidence recorded under the real key,
-// and "found nothing" would be a false statement.
+// and "found nothing" would be a false statement. And when identifiers were recorded under a
+// DIFFERENT key than this runtime holds (each row carries a one-way fingerprint of its key), it
+// counts them as `keyMismatch`: those rows can never match here, and saying so is the only way a
+// secret that differs between two runtimes is noticed.
 //
 // COUNTS ONLY. The result is how many were checked, proposed, conflicting or unchanged -- never an
 // address, a key, a name or a Party.
 import type { PrismaClient } from '@prisma/client';
-import { hashIdentifier, identifierKeyConfigured } from '../../repositories/cognitive/hashing';
+import { hashIdentifier, identifierKeyConfigured, identifierKeyFingerprint } from '../../repositories/cognitive/hashing';
 import { IdentitySuggestionRepository } from '../../repositories/cognitive/identity-suggestion.repository';
 import { IamRepository } from '../../repositories/iam.repository';
 import { PartyReferenceRepository } from '../../repositories/party-reference.repository';
@@ -38,6 +41,8 @@ import type { SourceReadDetector } from './source-read';
 
 /** Correspondents checked per read: the same bound the person's own graph reads use. */
 export const IDENTITY_SUGGESTION_CORRESPONDENT_LIMIT = 500;
+/** Identifier rows whose key fingerprint is checked per read. */
+export const IDENTITY_EVIDENCE_KEY_CHECK_BOUND = 5_000;
 
 export function identitySuggestionDetector(prisma: PrismaClient): SourceReadDetector {
   return {
@@ -61,6 +66,16 @@ export function identitySuggestionDetector(prisma: PrismaClient): SourceReadDete
       if (!anyIdentifier) return counts;
       if (!identifierKeyConfigured()) return { ...counts, keyUnavailable: 1 };
 
+      // Identifiers this runtime's key cannot match: written under another key, or before rows
+      // carried a fingerprint. They are counted, never compared.
+      const fingerprint = identifierKeyFingerprint();
+      const recorded = await prisma.identityEvidence.findMany({
+        where: { organizationId: event.organizationId, evidenceType: 'EMAIL', revokedAt: null },
+        select: { metadata: true },
+        take: IDENTITY_EVIDENCE_KEY_CHECK_BOUND,
+      });
+      const keyMismatch = recorded.filter((r) => ((r.metadata ?? {}) as { keyFingerprint?: unknown }).keyFingerprint !== fingerprint).length;
+
       const people = await new WorkGraphRepository(prisma).correspondents(principal, { limit: IDENTITY_SUGGESTION_CORRESPONDENT_LIMIT });
       const byKey = new Map<string, string>();
       for (const person of people) {
@@ -68,7 +83,7 @@ export function identitySuggestionDetector(prisma: PrismaClient): SourceReadDete
         byKey.set(hashIdentifier(event.organizationId, 'EMAIL', person.displayAddress), person.addressHash);
       }
       counts.checked = byKey.size;
-      if (byKey.size === 0) return counts;
+      if (byKey.size === 0) return { ...counts, keyMismatch };
 
       const records = (
         await prisma.identityEvidence.findMany({
@@ -115,7 +130,7 @@ export function identitySuggestionDetector(prisma: PrismaClient): SourceReadDete
         else if (outcome === 'STANDING') counts.standing += 1;
         else counts.unchanged += 1;
       }
-      return counts;
+      return { ...counts, keyMismatch };
     },
   };
 }

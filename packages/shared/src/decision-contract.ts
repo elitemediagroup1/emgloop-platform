@@ -42,6 +42,13 @@ export const DECISION_PRODUCERS = [
 ] as const;
 export type DecisionProducer = (typeof DECISION_PRODUCERS)[number];
 
+/**
+ * The producer CallGrid Cases are recorded under (`operational_priorities.sourceSystem`), named once
+ * so a reader compares against the registry rather than a hand-typed string. A lowercase copy in the
+ * Intelligence & Memory Foundation once labelled every real CallGrid Case's evidence as LOOP.
+ */
+export const CALLGRID_DECISION_PRODUCER: DecisionProducer = 'CALLGRID';
+
 // --- Severity ----------------------------------------------------------------
 
 /**

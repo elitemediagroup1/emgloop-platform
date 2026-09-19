@@ -30,6 +30,7 @@
 // takes an organization and reads only Cases, which never hold private evidence.
 import type { PrismaClient, OperationalPriority, OperationalObservation } from '@prisma/client';
 import {
+  CALLGRID_DECISION_PRODUCER,
   crmCanonicalPartyId,
   learnFromHistory,
   zonedCalendarDay,
@@ -315,7 +316,9 @@ export async function caseIntelligence(
   const held = view.observations.filter((o) => o.observationType === 'SITUATION_RESIGHTED' && o.reason?.startsWith('Seen again')).length;
   if (held > 0) remembers.push(`Seen again ${held} time${held === 1 ? '' : 's'} while a standing judgment held it closed.`);
 
-  const authority = decision.sourceSystem === 'callgrid' ? 'CALLGRID' : 'LOOP';
+  // The producer's own measurements are owned by the source it measured; CallGrid is the one such
+  // source today. Compared against the registry value the pipeline records, never a typed copy.
+  const authority = decision.sourceSystem === CALLGRID_DECISION_PRODUCER ? 'CALLGRID' : 'LOOP';
   const evidence: IntelligenceEvidenceRef[] = view.evidence.slice(0, 12).map((e) => ({
     authority,
     kind: e.metricKey ? 'METRIC' : 'STATEMENT',
