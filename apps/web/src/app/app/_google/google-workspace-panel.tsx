@@ -156,7 +156,7 @@ export function GoogleWorkspacePanel(props: {
         )}
       </Panel>
 
-      <Panel title="Access" lead="Loop only ever reads. It never sends, changes or deletes anything in your Google account.">
+      <Panel title="Access" lead="Each connection below says what Loop reads. Loop sends mail only when you press Send, and never changes or deletes anything in your Google account.">
         <div role="list" aria-label="Google access by kind">
           {GOOGLE_WORKSPACE_CAPABILITIES.map((capability) => {
             const state = status.capabilities[capability];
