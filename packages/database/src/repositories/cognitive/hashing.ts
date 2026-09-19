@@ -37,6 +37,19 @@ function resolveSecret(): string {
 }
 
 /**
+ * Whether identifiers are keyed with a CONFIGURED secret, rather than the development fallback.
+ *
+ * A reader that compares new values against stored evidence needs the same key the evidence was
+ * written with. Outside production `hashIdentifier` quietly uses the fallback, which can never
+ * match evidence written under the real key -- so such a reader asks this first, and says it could
+ * not compare instead of silently finding nothing.
+ */
+export function identifierKeyConfigured(): boolean {
+  const secret = process.env[ENV_KEY];
+  return typeof secret === 'string' && secret.length > 0;
+}
+
+/**
  * Normalize a raw identifier before hashing so trivially-different spellings
  * resolve to the same identity (case, surrounding whitespace, and — for
  * phone-like values — non-digit punctuation). Deliberately conservative: it

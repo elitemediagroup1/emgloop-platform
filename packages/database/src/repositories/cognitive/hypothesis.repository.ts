@@ -7,6 +7,12 @@
 // hypotheses are subject to the same rule, so an AI model can never promote its
 // own guess into accepted truth. This repository stores hypotheses; it does not
 // generate them (no engine, no aggregate intelligence in this foundation).
+//
+// IDENTITY MATCH SUGGESTIONS ARE NOT REACHABLE FROM HERE (D1). A suggestion that
+// rests on one person's private evidence (`privateToUserId`) is invisible to every
+// method below, and no suggestion (`matchKey`) can be accepted or rejected through
+// this generic path: `IdentitySuggestionRepository` reads them with a principal and
+// `IdentitySuggestionService` decides them under the identity authority.
 
 import type {
   PrismaClient,
@@ -61,7 +67,7 @@ export class IntelligenceHypothesisRepository {
   }
 
   findById(organizationId: string, id: string): Promise<IntelligenceHypothesis | null> {
-    return this.prisma.intelligenceHypothesis.findFirst({ where: { id, organizationId } });
+    return this.prisma.intelligenceHypothesis.findFirst({ where: { id, organizationId, privateToUserId: null } });
   }
 
   /** Explicit human acceptance. Requires an attributed actor; fails closed otherwise. */
@@ -74,7 +80,7 @@ export class IntelligenceHypothesisRepository {
       throw new Error('Accepting a hypothesis requires an attributed actor (acceptedBy)');
     }
     const found = await this.findById(organizationId, id);
-    if (!found) return null;
+    if (!found || found.matchKey) return null;
     return this.prisma.intelligenceHypothesis.update({
       where: { id: found.id },
       data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedBy },
@@ -87,7 +93,7 @@ export class IntelligenceHypothesisRepository {
     rejectedBy: string,
   ): Promise<IntelligenceHypothesis | null> {
     const found = await this.findById(organizationId, id);
-    if (!found) return null;
+    if (!found || found.matchKey) return null;
     return this.prisma.intelligenceHypothesis.update({
       where: { id: found.id },
       data: { status: 'REJECTED', rejectedAt: new Date(), rejectedBy: rejectedBy || null },
@@ -157,7 +163,7 @@ export class IntelligenceHypothesisRepository {
     let current = id;
     for (let depth = 0; depth < maxDepth; depth += 1) {
       const previous = await this.prisma.intelligenceHypothesis.findFirst({
-        where: { organizationId, supersededById: current },
+        where: { organizationId, supersededById: current, privateToUserId: null },
         orderBy: { createdAt: 'desc' },
       });
       if (!previous || seen.has(previous.id)) break;
@@ -175,6 +181,7 @@ export class IntelligenceHypothesisRepository {
     return this.prisma.intelligenceHypothesis.findMany({
       where: {
         organizationId,
+        privateToUserId: null,
         ...(opts.status ? { status: opts.status } : {}),
         ...(opts.subjectIdentityId ? { subjectIdentityId: opts.subjectIdentityId } : {}),
       },

@@ -20,8 +20,13 @@ export type IntelligenceAuthority = (typeof INTELLIGENCE_AUTHORITIES)[number];
 export const INTELLIGENCE_SCOPES = ['PRIVATE', 'ORGANIZATION'] as const;
 export type IntelligenceScope = (typeof INTELLIGENCE_SCOPES)[number];
 
-/** Who owns a piece of evidence. Composition cites it; it never copies or re-owns it. */
-export const EVIDENCE_AUTHORITIES = ['GMAIL', 'CALENDAR', 'CALLGRID', 'CRM', 'LOOP'] as const;
+/**
+ * Who owns a piece of evidence. Composition cites it; it never copies or re-owns it.
+ *
+ * IDENTITY is the identity authority: an identifier recorded on a Party, and a match suggestion
+ * about one.
+ */
+export const EVIDENCE_AUTHORITIES = ['GMAIL', 'CALENDAR', 'CALLGRID', 'CRM', 'IDENTITY', 'LOOP'] as const;
 export type EvidenceAuthority = (typeof EVIDENCE_AUTHORITIES)[number];
 
 /** Where the person has got to. One vocabulary over both authorities' lifecycles. */

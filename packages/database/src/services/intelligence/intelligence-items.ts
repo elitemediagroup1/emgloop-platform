@@ -12,26 +12,41 @@
 // the next suggestion's posture with a stated basis.
 //
 // CONNECTING, SAFELY. A person's item may compose their own Gmail with their own Calendar: a
-// conversation that needs them and a meeting organized by someone on that conversation. The join is
-// an exact correspondent key -- the SAME address hash both sources store for the person's own graph
-// (daily-loop-employee-intelligence.md §8.3, §11.4) -- never a name and never a claim about who
-// anyone is. It happens at read time, inside that person's request, and is stored nowhere (§31.4:
-// "Mixing happens at read time, in one principal's request. Never at storage.").
+// conversation that needs them and a meeting that someone on that conversation organized or is
+// invited to (D2). The join is an exact correspondent key -- the SAME one-way address key both
+// sources store for the person's own graph (daily-loop-employee-intelligence.md §8.3, §11.4) --
+// never a name and never a claim about who anyone is. It happens at read time, inside that
+// person's request, and is stored nowhere (§31.4: "Mixing happens at read time, in one principal's
+// request. Never at storage."). A correspondent is named by the name they gave, or not at all:
+// their address never appears in an item.
+//
+// WHO SOMEONE IS, ONLY AS FAR AS A PERSON SAID SO (D1). A PROPOSED identity suggestion appears as an
+// UNVERIFIED Party with a question, and nothing is composed from it. Only a suggestion the person
+// confirmed makes the correspondent that Party in their own intelligence -- and then, through the
+// authorized CRM read, the relationships that Party takes part in. Calendar attendees are never
+// matched to a Party; only the correspondent is.
 //
 // SCOPE. `personalIntelligence` takes a principal and reads only that person's rows. `caseIntelligence`
 // takes an organization and reads only Cases, which never hold private evidence.
 import type { PrismaClient, OperationalPriority, OperationalObservation } from '@prisma/client';
 import {
+  crmCanonicalPartyId,
   learnFromHistory,
+  zonedCalendarDay,
   type IntelligenceEvidenceRef,
   type IntelligenceHumanState,
   type IntelligenceItem,
   type IntelligenceSubjectRef,
   type PriorOutcome,
 } from '@emgloop/shared';
+import { IdentitySuggestionRepository, type IdentitySuggestion } from '../../repositories/cognitive/identity-suggestion.repository';
+import { IamRepository } from '../../repositories/iam.repository';
+import { PartyReadModelRepository } from '../../repositories/party-read-model.repository';
 import { WorkGraphRepository } from '../../repositories/work-state/work-graph.repository';
 import { WorkItemRepository, type WorkItemRecord } from '../../repositories/work-state/work-item.repository';
+import { WorkPreferencesRepository } from '../../repositories/work-state/work-preferences.repository';
 import type { WorkPrincipal } from '../../repositories/work-state/work-principal';
+import { CrmRelationshipReadService } from '../crm-relationship-read.service';
 import { MailAttentionService } from '../work-state/mail-attention.service';
 import type { DecisionEngine } from '../decision/decision-engine';
 
@@ -45,35 +60,146 @@ export const COMPARABLE_LIMIT = 10;
 
 const WORK_STATE: Readonly<Record<string, IntelligenceHumanState>> = { OPEN: 'NEW', SNOOZED: 'SNOOZED', RESOLVED: 'HANDLED', DISMISSED: 'DISMISSED' };
 
+/** CRM relationships composed per confirmed match: the few a person needs, not a directory. */
+const MATCH_RELATIONSHIP_LIMIT = 3;
+
+type UpcomingEvent = Awaited<ReturnType<WorkGraphRepository['events']>>[number];
+
+/** "today's meeting", "tomorrow's meeting" or "the meeting on 2026-09-24" -- days in the person's own zone. */
+function meetingPhrase(meeting: UpcomingEvent, now: Date, timeZone: string): string {
+  const day = zonedCalendarDay(meeting.startsAt!, timeZone);
+  const today = zonedCalendarDay(now, timeZone);
+  const apart = Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / DAY_MS);
+  return apart === 0 ? "today's meeting" : apart === 1 ? "tomorrow's meeting" : `the meeting on ${day}`;
+}
+
+/** One sentence joining the conversation and the meeting. A name the person gave, or none. */
+function meetingSentence(workClass: string, name: string | null, organized: boolean, phrase: string): string {
+  const who = name ?? 'someone on this conversation';
+  const presence = organized ? `${name ?? 'they'} organized ${phrase}` : `${name ?? 'they'} ${name ? 'is' : 'are'} in ${phrase}`;
+  if (workClass === 'WAITING_ON_THEM') return `You're waiting on ${who}, and ${presence}.`;
+  if (workClass === 'NEEDS_YOU') return `${name ?? 'Someone on this conversation'} is waiting on your reply, and ${presence}.`;
+  return `${presence.charAt(0).toUpperCase()}${presence.slice(1)}.`;
+}
+
+interface IdentityMatch {
+  readonly suggestion: IdentitySuggestion;
+  readonly partyLabel: string | null;
+}
+
 /**
- * The person's open work, as intelligence items, with their own Calendar composed in and their own
- * earlier closures remembered. Only theirs: every read takes their principal.
+ * This person's own pending and confirmed identity suggestions, one per correspondent (a confirmed
+ * one wins). Empty for someone who may not read identity state.
+ */
+async function identityMatches(prisma: PrismaClient, principal: WorkPrincipal): Promise<Map<string, IdentityMatch>> {
+  const out = new Map<string, IdentityMatch>();
+  const iam = new IamRepository(prisma);
+  if (!(await iam.can({ ...principal, resource: 'identityResolution', action: 'view' }))) return out;
+  const parties = new PartyReadModelRepository(prisma);
+  const suggestions = await new IdentitySuggestionRepository(prisma).forOwner(principal, ['CONFIRMED', 'PROPOSED']);
+  for (const suggestion of [...suggestions].sort((a, b) => (a.status === b.status ? 0 : a.status === 'CONFIRMED' ? -1 : 1))) {
+    if (out.has(suggestion.subjectKey)) continue;
+    const party = await parties.getRecord(principal.organizationId, suggestion.partyId);
+    out.set(suggestion.subjectKey, { suggestion, partyLabel: party?.displayName ?? null });
+  }
+  return out;
+}
+
+/**
+ * What a CONFIRMED match adds: the relationships that Party takes part in, read through the
+ * authorized CRM read (a person who may not view Relationships gets none).
+ */
+async function confirmedRelationships(
+  prisma: PrismaClient,
+  principal: WorkPrincipal,
+  partyId: string,
+): Promise<{ evidence: IntelligenceEvidenceRef[]; related: IntelligenceSubjectRef[]; lines: string[] }> {
+  const out = { evidence: [] as IntelligenceEvidenceRef[], related: [] as IntelligenceSubjectRef[], lines: [] as string[] };
+  const crm = new CrmRelationshipReadService(prisma);
+  const parties = new PartyReadModelRepository(prisma);
+  const page = await crm.forParty(principal, partyId, { limit: MATCH_RELATIONSHIP_LIMIT });
+  if (page.outcome !== 'OK') return out;
+  for (const relationship of page.value.items.filter((r) => r.state === 'ACTIVE' || r.state === 'ENDED')) {
+    const record = await crm.getRecord(principal, relationship.relationshipId);
+    if (record.outcome !== 'OK') continue;
+    const mine = record.value.participants.find((p) => p.state === 'ACTIVE' && crmCanonicalPartyId(p.party) === partyId);
+    const counterparty = record.value.sides.find((side) => crmCanonicalPartyId(side.party) !== partyId);
+    const counterpartyId = counterparty ? crmCanonicalPartyId(counterparty.party) : null;
+    const counterpartyName = counterpartyId ? (await parties.getRecord(principal.organizationId, counterpartyId))?.displayName ?? null : null;
+    out.evidence.push({ authority: 'CRM', kind: 'RELATIONSHIP', ref: relationship.relationshipId, label: `${relationship.kindLabel} · ${relationship.state}`, observedAt: new Date(relationship.createdAt) });
+    if (counterpartyId) out.related.push({ kind: 'PARTY', ref: counterpartyId, label: counterpartyName, verified: true });
+    const role = mine ? mine.role.toLowerCase().replace(/_/g, ' ') : 'a party';
+    out.lines.push(`${role} on the ${relationship.kindLabel.toLowerCase()} relationship${counterpartyName ? ` with ${counterpartyName}` : ''} (${relationship.state.toLowerCase()})`);
+  }
+  return out;
+}
+
+/**
+ * The person's open work, as intelligence items, with their own Calendar composed in, what they
+ * confirmed about who their correspondents are, and their own earlier closures remembered. Only
+ * theirs: every read takes their principal.
  */
 export async function personalIntelligence(prisma: PrismaClient, principal: WorkPrincipal, now: Date): Promise<IntelligenceItem[]> {
   const items = new WorkItemRepository(prisma);
   const graph = new WorkGraphRepository(prisma);
   const open = await new MailAttentionService({ items, now: () => now }).open(principal);
   if (open.length === 0) return [];
+  // Days are the person's own days (the Loop Time Authority): their stored zone, never the server's.
+  const { timeZone } = await new WorkPreferencesRepository(prisma).get(principal);
   const upcoming = (await graph.events(principal, { from: now, to: new Date(now.getTime() + MEETING_HORIZON_DAYS * DAY_MS) })).filter(
-    (e) => e.organizerHash !== null && !e.organizerIsSelf && e.status !== 'CANCELLED',
+    (e) => e.status !== 'CANCELLED' && e.startsAt !== null,
   );
   const people = new Map((await graph.correspondents(principal, { limit: 500 })).map((c) => [c.addressHash, c]));
+  const matches = await identityMatches(prisma, principal);
+  // One authorized CRM read per confirmed Party per request, however many items name it.
+  const relationshipsOf = new Map<string, Promise<Awaited<ReturnType<typeof confirmedRelationships>>>>();
 
   const out: IntelligenceItem[] = [];
   for (const item of open) {
     const evidence: IntelligenceEvidenceRef[] = [];
     const related: IntelligenceSubjectRef[] = [];
     const remembers: string[] = [];
+    const uncertainty: string[] = [];
     if (item.subjectKind === 'THREAD') {
       const thread = await graph.thread(principal, 'GOOGLE', item.subjectRef);
       evidence.push({ authority: 'GMAIL', kind: 'THREAD', ref: item.subjectRef, label: thread?.subject ?? item.title, observedAt: thread?.lastMessageAt ?? null });
       for (const hash of thread?.participantHashes ?? []) {
         const person = people.get(hash);
-        if (person) related.push({ kind: 'CORRESPONDENT', ref: hash, label: person.displayName ?? person.displayAddress, verified: true });
-        // Cross-source, inside one person's own graph: the same address key on both sides.
-        for (const meeting of upcoming.filter((e) => e.organizerHash === hash)) {
-          evidence.push({ authority: 'CALENDAR', kind: 'EVENT', ref: meeting.eventId, label: meeting.summary, observedAt: meeting.startsAt });
-          remembers.push(`${person?.displayName ?? 'Someone on this conversation'} organized a meeting with you on ${(meeting.startsAt ?? meeting.startDate)?.toISOString().slice(0, 10) ?? 'an upcoming day'}.`);
+        const name = person?.displayName?.trim() || null;
+        if (person) related.push({ kind: 'CORRESPONDENT', ref: hash, label: name, verified: true });
+        // Cross-source, inside one person's own graph: the same address key on both sides, as the
+        // meeting's organizer or as one of its invitees.
+        for (const meeting of upcoming) {
+          const organized = meeting.organizerHash === hash && !meeting.organizerIsSelf;
+          if (!organized && !(meeting.attendeeHashes ?? []).includes(hash)) continue;
+          if (!evidence.some((e) => e.authority === 'CALENDAR' && e.ref === meeting.eventId)) {
+            evidence.push({ authority: 'CALENDAR', kind: 'EVENT', ref: meeting.eventId, label: meeting.summary, observedAt: meeting.startsAt });
+          }
+          remembers.push(meetingSentence(item.class, name, organized, meetingPhrase(meeting, now, timeZone)));
+        }
+        const match = matches.get(hash);
+        if (!match) continue;
+        const { suggestion, partyLabel } = match;
+        if (suggestion.status === 'CONFIRMED') {
+          related.push({ kind: 'PARTY', ref: suggestion.partyId, label: partyLabel, verified: true });
+          evidence.push({ authority: 'IDENTITY', kind: 'CONFIRMED_MATCH', ref: suggestion.id, label: 'You confirmed this match', observedAt: suggestion.decidedAt });
+          if (!relationshipsOf.has(suggestion.partyId)) relationshipsOf.set(suggestion.partyId, confirmedRelationships(prisma, principal, suggestion.partyId));
+          const crm = await relationshipsOf.get(suggestion.partyId)!;
+          evidence.push(...crm.evidence);
+          for (const r of crm.related) if (!related.some((x) => x.kind === r.kind && x.ref === r.ref)) related.push(r);
+          const who = name ?? 'This correspondent';
+          remembers.push(
+            crm.lines.length > 0
+              ? `You confirmed ${who} is ${partyLabel ?? 'an established Party'}: ${crm.lines.join('; ')}.`
+              : `You confirmed ${who} is ${partyLabel ?? 'an established Party'}.`,
+          );
+        } else {
+          // A machine suggestion is never truth: unverified, cited, and a question for the person.
+          related.push({ kind: 'PARTY', ref: suggestion.partyId, label: partyLabel, verified: false });
+          evidence.push({ authority: 'IDENTITY', kind: 'SUGGESTION', ref: suggestion.id, label: 'Possible match, not confirmed', observedAt: suggestion.proposedAt });
+          uncertainty.push(
+            `${name ?? 'A correspondent'} may be ${partyLabel ?? 'an established Party'}: their address matches an identifier recorded on that Party. Not confirmed -- confirm or reject the match.`,
+          );
         }
       }
     }
@@ -93,7 +219,7 @@ export async function personalIntelligence(prisma: PrismaClient, principal: Work
       previously,
       suggestedReview: learned,
       confidence: null,
-      uncertainty: [],
+      uncertainty,
       freshness: [],
       humanState: WORK_STATE[item.state] ?? 'NEW',
       firstSeenAt: item.firstDetectedAt,

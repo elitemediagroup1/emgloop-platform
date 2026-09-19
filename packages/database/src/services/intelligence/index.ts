@@ -8,6 +8,7 @@ export {
   type SourceReadDetector,
   type SourceReadEvent,
 } from './source-read';
+export { identitySuggestionDetector, IDENTITY_SUGGESTION_CORRESPONDENT_LIMIT } from './identity-suggestions';
 export { personalIntelligence, caseIntelligence, recurrenceRule, MEETING_HORIZON_DAYS, COMPARABLE_LIMIT } from './intelligence-items';
 export {
   CREATOR_ONBOARDING_PRODUCER,

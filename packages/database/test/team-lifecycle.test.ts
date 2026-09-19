@@ -112,11 +112,12 @@ function makeIam() {
   // (google-connection.test.ts drives that path with a connection present.)
   const googleConnection = { async findFirst() { return null; } };
   const googleOAuthState = { async deleteMany() { return { count: 0 }; } };
-  // It also deletes their work state in the same transaction. Nobody here has any, so every
-  // delete removes nothing (work-erasure.postgres.test.ts drives that path with rows present).
+  // It also deletes their work state, and the identity suggestions resting on their private
+  // evidence, in the same transaction. Nobody here has any, so every delete removes nothing
+  // (work-erasure.postgres.test.ts drives that path with rows present).
   const emptyWorkTable = { async deleteMany() { return { count: 0 }; } };
   const workTables = Object.fromEntries(
-    ['workItemObservation', 'workItem', 'workFeedback', 'workBrief', 'workDraft', 'workMessage', 'workThread', 'workCorrespondent', 'workEvent', 'workDocument', 'workSyncRun', 'workSourceCursor', 'employeeWorkPreferences']
+    ['workItemObservation', 'workItem', 'workFeedback', 'workBrief', 'workDraft', 'workMessage', 'workThread', 'workCorrespondent', 'workEvent', 'workDocument', 'workSyncRun', 'workSourceCursor', 'employeeWorkPreferences', 'intelligenceHypothesis']
       .map((t) => [t, emptyWorkTable]),
   );
   const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState, ...workTables };

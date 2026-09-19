@@ -106,6 +106,13 @@ export { CaseEvidenceService, EVIDENCE_REPORT_OUTCOMES } from './services/case-e
 // CRM P0.2d: governed Party creation (identityResolution:create) and establishment
 // (identityResolution:approve). Keys are minted, never derived from contact values.
 export { PartyService, PARTY_WRITE_OUTCOMES, PARTY_ESTABLISHMENT_BASES } from './services/party.service';
+// Identity match suggestions (D1): proposed by a detector, decided only here, by a person.
+export {
+  IdentitySuggestionService,
+  IDENTITY_SUGGESTION_CONFIRMED_AUDIT_ACTION,
+  IDENTITY_SUGGESTION_REJECTED_AUDIT_ACTION,
+} from './services/identity-suggestion.service';
+export type { IdentitySuggestionActor, IdentitySuggestionDecision, IdentitySuggestionServiceDeps } from './services/identity-suggestion.service';
 export { PartyRecordService } from './services/party-record.service';
 // The governed CRM Relationship and Participant authority (slices R3-A1, R3-A2).
 // Every consequential write puts the row, its event, its audit entry and its outbox

@@ -31,6 +31,7 @@ import { hasRemovalMarker, membershipAuthority, syncMembershipFromUser } from '.
 import { revokeGoogleConnectionInTx, type GoogleActor, type GoogleRevocation } from './google-connection.repository';
 import { AuditRepository } from './audit.repository';
 import { WorkErasureRepository, type WorkErasure } from './work-state/work-erasure.repository';
+import { IdentitySuggestionRepository } from './cognitive/identity-suggestion.repository';
 import { WORK_RETENTION_POLICY_VERSION } from '@emgloop/shared';
 
 
@@ -890,6 +891,10 @@ export class IamRepository {
  * Delete a person's private work state inside the transaction that ends their membership,
  * and record the act -- counts only, never a row -- when anything was deleted. No audit row
  * for a delete that did not happen.
+ *
+ * That includes the identity match suggestions resting on their private evidence (D1): they
+ * live on `intelligence_hypotheses`, not a work table, and go with the rest -- proposed,
+ * confirmed and rejected alike, because each one describes their mailbox.
  */
 async function eraseWorkStateInTx(
   prisma: PrismaClient,
@@ -900,7 +905,8 @@ async function eraseWorkStateInTx(
   actor: GoogleActor,
 ): Promise<WorkErasure> {
   const erased = await new WorkErasureRepository(tx).eraseAll({ organizationId, userId });
-  const total = Object.values(erased).reduce((sum, n) => sum + n, 0);
+  const { suggestions: privateSuggestions } = await new IdentitySuggestionRepository(tx).erasePrivate({ organizationId, userId });
+  const total = Object.values(erased).reduce((sum, n) => sum + n, 0) + privateSuggestions;
   if (total > 0) {
     await new AuditRepository(prisma).record(
       {
@@ -911,7 +917,7 @@ async function eraseWorkStateInTx(
         action: WORK_STATE_ERASED_AUDIT_ACTION,
         entityType: 'work_state',
         entityId: userId,
-        metadata: { subjectUserId: userId, reason, retentionPolicy: WORK_RETENTION_POLICY_VERSION, erased },
+        metadata: { subjectUserId: userId, reason, retentionPolicy: WORK_RETENTION_POLICY_VERSION, erased, privateSuggestions },
       },
       tx,
     );

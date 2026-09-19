@@ -246,6 +246,11 @@ jobs:
           # Optional: only used to validate the client's registered redirect URI. Unset, the
           # canonical production origin is used.
           APP_URL: ${{ vars.APP_URL }}
+          # Optional (D1): identity suggestions compare a correspondent with the identifiers the
+          # organization recorded on its Parties, which are stored under this key. It must be the
+          # SAME value the app uses. Unset, no suggestion is made and the detector's line says
+          # keyUnavailable=1; mail detection is unaffected.
+          COGNITIVE_HASH_SECRET: ${{ secrets.COGNITIVE_HASH_SECRET }}
           ORGANIZATIONS: ${{ vars.DAILY_LOOP_GMAIL_ORGANIZATIONS }}
         run: |
           set -euo pipefail

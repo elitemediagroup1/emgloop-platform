@@ -21,13 +21,14 @@
 //   - observable: the result is detector ids and counts -- never a subject, an address or text.
 //
 // THINK, NEVER ACT. A detector may create or update INTERNAL intelligence (a work item, a Case, a
-// Finding). It may not send, message, change a bid or campaign, commit money, verify an identity or
-// do anything else outside Loop. That boundary is the detector contract below: its only outputs are
+// Finding, a PROPOSED identity suggestion). It may not send, message, change a bid or campaign,
+// commit money, confirm or verify an identity or do anything else outside Loop. That boundary is the detector contract below: its only outputs are
 // counts, and the only dependencies it is built with are Loop's own repositories.
 import type { PrismaClient } from '@prisma/client';
 import { WorkGraphRepository } from '../../repositories/work-state/work-graph.repository';
 import { WorkItemRepository } from '../../repositories/work-state/work-item.repository';
 import { MailAttentionService, mailThreadFacts } from '../work-state/mail-attention.service';
+import { identitySuggestionDetector } from './identity-suggestions';
 
 export const READ_SOURCES = ['GMAIL', 'CALENDAR', 'CALLGRID'] as const;
 export type ReadSourceKey = (typeof READ_SOURCES)[number];
@@ -104,5 +105,5 @@ export function mailAttentionDetector(prisma: PrismaClient): SourceReadDetector 
 
 /** The detectors that run after a read, in order. */
 export function sourceReadDetectors(prisma: PrismaClient): SourceReadDetector[] {
-  return [mailAttentionDetector(prisma)];
+  return [mailAttentionDetector(prisma), identitySuggestionDetector(prisma)];
 }

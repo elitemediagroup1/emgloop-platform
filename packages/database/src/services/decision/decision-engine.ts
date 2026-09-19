@@ -525,8 +525,10 @@ export class DecisionEngine {
       );
     }
 
+    // A belief resting on one person's private evidence can never become an organization
+    // Case's belief: it is not found here, exactly as another tenant's is not.
     const hypothesis = await this.prisma.intelligenceHypothesis.findFirst({
-      where: { id: hypothesisId, organizationId },
+      where: { id: hypothesisId, organizationId, privateToUserId: null },
       select: { id: true },
     });
     if (!hypothesis) throw new DecisionNotFoundError(hypothesisId);
