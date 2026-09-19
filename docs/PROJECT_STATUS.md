@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-19 (Intelligence & Memory Foundation, with D1 and D2 built, in draft #305 — migration 42 not applied; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-19 (Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -97,38 +97,38 @@ dispatched. The gate is clear, not removed.
 
 ---
 
-## Intelligence & Memory Foundation — READY FOR MERGE REVIEW (draft #305, `feat/intelligence-foundation`, off main `cd96797`; supersedes #301)
+## Intelligence & Memory Foundation — COMMISSIONED (2026-09-19): #305 + #306 on main, migration 42 applied; completion PR in review
 
-- **Reconciled #301:**
-  - Kept: standing judgments hold (`4e6cb48`) and offboarding erasure (`469cb8a`), re-applied on current main.
-  - Dropped: the consent-copy commit (already on main through #302) and the old stage-gate status block.
-- **Built:**
-  - The source-read dispatcher. After each person's Gmail read, the cycle runs mail detection and identity
-    suggestions.
-  - Scheduled CallGrid detection: an internal route and `detect-callgrid-intelligence.yml`, off until switched on.
-  - `IntelligenceItem`, one surfaced shape over work items and Cases.
-  - Outcome memory read (SAME and COMPARABLE), with `learnFromHistory`.
-  - A creator-onboarding review on the real CRM `TALENT_REPRESENTATION` event, through the outbox. It has a
-    `CreatorRelevanceSource` seam for Creator Hub and claims no fit without one.
-  - `declare-intelligence-subscriptions`.
-  - **D1 (approved 2026-09-19):** persisted identity suggestions.
-    - Always PROPOSED, exact identifiers only, private to the mail's owner.
-    - Confirmed or rejected only through `IdentitySuggestionService` (`identityResolution:update`).
-    - A rejection is remembered per evidence fingerprint.
-  - **D2 (approved 2026-09-19):** `work_events.attendeeHashes`, one-way keys only. Mail and Calendar are joined at
-    read time: "You're waiting on Dana, and Dana is in tomorrow's meeting".
-  - One additive migration, **42** (`20260924000000_identity_suggestions_and_attendee_keys`). It is **not applied in
-    production**.
-  - The record: `docs/architecture/intelligence-foundation.md`.
-- **Next, in order (each a human act):**
-  1. Dispatch **Deploy Prisma Migrations** on this branch *before* merging. Code on this branch writes the new columns,
-     so merging first would break Calendar sync and Finding reads until the migration runs.
-  2. Matt merges #305.
-  3. D3 commissioning: outbox drain secrets; declare subscriptions; CallGrid detection secrets and switch.
-     Also the repository secret `COGNITIVE_HASH_SECRET` (same value as the app's), once Parties carry EMAIL
-     identifiers. Until then the detector reports `keyUnavailable`.
-- **Expect no identity suggestions in production yet.** They need EMAIL identifiers on established Parties, and none
-  were recorded at the 2026-09-15 audit (not re-checked). No page renders suggestions or the items yet.
+- **Commissioned and proven in production** (details in `docs/architecture/intelligence-foundation.md` §10):
+  - the Gmail cycle's detectors raised real work items with no page visit;
+  - CallGrid detection recorded 5 situations (1 new, 4 seen again, all SYSTEM), 0 duplicates;
+  - the drain published all 117 outbox rows;
+  - both creator subscriptions are ACTIVE;
+  - D2 attendee keys are populated (19 events / 68 keys and 18 / 65).
+- **Naturally scheduled runs:** only the Calendar cycle has been seen on #305+ (19:12). The Gmail cycle, CallGrid
+  detection and the drain have so far run only when dispatched by hand. GitHub fires these "hourly" and "5-minute"
+  crons every ~2.5–5 h.
+- **By loop stage:**
+
+  | Stage | State |
+  |---|---|
+  | Observe | **Production proven**: Gmail, Calendar, and CallGrid ingestion |
+  | Remember | **Production proven**: work state, attendee keys, the Case log. **Awaiting data**: Case outcomes (none recorded on these Cases) |
+  | Connect | **Awaiting data**: D1 (0 Parties or identifiers) and the creator review (0 relationship events). **Not surfaced**: the mail-calendar join (`personalIntelligence` has no page) |
+  | Notice | **Production proven**: mail attention and CallGrid detection. **Running, no data**: the identity-suggestion detector |
+  | Surface | **Live, not independently viewed in the audit**: existing pages render work items (Home/Mail) and Cases (CallGrid; `/app/admin/cases/<id>`). **Not surfaced**: `IntelligenceItem` (`personalIntelligence`, `caseIntelligence`) and suggestion confirm/reject |
+  | Human decision / outcome | **Implemented, awaiting a real outcome**: the Case outcome and mail close paths exist. **Not surfaced**: D1 confirm/reject |
+  | Learn | **Implemented, awaiting data**: standing judgments, mail corrections and the creator review's memory act in production code paths. `learnFromHistory` for CallGrid Cases is computed but not surfaced |
+
+- **Completion PR** (branch `fix/intelligence-foundation-completion`):
+  - `caseIntelligence` compares against the registry producer `CALLGRID_DECISION_PRODUCER`. The old lowercase check
+    labelled real CallGrid evidence LOOP.
+  - Identity evidence records a one-way key fingerprint, and the D1 detector reports `keyMismatch`.
+  - Docs.
+- **External, not urgent:** one `COGNITIVE_HASH_SECRET` in the GitHub repository secrets, identical to any future
+  identity-evidence writer's runtime. It is needed only once identifiers exist, and must never change after that.
+- **Next:** surface `IntelligenceItem` (a UI slice), and let the first real Case outcome and the first natural
+  scheduled runs arrive. Creator Hub itself is a separate product layer; nothing here builds it.
 
 ## Google onboarding (Matt, Charlie, every employee after) — DONE: #302, #303, #304 MERGED; Gmail cycle ON (run 2026-09-19 15:09 UTC: eligible=2, both SYNCED INCREMENTAL)
 

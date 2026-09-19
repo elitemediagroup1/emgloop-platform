@@ -121,14 +121,38 @@ campaign, Relationship, Participant or identity. Tests check this both by behavi
   reaches organization scope. Promotion to organization scope needs an explicit governed authority, and none exists.
   - An EMPLOYEE cannot confirm an attribution, so nothing is proposed to one.
   - No page renders suggestions yet. The service is the complete backend contract a surface calls.
-- **In production, expect nothing at first.** Suggestions need two things.
-  - **EMAIL identifiers recorded on established Parties.** The 2026-09-15 audit found zero Parties and zero identity
-    evidence. That was not re-checked here, and identity slices 2.1b/2.3, which would record identifiers, are not
-    built.
-  - **The identifier key where the Gmail cycle runs.** Identifiers are stored under an organization-salted HMAC keyed
-    by `COGNITIVE_HASH_SECRET`. The cycle runs in GitHub Actions. It now passes that secret, but no such repository
-    secret is known to exist. Without it, the detector refuses to compare and logs `keyUnavailable=1`. It never
-    hashes with the development fallback, which could not match real evidence.
+- **In production, nothing yet, correctly.** Suggestions need two things.
+  - **EMAIL identifiers recorded on established Parties.** Production has none. The 2026-09-19 footprint showed 0
+    identities and 0 identity evidence. Nothing writes identity evidence in production: `CognitiveEventProcessor` has no
+    caller, and identity slices 2.1b/2.3 are not built. The detector ran after the first Gmail cycle on #305 and
+    reported `checked=0` for both people, which is the right answer with no identifiers.
+  - **One identifier key, the same wherever identifiers are written or compared** (§4a).
+- **§4a. Which key hashes what.** Two different hashes are involved, and only one of them needs a secret.
+
+  | Hash | Used for | Secret |
+  |---|---|---|
+  | `googleAddressHash`: plain SHA-256 of the normalized address | Gmail correspondent keys; Calendar organizer and attendee keys (D2); the private mail-calendar join | **none** |
+  | `hashIdentifier`: HMAC-SHA-256 keyed by `COGNITIVE_HASH_SECRET`, organization-salted | `identity_evidence.normalizedValueHash` (writer: `IdentityEvidenceRepository`); the D1 detector's comparison | **required** |
+
+  - **Runtimes that need the secret:**
+    - the Gmail cycle (GitHub Actions), where the D1 detector compares; `cycle-employee-gmail.yml` passes
+      `secrets.COGNITIVE_HASH_SECRET` to the Cycle step;
+    - whatever runtime writes identity evidence. None does in production today. The app has no live caller, so
+      Netlify does not use the secret today.
+  - **When it is absent:**
+    - the detector refuses to compare and logs `keyUnavailable=1` (only once identifiers exist);
+    - it never falls back to the development key;
+    - in a production process, `hashIdentifier` throws, so a future writer fails closed;
+    - mail detection and D2 are unaffected.
+  - **When it differs between two runtimes:** every identity evidence row records a one-way fingerprint of the key that
+    hashed it (`metadata.keyFingerprint`). The detector counts rows it can never match as `keyMismatch`, instead of
+    reporting a silent `matched=0`.
+  - **When it changes after identifiers exist:**
+    - every earlier `normalizedValueHash` becomes unmatchable, and the raw values are not stored, so they cannot be
+      re-hashed; identifiers would have to be recorded again;
+    - re-recorded identifiers get new ids, so earlier rejected suggestions would come back as RECONSIDERED.
+  - **What a key change never affects:** D2, the mail-calendar join and stored work state. They use the plain hash.
+  - **While production holds 0 identifiers,** choosing the value costs nothing. After that it must not change.
 - **CallGrid with a Party: still not linked.** A CallGrid buyer id is not a contact identifier, and no authority records
   which Party a buyer is. That needs a human-established link (a CRM Relationship naming the buyer), which does not
   exist yet. D1 does not provide it and does not pretend to.
@@ -208,6 +232,8 @@ The trigger (`CreatorOnboarded`), the subscriber, the Case and `IntelligenceItem
 
 ## 9. Commissioning (each is a human act)
 
+Steps 0 and 2–4 are done (§10). Step 1 is outstanding and is not needed until identity evidence exists.
+
 0. **Before merging:** apply the migration. Dispatch **Deploy Prisma Migrations** on this branch, then confirm
    `migrate status` shows `20260924000000_identity_suggestions_and_attendee_keys` applied.
    - The order matters. Once merged, Netlify deploys code that writes `work_events.attendeeHashes` and filters
@@ -215,8 +241,9 @@ The trigger (`CreatorOnboarded`), the subscriber, the Case and `IntelligenceItem
      read would fail.
    - The migration is additive. Rows written by the code already on `main` satisfy every new constraint (checked
      against a migrated database), so applying it first is safe.
-1. When identity suggestions should run (only useful once Parties carry EMAIL identifiers): set the repository secret
-   `COGNITIVE_HASH_SECRET` to the **same** value the app uses.
+1. Before any identity evidence is written: one `COGNITIVE_HASH_SECRET`, identical in the repository secrets (the Gmail
+   cycle) and in any runtime that will write identity evidence (Netlify, if the writer lands in the app). If one
+   already exists, copy it; never create a second. Never change it once identifiers exist (§4a).
 2. Set `OUTBOX_DRAIN_URL` and `OUTBOX_DRAIN_SECRET`: the repository secrets, plus the Netlify variable of that name.
    `drain-outbox.yml` has failed every run since it shipped without them.
 3. Dispatch **Declare Intelligence Subscriptions** for `servicesinmycity-demo`: first a dry run, then `apply: true`.
@@ -232,4 +259,22 @@ after each person's read.
   EMAIL identifier on any Party.
 
 The Calendar cycle starts storing attendee keys on its next read. Events already stored gain keys when Google next
-reports them changed.
+reports them changed, or on a re-baseline.
+
+## 10. Commissioned (2026-09-19)
+
+What production has shown, from workflow logs and Read Intelligence State (#306). "Manual" means a human dispatched
+the scheduled workflow. The code path is the one the schedule runs.
+
+| Path | Schedule | Commissioned | Production proof | First naturally scheduled run on #305+ |
+|---|---|---|---|---|
+| Gmail cycle and its detectors | hourly at :17 (fires every ~2.5–5 h) | yes | manual 18:02: mail queue raised 2 and 15 new items with no page visit; identity suggestions `checked=0` | **not yet observed** |
+| Calendar cycle (attendee keys) | hourly at :00 (same lag) | yes | manual re-baseline 19:11 (2 synced, 2 re-baselined); 19 events / 68 keys and 18 / 65 | **yes**, 19:12 (incremental, 2 synced) |
+| CallGrid detection | hourly at :37 when `INTELLIGENCE_DETECT_ENABLED=true` | yes | manual 18:25: 5 situations, 1 new and 4 seen again, all SYSTEM, no page open, 0 duplicates of 61 | **not yet observed** |
+| Outbox drain | every 5 min (fires every ~2.5–5 h) | yes | manual 18:17 and 19:07: 117 of 117 published, 0 dead-lettered | **not yet observed** (scheduled runs before the secrets existed failed, as designed) |
+| Intelligence subscriptions | — | yes | both ACTIVE; the second dry run added nothing | — |
+
+- **No qualifying data, correctly nothing:**
+  - no relationship event exists, so the creator review has 0 deliveries and 0 Cases;
+  - no Party or identifier exists, so D1 has 0 suggestions;
+  - none of the 5 Cases has a recorded outcome, so production has not yet retrieved a real prior outcome.
