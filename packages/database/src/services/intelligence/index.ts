@@ -18,5 +18,7 @@ export {
   onboardedCreator,
   reviewOnboardedCreator,
   type CreatorOnboardingDeps,
+  type CreatorRelevanceEvidence,
+  type CreatorRelevanceSource,
 } from './creator-onboarding';
 export { INTELLIGENCE_SUBSCRIPTIONS, declareIntelligenceSubscriptions, type DeclaredSubscription, type IntelligenceSubscriptionDefinition } from './subscriptions';

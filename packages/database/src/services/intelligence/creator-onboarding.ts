@@ -20,6 +20,15 @@
 // records nothing twice. No outreach, no message, no work item, no relationship: a person decides.
 //
 // NO REASON TO ACT, NO CASE. With no brand relationship to review, it records nothing and says so.
+//
+// RELEVANCE IS EVIDENCE FROM THE AUTHORITY THAT OWNS IT, OR IT IS ABSENT. Whether a creator suits a
+// brand depends on creator context -- category, audience -- that Creator Hub will own and nothing
+// owns today. The review therefore accepts relevance as an optional dependency
+// (`CreatorRelevanceSource`) and cites what it returns as that authority's statement, with its
+// CREATOR_HUB references, next to the relationship memory and the prior outcomes. With no source
+// wired -- today -- it claims no fit at all. When Creator Hub exists, the path is: onboarded ->
+// its authoritative creator context -> this relationship memory -> its relevance evidence ->
+// prior brand, contact and outcome history -> surfaced. Nothing here changes shape for that.
 import type { StateChangeOutbox } from '@prisma/client';
 import { crmCanonicalPartyId, learnFromHistory, outcomeWords, type IntelligenceEvidenceRef, type IntelligenceSubjectRef, type PriorOutcome } from '@emgloop/shared';
 import type { CrmRelationshipReadModelRepository } from '../../repositories/crm-relationship-read-model.repository';
@@ -35,10 +44,30 @@ export const CREATOR_REVIEW_BRAND_LIMIT = 5;
 
 const ENGAGEMENT_ROLES: readonly string[] = ['PRIMARY_CONTACT', 'DECISION_MAKER', 'BILLING_CONTACT'];
 
+/** What the creator-context authority says about one creator and one brand. Its words, its records. */
+export interface CreatorRelevanceEvidence {
+  readonly brandPartyId: string;
+  /** The authority's own statement, cited as written. Loop does not rewrite it into a verdict. */
+  readonly statement: string;
+  /** The records it rests on. Only CREATOR_HUB references are accepted; anything else is dropped. */
+  readonly refs: readonly IntelligenceEvidenceRef[];
+}
+
+/**
+ * The seam Creator Hub fills. Given a creator and the brand relationships under review, return the
+ * relevance evidence it holds -- or nothing. No implementation exists today, and none may be a
+ * guess from names, categories typed into CRM notes, or anything else Loop does not own.
+ */
+export interface CreatorRelevanceSource {
+  relevanceFor(organizationId: string, creatorPartyId: string, brandPartyIds: readonly string[]): Promise<readonly CreatorRelevanceEvidence[]>;
+}
+
 export interface CreatorOnboardingDeps {
   readonly relationships: Pick<CrmRelationshipReadModelRepository, 'list' | 'getRecord'>;
   readonly parties: Pick<PartyReadModelRepository, 'getRecord'>;
   readonly cases: Pick<DecisionEngine, 'create' | 'list' | 'getHistory'>;
+  /** Absent until Creator Hub owns creator context. Without it, no fit is claimed. */
+  readonly relevance?: CreatorRelevanceSource;
 }
 
 export interface CreatorOnboardingResult {
@@ -107,6 +136,11 @@ export async function reviewOnboardedCreator(
   if (clients.length === 0) return { status: 'noop', summary: 'no brand relationship to review' };
 
   const history = await earlierSuggestions(organizationId, deps.cases);
+  const brandIds = clients
+    .map((client) => client.sides.find((side) => side.side === 'COUNTERPARTY'))
+    .map((side) => (side ? crmCanonicalPartyId(side.party) : null))
+    .filter((id): id is string => id !== null);
+  const relevance = deps.relevance ? await deps.relevance.relevanceFor(organizationId, trigger.creatorPartyId, brandIds) : [];
   const refs: IntelligenceEvidenceRef[] = [];
   const related: IntelligenceSubjectRef[] = [{ kind: 'CREATOR', ref: trigger.creatorPartyId, label: creator.displayName ?? null, verified: true }];
   const remembers: string[] = [];
@@ -132,6 +166,12 @@ export async function reviewOnboardedCreator(
       if (person?.displayName) contactNames.push(`${person.displayName} (${contact.role.toLowerCase().replace(/_/g, ' ')})`);
     }
 
+    // Relevance, only as the owning authority stated it and only with its own records.
+    const stated = relevance.find((r) => r.brandPartyId === brandPartyId && r.statement.trim() !== '');
+    const statedRefs = (stated?.refs ?? []).filter((r) => r.authority === 'CREATOR_HUB');
+    refs.push(...statedRefs);
+    const statedLine = stated && statedRefs.length > 0 ? ` Creator Hub: ${stated.statement.trim()}` : '';
+
     const before = history.filter((h) => h.brandPartyId === brandPartyId).map((h) => h.prior);
     previously.push(...before);
     const last = [...before].sort((a, b) => b.at.getTime() - a.at.getTime())[0];
@@ -139,6 +179,7 @@ export async function reviewOnboardedCreator(
     lines.push(
       `${brandName}: EMG has ${standing}.` +
         (contactNames.length ? ` Known contact: ${contactNames.join(', ')}.` : ' No contact is recorded on it.') +
+        statedLine +
         (last ? ` Last time Loop suggested ${brandName} for a new creator, it ${outcomeWords(last.outcome)}.` : ''),
     );
     if (last) remembers.push(`${brandName} was suggested for a new creator before; it ${outcomeWords(last.outcome)}.`);

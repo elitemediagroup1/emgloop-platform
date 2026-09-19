@@ -24,9 +24,11 @@ export type IntelligenceScope = (typeof INTELLIGENCE_SCOPES)[number];
  * Who owns a piece of evidence. Composition cites it; it never copies or re-owns it.
  *
  * IDENTITY is the identity authority: an identifier recorded on a Party, and a match suggestion
- * about one.
+ * about one. CREATOR_HUB is the authority that will own creator context (category, audience,
+ * relevance); nothing produces it yet, and until something does no surfaced item may claim that a
+ * creator fits a brand.
  */
-export const EVIDENCE_AUTHORITIES = ['GMAIL', 'CALENDAR', 'CALLGRID', 'CRM', 'IDENTITY', 'LOOP'] as const;
+export const EVIDENCE_AUTHORITIES = ['GMAIL', 'CALENDAR', 'CALLGRID', 'CRM', 'IDENTITY', 'CREATOR_HUB', 'LOOP'] as const;
 export type EvidenceAuthority = (typeof EVIDENCE_AUTHORITIES)[number];
 
 /** Where the person has got to. One vocabulary over both authorities' lifecycles. */

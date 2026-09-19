@@ -29,9 +29,13 @@ import {
   declareIntelligenceSubscriptions,
   mailAttentionDetector,
   personalIntelligence,
+  reviewOnboardedCreator,
   sourceReadDetectors,
+  type CreatorRelevanceSource,
   type SourceReadDetector,
 } from '../src/services/intelligence';
+import { CrmRelationshipReadModelRepository } from '../src/repositories/crm-relationship-read-model.repository';
+import { PartyReadModelRepository } from '../src/repositories/party-read-model.repository';
 
 // Identity suggestions compare only under a CONFIGURED identifier key (never the development
 // fallback). This process is the test, so it configures one.
@@ -660,6 +664,44 @@ test('D1/D2 offboarding: ending a membership erases the person’s attendee keys
   const erased = w.fake.auditLog.__rows.find((a: any) => a.action === 'work_state.erased');
   assert.equal(erased.metadata.privateSuggestions, 1);
   assert.equal(erased.metadata.erased.work_events, 1);
+});
+
+// --- Creator contract: relevance only as the owning authority's evidence -------------------------
+
+test('creator contract: relevance is accepted only as Creator Hub evidence; without it no fit is claimed', async () => {
+  const w = world();
+  const matt = await person(w, ORG_A);
+  const { brand } = await brandWithContact(w, matt, 'Glow Cosmetics', 'Rita Reyes');
+  const deps = { relationships: new CrmRelationshipReadModelRepository(w.prisma), parties: new PartyReadModelRepository(w.prisma), cases: w.engine };
+
+  const ava = await establish(w, matt, 'PERSON', 'Ava Creator');
+  await reviewOnboardedCreator(ORG_A, { creatorPartyId: ava, relationshipId: null, eventId: 'e-ava' }, deps, NOW);
+  const plain = (await creatorCases(w, ORG_A)).find((c) => c.title.startsWith('Ava Creator'))!;
+  assert.doesNotMatch(plain.summary ?? '', /Creator Hub|fit|relevan|audience|categor/i, 'nothing owns creator context today, so nothing claims a fit');
+
+  // Standing in for the future Creator Hub: its statement and its records are cited as its own.
+  const hub: CreatorRelevanceSource = {
+    async relevanceFor(_organizationId, _creatorPartyId, brandPartyIds) {
+      return [
+        {
+          brandPartyId: brandPartyIds[0]!,
+          statement: 'Beauty creator; audience overlap with Glow is 62% (audience report).',
+          refs: [
+            { authority: 'CREATOR_HUB', kind: 'AUDIENCE_OVERLAP', ref: 'report-1', label: 'Audience overlap', observedAt: NOW },
+            { authority: 'LOOP', kind: 'GUESS', ref: 'loop-guess', label: 'not the owning authority', observedAt: null },
+          ],
+        },
+      ];
+    },
+  };
+  const bea = await establish(w, matt, 'PERSON', 'Bea Creator');
+  await reviewOnboardedCreator(ORG_A, { creatorPartyId: bea, relationshipId: null, eventId: 'e-bea' }, { ...deps, relevance: hub }, NOW);
+  const cited = (await creatorCases(w, ORG_A)).find((c) => c.title.startsWith('Bea Creator'))!;
+  assert.match(cited.summary ?? '', /Glow Cosmetics: EMG has an active client relationship\. Known contact: Rita Reyes \(primary contact\)\. Creator Hub: Beauty creator; audience overlap with Glow is 62%/);
+  const item = await caseIntelligence(w.engine, ORG_A, cited.id);
+  assert.deepEqual(item!.evidence.filter((e) => e.authority === 'CREATOR_HUB').map((e) => e.ref), ['report-1']);
+  assert.equal(item!.evidence.some((e) => e.ref === 'loop-guess'), false, 'relevance from anything but its owning authority is dropped');
+  assert.equal(item!.related.find((r) => r.kind === 'BRAND')!.ref, brand);
 });
 
 test('D1f. without the configured identifier key the detector compares nothing, and says so', async () => {
