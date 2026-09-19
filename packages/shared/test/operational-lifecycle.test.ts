@@ -1,5 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  OPERATIONAL_OUTCOMES as ALL_OUTCOMES,
+  STANDING_OUTCOMES,
+  resightingDisposition,
+} from '../src/operational-lifecycle';
 
 import {
   projectLifecycle,
@@ -517,4 +522,46 @@ test('standing never claims the underlying number is moving', () => {
   const s = standingOf({ detectionCount: 40, reopenCount: 0 });
   assert.equal(s.state, 'HOLDING');
   assert.match(s.basis, /separate question/i);
+});
+
+// --- Corrections compound: standing judgments hold until it gets worse ---------------------------
+
+const DECIDED = new Date('2026-09-10T15:00:00.000Z');
+const LATER = new Date('2026-09-12T15:00:00.000Z');
+const EARLIER = new Date('2026-09-08T15:00:00.000Z');
+const closed = (over: Partial<Parameters<typeof resightingDisposition>[0]> = {}) => resightingDisposition({
+  state: 'DISMISSED', outcome: 'SUPPRESSED', resolvedAt: DECIDED,
+  severityAtDecision: 'NOTABLE', sightingSeverity: 'NOTABLE', detectedAt: LATER, ...over,
+});
+
+test('a standing judgment holds a later sighting that is no worse, and says why', () => {
+  const held = closed();
+  assert.equal(held.kind, 'HOLD');
+  assert.equal(held.kind === 'HOLD' && held.reason, 'Seen again at Notable. It stays closed: it was suppressed at Notable, and it has not got worse.');
+  assert.equal(closed({ sightingSeverity: 'INFORMATIONAL' }).kind, 'HOLD', 'milder is not worse');
+  assert.equal(closed({ outcome: 'ACCEPTED_RISK' }).kind, 'HOLD');
+});
+
+test('a standing judgment gives way when the situation gets worse, and the reopening names what changed', () => {
+  const back = closed({ sightingSeverity: 'CRITICAL' });
+  assert.equal(back.kind, 'REOPEN');
+  assert.equal(back.kind === 'REOPEN' && back.reason, 'Reopened because it got worse: it was suppressed at Notable, and it is now Critical.');
+});
+
+test('an occurrence outcome still reopens on a later sighting, exactly as before', () => {
+  for (const outcome of ['RECOVERED', 'NO_ACTION_NEEDED', 'FALSE_POSITIVE', 'EXPIRED', 'NOT_ACTIONABLE'] as const) {
+    assert.deepEqual(closed({ outcome }), { kind: 'REOPEN', reason: null }, outcome);
+  }
+  assert.deepEqual(closed({ outcome: null }), { kind: 'REOPEN', reason: null });
+});
+
+test('reading history is not relapsing, and an open situation is only observed', () => {
+  assert.equal(closed({ detectedAt: EARLIER }).kind, 'OBSERVE');
+  assert.equal(closed({ state: 'NEEDS_REVIEW', resolvedAt: null }).kind, 'OBSERVE');
+  assert.equal(closed({ state: 'ASSIGNED', resolvedAt: null, sightingSeverity: 'CRITICAL' }).kind, 'OBSERVE');
+});
+
+test('the standing outcomes are the two whose words say "do not raise this again"', () => {
+  assert.deepEqual([...STANDING_OUTCOMES].sort(), ['ACCEPTED_RISK', 'SUPPRESSED']);
+  for (const o of STANDING_OUTCOMES) assert.ok(ALL_OUTCOMES.includes(o));
 });

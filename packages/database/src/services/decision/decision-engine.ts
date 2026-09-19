@@ -50,7 +50,9 @@ import {
   isClosed,
   isDecisionSeverity,
   isEvidenceClass,
+  resightingDisposition,
   type LifecycleObservation,
+  type OperationalOutcome,
   type PriorityState,
   type DecisionEventPayloadV1,
 } from '@emgloop/shared';
@@ -347,15 +349,33 @@ export class DecisionEngine {
     }
   }
 
+  /**
+   * A producer saw an existing situation again.
+   *
+   * Open: a sighting (the lane does not move). Closed, from before the decision:
+   * history, not a relapse. Closed, and later:
+   *   - after an OCCURRENCE outcome (it recovered, it went away, nothing was
+   *     needed) this is a new occurrence and it reopens, as it always has;
+   *   - after a STANDING judgment ("stop raising it", "the business accepts it")
+   *     it stays closed unless it has got worse than when the person decided --
+   *     the correction holds, and the sighting is still recorded with the reason.
+   * The rule is `resightingDisposition` (shared, pure).
+   */
   private async resight(
     organizationId: string,
     existing: OperationalPriority,
     input: CreateDecisionInput,
   ): Promise<DecisionResult> {
-    const relapsed =
-      isClosed(existing.state as PriorityState)
-      && Boolean(existing.resolvedAt)
-      && input.detectedAt.getTime() > existing.resolvedAt!.getTime();
+    const disposition = resightingDisposition({
+      state: existing.state as PriorityState,
+      outcome: (existing.outcome as OperationalOutcome | null) ?? null,
+      resolvedAt: existing.resolvedAt,
+      severityAtDecision: existing.severity,
+      sightingSeverity: input.severity,
+      detectedAt: input.detectedAt,
+    });
+    const relapsed = disposition.kind === 'REOPEN';
+    const held = disposition.kind === 'HOLD';
 
     const forward = input.detectedAt.getTime() >= existing.lastDetectedAt.getTime();
 
@@ -370,6 +390,10 @@ export class DecisionEngine {
           actor: { type: 'SYSTEM', userId: null, source: input.producer },
           detectionKey: input.detectionKey,
           identityId: input.identityId ?? null,
+          reason: disposition.kind === 'OBSERVE' ? null : disposition.reason,
+          // What this sighting measured, kept on the sighting itself: a held one
+          // does not change the decided headline, so the log is where it lives.
+          evidencePayload: held ? { severity: input.severity, title: input.title } : undefined,
           extra: {
             // Detection facts move forward only, so browsing an older period can
             // never rewind when something was last seen.
@@ -380,8 +404,10 @@ export class DecisionEngine {
                 : existing.firstDetectedAt,
             detectionCount: existing.detectionCount + 1,
             // Headline facts follow the most recent sighting: an operator
-            // reviewing today should see today's numbers.
-            ...(forward
+            // reviewing today should see today's numbers. A HELD sighting does
+            // not: the closed situation keeps the facts the person decided on, so
+            // "has it got worse since?" always compares against the same severity.
+            ...(forward && !held
               ? {
                   title: input.title,
                   summary: input.summary ?? null,
@@ -397,7 +423,7 @@ export class DecisionEngine {
         return {
           decision,
           observation,
-          effect: relapsed ? ('REOPENED' as const) : ('RESIGHTED' as const),
+          effect: relapsed ? ('REOPENED' as const) : held ? ('HELD' as const) : ('RESIGHTED' as const),
           eventType: relapsed ? 'DecisionReopened' : 'DecisionObserved',
         };
       });
