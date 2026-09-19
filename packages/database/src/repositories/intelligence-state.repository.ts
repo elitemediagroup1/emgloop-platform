@@ -19,11 +19,12 @@
 // BOUNDED. Tallies that need rows in memory stop at a bound and say so (`bounded: true`), so a
 // partial number is never presented as a whole one.
 import type { PrismaClient } from '@prisma/client';
+import { CALLGRID_DECISION_PRODUCER } from '@emgloop/shared';
 import { CREATOR_ONBOARDING_PRODUCER } from '../services/intelligence/creator-onboarding';
 import { IDENTITY_MATCH_TYPE } from './cognitive/identity-suggestion.repository';
 
 /** The producer the CallGrid pipeline records Cases as (apps/web `CALLGRID_SOURCE`). */
-export const CALLGRID_CASE_PRODUCER = 'CALLGRID';
+export const CALLGRID_CASE_PRODUCER = CALLGRID_DECISION_PRODUCER;
 /** Cases listed in one read. More than this and the list says it was cut. */
 export const INTELLIGENCE_STATE_CASE_LIMIT = 200;
 /** Log entries listed across those Cases. */
