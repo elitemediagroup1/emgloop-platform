@@ -664,3 +664,8 @@ export {
   CONNECTION_SECRET_PURPOSE,
 } from './services/connections/connection-secret-sealer';
 export type { ConnectionSecretBinding, SealedConnectionSecret } from './services/connections/connection-secret-sealer';
+
+// Provider-neutral connection adapter + worker runtime (Teams/Telegram and future sources).
+export type { ConnectionAdapter, AdapterSession, ObservationResult } from './services/connections/connection-adapter';
+export { runConnectionCycle } from './services/connections/connection-runtime';
+export type { ConnectionCycleInput, ConnectionCycleResult, CycleFailure } from './services/connections/connection-runtime';
