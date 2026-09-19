@@ -523,3 +523,23 @@ export type {
   WorkPreferences,
   EffectiveRetention,
 } from './work-state';
+
+// Read intelligence state (commissioning diagnostic): ids and counts of what the intelligence
+// paths recorded, through a client that can only read.
+export { readOnlyClient, ReadOnlyViolation, READ_ONLY_METHODS } from './read-only-client';
+export {
+  IntelligenceStateRepository,
+  CALLGRID_CASE_PRODUCER,
+  INTELLIGENCE_STATE_CASE_LIMIT,
+  INTELLIGENCE_STATE_SIGHTING_LIMIT,
+  INTELLIGENCE_STATE_SCAN_BOUND,
+  INTELLIGENCE_STATE_WRITE_TABLES,
+} from './intelligence-state.repository';
+export type {
+  IntelligenceState,
+  IntelligenceStateCase,
+  IntelligenceStateSighting,
+  IntelligenceStateDuplicateGroup,
+  IntelligenceStateEmployee,
+  IntelligenceStateWriteTable,
+} from './intelligence-state.repository';
