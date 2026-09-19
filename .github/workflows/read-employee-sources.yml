@@ -55,17 +55,28 @@ jobs:
           echo "The required secret is present."
 
       - name: Validate the requested input
+        id: input
         env:
           # Through the environment, never interpolated into the script body.
           ORG_SLUG: ${{ inputs.organization_slug }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+          # Surrounding whitespace is trimmed first. A slug typed or pasted into the Run workflow
+          # form with spaces around it is still that slug: run 35447918049 was refused because
+          # its value began with four spaces. Whitespace INSIDE a value is not repaired -- that is
+          # a different string, and it is refused.
+          slug="${ORG_SLUG#"${ORG_SLUG%%[![:space:]]*}"}"
+          slug="${slug%"${slug##*[![:space:]]}"}"
+          # The WHOLE value is checked, not line by line, so an embedded newline cannot hide a
+          # second value behind a valid first line.
+          if [[ ! "${slug}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; then
             echo "::error::organization_slug must be lowercase letters, digits and hyphens."
             exit 1
           fi
-          echo "Validated organization ${ORG_SLUG}."
+          # Only the validated slug travels on; later steps never read the raw input.
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+          echo "Validated organization ${slug}."
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -88,7 +99,7 @@ jobs:
       - name: Read
         env:
           DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
-          ORG_SLUG: ${{ inputs.organization_slug }}
+          ORG_SLUG: ${{ steps.input.outputs.slug }}
         run: |
           set -euo pipefail
           npm run read:employee-sources -- --organization "${ORG_SLUG}"
