@@ -120,6 +120,12 @@ export interface CalendarCycleDeps {
   /** This employee's most recent pass, so a cycle does not pile onto one already running. */
   lastRun(principal: WorkPrincipal): Promise<{ readonly startedAt: Date; readonly finishedAt: Date | null } | null>;
   sync(principal: WorkPrincipal, options: { readonly baseline: boolean }): Promise<CycleSyncOutcome>;
+  /**
+   * What runs once a read COMPLETED for this person: the detectors registered for the source
+   * (@emgloop/database SourceReadDispatcher). This is what makes a new message change a person's
+   * queue without anybody opening a page. Absent: no detection, as before.
+   */
+  afterRead?(principal: WorkPrincipal): Promise<readonly { readonly detector: string; readonly result: string; readonly counts: Readonly<Record<string, number>> }[]>;
   /** Injected so tests read every line, and so nothing writes to stdout directly. */
   log: (line: string) => void;
   /** Injected so the caller owns the clock -- including the tests that move it. */
@@ -404,6 +410,17 @@ async function onePass(
       elapsedMs: deps.now().getTime() - startedAt,
     }),
   );
+  if ((result === 'SYNCED' || result === 'TRUNCATED') && deps.afterRead) {
+    // The read completed, so there is something new to think about. A detector failing is logged
+    // and never turns a successful read into a failed pass -- or stops the next person's.
+    try {
+      for (const run of await deps.afterRead(principal)) {
+        deps.log(line({ event: 'DETECT', organization: organizationSlug, ref, detector: run.detector, result: run.result, ...run.counts }));
+      }
+    } catch {
+      deps.log(line({ event: 'DETECT', organization: organizationSlug, ref, detector: '', result: 'FAILED' }));
+    }
+  }
   return { organizationSlug, ref, result, mode: outcome.mode, failure: outcome.failure };
 }
 
@@ -474,7 +491,7 @@ async function main(): Promise<number> {
 
   // Imported here rather than at module scope so the orchestration above can be tested without a
   // database client being constructed as a side effect.
-  const { prisma, repositories, createEmployeeCalendarSync, createEmployeeGmailSync, GoogleConnectionRepository, WorkSourceRepository } =
+  const { prisma, repositories, createEmployeeCalendarSync, createEmployeeGmailSync, GoogleConnectionRepository, WorkSourceRepository, SourceReadDispatcher, sourceReadDetectors } =
     await import('@emgloop/database');
   const google = readGoogleEnvironment(process.env, origin);
   if (google.state !== 'CONFIGURED') return 2;
@@ -485,6 +502,7 @@ async function main(): Promise<number> {
   const mailboxes = createEmployeeGmailSync({ prisma, google });
   const connections = new GoogleConnectionRepository(prisma);
   const sources = new WorkSourceRepository(prisma);
+  const detectors = new SourceReadDispatcher(sourceReadDetectors(prisma));
 
   try {
     const result = await runCalendarCycle(
@@ -502,6 +520,13 @@ async function main(): Promise<number> {
           const pass = await mailboxes.syncGmail(principal, { ...options, reach: 'FULL' });
           return { ...pass, outcome: pass.outcome === 'DEFERRED' ? 'FAILED' : pass.outcome };
         },
+        afterRead: (principal) =>
+          detectors.dispatch({
+            organizationId: principal.organizationId,
+            userId: principal.userId,
+            source: source === 'gmail' ? 'GMAIL' : 'CALENDAR',
+            completedAt: new Date(),
+          }),
         log,
         now: () => new Date(),
       },

@@ -21,6 +21,7 @@ import {
 } from '@emgloop/shared';
 import {
   MailAttentionService,
+  mailThreadFacts,
   WorkGraphRepository,
   WorkItemRepository,
   prisma,
@@ -50,24 +51,9 @@ export interface MailAttentionView {
 
 const DAY_MS = 86_400_000;
 
-/** The stored facts the rules read. Headers and counts; nothing from a body. */
-export async function mailThreadFacts(principal: WorkPrincipal, limit = 200): Promise<MailThreadFacts[]> {
-  const graph = new WorkGraphRepository(prisma);
-  const rows = await graph.threads(principal, { limit });
-  return rows.map((row) => ({
-    threadId: row.threadId,
-    subject: row.subject,
-    lastMessageAt: row.lastMessageAt,
-    firstMessageAt: row.firstMessageAt,
-    lastDirection: (row.lastDirection as 'INBOUND' | 'OUTBOUND' | null) ?? null,
-    messageCount: row.messageCount,
-    unread: row.labels.includes('UNREAD'),
-    // Treated as a two-sided conversation when it holds more than one message. That is coarser
-    // than "both sides have spoken" -- two messages from the same side also pass -- and it is
-    // stated as what it is: a count, which is a fact, standing in until direction per message is
-    // summarised on the thread.
-    hasExchange: row.messageCount > 1,
-  }));
+/** The stored facts the rules read, for this person: the one assembly the cycle uses too. */
+export async function loadMailThreadFacts(principal: WorkPrincipal, limit = 200): Promise<MailThreadFacts[]> {
+  return mailThreadFacts(new WorkGraphRepository(prisma), principal, limit);
 }
 
 const itemOf = (record: WorkItemRecord): MailAttentionItem => {
@@ -95,7 +81,7 @@ export async function loadMailAttention(
   options: { readonly refresh?: boolean; readonly timeZone?: string } = {},
 ): Promise<MailAttentionView> {
   const service = new MailAttentionService({ items: new WorkItemRepository(prisma) });
-  const facts = await mailThreadFacts(principal);
+  const facts = await loadMailThreadFacts(principal);
   if (options.refresh ?? true) await service.refresh(principal, facts);
 
   const open = await service.open(principal);

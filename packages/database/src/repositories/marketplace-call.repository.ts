@@ -398,6 +398,25 @@ export class MarketplaceCallRepository {
    * observed, so it is not a period with zero calls, and the command center
    * does not compare against it. One indexed row.
    */
+  /**
+   * Which organizations received CallGrid calls since `since` -- ids only, for a PLATFORM pass.
+   *
+   * THE ONE CROSS-ORGANIZATION READ HERE, and deliberately the narrowest: it returns organization
+   * ids and nothing about any call, exactly like the outbox drain's own discovery. It exists so the
+   * scheduled detection pass can ask the database which tenants have something to think about,
+   * instead of accepting a tenant from its caller.
+   */
+  async organizationIdsWithCallsSince(since: Date, take = 50): Promise<string[]> {
+    const rows = await this.prisma.marketplaceCall.findMany({
+      where: { sourceOccurredAt: { gte: since } },
+      select: { organizationId: true },
+      distinct: ['organizationId'],
+      orderBy: { organizationId: 'asc' },
+      take: Math.min(200, Math.max(1, take)),
+    });
+    return rows.map((r) => r.organizationId);
+  }
+
   async firstCallAt(organizationId: string): Promise<Date | null> {
     const first = await this.prisma.marketplaceCall.findFirst({
       where: { organizationId },

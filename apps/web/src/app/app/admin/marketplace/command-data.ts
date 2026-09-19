@@ -49,7 +49,8 @@ export type SearchParams = Readonly<Record<string, string | string[] | undefined
 const PROVIDER = 'callgrid';
 
 export interface CommandContext {
-  readonly session: AuthSession;
+  /** The viewer's session. Null for a system detection pass, which has no viewer and cannot act. */
+  readonly session: AuthSession | null;
   readonly organizationId: string;
   readonly now: Date;
   readonly selection: CallGridSelection;
@@ -82,7 +83,22 @@ export interface CommandContext {
  * returned; the organization is that session's and nobody else's.
  */
 export async function loadCommandContext(session: AuthSession, searchParams: SearchParams): Promise<CommandContext> {
-  const organizationId = session.organizationId;
+  return loadCommandContextFor(session.organizationId, searchParams, { session, canAct: () => hasPermission('intelligence', 'update') });
+}
+
+/**
+ * The same context, for one organization, without a viewer.
+ *
+ * A system detection pass (the scheduled CallGrid detection route) builds exactly what a page builds,
+ * so the situations it records are the ones a person would have seen -- with no session and no
+ * authority to act: `canAct` is false, and nothing downstream may treat the pass as a person.
+ */
+export async function loadCommandContextFor(
+  organizationId: string,
+  searchParams: SearchParams,
+  viewer: { readonly session: AuthSession | null; readonly canAct: () => Promise<boolean> },
+): Promise<CommandContext> {
+  const session = viewer.session;
   const now = new Date();
   const selection = readCallGridSelection(searchParams, now);
   // Before any comparison is read: does Loop's record cover it? A period before the
@@ -102,7 +118,7 @@ export async function loadCommandContext(session: AuthSession, searchParams: Sea
         )
       : Promise.resolve(null),
     loadFreshnessFacts(organizationId),
-    hasPermission('intelligence', 'update'),
+    viewer.canAct(),
   ]);
 
   const facts = factsR.ok ? factsR.data : null;

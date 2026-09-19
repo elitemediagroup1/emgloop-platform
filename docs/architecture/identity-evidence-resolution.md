@@ -123,7 +123,21 @@ confidence value is computed, stored or read (C-05, §11a).
 
 "Match" means a match against an **established, non-superseded** Party. **No machine identity
 attribution at launch** (Product): every attribution is a human proposal and a human confirmation.
-Machine matches exist only as read-time, non-persistent suggestions.
+Machine matches exist only as suggestions: read-time, or — since D1 (Product, 2026-09-19) — persisted
+**PROPOSED** suggestions that a person confirms or rejects. A persisted suggestion:
+- is an `intelligence_hypotheses` row of type `IDENTITY_MATCH`, never verified truth;
+- rests on an exact identifier only (today: a correspondent's address against an active EMAIL
+  `identity_evidence` record on exactly one established Party, compared by the keyed hash). Never a name;
+- stores references to its evidence, the method, reason, source and time, and never a contact value;
+- is private to the person whose evidence it came from when that evidence is private, and is erased with
+  their work state;
+- is decided only through `IdentitySuggestionService`, under `identityResolution:update` (§6), by the
+  owner. AI_EMPLOYEE and system actors cannot decide one;
+- once rejected, is never proposed again from the same evidence. New evidence makes a new suggestion,
+  and the rejection is kept.
+
+A confirmed private suggestion is the person's own reading of their own evidence. It writes no evidence,
+link or Party, and it establishes, links and supersedes nothing (see `intelligence-foundation.md` §4).
 
 | Evidence | Tier | Read-time suggestion | Attribution | Can establish alone |
 |---|---|---|---|---|
@@ -496,4 +510,5 @@ against the Party Reference Contract.
 | 2026-09-15 | C-04: D2 superseded. People = established non-superseded PERSON Parties; Companies = established non-superseded COMPANY Parties; Intake = entry into a commercial process; legacy Customers are Intake Records; `/app/crm/people` reserved; Customer ≠ Person ≠ Party; only minimal wording fixes; no delete, purge, migrate, relink or `customerId` rewrite (§10, §11) |
 | 2026-09-15 | C-05: no numeric identity confidence; "identity confidence" means governed identity posture (§11a) |
 | 2026-09-15 | Identity 2.0b Party Reference readings approved (§8, §12). Reads follow at most 8 supersession hops and fail closed beyond. PERSON ↔ COMPANY chains are NOT_FOUND. A write naming a superseded Party is refused, returns the canonical Party, and needs an explicit retry; it is never silently substituted. 2.5b writer: no cyclic, invalid or cross-type chains; governed diagnostics for abnormal chains; no pointer rewrites to shorten chains. Party-type correction is not supersession |
+| 2026-09-19 | D1 approved (Product): machine identity matches may be persisted, only as PROPOSED suggestions. They use exact identifiers only and store evidence references. Human confirm/reject goes through the existing authority (§6). A rejection is remembered and new evidence may reopen it. Suggestions from private evidence stay in that person's scope. No machine principal may confirm. Built in #305 (§5) |
 | 2026-09-15 | Identity 2.0 fail-closed readings approved (§5, §6, §7, §12). Name alone = WEAK. Operator identification = WEAK until confirmed. Operator-entered phone/email is not automatically an approved evidence class. A proposer may reject/withdraw their own proposal. The current legal-basis vocabulary is `ConsentBasis` excluding NONE. Archived Parties accept no new references |

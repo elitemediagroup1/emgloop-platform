@@ -8,7 +8,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -30,6 +31,12 @@ import { withQuery, type CommandContext } from '../src/app/app/admin/marketplace
 import { priorityOf } from '../src/app/app/admin/marketplace/executive-data';
 import { EvidenceDrawer } from '../src/app/app/admin/marketplace/intelligence-ui';
 import { readIntelFilter, intelQuery, matchesIntelFilter } from '../src/app/app/admin/marketplace/intelligence-filter';
+
+const walkSrc = (dir: string): string[] =>
+  readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f);
+    return statSync(p).isDirectory() ? walkSrc(p) : /\.(ts|tsx)$/.test(f) ? [p] : [];
+  });
 
 const NOW = new Date('2026-09-18T18:30:00.000Z'); // Fri 2:30 PM EDT
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
@@ -291,7 +298,15 @@ describe('every CallGrid page states its own authority, and reads only its own o
 
   it('the organization is the session’s; no URL key is authority', () => {
     const loader = code(read(`${MKT}/command-data.ts`));
-    assert.match(loader, /const organizationId = session\.organizationId;/);
+    // A page's context is the session's organization, always.
+    assert.match(loader, /return loadCommandContextFor\(session\.organizationId, searchParams, \{ session, canAct: \(\) => hasPermission\('intelligence', 'update'\) \}\);/);
+    // The one other caller is the scheduled detection route, which takes organizations from the
+    // database and nothing from its request (intelligence-triggers.test.tsx).
+    const callers = walkSrc(fileURLToPath(new URL('../src', import.meta.url))).filter((f) => /loadCommandContextFor\(/.test(code(readFileSync(f, 'utf8'))));
+    assert.deepEqual(
+      callers.map((f) => f.slice(f.indexOf('/src/'))).sort(),
+      ['/src/app/api/internal/intelligence/callgrid/route.ts', '/src/app/app/admin/marketplace/command-data.ts'],
+    );
     for (const p of [...PAGES, 'entity-detail.tsx', 'command-data.ts', 'executive-data.ts', 'call-dimension-page.tsx']) {
       const src = code(read(`${MKT}/${p}`));
       for (const forbidden of ["searchParams?.organizationId", "params.organizationId", "get('organizationId')", 'get("organizationId")']) {

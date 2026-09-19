@@ -140,6 +140,7 @@ export function eventFactsFor(fact: CalendarEventFact): EventFacts {
     summary: fact.summary,
     organizerHash: fact.organizerHash,
     organizerIsSelf: fact.organizerIsSelf,
+    attendeeHashes: fact.attendance.known ? fact.attendeeHashes : [],
     attendanceKnown: fact.attendance.known,
     attendeeCount: fact.attendance.total,
     externalAttendeeCount: fact.attendance.external,

@@ -40,6 +40,7 @@
     "read:demo-footprint": "tsx scripts/operations/read-demo-footprint.ts",
     "read:people-population": "tsx scripts/operations/read-people-population.ts",
     "read:employee-sources": "tsx scripts/operations/read-employee-sources.ts",
+    "declare:intelligence-subscriptions": "tsx scripts/operations/declare-intelligence-subscriptions.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",
     "test:diagnostics": "node --import tsx --test scripts/diagnostics/*.test.ts",
     "typecheck:operations": "tsc --noEmit -p scripts/tsconfig.json"

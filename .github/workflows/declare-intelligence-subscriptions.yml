@@ -1,0 +1,93 @@
+# Declare intelligence subscriptions.
+#
+# Creates, for ONE organization, the outbox subscription rows organization intelligence needs (today:
+# the creator-onboarding review). DRY RUN unless `apply` is true. Idempotent: an existing row --
+# including one switched INACTIVE -- is left as it is. Prints subscriber keys and results only.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. A human runs it.
+
+name: Declare Intelligence Subscriptions
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      apply:
+        description: 'Create the missing rows (otherwise a dry run that writes nothing)'
+        type: boolean
+        default: false
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: declare-intelligence-subscriptions
+  cancel-in-progress: false
+
+jobs:
+  declare:
+    name: Declare intelligence subscriptions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        id: input
+        env:
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Surrounding whitespace is trimmed; the WHOLE value must be one slug.
+          slug="${ORG_SLUG#"${ORG_SLUG%%[![:space:]]*}"}"
+          slug="${slug%"${slug##*[![:space:]]}"}"
+          if [[ ! "${slug}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+          echo "Validated organization ${slug}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner does only what it says
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Declare
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ steps.input.outputs.slug }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          set -euo pipefail
+          if [ "${APPLY:-false}" = "true" ]; then
+            npm run declare:intelligence-subscriptions -- --organization "${ORG_SLUG}" --apply
+          else
+            npm run declare:intelligence-subscriptions -- --organization "${ORG_SLUG}"
+          fi

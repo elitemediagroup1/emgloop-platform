@@ -67,6 +67,21 @@ export { StateChangeSubscriptionRepository, stateKeyMatches } from './subscripti
 export type { CreateSubscriptionInput } from './subscription.repository';
 export { IntelligenceHypothesisRepository } from './hypothesis.repository';
 export type { ProposeHypothesisInput } from './hypothesis.repository';
+export {
+  IdentitySuggestionRepository,
+  IDENTITY_MATCH_TYPE,
+  IDENTITY_MATCH_RULE_VERSION,
+  identityMatchKey,
+  identityEvidenceFingerprint,
+} from './identity-suggestion.repository';
+export type {
+  IdentitySuggestion,
+  IdentitySuggestionBasis,
+  IdentitySuggestionEvidenceRef,
+  IdentitySuggestionStatus,
+  ProposeIdentitySuggestion,
+  ProposeOutcome,
+} from './identity-suggestion.repository';
 export { CognitiveDecisionRepository } from './decision.repository';
 export type { RecordDecisionInput } from './decision.repository';
 export { CognitiveProcessingAttemptRepository } from './processing-attempt.repository';

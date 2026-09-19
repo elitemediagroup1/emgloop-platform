@@ -9,8 +9,9 @@
 //     back the token rather than pretending to be complete.
 //   - Every timing shape survives: timed, all-day, cross-midnight, DST, a calendar in another
 //     zone, a recurring instance, a moved instance, a cancellation.
-//   - Attendance is COUNTED and the organizer HASHED; an omitted attendee list is unknown
-//     rather than zero, and external attendance is null when nothing said what internal means.
+//   - Attendance is COUNTED and the organizer and other invitees HASHED (D2); an omitted
+//     attendee list is unknown rather than zero and yields no keys, and external attendance is
+//     null when nothing said what internal means.
 //   - Every failure is its own class, and none of them is an empty calendar.
 //   - No token, address, description or provider text reaches a result or a log.
 
@@ -22,6 +23,7 @@ import {
   GOOGLE_CALENDAR_EVENTS_ENDPOINT,
   GOOGLE_CALENDAR_MAX_PAGES,
   GOOGLE_CALENDAR_PAGE_SIZE,
+  googleAddressHash,
   googleCalendarAddressHash,
   normalizeGoogleCalendarEvent,
   readGoogleCalendarChanges,
@@ -324,6 +326,7 @@ test('attendees are counted and the organizer hashed; rooms are not people', () 
   assert.equal(fact.attendance.selfResponse, 'ACCEPTED');
   assert.equal(fact.organizerHash, googleCalendarAddressHash(SELF));
   assert.equal(fact.organizerIsSelf, true);
+  assert.deepEqual(fact.attendeeHashes, [googleCalendarAddressHash('ben@cashionrods.com')], 'one key per other person: not the room, not me');
   assert.equal(fact.hasConference, true);
 
   // The addresses themselves do not cross the boundary.
@@ -336,6 +339,9 @@ test('attendees are counted and the organizer hashed; rooms are not people', () 
 test('an omitted attendee list is unknown, not empty; external is unknown without internal domains', () => {
   const omitted = normalizeGoogleCalendarEvent(timedEvent({ attendees: undefined, attendeesOmitted: true }), { ...base, observedAt: OBSERVED })!;
   assert.deepEqual(omitted.attendance, { known: false, total: null, external: null, resources: null, selfResponse: null });
+  assert.deepEqual(omitted.attendeeHashes, [], 'no list, no keys');
+  const partial = normalizeGoogleCalendarEvent(timedEvent({ attendeesOmitted: true }), { ...base, observedAt: OBSERVED })!;
+  assert.deepEqual(partial.attendeeHashes, [], 'a list Google says is incomplete yields no keys either');
 
   const noAttendees = normalizeGoogleCalendarEvent(timedEvent({ attendees: undefined }), { ...base, observedAt: OBSERVED })!;
   assert.equal(noAttendees.attendance.known, false, 'Google said nothing about attendees: Loop knows nothing');
@@ -443,4 +449,20 @@ test('the sensor stores nothing, calls no model, and holds no credential of its 
   for (const elsewhere of ['gmail.googleapis.com', 'www.googleapis.com/drive', 'calendarList', 'freeBusy']) {
     assert.equal(source.includes(elsewhere), false, elsewhere);
   }
+});
+
+test('attendee keys: the same key as the mail correspondent, self excluded by flag or address, deduplicated and capped', () => {
+  const people = Array.from({ length: 60 }, (_, i) => ({ email: `guest${i}@outside.test` }));
+  const fact = normalizeGoogleCalendarEvent(
+    timedEvent({
+      organizer: { email: 'ben@cashionrods.com' },
+      attendees: [{ email: ` ${SELF.toUpperCase()} ` }, { email: 'Ben@CashionRods.com' }, { email: 'ben@cashionrods.com' }, { displayName: 'No address' }, ...people],
+    }),
+    { ...base, observedAt: OBSERVED },
+  )!;
+  assert.equal(fact.attendeeHashes[0], googleAddressHash('ben@cashionrods.com'), 'the one hash every Google surface uses');
+  assert.equal(fact.attendeeHashes.includes(googleAddressHash(SELF)), false, 'my own address is not an attendee key');
+  assert.equal(fact.attendeeHashes.length, 50, 'capped');
+  assert.equal(new Set(fact.attendeeHashes).size, 50, 'deduplicated');
+  assert.equal(JSON.stringify(fact).includes('outside.test'), false, 'no address crosses the boundary');
 });

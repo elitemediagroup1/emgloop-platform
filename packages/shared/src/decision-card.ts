@@ -176,7 +176,7 @@ export function expectedOutcomes(situation: Situation): ExpectedOutcome[] {
     out.push({ value: 'NOT_RECOVERED', label: 'Acted, and it did not return' });
   }
 
-  out.push({ value: 'ACCEPTED_RISK', label: 'Real, and the business accepts it' });
+  out.push({ value: 'ACCEPTED_RISK', label: 'Real, and the business accepts it — raise it again only if it gets worse' });
   out.push({ value: 'NOT_ACTIONABLE', label: 'Real, and nothing can be done' });
   out.push({ value: 'CONVERTED_TO_WORK', label: 'Became work somewhere else' });
 
@@ -186,7 +186,7 @@ export function expectedOutcomes(situation: Situation): ExpectedOutcome[] {
 
   out.push({ value: 'DUPLICATE', label: 'Already tracked by another decision' });
   out.push({ value: 'MERGED', label: 'Merged into another decision' });
-  out.push({ value: 'SUPPRESSED', label: 'Real, and Loop should stop raising it' });
+  out.push({ value: 'SUPPRESSED', label: 'Real, and Loop should stop raising it unless it gets worse' });
   out.push({ value: 'EXPIRED', label: 'Stopped on its own before anyone acted' });
   out.push({ value: 'UNKNOWN', label: 'Too early to tell — no known outcome yet' });
 

@@ -974,6 +974,13 @@ It deliberately does **not** store the attendee list as the subject of the row: 
 is exactly the identity matching Loop forbids. Addresses are stored as correspondent keys for the
 employee's own graph (§11.4), never as a claim about who someone is.
 
+**Attendee keys (D2, approved 2026-09-19).** `work_events.attendeeHashes` holds the same one-way key a
+correspondent has, one per invited person other than the employee (rooms excluded, at most 50, none when
+the provider omits the list). They are never addresses (a CHECK refuses anything but a key), and never
+matched to a Party. They exist so the employee's own mail and calendar can be joined at read time
+("You're waiting on Dana, and Dana is in tomorrow's meeting"), and they are deleted with the event when
+the membership ends.
+
 ### 8.4 What the Day view shows, and what it must earn
 
 ```
@@ -1948,7 +1955,7 @@ layer over somebody's mail that they cannot inspect is not defensible.
 |---|---|
 | Employee disconnects Google | Ingestion stops (no credential). Derived state is **retained but frozen** for a grace period, and the surface says so: "Not connected — your queue is from 18 Sep." |
 | Employee removes one capability | That source's rows stop updating; items sourced from it are closed with an outcome naming the reason, not silently dropped |
-| Employee disabled or removed | All work rows for that user are deleted with the membership cascade (the composite FK gives this for free); briefs and items go with them |
+| Employee disabled or removed | All work rows for that user are deleted; briefs and items go with them. **Not by cascade:** ending a membership is soft (the row is kept and marked), so the composite FK's cascade never fires on this path. `removeMember` / `disableMember` delete the rows explicitly in the same transaction as the Google revoke (`WorkErasureRepository`), and record the act with counts only (`work_state.erased`) |
 | Organization deleted | Cascade, as every other table |
 | Grace period expires (default 30 days after disconnect) | Work rows are deleted by a scheduled sweep; the audit trail of *acts* remains, as audit always does |
 | Employee asks for deletion | Immediate delete of all `work_*` rows for that (org, user), recorded as an act |

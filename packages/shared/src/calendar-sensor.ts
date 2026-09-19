@@ -12,10 +12,12 @@
 // one the employee should attend. Those are rules, they belong to later slices, and they are
 // deterministic producers over these facts (§6, §8.4).
 //
-// WHAT IS DELIBERATELY ABSENT. No description, no location, no attendee list, no attachment,
-// no conference joining URL. An attendee's address is a CONTACT_IDENTIFIER: the adapter
-// counts attendees and hashes the organizer, and the addresses do not survive the boundary
-// (§8.3, and meeting-intelligence.md §2, which forbids matching one to a Party).
+// WHAT IS DELIBERATELY ABSENT. No description, no location, no attendee addresses, no
+// attachment, no conference joining URL. An attendee's address is a CONTACT_IDENTIFIER: the
+// adapter counts attendees and reduces the organizer and each other invitee to the same one-way
+// key a mail correspondent has (D2, approved 2026-09-19), and the addresses do not survive the
+// boundary. Those keys join the person's own mail to their own calendar and nothing else: they
+// are never matched to a Party (§8.3, §11.4, and meeting-intelligence.md §2).
 //
 // PURE. No clock, no I/O, no environment: an adapter passes `observedAt` in.
 
@@ -73,6 +75,9 @@ export interface CalendarEventWhen {
   readonly timeZone: string | null;
 }
 
+/** Attendee keys kept per event. A large invitation keeps the first ones the provider lists. */
+export const CALENDAR_ATTENDEE_KEY_LIMIT = 50;
+
 /**
  * Who is on it, counted rather than listed.
  *
@@ -113,6 +118,12 @@ export interface CalendarEventFact {
   /** SHA-256 of the organizer's normalized address. The address itself does not cross this line. */
   readonly organizerHash: string | null;
   readonly organizerIsSelf: boolean;
+  /**
+   * The same key for each invited PERSON other than the connected one (rooms excluded), in the
+   * provider's order, deduplicated, at most `CALENDAR_ATTENDEE_KEY_LIMIT`. Empty when attendance
+   * is not known. Keys only: the addresses do not cross this line either.
+   */
+  readonly attendeeHashes: readonly string[];
   readonly attendance: CalendarAttendance;
   /** Whether a conference is attached at all. Never the joining link. */
   readonly hasConference: boolean;

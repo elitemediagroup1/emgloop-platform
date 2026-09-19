@@ -58,4 +58,4 @@ export { MailSendService, type MailSendDeps, type MailSendPort, type MailSendOut
 
 // A mailbox's state as the employee's own work items (GM-3). A detection never overrules a person:
 // a closed item reopens only on new evidence, and a correction is recorded beside the facts.
-export { MailAttentionService, type MailAttentionDeps, type MailAttentionOutcome } from './mail-attention.service';
+export { MailAttentionService, mailThreadFacts, type MailAttentionDeps, type MailAttentionOutcome } from './mail-attention.service';

@@ -1,0 +1,70 @@
+// ERASING ONE PERSON'S WORK STATE.
+//
+// Architecture: docs/architecture/daily-loop-employee-intelligence.md §21.2 and §21.3 (row 11),
+// approved as initial product policy (Matt, 2026-09-17, D13): when a membership is ended,
+// "All `work_*` rows deleted; audit of the acts remains" -- immediately
+// (`WORK_TERMINATION_GRACE_DAYS` is 0).
+//
+// WHY THIS EXISTS. The record assumed the composite foreign key to the membership would do
+// this for free, by cascade. It never did: ending a membership is a SOFT change (the row is
+// kept and marked), so the cascade never fires, and everything Loop derived from a departed
+// person's mailbox and calendar stayed in the database. This is the delete the policy
+// promised, performed explicitly, in the caller's transaction.
+//
+// WHAT IT TOUCHES. Every per-person work table, scoped by the principal and nothing else.
+// The organization's retention overrides are policy, not a person's data, and stay. Audit
+// rows are governed separately and are untouched.
+
+import type { Prisma, PrismaClient } from '@prisma/client';
+
+import { workScope, type WorkPrincipal } from './work-principal';
+
+/** Every per-person work table this erases, by its table name. */
+export const ERASED_WORK_TABLES = Object.freeze([
+  'work_item_observations',
+  'work_items',
+  'work_feedback',
+  'work_briefs',
+  'work_drafts',
+  'work_messages',
+  'work_threads',
+  'work_correspondents',
+  'work_events',
+  'work_documents',
+  'work_sync_runs',
+  'work_source_cursors',
+  'employee_work_preferences',
+] as const);
+export type ErasedWorkTable = (typeof ERASED_WORK_TABLES)[number];
+
+/** How many rows each table lost. Counts only; never a row. */
+export type WorkErasure = Readonly<Record<ErasedWorkTable, number>>;
+
+export class WorkErasureRepository {
+  constructor(private readonly db: PrismaClient | Prisma.TransactionClient) {}
+
+  /**
+   * Delete everything Loop holds about this one person's work, in the order the foreign keys
+   * need (an item's observations before the item). Run it inside the transaction that ends the
+   * membership, so there is no moment where the person is gone and their work state is not.
+   */
+  async eraseAll(principal: WorkPrincipal): Promise<WorkErasure> {
+    const where = workScope(principal);
+    const db = this.db;
+    const counts = {} as Record<ErasedWorkTable, number>;
+    counts.work_item_observations = (await db.workItemObservation.deleteMany({ where })).count;
+    counts.work_items = (await db.workItem.deleteMany({ where })).count;
+    counts.work_feedback = (await db.workFeedback.deleteMany({ where })).count;
+    counts.work_briefs = (await db.workBrief.deleteMany({ where })).count;
+    counts.work_drafts = (await db.workDraft.deleteMany({ where })).count;
+    counts.work_messages = (await db.workMessage.deleteMany({ where })).count;
+    counts.work_threads = (await db.workThread.deleteMany({ where })).count;
+    counts.work_correspondents = (await db.workCorrespondent.deleteMany({ where })).count;
+    counts.work_events = (await db.workEvent.deleteMany({ where })).count;
+    counts.work_documents = (await db.workDocument.deleteMany({ where })).count;
+    counts.work_sync_runs = (await db.workSyncRun.deleteMany({ where })).count;
+    counts.work_source_cursors = (await db.workSourceCursor.deleteMany({ where })).count;
+    counts.employee_work_preferences = (await db.employeeWorkPreferences.deleteMany({ where })).count;
+    return Object.freeze(counts);
+  }
+}

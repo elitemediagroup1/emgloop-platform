@@ -36,6 +36,9 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   loopEvent: ['eventId'], // global @unique, matching the real LoopEvent model
   stateChangeDelivery: ['outboxId', 'subscriptionId'], // one delivery per (change, subscriber)
   cognitiveDecision: ['organizationId', 'idempotencyKey'], // NULL keys are distinct (Postgres)
+  // D1. The same evidence can produce the same identity suggestion once, ever. Ordinary
+  // hypotheses carry no match key, and NULLs never collide.
+  intelligenceHypothesis: ['organizationId', 'matchKey', 'evidenceFingerprint'],
   // Operational lifecycle. `recurrenceKey` is what makes the same situation
   // tomorrow the same row; `detectionKey` is what stops a page refresh
   // appending a sighting (NULL on operator-recorded rows, so the unique binds
@@ -397,6 +400,21 @@ const DELEGATES = [
   // revokes the member's connection in the same transaction.
   'googleConnection',
   'googleOAuthState',
+  // A person's work state. Always present for the same reason: ending a membership
+  // deletes the person's work rows in the same transaction (WorkErasureRepository).
+  'workSourceCursor',
+  'workSyncRun',
+  'workCorrespondent',
+  'workThread',
+  'workMessage',
+  'workDraft',
+  'workEvent',
+  'workDocument',
+  'workItem',
+  'workItemObservation',
+  'workBrief',
+  'workFeedback',
+  'employeeWorkPreferences',
   'cognitiveIdentity',
   'identityRole',
   'identityEvidence',

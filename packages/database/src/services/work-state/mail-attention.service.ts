@@ -26,7 +26,33 @@ import {
 } from '@emgloop/shared';
 
 import type { WorkItemRepository, WorkItemRecord } from '../../repositories/work-state/work-item.repository';
+import type { WorkGraphRepository } from '../../repositories/work-state/work-graph.repository';
 import type { WorkPrincipal } from '../../repositories/work-state/work-principal';
+
+/**
+ * The stored facts the attention rules read, for one person. Headers and counts; nothing from a body.
+ *
+ * ONE ASSEMBLY, FOR EVERY CALLER. A page visit and the scheduled cycle's post-read detection pass
+ * must hand the rules the same facts, or the queue a person sees would depend on which of them ran
+ * last. It lives here, beside the rules' persistence, rather than in the web tier.
+ */
+export async function mailThreadFacts(graph: WorkGraphRepository, principal: WorkPrincipal, limit = 200): Promise<MailThreadFacts[]> {
+  const rows = await graph.threads(principal, { limit });
+  return rows.map((row) => ({
+    threadId: row.threadId,
+    subject: row.subject,
+    lastMessageAt: row.lastMessageAt,
+    firstMessageAt: row.firstMessageAt,
+    lastDirection: (row.lastDirection as 'INBOUND' | 'OUTBOUND' | null) ?? null,
+    messageCount: row.messageCount,
+    unread: row.labels.includes('UNREAD'),
+    // Treated as a two-sided conversation when it holds more than one message. That is coarser
+    // than "both sides have spoken" -- two messages from the same side also pass -- and it is
+    // stated as what it is: a count, which is a fact, standing in until direction per message is
+    // summarised on the thread.
+    hasExchange: row.messageCount > 1,
+  }));
+}
 
 export interface MailAttentionDeps {
   readonly items: WorkItemRepository;
