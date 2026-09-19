@@ -27,6 +27,8 @@
 // are expected to follow, and each is a `sourceSystem` value rather than a new
 // table.
 
+import { DECISION_SEVERITY_RANK, isDecisionSeverity } from './decision-contract';
+
 export const LIFECYCLE_PROJECTION_VERSION = 'v1';
 
 // --- The vocabulary ---------------------------------------------------------
@@ -152,6 +154,78 @@ export const FALSE_POSITIVE_OUTCOMES: readonly OperationalOutcome[] = [
   'FALSE_POSITIVE',
   'NO_ACTION_NEEDED',
 ];
+
+/**
+ * Outcomes that are a STANDING judgment about the condition, not about one
+ * occurrence of it.
+ *
+ * "Real, and Loop should stop raising it" and "Real, and the business accepts it"
+ * say something about every future sighting of the same situation at the same
+ * size. Raising it again tomorrow would repeat an interpretation a person has
+ * already rejected, which is the one thing a correction exists to stop.
+ *
+ * The other outcomes describe what happened THIS time -- it recovered, it went
+ * away, nothing was needed, Loop was wrong about these numbers -- so a later
+ * sighting is a new occurrence and reopens, exactly as it always has.
+ *
+ * A standing judgment holds until the situation gets WORSE than it was when the
+ * person decided (`resightingDisposition`). That is the new evidence that justifies
+ * raising it again, and the reopening says so.
+ */
+export const STANDING_OUTCOMES: readonly OperationalOutcome[] = ['SUPPRESSED', 'ACCEPTED_RISK'];
+
+export type ResightingDisposition =
+  /** Open, or a sighting from before the decision: record it; the lane does not move. */
+  | { kind: 'OBSERVE' }
+  /** Closed with a standing judgment, and no worse than when decided: record it, stay closed. */
+  | { kind: 'HOLD'; reason: string }
+  /** Closed, and this is a new occurrence (or it got worse): reopen for review. */
+  | { kind: 'REOPEN'; reason: string | null };
+
+const OUTCOME_WORDS: Readonly<Record<string, string>> = {
+  SUPPRESSED: 'suppressed',
+  ACCEPTED_RISK: 'accepted as a risk',
+};
+
+function severityWord(severity: string): string {
+  return severity.charAt(0) + severity.slice(1).toLowerCase();
+}
+
+/**
+ * What a producer's sighting of an existing situation does to it. Pure; the engine
+ * records the answer and the reason, append-only, so "why did Loop stay quiet" and
+ * "why did it come back" are both answerable from the log.
+ */
+export function resightingDisposition(input: {
+  readonly state: PriorityState;
+  readonly outcome: OperationalOutcome | null;
+  readonly resolvedAt: Date | null;
+  /** The situation's severity when the person decided (held sightings never change it). */
+  readonly severityAtDecision: string;
+  readonly sightingSeverity: string;
+  readonly detectedAt: Date;
+}): ResightingDisposition {
+  const later = isClosed(input.state) && input.resolvedAt !== null && input.detectedAt.getTime() > input.resolvedAt.getTime();
+  if (!later) return { kind: 'OBSERVE' };
+  if (input.outcome === null || !STANDING_OUTCOMES.includes(input.outcome)) return { kind: 'REOPEN', reason: null };
+
+  const was = isDecisionSeverity(input.severityAtDecision) ? DECISION_SEVERITY_RANK[input.severityAtDecision] : null;
+  const now = isDecisionSeverity(input.sightingSeverity) ? DECISION_SEVERITY_RANK[input.sightingSeverity] : null;
+  const decided = OUTCOME_WORDS[input.outcome] ?? input.outcome.toLowerCase();
+  // An unrankable severity cannot show that anything got worse, so the person's
+  // judgment stands. (The engine refuses unknown severities at the boundary; this
+  // is the pure function's own guard.)
+  if (was === null || now === null || now >= was) {
+    return {
+      kind: 'HOLD',
+      reason: `Seen again at ${severityWord(input.sightingSeverity)}. It stays closed: it was ${decided} at ${severityWord(input.severityAtDecision)}, and it has not got worse.`,
+    };
+  }
+  return {
+    kind: 'REOPEN',
+    reason: `Reopened because it got worse: it was ${decided} at ${severityWord(input.severityAtDecision)}, and it is now ${severityWord(input.sightingSeverity)}.`,
+  };
+}
 
 // --- The log entry ----------------------------------------------------------
 

@@ -377,6 +377,64 @@ test('a sighting after a resolution reopens; one from before it does not', async
   assert.equal(relapse.decision.reopenCount, 1);
 });
 
+// --- Corrections compound: a standing judgment is not re-raised ---------------
+
+test('"stop raising it" holds: a later sighting no worse than before stays closed, recorded with its reason', async () => {
+  const { engine } = make();
+  const created = await engine.create(ORG, invoiceRisk({ detectionKey: 'm:07', detectedAt: day(5), severity: 'HIGH' }));
+  await engine.ignore(ORG, created.decision.id, { actor: HUMAN, occurredAt: day(6), outcome: 'SUPPRESSED' });
+
+  const again = await engine.create(ORG, invoiceRisk({
+    detectionKey: 'm:08', detectedAt: day(35), severity: 'HIGH', title: 'Acme Corp invoices ageing past 120 days',
+  }));
+  assert.equal(again.effect, 'HELD');
+  assert.equal(again.decision.state, 'DISMISSED', 'the correction holds');
+  assert.equal(again.decision.reopenCount, 0);
+  assert.equal(again.decision.outcome, 'SUPPRESSED', 'the person\'s outcome still stands');
+  assert.equal(again.decision.detectionCount, 2, 'Loop still records that it saw it');
+  // The decided headline is kept, so "has it got worse?" compares against what was decided.
+  assert.equal(again.decision.title, 'Acme Corp invoices ageing past 90 days');
+  assert.equal(again.decision.severity, 'HIGH');
+  assert.equal(again.observation!.observationType, 'SITUATION_RESIGHTED');
+  assert.match(again.observation!.reason ?? '', /stays closed: it was suppressed at High/);
+  assert.deepEqual(again.observation!.evidence, { severity: 'HIGH', title: 'Acme Corp invoices ageing past 120 days' });
+
+  // A milder sighting holds too; the open queue never sees it.
+  const milder = await engine.create(ORG, invoiceRisk({ detectionKey: 'm:09', detectedAt: day(65), severity: 'NOTABLE' }));
+  assert.equal(milder.effect, 'HELD');
+  assert.equal((await engine.list(ORG, { producer: 'ACCOUNTING', state: 'NEEDS_REVIEW' })).length, 0);
+});
+
+test('a standing judgment gives way when it gets worse, and the reopening says why', async () => {
+  const { engine } = make();
+  const created = await engine.create(ORG, invoiceRisk({ detectionKey: 'm:07', detectedAt: day(5), severity: 'NOTABLE' }));
+  await engine.ignore(ORG, created.decision.id, { actor: HUMAN, occurredAt: day(6), outcome: 'ACCEPTED_RISK' });
+
+  const worse = await engine.create(ORG, invoiceRisk({ detectionKey: 'm:08', detectedAt: day(35), severity: 'CRITICAL' }));
+  assert.equal(worse.effect, 'REOPENED');
+  assert.equal(worse.decision.state, 'NEEDS_REVIEW');
+  assert.equal(worse.decision.reopenCount, 1);
+  assert.equal(worse.decision.severity, 'CRITICAL', 'an open situation shows the numbers it was reopened on');
+  assert.equal(worse.observation!.reason, 'Reopened because it got worse: it was accepted as a risk at Notable, and it is now Critical.');
+});
+
+test('an occurrence outcome is unchanged: "no action needed" this time does not silence next time', async () => {
+  const { engine } = make();
+  const created = await engine.create(ORG, invoiceRisk({ detectionKey: 'm:07', detectedAt: day(5) }));
+  await engine.ignore(ORG, created.decision.id, { actor: HUMAN, occurredAt: day(6), outcome: 'NO_ACTION_NEEDED' });
+  const next = await engine.create(ORG, invoiceRisk({ detectionKey: 'm:08', detectedAt: day(35) }));
+  assert.equal(next.effect, 'REOPENED');
+  assert.equal(next.observation!.reason, null);
+});
+
+test('a held sighting is still one sighting per analysis period', async () => {
+  const { engine } = make();
+  const created = await engine.create(ORG, invoiceRisk({ detectionKey: 'm:07', detectedAt: day(5) }));
+  await engine.ignore(ORG, created.decision.id, { actor: HUMAN, occurredAt: day(6), outcome: 'SUPPRESSED' });
+  assert.equal((await engine.create(ORG, invoiceRisk({ detectionKey: 'm:08', detectedAt: day(35) }))).effect, 'HELD');
+  assert.equal((await engine.create(ORG, invoiceRisk({ detectionKey: 'm:08', detectedAt: day(36) }))).effect, 'UNCHANGED');
+});
+
 // --- Generic by construction -------------------------------------------------
 
 test('two unrelated producers coexist without knowing about each other', async () => {

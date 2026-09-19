@@ -251,7 +251,11 @@ export interface DecisionResult {
   /** The observation this operation appended, or null when it was a no-op. */
   observation: OperationalObservation | null;
   /** What actually happened, so a caller can report it honestly. */
-  effect: 'CREATED' | 'RESIGHTED' | 'REOPENED' | 'UPDATED' | 'UNCHANGED';
+  /**
+   * HELD: seen again after a standing judgment ("stop raising it", "the business
+   * accepts it"), no worse than when decided -- recorded, and still closed.
+   */
+  effect: 'CREATED' | 'RESIGHTED' | 'REOPENED' | 'HELD' | 'UPDATED' | 'UNCHANGED';
   /**
    * The event written to the outbox, when one was.
    *
