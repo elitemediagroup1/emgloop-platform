@@ -313,6 +313,13 @@ test('eligibility is one organization, one capability, and a connection that can
     });
     assert.deepEqual(await repo.connectedMembers(home.organizationId, 'calendar'), [{ userId: ready!.userId }]);
     assert.deepEqual(await repo.connectedMembers(away.organizationId, 'calendar'), [{ userId: visitor!.userId }]);
+
+    // 5. EMPLOYEE #3. The member who had no connection now grants Gmail and Calendar. The cycle's own
+    // query includes them from that moment: no variable, list, argument or deploy names them.
+    await connection(unconnected!.userId, { grantedScopes: [GMAIL, GMAIL_SEND, CALENDAR], requestedScopes: [GMAIL, GMAIL_SEND, CALENDAR] });
+    const ids = async (capability: 'gmail' | 'calendar') => (await repo.connectedMembers(home.organizationId, capability)).map((m) => m.userId).sort();
+    assert.deepEqual(await ids('calendar'), [ready!.userId, unconnected!.userId].sort());
+    assert.deepEqual(await ids('gmail'), [unconnected!.userId], 'the half-granted Gmail above is still not eligible');
   } finally {
     for (const id of organizations) await prisma.organization.delete({ where: { id } }).catch(() => undefined);
     await prisma.$disconnect();

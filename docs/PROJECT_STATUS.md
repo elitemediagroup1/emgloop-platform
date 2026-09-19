@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-19 (Google connection truth + Charlie's Gmail/Calendar in review on `fix/google-connection-truth`; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-19 (Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -97,44 +97,31 @@ dispatched. The gate is clear, not removed.
 
 ---
 
-## Google connection truth + Charlie's Gmail/Calendar — IN REVIEW (branch `fix/google-connection-truth`, off main `67c35d2`; #301 paused)
+## Google onboarding (Matt, Charlie, every employee after) — #302 and #303 MERGED; Gmail cycle NOT YET ON; derivation PR IN REVIEW (`fix/google-source-state-one-derivation`)
 
-Charlie connected Gmail, Calendar and Drive and "nothing appeared". This branch makes the
-connection state truthful and moves Gmail's first read off page requests. **No migration.**
+- **Merged:**
+  - #302: Gmail's first read belongs to the scheduled cycle; readiness replaces "Connected"; Drive
+    shows as unused; `read-employee-sources` added.
+  - #303: the diagnostic trims its slug.
+- **Production truth (Read Employee Sources run `35449047490`, 2026-09-19 14:32 UTC, on `main` `2eb1beb`):**
 
-- **Production evidence (read-only):**
-  - The Calendar cycle at 12:56 UTC on 2026-09-19 had `eligible=2`, and both people SYNCED
-    INCREMENTAL. The new ref `f5aec1d1d7ec` had already been read once, most likely by a Home visit.
-  - The Gmail cycle is OFF (`DAILY_LOOP_GMAIL_ORGANIZATIONS` unset); its gate step stops every run.
-  - A per-person read of connections, scopes and rows needs `read-employee-sources`. It is in this PR
-    and can only be dispatched once it is on `main`. A one-off push-triggered run from a throwaway
-    branch was refused by the session's permission check and was not done.
-- **Built:**
-  1. `read-employee-sources`: a read-only diagnosis that prints refs, states and counts, never content.
-  2. Gmail reach. Page visits and Refresh read only what changed (≤25 messages, resumable). The Gmail
-     cycle alone performs the first 14-day read. A capped first read keeps its boundary, so busy
-     mailboxes reach incremental reads.
-  3. Readiness on Connections, Mail and onboarding: Setting up / Ready / Reading / Could not read /
-     Permission needed / Reconnect required. "Reading now" is bounded to five minutes.
-  4. Drive: authorized but not used. No Connect; an existing authorization stays removable.
-  5. The consent copy fix (same commit as #301's).
-  6. The Gmail hourly cron moved to :17.
-- **Order matters:**
-  1. Merge. The scheduled Gmail job runs `main`'s code, and before this PR a capped first read keeps
-     no position, so a busy mailbox would never reach incremental reads.
-  2. Dispatch `Read Employee Sources` for `servicesinmycity-demo`. It confirms which `ref` is whom, and
-     that both people hold `gmail.readonly` **and** `gmail.send`. A grant made before GM-1 holds only
-     the legacy `gmail.metadata`; that person must choose "Allow Gmail" on Connections first. It also
-     shows the grant dates: in Testing mode a grant stops working 7 days after it was issued.
-  3. Set `DAILY_LOOP_GMAIL_ORGANIZATIONS=servicesinmycity-demo`.
-  4. Dispatch the Gmail cycle with `baseline: true`, then once more without it (the second run must be
-     INCREMENTAL for both).
-  5. Dispatch `Read Employee Sources` again: each person's own rows.
+  | | Ref | Gmail scopes | Eligible | Position | Threads / messages / items | Last Gmail read | Calendar |
+  |---|---|---|---|---|---|---|---|
+  | **Matt** | `d1c3c4956b11` | both, plus the leftover legacy `gmail.metadata` | yes | none | 270 / 341 / 102 | 01:50:55 UTC, TRUNCATED (250) ×3 | 22 events; current |
+  | **Charlie** | `f5aec1d1d7ec` | both | yes | none | 0 / 0 / 0 | 3 runs 08:56–08:57, all RATE_LIMITED | 18 events; current |
 
-  Until step 3, a never-read mailbox truthfully shows "Setting up", and no page performs its first
-  read.
-- **Needs Matt:** every step above. Each is a merge, a dispatch or a production variable, and no
-  session performs them.
+  Matt's Connections page ("Gmail · Ready · Last read 12h ago") reads the same record through the same
+  derivation and agrees with this run.
+- **In review:** one derivation. `deriveSourceState` (@emgloop/shared) is used by Connections, Mail,
+  Home's mail panel and the diagnostic, which now prints `readiness` and `position`. Adds regression
+  tests on Matt's exact facts, and on employee #3 becoming eligible with no configuration change.
+- **Next:**
+  1. Set `DAILY_LOOP_GMAIL_ORGANIZATIONS=servicesinmycity-demo`, once.
+  2. Dispatch the Gmail cycle with `baseline: true`, then once more without it.
+  3. Dispatch Read Employee Sources again.
+- **Employees after Matt and Charlie are automatic.** The cycle's own query includes anyone with a
+  complete grant and an active membership. The external limit is Google Testing mode: only listed test
+  users can consent, and grants lapse 7 days after issue.
 
 ## Dashboard — DONE (merged: #128/#129)
 `/app/admin` is the one-screen 9-tile command center. Honest tiles only

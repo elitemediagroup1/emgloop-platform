@@ -184,3 +184,64 @@ export function sourceReadiness(input: {
       return input.inFlight ? 'READING' : 'READY';
   }
 }
+
+// --- One derivation, for every reader ------------------------------------------------------------
+//
+// Connections, Mail, Home and the operator's Read Employee Sources all report where a person's
+// source stands. They must say the same thing from the same facts, so they all call this: the
+// facts go in (the capability state of the stored grant, the stored position and last completed
+// read, the most recent run), and freshness and readiness come out. Nobody composes them twice.
+
+/** Freshness policy per read source. */
+export const WORK_SOURCE_FRESHNESS_POLICIES: Readonly<Record<'GMAIL' | 'CALENDAR', WorkFreshnessPolicy>> = Object.freeze({
+  GMAIL: GMAIL_FRESHNESS_POLICY,
+  CALENDAR: CALENDAR_FRESHNESS_POLICY,
+});
+
+/** The stored facts one source's state is derived from. */
+export interface SourceStateFacts {
+  /** Whether this deployment can use Google at all. */
+  readonly configured: boolean;
+  /** This capability's state from the CURRENT stored grant (`googleCapabilityStates`). */
+  readonly capability: WorkSourceStateInput['capability'];
+  /** The person's stored position and last completed read for this source, if any. */
+  readonly cursor: { readonly cursor: string | null; readonly lastSyncCompletedAt: Date | null } | null;
+  /** The person's most recent sync run for this source, if any. */
+  readonly lastRun: { readonly startedAt: Date; readonly finishedAt: Date | null; readonly outcome: WorkSourceStateInput['lastRunOutcome'] } | null;
+}
+
+export interface DerivedSourceState {
+  readonly freshness: WorkSourceFreshness;
+  readonly readiness: SourceReadiness;
+  /** When the most recent completed read finished. Null: Loop has never finished reading it. */
+  readonly lastReadAt: Date | null;
+  /** A read started within WORK_SYNC_IN_FLIGHT_MS and not finished. */
+  readonly inFlight: boolean;
+  /** Whether Loop holds a position to read changes from. */
+  readonly hasPosition: boolean;
+}
+
+/**
+ * Where one source stands, from its stored facts.
+ *
+ * THE GRANT OUTRANKS HISTORY. The capability is checked before any stored read, so a source whose
+ * current grant cannot read it is "permission needed" or "reconnect required" however much Loop
+ * read before -- history never makes it "ready". And a grant that can read it is judged on what
+ * Loop has actually read, never on the grant alone.
+ */
+export function deriveSourceState(source: 'GMAIL' | 'CALENDAR', facts: SourceStateFacts, now: Date): DerivedSourceState {
+  const lastReadAt = facts.cursor?.lastSyncCompletedAt ?? null;
+  const freshness = workSourceFreshness(
+    { configured: facts.configured, capability: facts.capability, lastSyncCompletedAt: lastReadAt, lastRunOutcome: facts.lastRun?.outcome ?? null },
+    now,
+    WORK_SOURCE_FRESHNESS_POLICIES[source],
+  );
+  const inFlight = syncRunInFlight(facts.lastRun, now);
+  return {
+    freshness,
+    readiness: sourceReadiness({ freshness, inFlight, everRead: lastReadAt !== null }),
+    lastReadAt,
+    inFlight,
+    hasPosition: facts.cursor?.cursor != null,
+  };
+}

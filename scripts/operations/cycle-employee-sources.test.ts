@@ -125,6 +125,22 @@ test('every employee is synchronized under their own principal, one at a time', 
   assert.ok(cycleSucceeded(result.overall));
 });
 
+test('5. an employee who connects between two passes is attempted on the next pass -- the configuration names organizations, never people', async () => {
+  const members = ['matt', 'charlie'];
+  const w = world({ members });
+  const request = { source: 'gmail' as const, organizationSlugs: ['emg'], baseline: false };
+  await runCalendarCycle(request, w.deps);
+  assert.deepEqual(w.calls.map((c) => c.principal.userId), ['matt', 'charlie']);
+
+  // Employee #3 grants Gmail. Nothing else changes: not the request, not the configuration.
+  members.push('employee3');
+  w.calls.length = 0;
+  const next = await runCalendarCycle(request, w.deps);
+  assert.deepEqual(w.calls.map((c) => c.principal.userId), ['matt', 'charlie', 'employee3']);
+  assert.equal(next.eligible, 3);
+  assert.deepEqual(Object.keys(request).sort(), ['baseline', 'organizationSlugs', 'source'], 'no argument can name a person');
+});
+
 test('the same employee reached twice is attempted once', async () => {
   const w = world();
   const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg', 'emg-again'], baseline: false }, w.deps);

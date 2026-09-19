@@ -113,6 +113,6 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- \`EMPLOYEE\` - the connection and the holder's membership. \`ref\` is the digest the cycles log." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`SCOPES\` / \`CAPABILITIES\` - what Google granted. \`INSUFFICIENT_SCOPE\` means a box was left unticked: reconnect and allow it." >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`SOURCE\` - \`eligible\` is the scheduled cycle's own query; \`freshness\` is what Loop would tell the person." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`SOURCE\` - \`eligible\` is the scheduled cycle's own query. \`readiness\` is exactly what the person's own Connections page says (the same derivation, @emgloop/shared deriveSourceState). \`position=false\` means only the scheduled cycle can read it next." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`RUN\` - the most recent sync runs. A run with no \`finishedAt\` never completed." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`ROWS\` - counts of the person's own stored work state. Never content." >> "$GITHUB_STEP_SUMMARY"

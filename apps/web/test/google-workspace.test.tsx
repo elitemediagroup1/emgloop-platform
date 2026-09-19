@@ -19,7 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { createTimeView, resolveDisplayTimeZone, GOOGLE_CONNECT_OUTCOMES, type GoogleCapabilityState } from '@emgloop/shared';
+import { createTimeView, deriveSourceState, resolveDisplayTimeZone, GOOGLE_CONNECT_OUTCOMES, type GoogleCapabilityState } from '@emgloop/shared';
 import type { GoogleWorkspaceStatus } from '@emgloop/database';
 
 import { GOOGLE_CALLBACK_PATH, GOOGLE_ENVIRONMENT, googleRedirectUri, readGoogleEnvironment } from '../src/google/google-environment';
@@ -380,6 +380,28 @@ describe('the panel', () => {
     const unknown = row(render({ mode: 'CONNECTIONS', status: status({ connection: live }, { gmail: 'CONNECTED' }), outcome: null, reconnect: [], time }), 'gmail');
     assert.match(unknown, /Loop could not check what it has read from your mail just now/);
     assert.doesNotMatch(unknown, />Ready</);
+  });
+
+  it('4. Connections, Mail and Home read a source through the one derivation Read Employee Sources prints -- Matt’s facts, both ways', () => {
+    const loader = code(read('daily-loop/source-state.ts'));
+    assert.match(loader, /deriveSourceState\(/);
+    for (const own of ['workSourceFreshness(', 'sourceReadiness(', 'syncRunInFlight(']) assert.equal(loader.includes(own), false, `${own} is composed once, in @emgloop/shared`);
+    assert.match(code(read('daily-loop/mail.ts')), /loadSourceState\(principal, 'GMAIL', status, now\)/, 'Mail (and Home, through the Mail read model)');
+    assert.match(code(read('app/app/connections/page.tsx')), /loadGoogleSourceViews\(/);
+
+    // Matt, 2026-09-19: grant CONNECTED, last completed read 01:50:55 UTC, no position. Seen twelve
+    // hours later, Connections says what the diagnostic said: Ready, read twelve hours ago.
+    const lastRead = new Date('2026-09-19T01:50:55Z');
+    const seen = new Date(lastRead.getTime() + 12 * 3_600_000);
+    const state = deriveSourceState('GMAIL', { configured: true, capability: 'CONNECTED', cursor: { cursor: null, lastSyncCompletedAt: lastRead }, lastRun: { startedAt: lastRead, finishedAt: lastRead, outcome: 'TRUNCATED' } }, seen);
+    const then = createTimeView(resolveDisplayTimeZone({ device: 'UTC' }), seen);
+    const shown = row(
+      render({ mode: 'CONNECTIONS', status: status({ connection: live }, { gmail: 'CONNECTED', calendar: 'CONNECTED', drive: 'CONNECTED' }), outcome: null, reconnect: [], sources: { gmail: { readiness: state.readiness, lastReadAt: state.lastReadAt } }, time: then }),
+      'gmail',
+    );
+    assert.match(shown, />Ready</);
+    assert.ok(shown.includes(`Last read ${then.relative(lastRead)}.`), shown);
+    assert.match(shown, /Remove Gmail/);
   });
 
   it('3. an expired or withdrawn grant is "reconnect required"; a partial grant names what to allow', () => {

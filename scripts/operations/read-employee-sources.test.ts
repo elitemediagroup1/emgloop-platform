@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GoogleConnectionInventoryRow, WorkCursorRecord, WorkSyncRunRecord } from '@emgloop/database';
 import { runEmployeeSources, parseArgs, readEnvironment, RECENT_RUNS } from './read-employee-sources';
+import { deriveSourceState } from '@emgloop/shared';
 import { employeeRef } from './cycle-employee-sources';
 
 const ORG = { id: 'org_live_1', slug: 'servicesinmycity-demo' };
@@ -112,12 +113,69 @@ test('each connection is reported by the cycle ref, with scopes, eligibility, fr
   // Charlie did not grant send: Gmail is not a usable capability, and the cycle would skip him.
   assert.match(text, /event=SCOPES ref=\w+ gmail.readonly=true gmail.send=false calendar.events.readonly=true drive.metadata.readonly=true legacy.gmail.metadata=false/);
   assert.match(text, /event=CAPABILITIES ref=\w+ gmail=INSUFFICIENT_SCOPE calendar=CONNECTED drive=CONNECTED/);
-  assert.match(text, /source=GMAIL eligible=false freshness=CAPABILITY_NOT_GRANTED/);
-  assert.match(text, /source=GMAIL eligible=true freshness=CURRENT cursor=GMAIL_HISTORY_ID/);
-  assert.match(text, /source=CALENDAR eligible=true freshness=NEVER_SYNCED cursor=-/);
+  assert.match(text, /source=GMAIL eligible=false readiness=PERMISSION_NEEDED freshness=CAPABILITY_NOT_GRANTED position=false/);
+  assert.match(text, /source=GMAIL eligible=true readiness=READY freshness=CURRENT position=true cursor=GMAIL_HISTORY_ID/);
+  assert.match(text, /source=CALENDAR eligible=true readiness=INITIALIZING freshness=NEVER_SYNCED position=false cursor=-/);
   assert.match(text, /event=RUN ref=\w+ source=GMAIL startedAt=2026-09-19T12:50:00.000Z finishedAt=2026-09-19T12:51:00.000Z outcome=SUCCEEDED examined=4 written=4 failure=-/);
   assert.match(text, /event=ROWS ref=\w+ threads=120 messages=250 correspondents=80 items=9 events=14 documents=0/);
   assert.match(text, /event=SUMMARY connections=2 gmailEligible=1 calendarEligible=2 OVERALL_RESULT=READ/);
+});
+
+// --- 2026-09-19: Matt's production facts ----------------------------------------------------------
+//
+// Production run 35449047490 (14:32 UTC) reported Matt as: all four capability scopes granted, plus
+// the legacy gmail.metadata left over from before GM-1; Gmail eligible; no stored position; last
+// completed read 01:50:55 UTC; three TRUNCATED runs of 250; 270 threads, 341 messages. His own
+// Connections page, seen about twelve hours after that read, said "Gmail · Ready · Last read 12h
+// ago". Those are the same facts read through the same derivation -- these tests pin that.
+
+const MATT_ROW = (): GoogleConnectionInventoryRow => ({
+  userId: 'user_matt',
+  nameInitial: 'M',
+  membershipStatus: 'ACTIVE',
+  systemRole: 'OWNER',
+  connection: connection('user_matt', {
+    grantedScopes: [...ALL, `${G}gmail.metadata`],
+    requestedScopes: [...ALL, `${G}gmail.metadata`],
+    connectedAt: new Date('2026-09-18T17:32:32Z'),
+  }),
+  hasCredential: true,
+});
+const MATT_LAST_READ = new Date('2026-09-19T01:50:55Z');
+const MATT_CURSOR: WorkCursorRecord = { source: 'GMAIL', cursor: null, cursorKind: null, lastSyncStartedAt: new Date('2026-09-19T01:50:27Z'), lastSyncCompletedAt: MATT_LAST_READ, lastFailureClass: null, backoffUntil: null };
+const MATT_RUNS: WorkSyncRunRecord[] = [
+  { id: 'r3', source: 'GMAIL', startedAt: new Date('2026-09-19T01:50:27Z'), finishedAt: MATT_LAST_READ, outcome: 'TRUNCATED', examined: 250, written: 250, failureClass: null },
+];
+
+test('1. Matt’s production facts read as Gmail READY and eligible -- the same answer his Connections page gave', async () => {
+  const { deps, out } = world({ rows: [MATT_ROW()], cursors: { 'user_matt:GMAIL': MATT_CURSOR }, runs: { 'user_matt:GMAIL': MATT_RUNS } });
+  await runEmployeeSources({ organizationSlug: ORG.slug }, deps);
+  const text = out.join('\n');
+  assert.match(text, /gmail\.readonly=true gmail\.send=true calendar\.events\.readonly=true drive\.metadata\.readonly=true legacy\.gmail\.metadata=true/);
+  assert.match(text, /CAPABILITIES ref=\w+ gmail=CONNECTED/, 'a leftover legacy scope does not hide the current ones');
+  assert.match(text, /source=GMAIL eligible=true readiness=READY freshness=STALE position=false cursor=- /);
+  assert.match(text, /lastCompleted=2026-09-19T01:50:55\.000Z/);
+  // The number his page showed is the age of that same read at the time he looked.
+  const seen = new Date(MATT_LAST_READ.getTime() + 12 * 3_600_000);
+  const onScreen = deriveSourceState('GMAIL', { configured: true, capability: 'CONNECTED', cursor: MATT_CURSOR, lastRun: MATT_RUNS[0]! }, seen);
+  assert.equal(onScreen.readiness, 'READY');
+  assert.equal(onScreen.lastReadAt?.toISOString(), '2026-09-19T01:50:55.000Z');
+});
+
+test('3. history never makes Gmail ready: with only the legacy scope, the same stored rows read PERMISSION_NEEDED and ineligible', async () => {
+  const legacyOnly = MATT_ROW();
+  const row = { ...legacyOnly, connection: { ...legacyOnly.connection, grantedScopes: [`${G}gmail.metadata`, `${G}calendar.events.readonly`] } };
+  const { deps, out } = world({ rows: [row], cursors: { 'user_matt:GMAIL': MATT_CURSOR }, runs: { 'user_matt:GMAIL': MATT_RUNS } });
+  await runEmployeeSources({ organizationSlug: ORG.slug }, deps);
+  const text = out.join('\n');
+  assert.match(text, /source=GMAIL eligible=false readiness=PERMISSION_NEEDED freshness=CAPABILITY_NOT_GRANTED/);
+  assert.equal(/source=GMAIL[^\n]*readiness=READY/.test(text), false);
+});
+
+test('4. the runner reports state through the one shared derivation, never its own composition', () => {
+  const code = readFileSync(join(__dirname, 'read-employee-sources.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  assert.match(code, /deriveSourceState\(source, \{ configured: true, capability: states\[capability\], cursor, lastRun: runs\[0\] \?\? null \}, now\)/);
+  for (const own of ['workSourceFreshness(', 'sourceReadiness(', 'syncRunInFlight(']) assert.equal(code.includes(own), false, `${own} is composed once, in @emgloop/shared`);
 });
 
 test('nothing identifying or private is printed: no id, email, Google account, domain or scope URL', async () => {
