@@ -27,6 +27,7 @@ import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 import { EMPLOYEE_INTELLIGENCE_GRANTS, IamRepository, matrixAllows } from '../src/repositories/iam.repository';
 import {
   WorkBriefRepository,
+  WorkFootprintRepository,
   WorkGraphRepository,
   WorkItemRepository,
   WorkPreferencesRepository,
@@ -68,6 +69,7 @@ function world() {
     items: new WorkItemRepository(prisma),
     briefs: new WorkBriefRepository(prisma),
     preferences: new WorkPreferencesRepository(prisma),
+    footprint: new WorkFootprintRepository(prisma),
   };
 }
 type World = ReturnType<typeof world>;
@@ -183,6 +185,21 @@ test('an employee sees their own work state, and nobody else sees any of it', as
       assert.deepEqual(rows, [], `${label} must not see ${path}`);
     }
   }
+});
+
+test('an operator can count one person’s stored work state, and the count never includes a colleague’s', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  const bob = await person(w, ORG_A);
+  const owner = await person(w, ORG_A, 'OWNER');
+  const otherOrg = await person(w, ORG_B, 'OWNER');
+  await seed(w, alice);
+
+  assert.deepEqual({ ...(await w.footprint.counts(alice)) }, { threads: 1, messages: 1, correspondents: 1, items: 1, events: 1, documents: 1 });
+  for (const principal of [bob, owner, otherOrg]) {
+    assert.deepEqual({ ...(await w.footprint.counts(principal)) }, { threads: 0, messages: 0, correspondents: 0, items: 0, events: 0, documents: 0 });
+  }
+  await assert.rejects(() => w.footprint.counts({ organizationId: ORG_A, userId: '' }), /requires both organizationId and userId/);
 });
 
 test('organization authority does not reach another person’s work state, even with a Permission row', async () => {

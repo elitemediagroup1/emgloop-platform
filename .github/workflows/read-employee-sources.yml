@@ -1,0 +1,107 @@
+# Read employee sources.
+#
+# READ-ONLY. For one organization, prints every Google connection's lifecycle, which capability
+# scopes were granted, whether the scheduled cycles would pick that person up, each source's
+# cursor and most recent sync runs, the freshness Loop would report, and ROW COUNTS of what is
+# stored. It writes nothing, syncs nothing and calls no Google API.
+#
+# It prints no id, email, Google account, subject, title, body, address, attendee or token. A
+# person is the same `ref` digest the Calendar and Gmail cycles log, plus the first letter of their
+# display name.
+#
+# WHY IT EXISTS. "I connected Google and nothing appeared" has five possible answers -- no grant,
+# a partial grant, never read, read and failed, read and nothing to show -- and only production
+# rows can say which.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is still touching
+# production, and a human should be the one asking.
+
+name: Read Employee Sources
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-employee-sources
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read employee sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, printed or written to the summary.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          echo "Validated organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything
+        # RUN BEFORE THE DATABASE CREDENTIAL IS USED, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Read
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        run: |
+          set -euo pipefail
+          npm run read:employee-sources -- --organization "${ORG_SLUG}"
+
+      - name: How to read the output
+        if: always()
+        run: |
+          echo "### Employee sources" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** This job prints states and counts of rows that already exist." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`EMPLOYEE\` - the connection and the holder's membership. \`ref\` is the digest the cycles log." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`SCOPES\` / \`CAPABILITIES\` - what Google granted. \`INSUFFICIENT_SCOPE\` means a box was left unticked: reconnect and allow it." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`SOURCE\` - \`eligible\` is the scheduled cycle's own query; \`freshness\` is what Loop would tell the person." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`RUN\` - the most recent sync runs. A run with no \`finishedAt\` never completed." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ROWS\` - counts of the person's own stored work state. Never content." >> "$GITHUB_STEP_SUMMARY"

@@ -504,9 +504,11 @@ export {
   WorkItemRepository,
   WorkBriefRepository,
   WorkPreferencesRepository,
+  WorkFootprintRepository,
 } from './work-state';
 export type {
   WorkPrincipal,
+  WorkFootprint,
   WorkCursorRecord,
   WorkSyncRunRecord,
   CorrespondentSeen,

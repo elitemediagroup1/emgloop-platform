@@ -369,6 +369,28 @@ test('a granted capability is stored sealed, audited by id and scope, and nothin
   assert.equal(status.connection?.email, ALICE.email);
 });
 
+test('the operator inventory lists one organization, carries no credential or address, and names a person by one letter', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  const bob = await person(w, ORG_A);
+  const stranger = await person(w, ORG_B);
+  await connect(w, alice, 'gmail', ALICE, `openid email ${GMAIL}`);
+  await connect(w, bob, 'calendar', BOB, `openid email ${CALENDAR}`);
+  await connect(w, stranger, 'gmail', { sub: '110000000000000000009', email: 'x@other.example' }, `openid email ${GMAIL}`);
+
+  const rows = await w.repo.inventory(ORG_A);
+  assert.deepEqual(rows.map((r) => r.userId).sort(), [alice.userId, bob.userId].sort(), 'another organization is not listed');
+  const a = rows.find((r) => r.userId === alice.userId)!;
+  assert.equal(a.nameInitial, 'P', 'the first letter of the display name, nothing more');
+  assert.equal(a.membershipStatus, 'ACTIVE');
+  assert.equal(a.systemRole, 'EMPLOYEE');
+  assert.equal(a.hasCredential, true);
+  assert.deepEqual(a.connection.grantedScopes, GMAIL_SCOPES);
+  assert.equal('refreshTokenSealed' in a.connection, false, 'no sealed bytes leave the repository');
+  assert.equal(JSON.stringify(rows).includes('Person '), false, 'no full name');
+  assert.deepEqual(await w.repo.inventory('org_nobody'), []);
+});
+
 test('capabilities are added one at a time to the same grant; Google offers the connected account first', async () => {
   const w = world();
   const alice = await person(w, ORG_A);
