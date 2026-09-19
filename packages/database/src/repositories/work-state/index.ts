@@ -23,3 +23,4 @@ export { WorkItemRepository, type WorkItemDetection, type WorkItemRecord } from 
 export { WorkBriefRepository, type BriefComposition } from './work-brief.repository';
 export { WorkPreferencesRepository, type WorkPreferences, type EffectiveRetention } from './work-preferences.repository';
 export { WorkDraftRepository, type DraftContent, type SendAttempt } from './work-draft.repository';
+export { WorkErasureRepository, ERASED_WORK_TABLES, type ErasedWorkTable, type WorkErasure } from './work-erasure.repository';

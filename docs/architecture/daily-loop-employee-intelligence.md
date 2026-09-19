@@ -1948,7 +1948,7 @@ layer over somebody's mail that they cannot inspect is not defensible.
 |---|---|
 | Employee disconnects Google | Ingestion stops (no credential). Derived state is **retained but frozen** for a grace period, and the surface says so: "Not connected — your queue is from 18 Sep." |
 | Employee removes one capability | That source's rows stop updating; items sourced from it are closed with an outcome naming the reason, not silently dropped |
-| Employee disabled or removed | All work rows for that user are deleted with the membership cascade (the composite FK gives this for free); briefs and items go with them |
+| Employee disabled or removed | All work rows for that user are deleted; briefs and items go with them. **Not by cascade:** ending a membership is soft (the row is kept and marked), so the composite FK's cascade never fires on this path. `removeMember` / `disableMember` delete the rows explicitly in the same transaction as the Google revoke (`WorkErasureRepository`), and record the act with counts only (`work_state.erased`) |
 | Organization deleted | Cascade, as every other table |
 | Grace period expires (default 30 days after disconnect) | Work rows are deleted by a scheduled sweep; the audit trail of *acts* remains, as audit always does |
 | Employee asks for deletion | Immediate delete of all `work_*` rows for that (org, user), recorded as an act |

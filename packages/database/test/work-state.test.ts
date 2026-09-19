@@ -586,3 +586,12 @@ test('DL-1 reads no Google API, calls no model, and adds no employee-visible sur
     assert.equal(sources.toLowerCase().includes(forbidden.toLowerCase()), false, `${forbidden} has no place in DL-1`);
   }
 });
+
+// --- Erasure covers every person's table --------------------------------------------------------
+
+test('ending a membership erases every per-person work table, and only the organization policy survives', async () => {
+  const { ERASED_WORK_TABLES } = await import('../src/repositories/work-state/work-erasure.repository');
+  const { WORK_STATE_TABLES } = await import('@emgloop/shared');
+  const perPerson = WORK_STATE_TABLES.filter((t) => t !== 'work_retention_overrides');
+  assert.deepEqual([...ERASED_WORK_TABLES].sort(), [...perPerson].sort(), 'a new work table must be added to the erasure, or this fails');
+});

@@ -397,6 +397,21 @@ const DELEGATES = [
   // revokes the member's connection in the same transaction.
   'googleConnection',
   'googleOAuthState',
+  // A person's work state. Always present for the same reason: ending a membership
+  // deletes the person's work rows in the same transaction (WorkErasureRepository).
+  'workSourceCursor',
+  'workSyncRun',
+  'workCorrespondent',
+  'workThread',
+  'workMessage',
+  'workDraft',
+  'workEvent',
+  'workDocument',
+  'workItem',
+  'workItemObservation',
+  'workBrief',
+  'workFeedback',
+  'employeeWorkPreferences',
   'cognitiveIdentity',
   'identityRole',
   'identityEvidence',
