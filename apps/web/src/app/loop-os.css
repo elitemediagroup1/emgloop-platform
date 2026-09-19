@@ -4136,12 +4136,13 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 
 /* KPIs */
 .cgx-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-.cgx a.cgx-kpi, .cgx-kpi { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label label' 'value spark' 'change spark' 'note note'; column-gap: 8px; row-gap: 2px; padding: 14px 16px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius); background: var(--loop-surface); color: var(--loop-ink); text-decoration: none; }
+.cgx a.cgx-kpi, .cgx-kpi { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label label' 'value spark' 'sub spark' 'change spark' 'note note'; column-gap: 8px; row-gap: 2px; padding: 14px 16px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius); background: var(--loop-surface); color: var(--loop-ink); text-decoration: none; }
 .cgx a.cgx-kpi:hover { border-color: var(--loop-line-strong); box-shadow: var(--loop-shadow); }
 .cgx a.cgx-kpi:focus-visible { outline: 2px solid var(--loop-focus); outline-offset: 2px; }
 .cgx-kpi__label { grid-area: label; font-size: 12.5px; font-weight: 600; color: var(--loop-muted); }
 .cgx-kpi__value { grid-area: value; font-size: 24px; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .cgx-kpi__value--none { font-size: 18px; color: var(--loop-muted); }
+.cgx-kpi__sub { grid-area: sub; font-size: 12px; color: var(--loop-muted); font-variant-numeric: tabular-nums; }
 .cgx-kpi__change { grid-area: change; font-size: 12px; font-weight: 650; }
 .cgx-kpi__change--good { color: var(--loop-good); }
 .cgx-kpi__change--bad { color: var(--loop-crit); }
@@ -4174,7 +4175,7 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .cgx-health--good .cgx-health__band { color: var(--loop-good); }
 .cgx-health--warn .cgx-health__band { color: var(--loop-warn); }
 .cgx-health--crit .cgx-health__band { color: var(--loop-crit); }
-.cgx-health__note { margin: 0; font-size: 12px; color: var(--loop-muted); }
+.cgx-health__reason { color: var(--loop-body); }
 .cgx-brief__text { margin: 0; font-size: 14px; line-height: 1.6; color: var(--loop-body); max-width: 72ch; }
 .cgx-brief__more { cursor: pointer; font-size: 13px; font-weight: 650; color: var(--loop-accent); }
 .cgx-brief__basis { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

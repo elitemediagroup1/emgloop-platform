@@ -61,7 +61,7 @@ export default async function CallGridOverviewPage({ searchParams }: { searchPar
   });
 
   const priorities = topPriorities(ctx, analysis);
-  const brief = executiveBrief(ctx, analysis);
+  const brief = executiveBrief(ctx, analysis, priorities[0] ?? null);
   const notable = findingsByRank(analysis.intel).slice(0, 4);
   const current = ctx.window.includesLiveData && ctx.window.isSingleDay;
 
@@ -72,7 +72,6 @@ export default async function CallGridOverviewPage({ searchParams }: { searchPar
         title={current ? "Today’s brief" : `Brief · ${ctx.selection.label}`}
         analyzedAt={ctx.now}
         detailsHref={intelHref}
-        healthNote={analysis.intel.health.overall.determinacy < 1 ? `Measured on ${Math.round(analysis.intel.health.overall.determinacy * 100)}% of the health model’s weight.` : null}
       />
       <TopPriorities
         priorities={priorities}

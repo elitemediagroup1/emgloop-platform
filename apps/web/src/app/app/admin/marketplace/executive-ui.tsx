@@ -1,8 +1,10 @@
 // The executive layer: Today's Brief and Top Priorities.
 //
-// THE BRIEF is a handful of sentences, each built from measured values and each
-// carrying its basis (measured, arithmetic, Loop's reading, not known). The basis
-// is visible in the detail view, never dropped. No sentence names a cause.
+// THE BRIEF is the health band with a few words of reason, then at most two short
+// sentences -- what materially changed, and what to review first -- within 45 words.
+// The money, where revenue sits, the health model's own words and what is not known
+// are behind "View details", each with its basis (measured, arithmetic, Loop's
+// reading, not known). No sentence names a cause.
 //
 // TOP PRIORITIES are at most three undecided Situations, in the order the engine
 // already ranked them, each with its kind, why it matters and the suggested next
@@ -19,13 +21,12 @@ import { clock } from './command-ui';
 const BAND_TONE: Record<string, string> = { HEALTHY: 'good', WATCH: 'warn', RISK: 'crit', CRITICAL: 'crit', UNKNOWN: 'neutral' };
 
 export function TodaysBrief({
-  brief, title, analyzedAt, detailsHref, healthNote,
+  brief, title, analyzedAt, detailsHref,
 }: {
   brief: CallGridBrief;
   title: string;
   analyzedAt: Date;
   detailsHref: string;
-  healthNote: string | null;
 }) {
   return (
     <section className="cgx-brief" aria-label={title}>
@@ -38,14 +39,14 @@ export function TodaysBrief({
       <div className={`cgx-health cgx-health--${BAND_TONE[brief.band] ?? 'neutral'}`}>
         <p className="cgx-health__text">
           Business health: <strong className="cgx-health__band">{HEALTH_BAND_LABEL[brief.band]}</strong>
+          {brief.reason ? <span className="cgx-health__reason"> — {brief.reason}.</span> : null}
         </p>
-        {healthNote ? <p className="cgx-health__note">{healthNote}</p> : null}
       </div>
-      <p className="cgx-brief__text">{brief.sentences.map((s) => s.text).join(' ')}</p>
+      {brief.sentences.length > 0 ? <p className="cgx-brief__text">{brief.sentences.map((s) => s.text).join(' ')}</p> : null}
       <details className="cgx-brief__details">
         <summary className="cgx-brief__more">View details</summary>
         <ul className="cgx-brief__basis">
-          {brief.sentences.map((s, i) => (
+          {[...brief.sentences, ...brief.details].map((s, i) => (
             <li key={i} className="cgx-basis">
               <span className={`cgx-basis__tag cgx-basis__tag--${s.basis.toLowerCase()}`}>{BRIEF_BASIS_LABELS[s.basis]}</span>
               <span className="cgx-basis__text">{s.text}</span>
@@ -54,7 +55,7 @@ export function TodaysBrief({
           ))}
         </ul>
         <p className="cgx-brief__foot">
-          Nothing here is a model’s summary: each sentence is assembled from the figures above. <Link href={detailsHref}>The evidence, the limits and every finding →</Link>
+          Nothing here is a model’s summary: each sentence is assembled from measured figures and Loop’s health model. <Link href={detailsHref}>The evidence, the limits and every finding →</Link>
         </p>
       </details>
     </section>

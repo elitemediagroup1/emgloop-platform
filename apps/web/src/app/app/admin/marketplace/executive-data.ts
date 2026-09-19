@@ -11,11 +11,14 @@ import 'server-only';
 // show the queue: the Overview and Intelligence.
 
 import {
+  callGridHealthReason,
   composeCallGridBrief,
   selectTopPriorities,
   situationKind,
   whyItMatters,
   voiceOf,
+  healthSignalReason,
+  weakestHealthSignal,
   SITUATION_KIND_LABELS,
   type CallGridBrief,
   type CallGridIntelligence,
@@ -109,6 +112,9 @@ export interface TopPriority {
   /** The suggested next action, in review language. */
   readonly action: string | null;
   readonly href: string;
+  /** The metric the voice finding measures, and which way it moved -- so the brief can point at it by name. */
+  readonly metric: string | null;
+  readonly direction: 'up' | 'down' | null;
 }
 
 /** At most three undecided Situations, in the engine's order. */
@@ -125,6 +131,7 @@ export function topPriorities(ctx: CommandContext, analysis: ExecutiveAnalysis):
 export function priorityOf(s: Situation, href: string): TopPriority {
   const voice = voiceOf(s);
   const kind = situationKind(s);
+  const moved = voice ? voice.percentageChange ?? voice.absoluteChange : null;
   return {
     key: s.key,
     title: s.title,
@@ -133,18 +140,40 @@ export function priorityOf(s: Situation, href: string): TopPriority {
     explanation: firstSentence(whyItMatters(s)) ?? firstSentence(voice?.plainLanguageSummary) ?? s.whatHappened,
     action: s.decision,
     href,
+    metric: voice?.primaryMetric ?? null,
+    direction: moved === null || moved === 0 ? null : moved > 0 ? 'up' : 'down',
   };
 }
 
-export function executiveBrief(ctx: CommandContext, analysis: ExecutiveAnalysis): CallGridBrief {
-  const overall = analysis.intel.health.overall;
+/**
+ * The brief for this period. The band is the health model's; its reason and the
+ * change sentence count movements only against a comparison Loop's record covers
+ * (the report's comparison is null otherwise), and the attention sentence points at
+ * the first of the priorities shown beneath it -- the same list, never a second ranking.
+ */
+export function executiveBrief(ctx: CommandContext, analysis: ExecutiveAnalysis, first: TopPriority | null): CallGridBrief {
+  const health = analysis.intel.health;
+  const overall = health.overall;
+  const comparison = ctx.report.comparison;
+  const weakest = weakestHealthSignal(health);
   return composeCallGridBrief({
     window: ctx.window,
     metrics: ctx.report.metrics,
-    comparison: ctx.report.comparison,
+    comparison,
+    coverage: ctx.coverage,
     buyers: ctx.report.dimensions.buyers.map((r) => ({ label: r.label, revenueCents: r.revenueCents })),
     campaigns: ctx.report.dimensions.campaigns.map((r) => ({ label: r.label, revenueCents: r.revenueCents })),
-    // Loop's reading, in one sentence; the full health model is in Intelligence.
-    health: { band: overall.band, explanation: firstSentence(overall.explanation) },
+    health: {
+      band: overall.band,
+      reason: callGridHealthReason({
+        band: overall.band,
+        weakest: weakest ? { id: weakest.id, reason: healthSignalReason(weakest) } : null,
+        metrics: ctx.report.metrics,
+        comparison,
+      }),
+      explanation: overall.explanation,
+      determinacy: overall.determinacy,
+    },
+    firstPriority: first ? { title: first.title, metric: first.metric, direction: first.direction } : null,
   });
 }

@@ -81,6 +81,7 @@ describe('the executive layer', () => {
     const p = (n: number) => ({
       key: `k${n}`, title: `Situation ${n}`, kind: 'RISK' as const, kindLabel: 'Risk',
       explanation: 'High concentration risk if volume stops.', action: 'Confirm backup buyer capacity.', href: `/app/admin/marketplace/intelligence/p${n}`,
+      metric: null, direction: null,
     });
     const html = renderToStaticMarkup(
       <TopPriorities priorities={[p(1), p(2), p(3)]} allHref="/app/admin/marketplace/intelligence?period=daily" emptyLine="Nothing undecided." unavailable={null} />,
@@ -131,22 +132,35 @@ describe('the executive layer', () => {
     assert.doesNotMatch(html, /Confirm which sources improved/);
   });
 
-  it('the brief shows each sentence’s basis behind View details, and claims to be nothing but arithmetic', () => {
+  it('the brief is the band with its reason and two short sentences; the rest is behind View details', () => {
     const brief: CallGridBrief = {
-      band: 'WATCH',
+      band: 'HEALTHY',
+      reason: 'profit and revenue improved despite lower call volume',
       sentences: [
-        { text: 'Calls are down 15% versus yesterday to the same time.', basis: 'ARITHMETIC', detail: '400 calls against 470' },
-        { text: 'Buyer concentration is the weakest measured signal.', basis: 'READING', detail: null },
-        { text: 'Only 90% of calls carried a revenue value.', basis: 'UNKNOWN', detail: null },
+        { text: 'Total calls are down 17% versus yesterday to the same time, while the billable rate rose from 26% to 33%.', basis: 'ARITHMETIC', detail: '289 total calls against 349' },
+        { text: 'Review the call decline first.', basis: 'READING', detail: null },
+      ],
+      details: [
+        { text: 'Markytek accounts for 35% of buyer revenue.', basis: 'ARITHMETIC', detail: null },
+        { text: 'Only 89% of calls carried a revenue value, so revenue and profit are incomplete.', basis: 'UNKNOWN', detail: null },
       ],
     };
-    const html = renderToStaticMarkup(<TodaysBrief brief={brief} title="Today’s brief" analyzedAt={NOW} detailsHref="/i" healthNote={null} />);
-    assert.match(html, /Business health: <strong class="cgx-health__band">Watch<\/strong>/);
+    const html = renderToStaticMarkup(<TodaysBrief brief={brief} title="Today’s brief" analyzedAt={NOW} detailsHref="/i" />);
+    assert.match(html, /Business health: <strong class="cgx-health__band">Healthy<\/strong><span class="cgx-health__reason"> — profit and revenue improved despite lower call volume\.<\/span>/);
+    // Shown: the two sentences only. Concentration and coverage are details, with their basis.
+    const shown = /<p class="cgx-brief__text">([^<]*)<\/p>/.exec(html)![1]!;
+    assert.equal(shown, 'Total calls are down 17% versus yesterday to the same time, while the billable rate rose from 26% to 33%. Review the call decline first.');
+    assert.doesNotMatch(shown, /Markytek|89%/);
     assert.match(html, /<summary class="cgx-brief__more">View details<\/summary>/);
     assert.match(html, /Arithmetic on measured values/);
-    assert.match(html, /Loop’s reading/);
-    assert.match(html, /Not known/);
+    assert.match(html, /Not known<\/span><span class="cgx-basis__text">Only 89% of calls/);
     assert.match(html, /Nothing here is a model’s summary/);
+  });
+
+  it('the Billable Calls tile names the total calls it is part of — no sixth KPI', () => {
+    const html = renderToStaticMarkup(<KpiRow ctx={context()} />);
+    assert.equal((html.match(/class="cgx-kpi"/g) ?? []).length, 5);
+    assert.match(html, /Billable Calls<\/span><span class="cgx-kpi__value">132<\/span><span class="cgx-kpi__sub">of 400 total calls<\/span>/);
   });
 
   it('a withheld comparison is said once, in the header, where there is no brief to say it', () => {

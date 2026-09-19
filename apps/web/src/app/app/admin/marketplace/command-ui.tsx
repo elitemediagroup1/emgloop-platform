@@ -309,6 +309,7 @@ export function KpiRow({ ctx }: { ctx: CommandContext }) {
         <Link key={k.key} href={withQuery('/app/admin/marketplace/money', ctx.query) + `#kpi-${k.key}`} className="cgx-kpi">
           <span className="cgx-kpi__label">{k.label}</span>
           <span className={'cgx-kpi__value' + (k.value === null ? ' cgx-kpi__value--none' : '')}>{kpiValue(k)}</span>
+          {k.subline ? <span className="cgx-kpi__sub">{k.subline}</span> : null}
           {k.change ? (
             <span className={`cgx-kpi__change cgx-kpi__change--${k.change.favorable === null ? 'flat' : k.change.favorable ? 'good' : 'bad'}`}>
               <span aria-hidden="true">{k.change.direction === 'up' ? '↑' : k.change.direction === 'down' ? '↓' : '→'}</span> {k.change.text}

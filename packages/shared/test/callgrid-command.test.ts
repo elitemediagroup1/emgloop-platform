@@ -13,14 +13,22 @@ import {
   callGridKpis,
   composeCallGridBrief,
   assessCallGridCoverage,
+  briefWordCount,
+  callGridHealthReason,
   callGridRecordCovers,
   effectiveCallGridWindow,
   selectCallGridPeriod,
   callGridPeriodWindow,
+  BRIEF_MAX_WORDS,
+  HEALTH_SIGNAL_REASONS,
+  healthSignalReason,
+  weakestHealthSignal,
+  assessBusinessHealth,
   easternYmd,
   resolveCallGridWindow,
   selectTopPriorities,
   situationKind,
+  type CallGridCoverage,
   type CommandMetrics,
   type Situation,
 } from '../src/index';
@@ -122,33 +130,114 @@ test('freshness: Live is earned by a recent delivery, never by the render clock'
   assert.equal(assessCallGridFreshness({ ...base, periodLive: false, lastDeliveryAt: minutes(1) }).state, 'COMPLETED');
 });
 
-test('the brief tags every sentence with its basis, names no cause, and says what is not known', () => {
-  const brief = composeCallGridBrief({
+const VALID: CallGridCoverage = { recordStartsAt: new Date('2026-08-14T13:00:00Z'), comparison: 'VALID', currentPartial: false, note: null };
+const briefOf = (over: Partial<Parameters<typeof composeCallGridBrief>[0]> = {}) =>
+  composeCallGridBrief({
     window: resolveCallGridWindow({ preset: 'today' }, NOW),
     metrics: metrics({ revenueCoverage: 0.9 }),
     comparison: metrics({ totalCalls: 470, billableCalls: 132, revenueCents: 34_000_000 }),
+    coverage: VALID,
     buyers: [{ label: 'Markytek', revenueCents: 18_620_900 }, { label: 'Buyer B', revenueCents: 3_844_200 }],
     campaigns: [{ label: 'Pest Control RTB', revenueCents: 15_000_000 }],
-    health: { band: 'WATCH', explanation: 'Buyer concentration is the weakest measured signal.' },
+    health: { band: 'WATCH', reason: 'revenue leans on one buyer, and call volume fell', explanation: 'Overall business health is watch. Revenue depends heavily on one buyer.', determinacy: 0.8 },
+    firstPriority: { title: 'Markytek carries 50% of buyer revenue', metric: 'revenueShare', direction: 'up' },
+    ...over,
   });
+
+test('the brief is a band, a reason and at most two short sentences: what changed, then what to review first', () => {
+  const brief = briefOf();
   assert.equal(brief.band, 'WATCH');
-  const [calls, revenue, concentration, reading, unknown] = brief.sentences;
-  assert.equal(calls!.text, 'Calls are down 15% versus yesterday to the same time, while the billable rate rose from 28% to 33%.');
-  assert.equal(calls!.basis, 'ARITHMETIC');
-  assert.match(revenue!.text, /^Revenue is up 10% at \$372,418, with net profit of \$64,528 \(17\.3% margin\)\.$/);
-  assert.equal(concentration!.text, 'Markytek accounts for 50% of buyer revenue, and Pest Control RTB carries 40% by campaign.');
-  assert.equal(reading!.basis, 'READING');
-  assert.equal(unknown!.basis, 'UNKNOWN');
-  for (const s of brief.sentences) {
+  assert.deepEqual(brief.sentences.map((x) => x.text), [
+    'Total calls are down 15% versus yesterday to the same time, while the billable rate rose from 28% to 33%.',
+    'Review first: Markytek carries 50% of buyer revenue.',
+  ]);
+  assert.deepEqual(brief.sentences.map((x) => x.basis), ['ARITHMETIC', 'READING']);
+  assert.ok(briefWordCount(brief) <= BRIEF_MAX_WORDS, `${briefWordCount(brief)} words`);
+  // The KPI tiles' figures are not restated; they, concentration, the model's words and
+  // what is not known are behind "View details", each with its basis.
+  const shown = brief.sentences.map((x) => x.text).join(' ');
+  assert.doesNotMatch(shown, /\$|margin|net profit/i);
+  assert.deepEqual(brief.details.map((x) => x.basis), ['ARITHMETIC', 'ARITHMETIC', 'READING', 'UNKNOWN', 'UNKNOWN']);
+  assert.match(brief.details[0]!.text, /^Revenue \$372,418, net profit \$64,528 \(17\.3% margin\)\.$/);
+  assert.match(brief.details[1]!.text, /^Markytek accounts for 50% of buyer revenue; Pest Control RTB carries 40% by campaign\.$/);
+  assert.match(brief.details[4]!.text, /^Only 90% of calls carried a revenue value/);
+  for (const x of [...brief.sentences, ...brief.details]) {
     for (const cause of ['because', 'due to', 'caused', 'driven by', 'as a result']) {
-      assert.equal(s.text.toLowerCase().includes(cause), false, `${cause}: ${s.text}`);
+      assert.equal(x.text.toLowerCase().includes(cause), false, `${cause}: ${x.text}`);
     }
   }
-  const empty = composeCallGridBrief({
-    window: resolveCallGridWindow({ preset: 'today' }, NOW), metrics: metrics({ totalCalls: 0 }), comparison: null,
-    buyers: [], campaigns: [], health: { band: 'UNKNOWN', explanation: null },
+});
+
+test('the brief points at the first priority by name instead of repeating a headline it already stated', () => {
+  const brief = briefOf({ firstPriority: { title: 'Total calls decreased 15%', metric: 'totalCalls', direction: 'down' } });
+  assert.equal(brief.sentences[1]!.text, 'Review the call decline first.');
+  assert.equal(brief.sentences.map((x) => x.text).join(' ').match(/15%/g)!.length, 1, 'the figure appears once');
+  const none = briefOf({ firstPriority: null });
+  assert.equal(none.sentences[1]!.text, 'Nothing undecided needs review.');
+  const level = briefOf({ comparison: metrics({ totalCalls: 405, billableCalls: 134 }) });
+  assert.equal(level.sentences[0]!.text, 'Total calls and the billable rate held level versus yesterday to the same time.');
+  const empty = briefOf({ metrics: metrics({ totalCalls: 0 }), comparison: null, health: { band: 'UNKNOWN', reason: null, explanation: null, determinacy: 0 }, firstPriority: null });
+  assert.deepEqual(empty.sentences.map((x) => x.text), ['No calls were recorded so far.']);
+});
+
+test('the word budget holds for the longest band, reason, comparison and headline', () => {
+  const long = briefOf({
+    window: resolveCallGridWindow({ preset: 'last_30_days' }, NOW),
+    health: { band: 'CRITICAL', reason: 'call volume swings widely between periods, though profit and revenue improved', explanation: null, determinacy: 1 },
+    firstPriority: { title: 'Home Insurance Direct revenue per billable call fell 42% against the previous thirty days', metric: 'revenuePerBillableCall', direction: 'down' },
   });
-  assert.equal(empty.sentences[0]!.text, 'No calls were recorded for this period so far.');
+  assert.ok(briefWordCount(long) <= BRIEF_MAX_WORDS, `${briefWordCount(long)} words: ${long.sentences.map((x) => x.text).join(' ')}`);
+  assert.ok(long.sentences.length >= 1);
+});
+
+test('health reason: the band stays the model’s, and the reason never contradicts it', () => {
+  const up = metrics({ totalCalls: 289, billableCalls: 96, revenueCents: 413_200, profitCents: 158_100 });
+  const prior = metrics({ totalCalls: 349, billableCalls: 89, revenueCents: 378_300, profitCents: 141_400 });
+  assert.equal(callGridHealthReason({ band: 'HEALTHY', weakest: { id: 'buyer-concentration', reason: 'revenue leans on one buyer' }, metrics: up, comparison: prior }), 'profit and revenue improved despite lower call volume');
+  assert.equal(
+    callGridHealthReason({ band: 'HEALTHY', weakest: null, metrics: metrics({ profitCents: 5_000_000 }), comparison: metrics() }),
+    'the measured signals are sound, though profit fell',
+  );
+  assert.equal(callGridHealthReason({ band: 'HEALTHY', weakest: null, metrics: metrics(), comparison: null }), 'the measured signals are sound');
+  // Below Healthy it leads with what pulls the band down, never with good news alone.
+  assert.equal(callGridHealthReason({ band: 'WATCH', weakest: { id: 'buyer-concentration', reason: 'revenue leans on one buyer' }, metrics: up, comparison: prior }), 'revenue leans on one buyer, and call volume fell');
+  assert.equal(
+    callGridHealthReason({ band: 'WATCH', weakest: { id: 'buyer-concentration', reason: 'revenue leans on one buyer' }, metrics: metrics({ profitCents: 7_000_000 }), comparison: metrics() }),
+    'revenue leans on one buyer, though profit and margin improved',
+  );
+  // Calls rose here, but never beside "call volume has been trending down".
+  assert.equal(callGridHealthReason({ band: 'RISK', weakest: { id: 'traffic-trend', reason: 'call volume has been trending down' }, metrics: prior, comparison: up }), 'call volume has been trending down, and profit fell');
+  assert.equal(
+    callGridHealthReason({ band: 'RISK', weakest: { id: 'traffic-trend', reason: 'call volume has been trending down' }, metrics: metrics({ totalCalls: 500, billableCalls: 165 }), comparison: metrics() }),
+    'call volume has been trending down',
+  );
+  assert.equal(callGridHealthReason({ band: 'UNKNOWN', weakest: null, metrics: up, comparison: prior }), 'too little was measured to judge');
+});
+
+test('every signal the health model produces has words, and they never say more than the model', () => {
+  const health = assessBusinessHealth({
+    metrics: { available: true, totalCalls: 100, billableCalls: 30, revenueCents: 100_000, profitCents: 30_000, revenueCoverage: 1, profitCoverage: 1 },
+    risk: { factors: [] } as never,
+    revenueSeries: [], profitSeries: [], callSeries: [],
+    dimensions: { buyers: [], vendors: [], campaigns: [], sources: [] },
+    includesLiveData: false,
+  });
+  const ids = health.dimensions.flatMap((d) => d.signals.map((x) => x.id));
+  assert.ok(ids.length >= 18);
+  for (const id of ids) assert.ok(HEALTH_SIGNAL_REASONS[id], `${id} has no entry`);
+  const weakest = weakestHealthSignal(health);
+  assert.ok(weakest && weakest.available, 'the weakest is a measured signal');
+
+  // REGRESSION (PR #300 review): three near-equal vendors (top share ~40%, fragility 0.33,
+  // score 0.67) -- the model says "Supply is spread across vendors", so the reason may not
+  // say "supply leans on one vendor".
+  assert.equal(healthSignalReason({ id: 'vendor-concentration', score: 0.67 }), 'vendor mix is the weakest area');
+  assert.equal(healthSignalReason({ id: 'vendor-concentration', score: 0.4 }), 'supply leans on one vendor', 'fragility 0.6: the model says "depends heavily"');
+  assert.equal(healthSignalReason({ id: 'revenue-coverage', score: 0.89 }), 'revenue is only partly reported');
+  assert.equal(healthSignalReason({ id: 'revenue-coverage', score: 1 }), 'revenue reporting is the weakest area');
+  assert.equal(healthSignalReason({ id: 'billable-efficiency', score: 0.66 }), 'billable efficiency is the weakest area', '33% billable is not "few"');
+  assert.equal(healthSignalReason({ id: 'billable-efficiency', score: 0.4 }), 'few calls become billable');
+  assert.equal(healthSignalReason({ id: 'not-a-signal', score: 0.1 }), null);
 });
 
 // --- Coverage: incomplete periods are never compared ----------------------------------------------
@@ -202,6 +291,31 @@ test('coverage fails closed: no record, or a record that could not be read, comp
   assert.equal(unread.comparison, 'UNKNOWN');
   assert.equal(unread.note, 'Not compared: Loop could not confirm when its call record starts.');
   assert.equal(effectiveCallGridWindow(today, unread).comparisonStart, null);
+});
+
+test('REGRESSION (PR #300 review): a half-covered month never produces a +305% headline', () => {
+  const sep = monthly('2026-09-18');
+  const cov = assessCallGridCoverage(sep, { ok: true, startsAt: RECORD });
+  // What the report does with the effective window: no comparison read at all.
+  const comparison = effectiveCallGridWindow(sep, cov).comparisonStart ? metrics({ revenueCents: 9_200_000 }) : null;
+  const kpis = callGridKpis({ metrics: metrics(), comparison, series: [], comparisonWithheld: cov.comparison !== 'VALID' });
+  for (const k of kpis) {
+    assert.equal(k.change, null, `${k.label} shows no change`);
+    assert.equal(k.noChangeReason, 'No valid comparison.');
+  }
+  const brief = briefOf({ window: effectiveCallGridWindow(sep, cov), comparison, coverage: cov, firstPriority: null });
+  const shown = brief.sentences.map((x) => x.text).join(' ');
+  assert.doesNotMatch(shown, /\d+%/, 'no percentage change in the brief');
+  assert.equal(brief.sentences[0]!.text, cov.note);
+  assert.equal(brief.sentences[0]!.basis, 'UNKNOWN');
+  assert.equal(callGridHealthReason({ band: 'HEALTHY', weakest: null, metrics: metrics(), comparison }), 'the measured signals are sound');
+});
+
+test('the Billable Calls tile states the total calls it is part of, in the brief’s words', () => {
+  const kpis = callGridKpis({ metrics: metrics(), comparison: null, series: [] });
+  assert.equal(kpis.find((k) => k.key === 'billableCalls')!.subline, 'of 400 total calls');
+  assert.equal(kpis.filter((k) => k.subline !== null).length, 1, 'no sixth figure: one subline, on one tile');
+  assert.equal(kpis.length, 5);
 });
 
 test('the executive surface shows at most three priorities, in the engine’s order, undecided only', () => {
