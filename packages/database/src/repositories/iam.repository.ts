@@ -29,6 +29,9 @@ import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
 import { hasRemovalMarker, membershipAuthority, syncMembershipFromUser } from './membership.repository';
 import { revokeGoogleConnectionInTx, type GoogleActor, type GoogleRevocation } from './google-connection.repository';
+import { AuditRepository } from './audit.repository';
+import { WorkErasureRepository, type WorkErasure } from './work-state/work-erasure.repository';
+import { WORK_RETENTION_POLICY_VERSION } from '@emgloop/shared';
 
 
 export type Resource =
@@ -716,7 +719,9 @@ export class IamRepository {
    * Disable a member, ending their Google connection IN THE SAME TRANSACTION
    * (google-workspace-connection.md §6, §11.6): the sealed token is deleted before the
    * membership change commits. `googleRevocation` is what was deleted, for the caller
-   * that holds the key to revoke at Google after commit.
+   * that holds the key to revoke at Google after commit. Their private work state is
+   * deleted in the same transaction (daily-loop-employee-intelligence.md §21.2: "Employee
+   * disabled or removed -- all work rows for that user are deleted").
    */
   async disableMember(organizationId: string, userId: string, actor: GoogleActor = { userId: null }): Promise<MemberEndResult> {
     let googleRevocation: GoogleRevocation | null = null;
@@ -726,6 +731,7 @@ export class IamRepository {
         actor,
         now: new Date(),
       });
+      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor);
     });
     return { changed, googleRevocation: changed ? googleRevocation : null };
   }
@@ -758,8 +764,9 @@ export class IamRepository {
   }
 
   /**
-   * Remove a member (soft), ending their Google connection in the same transaction, as
-   * `disableMember` does.
+   * Remove a member (soft), ending their Google connection and deleting their private work
+   * state in the same transaction, as `disableMember` does. The membership row is kept (it
+   * carries the removal marker); the work state is not (§21.3, row 11).
    */
   async removeMember(organizationId: string, userId: string, actor: GoogleActor = { userId: null }): Promise<MemberEndResult> {
     // The metadata bag carries systemRole AND passwordHash. It must be MERGED,
@@ -779,11 +786,13 @@ export class IamRepository {
         },
       });
       await syncMembershipFromUser(tx, updated);
-      return revokeGoogleConnectionInTx(this.prisma, tx, organizationId, userId, {
+      const revocation = await revokeGoogleConnectionInTx(this.prisma, tx, organizationId, userId, {
         reason: 'MEMBER_REMOVED',
         actor,
         now: new Date(),
       });
+      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor);
+      return revocation;
     });
     return { changed: true, googleRevocation };
   }
@@ -875,3 +884,40 @@ export class IamRepository {
     });
   }
 }
+
+
+/**
+ * Delete a person's private work state inside the transaction that ends their membership,
+ * and record the act -- counts only, never a row -- when anything was deleted. No audit row
+ * for a delete that did not happen.
+ */
+async function eraseWorkStateInTx(
+  prisma: PrismaClient,
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  userId: string,
+  reason: 'MEMBER_DISABLED' | 'MEMBER_REMOVED',
+  actor: GoogleActor,
+): Promise<WorkErasure> {
+  const erased = await new WorkErasureRepository(tx).eraseAll({ organizationId, userId });
+  const total = Object.values(erased).reduce((sum, n) => sum + n, 0);
+  if (total > 0) {
+    await new AuditRepository(prisma).record(
+      {
+        organizationId,
+        userId: actor.userId,
+        actorType: actor.userId ? 'HUMAN_AGENT' : 'SYSTEM',
+        actorName: actor.name ?? (actor.userId ? undefined : 'System'),
+        action: WORK_STATE_ERASED_AUDIT_ACTION,
+        entityType: 'work_state',
+        entityId: userId,
+        metadata: { subjectUserId: userId, reason, retentionPolicy: WORK_RETENTION_POLICY_VERSION, erased },
+      },
+      tx,
+    );
+  }
+  return erased;
+}
+
+/** The audit action for deleting a person's work state when their membership ends. */
+export const WORK_STATE_ERASED_AUDIT_ACTION = 'work_state.erased';

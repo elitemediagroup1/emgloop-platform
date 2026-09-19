@@ -4,9 +4,13 @@
 // for how to run it.
 //
 // WHAT IT PROVES, THAT THE IN-MEMORY DOUBLE CANNOT: the DATABASE removes an employee's mail state
-// when their membership ends -- threads, messages, correspondents, drafts, items, observations,
-// cursors and runs -- because every one of those tables is keyed to the membership with ON DELETE
-// CASCADE. Offboarding does not depend on anybody remembering to write a cleanup job.
+// when their membership row is DELETED -- threads, messages, correspondents, drafts, items,
+// observations, cursors and runs -- because every one of those tables is keyed to the membership
+// with ON DELETE CASCADE.
+//
+// It is not the offboarding path. Ending a membership in the product is soft (the row is kept
+// and marked), so this cascade never fires there; `removeMember` / `disableMember` delete the work
+// state explicitly, and work-erasure.postgres.test.ts proves that path.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
