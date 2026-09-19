@@ -974,6 +974,13 @@ It deliberately does **not** store the attendee list as the subject of the row: 
 is exactly the identity matching Loop forbids. Addresses are stored as correspondent keys for the
 employee's own graph (§11.4), never as a claim about who someone is.
 
+**Attendee keys (D2, approved 2026-09-19).** `work_events.attendeeHashes` holds the same one-way key a
+correspondent has, one per invited person other than the employee (rooms excluded, at most 50, none when
+the provider omits the list). They are never addresses (a CHECK refuses anything but a key), and never
+matched to a Party. They exist so the employee's own mail and calendar can be joined at read time
+("You're waiting on Dana, and Dana is in tomorrow's meeting"), and they are deleted with the event when
+the membership ends.
+
 ### 8.4 What the Day view shows, and what it must earn
 
 ```

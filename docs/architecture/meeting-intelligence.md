@@ -35,7 +35,9 @@ An Activity item of category `COMMUNICATION`, authority `calendar:<eventId>`:
 - `occurredAt` = the event's actual start, basis `PROVIDER_REPORTED`
 - subjects: the calendar event; **`WORK_ITEM` / `CASE` / `RELATIONSHIP` only when a person linked it**
 - participants: **attendee count and internal/external composition, not addresses.** An attendee list is
-  `CONTACT_IDENTIFIER` and does not belong in a projection
+  `CONTACT_IDENTIFIER` and does not belong in a projection. (Since D2, 2026-09-19, the employee's own
+  `work_events` row keeps one-way attendee keys, for joining their own mail and calendar. Those keys are
+  not addresses, are never matched to a Party, and never leave that employee's scope.)
 - `identity.state`: **`NOT_APPLICABLE`** until governed attribution exists. An attendee's email address
   matching a Party's is *exactly* the identity matching Loop forbids
 - provenance limitations: "transcript covers 41 of 60 minutes", "one participant joined by phone and is
