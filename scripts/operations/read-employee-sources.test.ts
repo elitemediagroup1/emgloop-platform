@@ -1,7 +1,9 @@
 // Read employee sources: a read-only diagnosis that prints states and counts, never content.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GoogleConnectionInventoryRow, WorkCursorRecord, WorkSyncRunRecord } from '@emgloop/database';
 import { runEmployeeSources, parseArgs, readEnvironment, RECENT_RUNS } from './read-employee-sources';
@@ -135,4 +137,66 @@ test('the runner only reads: it names no write, sync or Google call', () => {
     assert.equal(code.includes(forbidden), false, `${forbidden} has no place in a read-only diagnosis`);
   }
   assert.ok(RECENT_RUNS <= 5, 'a handful of runs, not a history dump');
+});
+
+// --- The workflow's input step, executed ------------------------------------------------------
+//
+// Run 35447918049 was refused before reading anything: the organization slug arrived with four
+// leading spaces, and the step validated the raw value. These tests run the workflow's OWN step
+// (extracted from the YAML, not a copy of it) under bash, so the file and the test cannot drift.
+
+const WORKFLOW = readFileSync(join(__dirname, '..', '..', '.github', 'workflows', 'read-employee-sources.yml'), 'utf8');
+
+/** The `run: |` body of the named step, dedented. */
+function stepScript(name: string): string {
+  const lines = WORKFLOW.split('\n');
+  const at = lines.findIndex((l) => l.trim() === `- name: ${name}`);
+  assert.ok(at >= 0, `the workflow has a step named ${name}`);
+  const run = lines.findIndex((l, i) => i > at && l.trim() === 'run: |');
+  const indent = lines[run]!.search(/\S/) + 2;
+  const body: string[] = [];
+  for (const line of lines.slice(run + 1)) {
+    if (line.trim() !== '' && line.search(/\S/) < indent) break;
+    body.push(line.slice(indent));
+  }
+  return body.join('\n');
+}
+
+function validate(value: string): { code: number; slug: string | null; stdout: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'res-input-'));
+  const output = join(dir, 'output');
+  writeFileSync(output, '');
+  // The same shell GitHub uses for `shell: bash`.
+  const run = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', stepScript('Validate the requested input')], {
+    env: { PATH: process.env.PATH ?? '', ORG_SLUG: value, GITHUB_OUTPUT: output },
+    encoding: 'utf8',
+  });
+  const written = readFileSync(output, 'utf8');
+  rmSync(dir, { recursive: true, force: true });
+  const slug = /^slug=(.*)$/m.exec(written)?.[1] ?? null;
+  return { code: run.status ?? -1, slug, stdout: run.stdout };
+}
+
+test('a valid slug with whitespace around it is trimmed, validated and passed on -- the run 35447918049 input', () => {
+  for (const input of ['servicesinmycity-demo', '    servicesinmycity-demo', 'servicesinmycity-demo   ', '\tservicesinmycity-demo\n', ' \t servicesinmycity-demo \r\n']) {
+    const result = validate(input);
+    assert.equal(result.code, 0, JSON.stringify(input));
+    assert.equal(result.slug, 'servicesinmycity-demo', `${JSON.stringify(input)} passes on the trimmed slug`);
+    assert.match(result.stdout, /Validated organization servicesinmycity-demo\./);
+  }
+});
+
+test('whitespace is only trimmed, never repaired: anything that is not one valid slug is still refused', () => {
+  for (const input of ['', '   ', 'services inmycity-demo', 'servicesinmycity-demo\nother-org', 'Servicesinmycity-Demo', '-leading-hyphen', 'org;rm', 'a'.repeat(64)]) {
+    const result = validate(input);
+    assert.notEqual(result.code, 0, `${JSON.stringify(input)} must be refused`);
+    assert.equal(result.slug, null, 'nothing is passed on');
+  }
+});
+
+test('the read step uses the validated slug, never the raw input', () => {
+  const read = WORKFLOW.slice(WORKFLOW.indexOf('- name: Read\n'), WORKFLOW.indexOf('- name: How to read the output'));
+  assert.match(read, /ORG_SLUG: \$\{\{ steps\.input\.outputs\.slug \}\}/);
+  assert.equal(read.includes('inputs.organization_slug'), false);
+  assert.deepEqual(parseArgs(['--organization', '  servicesinmycity-demo  ']), { organization: 'servicesinmycity-demo' }, 'the runner trims too');
 });
