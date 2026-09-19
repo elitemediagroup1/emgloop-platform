@@ -16,9 +16,21 @@
 // and no column to put one in.
 
 import type { PrismaClient } from '@prisma/client';
-import type { WorkClass, WorkDirection, WorkProvider } from '@emgloop/shared';
+import { CALENDAR_ATTENDEE_KEY_LIMIT, type WorkClass, type WorkDirection, type WorkProvider } from '@emgloop/shared';
 
 import { workScope, type WorkPrincipal } from './work-principal';
+
+const ONE_WAY_KEY = /^[0-9a-f]{64}$/;
+
+/**
+ * The attendee keys a row may hold: one-way keys only, none when attendance is unknown, at most
+ * the contract's limit. Anything that is not a key -- an address passed by mistake -- is dropped
+ * here, and the database CHECK refuses it again.
+ */
+function attendeeKeysOf(facts: EventFacts): string[] {
+  if (!facts.attendanceKnown) return [];
+  return [...new Set((facts.attendeeHashes ?? []).filter((k) => ONE_WAY_KEY.test(k)))].slice(0, CALENDAR_ATTENDEE_KEY_LIMIT);
+}
 
 export interface CorrespondentSeen {
   readonly addressHash: string;
@@ -80,6 +92,8 @@ export interface EventFacts {
   readonly summary?: string | null;
   readonly organizerHash?: string | null;
   readonly organizerIsSelf?: boolean;
+  /** One-way attendee keys (D2). Stored only when attendance is known; never an address. */
+  readonly attendeeHashes?: readonly string[];
   readonly attendanceKnown?: boolean;
   readonly attendeeCount?: number | null;
   readonly externalAttendeeCount?: number | null;
@@ -360,6 +374,7 @@ export class WorkGraphRepository {
       summary: facts.summary ?? null,
       organizerHash: facts.organizerHash ?? null,
       organizerIsSelf: facts.organizerIsSelf ?? false,
+      attendeeHashes: attendeeKeysOf(facts),
       attendanceKnown: facts.attendanceKnown ?? false,
       attendeeCount: facts.attendeeCount ?? null,
       externalAttendeeCount: facts.externalAttendeeCount ?? null,

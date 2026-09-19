@@ -50,6 +50,7 @@ function fact(over: Partial<CalendarEventFact> = {}): CalendarEventFact {
     summary: 'Cashion / Trevon',
     organizerHash: hash('matt@emgloop.test'),
     organizerIsSelf: true,
+    attendeeHashes: [hash('trevon@cashion.test')],
     attendance: { known: true, total: 2, external: 1, resources: 1, selfResponse: 'ACCEPTED' },
     hasConference: true,
     providerUpdatedAt: new Date('2026-09-16T18:04:00Z'),
@@ -374,13 +375,14 @@ test('the title is persisted; description, location, addresses and joining links
   assert.equal(row.attendanceKnown, true);
   assert.equal(row.attendeeCount, 2);
   assert.equal(row.externalAttendeeCount, 1);
+  assert.deepEqual(row.attendeeHashes, [hash('trevon@cashion.test')], 'attendees arrive as one-way keys (D2)');
   assert.equal(row.selfResponse, 'ACCEPTED');
   assert.equal(row.providerUpdatedAt.toISOString(), '2026-09-16T18:04:00.000Z');
   assert.equal(row.observedAt.toISOString(), NOW.toISOString());
 
   // The columns that would hold content do not exist, so the row cannot carry it.
   const text = JSON.stringify(row);
-  for (const absent of ['description', 'location', 'matt@emgloop.test', 'ben@cashionrods.com', 'hangoutLink', 'meet.google', 'attachment']) {
+  for (const absent of ['description', 'location', 'matt@emgloop.test', 'trevon@cashion.test', 'ben@cashionrods.com', 'hangoutLink', 'meet.google', 'attachment']) {
     assert.equal(text.includes(absent), false, absent);
   }
   for (const column of ['description', 'location', 'attendees', 'conferenceUrl', 'hangoutLink']) {
@@ -588,4 +590,23 @@ test('a baseline is still one employee, and still bounded', async () => {
     const span = call.timeMax.getTime() - call.timeMin.getTime();
     assert.equal(span, 37 * DAY, 'the same bounded window as the first pass -- never a crawl');
   }
+});
+
+test('attendee keys are kept only when attendance is known, and only as keys', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  w.sensor.onWindow(
+    okPage(
+      [
+        fact({ eventId: 'unknown', attendeeHashes: [hash('a@b.test')], attendance: { known: false, total: null, external: null, resources: null, selfResponse: null } }),
+        // A value that is not a one-way key -- an address passed by mistake -- is never stored.
+        fact({ eventId: 'mixed', attendeeHashes: [hash('a@b.test'), 'a@b.test', hash('a@b.test')] }),
+      ],
+      { syncToken: 's' },
+    ),
+  );
+  await w.service.syncCalendar(alice);
+  const byId = Object.fromEntries(events(w, alice).map((r: any) => [r.eventId, r]));
+  assert.deepEqual(byId.unknown.attendeeHashes, [], 'unknown attendance holds no keys');
+  assert.deepEqual(byId.mixed.attendeeHashes, [hash('a@b.test')], 'keys only, deduplicated');
 });

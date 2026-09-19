@@ -28,6 +28,7 @@
 
 import { createHash } from 'crypto';
 import {
+  CALENDAR_ATTENDEE_KEY_LIMIT,
   CALENDAR_EVENT_KINDS,
   type CalendarAttendance,
   type CalendarEventFact,
@@ -221,6 +222,27 @@ function attendance(raw: Record<string, unknown>, context: CalendarIdentityConte
   };
 }
 
+/**
+ * The one-way key of each invited person other than the connected one (D2).
+ *
+ * Only when Google sent the list: an omitted list yields no keys, never a partial guess. Rooms
+ * are not people. The connected person is left out by Google's own `self` flag or their address,
+ * because a key for yourself joins nothing. The address is hashed here and goes no further.
+ */
+function attendeeKeys(raw: Record<string, unknown>, selfAddress: string | null): string[] {
+  if (raw.attendeesOmitted === true || !Array.isArray(raw.attendees)) return [];
+  const keys: string[] = [];
+  for (const attendee of raw.attendees as Record<string, unknown>[]) {
+    if (keys.length >= CALENDAR_ATTENDEE_KEY_LIMIT) break;
+    if (!attendee || attendee.resource === true || attendee.self === true) continue;
+    const address = typeof attendee.email === 'string' ? attendee.email.trim().toLowerCase() : '';
+    if (address === '' || address === selfAddress) continue;
+    const key = googleCalendarAddressHash(address);
+    if (!keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
 /** One Google event, as a Loop fact. Null when the payload is not an event this contract can state. */
 export function normalizeGoogleCalendarEvent(
   raw: unknown,
@@ -257,6 +279,7 @@ export function normalizeGoogleCalendarEvent(
     organizerHash: organizerAddress ? googleCalendarAddressHash(organizerAddress) : null,
     organizerIsSelf:
       organizer.self === true || (organizerAddress !== null && selfAddress !== null && organizerAddress.trim().toLowerCase() === selfAddress),
+    attendeeHashes: attendeeKeys(event, selfAddress),
     attendance: attendance(event, context),
     // Whether a conference EXISTS. The joining link is not a fact Daily Loop needs.
     hasConference: Boolean(event.conferenceData) || (typeof event.hangoutLink === 'string' && event.hangoutLink !== ''),
