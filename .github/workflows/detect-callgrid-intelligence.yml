@@ -1,0 +1,82 @@
+# Detect CallGrid situations on a schedule, so a business change is recorded because calls arrived
+# rather than because somebody opened a CallGrid page.
+#
+# THE DUMBEST POSSIBLE TRIGGER, like drain-outbox.yml: it holds a secret and makes one POST. Which
+# organizations, which window and how situations are recorded all live in the route
+# (apps/web/src/app/api/internal/intelligence/callgrid/route.ts), which runs the page's own pipeline
+# with no viewer and no authority to act. Replacing this schedule with a queue or a scheduler is a
+# change to this file alone.
+#
+# OFF UNTIL SWITCHED ON. Nothing runs unless the repository variable INTELLIGENCE_DETECT_ENABLED is
+# exactly `true`. Once on, it also needs two secrets:
+#   INTELLIGENCE_DETECT_URL      https://app.emgloop.com/api/internal/intelligence/callgrid
+#   INTELLIGENCE_DETECT_SECRET   the same value as the Netlify environment variable of that name
+# A missing secret while switched on fails the run (red), never runs open.
+#
+# SAFETY. The endpoint takes no organization and no parameters. A pass is idempotent -- every write
+# is keyed by recurrence and detection key -- so an overlapping or repeated run records nothing
+# twice. It assigns nobody, resolves nothing, changes no bid or campaign and sends nothing.
+
+name: Detect CallGrid Intelligence
+
+on:
+  schedule:
+    # Hourly, off the top of the hour (GitHub delays scheduled runs most at :00).
+    - cron: '37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: detect-callgrid-intelligence
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Stop unless CallGrid detection has been switched on
+        id: gate
+        env:
+          ENABLED: ${{ vars.INTELLIGENCE_DETECT_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [ "${ENABLED:-}" != "true" ]; then
+            echo "INTELLIGENCE_DETECT_ENABLED is not 'true'. Scheduled CallGrid detection is OFF and nothing was called."
+            {
+              echo "### Scheduled CallGrid detection is not enabled"
+              echo ""
+              echo "Nothing was called. To enable: set the repository variable \`INTELLIGENCE_DETECT_ENABLED\` to \`true\`, and the secrets \`INTELLIGENCE_DETECT_URL\` and \`INTELLIGENCE_DETECT_SECRET\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: POST the detection endpoint
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          DETECT_URL: ${{ secrets.INTELLIGENCE_DETECT_URL }}
+          DETECT_SECRET: ${{ secrets.INTELLIGENCE_DETECT_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DETECT_URL:-}" ] || [ -z "${DETECT_SECRET:-}" ]; then
+            echo "::error::INTELLIGENCE_DETECT_URL and INTELLIGENCE_DETECT_SECRET must both be set while detection is switched on."
+            exit 1
+          fi
+          # --fail-with-body so a non-2xx fails the step AND still prints why. The secret goes in a
+          # header, never in the URL.
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 60 \
+            --request POST "${DETECT_URL}" \
+            --header "x-emg-detect-secret: ${DETECT_SECRET}" \
+            --header 'content-type: application/json')
+          echo "$response"
+          {
+            echo "### Scheduled CallGrid detection"
+            echo '```json'
+            echo "$response"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

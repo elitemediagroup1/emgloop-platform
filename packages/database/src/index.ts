@@ -645,4 +645,5 @@ export {
 
 // A mailbox's state as the employee's own work items (GM-3). A detection never overrules a person:
 // a closed item reopens only on new evidence, and a correction is recorded beside the facts.
-export { MailAttentionService, type MailAttentionDeps, type MailAttentionOutcome } from './services/work-state';
+export { MailAttentionService, mailThreadFacts, type MailAttentionDeps, type MailAttentionOutcome } from './services/work-state';
+export * from './services/intelligence';

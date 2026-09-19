@@ -141,6 +141,27 @@ test('5. an employee who connects between two passes is attempted on the next pa
   assert.deepEqual(Object.keys(request).sort(), ['baseline', 'organizationSlugs', 'source'], 'no argument can name a person');
 });
 
+test('a completed read runs the detectors for that person, and a detector failing never fails the pass', async () => {
+  const w = world({
+    sync: async (principal) =>
+      principal.userId === 'u2' ? outcome({ outcome: 'FAILED', failure: 'RATE_LIMITED', cursorAdvanced: false }) : outcome(),
+  });
+  const detected: string[] = [];
+  w.deps.afterRead = async (principal) => {
+    detected.push(principal.userId);
+    if (principal.userId === 'u3') throw new Error('Subject: Contract for Dana');
+    return [{ detector: 'mail-attention', result: 'RAN', counts: { raised: 1, widened: 0, skippedClosed: 0, reopened: 0 } }];
+  };
+  const result = await runCalendarCycle({ source: 'gmail', organizationSlugs: ['emg'], baseline: false }, w.deps);
+  assert.deepEqual(detected, ['u1', 'u3'], 'only a read that completed is thought about; u2 failed');
+  assert.equal(result.synced, 2, 'a detector throwing does not turn a successful read into a failed pass');
+  const detect = w.lines.filter((l) => l.startsWith('event=DETECT '));
+  assert.equal(detect.length, 2);
+  assert.match(detect[0]!, /detector=mail-attention result=RAN raised=1 widened=0 skippedClosed=0 reopened=0/);
+  assert.match(detect[1]!, /result=FAILED/);
+  assert.equal(w.lines.join('\n').includes('Dana'), false, 'no stored content reaches a log');
+});
+
 test('the same employee reached twice is attempted once', async () => {
   const w = world();
   const result = await runCalendarCycle({ source: 'calendar', organizationSlugs: ['emg', 'emg-again'], baseline: false }, w.deps);
