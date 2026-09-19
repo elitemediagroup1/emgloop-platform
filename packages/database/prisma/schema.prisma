@@ -519,6 +519,8 @@ model OrganizationMembership {
   workBriefs              WorkBrief[]               @relation("WorkBriefMember")
   workFeedback            WorkFeedback[]            @relation("WorkFeedbackMember")
   employeeWorkPreferences EmployeeWorkPreferences[] @relation("EmployeeWorkPreferencesMember")
+  /// Identity match suggestions resting on this person's private evidence (D1).
+  privateHypotheses       IntelligenceHypothesis[]  @relation("IntelligenceHypothesisPrivateTo")
 
   @@unique([userId, organizationId])
   @@index([organizationId, status])
@@ -3146,14 +3148,37 @@ model IntelligenceHypothesis {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
+  /// IDENTITY MATCH SUGGESTIONS (D1, approved 2026-09-19). A machine suggestion lives here, on
+  /// the one belief authority: created PROPOSED, decided only by an attributed person.
+  /// `privateToUserId` is set when the suggestion rests on ONE person's private evidence (their
+  /// own mail): only they read or decide it, and it is erased with their work state. NULL is
+  /// organization scope, which nothing produces yet.
+  privateToUserId     String?
+  /// What is suggested, as a stable key: scope, the subject's one-way key and the candidate Party.
+  /// A rejection is remembered under it.
+  matchKey            String?
+  /// One-way fingerprint of the exact evidence records the suggestion rests on. The same evidence
+  /// is the same row, so a rejected match is never proposed again from it; new evidence is a new
+  /// fingerprint.
+  evidenceFingerprint String?
+  /// References to that evidence (record ids and one-way keys, never a contact value), with the
+  /// method, reason, source and time. The evidence itself stays with the authority that owns it.
+  evidenceRefs        Json?
+  /// The deciding person's reason. Required to reject (identity record §13).
+  decisionReason      String?
+
+  privateTo OrganizationMembership? @relation("IntelligenceHypothesisPrivateTo", fields: [privateToUserId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
   // The operational threads opened against this belief. A hypothesis is what Loop
   // THINKS is happening; a priority is what the organization is DOING about it.
   // Two axes, deliberately not collapsed: a belief can be accepted as true and
   // still be unassigned, and a priority can be resolved while the belief stands.
   operationalPriorities OperationalPriority[]
 
+  @@unique([organizationId, matchKey, evidenceFingerprint])
   @@index([organizationId, status])
   @@index([organizationId, subjectIdentityId, status])
+  @@index([organizationId, privateToUserId, hypothesisType, status])
   @@map("intelligence_hypotheses")
 }
 
@@ -5993,15 +6018,20 @@ model WorkEvent {
   summary String?
 
   organizerHash         String?
-  organizerIsSelf       Boolean @default(false)
+  organizerIsSelf       Boolean  @default(false)
   /// Whether the provider stated who is attending at all. FALSE means the counts are UNKNOWN,
   /// which is a different fact from nobody being invited.
-  attendanceKnown       Boolean @default(false)
+  attendanceKnown       Boolean  @default(false)
   attendeeCount         Int?
   externalAttendeeCount Int?
+  /// D2 (approved 2026-09-19). The SAME one-way key as `organizerHash` and a correspondent's
+  /// `addressHash`, one per person invited other than the connected person (rooms excluded),
+  /// capped. Keys, never addresses (a CHECK refuses anything else): they join this person's own
+  /// mail to their own calendar, and nothing else. Empty when attendance is unknown.
+  attendeeHashes        String[] @default([])
   /// `CALENDAR_RESPONSES` -- the connected person's own answer, when the provider states one.
   selfResponse          String?
-  hasConference         Boolean @default(false)
+  hasConference         Boolean  @default(false)
 
   /// The provider's own last-modified stamp, and when Loop read it.
   providerUpdatedAt DateTime?
