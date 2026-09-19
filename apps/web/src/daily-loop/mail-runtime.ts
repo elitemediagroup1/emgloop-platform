@@ -4,7 +4,8 @@
 //
 // TWO OF THE THREE FRESHNESS PATHS LIVE HERE -- a visit, and a person asking by hand. The third
 // is the scheduled cycle, which performs the SAME sync through the same assembly. What differs is
-// only who decided to spend the call, and how often that is allowed.
+// who decided to spend the call, how often that is allowed, and how far it may go: these two read
+// only what changed (FRESHNESS reach); the cycle alone performs the first read (FULL reach).
 //
 // A REFUSAL IS NOT A FAILURE. `refreshEmployeeGmail` answers whether a read actually happened, so
 // a caller can say how current Loop is; a refusal (too soon, unusable connection, one already in
@@ -25,11 +26,18 @@ function gmailSync() {
   return createEmployeeGmailSync({ prisma, google: env.state === 'CONFIGURED' ? env : null, signingKeys: googleSigningKeys() });
 }
 
-/** Synchronize this employee's mailbox. Returns whether a read actually completed. */
+/**
+ * Read what changed in this employee's mailbox. Returns whether a read actually completed.
+ *
+ * FRESHNESS REACH, ALWAYS. A page visit or a Refresh click reads only what changed since the
+ * stored position, within a few seconds' worth of messages. It NEVER performs the first 14-day
+ * read: with no position yet it does nothing and answers DEFERRED, and the person sees that Loop
+ * is still setting up their mail. The first read is the scheduled cycle's (GmailSyncOptions.reach).
+ */
 export async function refreshEmployeeGmail(principal: WorkPrincipal): Promise<boolean> {
   try {
-    const result = await gmailSync().syncGmail(principal);
-    return result.outcome !== 'FAILED';
+    const result = await gmailSync().syncGmail(principal, { reach: 'FRESHNESS' });
+    return result.outcome === 'SUCCEEDED' || result.outcome === 'TRUNCATED';
   } catch {
     // A refresh that could not happen changes how current Loop says it is, never what it shows.
     return false;

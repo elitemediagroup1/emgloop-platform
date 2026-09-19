@@ -40,6 +40,17 @@ import type { CalendarConnectionState } from './calendar-sync.service';
 /** The first read's window. Daily Loop reasons about the current work period, not a lifetime. */
 export const GMAIL_INITIAL_DAYS = 14;
 
+/**
+ * The most a FRESHNESS pass reads: a page visit or a person pressing Refresh.
+ *
+ * A request someone is waiting on must never carry a mailbox's worth of Gmail calls. Every message
+ * is one sequential request, so the ceiling is a latency budget: twenty-five is a few seconds, and
+ * the incremental read resumes where it stopped, so the next pass (or the scheduled cycle, which
+ * reads up to the full pass ceiling) carries on from there.
+ */
+export const GMAIL_FRESHNESS_MAX_MESSAGES = 25;
+export const GMAIL_FRESHNESS_MAX_PAGES = 2;
+
 /** An access token for one principal's OWN connection, or why there is none. */
 export interface GmailAccessPort {
   accessToken(principal: WorkPrincipal): Promise<{ readonly ok: true; readonly accessToken: string } | { readonly ok: false; readonly state: CalendarConnectionState }>;
@@ -58,6 +69,9 @@ export interface GmailSensorPort {
     readonly accessToken: string;
     readonly selfAddress: string | null;
     readonly startHistoryId: string;
+    /** Tighter ceilings for a pass somebody is waiting on. Absent: the sensor's own. */
+    readonly maxMessages?: number;
+    readonly maxPages?: number;
   }): Promise<GmailReadResult>;
 }
 
@@ -92,10 +106,25 @@ export interface GmailSyncOptions {
    * before it can expire, and repairs anything a truncated pass left behind.
    */
   readonly baseline?: boolean;
+  /**
+   * How far this pass may go.
+   *
+   *   FULL       the scheduled cycle. Performs the first 14-day read when there is no position,
+   *              re-reads the window when Gmail no longer keeps the position, and reads up to the
+   *              sensor's full ceiling. The ONLY reach that performs a baseline.
+   *   FRESHNESS  a page visit or a person pressing Refresh. Reads only what changed since the
+   *              stored position, within GMAIL_FRESHNESS_MAX_MESSAGES. With no position yet it
+   *              does nothing at all -- no run, no Google call -- and answers DEFERRED: the first
+   *              read belongs to the cycle, never to a request somebody is waiting on.
+   *
+   * Absent: FULL, so the cycle's behaviour is what a caller gets unless it asks for less.
+   */
+  readonly reach?: 'FULL' | 'FRESHNESS';
 }
 
 export interface GmailSyncOutcome {
-  readonly outcome: 'SUCCEEDED' | 'TRUNCATED' | 'FAILED';
+  /** DEFERRED: a FRESHNESS pass found no position to read from, so it read nothing and wrote nothing. */
+  readonly outcome: 'SUCCEEDED' | 'TRUNCATED' | 'FAILED' | 'DEFERRED';
   readonly mode: GmailSyncMode;
   readonly examined: number;
   readonly written: number;
@@ -122,6 +151,15 @@ export class GmailSyncService {
 
   /** Synchronize ONE employee's mailbox into their own work state. Nobody else's. */
   async syncGmail(principal: WorkPrincipal, options: GmailSyncOptions = {}): Promise<GmailSyncOutcome> {
+    const freshnessOnly = options.reach === 'FRESHNESS';
+    const cursor = await this.deps.sources.cursor(principal, 'GMAIL');
+    const storedHistoryId = cursor?.cursorKind === 'GMAIL_HISTORY_ID' ? cursor.cursor : null;
+    if (freshnessOnly && !storedHistoryId) {
+      // No position yet: the first read has not happened (or has to happen again). That is the
+      // cycle's job. Nothing is started, nothing is written, and Google is not called.
+      return { outcome: 'DEFERRED', mode: 'WINDOW', examined: 0, written: 0, removed: 0, failure: null, cursorAdvanced: false };
+    }
+
     const startedAt = this.now();
     const run = await this.deps.sources.startRun(principal, 'GMAIL', startedAt);
 
@@ -129,19 +167,18 @@ export class GmailSyncService {
     if (!token.ok) return this.fail(principal, run.id, 'WINDOW', gmailFailureForConnectionState(token.state));
 
     const identity = await this.deps.access.identity(principal);
-    const cursor = await this.deps.sources.cursor(principal, 'GMAIL');
-    const storedHistoryId = cursor?.cursorKind === 'GMAIL_HISTORY_ID' ? cursor.cursor : null;
     // A requested baseline sets the stored position aside for this pass. It is not deleted: the
     // cursor is only ever replaced by a read that succeeded.
-    const useHistory = options.baseline ? null : storedHistoryId;
+    const useHistory = options.baseline && !freshnessOnly ? null : storedHistoryId;
     const newerThanDays = this.deps.initialDays ?? GMAIL_INITIAL_DAYS;
+    const bounds = freshnessOnly ? { maxMessages: GMAIL_FRESHNESS_MAX_MESSAGES, maxPages: GMAIL_FRESHNESS_MAX_PAGES } : {};
 
     let mode: GmailSyncMode = useHistory ? 'INCREMENTAL' : storedHistoryId ? 'REBASELINE' : 'WINDOW';
     let result: GmailReadResult = useHistory
-      ? await this.deps.sensor.readChanges({ accessToken: token.accessToken, selfAddress: identity.selfAddress, startHistoryId: useHistory })
+      ? await this.deps.sensor.readChanges({ accessToken: token.accessToken, selfAddress: identity.selfAddress, startHistoryId: useHistory, ...bounds })
       : await this.deps.sensor.readWindow({ accessToken: token.accessToken, selfAddress: identity.selfAddress, newerThanDays });
 
-    if (!result.ok && result.failure === 'CURSOR_EXPIRED') {
+    if (!result.ok && result.failure === 'CURSOR_EXPIRED' && !freshnessOnly) {
       // Gmail no longer keeps that history position. Its own guide's answer is one full read;
       // Loop's is one BOUNDED full read, which is the same thing without the mailbox crawl.
       mode = 'REBASELINE';
@@ -156,9 +193,11 @@ export class GmailSyncService {
 
     const finishedAt = this.now();
     const truncated = result.page.truncated;
-    // A cursor is stored ONLY for a complete read: a truncated pass has no reliable boundary,
-    // and storing one would skip what it did not reach.
-    const advance = !truncated && result.page.nextHistoryId !== null;
+    // The sensor returns a position ONLY when it skips nothing newer than itself: a capped window
+    // leaves out its oldest messages, and a capped incremental pass hands back the last history
+    // record it consumed whole (GmailMessagePage). So whenever there is one, it is stored -- which
+    // is what lets a busy mailbox reach incremental reads, and a bounded pass make progress.
+    const advance = result.page.nextHistoryId !== null;
     if (advance) {
       await this.deps.sources.advanceCursor(principal, 'GMAIL', {
         cursor: result.page.nextHistoryId,

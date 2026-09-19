@@ -89,9 +89,12 @@ export interface GmailThreadView {
 /**
  * A page of the sync read.
  *
- * `nextHistoryId` is the cursor for the next incremental pass. It is stored ONLY for a complete
- * read: a truncated page has no reliable boundary, and storing one would skip what it did not
- * reach. `truncated` says the deadline or the page bound came first, which is not a failure.
+ * `nextHistoryId` is the cursor for the next incremental pass, and it never skips anything newer
+ * than itself. A window read returns the boundary it took before listing, capped or not: a capped
+ * window leaves out only its OLDEST messages. An incremental read returns the mailbox's boundary
+ * when complete, or -- when it stopped at its ceiling -- the last history record it consumed whole,
+ * so the next pass resumes there. It is null only when no safe position exists. `truncated` says a
+ * bound came first, which is not a failure.
  */
 export interface GmailMessagePage {
   readonly messages: readonly GmailMessageFact[];

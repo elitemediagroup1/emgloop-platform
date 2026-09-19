@@ -22,7 +22,7 @@ import type { PrismaClient } from '@prisma/client';
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 import { IamRepository } from '../src/repositories/iam.repository';
 import { WorkGraphRepository, WorkSourceRepository, type WorkPrincipal } from '../src/repositories/work-state';
-import { GmailSyncService, type GmailSensorPort } from '../src/services/work-state/gmail-sync.service';
+import { GMAIL_FRESHNESS_MAX_MESSAGES, GMAIL_FRESHNESS_MAX_PAGES, GmailSyncService, type GmailSensorPort } from '../src/services/work-state/gmail-sync.service';
 import type { GmailMessageFact, GmailReadResult } from '@emgloop/shared';
 
 const ORG_A = 'org_a';
@@ -68,7 +68,7 @@ const okPage = (
 
 function sensorDouble() {
   const windowCalls: { accessToken: string; newerThanDays: number }[] = [];
-  const changeCalls: { accessToken: string; startHistoryId: string }[] = [];
+  const changeCalls: { accessToken: string; startHistoryId: string; maxMessages?: number; maxPages?: number }[] = [];
   let windowAnswer: GmailReadResult = okPage([]);
   let changesAnswer: GmailReadResult = okPage([]);
   const port: GmailSensorPort = {
@@ -77,7 +77,12 @@ function sensorDouble() {
       return windowAnswer;
     },
     readChanges: async (request) => {
-      changeCalls.push({ accessToken: request.accessToken, startHistoryId: request.startHistoryId });
+      changeCalls.push({
+        accessToken: request.accessToken,
+        startHistoryId: request.startHistoryId,
+        ...(request.maxMessages !== undefined ? { maxMessages: request.maxMessages } : {}),
+        ...(request.maxPages !== undefined ? { maxPages: request.maxPages } : {}),
+      });
       return changesAnswer;
     },
   };
@@ -241,6 +246,81 @@ test('a requested baseline re-reads the window although a position exists, and r
 
   assert.equal(baseline.mode, 'REBASELINE');
   assert.equal(w.sensor.changeCalls.length, 0, 'the stored position was not used');
+  assert.equal((await w.sources.cursor(alice, 'GMAIL'))?.cursor, '9900');
+});
+
+// --- Reach: the first read is the cycle's, never a page's ----------------------------------------
+
+test('5/6. a page request never performs the first read: with no position it reads nothing, writes nothing and calls nobody', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  w.sensor.onWindow(okPage([fact()]));
+
+  const pass = await w.service.syncGmail(alice, { reach: 'FRESHNESS' });
+  assert.equal(pass.outcome, 'DEFERRED');
+  assert.equal(pass.cursorAdvanced, false);
+  assert.equal(w.sensor.windowCalls.length, 0, 'no 14-day read while somebody waits');
+  assert.equal(w.sensor.changeCalls.length, 0);
+  assert.equal(w.tokenRequests.length, 0, 'not even a token');
+  assert.equal(w.fake.workSyncRun.__rows.length, 0, 'no run recorded: nothing was attempted');
+  assert.equal(await w.sources.cursor(alice, 'GMAIL'), null);
+  assert.equal(messagesOf(w, alice).length, 0);
+
+  // A baseline request cannot smuggle a window read into a page request either.
+  assert.equal((await w.service.syncGmail(alice, { reach: 'FRESHNESS', baseline: true })).outcome, 'DEFERRED');
+  assert.equal(w.sensor.windowCalls.length, 0);
+});
+
+test('the cycle performs the first read; a capped first read still establishes the position, so the next pass is incremental', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  // A busy mailbox: the first read hits its ceiling. The sensor still hands back the boundary it
+  // took before listing (a capped window leaves out only its oldest messages).
+  w.sensor.onWindow(okPage([fact()], { historyId: '9100', truncated: true }));
+  const first = await w.service.syncGmail(alice);
+  assert.equal(first.mode, 'WINDOW');
+  assert.equal(first.outcome, 'TRUNCATED', 'the run says it was capped');
+  assert.equal(first.cursorAdvanced, true);
+  assert.equal((await w.sources.cursor(alice, 'GMAIL'))?.cursor, '9100');
+
+  w.sensor.onChanges(okPage([], { historyId: '9150' }));
+  const second = await w.service.syncGmail(alice);
+  assert.equal(second.mode, 'INCREMENTAL', 'not the same window again');
+  assert.equal(w.sensor.changeCalls.at(-1)?.startHistoryId, '9100');
+});
+
+test('7/8. after the first read, a page visit or Refresh reads only what changed, within a bounded pass', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  w.sensor.onWindow(okPage([fact()], { historyId: '9100' }));
+  await w.service.syncGmail(alice, { reach: 'FULL' });
+
+  w.sensor.onChanges(okPage([fact({ messageId: 'm2' })], { historyId: '9200' }));
+  const visit = await w.service.syncGmail(alice, { reach: 'FRESHNESS' });
+  assert.equal(visit.outcome, 'SUCCEEDED');
+  assert.equal(visit.mode, 'INCREMENTAL');
+  const call = w.sensor.changeCalls.at(-1)!;
+  assert.equal(call.startHistoryId, '9100');
+  assert.ok(call.maxMessages !== undefined && call.maxMessages <= GMAIL_FRESHNESS_MAX_MESSAGES && GMAIL_FRESHNESS_MAX_MESSAGES <= 25, 'a few seconds of Gmail calls at most');
+  assert.ok(call.maxPages !== undefined && call.maxPages <= GMAIL_FRESHNESS_MAX_PAGES);
+  assert.equal((await w.sources.cursor(alice, 'GMAIL'))?.cursor, '9200');
+  assert.equal(w.sensor.windowCalls.length, 1, 'only the cycle ever read the window');
+
+  // A bounded pass that stopped part-way still moves forward to where it stopped.
+  w.sensor.onChanges(okPage([fact({ messageId: 'm3' })], { historyId: '9250', truncated: true }));
+  const partial = await w.service.syncGmail(alice, { reach: 'FRESHNESS' });
+  assert.equal(partial.outcome, 'TRUNCATED');
+  assert.equal((await w.sources.cursor(alice, 'GMAIL'))?.cursor, '9250');
+
+  // Gmail no longer keeps the position: a page request does NOT fall back to the 14-day read.
+  w.sensor.onChanges({ ok: false, failure: 'CURSOR_EXPIRED' });
+  const expired = await w.service.syncGmail(alice, { reach: 'FRESHNESS' });
+  assert.equal(expired.outcome, 'FAILED');
+  assert.equal(w.sensor.windowCalls.length, 1, 'the re-read is left to the cycle');
+  // The cycle, with FULL reach, re-reads the window and recovers.
+  w.sensor.onWindow(okPage([], { historyId: '9900' }));
+  const recovered = await w.service.syncGmail(alice);
+  assert.equal(recovered.mode, 'REBASELINE');
   assert.equal((await w.sources.cursor(alice, 'GMAIL'))?.cursor, '9900');
 });
 

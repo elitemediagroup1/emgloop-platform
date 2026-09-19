@@ -18,12 +18,16 @@
 # CADENCE: HOURLY, PLUS A WEEKLY BASELINE. OPERATING POLICY, NOT PROVIDER TRUTH.
 # ------------------------------------------------------------------------------
 #
-# THIS JOB IS NOT WHAT KEEPS AN ACTIVE EMPLOYEE CURRENT. Somebody working in Loop refreshes their
-# own mailbox on their own visit -- at most once every FIVE minutes (GM-1's freshness policy, and
-# faster than Calendar's fifteen because a mailbox moves faster) -- and can ask for a read by hand
-# no more often than every thirty seconds. Neither waits for this schedule. What this job buys is
-# currency for the hours nobody is looking, so the first render after a gap is already right, and
-# the weekly baseline below, which no visit performs.
+# THIS JOB PERFORMS EVERY MAILBOX'S FIRST READ. Connecting Gmail stores a grant and reads nothing;
+# a page visit or a Refresh click reads only what CHANGED since Loop's position in the mailbox,
+# a few seconds' worth at most, and never the 14-day first read (GmailSyncOptions.reach). So a
+# newly connected mailbox is "setting up" until this job's next pass reads it -- which is why the
+# job must be switched on before anyone is asked to connect Gmail.
+#
+# AFTER THAT, IT IS NOT WHAT KEEPS AN ACTIVE EMPLOYEE CURRENT. Somebody working in Loop refreshes
+# their own mailbox on their own visit -- at most once every FIVE minutes -- and can ask for a read
+# by hand no more often than every thirty seconds. What this job then buys is currency for the
+# hours nobody is looking, and the weekly baseline below, which no visit performs.
 #
 # Given that, the cadence is chosen on cost:
 #
@@ -38,7 +42,8 @@
 # when the job happened to fire.
 #
 # So Loop's promise has three parts, deliberately:
-#   an employee using Loop      DL-4's visit refresh, unchanged
+#   a new connection            this job's next pass performs the first read
+#   an employee using Loop      the visit refresh: what changed, bounded
 #   the background cycle        hourly
 #   the rolling-window rebase   weekly
 #
@@ -80,8 +85,10 @@ name: Cycle Employee Gmail
 
 on:
   schedule:
-    # The ordinary incremental pass, hourly on the hour.
-    - cron: '0 * * * *'
+    # The ordinary pass, hourly -- at :17, not on the hour. GitHub delays scheduled runs most at the
+    # start of each hour (the Calendar cycle's '0 * * * *' has fired every three to five hours in
+    # practice), and this pass is what turns a new connection from "setting up" into mail.
+    - cron: '17 * * * *'
     # The weekly baseline, Sunday 04:55 UTC -- off the hour, and off the Calendar baseline's
     # slot, so the two never queue behind each other.
     - cron: '55 4 * * 0'

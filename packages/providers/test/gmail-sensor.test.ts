@@ -123,7 +123,7 @@ test('a message becomes the facts Loop states, and nothing more', async () => {
   }
 });
 
-test('pagination stops at the page bound and says it was truncated, storing no boundary', async () => {
+test('pagination stops at the page bound and says it was truncated, keeping the boundary taken before the listing', async () => {
   const w = world([
     { match: /\/profile/, payload: { historyId: '9001' } },
     { match: /\/messages\?/, payload: { messages: [{ id: 'a' }], nextPageToken: 'more' } },
@@ -133,7 +133,10 @@ test('pagination stops at the page bound and says it was truncated, storing no b
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.page.truncated, true);
-  assert.equal(result.page.nextHistoryId, null, 'a truncated read stores no cursor');
+  // The listing is newest first and the boundary predates it: a capped window leaves out only its
+  // OLDEST messages, so the boundary is safe to keep -- and keeping it is what makes the next pass
+  // incremental instead of the same window again, forever.
+  assert.equal(result.page.nextHistoryId, '9001', 'a capped window still hands back its boundary');
   assert.equal(result.page.pagesRead, 2);
   assert.equal(w.urls().filter((u) => /\/messages\?/.test(u)).length, 2);
 });
@@ -151,6 +154,67 @@ test('the message ceiling bounds one pass however many the mailbox has', async (
   assert.equal(result.page.truncated, true);
   assert.equal(w.urls().filter((u) => /\/messages\/m/.test(u)).length, 25);
   assert.ok(GOOGLE_GMAIL_MAX_MESSAGES_PER_PASS <= 250, 'the default ceiling stays bounded');
+});
+
+test('a capped incremental pass stops at a record boundary and resumes there, so a bounded pass always makes progress', async () => {
+  const history = Array.from({ length: 6 }, (_, i) => ({ id: String(101 + i), messagesAdded: [{ message: { id: `n${i}`, threadId: `t${i}` } }] }));
+  const w = world([
+    { match: /\/history\?/, payload: { historyId: '9100', history } },
+    { match: /\/messages\//, payload: message('x') },
+  ]);
+  const first = await readGoogleGmailChanges({ fetchImpl: w.fetchImpl, accessToken: 't', selfAddress: SELF, startHistoryId: '100', maxMessages: 4 });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  assert.equal(first.page.truncated, true);
+  assert.equal(w.urls().filter((u) => /\/messages\/n/.test(u)).length, 4, 'four messages, the ceiling');
+  // The fourth record (id 104) was the last one consumed whole: the next pass starts after it.
+  assert.equal(first.page.nextHistoryId, '104');
+
+  const rest = history.filter((r) => Number(r.id) > 104);
+  const w2 = world([
+    { match: /\/history\?/, payload: { historyId: '9100', history: rest } },
+    { match: /\/messages\//, payload: message('x') },
+  ]);
+  const second = await readGoogleGmailChanges({ fetchImpl: w2.fetchImpl, accessToken: 't', selfAddress: SELF, startHistoryId: first.page.nextHistoryId!, maxMessages: 4 });
+  assert.equal(second.ok, true);
+  if (!second.ok) return;
+  assert.match(w2.urls()[0]!, /startHistoryId=104/);
+  assert.equal(second.page.truncated, false);
+  assert.equal(second.page.nextHistoryId, '9100', 'complete: the mailbox boundary');
+});
+
+test('one record larger than the whole ceiling cannot be split: read to the ceiling, and no position is kept', async () => {
+  const many = Array.from({ length: 30 }, (_, i) => ({ message: { id: `b${i}`, threadId: 't' } }));
+  const w = world([
+    { match: /\/history\?/, payload: { historyId: '9100', history: [{ id: '200', labelsRemoved: many }] } },
+    { match: /\/messages\//, payload: message('x') },
+  ]);
+  const result = await readGoogleGmailChanges({ fetchImpl: w.fetchImpl, accessToken: 't', selfAddress: SELF, startHistoryId: '199', maxMessages: 10 });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.page.truncated, true);
+  assert.equal(result.page.nextHistoryId, null, 'skipping the rest of that record would lose changes');
+  assert.equal(w.urls().filter((u) => /\/messages\/b/.test(u)).length, 10);
+});
+
+test('a pass that runs out of pages resumes after the last record of the pages it read', async () => {
+  let page = 0;
+  const w = world([
+    {
+      match: /\/history\?/,
+      get payload() {
+        page += 1;
+        return { historyId: '9100', history: [{ id: String(300 + page), messagesAdded: [{ message: { id: `p${page}`, threadId: 't' } }] }], nextPageToken: `pt${page}` };
+      },
+    },
+    { match: /\/messages\//, payload: message('x') },
+  ]);
+  const result = await readGoogleGmailChanges({ fetchImpl: w.fetchImpl, accessToken: 't', selfAddress: SELF, startHistoryId: '300', maxPages: 2 });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.page.truncated, true);
+  assert.equal(result.page.pagesRead, 2);
+  assert.equal(result.page.nextHistoryId, '302');
 });
 
 test('the incremental read is Gmail’s history, and it collects changes and deletions', async () => {

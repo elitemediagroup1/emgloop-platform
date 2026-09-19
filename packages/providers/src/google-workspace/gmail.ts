@@ -320,9 +320,12 @@ export async function readGoogleGmailWindow(request: GmailWindowRequest): Promis
     page: {
       messages: facts,
       removedMessageIds: [],
-      // A truncated first read has no boundary to keep: storing one would skip what it did not
-      // reach. The next pass reads the same window again, which is safe and idempotent.
-      nextHistoryId: truncated ? null : boundary,
+      // THE BOUNDARY IS KEPT EVEN WHEN THE READ WAS CAPPED. It was taken BEFORE the listing, and
+      // the listing is newest first, so what a capped first read leaves out is the OLDEST part of
+      // the window -- never anything after the boundary. Keeping it is what lets the next pass be
+      // incremental; without it a mailbox busier than one pass re-read its window forever. The
+      // pass still says `truncated`, and the run is recorded as TRUNCATED.
+      nextHistoryId: boundary,
       nextPageToken: pageToken,
       truncated,
       pagesRead,
@@ -341,9 +344,16 @@ export async function readGoogleGmailChanges(request: GmailChangesRequest): Prom
   let pageToken: string | null = null;
   let boundary: string | null = null;
   let pagesRead = 0;
-  let truncated = false;
+  // RESUMABLE, RECORD BY RECORD. History records arrive oldest first, each with its own id, and
+  // Gmail answers `startHistoryId` with the records AFTER it. So a pass that reaches its ceiling
+  // stops at a record boundary and hands back the id of the last record it consumed WHOLE: the
+  // next pass starts exactly there, and a bounded pass always makes progress instead of re-reading
+  // the same first changes forever. `resumeAt` is null until one record has been consumed.
+  let resumeAt: string | null = null;
+  let resumable = true;
+  let stoppedEarly = false;
 
-  for (; pagesRead < maxPages; ) {
+  pages: for (; pagesRead < maxPages; ) {
     const params = new URLSearchParams({ startHistoryId: request.startHistoryId, maxResults: String(pageSize) });
     for (const type of ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved']) params.append('historyTypes', type);
     if (pageToken) params.set('pageToken', pageToken);
@@ -354,29 +364,43 @@ export async function readGoogleGmailChanges(request: GmailChangesRequest): Prom
     if (typeof answer.payload.historyId === 'string') boundary = answer.payload.historyId;
     const history = Array.isArray(answer.payload.history) ? (answer.payload.history as Record<string, unknown>[]) : [];
     for (const record of history) {
+      const touched: string[] = [];
       for (const key of ['messagesAdded', 'labelsAdded', 'labelsRemoved']) {
         const entries = Array.isArray(record[key]) ? (record[key] as Record<string, unknown>[]) : [];
         for (const entry of entries) {
           const message = (entry.message ?? {}) as Record<string, unknown>;
-          if (typeof message.id === 'string') changed.add(message.id);
+          if (typeof message.id === 'string') touched.push(message.id);
         }
       }
+      const gone: string[] = [];
       const deletions = Array.isArray(record.messagesDeleted) ? (record.messagesDeleted as Record<string, unknown>[]) : [];
       for (const entry of deletions) {
         const message = (entry.message ?? {}) as Record<string, unknown>;
-        if (typeof message.id === 'string') {
-          removed.add(message.id);
-          changed.delete(message.id);
-        }
+        if (typeof message.id === 'string') gone.push(message.id);
       }
+      const adds = touched.filter((id) => !changed.has(id) && !gone.includes(id)).length;
+      if (changed.size + adds > maxMessages && resumeAt !== null) {
+        // This record would pass the ceiling, and an earlier one was consumed whole: stop here.
+        stoppedEarly = true;
+        break pages;
+      }
+      for (const id of touched) changed.add(id);
+      for (const id of gone) {
+        removed.add(id);
+        changed.delete(id);
+      }
+      if (typeof record.id === 'string') resumeAt = record.id;
+      else resumable = false;
     }
     pageToken = typeof answer.payload.nextPageToken === 'string' ? answer.payload.nextPageToken : null;
     if (changed.size >= maxMessages || !pageToken) break;
   }
-  if (pageToken) truncated = true;
 
   const ids = [...changed].slice(0, maxMessages);
-  if (ids.length < changed.size) truncated = true;
+  // A single record larger than the whole ceiling is the one case a pass cannot split: it is read
+  // as far as the ceiling allows and no position is kept, exactly as before.
+  const oversized = ids.length < changed.size;
+  const truncated = stoppedEarly || pageToken !== null || oversized;
   const messages = await fetchMessages(request, ids, 'metadata');
   if (!messages.ok) return { ok: false, failure: messages.failure };
   const self = request.selfAddress ?? null;
@@ -387,7 +411,9 @@ export async function readGoogleGmailChanges(request: GmailChangesRequest): Prom
     page: {
       messages: facts,
       removedMessageIds: [...removed],
-      nextHistoryId: truncated ? null : boundary,
+      // Complete: the mailbox's boundary. Stopped at a record: that record, so the next pass
+      // resumes there. Anything else: no position, and the next pass reads the same changes again.
+      nextHistoryId: !truncated ? boundary : !oversized && resumable ? resumeAt : null,
       nextPageToken: pageToken,
       truncated,
       pagesRead,
