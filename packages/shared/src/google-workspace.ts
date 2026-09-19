@@ -88,7 +88,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_LABELS: Readonly<Record<GoogleWorkspace
 
 /** What granting a capability lets Loop read -- and what it never can. Shown before consent. */
 export const GOOGLE_WORKSPACE_CAPABILITY_READS: Readonly<Record<GoogleWorkspaceCapability, string>> = Object.freeze({
-  gmail: 'Message and thread ids, labels and headers. Never message bodies or attachments, and Loop cannot send, change or delete mail.',
+  gmail: 'Your mail, so Loop can show it. Headers and labels are stored; a message body is read only when you open the conversation, and is never stored. Loop sends a reply only when you press Send, from your own account. It never sends on its own, and cannot change or delete mail.',
   calendar: 'Events on your calendars, read-only. Loop cannot create, change or delete events.',
   drive: 'File names, types, owners and modified times. Never file contents, and Loop cannot create, change or delete files.',
 });

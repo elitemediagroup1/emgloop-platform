@@ -284,7 +284,10 @@ describe('the panel', () => {
       assert.match(r, /Not connected/);
       assert.ok(r.includes(`<a class="loop-btn loop-btn--primary" href="/api/integrations/google/connect?capability=${capability}&amp;return=onboarding" rel="nofollow">Connect ${label}</a>`), capability);
     }
-    assert.match(html, /Never message bodies/);
+    // What is shown before consent is what the grant actually does (gmail.readonly + gmail.send).
+    assert.match(html, /a message body is read only when you open the conversation, and is never stored/);
+    assert.match(html, /Loop sends a reply only when you press Send/);
+    assert.doesNotMatch(html, /Never message bodies|Loop only ever reads/, 'the consent copy may not claim less access than the grant');
     assert.match(html, /Never file contents/);
     assert.match(html, /<a class="loop-btn" href="\/app">Skip for now<\/a>/);
     assert.match(html, /Loop works without it/);
