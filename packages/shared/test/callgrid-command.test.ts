@@ -333,6 +333,11 @@ test('a situation’s kind comes from the finding that raised it — and which w
   assert.equal(situationKind(sit('CHANGE', { percentageChange: -15, primaryMetric: 'totalCalls' })), 'NEEDS_INVESTIGATION', 'calls fell');
   assert.equal(situationKind(sit('QUALITY', { percentageChange: 34, primaryMetric: 'billableRate' })), 'OPPORTUNITY', 'billable rate rose: not a risk');
   assert.equal(situationKind(sit('QUALITY', { percentageChange: -20, primaryMetric: 'billableRate' })), 'RISK');
+  // REGRESSION (PR #300 review): the billable-efficiency rule is OPERATIONAL in both directions,
+  // and "Billable rate increased 32%" was labelled Risk.
+  assert.equal(situationKind(sit('OPERATIONAL', { percentageChange: 0.32, primaryMetric: 'billableRate' })), 'OPPORTUNITY');
+  assert.equal(situationKind(sit('OPERATIONAL', { percentageChange: -0.25, primaryMetric: 'billableRate' })), 'RISK');
+  assert.equal(situationKind(sit('OPERATIONAL', { percentageChange: 0.5, primaryMetric: 'noRouteRate' })), 'RISK', 'no stated good direction: still a risk');
   assert.equal(situationKind(sit('DRIVER', { absoluteChange: 900, primaryMetric: 'contributionToChange' })), 'NEEDS_INVESTIGATION', 'no stated good direction: never guessed');
   assert.equal(situationKind(sit('CHANGE', { percentageChange: 10, primaryMetric: 'cost' })), 'NEEDS_INVESTIGATION', 'cost rising is not good news');
   assert.equal(situationKind(sit('DRIVER', {}, { finding: {} })), 'OPPORTUNITY');

@@ -757,7 +757,13 @@ export const SITUATION_KIND_LABELS: Readonly<Record<SituationKind, string>> = Ob
 });
 
 /** Findings that are a risk whichever way anything moved. */
-const ALWAYS_RISK: ReadonlySet<FindingType> = new Set(['RISK', 'CONCENTRATION', 'BID_REJECTION', 'BID_DESTINATION', 'OPERATIONAL']);
+const ALWAYS_RISK: ReadonlySet<FindingType> = new Set(['RISK', 'CONCENTRATION', 'BID_REJECTION', 'BID_DESTINATION']);
+/**
+ * Findings that are a risk unless they measure a metric with a stated good direction
+ * and it moved that way -- the billable-efficiency rule is OPERATIONAL in both
+ * directions, and a rising billable rate is not a risk.
+ */
+const RISK_UNLESS_FAVORABLE: ReadonlySet<FindingType> = new Set(['OPERATIONAL', 'MARGIN', 'QUALITY']);
 
 /**
  * Which way is good for a metric the engine names. Only metrics whose direction is
@@ -782,9 +788,10 @@ export const METRIC_GOOD_DIRECTION: Readonly<Record<string, 'up' | 'down'>> = Ob
  * A Situation's kind, read off the finding that raised it — never a score.
  *
  * Concentration, rejections and stated risks are RISK. A movement is an OPPORTUNITY
- * when it went the metric's good way (worth confirming it holds) and NEEDS
- * INVESTIGATION when it went the other way; a metric whose good direction is not
- * stated, or a movement without a measured sign, NEEDS INVESTIGATION.
+ * when it went the metric's good way (worth confirming it holds). Otherwise an
+ * operational, margin or quality finding is a RISK, and anything else NEEDS
+ * INVESTIGATION -- including a metric whose good direction is not stated, or a
+ * movement without a measured sign.
  */
 export function situationKind(situation: Situation): SituationKind {
   if (situation.opportunity) return 'OPPORTUNITY';
@@ -796,10 +803,10 @@ export function situationKind(situation: Situation): SituationKind {
   if (lead.findingType === 'UNKNOWN') return 'WATCH';
   const change = lead.percentageChange ?? lead.absoluteChange;
   const good = METRIC_GOOD_DIRECTION[lead.primaryMetric];
-  if (change === null || change === 0 || !good) return 'NEEDS_INVESTIGATION';
-  const favorable = (change > 0) === (good === 'up');
+  const favorable = change !== null && change !== 0 && good !== undefined && (change > 0) === (good === 'up');
   if (favorable) return 'OPPORTUNITY';
-  return lead.findingType === 'MARGIN' || lead.findingType === 'QUALITY' ? 'RISK' : 'NEEDS_INVESTIGATION';
+  if (RISK_UNLESS_FAVORABLE.has(lead.findingType)) return 'RISK';
+  return 'NEEDS_INVESTIGATION';
 }
 
 /**
