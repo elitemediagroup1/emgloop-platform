@@ -234,10 +234,16 @@ Pre-merge review fixes (same PR):
 **Next:** Matt reviews. After merge, confirm the freshness badge against a real day of CallGrid
 deliveries (production has had no routine poll, so "Live" rests on webhooks alone).
 
-**Found, not fixed here (pre-existing on `main`):** a Situation's "What happened" can read
-"billableRate measured 0.332 … against 0.249". It shows the raw metric key and a fraction, because
-`observationOf` in `callgrid-decision-support.ts` formats only money. The fix is its own
-small PR.
+A Situation's "What happened", Measured values and evidence now read in words and units
+(`callgrid-metric-presentation`). Each rule states what its comparison value is, so an average of
+earlier periods is never called "yesterday". Stored decision summaries keep their old wording until
+the situation is detected again; no data was rewritten.
+
+**Found, not fixed here (pre-existing on `main`):**
+- The situation page's confidence pill reads "High confidence confidence".
+- The impact line can read "Not quantifiable not quantifiable".
+- The Buyers, Vendors, Sources and Campaigns list pages' decision cards still list evidence by
+  metric key.
 
 **NEXT CALLGRID MILESTONE: margin-setting intelligence. NOT STARTED, and deliberately not in #300.**
 Matt's requirements:
