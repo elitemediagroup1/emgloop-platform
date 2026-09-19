@@ -254,6 +254,8 @@ export * from './case-participation';
 // is a declared lexicographic walk that can always explain itself.
 export * from './personal-priority';
 export * from './callgrid-window';
+export * from './callgrid-period';
+export * from './callgrid-command';
 
 // --- The canonical CallGrid metric contract ---
 // Every CallGrid business metric: its provenance, grain, versioned formula, and
@@ -290,6 +292,7 @@ export * from './callgrid-opportunity';
 // reading of it, makes missing information first-class, and names the review a
 // person should make. Loop owns the facts; operators own the decisions.
 export * from './callgrid-decision-support';
+export * from './callgrid-metric-presentation';
 // Operational reasoning: findings as a connected system. It may claim arithmetic
 // attribution and metric-formula lineage; it may never claim mechanism.
 export * from './callgrid-reasoning';

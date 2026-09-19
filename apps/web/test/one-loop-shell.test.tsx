@@ -244,16 +244,11 @@ describe('Grouping', () => {
 
 describe('Navigation follows the authority each page enforces', () => {
   it('every gated item asks for the permission its page enforces', () => {
-    // CallGrid Intelligence's pages enforce ADMIN authority only; its item also
-    // asks for intelligence:view, as that sidebar entry always has (config.ts).
-    const ASKS_FOR_MORE = new Set(['/app/admin/marketplace']);
+    // No exceptions. CallGrid Intelligence used to be one: its item asked for
+    // intelligence:view while its pages enforced only ADMIN authority. Its pages now
+    // enforce the same permission their item states.
     for (const item of enabled) {
       const perm = enforcedPermission(pageFor(item.href)!);
-      if (ASKS_FOR_MORE.has(item.href)) {
-        assert.equal(perm, null);
-        assert.deepEqual(item.requires, { resource: 'intelligence', action: 'view' });
-        continue;
-      }
       assert.deepEqual(item.requires ?? null, perm, `${item.label} → ${item.href}`);
     }
   });

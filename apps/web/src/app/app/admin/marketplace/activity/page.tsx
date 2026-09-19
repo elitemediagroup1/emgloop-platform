@@ -14,18 +14,13 @@
 // activity.
 
 import Link from 'next/link';
-import { requireCrmContext } from '../../../../../crm/crm-data';
-import {
-  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow,
-  type CallGridFinding,
-} from '@emgloop/shared';
-import { loadCallGridReport } from '../callgrid-report';
+import type { CallGridFinding } from '@emgloop/shared';
 import { loadBidReport, bidSnapshotMatches } from '../bid-report';
 import { callGridIntelligence, bidIntelligence } from '../intelligence-data';
-import { buildDimQuery } from '../dimension-metrics';
-import { DimensionShell } from '../dimension-ui';
+import { loadCommandContext, withQuery, type SearchParams } from '../command-data';
+import { CommandShell } from '../command-ui';
 import { FindingCard, UnknownsSection } from '../intelligence-ui';
-import { requireWorkspace } from '../../../../../workspaces/guard';
+import { requireWorkspacePermission } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,18 +57,15 @@ function scopeOf(finding: CallGridFinding): FilterKey {
   return 'intelligence';
 }
 
-export default async function ActivityPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
-  await requireWorkspace('ADMIN');
-  const { organizationId: org } = await requireCrmContext();
+export default async function ActivityPage({ searchParams }: { searchParams?: SearchParams }) {
+  const session = await requireWorkspacePermission('ADMIN', 'intelligence', 'view');
+  const ctx = await loadCommandContext(session, searchParams);
+  const { now, window, desc, report } = ctx;
+  const org = ctx.organizationId;
+  const rawFilter = searchParams?.filter;
+  const filter = (FILTERS.find((f) => f.key === (typeof rawFilter === 'string' ? rawFilter : ''))?.key ?? 'all') as FilterKey;
 
-  const now = new Date();
-  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, now);
-  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
-  const filter = (FILTERS.find((f) => f.key === searchParams?.filter)?.key ?? 'all') as FilterKey;
-  const desc = describeCallGridWindow(window, now);
-
-  const [report, bid] = await Promise.all([loadCallGridReport(org, window), loadBidReport(org)]);
+  const bid = await loadBidReport(org);
 
   const intel = callGridIntelligence(report, now);
   const bidIntel = bidIntelligence(bid, now, desc.periodTitle, bidSnapshotMatches(bid.meta, window));
@@ -82,12 +74,7 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
   const items = (filter === 'all' ? all : all.filter((f) => scopeOf(f) === filter));
 
   const filterHref = (key: FilterKey) =>
-    '?' + buildDimQuery({
-      range: window.preset,
-      s: window.preset === 'custom' ? range.start : undefined,
-      e: window.preset === 'custom' ? range.end : undefined,
-      filter: key === 'all' ? undefined : key,
-    });
+    withQuery('/app/admin/marketplace/activity', ctx.query, key === 'all' ? {} : { filter: key });
 
   // A period-level finding gets the window it was derived from, never a minute.
   const stampFor = (f: CallGridFinding) =>
@@ -96,15 +83,11 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
       : `Detected for the ${window.label} reporting window`;
 
   return (
-    <DimensionShell
+    <CommandShell
+      ctx={ctx}
       active="activity"
-      title="Activity"
-      subtitle="Changes the intelligence engine identified across CallGrid for the selected period."
-      window={window}
-      now={now}
-      customStart={range.start}
-      customEnd={range.end}
-      rangeQuery={rangeQuery}
+      path="/app/admin/marketplace/activity"
+      crumbs={[{ label: 'Intelligence', href: withQuery('/app/admin/marketplace/intelligence', ctx.query) }, { label: 'Every finding, as a stream' }]}
     >
       <div className="cg-sec">
         <div className="cg-filters">
@@ -148,6 +131,6 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Re
       ) : null}
 
       <UnknownsSection unknowns={intel.unknowns} />
-    </DimensionShell>
+    </CommandShell>
   );
 }

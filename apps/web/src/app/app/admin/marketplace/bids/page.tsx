@@ -13,21 +13,28 @@
 //
 // Bid data is snapshot-only — the provider's endpoints accept no date range — so
 // this reflects the latest synchronized snapshot and says so throughout.
+//
+// THE FUNNEL, AS FAR AS THE DATA GOES: opportunities → bids → won from the snapshot,
+// then — FENCED, a different grain — calls → billable → revenue from the selected
+// period's calls. CallGrid reports bids per source and pings per destination per
+// provider day; it reports nothing per campaign or per buyer, no event-level bid, and
+// no buyer capacity, so no such split or stage is drawn. Measured demand-side limits
+// (rate-limited, timed-out and below-minimum-revenue pings) are stated as counts.
 
-import { requireCrmContext } from '../../../../../crm/crm-data';
 import {
-  parseCallGridRange, resolveCallGridWindow, callGridRangeQuery, describeCallGridWindow,
-  sumReported, sourceWinRate,
+  sumReported, sourceWinRate, bidFunnel, callFunnel, rejectionClassification,
 } from '@emgloop/shared';
 import { num } from '../../../_loop-os';
 import { loadBidReport, bidSnapshotMatches, type BidSourceRow, type PingDestinationRow } from '../bid-report';
 import { bidIntelligence } from '../intelligence-data';
 import {
-  DimensionShell, SummaryTiles, PerformanceTable, SnapshotNotice, ActivitySection,
+  SummaryTiles, PerformanceTable, SnapshotNotice, ActivitySection,
   type PerfColumn, type SummaryTile,
 } from '../dimension-ui';
+import { loadCommandContext, type SearchParams } from '../command-data';
+import { CommandShell, Card, money } from '../command-ui';
 import { FindingList, UnknownsSection } from '../intelligence-ui';
-import { requireWorkspace } from '../../../../../workspaces/guard';
+import { requireWorkspacePermission } from '../../../../../workspaces/guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,15 +53,11 @@ const CATEGORY_LABEL: Record<string, string> = {
   UNKNOWN: 'Undocumented by provider',
 };
 
-export default async function BidsPage({ searchParams }: { searchParams?: Record<string, string | undefined> }) {
-  await requireWorkspace('ADMIN');
-  const { organizationId: org } = await requireCrmContext();
-
-  const now = new Date();
-  const range = parseCallGridRange({ range: searchParams?.range, s: searchParams?.s, e: searchParams?.e });
-  const window = resolveCallGridWindow(range, now);
-  const rangeQuery = callGridRangeQuery(window.preset, { start: range.start, end: range.end });
-  const desc = describeCallGridWindow(window, now);
+export default async function BidsPage({ searchParams }: { searchParams?: SearchParams }) {
+  const session = await requireWorkspacePermission('ADMIN', 'intelligence', 'view');
+  const ctx = await loadCommandContext(session, searchParams);
+  const { now, window, desc } = ctx;
+  const org = ctx.organizationId;
 
   const bid = await loadBidReport(org);
   const matches = bidSnapshotMatches(bid.meta, window);
@@ -108,16 +111,7 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
   ];
 
   return (
-    <DimensionShell
-      active="bids"
-      title="Bids"
-      subtitle="Where bid opportunities fail, which failures are expected, and what to review first."
-      window={window}
-      now={now}
-      customStart={range.start}
-      customEnd={range.end}
-      rangeQuery={rangeQuery}
-    >
+    <CommandShell ctx={ctx} active="bids" path="/app/admin/marketplace/bids">
       {!bid.ok ? (
         <div className="cg-sec"><section className="tile tile--wide"><p className="tile__line cg-muted">Bid reporting could not be loaded.</p></section></div>
       ) : !bid.hasData || !bid.meta ? (
@@ -136,6 +130,65 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
               matchesSelectedPeriod={matches}
             />
           </div>
+
+          {/* The funnel: snapshot stages, then — fenced — the period's calls. */}
+          <Card title="From supply to money" wide>
+            <div className="cgx-funnelpair">
+              <div>
+                <p className="cgx-fence">Bid snapshot · one provider day, UTC</p>
+                <ol className="cgx-funnel cgx-funnel--bids">
+                  {bidFunnel({ total: opportunities.total, bids: submitted.total, won: won.total, rejected: rejected.total }).map((st) => (
+                    <li key={st.key} className="cgx-funnel__stage">
+                      <span className="cgx-funnel__label">{st.label}</span>
+                      <span className="cgx-funnel__value">{st.value === null ? '—' : st.value.toLocaleString('en-US')}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              <div>
+                <p className="cgx-fence">Calls · {ctx.selection.label}, Eastern</p>
+                {ctx.facts ? (
+                  <ol className="cgx-funnel">
+                    {callFunnel(ctx.facts.outcomes, { revenueCents: ctx.report.metrics.revenueCents, profitCents: ctx.report.metrics.profitCents }).map((st) => (
+                      <li key={st.key} className="cgx-funnel__stage">
+                        <span className="cgx-funnel__label">{st.label}</span>
+                        <span className="cgx-funnel__value">{st.value === null ? '—' : st.grain === 'money' ? money(st.value) : st.value.toLocaleString('en-US')}</span>
+                        {st.note ? <span className="cgx-funnel__note">{st.note}</span> : null}
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="cgx-empty">Loop could not read the calls for this period.</p>
+                )}
+              </div>
+            </div>
+            <div className="cgx-known">
+              <div>
+                <h3 className="cgx-known__h">Measured limits on the demand side</h3>
+                <ul className="cgx-known__list">
+                  {(['rateLimited', 'pingTimeout', 'minRevenue'] as const).map((key) => {
+                    const sum = sumReported(destinations, (d) => d[key]);
+                    const c = rejectionClassification(key);
+                    return (
+                      <li key={key}>
+                        <strong>{c?.displayName ?? key}</strong> · {sum.total === null ? 'not reported' : num(sum.total)}
+                        {c ? <span className="cgx-muted"> — {c.operationalMeaning}</span> : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              <div>
+                <h3 className="cgx-known__h">What Loop cannot determine from CallGrid</h3>
+                <ul className="cgx-known__list cgx-muted">
+                  <li>Bids by campaign or by buyer — bids are reported per source, pings per destination, per provider day.</li>
+                  <li>Which bid became which call — bids and calls are not linked in the data.</li>
+                  <li>Buyer caps, concurrency or capacity, so whether supply exceeds what buyers can take.</li>
+                  <li>Any day but the latest synchronized one — only one snapshot is read.</li>
+                </ul>
+              </div>
+            </div>
+          </Card>
 
           {/* Bid Executive Intelligence */}
           <div className="cg-sec">
@@ -173,6 +226,8 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
             CallGrid does not report pings attempted per destination, so no acceptance rate is shown.
           </p>
 
+          <details className="cgx-more-section">
+          <summary className="cgx-more-section__summary">Bid intelligence — rejection findings, review queue and limits</summary>
           {/* Rejection intelligence, classified */}
           <FindingList
             sectionLabel="Rejection Intelligence"
@@ -241,8 +296,9 @@ export default async function BidsPage({ searchParams }: { searchParams?: Record
               emptyLine="Only one bid snapshot is stored. A change over time needs two, so no bid trend is shown."
             />
           )}
+          </details>
         </>
       )}
-    </DimensionShell>
+    </CommandShell>
   );
 }

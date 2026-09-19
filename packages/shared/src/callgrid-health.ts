@@ -408,6 +408,62 @@ export function assessBusinessHealth(input: HealthInput): BusinessHealth {
   return { overall, dimensions: dims, modelVersion: HEALTH_MODEL_VERSION };
 }
 
+/**
+ * Each signal in a few plain words, for the one-line reason beside the band. `weak`
+ * is said only when the signal crosses the line this model's own interpretation
+ * draws (score at or below `weakAt`), so the reason never claims more than the
+ * model does. Short of that line it names the `area` as the weakest one measured.
+ * "Supply leans on one vendor" beside a vendor mix the model calls "spread across
+ * vendors" would be a contradiction. Keyed by the signal ids above; a test holds
+ * every one of them to an entry.
+ */
+export const HEALTH_SIGNAL_REASONS: Readonly<Record<string, { readonly weak: string; readonly area: string; readonly weakAt: number }>> = Object.freeze({
+  // Trend: "downward and sustained" past a 5% decline per period (score < 2/3).
+  'revenue-trend': { weak: 'revenue has been trending down', area: 'revenue direction', weakAt: 0.666 },
+  'profit-trend': { weak: 'profit has been trending down', area: 'profit direction', weakAt: 0.666 },
+  'traffic-trend': { weak: 'call volume has been trending down', area: 'call volume direction', weakAt: 0.666 },
+  // Stability: "swings this wide" at 50% variation (score 1/6).
+  'revenue-stability': { weak: 'revenue swings widely between periods', area: 'revenue stability', weakAt: 1 / 6 },
+  'profit-stability': { weak: 'profit swings widely between periods', area: 'profit stability', weakAt: 1 / 6 },
+  'traffic-stability': { weak: 'call volume swings widely between periods', area: 'call volume stability', weakAt: 1 / 6 },
+  // Coverage: "lower bounds" below 99%.
+  'revenue-coverage': { weak: 'revenue is only partly reported', area: 'revenue reporting', weakAt: 0.989 },
+  'profit-coverage': { weak: 'profit is only partly reported', area: 'profit reporting', weakAt: 0.989 },
+  // Efficiency: one call in four or fewer billable.
+  'billable-efficiency': { weak: 'few calls become billable', area: 'billable efficiency', weakAt: 0.5 },
+  // Concentration: "depends heavily on one" at a fragility of 0.6 (score 0.4).
+  'buyer-concentration': { weak: 'revenue leans on one buyer', area: 'buyer mix', weakAt: 0.4 },
+  'profit-concentration': { weak: 'profit leans on one buyer', area: 'profit mix by buyer', weakAt: 0.4 },
+  'vendor-concentration': { weak: 'supply leans on one vendor', area: 'vendor mix', weakAt: 0.4 },
+  'campaign-concentration': { weak: 'revenue leans on one campaign', area: 'campaign mix', weakAt: 0.4 },
+  'source-concentration': { weak: 'traffic leans on one source', area: 'source mix', weakAt: 0.4 },
+  // Breadth: "a narrow active base" below the healthy count (score < 1).
+  'buyer-breadth': { weak: 'few buyers carry the business', area: 'buyer breadth', weakAt: 0.999 },
+  'vendor-breadth': { weak: 'few vendors supply the calls', area: 'vendor breadth', weakAt: 0.999 },
+  'campaign-breadth': { weak: 'few campaigns carry the revenue', area: 'campaign breadth', weakAt: 0.999 },
+  'source-breadth': { weak: 'few sources supply the traffic', area: 'source breadth', weakAt: 0.999 },
+});
+
+/** A measured signal in the few words the band's reason uses, or null for a signal with no entry. */
+export function healthSignalReason(signal: Pick<HealthSignal, 'id' | 'score'>): string | null {
+  const entry = HEALTH_SIGNAL_REASONS[signal.id];
+  if (!entry || signal.score === null) return null;
+  return signal.score <= entry.weakAt ? entry.weak : `${entry.area} is the weakest area`;
+}
+
+/**
+ * What pulls the overall band down: the weakest measured signal of the weakest
+ * measured dimension -- the same "weakest first" rule `compose` uses to explain a
+ * band. Null when nothing was measured.
+ */
+export function weakestHealthSignal(health: BusinessHealth): HealthSignal | null {
+  const measured = health.dimensions.filter((d) => d.band !== 'UNKNOWN' && d.score !== null);
+  const dim = [...measured].sort((a, b) => a.score! - b.score!)[0];
+  if (!dim) return null;
+  const signals = dim.signals.filter((x) => x.available && x.score !== null);
+  return [...signals].sort((a, b) => a.score! - b.score!)[0] ?? null;
+}
+
 /** Health dimensions worth surfacing first — worst band first, never alphabetical. */
 export function healthByUrgency(health: BusinessHealth): HealthScore[] {
   return [...health.dimensions].sort((a, b) => {

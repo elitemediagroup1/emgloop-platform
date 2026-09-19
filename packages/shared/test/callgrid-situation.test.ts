@@ -438,3 +438,61 @@ test('an unreadable report produces a queue that refuses to imply everything is 
   assert.equal(intel.queue.situations.length, 0);
   assert.match(intel.queue.emptyReason!, /not an all-clear/i);
 });
+
+// --- One voice: a Situation's headline, explanation and advice come from ONE finding ---------
+
+/** The case found in the PR #300 review: calls fell 17% while the billable rate rose. */
+function callsFellWhileBillableRose(): IntelligenceInput {
+  const dims = (calls: number, billable: number, rev: number) => ({
+    buyers: [
+      { key: 'markytek', label: 'Markytek', calls: Math.round(calls * 0.4), monetized: Math.round(billable * 0.4), revenueCents: Math.round(rev * 0.35), marginCents: null },
+      { key: 'harbor', label: 'Harbor Insurance', calls: Math.round(calls * 0.6), monetized: Math.round(billable * 0.6), revenueCents: Math.round(rev * 0.65), marginCents: null },
+    ],
+    vendors: [], sources: [], campaigns: [],
+  });
+  return engineInput({
+    windowLabel: 'Today · Live',
+    comparisonLabel: 'Yesterday · through 5:34 PM',
+    comparisonBasis: 'elapsed_matched',
+    includesLiveData: true,
+    metrics: { available: true, totalCalls: 289, billableCalls: 96, revenueCents: 413_200, profitCents: 158_100, payoutCents: 247_200, costCents: 7_900, revenueCoverage: 0.89, profitCoverage: 0.89 },
+    comparison: { available: true, totalCalls: 349, billableCalls: 89, revenueCents: 378_300, profitCents: 141_400, payoutCents: 227_700, costCents: 9_200, revenueCoverage: 0.9, profitCoverage: 0.9 },
+    dimensions: dims(289, 96, 413_200),
+    comparisonDimensions: dims(349, 89, 378_300),
+    periodsPerYear: null,
+  } as Partial<IntelligenceInput>);
+}
+
+test('REGRESSION (PR #300 review): "Total calls decreased 17%" never carries the billable-rate advice', () => {
+  const intel = analyzeCallGrid(callsFellWhileBillableRose());
+  const calls = intel.queue.situations.find((s) => s.title.startsWith('Total calls decreased'));
+  assert.ok(calls, 'the call-decline situation exists');
+  // The case that shipped: the billable-rate finding was merged into it and its advice
+  // ("Confirm which sources improved…") was shown under the call-decline headline.
+  assert.ok(calls!.observations.some((o) => o.primaryMetric === 'billableRate'), 'the billable-rate finding is still merged in as an observation');
+  const voice = calls!.observations.find((o) => o.id === calls!.voiceFindingId)!;
+  assert.equal(voice.primaryMetric, 'totalCalls', 'the call decline speaks for itself');
+  assert.equal(calls!.title, voice.title);
+  assert.equal(calls!.decision, voice.recommendedReview);
+  assert.doesNotMatch(calls!.decision ?? '', /improved/i);
+  assert.match(calls!.decision!, /^Compare total calls by source and campaign .* where the decline came from\.$/);
+  assert.match(calls!.whatHappened, /calls|Total calls/i);
+  assert.doesNotMatch(calls!.whatHappened, /billable ?rate/i);
+});
+
+test('no Situation ever mixes findings: title, what happened, why it matters and advice share one voice', () => {
+  for (const input of [engineInput(), callsFellWhileBillableRose()]) {
+    const intel = analyzeCallGrid(input);
+    const cards = new Map(intel.decisionSupport.map((c) => [c.findingId, c] as const));
+    for (const s of intel.queue.situations) {
+      const voice = s.observations.find((o) => o.id === s.voiceFindingId);
+      assert.ok(voice, `${s.title}: the voice is one of its own observations`);
+      const card = cards.get(voice!.id);
+      assert.equal(s.title, voice!.title);
+      assert.equal(s.decision, card?.recommendedReview ?? voice!.recommendedReview, `${s.title}: advice from the voice`);
+      assert.equal(s.whatHappened, card?.observation ?? voice!.plainLanguageSummary, `${s.title}: what happened from the voice`);
+      assert.equal(s.whyItMatters, card?.interpretation ?? voice!.plainLanguageSummary, `${s.title}: why it matters from the voice`);
+      assert.deepEqual(s.voiceImpact, card?.businessImpact ?? s.voiceImpact, `${s.title}: the money it explains is the voice's`);
+    }
+  }
+});

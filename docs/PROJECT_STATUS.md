@@ -202,17 +202,72 @@ vendor profit is not attributable at that grain and says so; entity counts mean 
 period" (CallGrid exposes no roster). **No LLM anywhere** — every string is deterministic template
 language.
 
-## CallGrid webhook convergence — DRAFT PR (fix/callgrid-webhook-convergence, off main `8f2d78c`)
+## CallGrid webhook convergence — MERGED (#298, main `1f735ba`)
 
-_Last updated: 2026-09-18._ CallGrid fires Ended, Billable and Payable for one call at essentially
-the same moment (confirmed by CallGrid). Proven against real Postgres: overlapping deliveries lost
-revenue and payout behind an HTTP 200, returned 500s on the insert race, and created up to three
-Interactions per call; `monetized` ("Billable Calls") stayed false when Ended arrived first; the
-backfill rebuilt calls from the oldest copy; the reconcile route read the wrong money fields; and
-"Profit" on Home / Marketplace was Net Profit. The PR fixes all of those (see
-`docs/CALLGRID_WEBHOOK_CONTRACT.md` §Several deliveries per call). No migration. Routine polling
-stays OFF (`ROUTINE_POLL_ORGANIZATIONS` unset, 255 no-op runs since 2026-08-21) and is to become
-reconciliation only. **Next:** review; then Matt verifies the three CallGrid webhook templates.
+CallGrid fires Ended, Billable and Payable for one call at essentially the same moment; every
+delivery order now converges on one call with its revenue, payout and flags, late values are never
+overwritten by stale zeros, the backfill and reconcile route read the right fields, and Home and
+CallGrid label Net Profit (revenue − payout − telco cost). No migration. Routine polling stays OFF
+(`ROUTINE_POLL_ORGANIZATIONS` unset) and is to become reconciliation only. **Next:** Matt verifies
+the three CallGrid webhook templates.
+
+## CallGrid command center — IN REVIEW (draft PR #300 on `feat/callgrid-command-center`, off main `91cadee`)
+
+`/app/admin/marketplace` restructured from one long diagnostic page into layers: Overview (five
+KPIs, Today's Brief, at most three priorities, a compact workspace) → Money / Buyers / Vendors /
+Sources / Campaigns / Bids / Intelligence → entity pages (`/buyers/[key]` etc.) → a Situation page
+(`/intelligence/[id]`) → evidence and limits behind disclosures. Daily / Weekly / Monthly periods
+(`callgrid-period`) resolve through the one window contract; old `?range=` links still work.
+"Live" now comes from when CallGrid last delivered data, not the render clock. Pages now enforce
+`intelligence:view` (the permission their nav item always stated). Nothing was deleted from the
+old Overview: the queue, story, risk model, Loop's record and every limit are in Intelligence. No
+migration.
+
+Pre-merge review fixes (same PR):
+- A Situation speaks with one finding's voice (`voiceFindingId`), so a priority's headline,
+  explanation and action cannot come from different findings.
+- The brief is a health band with a short reason plus at most two sentences (45-word cap).
+- Comparisons are withheld when Loop's call record (its first stored call, by Eastern day) does
+  not cover the comparison period, so there is no +305% on a half-covered month.
+- The phone layout keeps the health line and the first priority on the first screen.
+
+**Next:** Matt reviews. After merge, confirm the freshness badge against a real day of CallGrid
+deliveries (production has had no routine poll, so "Live" rests on webhooks alone).
+
+A Situation's "What happened", Measured values and evidence now read in words and units
+(`callgrid-metric-presentation`). Each rule states what its comparison value is, so an average of
+earlier periods is never called "yesterday". Stored decision summaries keep their old wording until
+the situation is detected again; no data was rewritten.
+
+**Found, not fixed here (pre-existing on `main`):**
+- The situation page's confidence pill reads "High confidence confidence".
+- The impact line can read "Not quantifiable not quantifiable".
+- The Buyers, Vendors, Sources and Campaigns list pages' decision cards still list evidence by
+  metric key.
+
+**NEXT CALLGRID MILESTONE: margin-setting intelligence. NOT STARTED, and deliberately not in #300.**
+Matt's requirements:
+- the historical margin-setting periods per campaign;
+- net profit per business day at each setting;
+- break-even volume;
+- realized-versus-set margin drift;
+- confidence;
+- a Hold / Adjust / Test / Watch recommendation.
+
+**Prerequisite, and a separate task:** audit whether CallGrid exposes, through an API Loop can
+ingest:
+- historical campaign margin / payout settings;
+- when each setting took effect;
+- schedules;
+- vendor-level overrides.
+
+Loop stores none of this today. `MarketplaceCall` carries revenue, payout, cost and rate per call;
+it holds no configured margin and no settings history. Do not assume the data exists. Do not
+substitute realized margin for configured margin: the milestone exists to compare the two.
+Hold/Adjust/Test also needs a written policy (thresholds, minimum sample, who may act), and it
+must stay inside the recommendation-safety vocabulary. Unverified lead for the audit: the CallGrid
+API surface has campaign, version-history and commission reads. Nobody has checked whether they
+carry settings history.
 
 ## The Decision Engine — DONE (merged #154)
 The final platform layer between intelligence producers and every consumer. **CallGrid now

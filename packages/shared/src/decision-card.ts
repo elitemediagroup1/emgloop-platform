@@ -115,7 +115,9 @@ export function confidenceOf(situation: Situation): DecisionConfidence {
  * omits the block rather than filling it with a restatement of the title.
  */
 export function whyItMatters(situation: Situation): string | null {
-  const impact = situation.impact;
+  // The voice's money, never another merged finding's: why a Situation matters is
+  // stated by the same finding that names it.
+  const impact = situation.voiceImpact;
 
   // An exposure or concentration statement already IS the consequence.
   if (

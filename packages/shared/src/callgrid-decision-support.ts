@@ -29,6 +29,7 @@ import {
 import type { IntelligenceScore } from './callgrid-scoring';
 import { MIN_SERIES_POINTS, volatility, type SeriesStat } from './callgrid-history';
 import type { Opportunity } from './callgrid-opportunity';
+import { observationSentence } from './callgrid-metric-presentation';
 
 export const DECISION_SUPPORT_VERSION = 'v1';
 
@@ -406,27 +407,12 @@ function factOf(e: CallGridEvidenceReference): MeasuredFact {
  * The observation — the measured fact, with the interpretation stripped out.
  *
  * Built from structured fields rather than by slicing the summary text, so it
- * cannot drift when a rule is reworded.
+ * cannot drift when a rule is reworded, and worded by `observationSentence`: the
+ * metric's name, its values in their unit, and the comparison the rule actually
+ * made. Never an internal key or a raw fraction.
  */
 function observationOf(finding: CallGridFinding): string {
-  const parts: string[] = [];
-  const metric = finding.primaryMetric;
-
-  if (finding.currentValue !== null) {
-    const isMoney = metric === 'revenue' || metric === 'profit' || metric === 'revenuePerBillableCall';
-    const cur = isMoney ? money(finding.currentValue) : finding.currentValue.toLocaleString('en-US');
-    parts.push(`${metric} measured ${cur} in ${finding.currentWindow}`);
-    if (finding.comparisonValue !== null && finding.comparisonWindow) {
-      const prior = isMoney ? money(finding.comparisonValue) : finding.comparisonValue.toLocaleString('en-US');
-      parts.push(`against ${prior} in ${finding.comparisonWindow}`);
-    }
-  }
-
-  if (parts.length === 0) {
-    // No numeric pair — the evidence count is still a statement of fact.
-    return `Measured across ${finding.supportingEvidence.length} evidence ${finding.supportingEvidence.length === 1 ? 'point' : 'points'} for ${finding.currentWindow}.`;
-  }
-  return parts.join(' ') + '.';
+  return observationSentence(finding);
 }
 
 /**

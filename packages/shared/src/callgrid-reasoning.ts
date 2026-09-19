@@ -35,6 +35,7 @@ import {
   MIN_SERIES_POINTS, entitySeries, extremeVersusSeries, historyEntityKey,
   mean, oscillations, trendPerPeriod, volatility, type HistorySeries,
 } from './callgrid-history';
+import { metricLabel } from './callgrid-metric-presentation';
 
 export const REASONING_VERSION = 'v1';
 
@@ -183,7 +184,7 @@ export function relate(
       basis: dominant
         ? `${contribution.entity} accounts for ${Math.round(contribution.share * 100)}% of the measured change, and no other entity accounts for ${Math.round(COMPETING_SHARE * 100)}% or more. This identifies where the change came from, not why it happened.`
         : `${contribution.entity} accounts for ${Math.round(contribution.share * 100)}% of the measured change, alongside ${competitors.length} other material contributor${competitors.length === 1 ? '' : 's'}.`,
-      measurement: `${Math.round(contribution.share * 100)}% of the change in ${target.primaryMetric}`,
+      measurement: `${Math.round(contribution.share * 100)}% of the change in ${metricLabel(target.primaryMetric).toLowerCase()}`,
       unknownDependencies: unknownDeps,
     };
   }
@@ -196,7 +197,7 @@ export function relate(
       sourceId: source.id,
       kind: 'DOWNSTREAM_EFFECT',
       confidence: Math.round(baseConfidence * 0.9 * 100) / 100,
-      basis: `${target.primaryMetric} is computed from ${source.primaryMetric} by the metric contract, so a move in one follows the other by construction rather than by inference.`,
+      basis: `${metricLabel(target.primaryMetric)} is computed from ${metricLabel(source.primaryMetric).toLowerCase()} by the metric contract, so a move in one follows the other by construction rather than by inference.`,
       measurement: null,
       unknownDependencies: [
         'Whether the derived movement is fully explained by its input, or whether another component of the formula also moved.',

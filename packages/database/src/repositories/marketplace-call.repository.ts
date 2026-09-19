@@ -162,6 +162,82 @@ type CallRow = {
   converted: boolean | null;
 };
 
+/** A call as `windowFacts` reads it: CallRow plus time and outcome flags. */
+type CallFactRow = CallRow & {
+  sourceOccurredAt: Date;
+  billable: boolean | null;
+  completed: boolean | null;
+  noRoute: boolean | null;
+};
+
+/** A half-open time bucket [start, end). The caller builds them (Eastern hours or days). */
+export interface CallBucket {
+  readonly start: Date;
+  readonly end: Date;
+}
+
+export type CallDimensionName = 'buyers' | 'vendors' | 'sources' | 'campaigns';
+
+/** One entity, by the same key `aggregateWindow` gives it: (externalId ?? label), lower-cased. */
+export interface CallEntitySelector {
+  readonly dimension: CallDimensionName;
+  readonly key: string;
+}
+
+export interface CallSeriesPoint {
+  start: Date;
+  end: Date;
+  calls: number;
+  monetized: number;
+  revenueCents: number;
+  payoutCents: number;
+  costCents: number;
+  callsWithRevenue: number;
+  callsWithPayout: number;
+  callsWithCost: number;
+}
+
+/**
+ * How far calls got. Each flag is counted twice: how many calls said TRUE, and how
+ * many said anything at all -- a call that reported no `completed` flag is not an
+ * incomplete call, and a funnel must not treat it as one.
+ */
+export interface CallOutcomeCounts {
+  calls: number;
+  completed: number;
+  completedReported: number;
+  billable: number;
+  billableReported: number;
+  monetized: number;
+  noRoute: number;
+  noRouteReported: number;
+}
+
+export interface CallWindowFacts {
+  /** The label the entity carried, or null when no call in the window matched it. */
+  entityLabel: string | null;
+  /** Economics and the four dimension rollups over the (narrowed) calls. */
+  aggregate: CallWindowAggregate;
+  outcomes: CallOutcomeCounts;
+  /** One point per requested bucket, in order. Calls outside every bucket count in totals only. */
+  series: CallSeriesPoint[];
+}
+
+export interface RecentCallView {
+  id: string;
+  sourceOccurredAt: Date;
+  updatedAt: Date;
+  status: string | null;
+  buyerLabel: string | null;
+  sourceLabel: string | null;
+  campaignLabel: string | null;
+  vendorLabel: string | null;
+  monetized: boolean | null;
+  completed: boolean | null;
+  noRoute: boolean | null;
+  revenueCents: number | null;
+}
+
 export class MarketplaceCallRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -280,6 +356,74 @@ export class MarketplaceCallRepository {
       },
     })) as CallRow[];
     return aggregateRows(rows);
+  }
+
+  /**
+   * One window's calls as the CallGrid command center reads them: the SAME rows
+   * `aggregateWindow` reads (organization, `sourceOccurredAt` in [since, until)),
+   * optionally narrowed to one entity, bucketed into the caller's time buckets, and
+   * rolled up across the OTHER dimensions -- which campaigns fed this buyer, which
+   * sources supplied it.
+   *
+   * The composition is possible because one projected call carries its source,
+   * campaign, buyer and vendor together; nothing here joins across tables or
+   * infers a link the call row did not state. Outcome counts (completed, billable,
+   * no route) carry how many calls reported each flag, because a flag nobody
+   * reported is unknown, not false.
+   *
+   * An explicit column list: this read depends on exactly the columns it uses.
+   */
+  async windowFacts(
+    organizationId: string,
+    since: Date,
+    until: Date,
+    options: { readonly buckets?: readonly CallBucket[]; readonly entity?: CallEntitySelector } = {},
+  ): Promise<CallWindowFacts> {
+    const rows = (await this.prisma.marketplaceCall.findMany({
+      where: { organizationId, sourceOccurredAt: { gte: since, lt: until } },
+      select: {
+        sourceOccurredAt: true,
+        buyerExternalId: true, buyerLabel: true, vendorExternalId: true, vendorLabel: true,
+        sourceExternalId: true, sourceLabel: true, campaignExternalId: true, campaignLabel: true,
+        revenueCents: true, payoutCents: true, costCents: true, monetized: true, converted: true,
+        billable: true, completed: true, noRoute: true,
+      },
+    })) as CallFactRow[];
+    return windowFactsOf(rows, options);
+  }
+
+  /**
+   * When this organization's call record begins: the earliest `sourceOccurredAt` Loop
+   * holds, or null when it holds none. A period that starts before this was not
+   * observed, so it is not a period with zero calls, and the command center
+   * does not compare against it. One indexed row.
+   */
+  async firstCallAt(organizationId: string): Promise<Date | null> {
+    const first = await this.prisma.marketplaceCall.findFirst({
+      where: { organizationId },
+      orderBy: { sourceOccurredAt: 'asc' },
+      select: { sourceOccurredAt: true },
+    });
+    return first?.sourceOccurredAt ?? null;
+  }
+
+  /**
+   * The most recent projected calls for this organization, newest first -- what
+   * CallGrid most recently told Loop, as the projection holds it. Labels, outcome
+   * flags and revenue only; no caller number, no zip.
+   */
+  async recentCalls(organizationId: string, limit = 8): Promise<RecentCallView[]> {
+    const rows = await this.prisma.marketplaceCall.findMany({
+      where: { organizationId },
+      orderBy: { sourceOccurredAt: 'desc' },
+      take: Math.max(1, Math.min(limit, 50)),
+      select: {
+        id: true, sourceOccurredAt: true, updatedAt: true, status: true,
+        buyerLabel: true, sourceLabel: true, campaignLabel: true, vendorLabel: true,
+        monetized: true, completed: true, noRoute: true, revenueCents: true,
+      },
+    });
+    return rows;
   }
 
   /**
@@ -991,4 +1135,82 @@ export function aggregateRows(rows: CallRow[]): CallWindowAggregate {
     buyers: toDims(buyers), vendors: toDims(vendors),
     sources: toDims(sources), campaigns: toDims(campaigns),
   };
+}
+
+// --- The command center's window facts (pure; exported for testing) --------------
+
+const DIMENSION_FIELDS: Record<CallDimensionName, { id: keyof CallRow; label: keyof CallRow }> = {
+  buyers: { id: 'buyerExternalId', label: 'buyerLabel' },
+  vendors: { id: 'vendorExternalId', label: 'vendorLabel' },
+  sources: { id: 'sourceExternalId', label: 'sourceLabel' },
+  campaigns: { id: 'campaignExternalId', label: 'campaignLabel' },
+};
+
+/** The key `aggregateRows` gives an entity -- one definition, so a detail page and a list row agree. */
+export function callDimensionKey(externalId: string | null, label: string | null): string | null {
+  if (!label) return null;
+  return (externalId ?? label).toLowerCase();
+}
+
+/** Pure: narrow, bucket and roll up a window's call rows. */
+export function windowFactsOf(
+  rows: readonly CallFactRow[],
+  options: { readonly buckets?: readonly CallBucket[]; readonly entity?: CallEntitySelector } = {},
+): CallWindowFacts {
+  let entityLabel: string | null = null;
+  let selected: readonly CallFactRow[] = rows;
+  if (options.entity) {
+    const { id, label } = DIMENSION_FIELDS[options.entity.dimension];
+    const wanted = options.entity.key.toLowerCase();
+    selected = rows.filter((r) => {
+      const key = callDimensionKey(r[id] as string | null, r[label] as string | null);
+      if (key !== wanted) return false;
+      entityLabel = entityLabel ?? (r[label] as string | null);
+      return true;
+    });
+  }
+
+  const outcomes: CallOutcomeCounts = {
+    calls: 0, completed: 0, completedReported: 0, billable: 0, billableReported: 0,
+    monetized: 0, noRoute: 0, noRouteReported: 0,
+  };
+  for (const r of selected) {
+    outcomes.calls += 1;
+    if (r.completed !== null) { outcomes.completedReported += 1; if (r.completed) outcomes.completed += 1; }
+    if (r.billable !== null) { outcomes.billableReported += 1; if (r.billable) outcomes.billable += 1; }
+    if (r.noRoute !== null) { outcomes.noRouteReported += 1; if (r.noRoute) outcomes.noRoute += 1; }
+    if (r.monetized === true) outcomes.monetized += 1;
+  }
+
+  const buckets = options.buckets ?? [];
+  const series: CallSeriesPoint[] = buckets.map((b) => ({
+    start: b.start, end: b.end, calls: 0, monetized: 0,
+    revenueCents: 0, payoutCents: 0, costCents: 0,
+    callsWithRevenue: 0, callsWithPayout: 0, callsWithCost: 0,
+  }));
+  if (series.length > 0) {
+    for (const r of selected) {
+      const t = r.sourceOccurredAt.getTime();
+      // Buckets are ordered and non-overlapping: binary search for the one holding t.
+      let lo = 0;
+      let hi = series.length - 1;
+      let hit = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const p = series[mid]!;
+        if (t < p.start.getTime()) hi = mid - 1;
+        else if (t >= p.end.getTime()) lo = mid + 1;
+        else { hit = mid; break; }
+      }
+      if (hit < 0) continue;
+      const p = series[hit]!;
+      p.calls += 1;
+      if (r.monetized === true) p.monetized += 1;
+      if (r.revenueCents !== null) { p.revenueCents += r.revenueCents; p.callsWithRevenue += 1; }
+      if (r.payoutCents !== null) { p.payoutCents += r.payoutCents; p.callsWithPayout += 1; }
+      if (r.costCents !== null) { p.costCents += r.costCents; p.callsWithCost += 1; }
+    }
+  }
+
+  return { entityLabel, aggregate: aggregateRows([...selected]), outcomes, series };
 }

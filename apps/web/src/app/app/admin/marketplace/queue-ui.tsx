@@ -43,7 +43,7 @@ import type {
 import {
   ESCALATION_LABEL, REVIEW_URGENCY_LABEL, HEALTH_BAND_LABEL,
   standingOf, confidenceOf, whyItMatters, outcomeChoices, tierDecisions,
-  ownershipOf, storyDigest,
+  ownershipOf, storyDigest, formatRelativeChange, measuredValuesOf, voiceOf,
 } from '@emgloop/shared';
 import { EvidenceDrawer } from './intelligence-ui';
 import type { LivePriority } from './operational-queue-data';
@@ -359,11 +359,13 @@ function evidenceScale(s: Situation): { values: number; sources: number } {
  * which quietly made a layout decision into an editorial one.
  */
 export function SituationRow({
-  item, rank, entityHref, members, canAct, returnTo, now, tier = 'primary',
+  item, rank, entityHref, detailHref = null, members, canAct, returnTo, now, tier = 'primary',
 }: {
   item: LivePriority;
   rank: number;
   entityHref: string | null;
+  /** The Situation's own page, where its evidence and limits are laid out in full. */
+  detailHref?: string | null;
   members: QueueMember[];
   canAct: boolean;
   returnTo: string;
@@ -394,7 +396,7 @@ export function SituationRow({
       <div className="q-row__body">
         <div className="q-row__top">
           <span className="q-row__rank" aria-hidden="true">{rank}</span>
-          <h3 className="q-row__title">{s.title}</h3>
+          <h3 className="q-row__title">{detailHref ? <Link href={detailHref} className="q-row__titlelink">{s.title}</Link> : s.title}</h3>
           {/* Confidence sits beside the title on EVERY card and opens in place.
               Loop is a decision system; how much to trust a decision is not a
               detail to be found later, and it is not something you should need a
@@ -760,5 +762,163 @@ export function TodaysStorySection({ reasoning }: { reasoning: OperationalReason
         claim. Reasoning {reasoning.version}.
       </p>
     </section>
+  );
+}
+
+// --- One situation, laid out in full ---------------------------------------------------------
+
+/**
+ * The Situation page: everything the queue card keeps behind its expansions, open.
+ *
+ * WHAT HAPPENED → WHY IT MATTERS → WHAT TO DO → WHY LOOP RAISED IT → THE EVIDENCE →
+ * WHAT LOOP CANNOT DETERMINE → WHAT PEOPLE HAVE DONE. The same sources as the card
+ * (no string composed here that the engine did not produce), and the same decision
+ * controls through the same actions.
+ */
+export function SituationDetail({
+  item, members, canAct, returnTo, now, kindLabel, entityLinks,
+}: {
+  item: LivePriority;
+  members: QueueMember[];
+  canAct: boolean;
+  returnTo: string;
+  now: Date;
+  kindLabel: string;
+  /** Every entity the merged findings name, with where its numbers live. */
+  entityLinks: readonly { key: string; label: string; type: string; href: string | null }[];
+}) {
+  const s = item.situation;
+  const confidence = confidenceOf(s);
+  const why = whyItMatters(s);
+  const ownership = ownershipOf({
+    state: item.state,
+    accountable: nameOf(members, item.ownerUserId),
+    working: nameOf(members, item.assigneeUserId),
+  });
+  // The finding this Situation speaks for: its measured values and its advice are shown
+  // here; every other merged finding keeps its own advice beside its own evidence below.
+  const lead = voiceOf(s) ?? s.observations[0] ?? null;
+  // The voice's values in words and units, the comparison labelled by what it is.
+  const measured = lead ? measuredValuesOf(lead) : null;
+  const limitations = [...new Set(s.observations.flatMap((o) => o.limitations))];
+  const unknowns = [...new Set([...s.unknowns, ...s.observations.flatMap((o) => o.unknowns)])];
+
+  return (
+    <article className="cgx-situation" aria-label={s.title}>
+      <header className="cgx-situation__head">
+        <p className="cgx-situation__kicker">{kindLabel} · {STATE_LABEL[item.state]}</p>
+        <h2 className="cgx-situation__title">{s.title}</h2>
+        <div className="cgx-situation__tags">
+          <ConfidencePill strength={confidence.strength} label={confidence.label} basis={confidence.basis} determinacyNote={confidence.determinacyNote} />
+          <OwnershipTag ownership={ownership} />
+          {item.detectionCount > 1 ? <span className="q-row__seen">seen {item.detectionCount}×</span> : null}
+          {item.reopenCount > 0 ? <span className="q-row__back">back {item.reopenCount}×</span> : null}
+        </div>
+      </header>
+
+      <div className="cgx-situation__grid">
+        <section className="cgx-situation__block">
+          <h3 className="cgx-situation__h">What happened</h3>
+          <p>{s.whatHappened}</p>
+        </section>
+        <section className="cgx-situation__block">
+          <h3 className="cgx-situation__h">Why it matters</h3>
+          <p>{why ?? s.whyItMatters}</p>
+          <p className="cgx-situation__money">
+            <strong>{money(s.impact.amountCents)}</strong> <span className="cgx-muted">{s.impact.label.toLowerCase()} — {s.impact.statement}</span>
+          </p>
+          {s.ifIgnored ? <p className="cgx-muted">If nothing changes: {s.ifIgnored}</p> : null}
+        </section>
+        <section className="cgx-situation__block cgx-situation__block--action">
+          <h3 className="cgx-situation__h">Suggested action</h3>
+          {s.decision ? <p className="cgx-situation__action">{s.decision}</p> : <p className="cgx-muted">Loop has no review to suggest for this.</p>}
+        </section>
+      </div>
+
+      <section className="cgx-situation__block">
+        <h3 className="cgx-situation__h">Decide</h3>
+        {canAct ? (
+          <DecisionActions
+            priorityId={item.record?.id ?? null}
+            state={item.state}
+            members={members}
+            returnTo={returnTo}
+            actions={ACTIONS}
+            outcomeGroups={outcomeChoices(s)}
+            history={item.history}
+            ownership={ownership}
+          />
+        ) : (
+          <p className="q-actnote">You have view-only access to intelligence. An owner or admin can assign, resolve or dismiss this.</p>
+        )}
+      </section>
+
+      {measured ? (
+        <section className="cgx-situation__block">
+          <h3 className="cgx-situation__h">Measured values</h3>
+          <dl className="cgx-facts">
+            <div><dt>Measure</dt><dd>{measured.subject}</dd></div>
+            <div><dt>{measured.current.label}</dt><dd>{measured.current.value}</dd></div>
+            {measured.comparison ? <div><dt>{measured.comparison.label}</dt><dd>{measured.comparison.value}</dd></div> : null}
+            {measured.comparison ? <div><dt>Change</dt><dd>{formatRelativeChange(lead!.percentageChange)}</dd></div> : null}
+          </dl>
+        </section>
+      ) : null}
+
+      {entityLinks.length > 0 ? (
+        <section className="cgx-situation__block">
+          <h3 className="cgx-situation__h">Related entities</h3>
+          <ul className="cgx-chips">
+            {entityLinks.map((e) => (
+              <li key={`${e.type}:${e.key}`}>
+                {e.href ? <Link href={e.href} className="cgx-chip">{e.label} <span className="cgx-muted">{e.type}</span></Link> : <span className="cgx-chip">{e.label} <span className="cgx-muted">{e.type}</span></span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <details className="cgx-more-section" open>
+        <summary className="cgx-more-section__summary">Why Loop raised this</summary>
+        <StandingBlock item={item} members={members} now={now} />
+        <ReadBlock situation={s} />
+        <ChainView links={s.chain.links} terminus={s.chain.terminus} wouldExtend={s.chain.wouldExtend} />
+      </details>
+
+      <details className="cgx-more-section">
+        <summary className="cgx-more-section__summary">
+          Observed evidence — {s.observationCount} finding{s.observationCount === 1 ? '' : 's'} merged
+        </summary>
+        {s.observations.map((o) => (
+          <div className="q-obs__item" key={o.id}>
+            <p className="q-obs__title">{o.title}{o.id === s.voiceFindingId ? ' — the finding this situation is named for' : ''}</p>
+            <p className="q-obs__sum">{o.plainLanguageSummary}</p>
+            {o.id !== s.voiceFindingId && o.recommendedReview ? <p className="q-obs__sum">Its own suggested review: {o.recommendedReview}</p> : null}
+            <EvidenceDrawer finding={o} />
+          </div>
+        ))}
+      </details>
+
+      <details className="cgx-more-section">
+        <summary className="cgx-more-section__summary">Limits — what Loop cannot determine</summary>
+        {unknowns.length > 0 ? (
+          <div className="q-gaps">
+            <p className="q-gaps__h">What Loop can&rsquo;t see about this</p>
+            <ul className="q-gaps__list">{unknowns.map((u) => <li key={u}>{u}</li>)}</ul>
+          </div>
+        ) : null}
+        {limitations.length > 0 ? (
+          <div className="q-gaps">
+            <p className="q-gaps__h">What constrains these conclusions</p>
+            <ul className="q-gaps__list">{limitations.map((u) => <li key={u}>{u}</li>)}</ul>
+          </div>
+        ) : null}
+      </details>
+
+      <details className="cgx-more-section" open>
+        <summary className="cgx-more-section__summary">What people have done</summary>
+        <DecisionTimeline log={item.log} members={members} />
+      </details>
+    </article>
   );
 }

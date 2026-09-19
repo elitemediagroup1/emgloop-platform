@@ -184,9 +184,8 @@ test('a volume change carries no money rather than an invented value', () => {
 test('observation and interpretation are separate, and observation is fact only', () => {
   const card = toDecisionSupportCard(finding());
   assert.notEqual(card.observation, card.interpretation);
-  // The observation states measured values and windows, not a judgement.
-  assert.match(card.observation, /revenue measured/i);
-  assert.match(card.observation, /Yesterday/);
+  // The observation states measured values and the comparison, in words, not a judgement.
+  assert.equal(card.observation, 'Revenue decreased from $10,000 to $8,200 compared with the day before.');
   assert.ok(!/therefore|appears|suggests|matters/i.test(card.observation));
 });
 

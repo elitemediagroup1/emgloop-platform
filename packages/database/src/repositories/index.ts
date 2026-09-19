@@ -235,7 +235,7 @@ export { VerifiedKnowledgeRepository } from './verified-knowledge.repository';
 export type { ImportOutcome } from './verified-knowledge.repository';
 
 // MarketplaceCall — sensor-neutral operational call projection for Intelligence.
-export { MarketplaceCallRepository, aggregateRows } from './marketplace-call.repository';
+export { MarketplaceCallRepository, aggregateRows, windowFactsOf, callDimensionKey } from './marketplace-call.repository';
 // Operational decision lifecycle (platform primitives). Generic by construction:
 // CallGrid Intelligence is the first producer, not the owner.
 export { OperationalPriorityRepository } from './operational-priority.repository';
@@ -243,7 +243,7 @@ export type {
   DetectSituationInput, DetectResult, RecordObservationInput,
   ListPrioritiesOptions, PriorityWithLog,
 } from './operational-priority.repository';
-export type { CallWindowAggregate, CallDimensionAggregate, BackfillResult, PopulationCandidateRow } from './marketplace-call.repository';
+export type { CallWindowAggregate, CallDimensionAggregate, BackfillResult, PopulationCandidateRow, CallBucket, CallDimensionName, CallEntitySelector, CallSeriesPoint, CallOutcomeCounts, CallWindowFacts, RecentCallView } from './marketplace-call.repository';
 export {
   projectInteractionToMarketplaceCall,
 } from './marketplace-call-projection';
