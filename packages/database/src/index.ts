@@ -669,3 +669,17 @@ export type { ConnectionSecretBinding, SealedConnectionSecret } from './services
 export type { ConnectionAdapter, AdapterSession, ObservationResult } from './services/connections/connection-adapter';
 export { runConnectionCycle } from './services/connections/connection-runtime';
 export type { ConnectionCycleInput, ConnectionCycleResult, CycleFailure } from './services/connections/connection-runtime';
+// Background conversation source connections (Teams, Telegram): persistence. The Teams/Telegram
+// sibling of GoogleConnectionRepository -- org-first, user-private, sealed bytes only. Instantiated
+// on demand (like Google), not registered in the repositories bag.
+export {
+  SourceConnectionRepository,
+  disconnectSourceConnectionsInTx,
+  knownConnectionProviders,
+} from './repositories/source-connection.repository';
+export type {
+  SourceConnectionActor,
+  SourceConnectionRecord,
+  SourceConnectionCredentialToStore,
+  SourceConnectionStoreOutcome,
+} from './repositories/source-connection.repository';
