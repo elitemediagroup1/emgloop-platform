@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-19 (Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-19 (Intelligence & Memory Foundation in review on `feat/intelligence-foundation`; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -97,7 +97,26 @@ dispatched. The gate is clear, not removed.
 
 ---
 
-## Google onboarding (Matt, Charlie, every employee after) — #302 and #303 MERGED; Gmail cycle NOT YET ON; derivation PR IN REVIEW (`fix/google-source-state-one-derivation`)
+## Intelligence & Memory Foundation — IN REVIEW (branch `feat/intelligence-foundation`, off main `cd96797`; supersedes draft #301)
+
+- **Reconciled #301:**
+  - Kept: standing judgments hold (`4e6cb48`) and offboarding erasure (`469cb8a`), re-applied on current main.
+  - Dropped: the consent-copy commit (already on main through #302) and the old stage-gate status block.
+- **Built (no migration):**
+  - The source-read dispatcher. The Gmail cycle runs mail detection after each person's read.
+  - Scheduled CallGrid detection: an internal route and `detect-callgrid-intelligence.yml`, off until switched on.
+  - `IntelligenceItem`, one surfaced shape over work items and Cases.
+  - Outcome memory read (SAME and COMPARABLE), with `learnFromHistory`.
+  - A private Gmail+Calendar join on the same correspondent key, at read time.
+  - A creator-onboarding review on the real CRM `TALENT_REPRESENTATION` event, through the outbox.
+  - `declare-intelligence-subscriptions`.
+  - The record: `docs/architecture/intelligence-foundation.md`.
+- **Gated on Matt:**
+  - D1: identity §5, persisted machine suggestions. Needed for Gmail↔CallGrid↔Party.
+  - D2: Calendar attendee hashes.
+  - D3: commissioning (outbox drain secrets; declare subscriptions; CallGrid detection secrets and switch).
+
+## Google onboarding (Matt, Charlie, every employee after) — DONE: #302, #303, #304 MERGED; Gmail cycle ON (run 2026-09-19 15:09 UTC: eligible=2, both SYNCED INCREMENTAL)
 
 - **Merged:**
   - #302: Gmail's first read belongs to the scheduled cycle; readiness replaces "Connected"; Drive
@@ -115,10 +134,7 @@ dispatched. The gate is clear, not removed.
 - **In review:** one derivation. `deriveSourceState` (@emgloop/shared) is used by Connections, Mail,
   Home's mail panel and the diagnostic, which now prints `readiness` and `position`. Adds regression
   tests on Matt's exact facts, and on employee #3 becoming eligible with no configuration change.
-- **Next:**
-  1. Set `DAILY_LOOP_GMAIL_ORGANIZATIONS=servicesinmycity-demo`, once.
-  2. Dispatch the Gmail cycle with `baseline: true`, then once more without it.
-  3. Dispatch Read Employee Sources again.
+- **Commissioned:** the Gmail cycle is enabled for `servicesinmycity-demo`; both employees read incrementally.
 - **Employees after Matt and Charlie are automatic.** The cycle's own query includes anyone with a
   complete grant and an active membership. The external limit is Google Testing mode: only listed test
   users can consent, and grants lapse 7 days after issue.
