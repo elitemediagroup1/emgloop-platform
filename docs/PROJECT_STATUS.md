@@ -2054,6 +2054,60 @@ No migration, no new Google call, no autonomous sending.
 must be dispatched (above); then commission Gmail (scopes, reconnect, secrets, the gate variable)
 as recorded in the GM-3 PR.
 
+## Intelligence & Memory milestone (A–E) — STAGE A PARTIAL · GATE NOT PASSED · STOPPED BEFORE STAGE B (branch `feat/intelligence-memory-foundation`, off main `67c35d2`)
+
+**Built (Stage A, no migration):**
+1. **The Decision Engine keeps a standing judgment.** A situation closed as SUPPRESSED or
+   ACCEPTED_RISK stays closed on later sightings unless its severity rises. The sighting is
+   recorded (effect `HELD`) with its reason. Occurrence outcomes still reopen, as before.
+2. **Ending a membership deletes the person's work state.** `removeMember` / `disableMember`
+   delete all 13 per-person `work_*` tables in the revoke transaction, and audit
+   `work_state.erased` with counts only. Before this fix the soft removal meant the cascade
+   never fired.
+3. **The Google consent copy is true** (reads bodies on open without storing them; sends only
+   on Send).
+
+**Why the gate cannot pass. Each item needs a decision, not code:**
+- **Scenario 1 (new creator):** no Creator Hub, creator, brand, deal or company-knowledge
+  model or event exists (Operations → Creators is "Not built").
+- **Scenarios 2, 3 and 5 (cross-source identity):**
+  - `identity-evidence-resolution.md` §5 forbids persisting machine matches ("read-time,
+    non-persistent suggestions" only).
+  - Slices 2.1b+ are unauthorized.
+  - Parties hold no email, domain or external id (PD-F-05).
+  - Nothing maps a CallGrid buyer to a Party.
+  - Calendar facts deliberately hold no attendee identity.
+- **A4 (AI after a trigger):** the Brain refuses system-initiated work. The deterministic
+  parts remain possible. The outbox (the intended event bus) has no consumer, and its drain has
+  failed for months because OUTBOX_DRAIN_URL and OUTBOX_DRAIN_SECRET are unset.
+- **Scenarios 4 and 6 hold:**
+  - 4: the built fix above, plus Gmail's existing per-thread corrections.
+  - 6: CallGrid's quiet-period all-clear test, plus HELD sightings.
+
+**Stages C and E are also blocked by the provider terms (researched 2026-09-19):**
+- **Teams Web scraping:** the Microsoft Product Terms Acceptable Use Policy prohibits
+  "scrape or use other data extraction methods". Graph delegated `Chat.Read` works for work
+  accounts without admin consent; a personal Teams account has no Graph path, and its terms
+  are ambiguous.
+- **Telegram:** the Content Licensing terms prohibit AI "deployment" on platform data unless
+  every participant individually consents, per chat. Telegram AI stays gated.
+- **Infrastructure:** no persistent browser worker exists (no ECS/Fargate/EC2, no Playwright).
+
+**Found, not changed:**
+- The AI_EMPLOYEE role falls back to READ_ONLY on the whole matrix. The code records this as
+  an open product decision.
+- `drain-outbox.yml` fails every run.
+
+**Next:** Matt decides:
+- the identity path (amend §5, or authorize slices 2.1b/2.5);
+- the Creator/Brand domain;
+- Calendar attendee identity;
+- system-initiated reasoning;
+- the Teams account type (Graph if it is a work account);
+- Telegram consent.
+
+Then Stage A resumes. Stages B–E have not started.
+
 ## Loop Application Structure — IN PROGRESS (PR 1 + 2 merged as #237)
 
 _Last updated: 2026-09-15._
