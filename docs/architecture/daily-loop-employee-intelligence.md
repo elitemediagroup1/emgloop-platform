@@ -2042,6 +2042,27 @@ Hard caps: 30 days, 2,000 messages, 500 files. Beyond that the first run **stops
 "Loop read the last 30 days" — rather than importing a career. Deeper history is a later, explicit
 choice, and most of it is worth nothing to a queue about today.
 
+**As built (2026-09-19), which differs from the table above:**
+
+- **Connecting reads nothing.** It stores the grant. Connections then shows each source's
+  *readiness* (`@emgloop/shared` `sourceReadiness`): **Setting up** until a first read completes,
+  then **Ready** with when Loop last read it. It shows **Reading**, **Could not read**,
+  **Permission needed** or **Reconnect required** where those are true. "Connected" is never
+  shown for a source Loop has not read.
+- **Calendar's first read** happens on the next Home visit (bounded: one window of −7 to +30 days) or
+  in the scheduled Calendar cycle, whichever comes first.
+- **Gmail's first read is the scheduled Gmail cycle's alone** (`GmailSyncOptions.reach: 'FULL'`).
+  - It covers 14 days, newest first, capped at 250 messages per pass. It keeps the position it took
+    before listing, so a capped read leaves out only the oldest mail and the next pass is
+    incremental.
+  - A page visit or Refresh uses `reach: 'FRESHNESS'`. It reads only what changed since that
+    position: at most 25 messages, resuming at the last whole history record. With no position it
+    reads nothing.
+  - So Gmail stays "Setting up" until the cycle runs, and the cycle must be switched on
+    (`DAILY_LOOP_GMAIL_ORGANIZATIONS`) before anyone is asked to connect Gmail.
+- **Drive is not read.** No sensor, cycle or surface exists. Connections says so, offers no Drive
+  connect, and still lets a person remove an earlier Drive authorization.
+
 ### 22.3 The magic moment, honestly
 
 ```

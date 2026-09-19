@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-18 (Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-19 (Google connection truth + Charlie's Gmail/Calendar in review on `fix/google-connection-truth`; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -25,16 +25,13 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Production migration state — AT 39 · `main` IS AT 41 · 40 AND 41 NOT APPLIED (2026-09-18)
+## Production migration state — AT 41 · `main` IS AT 41 (verified 2026-09-19)
 
-**Production is behind `main`, and it is visible.** GM-1 (#295) and GM-2 (#296) merged migrations
-**40** (`20260922000000_gmail_read_and_send_scopes`) and **41** (`20260923000000_gmail_reply_drafts`);
-neither has been dispatched. With #297 deployed, `/app` and `/app/mail` return 500 in production
-(Prisma `P2021`: `public.work_drafts` does not exist). The remedy is the existing manual
-`Deploy Prisma Migrations` workflow from `main` — not run by any session; it needs a human. Gmail
-commissioning stays paused until it has run. (The Home/Mail PR below makes each Home source load on
-its own, so a missing table degrades one panel instead of the page — it does not replace the
-migration.)
+**Production matches `main`.** Migrations **40** (`20260922000000_gmail_read_and_send_scopes`) and
+**41** (`20260923000000_gmail_reply_drafts`) were applied by `Deploy Prisma Migrations` run
+`35374762981` on 2026-09-18 17:30 UTC (its log: "Applying migration" for both, then "All migrations
+have been successfully applied"). This block previously said they were not applied; that was true
+only until that run.
 
 **Latest:** migrations **38** (`20260920000000_daily_loop_work_state`) and **39**
 (`20260921000000_work_event_calendar_facts`) were dispatched together and applied successfully on
@@ -99,6 +96,42 @@ three weeks. Tracked in `CLAUDE.md` §Long-Term Goals item 2.
 dispatched. The gate is clear, not removed.
 
 ---
+
+## Google connection truth + Charlie's Gmail/Calendar — IN REVIEW (branch `fix/google-connection-truth`, off main `67c35d2`; #301 paused)
+
+Charlie connected Gmail, Calendar and Drive and "nothing appeared". This branch makes the
+connection state truthful and moves Gmail's first read off page requests. **No migration.**
+
+- **Production evidence (read-only):**
+  - The Calendar cycle at 12:56 UTC on 2026-09-19 had `eligible=2`, and both people SYNCED
+    INCREMENTAL. The new ref `f5aec1d1d7ec` had already been read once, most likely by a Home visit.
+  - The Gmail cycle is OFF (`DAILY_LOOP_GMAIL_ORGANIZATIONS` unset); its gate step stops every run.
+  - A per-person read of connections, scopes and rows needs `read-employee-sources`. It is in this PR
+    and can only be dispatched once it is on `main`. A one-off push-triggered run from a throwaway
+    branch was refused by the session's permission check and was not done.
+- **Built:**
+  1. `read-employee-sources`: a read-only diagnosis that prints refs, states and counts, never content.
+  2. Gmail reach. Page visits and Refresh read only what changed (≤25 messages, resumable). The Gmail
+     cycle alone performs the first 14-day read. A capped first read keeps its boundary, so busy
+     mailboxes reach incremental reads.
+  3. Readiness on Connections, Mail and onboarding: Setting up / Ready / Reading / Could not read /
+     Permission needed / Reconnect required. "Reading now" is bounded to five minutes.
+  4. Drive: authorized but not used. No Connect; an existing authorization stays removable.
+  5. The consent copy fix (same commit as #301's).
+  6. The Gmail hourly cron moved to :17.
+- **Order matters:**
+  1. Merge. The scheduled Gmail job runs `main`'s code, and before this PR a capped first read keeps
+     no position, so a busy mailbox would never reach incremental reads.
+  2. Then, straight away, set `DAILY_LOOP_GMAIL_ORGANIZATIONS=servicesinmycity-demo`.
+  3. Then dispatch the Gmail cycle.
+
+  Until the variable is set, a never-read mailbox truthfully shows "Setting up", and no page performs
+  its first read.
+- **Needs Matt:**
+  - merge the PR;
+  - dispatch `read-employee-sources` once it is on `main`;
+  - approve and set the Gmail variable;
+  - dispatch the Gmail cycle (baseline) and confirm `eligible=2`, then a second, incremental run.
 
 ## Dashboard — DONE (merged: #128/#129)
 `/app/admin` is the one-screen 9-tile command center. Honest tiles only
