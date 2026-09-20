@@ -44,6 +44,13 @@ export const CONNECTION_SECRET_NAMES = Object.freeze({
 const CONTAINER_PORT = 8080;
 
 export class ConnectionsStack extends Stack {
+  // Pin the AZs so `cdk synth` is deterministic and needs NO AWS credentials or context lookup: a
+  // VPC with a concrete env otherwise asks AWS for the account's availability zones at synth time.
+  // The stack is pinned to us-east-1 (lib/target.ts), where these two AZ names always exist.
+  override get availabilityZones(): string[] {
+    return ['us-east-1a', 'us-east-1b'];
+  }
+
   constructor(scope: Construct, id: string, props: ConnectionsStackProps) {
     super(scope, id, props);
 

@@ -4,7 +4,7 @@
   "private": true,
   "description": "The connections worker environment on AWS (Teams/Telegram durable worker). A separate deployable, not an npm workspace, so the web build never installs it. Staging only.",
   "scripts": {
-    "synth": "cdk synth --quiet --no-notices",
+    "synth": "CONNECTIONS_SYNTH_OFFLINE=1 cdk synth --quiet --no-notices",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
