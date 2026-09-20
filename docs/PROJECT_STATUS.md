@@ -2199,40 +2199,43 @@ it; a broader Headlines route/access policy is a separate future decision.
     start until Stage 1 merges and real objectives exist; a signal layer built against an empty
     referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.
 
-## Microsoft Teams + Telegram Connections — SURFACE + WORKER BRAIN MERGE-READY (draft #308); LIVE CLIENT/DEPLOY EXCLUDED
+## Microsoft Teams + Telegram Connections — STAGING PHASE BUILT (draft #308); DEPLOY + LOGIN PENDING
 
-**Draft PR #308** on `feat/connections-teams-telegram` (7 commits off `main` @ `1cfce8b`, + docs). The
-employee-facing Connections surface AND the tested worker brain for Teams + Telegram, built on the
-Google-connection discipline (no second connection framework).
+**Draft PR #308** on `feat/connections-teams-telegram` (off `main` @ `1cfce8b`). Surface + durable
+Telegram worker + staging infra, on the Google-connection discipline. Matt merges/deploys.
 
-**LOCKED PRODUCT PRINCIPLE (in code):** Teams/Telegram are INTELLIGENCE SOURCES, not clients Loop
-reimplements. OBSERVE → NORMALIZE → cross-source intelligence (same model as Gmail/Calendar/CallGrid/
-CRM, no silo). NO composer/reply/reaction/edit/delete/inbox/conversation-browsing — provider stays
-where the conversation happens; Loop points the person back. Observation ≠ retention (minimize/govern
-raw content, never a mirror); provenance returns to source. Privacy unchanged (employee-private, no
-auto private→org, D1/D2/offboarding). Encoded in shared profiles, the panel copy, adapter/mapping/
-event comments.
+**LOCKED PRINCIPLE (in code):** Teams/Telegram are INTELLIGENCE SOURCES, not clients Loop
+reimplements. OBSERVE → NORMALIZE → cross-source intelligence (no silo). No composer/reply/inbox.
+Observation ≠ retention (governed, content-minimized store; never a mirror). Provenance returns to
+source. Privacy unchanged. **Security:** web tier holds NO session key (only the worker seals/opens);
+phone/code/password never stored/logged; message text read only as `hadText`; signed web↔worker
+channel; no send/reply/react/history-import; teleproto in the worker pkg only (never the web bundle).
 
-- **Built & tested (46 connection tests; validatable without deploy/credentials):** state + sealing;
-  content-free `ConversationEvent`; `SourceConnection` model + repo (migration 20260925000000, NOT
-  dispatched); `sourceConnections` IAM; `SourceConnectionService`; `/app/connections` tiles + actions;
-  and the worker brain in `apps/connections-worker` — Telegram content-free mapping (pure; a test
-  caught+fixed a raw-chat-id leak in providerEventId), `TelegramAdapter` behind a testable port,
-  `runObservationSweep` (discovery → dispatch → open credential → cycle → sink-before-cursor).
-- **Config to go live (web tier):** `LOOP_CONNECTION_SECRET_KEY` + `LOOP_CONNECTION_PROVIDERS`
-  (`apps/web/src/connections/connection-environment.ts`). Until set, every tile reads "not available
-  yet."
-- **Telegram provider secret stored:** Matt created `loop/connections/staging/telegram` in staging AWS
-  (065148797865, us-east-1), keys `api_id`/`api_hash`. The worker will read it at runtime.
-- **NOT in #308 — the deploy-coupled phase (validatable only by deploying + a one-time Telegram
-  phone-code login; includes a retention decision):** the live gramjs (MTProto) client + Telegram
-  login flow; the observation-sink impl + governed retention; the Fargate CDK (`infra/connections`,
-  mirroring apps/brain-executor↔infra/brain; brain-stack has no VPC, so a new small VPC is needed);
-  the AWS deploy. Direct-DB worker (holds the sealer + Neon access) is the recommended smallest shape;
-  Fargate (not Lambda) for persistent sockets; the Lambda quota (case 178965925600101) is unrelated.
-- **Next human action:** decide whether to enter the deploy-coupled worker phase now — I build the
-  live Telegram client + login + sink + Fargate stack; Matt deploys to staging and does a one-time
-  Telegram phone-code login to validate. (This lifts the "don't deploy new AWS" hold for this worker.)
+**Built & tested (643 web + 64 connection + 6 infra synth; typecheck clean except the marketplace
+baseline; web build passes):** state/sealing; content-free `ConversationEvent`; `SourceConnection` +
+repo + `sourceConnections` IAM + `SourceConnectionService`; `/app/connections` tiles + interactive
+Telegram sign-in widget; worker (`apps/connections-worker`): content-free mapping, `TelegramAdapter`,
+`runObservationSweep` (sink-before-cursor), login coordinator, teleproto seam, signed control server,
+entrypoint; `SourceObservation` governed store; `infra/connections` (Fargate + internal ALB + HTTPS
+HTTP API/VPC Link + Secrets Manager wiring).
+
+**Migrations (NOT dispatched):** `20260925000000_source_connections`, `20260926000000_source_observations`.
+Apply to the STAGING Neon DB before the worker/web use the tables.
+
+**Secrets (Secrets Manager, staging 065148797865 us-east-1):** `loop/connections/staging/telegram`
+(api_id/api_hash) — created by Matt ✅. Created by the CDK deploy: `.../connection-key` (UNSET →
+`openssl rand -base64 32`), `.../database-url` (UNSET → Neon staging URL), `.../conversation-secret`
+(generated), `.../worker-control` (generated; read once for the web env).
+
+**Web env (Netlify) to set after deploy:** `LOOP_CONNECTION_PROVIDERS=TELEGRAM`,
+`LOOP_CONNECTIONS_WORKER_URL=<HttpApi WorkerUrl output>`, `LOOP_CONNECTIONS_WORKER_SECRET=<worker-control
+value>`. (The web no longer uses `LOOP_CONNECTION_SECRET_KEY`.)
+
+**Next human actions (ordered):** (1) `cd infra/connections && npx cdk deploy` with staging AWS creds
++ Docker available (creates infra + secrets + builds the image); (2) populate the two UNSET secrets +
+read the worker-control value; (3) apply the two migrations to staging Neon; (4) set the three Netlify
+vars + redeploy web; (5) force a new Fargate deployment so the task picks up the populated secrets;
+(6) Loop → Connections → Telegram → Connect → phone/code/2FA → Ready. No production changes.
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
