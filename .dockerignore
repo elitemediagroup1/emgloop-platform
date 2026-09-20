@@ -1,0 +1,8 @@
+# Docker build context excludes for the connections worker image (infra/connections).
+**/node_modules
+.git
+**/.next
+**/cdk.out
+**/dist
+**/*.tsbuildinfo
+infra/*/node_modules
