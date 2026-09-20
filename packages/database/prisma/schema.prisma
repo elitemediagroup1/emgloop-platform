@@ -268,41 +268,43 @@ model Organization {
   workStageEvents          WorkStageEvent[]
   workDependencies         WorkDependency[]
 
-  crmRelationships        CrmRelationship[]
-  crmRelationshipEvents   CrmRelationshipEvent[]
-  crmParticipants         CrmParticipant[]
-  aiInvocations           AiInvocation[]
+  crmRelationships          CrmRelationship[]
+  crmRelationshipEvents     CrmRelationshipEvent[]
+  crmParticipants           CrmParticipant[]
+  aiInvocations             AiInvocation[]
   // --- Brain durable execution (B4) ---
-  brainJobs               BrainJob[]
-  brainJobTransitions     BrainJobTransition[]
-  brainJobSteps           BrainJobStep[]
-  brainJobWaits           BrainJobWait[]
-  brainCommands           BrainCommand[]
-  brainEvents             BrainEvent[]
-  aiControls              AiControl[]
-  aiControlCurrent        AiControlCurrent[]
+  brainJobs                 BrainJob[]
+  brainJobTransitions       BrainJobTransition[]
+  brainJobSteps             BrainJobStep[]
+  brainJobWaits             BrainJobWait[]
+  brainCommands             BrainCommand[]
+  brainEvents               BrainEvent[]
+  aiControls                AiControl[]
+  aiControlCurrent          AiControlCurrent[]
   /// Google Workspace connection (Private V1). One per member; see GoogleConnection.
-  googleConnections       GoogleConnection[]
+  googleConnections         GoogleConnection[]
   /// Background conversation sources (Teams, Telegram). One per member per provider; see
   /// SourceConnection.
-  sourceConnections       SourceConnection[]
+  sourceConnections         SourceConnection[]
   /// Content-free observations from those sources (who/when, never content); see SourceObservation.
-  sourceObservations      SourceObservation[]
+  sourceObservations        SourceObservation[]
+  /// Historical baseline checkpoints (Telegram): per member per provider; see SourceBaselineCheckpoint.
+  sourceBaselineCheckpoints SourceBaselineCheckpoint[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
-  workSourceCursors       WorkSourceCursor[]
-  workDrafts              WorkDraft[]
-  workSyncRuns            WorkSyncRun[]
-  workCorrespondents      WorkCorrespondent[]
-  workThreads             WorkThread[]
-  workMessages            WorkMessage[]
-  workEvents              WorkEvent[]
-  workDocuments           WorkDocument[]
-  workItems               WorkItem[]
-  workItemObservations    WorkItemObservation[]
-  workBriefs              WorkBrief[]
-  workFeedback            WorkFeedback[]
-  employeeWorkPreferences EmployeeWorkPreferences[]
-  workRetentionOverrides  WorkRetentionOverride[]
+  workSourceCursors         WorkSourceCursor[]
+  workDrafts                WorkDraft[]
+  workSyncRuns              WorkSyncRun[]
+  workCorrespondents        WorkCorrespondent[]
+  workThreads               WorkThread[]
+  workMessages              WorkMessage[]
+  workEvents                WorkEvent[]
+  workDocuments             WorkDocument[]
+  workItems                 WorkItem[]
+  workItemObservations      WorkItemObservation[]
+  workBriefs                WorkBrief[]
+  workFeedback              WorkFeedback[]
+  employeeWorkPreferences   EmployeeWorkPreferences[]
+  workRetentionOverrides    WorkRetentionOverride[]
 
   googleOAuthStates GoogleOAuthState[]
 
@@ -502,38 +504,41 @@ model OrganizationMembership {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  organization            Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user                    User                      @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
-  invitedBy               User?                     @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                      User                       @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy                 User?                      @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   /// B4. Brain work runs on a membership's authority: a job's principal must hold one here.
-  brainJobs               BrainJob[]                @relation("BrainJobPrincipal")
-  brainJobWaits           BrainJobWait[]            @relation("BrainJobWaitPrincipal")
+  brainJobs                 BrainJob[]                 @relation("BrainJobPrincipal")
+  brainJobWaits             BrainJobWait[]             @relation("BrainJobWaitPrincipal")
   /// A Google connection belongs to a membership: the person, in THIS organization.
-  googleConnection        GoogleConnection[]        @relation("GoogleConnectionMember")
-  googleOAuthStates       GoogleOAuthState[]        @relation("GoogleOAuthStateMember")
+  googleConnection          GoogleConnection[]         @relation("GoogleConnectionMember")
+  googleOAuthStates         GoogleOAuthState[]         @relation("GoogleOAuthStateMember")
   /// A source connection (Teams, Telegram) belongs to a membership: the person, in THIS
   /// organization, so offboarding takes it with them.
-  sourceConnections       SourceConnection[]        @relation("SourceConnectionMember")
+  sourceConnections         SourceConnection[]         @relation("SourceConnectionMember")
   /// Content-free observations from those sources belong to the membership too, so offboarding
   /// takes them with the person.
-  sourceObservations      SourceObservation[]       @relation("SourceObservationMember")
+  sourceObservations        SourceObservation[]        @relation("SourceObservationMember")
+  /// The Telegram historical-baseline checkpoint belongs to the membership too, so offboarding
+  /// takes it with the person.
+  sourceBaselineCheckpoints SourceBaselineCheckpoint[] @relation("SourceBaselineCheckpointMember")
   /// Daily Loop (DL-1). One person's own work state, in THIS organization: it belongs to the
   /// membership, so offboarding takes it with them.
-  workSourceCursors       WorkSourceCursor[]        @relation("WorkSourceCursorMember")
-  workDrafts              WorkDraft[]               @relation("WorkDraftMember")
-  workSyncRuns            WorkSyncRun[]             @relation("WorkSyncRunMember")
-  workCorrespondents      WorkCorrespondent[]       @relation("WorkCorrespondentMember")
-  workThreads             WorkThread[]              @relation("WorkThreadMember")
-  workMessages            WorkMessage[]             @relation("WorkMessageMember")
-  workEvents              WorkEvent[]               @relation("WorkEventMember")
-  workDocuments           WorkDocument[]            @relation("WorkDocumentMember")
-  workItems               WorkItem[]                @relation("WorkItemMember")
-  workItemObservations    WorkItemObservation[]     @relation("WorkItemObservationMember")
-  workBriefs              WorkBrief[]               @relation("WorkBriefMember")
-  workFeedback            WorkFeedback[]            @relation("WorkFeedbackMember")
-  employeeWorkPreferences EmployeeWorkPreferences[] @relation("EmployeeWorkPreferencesMember")
+  workSourceCursors         WorkSourceCursor[]         @relation("WorkSourceCursorMember")
+  workDrafts                WorkDraft[]                @relation("WorkDraftMember")
+  workSyncRuns              WorkSyncRun[]              @relation("WorkSyncRunMember")
+  workCorrespondents        WorkCorrespondent[]        @relation("WorkCorrespondentMember")
+  workThreads               WorkThread[]               @relation("WorkThreadMember")
+  workMessages              WorkMessage[]              @relation("WorkMessageMember")
+  workEvents                WorkEvent[]                @relation("WorkEventMember")
+  workDocuments             WorkDocument[]             @relation("WorkDocumentMember")
+  workItems                 WorkItem[]                 @relation("WorkItemMember")
+  workItemObservations      WorkItemObservation[]      @relation("WorkItemObservationMember")
+  workBriefs                WorkBrief[]                @relation("WorkBriefMember")
+  workFeedback              WorkFeedback[]             @relation("WorkFeedbackMember")
+  employeeWorkPreferences   EmployeeWorkPreferences[]  @relation("EmployeeWorkPreferencesMember")
   /// Identity match suggestions resting on this person's private evidence (D1).
-  privateHypotheses       IntelligenceHypothesis[]  @relation("IntelligenceHypothesisPrivateTo")
+  privateHypotheses         IntelligenceHypothesis[]   @relation("IntelligenceHypothesisPrivateTo")
 
   @@unique([userId, organizationId])
   @@index([organizationId, status])
@@ -5804,29 +5809,29 @@ model SourceConnection {
 /// org-only read path. IDEMPOTENT: unique on (org, user, provider, providerEventId), so the worker
 /// can re-observe after a failure without duplicating -- the cursor never has to outrun this store.
 model SourceObservation {
-  id             String   @id @default(cuid())
-  organizationId String
-  userId         String
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
   /// MICROSOFT_TEAMS | TELEGRAM (CONNECTION_PROVIDERS).
-  provider       String
+  provider        String
   /// The provider's stable id for this event, keyed so it never carries a raw chat id
   /// (`<conversationKey>:<messageId>`). Unique per (org, user, provider) for idempotency.
   providerEventId String
   /// One-way HMAC key for the conversation; never the raw chat/peer id.
   conversationKey String
   /// One-way HMAC key for the sender; NULL when the provider did not say. Never a raw id.
-  senderKey      String?
+  senderKey       String?
   /// One-way HMAC keys for the known participants; never raw ids, never names.
   participantKeys String[] @default([])
   /// INBOUND | OUTBOUND | UNKNOWN.
-  direction      String
+  direction       String
   /// Whether the message had text -- the boolean only, never the text.
-  hadText        Boolean
+  hadText         Boolean
   /// When it happened, per the provider (UTC).
-  occurredAt     DateTime
+  occurredAt      DateTime
   /// When Loop observed it (UTC).
-  observedAt     DateTime
-  createdAt      DateTime @default(now())
+  observedAt      DateTime
+  createdAt       DateTime @default(now())
 
   organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   membership   OrganizationMembership @relation("SourceObservationMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
@@ -5835,6 +5840,61 @@ model SourceObservation {
   @@index([organizationId, userId, provider, occurredAt])
   @@index([observedAt])
   @@map("source_observations")
+}
+
+/// A GOVERNED HISTORICAL BASELINE checkpoint for a background source (Telegram, Slice 1). It walks a
+/// connection's history BACKWARD from the connect point to an employee-chosen floor, landing the SAME
+/// content-free SourceObservation rows the live sweep does (who/when only, never content) -- but on a
+/// checkpoint that is COMPLETELY INDEPENDENT of the live observation cursor (SourceConnection.cursor).
+/// The baseline code path never writes that live cursor; it advances only `checkpointCursor` here.
+///
+/// EMPLOYEE-SELECTED DEPTH, BOUNDED. `windowDays` is one of an allowlist [30, 90, 180, 365] (there is
+/// no all-time option); `windowFloorAt` is the precomputed instant the walk stops at. The employee can
+/// change the window or revoke it; REVOKED stops further processing immediately, and already-written
+/// observations expire only via the existing retention policy (baseline depth is not retention).
+///
+/// EMPLOYEE-PRIVATE, ONE PER PROVIDER. Both ids are on the row and every repository method takes both.
+/// The composite foreign key is to the MEMBERSHIP, so offboarding cascades this away with the person.
+/// No message content, no name, no raw id: `checkpointCursor` is an opaque backward offset, never content.
+model SourceBaselineCheckpoint {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+  /// MICROSOFT_TEAMS | TELEGRAM (CONNECTION_PROVIDERS). Only TELEGRAM is walked in Slice 1.
+  provider       String
+
+  /// Employee-selected depth, one of SOURCE_CONNECTION_BASELINE_WINDOWS ([30, 90, 180, 365]).
+  windowDays    Int
+  /// The instant the backward walk stops at: (connectedAt ?? consentAt) minus windowDays. Never content.
+  windowFloorAt DateTime
+  /// When the employee authorized (or last re-scoped) this baseline.
+  consentAt     DateTime
+
+  /// NOT_STARTED | IN_PROGRESS | COMPLETE | REVOKED (BASELINE_STATES, deriveBaselineState).
+  state            String    @default("NOT_STARTED")
+  /// Opaque BACKWARD offset the walk resumes from. NEVER content, and NEVER the live observation cursor.
+  checkpointCursor String?
+  /// The oldest occurredAt the walk has reached so far (for honest progress). Never content.
+  oldestReachedAt  DateTime?
+
+  startedAt        DateTime?
+  completedAt      DateTime?
+  lastRunAt        DateTime?
+  /// Last failure class (AUTH | TRANSIENT | SINK_UNAVAILABLE | FLOOD_WAIT). Never a provider's text.
+  lastFailureClass String?
+  /// Set when Telegram asked Loop to wait (FLOOD_WAIT): the checkpoint holds until then.
+  backoffUntil     DateTime?
+  revokedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("SourceBaselineCheckpointMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider])
+  @@index([state, lastRunAt])
+  @@map("source_baseline_checkpoints")
 }
 
 // ---------------------------------------------------------------------------
