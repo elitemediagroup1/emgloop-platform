@@ -94,6 +94,16 @@ describe('the Connections page and actions', () => {
     assert.match(page, /requirePermission\(/); // the page establishes a session before any read
   });
 
+  it('the source-connection read is wrapped so a DB failure degrades instead of crashing the page', () => {
+    const page = code(read('app/app/connections/page.tsx'));
+    // The read is inside try/catch and the status is nullable; on failure the panel gets null.
+    assert.match(page, /let connectionStatus: SourceConnectionStatus \| null = null;/);
+    assert.match(page, /try \{[\s\S]*?connectionStatus = await sourceConnections\(\)\.status\(/);
+    assert.match(page, /\} catch \(err\) \{/);
+    // Only the error class is logged -- never a connection string or secret.
+    assert.doesNotMatch(page, /console\.(error|log)\([^)]*DATABASE_URL/);
+  });
+
   it('the actions act under sourceConnections:update from the session, never the form', () => {
     const actions = code(read('connections/actions.ts'));
     assert.match(actions, /^\s*'use server';/);
@@ -153,5 +163,15 @@ describe('the panel is honest', () => {
   it('refuses the whole panel to a person who may not view', () => {
     const html = renderToStaticMarkup(<SourceConnectionsPanel status={{ permitted: false }} outcome={null} time={time} />);
     assert.match(html, /cannot connect communication sources/i);
+  });
+
+  it('a failed status read (null) renders an honest "could not load" state, never a crash', () => {
+    // Regression for the Server Component crash (Prisma P2021: source_connections missing) -- a read
+    // failure must degrade, not throw. Rendering must not throw, and the copy must say it plainly.
+    let html = '';
+    assert.doesNotThrow(() => {
+      html = renderToStaticMarkup(<SourceConnectionsPanel status={null} outcome={null} time={time} />);
+    });
+    assert.match(html, /could not be loaded/i);
   });
 });
