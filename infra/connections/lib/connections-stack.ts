@@ -68,15 +68,6 @@ export class ConnectionsStack extends Stack {
     // --- Secrets ------------------------------------------------------------------------------
     const telegram = secretsmanager.Secret.fromSecretNameV2(this, 'TelegramSecret', CONNECTION_SECRET_NAMES.telegram);
 
-    const unset = (id2: string, secretName: string, description: string) =>
-      new secretsmanager.Secret(this, id2, {
-        secretName,
-        description,
-        removalPolicy: RemovalPolicy.RETAIN,
-        // A marked placeholder for an operator to replace with the real value.
-        generateSecretString: { secretStringTemplate: JSON.stringify({ state: 'UNSET' }), generateStringKey: 'placeholder', excludePunctuation: true },
-      });
-
     const generated = (id2: string, secretName: string, description: string) =>
       new secretsmanager.Secret(this, id2, {
         secretName,
@@ -85,9 +76,12 @@ export class ConnectionsStack extends Stack {
         generateSecretString: { passwordLength: 64, excludePunctuation: true },
       });
 
-    // Populated by an operator (see the runbook): 32 random bytes base64, and the Neon staging URL.
-    const connectionKey = unset('ConnectionKeySecret', CONNECTION_SECRET_NAMES.connectionKey, 'Session-sealing key (32 bytes base64). UNSET until an operator populates it.');
-    const databaseUrl = unset('DatabaseUrlSecret', CONNECTION_SECRET_NAMES.databaseUrl, 'Neon staging DATABASE_URL. UNSET until an operator populates it.');
+    // OPERATOR-PROVIDED PREREQUISITES, referenced not created (like the Telegram secret): they must
+    // exist with real values BEFORE deploy, so the worker -- which fails closed on a missing sealing
+    // key at boot -- starts healthy and the Fargate service reaches steady state. Creating them here
+    // as empty placeholders would crash the first task and roll the deployment back. See the runbook.
+    const connectionKey = secretsmanager.Secret.fromSecretNameV2(this, 'ConnectionKeySecret', CONNECTION_SECRET_NAMES.connectionKey);
+    const databaseUrl = secretsmanager.Secret.fromSecretNameV2(this, 'DatabaseUrlSecret', CONNECTION_SECRET_NAMES.databaseUrl);
     // Generated here; never leave AWS. The control secret is also read once to set the web env var.
     const conversationSecret = generated('ConversationSecret', CONNECTION_SECRET_NAMES.conversationSecret, 'HMAC key for one-way conversation keys (generated).');
     const workerControl = generated('WorkerControlSecret', CONNECTION_SECRET_NAMES.workerControl, 'Web<->worker control channel shared secret (generated).');
@@ -126,6 +120,8 @@ export class ConnectionsStack extends Stack {
       minHealthyPercent: 0, // one task; allow it to be replaced without a second running
       maxHealthyPercent: 200,
       circuitBreaker: { rollback: true },
+      // Give the container time to start and register before the load balancer judges it unhealthy.
+      healthCheckGracePeriod: Duration.seconds(120),
     });
 
     // --- Ingress: internal ALB, reached only through an HTTPS HTTP API via a VPC Link ---------
