@@ -61,14 +61,21 @@ test('the task takes every secret from Secrets Manager as an env var; none is pl
   assert.ok(!/postgresql:\/\/[^x]/.test(json), 'no real database url in the template');
 });
 
-test('the session-sealing key and DB URL are created UNSET here; the Telegram secret is referenced, not created', () => {
-  // Two created secrets are UNSET placeholders; two are generated. The Telegram secret is imported.
+test('only the two HMAC secrets are created (generated); the operator-provided secrets are referenced, not created', () => {
+  // The worker fails closed on a missing sealing key at boot, so the operator-provided secrets
+  // (telegram, connection-key, database-url) must pre-exist with real values -- they are REFERENCED,
+  // never created here as placeholders that would crash the first task. Only the two HMAC secrets,
+  // which need no human value, are generated here.
   const created = Object.values(resources).filter((r) => r.Type === 'AWS::SecretsManager::Secret');
-  assert.equal(created.length, 4); // connection-key, database-url, conversation-secret, worker-control
+  assert.equal(created.length, 2); // conversation-secret, worker-control
   const names = created.map((r) => r.Properties?.Name);
-  assert.ok(names.includes(CONNECTION_SECRET_NAMES.connectionKey));
-  assert.ok(names.includes(CONNECTION_SECRET_NAMES.databaseUrl));
-  assert.ok(!names.includes(CONNECTION_SECRET_NAMES.telegram), 'the Telegram secret is referenced, never re-created');
+  assert.ok(names.includes(CONNECTION_SECRET_NAMES.conversationSecret));
+  assert.ok(names.includes(CONNECTION_SECRET_NAMES.workerControl));
+  for (const referenced of [CONNECTION_SECRET_NAMES.telegram, CONNECTION_SECRET_NAMES.connectionKey, CONNECTION_SECRET_NAMES.databaseUrl]) {
+    assert.ok(!names.includes(referenced), `${referenced} must be referenced (operator-provided), never re-created`);
+  }
+  // Every created secret is a generated random value, never an UNSET placeholder that boots invalid.
+  for (const r of created) assert.equal(r.Properties?.GenerateSecretString?.SecretStringTemplate, undefined, 'no UNSET placeholder secrets');
 });
 
 test('the internal ALB admits ONLY the VPC Link security group -- no 0.0.0.0/0 ingress anywhere', () => {
