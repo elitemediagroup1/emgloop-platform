@@ -71,6 +71,40 @@ test('the session-sealing key and DB URL are created UNSET here; the Telegram se
   assert.ok(!names.includes(CONNECTION_SECRET_NAMES.telegram), 'the Telegram secret is referenced, never re-created');
 });
 
+test('the internal ALB admits ONLY the VPC Link security group -- no 0.0.0.0/0 ingress anywhere', () => {
+  const gid = (ref: any) => (ref && ref['Fn::GetAtt'] ? ref['Fn::GetAtt'][0] : ref && ref.Ref ? ref.Ref : ref);
+
+  // 1. No security group -- inline or standalone -- admits the world on any port.
+  const ingressRules: any[] = [];
+  for (const r of Object.values(resources)) {
+    if (r.Type === 'AWS::EC2::SecurityGroup') ingressRules.push(...(r.Properties.SecurityGroupIngress ?? []));
+    if (r.Type === 'AWS::EC2::SecurityGroupIngress') ingressRules.push(r.Properties);
+  }
+  for (const rule of ingressRules) {
+    assert.notEqual(rule.CidrIp, '0.0.0.0/0', `open ingress found: ${JSON.stringify(rule)}`);
+    assert.notEqual(rule.CidrIpv6, '::/0', `open IPv6 ingress found: ${JSON.stringify(rule)}`);
+  }
+
+  // 2. The ALB's security group is the automatically-created ELB one; its ONLY ingress is from the
+  //    VPC Link SG on port 80.
+  const albSgId = Object.entries(resources).find(([, r]) => r.Type === 'AWS::EC2::SecurityGroup' && /ELB/.test(r.Properties.GroupDescription ?? ''))?.[0];
+  const vpcLinkSgId = Object.entries(resources).find(([, r]) => r.Type === 'AWS::EC2::SecurityGroup' && /VPC Link/i.test(r.Properties.GroupDescription ?? ''))?.[0];
+  assert.ok(albSgId && vpcLinkSgId, 'expected an ALB SG and a VPC Link SG');
+  const albIngress = Object.values(resources).filter((r) => r.Type === 'AWS::EC2::SecurityGroupIngress' && gid(r.Properties.GroupId) === albSgId);
+  assert.equal(albIngress.length, 1, 'the ALB SG must have exactly one ingress rule');
+  assert.equal(gid(albIngress[0]!.Properties.SourceSecurityGroupId), vpcLinkSgId, 'ALB ingress must be from the VPC Link SG only');
+  assert.equal(albIngress[0]!.Properties.FromPort, 80);
+  assert.equal(albIngress[0]!.Properties.ToPort, 80);
+  const albSg = resources[albSgId]!;
+  assert.deepEqual(albSg.Properties.SecurityGroupIngress ?? [], [], 'the ALB SG must carry no inline (e.g. 0.0.0.0/0) ingress');
+
+  // 3. The VPC Link has its OWN security group (not the locked-down default), so its egress to the
+  //    ALB survives restrictDefaultSecurityGroup.
+  const vpcLink = Object.values(resources).find((r) => r.Type === 'AWS::ApiGatewayV2::VpcLink');
+  assert.ok(vpcLink && Array.isArray(vpcLink.Properties.SecurityGroupIds) && vpcLink.Properties.SecurityGroupIds.length === 1, 'the VPC Link must have exactly its own SG');
+  assert.equal(gid(vpcLink!.Properties.SecurityGroupIds[0]), vpcLinkSgId);
+});
+
 test('nothing speculative: no queue, no database, no public load balancer, no IAM users', () => {
   for (const forbidden of ['AWS::SQS::Queue', 'AWS::RDS::DBInstance', 'AWS::DynamoDB::Table', 'AWS::IAM::User', 'AWS::IAM::AccessKey']) {
     assert.equal(count(forbidden), 0, `unexpected ${forbidden}`);

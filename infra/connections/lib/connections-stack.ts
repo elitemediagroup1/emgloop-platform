@@ -130,7 +130,7 @@ export class ConnectionsStack extends Stack {
 
     // --- Ingress: internal ALB, reached only through an HTTPS HTTP API via a VPC Link ---------
     const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', { vpc, internetFacing: false });
-    const listener = alb.addListener('Listener', { port: 80, protocol: elbv2.ApplicationProtocol.HTTP });
+    const listener = alb.addListener('Listener', { port: 80, protocol: elbv2.ApplicationProtocol.HTTP, open: false });
     listener.addTargets('Worker', {
       port: CONTAINER_PORT,
       protocol: elbv2.ApplicationProtocol.HTTP,
@@ -139,7 +139,18 @@ export class ConnectionsStack extends Stack {
       deregistrationDelay: Duration.seconds(10),
     });
 
-    const vpcLink = new VpcLink(this, 'VpcLink', { vpc });
+    // The VPC Link gets its OWN security group so the ALB can admit exactly it -- and so it is not
+    // silently placed in the (locked-down) default SG, which would strip its egress to the ALB.
+    const vpcLinkSg = new ec2.SecurityGroup(this, 'VpcLinkSg', {
+      vpc,
+      description: 'API Gateway VPC Link to the connections worker ALB',
+      allowAllOutbound: false,
+    });
+    const vpcLink = new VpcLink(this, 'VpcLink', { vpc, securityGroups: [vpcLinkSg] });
+    // The internal ALB accepts traffic ONLY from the VPC Link's ENIs -- not 0.0.0.0/0, and not the
+    // rest of the VPC. `open: false` on the listener suppresses CDK's default anyone-on-80 rule, and
+    // this is the only ingress. allowFrom also wires the VPC Link SG's egress to the ALB.
+    alb.connections.allowFrom(vpcLinkSg, ec2.Port.tcp(80), 'API Gateway VPC Link only');
     const httpApi = new HttpApi(this, 'ControlApi', {
       description: 'Loop connections worker control API (staging).',
       defaultIntegration: new HttpAlbIntegration('AlbIntegration', listener, { vpcLink }),
