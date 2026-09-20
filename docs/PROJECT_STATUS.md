@@ -2199,35 +2199,40 @@ it; a broader Headlines route/access policy is a separate future decision.
     start until Stage 1 merges and real objectives exist; a signal layer built against an empty
     referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.
 
-## Microsoft Teams + Telegram Connections — SURFACE MERGE-READY (draft #308), WORKER NOT BUILT
+## Microsoft Teams + Telegram Connections — SURFACE + WORKER BRAIN MERGE-READY (draft #308); LIVE CLIENT/DEPLOY EXCLUDED
 
-**Draft PR #308** on `feat/connections-teams-telegram` (5 commits off `main` @ `1cfce8b`). The whole
-employee-facing Connections surface for Teams + Telegram, built on the Google-connection discipline
-(no second connection framework). Validated: web build ✅; web/database/shared typecheck ✅ (only
-`marketplace-intelligence` fails, the documented baseline); lint fails (ESLint never configured,
-baseline); 643 web tests + 29 database/shared connection tests pass (incl. cross-tenant + cross-seal
-refusal on real PG18).
+**Draft PR #308** on `feat/connections-teams-telegram` (7 commits off `main` @ `1cfce8b`, + docs). The
+employee-facing Connections surface AND the tested worker brain for Teams + Telegram, built on the
+Google-connection discipline (no second connection framework).
 
-- **What is done and tested:** provider-neutral state (`deriveConnectionState`, auth alone is never
-  READY) + sealed secrets (`ConnectionSecretSealer`); `ConversationEvent` (content-free by
-  construction — the reason message text cannot reach an LLM) + `runConnectionCycle`; `SourceConnection`
-  model (org-scoped, user-private, one per (org,user,provider)) + repository; `sourceConnections` IAM
-  resource (mirrors `googleWorkspace`); `SourceConnectionService` (default env → NOT_CONFIGURED, nothing
-  connects); the `/app/connections` tiles, consent copy, truthful states, server actions.
-- **Migration:** `20260925000000_source_connections` — code-complete, NOT dispatched (`migrate diff`
-  clean). Open thread 6 (migrate-ahead alarm) applies.
-- **Config to go live:** `LOOP_CONNECTION_SECRET_KEY` (32 bytes base64) + `LOOP_CONNECTION_PROVIDERS`
-  (comma list), read only by `apps/web/src/connections/connection-environment.ts`. Until both are set
-  every tile truthfully reads "not available yet."
-- **What is NOT built (deliberately):** the durable worker that performs the out-of-band auth
-  (Microsoft sign-in; Telegram phone-code) and holds the persistent sessions; the provider network
-  adapters (Telegram MTProto / Teams interactive session); any AWS deploy. The worker is a new
-  deployable + a new VPC/Fargate stack + a direct-DB-vs-HTTP decision (`brain-executor` is
-  HTTP-mediated + runtime-neutral); it is deploy-gated and credential-gated, so it is a deliberate
-  next phase, not folded into #308.
-- **Next step:** Matt merges #308 (and dispatches the migration when he chooses); to unblock the first
-  validatable provider adapter, create a Telegram API application at my.telegram.org (api_id/api_hash)
-  — the values go into the worker's secret store later, never pasted into chat.
+**LOCKED PRODUCT PRINCIPLE (in code):** Teams/Telegram are INTELLIGENCE SOURCES, not clients Loop
+reimplements. OBSERVE → NORMALIZE → cross-source intelligence (same model as Gmail/Calendar/CallGrid/
+CRM, no silo). NO composer/reply/reaction/edit/delete/inbox/conversation-browsing — provider stays
+where the conversation happens; Loop points the person back. Observation ≠ retention (minimize/govern
+raw content, never a mirror); provenance returns to source. Privacy unchanged (employee-private, no
+auto private→org, D1/D2/offboarding). Encoded in shared profiles, the panel copy, adapter/mapping/
+event comments.
+
+- **Built & tested (46 connection tests; validatable without deploy/credentials):** state + sealing;
+  content-free `ConversationEvent`; `SourceConnection` model + repo (migration 20260925000000, NOT
+  dispatched); `sourceConnections` IAM; `SourceConnectionService`; `/app/connections` tiles + actions;
+  and the worker brain in `apps/connections-worker` — Telegram content-free mapping (pure; a test
+  caught+fixed a raw-chat-id leak in providerEventId), `TelegramAdapter` behind a testable port,
+  `runObservationSweep` (discovery → dispatch → open credential → cycle → sink-before-cursor).
+- **Config to go live (web tier):** `LOOP_CONNECTION_SECRET_KEY` + `LOOP_CONNECTION_PROVIDERS`
+  (`apps/web/src/connections/connection-environment.ts`). Until set, every tile reads "not available
+  yet."
+- **Telegram provider secret stored:** Matt created `loop/connections/staging/telegram` in staging AWS
+  (065148797865, us-east-1), keys `api_id`/`api_hash`. The worker will read it at runtime.
+- **NOT in #308 — the deploy-coupled phase (validatable only by deploying + a one-time Telegram
+  phone-code login; includes a retention decision):** the live gramjs (MTProto) client + Telegram
+  login flow; the observation-sink impl + governed retention; the Fargate CDK (`infra/connections`,
+  mirroring apps/brain-executor↔infra/brain; brain-stack has no VPC, so a new small VPC is needed);
+  the AWS deploy. Direct-DB worker (holds the sealer + Neon access) is the recommended smallest shape;
+  Fargate (not Lambda) for persistent sockets; the Lambda quota (case 178965925600101) is unrelated.
+- **Next human action:** decide whether to enter the deploy-coupled worker phase now — I build the
+  live Telegram client + login + sink + Fargate stack; Matt deploys to staging and does a one-time
+  Telegram phone-code login to validate. (This lifts the "don't deploy new AWS" hold for this worker.)
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
