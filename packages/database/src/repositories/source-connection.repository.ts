@@ -77,6 +77,14 @@ export type SourceConnectionStoreOutcome =
   | { readonly outcome: 'STORED'; readonly connectionId: string }
   | { readonly outcome: 'NOT_PERMITTED' | 'NO_ATTEMPT' };
 
+/** One connection worth a cycle now: routing fields only, never a credential or content. */
+export interface DueConnection {
+  readonly organizationId: string;
+  readonly userId: string;
+  readonly provider: ConnectionProvider;
+  readonly cursor: string | null;
+}
+
 function sealedOf(row: Record<string, any>): SealedConnectionSecret | null {
   if (!row.secretSealed || !row.sealVersion || !row.keyRef) return null;
   return { sealVersion: row.sealVersion, keyRef: row.keyRef, sealed: new Uint8Array(row.secretSealed) };
@@ -304,6 +312,31 @@ export class SourceConnectionRepository {
       },
     });
     return count === 1;
+  }
+
+  /**
+   * PLATFORM-WORKER DISCOVERY, ACROSS ALL TENANTS. The durable worker is ONE process serving every
+   * organization, so this returns the connections worth a cycle now regardless of org -- like the
+   * brain sweeper, not like a tenant-scoped read, and it is the one method here that is not
+   * org-scoped by argument, on purpose. It answers only "who is worth attempting": routing fields
+   * (org, user, provider, cursor), never a credential and never content. Every action the worker
+   * then takes -- opening the credential, recording the cycle -- is (org, user, provider)-scoped and
+   * re-resolves the row, so a connection returned here in error is refused there.
+   *
+   * DUE = holds a credential AND is in a cyclable state (READY, CONNECTED_LIMITED, SETTING_UP,
+   * FAILED). RECONNECT_REQUIRED and DISCONNECTED are excluded: the credential is stale or gone, and
+   * re-attempting it every cycle would spend the provider's quota to re-learn what Loop recorded.
+   * Stalest-observed first, so a sweep that runs out of time always makes progress rather than
+   * re-attempting the same head of the queue.
+   */
+  async dueForObservation(limit = 500): Promise<DueConnection[]> {
+    const rows = await this.prisma.sourceConnection.findMany({
+      where: { secretSealed: { not: null }, state: { in: ['READY', 'CONNECTED_LIMITED', 'SETTING_UP', 'FAILED'] } },
+      orderBy: [{ lastObservedAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+      take: Math.max(1, Math.min(limit, 2000)),
+      select: { organizationId: true, userId: true, provider: true, cursor: true },
+    });
+    return rows.map((r) => ({ organizationId: r.organizationId, userId: r.userId, provider: r.provider as ConnectionProvider, cursor: r.cursor ?? null }));
   }
 
   /**

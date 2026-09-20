@@ -187,3 +187,46 @@ test('the database itself refuses a duplicate and a membership-less connection',
     await prisma.$disconnect();
   }
 });
+
+
+test('dueForObservation returns only credential-holding, cyclable connections, across tenants, stalest first', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const repo = new SourceConnectionRepository(prisma);
+  try {
+    const a = await tenant(prisma, 'due_a');
+    const b = await tenant(prisma, 'due_b');
+    const alice = a.users[0]!;
+    const bob = b.users[0]!;
+
+    // Alice/Telegram: live with a credential, observed long ago -> due, and first (stalest).
+    await repo.beginConnect(a.organizationId, alice, 'TELEGRAM', { actor: { userId: alice }, now: NOW });
+    await repo.storeCredential(a.organizationId, alice, 'TELEGRAM', { credentialKind: 'MTPROTO_SESSION', adapter: null, accountLabel: null, backgroundObservation: 'OPERATIONAL', sealed: sealedFor(a.organizationId, alice, 'TELEGRAM'), cursor: null, now: NOW }, { userId: alice });
+    await repo.recordCycle(a.organizationId, alice, 'TELEGRAM', { state: 'READY', backgroundObservation: 'OPERATIONAL', cursor: '1', now: new Date('2026-09-19T00:00:00Z') });
+
+    // Bob/Teams (different tenant): live with a credential, observed more recently -> due, but later.
+    await repo.beginConnect(b.organizationId, bob, 'MICROSOFT_TEAMS', { actor: { userId: bob }, now: NOW });
+    await repo.storeCredential(b.organizationId, bob, 'MICROSOFT_TEAMS', { credentialKind: 'OAUTH_REFRESH_TOKEN', adapter: 'INTERACTIVE_SESSION', accountLabel: null, backgroundObservation: 'OPERATIONAL', sealed: sealedFor(b.organizationId, bob, 'MICROSOFT_TEAMS'), cursor: null, now: NOW }, { userId: bob });
+    await repo.recordCycle(b.organizationId, bob, 'MICROSOFT_TEAMS', { state: 'READY', backgroundObservation: 'OPERATIONAL', cursor: '9', now: new Date('2026-09-19T06:00:00Z') });
+
+    // Alice/Teams: only CONNECTING (no credential) -> NOT due.
+    await repo.beginConnect(a.organizationId, alice, 'MICROSOFT_TEAMS', { actor: { userId: alice }, now: NOW });
+
+    // Bob/Telegram: disconnected -> NOT due.
+    await repo.beginConnect(b.organizationId, bob, 'TELEGRAM', { actor: { userId: bob }, now: NOW });
+    await repo.storeCredential(b.organizationId, bob, 'TELEGRAM', { credentialKind: 'MTPROTO_SESSION', adapter: null, accountLabel: null, backgroundObservation: 'OPERATIONAL', sealed: sealedFor(b.organizationId, bob, 'TELEGRAM'), cursor: null, now: NOW }, { userId: bob });
+    await repo.disconnect(b.organizationId, bob, 'TELEGRAM', { actor: { userId: bob }, now: NOW });
+
+    const due = await repo.dueForObservation(100);
+    const mine = due.filter((d) => d.organizationId === a.organizationId || d.organizationId === b.organizationId);
+    // Exactly the two credential-holding, cyclable connections, across both tenants.
+    assert.deepEqual(
+      mine.map((d) => `${d.organizationId === a.organizationId ? 'A' : 'B'}:${d.provider}`),
+      ['A:TELEGRAM', 'B:MICROSOFT_TEAMS'],
+    );
+    // Stalest-observed first; routing fields only (no credential field present).
+    assert.equal(mine[0]!.cursor, '1');
+    assert.equal((mine[0] as Record<string, unknown>).secretSealed, undefined);
+  } finally {
+    await prisma.$disconnect();
+  }
+});

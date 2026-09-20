@@ -2,7 +2,7 @@
 // adapter and its last cursor, run one observation and return the new cursor, the truthful
 // connection state, and counts. All provider I/O is behind the adapter; this holds the
 // error/health/reconnect policy so the worker process stays thin and testable.
-import { deriveConnectionState, type ConnectionState } from '@emgloop/shared';
+import { deriveConnectionState, type CapabilityStatus, type ConnectionState, type ConversationEvent } from '@emgloop/shared';
 import type { ConnectionAdapter } from './connection-adapter';
 
 export type CycleFailure = 'AUTH' | 'TRANSIENT';
@@ -20,6 +20,14 @@ export interface ConnectionCycleResult {
   readonly cursor: string | null;
   readonly observed: number;
   readonly failure: CycleFailure | null;
+  /** Whether background observation was operational this cycle, for the worker to record faithfully. */
+  readonly backgroundObservation: CapabilityStatus;
+  /**
+   * The content-free observations from this cycle, oldest first (empty on any failure). The worker
+   * hands these to its observation sink BEFORE it records the advanced cursor, so a cursor never
+   * moves past an observation the sink did not accept.
+   */
+  readonly events: readonly ConversationEvent[];
 }
 
 /** Classify a thrown error into auth (reconnect) vs transient (retry). Message never surfaced. */
@@ -51,6 +59,8 @@ export async function runConnectionCycle(
       cursor: input.cursor,
       observed: 0,
       failure,
+      backgroundObservation: 'UNAVAILABLE',
+      events: [],
     };
   }
   try {
@@ -60,6 +70,8 @@ export async function runConnectionCycle(
       cursor: result.cursor ?? input.cursor,
       observed: result.events.length,
       failure: null,
+      backgroundObservation: result.backgroundObservation,
+      events: result.events,
     };
   } catch (err) {
     const failure = classify(err);
@@ -68,6 +80,8 @@ export async function runConnectionCycle(
       cursor: input.cursor,
       observed: 0,
       failure,
+      backgroundObservation: 'UNAVAILABLE',
+      events: [],
     };
   } finally {
     await adapter.disconnect(session).catch(() => undefined);
