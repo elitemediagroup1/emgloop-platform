@@ -1,0 +1,105 @@
+# Connections worker environment -- DEPLOY. Manual, approved, staging only.
+#
+# Deploys infra/connections into Loop Brain Staging (065148797865, us-east-1) with short-lived
+# credentials from GitHub's OIDC provider. There are no AWS access keys anywhere, and no local
+# deploy. The account is checked before anything is compared or applied: the role ARN must be in
+# 065148797865, and so must the credentials it yields (allowed-account-ids, then an explicit check);
+# the CDK app refuses any other account as well.
+#
+# It cannot run until an administrator has (docs/runbooks/connections-aws-staging.md):
+#   1. deployed the deploy identity, infra/connections/access/github-deploy-access.yaml (once, by
+#      hand, never by this pipeline);
+#   2. created the `connections-staging` GitHub environment: Matt as required reviewer, `main` only,
+#      and the variable CONNECTIONS_STAGING_DEPLOY_ROLE_ARN.
+# Choosing `diff` shows the change and creates nothing.
+
+name: connections-infra-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'diff (show the change) or deploy (apply it)'
+        required: true
+        type: choice
+        options: [diff, deploy]
+      confirm:
+        description: 'For deploy, type exactly: deploy loop-connections-staging'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    environment: connections-staging
+    env:
+      # Only for `prisma generate` at install; nothing connects.
+      DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
+      CONNECTIONS_ACCOUNT: '065148797865'
+      DEPLOY_ROLE_ARN: ${{ vars.CONNECTIONS_STAGING_DEPLOY_ROLE_ARN }}
+    steps:
+      - name: Confirm
+        if: ${{ inputs.action == 'deploy' && inputs.confirm != 'deploy loop-connections-staging' }}
+        run: |
+          echo "Deploy requires the confirmation text: deploy loop-connections-staging"
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install
+        run: |
+          npm install --no-audit --no-fund
+          npm --prefix infra/connections install --no-audit --no-fund
+
+      - name: Test before touching AWS
+        run: |
+          npm run -w @emgloop/connections-worker test
+          npm --prefix infra/connections test
+
+      - name: The deploy role belongs to Loop Brain Staging
+        run: |
+          case "$DEPLOY_ROLE_ARN" in
+            "arn:aws:iam::${CONNECTIONS_ACCOUNT}:role/"?*) ;;
+            *) echo "CONNECTIONS_STAGING_DEPLOY_ROLE_ARN is not a role in ${CONNECTIONS_ACCOUNT}"; exit 1 ;;
+          esac
+
+      # Pinned to the v6.3.0 commit. With OIDC it sends no session tags; allowed-account-ids is
+      # checked against the assumed role's account.
+      - name: AWS credentials (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.CONNECTIONS_STAGING_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: connections-infra-${{ github.run_id }}
+          allowed-account-ids: '065148797865'
+
+      - name: The credentials are for Loop Brain Staging
+        run: |
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$account" != "$CONNECTIONS_ACCOUNT" ]; then
+            echo "Refusing: credentials are for $account, not $CONNECTIONS_ACCOUNT"
+            exit 1
+          fi
+
+      - name: Synthesize (creates nothing)
+        working-directory: infra/connections
+        run: npx cdk synth --no-notices LoopConnections-staging
+
+      - name: Diff
+        working-directory: infra/connections
+        run: npx cdk diff --no-notices LoopConnections-staging
+
+      - name: Deploy
+        if: ${{ inputs.action == 'deploy' }}
+        working-directory: infra/connections
+        run: npx cdk deploy --no-notices --require-approval never LoopConnections-staging
