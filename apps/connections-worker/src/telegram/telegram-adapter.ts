@@ -35,6 +35,8 @@ export interface TelegramClientPort {
   fetchSince(handle: TelegramClientHandle, cursor: string | null, now: Date): Promise<readonly TelegramMessageFacts[]>;
   /** Close the socket. Never modifies the Telegram account. */
   close(handle: TelegramClientHandle): Promise<void>;
+  /** Revoke this authorization at Telegram (used only by disconnect). Optional; best-effort. */
+  logOut?(handle: TelegramClientHandle): Promise<void>;
 }
 
 export interface TelegramClientHandle {

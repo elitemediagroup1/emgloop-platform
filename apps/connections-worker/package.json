@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@emgloop/database": "*",
-    "@emgloop/shared": "*"
+    "@emgloop/shared": "*",
+    "teleproto": "^1.229.0"
   },
   "engines": {
     "node": ">=22.0.0"

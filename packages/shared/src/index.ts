@@ -534,3 +534,4 @@ export * from './executive-review';
 export * from './mail-intelligence';
 export * from './source-connection';
 export * from './conversation-event';
+export * from './connection-worker-auth';
