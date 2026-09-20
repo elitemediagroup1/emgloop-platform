@@ -8,17 +8,20 @@
 //
 // AN INTELLIGENCE SOURCE, NOT A CHAT CLIENT. Each tile carries the provider profile's plain
 // sentence: Loop observes the source to surface what matters and points the person back to Teams/
-// Telegram to reply. There is no composer, inbox or conversation browser here, by design -- this is a
-// connection surface, not a messaging client.
+// Telegram to reply. There is no composer, inbox or conversation browser here, by design.
 //
-// SERVER COMPONENT. Connect and disconnect are server-action forms; no client code, and no value
-// here is a secret, a code, or a provider's text. The Teams adapter (personal vs work/school) is an
-// internal detail and is never surfaced -- there is one "Microsoft Teams" tile.
+// GOVERNED HISTORICAL BASELINE (Telegram). A live Telegram tile can import a bounded window of past
+// history -- WHO/WHEN metadata only, never message content. The employee picks the depth from a closed
+// allowlist (there is no all-time option); the sub-state, and any progress shown, trace to the
+// checkpoint. The copy never says Loop reads conversations: it reads who and when.
+//
+// SERVER COMPONENT. Connect, disconnect and the baseline controls are server-action forms; no client
+// code, and no value here is a secret, a code, or a provider's text.
 
-import { type ConnectionActionOutcome, type ConnectionState, type TimeView } from '@emgloop/shared';
+import { SOURCE_CONNECTION_BASELINE_WINDOWS, SOURCE_CONNECTION_BASELINE_DEFAULT_WINDOW_DAYS, type ConnectionActionOutcome, type ConnectionState, type SourceBaselineActionOutcome, type TimeView } from '@emgloop/shared';
 import type { ProviderConnectionView, SourceConnectionStatus } from '@emgloop/database';
 
-import { beginConnectSourceAction, disconnectSourceAction } from '../../../connections/actions';
+import { beginConnectSourceAction, disconnectSourceAction, authorizeBaselineAction, changeBaselineScopeAction, revokeBaselineAction } from '../../../connections/actions';
 import { TelegramConnectFlow } from './telegram-connect-flow';
 import type { SubjectState } from '../../../crm/subject-display';
 import { Facts, Panel, StateBlock, StatePill } from '../_loop-os/record';
@@ -42,6 +45,18 @@ export const CONNECTION_OUTCOME_MESSAGES: Readonly<Record<ConnectionActionOutcom
   },
   NOT_PERMITTED: { tone: 'crit', title: 'You cannot connect this here', body: 'Your role in this organization does not include connecting a communication source.' },
   INVALID: { tone: 'warn', title: 'That request could not be used', body: 'Start again from this page.' },
+};
+
+/** What each baseline outcome tells the person. Plain words; who/when only, never "reading your messages". */
+export const BASELINE_OUTCOME_MESSAGES: Readonly<Record<SourceBaselineActionOutcome, { readonly tone: Tone; readonly title: string; readonly body: string }>> = {
+  AUTHORIZED: { tone: 'good', title: 'Importing history', body: 'Loop will read who and when from your chosen window of past messages — metadata only, never their contents. You can change the window or stop it at any time.' },
+  SCOPE_CHANGED: { tone: 'good', title: 'History window changed', body: 'Loop will use the new window for the who/when it imports. Nothing already recorded is changed.' },
+  REVOKED: { tone: 'good', title: 'History import stopped', body: 'Loop will import no more history. What it already recorded is who/when only, and expires on the normal schedule.' },
+  NOT_IMPORTING: { tone: 'warn', title: 'Not importing history', body: 'There was no history import to change. Loop keeps observing new messages going forward.' },
+  NOT_PERMITTED: { tone: 'crit', title: 'You cannot do this here', body: 'Your role in this organization does not include changing a communication source.' },
+  NOT_CONFIGURED: { tone: 'warn', title: 'Not available yet', body: 'This Loop deployment has not been set up to import history for this source yet.' },
+  NO_CONNECTION: { tone: 'warn', title: 'Connect first', body: 'There is no live connection to import history from. Connect the account first.' },
+  INVALID: { tone: 'warn', title: 'That request could not be used', body: 'Choose one of the offered windows and try again.' },
 };
 
 /** One connection state's tile presentation. "Ready" is said ONLY when observation is operational. */
@@ -89,6 +104,88 @@ function OutcomeBanner({ outcome }: { outcome: ConnectionActionOutcome }) {
   );
 }
 
+function BaselineBanner({ outcome }: { outcome: SourceBaselineActionOutcome }) {
+  const message = BASELINE_OUTCOME_MESSAGES[outcome];
+  return (
+    <div className={`loop-banner loop-banner--${message.tone}`} role="status" data-baseline-outcome={outcome}>
+      <div className="loop-banner__text">
+        <div className="loop-banner__title">{message.title}</div>
+        <div className="loop-banner__body">{message.body}</div>
+      </div>
+    </div>
+  );
+}
+
+/** The one honest sentence a baseline sub-state reads. Who/when only, never message content. */
+export function baselinePresentation(view: ProviderConnectionView, time: TimeView): { readonly headline: string; readonly progress: string | null } {
+  const days = view.baselineWindowDays;
+  const reached = view.oldestReachedAt ? `Reached back to ${time.date(view.oldestReachedAt)} so far — who and when only.` : null;
+  switch (view.baselineState) {
+    case 'NOT_STARTED':
+      return { headline: `History baseline queued: your last ${days} days — metadata only (who and when, never message contents).`, progress: null };
+    case 'IN_PROGRESS':
+      return { headline: `Reading your last ${days} days of history — metadata only (who and when, never message contents).`, progress: reached };
+    case 'COMPLETE':
+      return { headline: `History baseline: your last ${days} days — metadata only (who and when, never message contents).`, progress: reached };
+    case 'REVOKED':
+      return { headline: 'History import stopped. What Loop recorded is who/when only, and expires on the normal schedule.', progress: null };
+    default:
+      return { headline: 'Not importing history. Loop observes new messages going forward — who and when only.', progress: null };
+  }
+}
+
+/** A depth chooser, submitting a server action. No content shown; the offered windows are bounded. */
+function WindowSelect({ selected }: { selected: number }) {
+  return (
+    <select name="windowDays" defaultValue={String(selected)} aria-label="How far back to import (days)">
+      {SOURCE_CONNECTION_BASELINE_WINDOWS.map((d) => (
+        <option key={d} value={String(d)}>{`Last ${d} days`}</option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * The baseline controls for a LIVE Telegram tile. When there is no active baseline (none, or revoked),
+ * it offers to import a bounded window; when one is active, it offers to change the window or stop it.
+ * Every control is a server-action form -- the person and organization are the session's, never the form.
+ */
+function BaselineSection({ view, time }: { view: ProviderConnectionView; time: TimeView }) {
+  // A baseline belongs only to a live, updatable Telegram tile. `canDisconnect` is exactly
+  // "the person may update AND the connection is live", which is the gate a baseline needs.
+  if (view.profile.provider !== 'TELEGRAM' || !view.canDisconnect || !view.profile.baseline) return null;
+  const shown = baselinePresentation(view, time);
+  const selected = view.baselineWindowDays ?? SOURCE_CONNECTION_BASELINE_DEFAULT_WINDOW_DAYS;
+  const active = view.baselineState === 'NOT_STARTED' || view.baselineState === 'IN_PROGRESS' || view.baselineState === 'COMPLETE';
+  return (
+    <div className="loop-stack" data-baseline-state={view.baselineState ?? 'NONE'}>
+      <p data-baseline-detail>{shown.headline}</p>
+      {shown.progress ? <p className="muted" data-baseline-progress>{shown.progress}</p> : null}
+      <div className="loop-btnrow">
+        {active ? (
+          <>
+            <form action={changeBaselineScopeAction} className="loop-btnrow">
+              <input type="hidden" name="provider" value={view.profile.provider} />
+              <WindowSelect selected={selected} />
+              <button className="loop-btn" type="submit">Change window</button>
+            </form>
+            <form action={revokeBaselineAction}>
+              <input type="hidden" name="provider" value={view.profile.provider} />
+              <button className="loop-btn" type="submit">Stop importing history</button>
+            </form>
+          </>
+        ) : (
+          <form action={authorizeBaselineAction} className="loop-btnrow">
+            <input type="hidden" name="provider" value={view.profile.provider} />
+            <WindowSelect selected={selected} />
+            <button className="loop-btn loop-btn--primary" type="submit">Import history</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ProviderTile({ view, time }: { view: ProviderConnectionView; time: TimeView }) {
   const shown = connectionPresentation(view, time);
   const live = view.canDisconnect;
@@ -103,6 +200,7 @@ function ProviderTile({ view, time }: { view: ProviderConnectionView; time: Time
         {view.accountLabel && live ? <p className="muted">Account: {view.accountLabel}</p> : null}
         {view.connectedAt && live ? <p className="muted">Connected {time.dateTime(view.connectedAt)}.</p> : null}
         {!view.configured ? <p className="muted">This deployment cannot connect {view.profile.label} yet.</p> : null}
+        <BaselineSection view={view} time={time} />
       </div>
       <div className="loop-btnrow">
         {view.canConnect && view.profile.provider === 'TELEGRAM' ? (
@@ -128,8 +226,8 @@ function ProviderTile({ view, time }: { view: ProviderConnectionView; time: Time
   );
 }
 
-export function SourceConnectionsPanel(props: { status: SourceConnectionStatus | null; outcome: ConnectionActionOutcome | null; time: TimeView }) {
-  const { status, outcome, time } = props;
+export function SourceConnectionsPanel(props: { status: SourceConnectionStatus | null; outcome: ConnectionActionOutcome | null; baselineOutcome?: SourceBaselineActionOutcome | null; time: TimeView }) {
+  const { status, outcome, baselineOutcome, time } = props;
 
   // The status read failed (e.g. this deployment's web reached its database before the connections
   // migration did). Say so honestly and let the rest of the page render -- never crash the view.
@@ -158,6 +256,7 @@ export function SourceConnectionsPanel(props: { status: SourceConnectionStatus |
   return (
     <div className="loop-stack" data-source-connections-panel>
       {outcome ? <OutcomeBanner outcome={outcome} /> : null}
+      {baselineOutcome ? <BaselineBanner outcome={baselineOutcome} /> : null}
 
       {!anyConfigured ? (
         <StateBlock
@@ -185,6 +284,7 @@ export function SourceConnectionsPanel(props: { status: SourceConnectionStatus |
           rows={[
             { label: 'Observes', value: 'Loop watches this source to surface what matters and connect it with what it already knows.' },
             { label: 'Not a chat client', value: 'You read and reply in Teams or Telegram. When something needs a reply, Loop points you back to the conversation there.' },
+            { label: 'History, metadata only', value: 'If you import history, Loop reads who a past conversation was with and when — never message contents — for a bounded window you choose, and you can stop it at any time.' },
             { label: 'Kept, and governed', value: 'Loop keeps the intelligence it derives, with a link back to where it came from. It minimizes and governs raw content — it never becomes a mirror or archive of your messages.' },
             { label: 'Private to you', value: 'These connections are yours alone; nothing here becomes organization-wide on its own.' },
           ]}

@@ -19,7 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { createTimeView, resolveDisplayTimeZone, connectionProviderProfile } from '@emgloop/shared';
+import { createTimeView, resolveDisplayTimeZone, connectionProviderProfile, SOURCE_CONNECTION_BASELINE_WINDOWS } from '@emgloop/shared';
 import type { SourceConnectionStatus, ProviderConnectionView } from '@emgloop/database';
 
 import { CONNECTION_ENVIRONMENT, readConnectionEnvironment } from '../src/connections/connection-environment';
@@ -107,7 +107,7 @@ describe('the Connections page and actions', () => {
   it('the actions act under sourceConnections:update from the session, never the form', () => {
     const actions = code(read('connections/actions.ts'));
     assert.match(actions, /^\s*'use server';/);
-    assert.equal((actions.match(/await requirePermission\('sourceConnections', 'update'\)/g) ?? []).length, 2);
+    assert.equal((actions.match(/await requirePermission\('sourceConnections', 'update'\)/g) ?? []).length, 5); // 2 connect/disconnect + 3 baseline
     assert.doesNotMatch(actions, /formData\.get\('(organizationId|userId|org|user)'\)/);
     // Only the provider (which tile) is read from the form.
     assert.match(actions, /formData\.get\('provider'\)/);
@@ -126,6 +126,9 @@ function view(over: Partial<ProviderConnectionView> & { provider: 'MICROSOFT_TEA
     disconnectedAt: null,
     canConnect: false,
     canDisconnect: false,
+    baselineState: null,
+    baselineWindowDays: null,
+    oldestReachedAt: null,
     ...over,
   };
 }
@@ -173,5 +176,69 @@ describe('the panel is honest', () => {
       html = renderToStaticMarkup(<SourceConnectionsPanel status={null} outcome={null} time={time} />);
     });
     assert.match(html, /could not be loaded/i);
+  });
+});
+
+describe('the governed historical baseline (Telegram)', () => {
+  it('a live Telegram tile renders the baseline sub-state honestly -- who/when only, never "conversations"', () => {
+    const status: SourceConnectionStatus = {
+      permitted: true,
+      providers: [
+        view({ provider: 'TELEGRAM', configured: true, state: 'READY', canDisconnect: true, baselineState: 'IN_PROGRESS', baselineWindowDays: 90, oldestReachedAt: new Date('2026-07-01T00:00:00Z') }),
+        view({ provider: 'MICROSOFT_TEAMS' }),
+      ],
+    };
+    const html = renderToStaticMarkup(<SourceConnectionsPanel status={status} outcome={null} baselineOutcome={null} time={time} />);
+    assert.match(html, /Reading your last 90 days of history/i);
+    assert.match(html, /metadata only/i);
+    assert.match(html, /Change window/);
+    assert.match(html, /Stop importing history/);
+    // Progress traces to the checkpoint (oldestReachedAt), and the copy never claims to read content.
+    assert.match(html, /Reached back to/i);
+    assert.doesNotMatch(html, /reading your conversations|message contents will|read your messages\b/i);
+  });
+
+  it('a COMPLETE baseline reads as a finished window; a REVOKED one reads as stopped', () => {
+    const complete: SourceConnectionStatus = { permitted: true, providers: [view({ provider: 'TELEGRAM', configured: true, state: 'READY', canDisconnect: true, baselineState: 'COMPLETE', baselineWindowDays: 180 })] };
+    let html = renderToStaticMarkup(<SourceConnectionsPanel status={complete} outcome={null} baselineOutcome={null} time={time} />);
+    assert.match(html, /History baseline: your last 180 days/i);
+
+    const revoked: SourceConnectionStatus = { permitted: true, providers: [view({ provider: 'TELEGRAM', configured: true, state: 'READY', canDisconnect: true, baselineState: 'REVOKED', baselineWindowDays: 90 })] };
+    html = renderToStaticMarkup(<SourceConnectionsPanel status={revoked} outcome={null} baselineOutcome={null} time={time} />);
+    assert.match(html, /History import stopped/i);
+    // A revoked tile offers to import again (not "change"/"stop").
+    assert.match(html, /Import history/);
+  });
+
+  it('a tile that is not live shows no baseline controls (a baseline needs a live connection)', () => {
+    const status: SourceConnectionStatus = { permitted: true, providers: [view({ provider: 'TELEGRAM', configured: true, state: 'NOT_CONNECTED', canConnect: true })] };
+    const html = renderToStaticMarkup(<SourceConnectionsPanel status={status} outcome={null} baselineOutcome={null} time={time} />);
+    assert.doesNotMatch(html, /Change window|Stop importing history/);
+  });
+
+  it('the connect flow offers only the bounded windows and NO all-time option', () => {
+    // The closed allowlist has no all-time value, and the connect flow renders exactly those windows.
+    assert.deepEqual([...SOURCE_CONNECTION_BASELINE_WINDOWS], [30, 90, 180, 365]);
+    const flow = code(read('app/app/_connections/telegram-connect-flow.tsx')); // strip comments before scanning copy
+    assert.match(flow, /SOURCE_CONNECTION_BASELINE_WINDOWS/); // it iterates the allowlist, not a literal list
+    assert.match(flow, /authorizeBaselineAction/);
+    assert.match(flow, /revokeBaselineAction/); // "Don't import history"
+    // No all-time / forever option is ever offered.
+    assert.doesNotMatch(flow, /all[-\s]?time|forever|entire history|everything/i);
+    // It stays a leaf and reads no content.
+    assert.match(flow, /^'use client';/);
+  });
+
+  it('the baseline actions read windowDays + provider from the form but org/user from the session, under update', () => {
+    const actions = code(read('connections/actions.ts'));
+    // Three baseline actions, each guarded by sourceConnections:update from the session.
+    for (const name of ['authorizeBaselineAction', 'changeBaselineScopeAction', 'revokeBaselineAction']) {
+      assert.match(actions, new RegExp(`export async function ${name}\\(formData: FormData\\)`));
+    }
+    // windowDays is read from the form; org/user are never read from the form.
+    assert.match(actions, /formData\.get\('windowDays'\)/);
+    assert.doesNotMatch(actions, /formData\.get\('(organizationId|userId|org|user)'\)/);
+    // Every baseline action passes the session's organizationId + userId, not form values.
+    assert.match(actions, /authorizeBaseline\(\s*\{ organizationId: session\.organizationId, userId: session\.userId/);
   });
 });
