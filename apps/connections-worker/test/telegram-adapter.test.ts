@@ -20,6 +20,7 @@ function port(over: Partial<TelegramClientPort> = {}): TelegramClientPort {
   return {
     async connectFromSession() { return HANDLE; },
     async fetchSince() { return []; },
+    async fetchHistory() { return []; },
     async close() {},
     ...over,
   };
@@ -69,4 +70,53 @@ test('disconnect closes the client', async () => {
   const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
   await adapter.disconnect(session);
   assert.equal(closed, true);
+});
+
+// --- Historical baseline: observeHistory over fetchHistory ---------------------------------------
+
+import { TelegramFloodWaitError } from '../src/telegram/telegram-adapter';
+
+const FLOOR = new Date('2026-06-22T12:00:00Z'); // ~90 days before NOW
+const daysAgoSecs = (n: number) => Math.floor((NOW.getTime() - n * 24 * 60 * 60 * 1000) / 1000);
+const hist = (id: string, daysAgo: number): TelegramMessageFacts => ({
+  messageId: id, chatId: 'c1', senderId: 'u2', participantIds: ['self', 'u2'], out: false, dateSeconds: daysAgoSecs(daysAgo), hadText: true,
+});
+
+test('observeHistory maps a backward page to content-free events, offset = the lowest id, oldest reached', async () => {
+  const adapter = new TelegramAdapter({ conversationSecret: SECRET, port: port({ async fetchHistory() { return [hist('100', 3), hist('90', 20)]; } }) });
+  const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
+  const result = await adapter.observeHistory(session, { checkpointCursor: '200', windowFloorAt: FLOOR, pageSize: 2 }, NOW);
+  assert.equal(result.events.length, 2);
+  assert.equal(result.nextCursor, '90'); // lowest id -> strictly backward from 200
+  assert.equal(result.reachedFloor, false); // a full page: more may remain
+  assert.ok(result.oldestReachedAt && new Date(result.oldestReachedAt).getTime() === daysAgoSecs(20) * 1000);
+  for (const e of result.events) assert.ok(!JSON.stringify(e).includes('c1') && !JSON.stringify(e).includes('u2'), 'no raw ids');
+});
+
+test('observeHistory enforces the floor and backward monotonicity, and a short page means the floor is reached', async () => {
+  // The client returned a message below the floor and one at/above the offset; both are dropped.
+  const belowFloor = hist('40', 200);
+  const atOffset = { ...hist('300', 1) }; // id >= beforeId(200)? 300 >= 200 -> dropped
+  const adapter = new TelegramAdapter({ conversationSecret: SECRET, port: port({ async fetchHistory() { return [hist('150', 10), belowFloor, atOffset]; } }) });
+  const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
+  const result = await adapter.observeHistory(session, { checkpointCursor: '200', windowFloorAt: FLOOR, pageSize: 5 }, NOW);
+  assert.equal(result.events.length, 1); // only id 150, within window and below the offset
+  assert.equal(result.nextCursor, '150');
+  assert.equal(result.reachedFloor, true); // 1 < pageSize(5): the floor (or end of history) is reached
+});
+
+test('observeHistory holds on FLOOD_WAIT: no events, offset unchanged, wait reported -- never throws', async () => {
+  const adapter = new TelegramAdapter({ conversationSecret: SECRET, port: port({ async fetchHistory() { throw new TelegramFloodWaitError(30); } }) });
+  const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
+  const result = await adapter.observeHistory(session, { checkpointCursor: '77', windowFloorAt: FLOOR, pageSize: 3 }, NOW);
+  assert.deepEqual({ events: result.events.length, nextCursor: result.nextCursor, reachedFloor: result.reachedFloor, floodWaitSeconds: result.floodWaitSeconds }, { events: 0, nextCursor: '77', reachedFloor: false, floodWaitSeconds: 30 });
+});
+
+test('observeHistory on an empty page reaches the floor and holds the offset', async () => {
+  const adapter = new TelegramAdapter({ conversationSecret: SECRET, port: port({ async fetchHistory() { return []; } }) });
+  const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
+  const result = await adapter.observeHistory(session, { checkpointCursor: '55', windowFloorAt: FLOOR, pageSize: 3 }, NOW);
+  assert.equal(result.events.length, 0);
+  assert.equal(result.reachedFloor, true);
+  assert.equal(result.nextCursor, '55'); // nothing older: held
 });

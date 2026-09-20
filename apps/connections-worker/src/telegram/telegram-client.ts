@@ -18,7 +18,7 @@ import { StringSession } from 'teleproto/sessions';
 import { computeCheck } from 'teleproto/Password';
 
 import type { TelegramClientHandle, TelegramClientPort } from './telegram-adapter';
-import { TelegramAuthError } from './telegram-adapter';
+import { TelegramAuthError, TelegramFloodWaitError } from './telegram-adapter';
 import type { TelegramMessageFacts } from './content-free-mapping';
 import type { TelegramLoginBinding, TelegramLoginFailure, TelegramLoginPort, TelegramAuthorization } from './telegram-login';
 
@@ -51,6 +51,18 @@ function factsOf(message: any): TelegramMessageFacts | null {
     dateSeconds: typeof message.date === 'number' ? message.date : Math.floor(Date.now() / 1000),
     hadText: Boolean(message.message), // the boolean only -- the text itself is never read out
   };
+}
+
+/**
+ * Parse Telegram's FLOOD_WAIT into a seconds value, from either a structured `seconds` field or
+ * the FLOOD_WAIT_<n> message. Never logs the code or the session; returns null when it is not one.
+ */
+function floodWaitSecondsOf(err: unknown): number | null {
+  const e = err as { seconds?: unknown; errorMessage?: string; message?: string };
+  if (typeof e?.seconds === 'number' && Number.isFinite(e.seconds)) return e.seconds;
+  const msg = e?.errorMessage ?? e?.message ?? '';
+  const m = /FLOOD_WAIT_(\d+)/i.exec(msg);
+  return m ? Number(m[1]) : null;
 }
 
 /**
@@ -92,6 +104,40 @@ export function createTelegramClientPort(creds: TelegramAppCredentials): Telegra
           const facts = factsOf(message);
           if (facts) collected.push(facts);
         }
+      }
+      return collected;
+    },
+
+    async fetchHistory(handle, request): Promise<readonly TelegramMessageFacts[]> {
+      // Walk BACKWARD from the checkpoint offset toward the floor, reading ONLY metadata. This never
+      // advances the live observation cursor. FLOOD_WAIT is surfaced as TelegramFloodWaitError so the
+      // baseline can back off; no code or session is ever logged.
+      const client = handle.client as TelegramClient;
+      const { beforeId, floorAt, limit } = request;
+      const floorSeconds = Math.floor(floorAt.getTime() / 1000);
+      const perDialog = Math.min(Math.max(1, limit), 100);
+      const collected: TelegramMessageFacts[] = [];
+      try {
+        const dialogs = await client.getDialogs({ limit: DIALOG_LIMIT });
+        for (const dialog of dialogs) {
+          const entity = (dialog as any).entity ?? (dialog as any).inputEntity;
+          if (!entity) continue;
+          const opts: Record<string, unknown> = { limit: perDialog };
+          if (beforeId !== null && Number.isFinite(beforeId)) opts.offsetId = beforeId; // messages older than this id
+          const messages = await client.getMessages(entity, opts as any);
+          for (const message of messages) {
+            const facts = factsOf(message);
+            if (!facts) continue;
+            if (facts.dateSeconds < floorSeconds) continue; // below the floor: out of the chosen window
+            if (beforeId !== null && Number.isFinite(beforeId) && !(Number(facts.messageId) < beforeId)) continue;
+            collected.push(facts);
+            if (collected.length >= limit) return collected;
+          }
+        }
+      } catch (err) {
+        const flood = floodWaitSecondsOf(err);
+        if (flood !== null) throw new TelegramFloodWaitError(flood);
+        throw err;
       }
       return collected;
     },

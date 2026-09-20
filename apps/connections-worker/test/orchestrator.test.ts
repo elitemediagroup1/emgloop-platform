@@ -14,7 +14,7 @@ const due = (over: Partial<DueConnection> = {}): DueConnection => ({ organizatio
 const facts = (id: string): TelegramMessageFacts => ({ messageId: id, chatId: 'c', senderId: 's', participantIds: ['self', 's'], out: false, dateSeconds: Math.floor(NOW.getTime() / 1000), hadText: true });
 
 function tgAdapter(fetch: () => Promise<readonly TelegramMessageFacts[]>): TelegramAdapter {
-  const port: TelegramClientPort = { async connectFromSession() { return { kind: 'telegram-mtproto', client: {} }; }, fetchSince: fetch, async close() {} };
+  const port: TelegramClientPort = { async connectFromSession() { return { kind: 'telegram-mtproto', client: {} }; }, fetchSince: fetch, async fetchHistory() { return []; }, async close() {} };
   return new TelegramAdapter({ conversationSecret: 'sec', port });
 }
 
@@ -78,7 +78,7 @@ test('an empty batch still records health and advances the cursor, sinks nothing
 
 test('a stale session records RECONNECT_REQUIRED and sinks nothing', async () => {
   const staleAdapter = tgAdapter(async () => { throw Object.assign(new Error('x'), { name: 'AuthError' }); });
-  const authFailPort: TelegramClientPort = { async connectFromSession() { throw Object.assign(new Error('x'), { name: 'AuthError' }); }, async fetchSince() { return []; }, async close() {} };
+  const authFailPort: TelegramClientPort = { async connectFromSession() { throw Object.assign(new Error('x'), { name: 'AuthError' }); }, async fetchSince() { return []; }, async fetchHistory() { return []; }, async close() {} };
   const adapter = new TelegramAdapter({ conversationSecret: 'sec', port: authFailPort });
   const { ports: p, recorded, sunk } = ports({ dueList: [due()], adapters: { TELEGRAM: adapter } });
   const summary = await runObservationSweep(p);

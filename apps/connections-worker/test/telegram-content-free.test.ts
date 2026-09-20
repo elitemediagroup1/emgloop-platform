@@ -67,3 +67,15 @@ test('the cursor advances to the highest message id, and holds on an empty batch
   assert.equal(telegramCursorAfter(null, [facts({ messageId: '7' })]), '7');
   assert.equal(telegramCursorAfter('200', [facts({ messageId: '150' })]), '200'); // never goes backwards
 });
+
+test('baseline (historical) facts map through the SAME boundary and are content-free', () => {
+  // A message from deep in the past (a baseline import) carries nothing more than the live path: the
+  // baseline reuses telegramMessageToConversationEvent verbatim, so it cannot smuggle content.
+  const old = facts({ messageId: '5', dateSeconds: Math.floor(new Date('2026-01-05T09:00:00Z').getTime() / 1000) });
+  const event = telegramMessageToConversationEvent(old, { secret: SECRET, observedAt: OBSERVED, cursor: null });
+  assert.deepEqual([...Object.keys(event)].sort(), [...CONVERSATION_EVENT_KEYS].sort());
+  assert.equal(event.occurredAt, '2026-01-05T09:00:00.000Z'); // the historical instant, faithfully
+  assert.equal(event.observedAt, OBSERVED.toISOString()); // observed now, during the baseline walk
+  assert.equal(event.hadText, true); // the boolean only
+  assert.ok(!JSON.stringify(event).includes('chat-7') && !JSON.stringify(event).includes('user-42'), 'no raw ids from a historical message');
+});

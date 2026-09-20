@@ -1,24 +1,31 @@
 // The connections worker entrypoint. A long-lived staging process that:
-//   1. runs an observation sweep on an interval (OBSERVE -> NORMALIZE -> sink), and
-//   2. serves the signed control endpoints the Loop web tier calls to drive an interactive
+//   1. runs a live observation sweep on an interval (OBSERVE -> NORMALIZE -> sink),
+//   2. runs a GOVERNED HISTORICAL BASELINE sweep on its own interval -- walking each connection's
+//      past BACKWARD to an employee-chosen floor, landing the SAME content-free observations on an
+//      INDEPENDENT checkpoint (it never advances the live observation cursor), and
+//   3. serves the signed control endpoints the Loop web tier calls to drive an interactive
 //      Telegram login and to disconnect.
 //
 // It wires the tested pieces to the live teleproto seam and the database. It is NOT a chat client:
-// it observes and normalizes; there is no send/reply/react/history-import anywhere it leads. Secrets
-// (api creds, the sealing key, the control secret) come from the environment (Fargate injects them
-// from Secrets Manager); none is logged. Message text is never persisted or logged -- only `hadText`.
+// it observes and normalizes; there is no send/reply/react and no message content anywhere it leads --
+// the baseline imports who/when metadata only. Secrets (api creds, the sealing key, the control secret)
+// come from the environment (Fargate injects them from Secrets Manager); none is logged. Message text
+// is never persisted or logged -- only `hadText`.
 
 import {
   ConnectionSecretSealer,
   SourceConnectionRepository,
+  SourceBaselineCheckpointRepository,
   prisma,
   type DueConnection,
+  type DueBaseline,
 } from '@emgloop/database';
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
 import { readWorkerConfig } from './config';
 import { createDbObservationSink } from './observation-sink';
 import { runObservationSweep, type SweepPorts } from './orchestrator';
+import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
@@ -35,6 +42,7 @@ function log(event: string, fields: Record<string, unknown> = {}): void {
 async function main(): Promise<void> {
   const config = readWorkerConfig();
   const connections = new SourceConnectionRepository(prisma);
+  const baselines = new SourceBaselineCheckpointRepository(prisma);
   const sealer = new ConnectionSecretSealer(config.connectionSecretKey);
   const sink = createDbObservationSink(prisma);
 
@@ -107,6 +115,54 @@ async function main(): Promise<void> {
     }
   }
 
+  // --- The historical-baseline sweep ports (INDEPENDENT of the live observation sweep) -----------
+  // These share the observation sink and the credential opener, but advance ONLY the baseline
+  // checkpoint -- never the live observation cursor (SourceConnection.cursor).
+  const baselinePorts: BaselinePorts = {
+    dueForBaseline: () => baselines.dueForBaseline(500),
+    adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
+    async openCredential(due: DueBaseline): Promise<string | null> {
+      const held = await connections.credential(due.organizationId, due.userId, due.provider);
+      if (!held || !held.record.credentialKind) return null; // liveness: no live credential, no baseline
+      try {
+        return sealer.open(
+          { organizationId: due.organizationId, userId: due.userId, provider: due.provider, credentialKind: held.record.credentialKind },
+          held.sealed,
+        );
+      } catch {
+        return null; // a credential that will not open is skipped, not guessed
+      }
+    },
+    sink,
+    async recordBaselineProgress(due, progress) {
+      await baselines.recordBaselineProgress(due.organizationId, due.userId, due.provider, {
+        checkpointCursor: progress.checkpointCursor,
+        oldestReachedAt: progress.oldestReachedAt,
+        state: progress.state,
+        failureClass: progress.failureClass,
+        backoffUntil: progress.backoffUntil,
+        now: progress.now,
+      });
+    },
+    maxWindowDays: config.baselineMaxWindowDays,
+    pageSize: config.baselinePageSize,
+    now: () => new Date(),
+  };
+
+  let baselining = false;
+  async function baseline(): Promise<void> {
+    if (baselining) return; // never overlap baseline sweeps
+    baselining = true;
+    try {
+      const summary = await runBaselineSweep(baselinePorts);
+      if (summary.due > 0) log('baseline', { ...summary });
+    } catch (err) {
+      log('baseline_error', { name: (err as Error)?.name ?? 'error' });
+    } finally {
+      baselining = false;
+    }
+  }
+
   async function purge(): Promise<void> {
     const cutoff = new Date(Date.now() - config.observationRetentionDays * 24 * 60 * 60 * 1000);
     try {
@@ -150,12 +206,15 @@ async function main(): Promise<void> {
 
   const sweepTimer = setInterval(() => void sweep(), config.sweepIntervalMs);
   const purgeTimer = setInterval(() => void purge(), RETENTION_SWEEP_MS);
+  const baselineTimer = setInterval(() => void baseline(), config.baselineIntervalMs);
   void sweep();
   void purge();
+  void baseline();
 
   const shutdown = () => {
     clearInterval(sweepTimer);
     clearInterval(purgeTimer);
+    clearInterval(baselineTimer);
     server.close();
     void prisma.$disconnect();
     log('worker_stopping');
