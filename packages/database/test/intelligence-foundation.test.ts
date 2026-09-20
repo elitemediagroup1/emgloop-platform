@@ -165,7 +165,11 @@ test('3. a situation seen again brings back what happened last time', async () =
   const w = world();
   const matt = await person(w, ORG_A);
   const first = await w.engine.create(ORG_A, situation('volume-drop::buyer-7', 'Buyer 7 volume fell 40%', 'day:2026-09-10', new Date('2026-09-10T12:00:00Z')));
-  await w.engine.resolve(ORG_A, first.decision.id, { outcome: 'RECOVERED', reason: 'came back by itself the next day', actor: { ...SYSTEM, userId: matt.userId } });
+  // Stamp WHEN the recovery happened (the day after detection -- "the next day"), so this closure
+  // is deterministically before the situation's latest sighting (NOW). Without an explicit occurredAt
+  // the engine defaults to the wall clock, and once real time passes NOW the caseIntelligence filter
+  // `occurredAt <= lastSeen` drops this prior outcome -- which is why this test was date-flaky.
+  await w.engine.resolve(ORG_A, first.decision.id, { outcome: 'RECOVERED', reason: 'came back by itself the next day', occurredAt: new Date('2026-09-11T12:00:00Z'), actor: { ...SYSTEM, userId: matt.userId } });
   // A later period: the same situation, raised again.
   await w.engine.create(ORG_A, situation('volume-drop::buyer-7', 'Buyer 7 volume fell 35%', 'day:2026-09-20', NOW));
 
