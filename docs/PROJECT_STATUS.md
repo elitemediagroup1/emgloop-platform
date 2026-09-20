@@ -2199,6 +2199,36 @@ it; a broader Headlines route/access policy is a separate future decision.
     start until Stage 1 merges and real objectives exist; a signal layer built against an empty
     referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.
 
+## Microsoft Teams + Telegram Connections — SURFACE MERGE-READY (draft #308), WORKER NOT BUILT
+
+**Draft PR #308** on `feat/connections-teams-telegram` (5 commits off `main` @ `1cfce8b`). The whole
+employee-facing Connections surface for Teams + Telegram, built on the Google-connection discipline
+(no second connection framework). Validated: web build ✅; web/database/shared typecheck ✅ (only
+`marketplace-intelligence` fails, the documented baseline); lint fails (ESLint never configured,
+baseline); 643 web tests + 29 database/shared connection tests pass (incl. cross-tenant + cross-seal
+refusal on real PG18).
+
+- **What is done and tested:** provider-neutral state (`deriveConnectionState`, auth alone is never
+  READY) + sealed secrets (`ConnectionSecretSealer`); `ConversationEvent` (content-free by
+  construction — the reason message text cannot reach an LLM) + `runConnectionCycle`; `SourceConnection`
+  model (org-scoped, user-private, one per (org,user,provider)) + repository; `sourceConnections` IAM
+  resource (mirrors `googleWorkspace`); `SourceConnectionService` (default env → NOT_CONFIGURED, nothing
+  connects); the `/app/connections` tiles, consent copy, truthful states, server actions.
+- **Migration:** `20260925000000_source_connections` — code-complete, NOT dispatched (`migrate diff`
+  clean). Open thread 6 (migrate-ahead alarm) applies.
+- **Config to go live:** `LOOP_CONNECTION_SECRET_KEY` (32 bytes base64) + `LOOP_CONNECTION_PROVIDERS`
+  (comma list), read only by `apps/web/src/connections/connection-environment.ts`. Until both are set
+  every tile truthfully reads "not available yet."
+- **What is NOT built (deliberately):** the durable worker that performs the out-of-band auth
+  (Microsoft sign-in; Telegram phone-code) and holds the persistent sessions; the provider network
+  adapters (Telegram MTProto / Teams interactive session); any AWS deploy. The worker is a new
+  deployable + a new VPC/Fargate stack + a direct-DB-vs-HTTP decision (`brain-executor` is
+  HTTP-mediated + runtime-neutral); it is deploy-gated and credential-gated, so it is a deliberate
+  next phase, not folded into #308.
+- **Next step:** Matt merges #308 (and dispatches the migration when he chooses); to unblock the first
+  validatable provider adapter, create a Telegram API application at my.telegram.org (api_id/api_hash)
+  — the values go into the worker's secret store later, never pasted into chat.
+
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
 `main` for the next objective — never keep committing to a merged branch (it strands work
