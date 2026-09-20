@@ -42,7 +42,7 @@ function fakeRepo(records: SourceConnectionRecord[]) {
 
 function service(opts: { configured: 'none' | ConnectionProvider[]; canView?: boolean; canUpdate?: boolean; records?: SourceConnectionRecord[] }) {
   const { repo, calls } = fakeRepo(opts.records ?? []);
-  const configured = opts.configured === 'none' ? null : { sealer: {} as never, providers: new Set(opts.configured) };
+  const configured = opts.configured === 'none' ? null : { providers: new Set(opts.configured) };
   const svc = new SourceConnectionService({} as never, {
     configured,
     connections: repo,

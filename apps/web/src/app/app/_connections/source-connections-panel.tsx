@@ -19,6 +19,7 @@ import { type ConnectionActionOutcome, type ConnectionState, type TimeView } fro
 import type { ProviderConnectionView, SourceConnectionStatus } from '@emgloop/database';
 
 import { beginConnectSourceAction, disconnectSourceAction } from '../../../connections/actions';
+import { TelegramConnectFlow } from './telegram-connect-flow';
 import type { SubjectState } from '../../../crm/subject-display';
 import { Facts, Panel, StateBlock, StatePill } from '../_loop-os/record';
 
@@ -104,7 +105,9 @@ function ProviderTile({ view, time }: { view: ProviderConnectionView; time: Time
         {!view.configured ? <p className="muted">This deployment cannot connect {view.profile.label} yet.</p> : null}
       </div>
       <div className="loop-btnrow">
-        {view.canConnect ? (
+        {view.canConnect && view.profile.provider === 'TELEGRAM' ? (
+          <TelegramConnectFlow label={view.profile.label} />
+        ) : view.canConnect ? (
           <form action={beginConnectSourceAction}>
             <input type="hidden" name="provider" value={view.profile.provider} />
             <button className="loop-btn loop-btn--primary" type="submit">

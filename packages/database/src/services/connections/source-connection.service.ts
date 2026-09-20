@@ -26,7 +26,6 @@ import {
 } from '@emgloop/shared';
 
 import { SourceConnectionRepository, type SourceConnectionActor } from '../../repositories/source-connection.repository';
-import type { ConnectionSecretSealer } from './connection-secret-sealer';
 
 export interface SourceConnectionPrincipal {
   readonly organizationId: string;
@@ -38,11 +37,13 @@ export type SourceConnectionAuthority = 'view' | 'update';
 
 export interface SourceConnectionServiceDeps {
   /**
-   * Null when this deployment has no worker/app credentials at all: every begin is refused as
-   * NOT_CONFIGURED. When present, `providers` is exactly the set that IS configured -- a provider
-   * absent from it is still NOT_CONFIGURED, so Teams can be live while Telegram is not.
+   * Null when this deployment cannot connect any source (no enabled providers, or the worker that
+   * runs their authentication is not reachable). When present, `providers` is exactly the set that
+   * IS connectable -- a provider absent from it is still NOT_CONFIGURED, so Teams can be live while
+   * Telegram is not. The web tier deliberately holds NO session-sealing key: the durable worker
+   * seals and opens the per-person session, never this tier.
    */
-  readonly configured: { readonly sealer: ConnectionSecretSealer; readonly providers: ReadonlySet<ConnectionProvider> } | null;
+  readonly configured: { readonly providers: ReadonlySet<ConnectionProvider> } | null;
   /** The IAM decision for the principal's own connections (`sourceConnections:<action>`). */
   readonly authorize: (principal: SourceConnectionPrincipal, action: SourceConnectionAuthority) => Promise<boolean>;
   readonly now?: () => Date;

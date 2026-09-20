@@ -18,6 +18,7 @@ import { revalidatePath } from 'next/cache';
 import { requirePermission } from '../auth/guard';
 import { CONNECTIONS_PATH } from '../auth/landing';
 import { sourceConnections } from './source-connection-runtime';
+import { callWorker } from './worker-client';
 
 function back(outcome: string, provider: string): never {
   const params = new URLSearchParams({ connection: outcome });
@@ -39,10 +40,18 @@ export async function beginConnectSourceAction(formData: FormData): Promise<void
 export async function disconnectSourceAction(formData: FormData): Promise<void> {
   const session = await requirePermission('sourceConnections', 'update');
   const provider = String(formData.get('provider') ?? '').trim();
-  const outcome = await sourceConnections().disconnect(
-    { organizationId: session.organizationId, userId: session.userId, name: session.name },
-    provider,
-  );
+  // Telegram holds a live session in the worker: ask it to revoke at Telegram AND clear the stored
+  // credential. If the worker cannot be reached, still clear the stored credential locally so Loop
+  // stops using it (the provider-side session may linger until it is revoked there).
+  let outcome: string;
+  if (provider === 'TELEGRAM') {
+    const viaWorker = await callWorker('/telegram/disconnect', { organizationId: session.organizationId, userId: session.userId });
+    outcome = viaWorker.ok
+      ? String((viaWorker.body as { outcome?: string }).outcome ?? 'DISCONNECTED')
+      : await sourceConnections().disconnect({ organizationId: session.organizationId, userId: session.userId, name: session.name }, provider);
+  } else {
+    outcome = await sourceConnections().disconnect({ organizationId: session.organizationId, userId: session.userId, name: session.name }, provider);
+  }
   revalidatePath(CONNECTIONS_PATH);
   back(outcome, provider);
 }

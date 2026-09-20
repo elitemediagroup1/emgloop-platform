@@ -43,25 +43,33 @@ function walk(dir: string): string[] {
 }
 
 describe('the deployment environment', () => {
-  it('names exactly two variables, neither public', () => {
-    assert.deepEqual({ ...CONNECTION_ENVIRONMENT }, { secretKey: 'LOOP_CONNECTION_SECRET_KEY', providers: 'LOOP_CONNECTION_PROVIDERS' });
+  it('names exactly three variables, none public, and holds NO session-sealing key', () => {
+    assert.deepEqual({ ...CONNECTION_ENVIRONMENT }, {
+      providers: 'LOOP_CONNECTION_PROVIDERS',
+      workerUrl: 'LOOP_CONNECTIONS_WORKER_URL',
+      workerSecret: 'LOOP_CONNECTIONS_WORKER_SECRET',
+    });
     for (const name of Object.values(CONNECTION_ENVIRONMENT)) assert.ok(!name.startsWith('NEXT_PUBLIC'), `${name} must not be public`);
+    // The web tier must NOT read the session-sealing key -- only the worker seals/opens sessions.
+    assert.ok(!Object.values(CONNECTION_ENVIRONMENT).includes('LOOP_CONNECTION_SECRET_KEY' as never), 'web must not read the session key');
   });
 
-  it('is off until a valid key AND at least one enabled provider are set', () => {
+  it('is off until a provider is enabled AND the worker is reachable', () => {
+    const url = 'https://worker.staging.example';
+    const secret = 'worker-control-secret';
     assert.equal(readConnectionEnvironment({}).state, 'NOT_CONFIGURED');
-    assert.equal(readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.secretKey]: KEY }).state, 'NOT_CONFIGURED');
-    assert.equal(readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.providers]: 'TELEGRAM' }).state, 'NOT_CONFIGURED');
-    // A key that is not 32 bytes is treated as absent, not sealed with.
-    assert.equal(readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.secretKey]: Buffer.from('short').toString('base64'), [CONNECTION_ENVIRONMENT.providers]: 'TELEGRAM' }).state, 'NOT_CONFIGURED');
-    const env = readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.secretKey]: KEY, [CONNECTION_ENVIRONMENT.providers]: 'TELEGRAM, MICROSOFT_TEAMS, SLACK' });
+    assert.equal(readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.providers]: 'TELEGRAM' }).state, 'NOT_CONFIGURED'); // no worker
+    assert.equal(readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.workerUrl]: url, [CONNECTION_ENVIRONMENT.workerSecret]: secret }).state, 'NOT_CONFIGURED'); // no provider
+    assert.equal(readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.providers]: 'TELEGRAM', [CONNECTION_ENVIRONMENT.workerUrl]: 'not-a-url', [CONNECTION_ENVIRONMENT.workerSecret]: secret }).state, 'NOT_CONFIGURED'); // bad url
+    const env = readConnectionEnvironment({ [CONNECTION_ENVIRONMENT.providers]: 'TELEGRAM, MICROSOFT_TEAMS, SLACK', [CONNECTION_ENVIRONMENT.workerUrl]: url, [CONNECTION_ENVIRONMENT.workerSecret]: secret });
     assert.equal(env.state, 'CONFIGURED');
     if (env.state !== 'CONFIGURED') return;
     // Unknown provider names are ignored; only the two real providers survive.
     assert.deepEqual([...env.providers].sort(), ['MICROSOFT_TEAMS', 'TELEGRAM']);
+    assert.equal(env.worker.url, url);
   });
 
-  it('is the only module that reads either variable, anywhere in the product', () => {
+  it('is the only module that reads any of the variables, anywhere in the product', () => {
     const ENV_MODULE = join(SRC, 'connections', 'connection-environment.ts');
     for (const file of walk(SRC)) {
       if (file === ENV_MODULE) continue;
@@ -70,6 +78,8 @@ describe('the deployment environment', () => {
         assert.ok(!text.includes(name), `${relative(WEB, file)} reads ${name}; only connection-environment.ts may`);
       }
     }
+    // No web file reads the session-sealing key -- it belongs to the worker alone.
+    for (const file of walk(SRC)) assert.ok(!readFileSync(file, 'utf8').includes('LOOP_CONNECTION_SECRET_KEY'), `${relative(WEB, file)} must not read the session key`);
     // The env reader and the runtime are server-only.
     assert.match(read('connections/connection-environment.ts'), /^import 'server-only';/m);
     assert.match(read('connections/source-connection-runtime.ts'), /^import 'server-only';/m);
