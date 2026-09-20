@@ -684,6 +684,10 @@ export type {
   SourceConnectionStoreOutcome,
   DueConnection,
 } from './repositories/source-connection.repository';
+// Content-free observations from background sources (Teams, Telegram): persistence + governed
+// retention (the worker's observation sink lands here).
+export { SourceObservationRepository } from './repositories/source-observation.repository';
+export type { SourceObservationRow } from './repositories/source-observation.repository';
 export { SourceConnectionService } from './services/connections/source-connection.service';
 export type {
   SourceConnectionPrincipal,

@@ -286,6 +286,8 @@ model Organization {
   /// Background conversation sources (Teams, Telegram). One per member per provider; see
   /// SourceConnection.
   sourceConnections       SourceConnection[]
+  /// Content-free observations from those sources (who/when, never content); see SourceObservation.
+  sourceObservations      SourceObservation[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
   workSourceCursors       WorkSourceCursor[]
   workDrafts              WorkDraft[]
@@ -512,6 +514,9 @@ model OrganizationMembership {
   /// A source connection (Teams, Telegram) belongs to a membership: the person, in THIS
   /// organization, so offboarding takes it with them.
   sourceConnections       SourceConnection[]        @relation("SourceConnectionMember")
+  /// Content-free observations from those sources belong to the membership too, so offboarding
+  /// takes them with the person.
+  sourceObservations      SourceObservation[]       @relation("SourceObservationMember")
   /// Daily Loop (DL-1). One person's own work state, in THIS organization: it belongs to the
   /// membership, so offboarding takes it with them.
   workSourceCursors       WorkSourceCursor[]        @relation("WorkSourceCursorMember")
@@ -5782,6 +5787,54 @@ model SourceConnection {
   @@unique([organizationId, userId, provider])
   @@index([organizationId, state])
   @@map("source_connections")
+}
+
+/// A content-free observation from a background source (Teams, Telegram): WHO a conversation was
+/// between and WHEN, never what was said. This is the durable landing place for the metadata the
+/// worker normalizes (ConversationEvent), so the who/when signal is not thrown away before Loop can
+/// turn it into cross-source intelligence -- and it is minimized and governed, not a message mirror.
+///
+/// GOVERNED RETENTION, BY SHAPE AND BY POLICY. There is NO column that can hold message text, a
+/// subject, a title, media, a caption, a chat name or a person's name. Identifiers are one-way HMAC
+/// keys (conversationKey, senderKey, participantKeys), never raw ids. `hadText` is a boolean, never
+/// the text. Rows are purged past a retention horizon (SourceObservationRepository.purgeOlderThan),
+/// and they belong to the membership, so offboarding removes them with the person.
+///
+/// EMPLOYEE-PRIVATE. Both ids are on the row and every repository method takes both; there is no
+/// org-only read path. IDEMPOTENT: unique on (org, user, provider, providerEventId), so the worker
+/// can re-observe after a failure without duplicating -- the cursor never has to outrun this store.
+model SourceObservation {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  /// MICROSOFT_TEAMS | TELEGRAM (CONNECTION_PROVIDERS).
+  provider       String
+  /// The provider's stable id for this event, keyed so it never carries a raw chat id
+  /// (`<conversationKey>:<messageId>`). Unique per (org, user, provider) for idempotency.
+  providerEventId String
+  /// One-way HMAC key for the conversation; never the raw chat/peer id.
+  conversationKey String
+  /// One-way HMAC key for the sender; NULL when the provider did not say. Never a raw id.
+  senderKey      String?
+  /// One-way HMAC keys for the known participants; never raw ids, never names.
+  participantKeys String[] @default([])
+  /// INBOUND | OUTBOUND | UNKNOWN.
+  direction      String
+  /// Whether the message had text -- the boolean only, never the text.
+  hadText        Boolean
+  /// When it happened, per the provider (UTC).
+  occurredAt     DateTime
+  /// When Loop observed it (UTC).
+  observedAt     DateTime
+  createdAt      DateTime @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("SourceObservationMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider, providerEventId])
+  @@index([organizationId, userId, provider, occurredAt])
+  @@index([observedAt])
+  @@map("source_observations")
 }
 
 // ---------------------------------------------------------------------------
