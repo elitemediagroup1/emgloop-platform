@@ -1,0 +1,19 @@
+{
+  "name": "@emgloop/connections-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Durable worker for background conversation sources (Teams, Telegram). Holds persistent sessions and runs observation cycles. Deployable, not yet deployed.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@emgloop/database": "*",
+    "@emgloop/shared": "*"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

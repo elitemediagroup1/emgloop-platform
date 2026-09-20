@@ -1,7 +1,15 @@
-// The normalized, provider-neutral observation Loop stores from a conversation source.
-// Downstream Loop never sees Teams DOM, Graph objects, or Telegram/MTProto objects -- an
-// adapter maps its provider's raw event to THIS. Metadata + one-way keys only: there is no
-// field that can hold a title, preview, body, sender name or chat name, and a test pins it.
+// The normalized, provider-neutral observation Loop stores from a conversation source. This is the
+// METADATA-OBSERVATION layer of OBSERVE -> NORMALIZE -> INTELLIGENCE: who a conversation was between
+// and when, so Loop can connect a source to what it already knows (relationship, timing, cadence)
+// WITHOUT holding message content. Downstream Loop never sees Teams DOM, Graph objects, or Telegram/
+// MTProto objects -- an adapter maps its provider's raw event to THIS. Metadata + one-way keys only:
+// there is no field that can hold a title, preview, body, sender name or chat name, and a test pins it.
+//
+// It feeds the SAME Loop intelligence model as Gmail, Calendar, CallGrid and CRM -- never a
+// provider-specific silo. Content-level observation (understanding what a message MEANS -- a
+// commitment, a decision, a risk) is a separate, deliberately deferred and GOVERNED layer: Loop may
+// need content to understand what matters, but it minimizes and governs raw content and never becomes
+// a mirror of the provider. This shape carries none of that content, by construction.
 import { createHmac } from 'crypto';
 import type { ConnectionProvider } from './source-connection';
 

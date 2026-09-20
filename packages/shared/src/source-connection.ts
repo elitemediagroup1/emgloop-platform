@@ -121,11 +121,25 @@ export interface ConnectionProviderProfile {
   readonly requiresDeviceAuthorization: boolean;
 }
 
+// WHY WE CONNECT THESE SOURCES (product principle, locked). Teams and Telegram are INTELLIGENCE
+// SOURCES, not clients Loop reimplements. Loop OBSERVES an authorized source, NORMALIZES what it
+// sees, and turns what matters into cross-source intelligence and governed memory -- the same model
+// Gmail, Calendar, CallGrid and CRM feed, never a provider-specific silo. Loop answers "what do I
+// need to know?", not "how do I recreate Teams/Telegram inside Loop?". There is deliberately no
+// composer, reply, reaction, edit, delete, inbox or conversation-browsing surface: the provider
+// stays the place the conversation happens, and Loop points the person back there to participate.
+//
+// Two more rules travel with every profile: OBSERVATION IS NOT RETENTION -- Loop may need content to
+// understand what matters, but it minimizes and governs raw content and never becomes a mirror or
+// archive of the provider; and PROVENANCE RETURNS TO SOURCE -- anything surfaced keeps which
+// provider, which conversation, when observed and why, with a provider-native reference where
+// possible so the person can open the real conversation. Privacy is unchanged: employee-private,
+// no automatic private->organization promotion, D1/D2/offboarding all still apply.
 export const CONNECTION_PROVIDER_PROFILES: Readonly<Record<ConnectionProvider, ConnectionProviderProfile>> = Object.freeze({
   MICROSOFT_TEAMS: {
     provider: 'MICROSOFT_TEAMS',
     label: 'Microsoft Teams',
-    observes: 'Who you exchanged messages with and when — never message text, titles or attachments.',
+    observes: 'Loop observes this account as an intelligence source — never a chat client. You read and reply in Teams itself; Loop surfaces what matters and points you back there.',
     credentialKinds: ['OAUTH_REFRESH_TOKEN'],
     claims: ['AUTHENTICATED', 'BACKGROUND_OBSERVATION'],
     requiresDeviceAuthorization: true,
@@ -133,7 +147,7 @@ export const CONNECTION_PROVIDER_PROFILES: Readonly<Record<ConnectionProvider, C
   TELEGRAM: {
     provider: 'TELEGRAM',
     label: 'Telegram',
-    observes: 'Who you exchanged messages with and when — never message text, media or captions.',
+    observes: 'Loop observes this account as an intelligence source — never a chat client. You read and reply in Telegram itself; Loop surfaces what matters and points you back there.',
     credentialKinds: ['MTPROTO_SESSION'],
     claims: ['AUTHENTICATED', 'BACKGROUND_OBSERVATION'],
     requiresDeviceAuthorization: true,

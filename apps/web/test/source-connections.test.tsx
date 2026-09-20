@@ -119,8 +119,10 @@ describe('the panel is honest', () => {
     const html = renderToStaticMarkup(<SourceConnectionsPanel status={status} outcome={null} time={time} />);
     assert.match(html, /not available yet/i);
     assert.doesNotMatch(html, /Connect Microsoft Teams|Connect Telegram/);
-    // The consent line -- what Loop observes -- is stated up front.
-    assert.match(html, /never message text/i);
+    // The intelligence-source framing and the not-a-chat-client boundary are stated up front.
+    assert.match(html, /intelligence source/i);
+    assert.match(html, /not a chat client/i);
+    assert.match(html, /mirror or archive/i);
   });
 
   it('an authenticated-but-not-observing connection reads "Connected (limited)", never "Ready"', () => {

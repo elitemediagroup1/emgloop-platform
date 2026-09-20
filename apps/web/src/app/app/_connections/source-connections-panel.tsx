@@ -6,9 +6,10 @@
 // deployment nothing is configured, so each tile says exactly that and offers no Connect it cannot
 // honour (principles 1-4: never fabricate, never fake, honest empty states).
 //
-// WHAT LOOP OBSERVES IS STATED BEFORE YOU CONNECT. Each tile carries the provider profile's plain
-// sentence -- who you exchanged messages with and when, never message content -- so consent is
-// informed, not implied.
+// AN INTELLIGENCE SOURCE, NOT A CHAT CLIENT. Each tile carries the provider profile's plain
+// sentence: Loop observes the source to surface what matters and points the person back to Teams/
+// Telegram to reply. There is no composer, inbox or conversation browser here, by design -- this is a
+// connection surface, not a messaging client.
 //
 // SERVER COMPONENT. Connect and disconnect are server-action forms; no client code, and no value
 // here is a secret, a code, or a provider's text. The Teams adapter (personal vs work/school) is an
@@ -153,7 +154,7 @@ export function SourceConnectionsPanel(props: { status: SourceConnectionStatus; 
 
       <Panel
         title="Microsoft Teams and Telegram"
-        lead="Connect your own Teams or Telegram account so Loop can see who you talk to and when — never what is said. Connecting is separate from signing in to Loop, each account is your own, and you can disconnect at any time."
+        lead="Connect your own Teams or Telegram account as an intelligence source: Loop observes it to surface what matters and connect it with what it already knows. It is not a chat client — you reply in Teams or Telegram itself. Each account is your own, and you can disconnect at any time."
       >
         <div role="list" aria-label="Communication sources">
           {status.providers.map((view) => (
@@ -164,12 +165,13 @@ export function SourceConnectionsPanel(props: { status: SourceConnectionStatus; 
         </div>
       </Panel>
 
-      <Panel title="What Loop keeps" lead="For these sources Loop records who a message was between and when — metadata only. It never stores message text, titles, media or attachments, and it never sends this to an AI.">
+      <Panel title="How Loop uses this" lead="Loop is the system that understands what matters across your sources — not another place to chat.">
         <Facts
           rows={[
-            { label: 'Recorded', value: 'Who and when — contacts and timing of your conversations.' },
-            { label: 'Never recorded', value: 'Message text, subjects, media, attachments or names of chats.' },
-            { label: 'Private to you', value: 'These connections are yours alone; no one else in your organization sees them.' },
+            { label: 'Observes', value: 'Loop watches this source to surface what matters and connect it with what it already knows.' },
+            { label: 'Not a chat client', value: 'You read and reply in Teams or Telegram. When something needs a reply, Loop points you back to the conversation there.' },
+            { label: 'Kept, and governed', value: 'Loop keeps the intelligence it derives, with a link back to where it came from. It minimizes and governs raw content — it never becomes a mirror or archive of your messages.' },
+            { label: 'Private to you', value: 'These connections are yours alone; nothing here becomes organization-wide on its own.' },
           ]}
         />
       </Panel>
