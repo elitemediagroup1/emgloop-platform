@@ -9,6 +9,7 @@ import { googleOutcomeParam, googleReconnectParam, type PageSearchParams } from 
 import { SourceConnectionsPanel } from '../_connections/source-connections-panel';
 import { connectionOutcomeParam } from '../_connections/search-params';
 import { sourceConnections } from '../../../connections/source-connection-runtime';
+import type { SourceConnectionStatus } from '@emgloop/database';
 import { LoopPage, PageHead, StateBlock } from '../_loop-os/record';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,17 @@ export default async function ConnectionsPage({ searchParams }: { searchParams?:
   const sources = status.permitted ? await loadGoogleSourceViews({ organizationId: session.organizationId, userId: session.userId }, status) : {};
   // The person's own Teams/Telegram connections. Independently authorized (`sourceConnections`);
   // with the default environment nothing is configured and each tile says exactly that.
-  const connectionStatus = await sourceConnections().status({ organizationId: session.organizationId, userId: session.userId, name: session.name });
+  //
+  // ONE PANEL'S READ MUST NOT CRASH THE PAGE. If this read fails (for example, the web reached its
+  // database before the connections migration did, so `source_connections` is missing -> Prisma
+  // P2021), degrade to null: the panel renders an honest "could not load" state and the Google panel
+  // still renders. Only the error's class is logged -- never a connection string or any secret.
+  let connectionStatus: SourceConnectionStatus | null = null;
+  try {
+    connectionStatus = await sourceConnections().status({ organizationId: session.organizationId, userId: session.userId, name: session.name });
+  } catch (err) {
+    console.error('[connections] source-connection status read failed:', (err as { code?: string })?.code ?? (err as Error)?.name ?? 'error');
+  }
 
   return (
     <WorkspaceShell session={session}>

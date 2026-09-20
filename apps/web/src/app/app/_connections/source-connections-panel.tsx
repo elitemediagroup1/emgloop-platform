@@ -128,8 +128,20 @@ function ProviderTile({ view, time }: { view: ProviderConnectionView; time: Time
   );
 }
 
-export function SourceConnectionsPanel(props: { status: SourceConnectionStatus; outcome: ConnectionActionOutcome | null; time: TimeView }) {
+export function SourceConnectionsPanel(props: { status: SourceConnectionStatus | null; outcome: ConnectionActionOutcome | null; time: TimeView }) {
   const { status, outcome, time } = props;
+
+  // The status read failed (e.g. this deployment's web reached its database before the connections
+  // migration did). Say so honestly and let the rest of the page render -- never crash the view.
+  if (status === null) {
+    return (
+      <StateBlock
+        kind="unavailable"
+        title="Connections could not be loaded"
+        body="Loop could not read your communication sources just now. The rest of the page still works; this section will appear once it is ready."
+      />
+    );
+  }
 
   if (!status.permitted) {
     return (
