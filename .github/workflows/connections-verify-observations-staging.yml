@@ -1,0 +1,81 @@
+# Connections worker -- STAGING observation acceptance check. Manual, staging only, READ-ONLY.
+#
+# Verifies that the always-on worker persisted content-free SourceObservations in the STAGING Neon
+# database, and reports ONLY safe PASS/FAIL results and counts -- never a raw id, a keyed hash, a
+# timestamp value, message content, the DATABASE_URL or any secret. It performs NO writes: it does
+# not touch an observation, a connection, a cursor or a provider session, and it never reaches
+# production (it reads only the staging DB URL secret, through the connections-staging OIDC role).
+
+name: connections-verify-observations-staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'Provider to verify'
+        required: true
+        default: TELEGRAM
+        type: choice
+        options: [TELEGRAM, MICROSOFT_TEAMS]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: connections-staging
+    env:
+      CONNECTIONS_ACCOUNT: '065148797865'
+      MIGRATE_ROLE_ARN: ${{ vars.CONNECTIONS_STAGING_MIGRATE_ROLE_ARN }}
+      # The ONLY secret this workflow reads. The production secret is never referenced.
+      STAGING_DB_SECRET: 'loop/connections/staging/database-url'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install dependencies
+        env:
+          DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
+        run: npm install --no-audit --no-fund
+
+      - name: The role belongs to Loop Brain Staging
+        run: |
+          case "$MIGRATE_ROLE_ARN" in
+            "arn:aws:iam::${CONNECTIONS_ACCOUNT}:role/"?*) ;;
+            *) echo "CONNECTIONS_STAGING_MIGRATE_ROLE_ARN is not a role in ${CONNECTIONS_ACCOUNT}"; exit 1 ;;
+          esac
+
+      - name: AWS credentials (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.CONNECTIONS_STAGING_MIGRATE_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: connections-verify-${{ github.run_id }}
+          allowed-account-ids: '065148797865'
+
+      - name: The credentials are for Loop Brain Staging
+        run: |
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$account" != "$CONNECTIONS_ACCOUNT" ]; then
+            echo "Refusing: credentials are for $account, not $CONNECTIONS_ACCOUNT"
+            exit 1
+          fi
+
+      - name: Read the staging DATABASE_URL (masked, never printed)
+        run: |
+          set -euo pipefail
+          url="$(aws secretsmanager get-secret-value --region us-east-1 --secret-id "$STAGING_DB_SECRET" --query SecretString --output text)"
+          if [ -z "$url" ] || [ "$url" = "None" ]; then echo "Staging DATABASE_URL is empty or unset"; exit 1; fi
+          echo "::add-mask::$url"
+          printf 'DATABASE_URL=%s\n' "$url" >> "$GITHUB_ENV"
+          echo "Loaded staging DATABASE_URL into the job environment (value hidden)."
+
+      - name: Verify observations (read-only, redacted output)
+        run: npx tsx packages/database/scripts/verify-observations.ts "${{ inputs.provider }}"
