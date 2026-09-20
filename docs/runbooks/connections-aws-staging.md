@@ -7,16 +7,30 @@ from this workflow (the role, the account guards and the CDK app all refuse any 
 
 ## One-time bootstrap (administrator; done once)
 
-The pipeline must not create the identity it uses, so this is done by hand, once:
+The pipeline must not create the identity it runs as, so the deploy role is created OUTSIDE the
+pipeline — by the SAME mechanism that established the Brain deploy identity (brain-aws-staging.md
+Part 3): **AWS CloudShell** in Loop Brain Staging, as `AdministratorAccess`. This is not a local CLI
+and not CDK; it is the AWS-hosted browser shell, run once. There is no GitHub workflow for this: a
+workflow that created its own deploy identity would need a higher-privilege identity that this is the
+bootstrap for.
 
-1. **Deploy the deploy identity.** In `065148797865` / `us-east-1`, deploy
-   `infra/connections/access/github-deploy-access.yaml` as CloudFormation stack
-   `LoopConnections-staging-github-access` (termination protection on). It creates the role
-   `loop-connections-github-deploy`, which only the `connections-staging` GitHub environment may
-   assume and which may only assume the CDK bootstrap roles (deploy, file-publishing,
-   image-publishing, lookup). It references the existing GitHub OIDC provider (the Brain identity
-   created it); it does not make a second. Copy the `DeployRoleArn` output.
-   *(CDK must already be bootstrapped in this account — it is, from the Brain setup.)*
+1. **Create the deploy role from the committed template.** Sign in to the AWS console for **Loop
+   Brain Staging (`065148797865`)**, region **us-east-1**, open **CloudShell** (the terminal icon in
+   the top bar), and run — taking the template from a reviewed commit, so what runs is what was
+   reviewed:
+
+    ```sh
+    aws sts get-caller-identity --query Account --output text      # must print 065148797865 — stop otherwise
+    SHA=2248096a66e97c55d3e9139e1516b7d73304a40b   # this PR's reviewed commit (or a merged main commit once #308 lands)
+    curl -fsSL -o github-deploy-access.yaml       "https://raw.githubusercontent.com/elitemediagroup1/emgloop-platform/${SHA}/infra/connections/access/github-deploy-access.yaml"
+    aws cloudformation deploy --region us-east-1       --stack-name LoopConnections-staging-github-access       --template-file github-deploy-access.yaml       --capabilities CAPABILITY_NAMED_IAM
+    aws cloudformation update-termination-protection --region us-east-1       --stack-name LoopConnections-staging-github-access --enable-termination-protection
+    aws cloudformation describe-stacks --region us-east-1       --stack-name LoopConnections-staging-github-access --query "Stacks[0].Outputs"
+    ```
+
+   It creates ONLY the role `loop-connections-github-deploy` (it references the existing GitHub OIDC
+   provider the Brain identity created; it does not make a second). Copy the `DeployRoleArn` output.
+   *(CDK is already bootstrapped in this account, from the Brain setup.)*
 
 2. **Create the `connections-staging` GitHub environment** (repo Settings → Environments → New
    environment → `connections-staging`):
