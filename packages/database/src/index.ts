@@ -696,3 +696,7 @@ export type {
   SourceConnectionStatus,
   ProviderConnectionView,
 } from './services/connections/source-connection.service';
+
+// Read-only, redacted acceptance verification for background-source observations.
+export { verifyObservations, isVerifiableProvider } from './verification/source-observation-verifier';
+export type { ObservationVerificationReport, ObservationVerificationCounts, ObservationAcceptanceResult } from './verification/source-observation-verifier';
