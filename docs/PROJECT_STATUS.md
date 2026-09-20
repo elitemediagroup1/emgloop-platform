@@ -2231,11 +2231,19 @@ Apply to the STAGING Neon DB before the worker/web use the tables.
 `LOOP_CONNECTIONS_WORKER_URL=<HttpApi WorkerUrl output>`, `LOOP_CONNECTIONS_WORKER_SECRET=<worker-control
 value>`. (The web no longer uses `LOOP_CONNECTION_SECRET_KEY`.)
 
-**Next human actions (ordered):** (1) `cd infra/connections && npx cdk deploy` with staging AWS creds
-+ Docker available (creates infra + secrets + builds the image); (2) populate the two UNSET secrets +
-read the worker-control value; (3) apply the two migrations to staging Neon; (4) set the three Netlify
-vars + redeploy web; (5) force a new Fargate deployment so the task picks up the populated secrets;
-(6) Loop → Connections → Telegram → Connect → phone/code/2FA → Ready. No production changes.
+**Deployment model: GitHub Actions + OIDC + workflow_dispatch (no local AWS creds/CDK)**, mirroring
+Brain. Workflows: `connections-infra-ci` (PR) and `connections-infra-deploy` (manual, environment
+`connections-staging`, account/region guards, synth-before-deploy, confirm text). Deploy identity:
+`infra/connections/access/github-deploy-access.yaml` (own role, trusts connections-staging, assumes
+the CDK bootstrap roles incl. image-publishing). Runbook: docs/runbooks/connections-aws-staging.md.
+
+**Next human actions (ordered):** (1) ONE-TIME bootstrap (admin): deploy the access CFN in staging
++ create the `connections-staging` GitHub environment (required reviewer, main only) with var
+`CONNECTIONS_STAGING_DEPLOY_ROLE_ARN`; (2) run `connections-infra-deploy` (action `diff`, then
+`deploy` + confirm `deploy loop-connections-staging`) — approve the environment gate; (3) populate the
+two UNSET secrets (connection-key, database-url) + read worker-control; (4) apply the two migrations
+to staging Neon; (5) set the three Netlify vars + redeploy web; (6) force a new Fargate deployment;
+(7) Connections → Telegram → Connect → phone/code/2FA → Ready. No production changes.
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
