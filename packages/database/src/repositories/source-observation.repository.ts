@@ -75,11 +75,6 @@ export class SourceObservationRepository {
     return rows.map((r) => ({ ...r, senderKey: r.senderKey ?? null, participantKeys: [...r.participantKeys] }));
   }
 
-  /** How many observations this person holds for one provider (diagnostics; no content). */
-  async countFor(organizationId: string, userId: string, provider: ConnectionProvider): Promise<number> {
-    return this.prisma.sourceObservation.count({ where: { organizationId, userId, provider } });
-  }
-
   /**
    * RETENTION MINIMIZATION, ACROSS ALL TENANTS. Delete observations Loop observed before `cutoff`.
    * The worker runs this on a horizon so the store stays a recent-signal window, not an archive.

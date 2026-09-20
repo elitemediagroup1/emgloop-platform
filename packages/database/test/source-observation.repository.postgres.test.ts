@@ -37,11 +37,11 @@ test('append is idempotent; reads are employee-private; nothing raw is stored', 
     // Re-appending the same events + one new: only the new one is inserted (idempotent).
     const second = await repo.append(organizationId, userId, 'TELEGRAM', [evt('10'), evt('11'), evt('12')]);
     assert.equal(second.inserted, 1);
-    assert.equal(await repo.countFor(organizationId, userId, 'TELEGRAM'), 3);
+    assert.equal(await prisma.sourceObservation.count({ where: { organizationId, userId, provider: 'TELEGRAM' } }), 3);
 
     // Another person in the same org sees none of it (employee-private).
     const other = await tenant(prisma, 'append');
-    assert.equal(await repo.countFor(other.organizationId, other.userId, 'TELEGRAM'), 0);
+    assert.equal(await prisma.sourceObservation.count({ where: { organizationId: other.organizationId, userId: other.userId, provider: 'TELEGRAM' } }), 0);
 
     const rows = await repo.recent(organizationId, userId, 'TELEGRAM', 10);
     assert.equal(rows.length, 3);
@@ -76,7 +76,7 @@ test('offboarding (deleting the membership) cascades observations away', { skip 
   try {
     const { organizationId, userId } = await tenant(prisma, 'offboard');
     await repo.append(organizationId, userId, 'TELEGRAM', [evt('5')]);
-    assert.equal(await repo.countFor(organizationId, userId, 'TELEGRAM'), 1);
+    assert.equal(await prisma.sourceObservation.count({ where: { organizationId, userId, provider: 'TELEGRAM' } }), 1);
     await prisma.organizationMembership.delete({ where: { userId_organizationId: { userId, organizationId } } });
     assert.equal(await prisma.sourceObservation.count({ where: { organizationId, userId } }), 0);
   } finally {
