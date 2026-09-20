@@ -2199,6 +2199,52 @@ it; a broader Headlines route/access policy is a separate future decision.
     start until Stage 1 merges and real objectives exist; a signal layer built against an empty
     referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.
 
+## Microsoft Teams + Telegram Connections — STAGING PHASE BUILT (draft #308); DEPLOY + LOGIN PENDING
+
+**Draft PR #308** on `feat/connections-teams-telegram` (off `main` @ `1cfce8b`). Surface + durable
+Telegram worker + staging infra, on the Google-connection discipline. Matt merges/deploys.
+
+**LOCKED PRINCIPLE (in code):** Teams/Telegram are INTELLIGENCE SOURCES, not clients Loop
+reimplements. OBSERVE → NORMALIZE → cross-source intelligence (no silo). No composer/reply/inbox.
+Observation ≠ retention (governed, content-minimized store; never a mirror). Provenance returns to
+source. Privacy unchanged. **Security:** web tier holds NO session key (only the worker seals/opens);
+phone/code/password never stored/logged; message text read only as `hadText`; signed web↔worker
+channel; no send/reply/react/history-import; teleproto in the worker pkg only (never the web bundle).
+
+**Built & tested (643 web + 64 connection + 6 infra synth; typecheck clean except the marketplace
+baseline; web build passes):** state/sealing; content-free `ConversationEvent`; `SourceConnection` +
+repo + `sourceConnections` IAM + `SourceConnectionService`; `/app/connections` tiles + interactive
+Telegram sign-in widget; worker (`apps/connections-worker`): content-free mapping, `TelegramAdapter`,
+`runObservationSweep` (sink-before-cursor), login coordinator, teleproto seam, signed control server,
+entrypoint; `SourceObservation` governed store; `infra/connections` (Fargate + internal ALB + HTTPS
+HTTP API/VPC Link + Secrets Manager wiring).
+
+**Migrations (NOT dispatched):** `20260925000000_source_connections`, `20260926000000_source_observations`.
+Apply to the STAGING Neon DB before the worker/web use the tables.
+
+**Secrets (Secrets Manager, staging 065148797865 us-east-1):** `loop/connections/staging/telegram`
+(api_id/api_hash) — created by Matt ✅. Created by the CDK deploy: `.../connection-key` (UNSET →
+`openssl rand -base64 32`), `.../database-url` (UNSET → Neon staging URL), `.../conversation-secret`
+(generated), `.../worker-control` (generated; read once for the web env).
+
+**Web env (Netlify) to set after deploy:** `LOOP_CONNECTION_PROVIDERS=TELEGRAM`,
+`LOOP_CONNECTIONS_WORKER_URL=<HttpApi WorkerUrl output>`, `LOOP_CONNECTIONS_WORKER_SECRET=<worker-control
+value>`. (The web no longer uses `LOOP_CONNECTION_SECRET_KEY`.)
+
+**Deployment model: GitHub Actions + OIDC + workflow_dispatch (no local AWS creds/CDK)**, mirroring
+Brain. Workflows: `connections-infra-ci` (PR) and `connections-infra-deploy` (manual, environment
+`connections-staging`, account/region guards, synth-before-deploy, confirm text). Deploy identity:
+`infra/connections/access/github-deploy-access.yaml` (own role, trusts connections-staging, assumes
+the CDK bootstrap roles incl. image-publishing). Runbook: docs/runbooks/connections-aws-staging.md.
+
+**Next human actions (ordered):** (1) ONE-TIME bootstrap (admin): deploy the access CFN in staging
++ create the `connections-staging` GitHub environment (required reviewer, main only) with var
+`CONNECTIONS_STAGING_DEPLOY_ROLE_ARN`; (2) run `connections-infra-deploy` (action `diff`, then
+`deploy` + confirm `deploy loop-connections-staging`) — approve the environment gate; (3) populate the
+two UNSET secrets (connection-key, database-url) + read worker-control; (4) apply the two migrations
+to staging Neon; (5) set the three Netlify vars + redeploy web; (6) force a new Fargate deployment;
+(7) Connections → Telegram → Connect → phone/code/2FA → Ready. No production changes.
+
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
 `main` for the next objective — never keep committing to a merged branch (it strands work

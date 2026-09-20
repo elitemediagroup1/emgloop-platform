@@ -654,3 +654,45 @@ export {
 // a closed item reopens only on new evidence, and a correction is recorded beside the facts.
 export { MailAttentionService, mailThreadFacts, type MailAttentionDeps, type MailAttentionOutcome } from './services/work-state';
 export * from './services/intelligence';
+
+// Provider connection secret sealing (Teams OAuth token / Telegram MTProto session).
+export {
+  ConnectionSecretSealer,
+  ConnectionSecretUnopenable,
+  connectionSecretKeyRef,
+  CONNECTION_SECRET_SEAL_VERSION,
+  CONNECTION_SECRET_PURPOSE,
+} from './services/connections/connection-secret-sealer';
+export type { ConnectionSecretBinding, SealedConnectionSecret } from './services/connections/connection-secret-sealer';
+
+// Provider-neutral connection adapter + worker runtime (Teams/Telegram and future sources).
+export type { ConnectionAdapter, AdapterSession, ObservationResult } from './services/connections/connection-adapter';
+export { runConnectionCycle } from './services/connections/connection-runtime';
+export type { ConnectionCycleInput, ConnectionCycleResult, CycleFailure } from './services/connections/connection-runtime';
+// Background conversation source connections (Teams, Telegram): persistence. The Teams/Telegram
+// sibling of GoogleConnectionRepository -- org-first, user-private, sealed bytes only. Instantiated
+// on demand (like Google), not registered in the repositories bag.
+export {
+  SourceConnectionRepository,
+  disconnectSourceConnectionsInTx,
+  knownConnectionProviders,
+} from './repositories/source-connection.repository';
+export type {
+  SourceConnectionActor,
+  SourceConnectionRecord,
+  SourceConnectionCredentialToStore,
+  SourceConnectionStoreOutcome,
+  DueConnection,
+} from './repositories/source-connection.repository';
+// Content-free observations from background sources (Teams, Telegram): persistence + governed
+// retention (the worker's observation sink lands here).
+export { SourceObservationRepository } from './repositories/source-observation.repository';
+export type { SourceObservationRow } from './repositories/source-observation.repository';
+export { SourceConnectionService } from './services/connections/source-connection.service';
+export type {
+  SourceConnectionPrincipal,
+  SourceConnectionAuthority,
+  SourceConnectionServiceDeps,
+  SourceConnectionStatus,
+  ProviderConnectionView,
+} from './services/connections/source-connection.service';

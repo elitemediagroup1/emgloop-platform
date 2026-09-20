@@ -1,0 +1,67 @@
+# Connections worker -- CI. No AWS credentials, no Neon, no provider network.
+#
+# Builds and tests the connections deployable on every pull request that touches it:
+#   - the worker (apps/connections-worker): typecheck + tests (provider bindings run only when
+#     deployed; the tests use fakes)
+#   - the infrastructure project (infra/connections): typecheck + template tests, then `cdk synth`
+# Nothing here deploys. Deployment is connections-infra-deploy.yml, manual and approved.
+
+name: connections-infra-ci
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/connections/**'
+      - 'apps/connections-worker/**'
+      - 'packages/shared/src/source-connection.ts'
+      - 'packages/shared/src/conversation-event.ts'
+      - 'packages/shared/src/connection-worker-auth.ts'
+      - 'packages/database/src/services/connections/**'
+      - 'packages/database/src/repositories/source-connection.repository.ts'
+      - 'packages/database/src/repositories/source-observation.repository.ts'
+      - '.github/workflows/connections-infra-*.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  connections:
+    runs-on: ubuntu-latest
+    env:
+      # Only for `prisma generate`; nothing connects.
+      DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install workspace dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck (@emgloop/connections-worker)
+        run: npm run -w @emgloop/connections-worker typecheck
+
+      - name: Test (@emgloop/connections-worker)
+        run: npm run -w @emgloop/connections-worker test
+
+      - name: Install infrastructure dependencies
+        working-directory: infra/connections
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck (infra/connections)
+        working-directory: infra/connections
+        run: npm run typecheck
+
+      - name: Test (infra/connections)
+        working-directory: infra/connections
+        run: npm test
+
+      - name: Synthesize (creates nothing)
+        working-directory: infra/connections
+        run: npm run synth

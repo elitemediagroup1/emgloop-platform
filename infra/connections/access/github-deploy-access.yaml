@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Loop connections worker staging - the GitHub Actions deploy identity. Only the
+  connections-staging environment of elitemediagroup1/emgloop-platform may use it, and it may only
+  assume the CDK bootstrap roles. Deployed once by a human administrator in 065148797865 / us-east-1
+  (checked before deploying); never by the pipeline it authorizes.
+
+# Stack: LoopConnections-staging-github-access, termination protection on.
+# Procedure: docs/runbooks/connections-aws-staging.md. Checks: infra/connections/test/access.test.ts.
+#
+# Kept outside the connections CDK app on purpose: the pipeline this role authorizes must not manage
+# the role. It creates ONLY the role -- the GitHub OIDC provider already exists in this account (the
+# Brain deploy identity created it), and IAM allows one provider per issuer, so this references it by
+# ARN rather than creating a second.
+#
+# It CAN assume the CDK image-publishing role, which the Brain identity deliberately cannot: the
+# connections worker ships a container image (Fargate), so its deployment publishes an image asset.
+
+Resources:
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: loop-connections-github-deploy
+      Description: GitHub Actions (connections-staging environment) deploys LoopConnections-staging through the CDK bootstrap roles.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Exactly one repository and one environment. The environment admits only main, with a
+          # required reviewer. OIDC sessions carry no session tags, so sts:TagSession is not needed.
+          - Sid: ConnectionsStagingEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: arn:aws:iam::065148797865:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: repo:elitemediagroup1/emgloop-platform:environment:connections-staging
+      Policies:
+        # CDK deploys by assuming its bootstrap roles (qualifier hnb659fds). The role can do nothing
+        # else. Image publishing IS listed here (unlike Brain): the worker stack has an image asset.
+        - PolicyName: assume-cdk-bootstrap-roles
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: UseCdkBootstrapRolesOnly
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource:
+                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-deploy-role-065148797865-us-east-1
+                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-file-publishing-role-065148797865-us-east-1
+                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-image-publishing-role-065148797865-us-east-1
+                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-lookup-role-065148797865-us-east-1
+      Tags:
+        - { Key: app, Value: loop }
+        - { Key: component, Value: connections-deploy-access }
+        - { Key: env, Value: staging }
+
+Outputs:
+  DeployRoleArn:
+    Description: The value of the connections-staging environment variable CONNECTIONS_STAGING_DEPLOY_ROLE_ARN.
+    Value: !GetAtt GitHubDeployRole.Arn
