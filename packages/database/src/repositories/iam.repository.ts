@@ -113,7 +113,13 @@ export type Resource =
   // one's own work state). It has exactly one action, `send`; there is no `manage` and no
   // `approve`, because an administrator sending as an employee is not a capability this
   // platform has, and a delegated mailbox would be a reviewed architecture, not a grant.
-  | 'employeeMail';
+  | 'employeeMail'
+  // Background conversation source connections (Teams, Telegram; source-connection.ts). A
+  // person's OWN Teams/Telegram connection -- never anybody else's, and never message content.
+  // Grants: see SOURCE_CONNECTION_GRANTS, which mirrors GOOGLE_WORKSPACE_GRANTS -- view+update for
+  // every human role, AI_EMPLOYEE hard-denied. Connecting an account is the same authority as
+  // connecting Google; it does not ride on any other resource.
+  | 'sourceConnections';
 
 
 /**
@@ -241,6 +247,18 @@ export const GOOGLE_WORKSPACE_GRANTS: Readonly<Record<string, readonly Action[]>
 /** Roles that may never hold a Google Workspace connection, whatever a Permission row says. */
 const GOOGLE_WORKSPACE_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
+export const SOURCE_CONNECTION_GRANTS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
+  OWNER: ['view', 'update'],
+  ADMIN: ['view', 'update'],
+  MANAGER: ['view', 'update'],
+  EMPLOYEE: ['view', 'update'],
+  READ_ONLY: ['view', 'update'],
+  AI_EMPLOYEE: [],
+});
+
+/** Roles that may never hold a Teams/Telegram connection, whatever a Permission row says. */
+const SOURCE_CONNECTION_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
+
 // DAILY LOOP EMPLOYEE INTELLIGENCE (DL-1) -- a person's OWN work state.
 //
 // Every human role holds `view` (my queue, my day, my brief) and `update` (correct an item,
@@ -338,6 +356,9 @@ export function matrixAllows(role: string, resource: Resource, action: Action): 
   }
   if (resource === 'employeeMail') {
     return (EMPLOYEE_MAIL_GRANTS[role] ?? []).includes(action);
+  }
+  if (resource === 'sourceConnections') {
+    return (SOURCE_CONNECTION_GRANTS[role] ?? []).includes(action);
   }
   // PD-F-04 grants Relationship view to every authorized HUMAN workspace role, and
   // the recorded reading denies AI_EMPLOYEE because it is not one. Without this it
@@ -453,6 +474,8 @@ export class IamRepository {
     if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
     // Nor work state derived from one.
     if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;
+    // Nor a Teams/Telegram connection.
+    if (resource === 'sourceConnections' && SOURCE_CONNECTION_FORBIDDEN_ROLES.includes(role)) return false;
     // Nor sends mail as a person.
     if (resource === 'employeeMail' && EMPLOYEE_MAIL_FORBIDDEN_ROLES.includes(role)) return false;
 
@@ -513,6 +536,7 @@ export class IamRepository {
       if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'employeeMail' && EMPLOYEE_MAIL_FORBIDDEN_ROLES.includes(role)) return false;
+      if (resource === 'sourceConnections' && SOURCE_CONNECTION_FORBIDDEN_ROLES.includes(role)) return false;
       const applicable = rules.filter((r) => r.resource === resource && r.action === action);
       if (applicable.some((r) => r.userId === userId && r.effect === 'DENY')) return false;
       if (applicable.some((r) => r.systemRole === role && r.effect === 'DENY')) return false;

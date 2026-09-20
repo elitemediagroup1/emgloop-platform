@@ -683,3 +683,11 @@ export type {
   SourceConnectionCredentialToStore,
   SourceConnectionStoreOutcome,
 } from './repositories/source-connection.repository';
+export { SourceConnectionService } from './services/connections/source-connection.service';
+export type {
+  SourceConnectionPrincipal,
+  SourceConnectionAuthority,
+  SourceConnectionServiceDeps,
+  SourceConnectionStatus,
+  ProviderConnectionView,
+} from './services/connections/source-connection.service';
