@@ -21,6 +21,7 @@ on:
       - 'packages/database/src/repositories/source-connection.repository.ts'
       - 'packages/database/src/repositories/source-observation.repository.ts'
       - '.github/workflows/connections-infra-*.yml'
+      - '.github/workflows/connections-migrate-*.yml'
 
 permissions:
   contents: read

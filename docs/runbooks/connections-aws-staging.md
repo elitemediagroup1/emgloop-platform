@@ -68,9 +68,31 @@ ALB, the HTTPS HTTP API (VPC Link), and the Secrets Manager entries. Note the st
 Because all secrets exist before deploy, the worker task starts fully configured and healthy -- no
 restart is needed. Then:
 
-1. **Apply the migrations** to the staging Neon DB: `20260925000000_source_connections` and
-   `20260926000000_source_observations`. (Until they are applied, the worker is healthy but each
-   observation sweep fails gracefully -- the tables do not exist yet.)
+1. **Apply the staging migrations** with the **connections-migrate-staging** workflow (one-time
+   setup below). It applies pending migrations -- including `20260925000000_source_connections` and
+   `20260926000000_source_observations` -- to the STAGING Neon DB whose URL is at
+   `loop/connections/staging/database-url`. It never touches production. Until it runs, the worker is
+   healthy but each observation sweep fails gracefully (the tables do not exist yet).
+
+   **One-time bootstrap (administrator, CloudShell in `065148797865` / us-east-1):**
+   ```sh
+   aws sts get-caller-identity --query Account --output text      # must print 065148797865 — stop otherwise
+   SHA=<a reviewed commit that contains the template>
+   curl -fsSL -o github-migrate-access.yaml      "https://raw.githubusercontent.com/elitemediagroup1/emgloop-platform/${SHA}/infra/connections/access/github-migrate-access.yaml"
+   aws cloudformation deploy --region us-east-1      --stack-name LoopConnections-staging-migrate-access      --template-file github-migrate-access.yaml      --capabilities CAPABILITY_NAMED_IAM
+   aws cloudformation update-termination-protection --region us-east-1      --stack-name LoopConnections-staging-migrate-access --enable-termination-protection
+   aws cloudformation describe-stacks --region us-east-1      --stack-name LoopConnections-staging-migrate-access --query "Stacks[0].Outputs"
+   ```
+   It creates ONLY the role `loop-connections-migrate-github`, which the connections-staging
+   environment may assume and which may read ONLY the staging DB URL secret (not production, nothing
+   else). Add its `MigrateRoleArn` as the connections-staging environment **variable**
+   `CONNECTIONS_STAGING_MIGRATE_ROLE_ARN`.
+
+   **Run it:** Actions → **connections-migrate-staging** → Run workflow → branch `main` →
+   `confirm: migrate loop-connections-staging`. The run reads the staging URL from Secrets Manager
+   (masked, never printed) and applies pending migrations. `DATABASE_URL` must be a **direct** Neon
+   connection (Prisma migrations require it); if the stored URL is a pooled `-pooler` endpoint, store
+   the direct endpoint there.
 2. **Set the web (Netlify staging) env**: `LOOP_CONNECTION_PROVIDERS=TELEGRAM`,
    `LOOP_CONNECTIONS_WORKER_URL=<WorkerUrl output>`, `LOOP_CONNECTIONS_WORKER_SECRET=<the generated
    worker-control value, read once from Secrets Manager>`; redeploy web. (The web tier holds no

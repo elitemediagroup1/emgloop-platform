@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Loop connections worker staging - the GitHub Actions MIGRATIONS identity. Only the
+  connections-staging environment of elitemediagroup1/emgloop-platform may use it, and it may read
+  ONLY the staging connections database URL secret. Deployed once by a human administrator in
+  065148797865 / us-east-1 (checked before deploying); never by the pipeline it authorizes.
+
+# Stack: LoopConnections-staging-migrate-access, termination protection on.
+# Procedure: docs/runbooks/connections-aws-staging.md. Checks: infra/connections/test/migrate-access.test.ts.
+#
+# SEPARATE from the deploy identity on purpose: applying staging migrations needs to read one secret,
+# not deploy infrastructure. This role can do neither the deploy role's job nor touch production. It
+# references the existing GitHub OIDC provider (created by the deploy identity; one per issuer).
+#
+# LEAST PRIVILEGE: exactly secretsmanager:GetSecretValue + DescribeSecret, on exactly the staging
+# database URL secret (loop/connections/staging/database-url). It cannot read the production database
+# secret, cannot read any other secret, and can do nothing else in the account.
+
+Resources:
+  GitHubMigrateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: loop-connections-migrate-github
+      Description: GitHub Actions (connections-staging environment) reads ONLY the staging connections DB URL secret to run prisma migrate deploy.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ConnectionsStagingEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: arn:aws:iam::065148797865:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: repo:elitemediagroup1/emgloop-platform:environment:connections-staging
+      Policies:
+        - PolicyName: read-staging-connections-db-url-only
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadStagingConnectionsDatabaseUrlOnly
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                # Exactly the staging connections DB URL secret. The trailing 6-char suffix is what
+                # Secrets Manager appends to the ARN; it is NOT a broad wildcard over other secrets.
+                Resource: arn:aws:secretsmanager:us-east-1:065148797865:secret:loop/connections/staging/database-url-??????
+      Tags:
+        - { Key: app, Value: loop }
+        - { Key: component, Value: connections-migrate-access }
+        - { Key: env, Value: staging }
+
+Outputs:
+  MigrateRoleArn:
+    Description: The value of the connections-staging environment variable CONNECTIONS_STAGING_MIGRATE_ROLE_ARN.
+    Value: !GetAtt GitHubMigrateRole.Arn
