@@ -111,10 +111,13 @@ export async function revokeBaselineAction(formData: FormData): Promise<void> {
 //
 // The employee's EXPLICIT, revocable consent for Loop to process message CONTENT with AI -- a separate
 // act from connecting (which is about authorizing an account) and from the history baseline (which is
-// who/when only). Same authority as connecting (`sourceConnections:update`, re-derived from the
-// session). Only the provider (which tile) is read from the form; the organization and person are
-// ALWAYS the signed session's. No worker call: consent is recorded in the database and the durable
-// worker's content sweep -- which runs only when the deployment's AI runtime is enabled -- picks it up.
+// who/when only). ONE consent, BUNDLED (no new toggle): it covers BOTH the recent historical window (the
+// last N days already imported, read transiently to surface obligations still unresolved) AND new
+// messages going forward. Same authority as connecting (`sourceConnections:update`, re-derived from the
+// session). Only the provider (which tile) is read from the form; the organization and person are ALWAYS
+// the signed session's. No worker call: consent is recorded in the database (and, on a COMPLETE baseline,
+// the historical backfill is armed there) and the durable worker's content sweeps -- which run only when
+// the deployment's AI runtime is enabled -- pick it up. A revoke stops BOTH immediately.
 
 function backContent(outcome: string, provider: string): never {
   const params = new URLSearchParams({ content: outcome });
