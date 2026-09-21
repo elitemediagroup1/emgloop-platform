@@ -184,6 +184,10 @@ export const SOURCE_CONNECTION_AUDIT_ACTIONS = Object.freeze({
   baseline_authorized: 'source_connection.baseline.authorized',
   baseline_scope_changed: 'source_connection.baseline.scope_changed',
   baseline_revoked: 'source_connection.baseline.revoked',
+  // Content-triage slice: the employee's explicit consent to process message CONTENT with AI, and
+  // its withdrawal. Distinct from connecting and from the content-free history baseline.
+  content_authorized: 'source_connection.content.authorized',
+  content_revoked: 'source_connection.content.revoked',
 } as const);
 export type SourceConnectionAuditAction =
   (typeof SOURCE_CONNECTION_AUDIT_ACTIONS)[keyof typeof SOURCE_CONNECTION_AUDIT_ACTIONS];
@@ -259,4 +263,27 @@ export type SourceBaselineActionOutcome = (typeof SOURCE_BASELINE_ACTION_OUTCOME
 
 export function isSourceBaselineActionOutcome(v: unknown): v is SourceBaselineActionOutcome {
   return typeof v === 'string' && (SOURCE_BASELINE_ACTION_OUTCOMES as readonly string[]).includes(v);
+}
+
+// --- Governed content processing (Telegram content-triage slice) --------------------------------
+//
+// A SEPARATE consent from connecting and from the content-free history baseline. Connection alone is
+// NOT this consent: this authorizes Loop to read message CONTENT transiently and have AI decide
+// whether a new inbound message is meaningfully actionable. It is employee-private, revocable, and
+// there is no all-provider or org-wide option -- one provider, one person, one explicit act.
+
+/** The outcome of authorizing or revoking content processing. Codes, never a provider's own text. */
+export const SOURCE_CONTENT_ACTION_OUTCOMES = [
+  'AUTHORIZED',     // content processing was authorized (or re-affirmed)
+  'REVOKED',        // an active content authorization was withdrawn
+  'NOTHING_TO_DO',  // revoke asked for an authorization that was not there (or already revoked)
+  'NOT_PERMITTED',  // the person's role does not include a source connection
+  'NOT_CONFIGURED', // this deployment cannot connect the provider
+  'NO_CONNECTION',  // there is no live connection to authorize content for
+  'INVALID',        // the request did not name a known provider
+] as const;
+export type SourceContentActionOutcome = (typeof SOURCE_CONTENT_ACTION_OUTCOMES)[number];
+
+export function isSourceContentActionOutcome(v: unknown): v is SourceContentActionOutcome {
+  return typeof v === 'string' && (SOURCE_CONTENT_ACTION_OUTCOMES as readonly string[]).includes(v);
 }

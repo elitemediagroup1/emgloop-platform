@@ -158,7 +158,59 @@ export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
   tools: Object.freeze([]),
 });
 
-export const AI_TASKS: readonly AiTaskDefinition[] = Object.freeze([AI_TASK_CASE_EXPLANATION, AI_TASK_MAIL_REPLY_DRAFT]);
+/**
+ * TELEGRAM CONTENT TRIAGE (Slice: content-triage). A conservative, employee-private verdict on
+ * whether ONE new inbound message in the employee's own Telegram conversation is meaningfully
+ * actionable, and if so what kind of thing it is and what it means in one minimized line.
+ *
+ * IT RUNS ONLY AFTER THE EMPLOYEE AUTHORIZES CONTENT PROCESSING (a separate consent from connecting
+ * the source and from the content-free history baseline), and only while a live credential is held.
+ * The message body is transient: it is read for this one call and dropped -- never persisted, never
+ * logged, never in the derived WorkItem or its evidence. The verdict is EMPLOYEE-PRIVATE: an OWNER
+ * does not hold it, an ADMIN does not hold it, and nothing here is promoted to an organization surface.
+ *
+ * COMMUNICATION_CONTENT, because the evidence IS the message. The one context block is marked
+ * UNTRUSTED_INPUT -- a Telegram message is data, never an instruction, whatever it says inside.
+ *
+ * `sourceConnections:view` is the read authority (the employee may view their own Telegram source).
+ * Every human role may invoke it; AI_EMPLOYEE is never an invoker, by the runtime's own rule and by
+ * `sourceConnections` denying it. GENERAL_REASONING is the honest capability route: this is a
+ * classification, not language for a person and not technical analysis.
+ */
+export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
+  taskId: 'telegram.content.triage',
+  version: '1.0.0',
+  // A single-message actionability judgment: general reasoning, not communication drafting and not
+  // technical analysis. GENERAL_REASONING has no default provider, so the routing entry names one
+  // and says why.
+  capabilityRoute: 'GENERAL_REASONING',
+  resultType: 'TRIAGE',
+  // The verdict belongs to the employee's own work context, about one of their own conversations,
+  // and to no one else -- the same private authority the Daily Loop's own conclusions have.
+  resultOwner: Object.freeze({ authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_CONVERSATION' } as const),
+  execution: Object.freeze({
+    classes: Object.freeze(['INTERACTIVE'] as const),
+    interactive: Object.freeze({ presentationBudgetMs: 10_000, executionDeadlineMs: 30_000, streaming: 'NONE' } as const),
+    durable: null,
+  }),
+  sensitivityCeiling: 'COMMUNICATION_CONTENT',
+  // READ_ONLY: a TRIAGE verdict is NON_AUTHORITATIVE (brain-result.ts). It concludes; it proposes
+  // nothing to an approval path, and it can act on nothing -- the task publishes no tool.
+  consequence: 'READ_ONLY',
+  requires: Object.freeze([{ resource: 'sourceConnections', action: 'view' } as const]),
+  invokerRoles: Object.freeze(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']),
+  outputSchemaId: 'telegram-content-triage.v1',
+  // Informational: the reviewed routing policy sets each call's actual ceiling and deadline.
+  maxOutputTokens: 1000,
+  timeoutMs: 20_000,
+  tools: Object.freeze([]),
+});
+
+export const AI_TASKS: readonly AiTaskDefinition[] = Object.freeze([
+  AI_TASK_CASE_EXPLANATION,
+  AI_TASK_MAIL_REPLY_DRAFT,
+  AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+]);
 
 export function aiTask(taskId: string): AiTaskDefinition | null {
   return AI_TASKS.find((t) => t.taskId === taskId) ?? null;
@@ -226,11 +278,51 @@ export interface AiTaskOutput {
    * the words is not a validator -- it is a person reading them before pressing Send.
    */
   readonly draft?: AiDraftText;
+  /**
+   * The classification, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
+   * Like `draft`, it is checked for shape and size and NOT figure-checked -- a minimized paraphrase
+   * naturally restates a fact from the message, and what stands behind it is a person reading their
+   * own conversation, not a validator.
+   */
+  readonly triage?: AiTriageVerdict;
 }
 
 export interface AiDraftText {
   readonly body: string;
 }
+
+/**
+ * TELEGRAM CONTENT TRIAGE (Slice: content-triage). What Loop will accept as the verdict on one
+ * inbound message, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
+ *
+ * It carries NO evidence and NO body. `oneLineMeaning` is a MINIMIZED PARAPHRASE the reader sees --
+ * never a verbatim excerpt of the message, and never figure-checked, because a conservative
+ * one-line meaning naturally restates a fact. What stands behind it is not a validator: it is the
+ * employee reading their own conversation. A non-actionable verdict is category NONE, and nothing is
+ * raised.
+ */
+export const AI_TRIAGE_CATEGORIES = [
+  'REQUEST',
+  'DECISION_NEEDED',
+  'COMMITMENT',
+  'DEADLINE',
+  'BUSINESS_CHANGE',
+  'PROBLEM',
+  'FOLLOW_UP',
+  'OTHER',
+  'NONE',
+] as const;
+export type AiTriageCategory = (typeof AI_TRIAGE_CATEGORIES)[number];
+
+export interface AiTriageVerdict {
+  readonly actionable: boolean;
+  readonly category: AiTriageCategory;
+  /** A minimized paraphrase (<=140 chars). Never a verbatim excerpt of the message. */
+  readonly oneLineMeaning: string;
+}
+
+/** Bounds on a triage verdict a person has to read. The schema cannot say these for every provider. */
+export const AI_TRIAGE_LIMITS = Object.freeze({ maxMeaningChars: 140 });
 
 /**
  * What the supplied evidence actually contains, for checking an answer against.
@@ -279,11 +371,16 @@ export const AI_ANSWER_LIMITS = Object.freeze({
 export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
-  if (typeof v.schemaId !== 'string' || typeof v.summary !== 'string') return null;
-  if (!Array.isArray(v.claims) || !Array.isArray(v.limitations)) return null;
-  if (!v.limitations.every((l) => typeof l === 'string')) return null;
+  if (typeof v.schemaId !== 'string') return null;
+  // `summary` and `claims` are optional (default '' and []): a DRAFT or a TRIAGE carries neither.
+  // A wrong TYPE is still rejected; `validateAiTaskOutput` decides which task actually required them.
+  if (v.summary !== undefined && typeof v.summary !== 'string') return null;
+  const summary = typeof v.summary === 'string' ? v.summary : '';
+  if (v.claims !== undefined && !Array.isArray(v.claims)) return null;
+  if (!Array.isArray(v.limitations) || !v.limitations.every((l) => typeof l === 'string')) return null;
+  const claimsInput: unknown[] = Array.isArray(v.claims) ? v.claims : [];
   const claims: AiClaim[] = [];
-  for (const raw of v.claims) {
+  for (const raw of claimsInput) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
     const c = raw as Record<string, unknown>;
     if (typeof c.kind !== 'string' || typeof c.statement !== 'string') return null;
@@ -307,7 +404,22 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     if (typeof body !== 'string') return null;
     draft = { body };
   }
-  return { schemaId: v.schemaId, summary: v.summary, claims, limitations: v.limitations as string[], ...(draft ? { draft } : {}) };
+  // A task whose result is a classification carries it here, flat. Absent is fine -- the validator
+  // decides whether THIS task required it. A partial verdict is not a verdict, and reading it as one
+  // would throw.
+  let triage: AiTriageVerdict | undefined;
+  if (v.actionable !== undefined || v.category !== undefined || v.oneLineMeaning !== undefined) {
+    if (typeof v.actionable !== 'boolean' || typeof v.category !== 'string' || typeof v.oneLineMeaning !== 'string') return null;
+    triage = { actionable: v.actionable, category: v.category as AiTriageCategory, oneLineMeaning: v.oneLineMeaning };
+  }
+  return {
+    schemaId: v.schemaId,
+    summary,
+    claims,
+    limitations: v.limitations as string[],
+    ...(draft ? { draft } : {}),
+    ...(triage ? { triage } : {}),
+  };
 }
 
 /** A model that scores its own certainty is guessing twice. C-05 applies to AI too. */
@@ -364,19 +476,34 @@ export function validateAiTaskOutput(
 ): AiOutputRejection[] {
   const out: AiOutputRejection[] = [];
   if (output.schemaId !== task.outputSchemaId) out.push('WRONG_SCHEMA');
-  if (!output.summary?.trim()) out.push('EMPTY_ANSWER');
-  // An analysis with no claims is not an analysis. A DRAFT's deliverable is its prose, and its
-  // claims are optional: demanding a cited claim beside a reply would produce padding, not rigour.
-  if (output.claims.length === 0 && task.resultType !== 'DRAFT') out.push('EMPTY_ANSWER');
+  // A TRIAGE verdict has no summary and no claims -- its deliverable is the classification below.
+  if (task.resultType !== 'TRIAGE' && !output.summary?.trim()) out.push('EMPTY_ANSWER');
+  // An analysis with no claims is not an analysis. A DRAFT's deliverable is its prose and a TRIAGE's
+  // is its verdict, so neither is required to cite a claim: demanding one would produce padding.
+  if (output.claims.length === 0 && task.resultType !== 'DRAFT' && task.resultType !== 'TRIAGE') out.push('EMPTY_ANSWER');
 
-  // A task whose result is prose is checked for the prose. A claim-based task is not allowed to
-  // return one: an answer that carries a draft nobody asked for is not the answer that was asked
-  // for, and reading it as one is how a "read-only" task starts proposing actions.
+  // A task whose result is prose or a classification is checked for exactly that. A claim-based task
+  // may return neither: an answer carrying a payload nobody asked for is not the answer that was
+  // asked for, and reading it as one is how a "read-only" task starts proposing actions.
   if (task.resultType === 'DRAFT') {
     const body = output.draft?.body?.trim() ?? '';
     if (body === '') out.push('EMPTY_ANSWER');
     if ((output.draft?.body?.length ?? 0) > AI_DRAFT_LIMITS.maxBodyChars) out.push('ANSWER_TOO_LONG');
-  } else if (output.draft !== undefined) {
+    if (output.triage !== undefined) out.push('WRONG_SCHEMA');
+  } else if (task.resultType === 'TRIAGE') {
+    const t = output.triage;
+    if (!t) out.push('EMPTY_ANSWER');
+    else {
+      if (!(AI_TRIAGE_CATEGORIES as readonly string[]).includes(t.category)) out.push('WRONG_SCHEMA');
+      const meaning = t.oneLineMeaning?.trim() ?? '';
+      if (meaning === '') out.push('EMPTY_ANSWER');
+      if ((t.oneLineMeaning?.length ?? 0) > AI_TRIAGE_LIMITS.maxMeaningChars) out.push('ANSWER_TOO_LONG');
+      // A verdict and its category cannot disagree: an actionable verdict names a real category, and
+      // a non-actionable one is NONE. Anything else is not the verdict Loop asked for.
+      if (t.actionable === (t.category === 'NONE')) out.push('WRONG_SCHEMA');
+    }
+    if (output.draft !== undefined) out.push('WRONG_SCHEMA');
+  } else if (output.draft !== undefined || output.triage !== undefined) {
     out.push('WRONG_SCHEMA');
   }
 
