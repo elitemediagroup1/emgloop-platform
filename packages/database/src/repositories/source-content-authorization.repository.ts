@@ -24,6 +24,9 @@ import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emglo
 import { membershipAuthority } from './membership.repository';
 import { writeAudit, type SourceConnectionActor } from './source-connection.repository';
 
+/** The historical-backfill lifecycle. A revoke stops it via revokedAt; there is no REVOKED state column. */
+export type HistoricalContentState = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE';
+
 /** An authorization as read for a tile: content-free, no cursor meaning exposed. */
 export interface ContentAuthorizationRecord {
   readonly id: string;
@@ -37,6 +40,9 @@ export interface ContentAuthorizationRecord {
   readonly lastRunAt: Date | null;
   readonly lastFailureClass: string | null;
   readonly backoffUntil: Date | null;
+  /** v2 historical backfill lifecycle. Enabled means historicalWindowFloorAt is set. */
+  readonly historicalState: HistoricalContentState;
+  readonly historicalWindowFloorAt: Date | null;
 }
 
 /** One authorization worth a content run now: routing fields only, never a credential or content. */
@@ -47,11 +53,37 @@ export interface DueContent {
   readonly contentCursor: string | null;
 }
 
+/** One authorization worth a HISTORICAL content run now: routing fields only, never a credential or content. */
+export interface DueHistoricalContent {
+  readonly organizationId: string;
+  readonly userId: string;
+  readonly provider: ConnectionProvider;
+  /** Opaque dialog-pagination frontier the historical sweep resumes from. Never the other cursors. */
+  readonly historicalCursor: string | null;
+  /** The instant the transient historical reads stop at (the baseline window floor). */
+  readonly historicalWindowFloorAt: Date;
+}
+
 /** What one content run recorded. NEVER carries the live observation cursor or the baseline checkpoint. */
 export interface ContentProgress {
   readonly contentCursor: string | null;
   readonly failureClass?: string | null;
   readonly backoffUntil?: Date | null;
+  readonly now: Date;
+}
+
+/**
+ * What one HISTORICAL content run recorded. Advances ONLY the historical* columns -- NEVER the live
+ * observation cursor, the baseline checkpoint or the forward contentCursor.
+ */
+export interface HistoricalContentProgress {
+  readonly historicalCursor: string | null;
+  readonly state: HistoricalContentState;
+  readonly oldestReachedAt?: Date | null;
+  readonly failureClass?: string | null;
+  readonly backoffUntil?: Date | null;
+  /** Conversations advanced past on a PERMANENT triage failure this run. Incremented, never reset here. */
+  readonly failedItemsDelta?: number;
   readonly now: Date;
 }
 
@@ -75,6 +107,8 @@ function toRecord(row: Record<string, any>): ContentAuthorizationRecord {
     lastRunAt: row.lastRunAt ?? null,
     lastFailureClass: row.lastFailureClass ?? null,
     backoffUntil: row.backoffUntil ?? null,
+    historicalState: (row.historicalState ?? 'NOT_STARTED') as HistoricalContentState,
+    historicalWindowFloorAt: row.historicalWindowFloorAt ?? null,
   };
 }
 
@@ -210,6 +244,104 @@ export class SourceContentAuthorizationRepository {
         backoffUntil: progress.backoffUntil ?? null,
         lastRunAt: progress.now,
       },
+    });
+    return count === 1;
+  }
+
+  // --- v2 historical backfill --------------------------------------------------------------------
+  //
+  // A one-off, resumable, TRANSIENT re-read of the already-imported recent window (the baseline floor)
+  // that surfaces obligations still unresolved WITHOUT waiting for a new message. It advances ONLY the
+  // historical* columns -- never the live observation cursor, the baseline checkpoint or the forward
+  // contentCursor -- so the historical sweep cannot move any of them.
+
+  /**
+   * Enable the historical backfill for an authorized connection whose baseline is COMPLETE. The CALLER
+   * (the connections service) gates on baseline COMPLETE before calling; enabling here simply arms the
+   * columns, ONCE. It is idempotent and never resets an in-progress or completed backfill: it writes only
+   * when the authorization is live (revokedAt null) and was never enabled (historicalWindowFloorAt null).
+   * Returns true when it enabled exactly one.
+   */
+  async enableHistoricalBackfill(
+    organizationId: string,
+    userId: string,
+    provider: ConnectionProvider,
+    request: { readonly floorAt: Date },
+  ): Promise<boolean> {
+    const { count } = await this.prisma.sourceContentAuthorization.updateMany({
+      where: { organizationId, userId, provider, revokedAt: null, historicalWindowFloorAt: null },
+      data: {
+        historicalState: 'NOT_STARTED',
+        historicalWindowFloorAt: request.floorAt,
+        historicalCursor: null,
+        historicalOldestReachedAt: null,
+        historicalLastFailureClass: null,
+        historicalBackoffUntil: null,
+        historicalFailedItems: 0,
+      },
+    });
+    return count === 1;
+  }
+
+  /**
+   * PLATFORM-WORKER DISCOVERY, ACROSS ALL TENANTS. Mirrors dueForContent: the durable worker is ONE
+   * process serving every organization, so this returns the authorizations worth a HISTORICAL content run
+   * now regardless of org -- routing fields only (org, user, provider, the historical cursor and floor),
+   * never a credential and never content. Liveness and activation are enforced DOWNSTREAM.
+   *
+   * DUE = enabled (historicalWindowFloorAt set, which the enable-time gate only does on a COMPLETE
+   * baseline), NOT revoked, historicalState NOT_STARTED or IN_PROGRESS, and past any backoff. COMPLETE
+   * and a not-yet-enabled (baseline-incomplete) authorization are excluded. Stalest-run first.
+   */
+  async dueForHistoricalContent(limit = 500): Promise<DueHistoricalContent[]> {
+    const now = new Date();
+    const rows = await this.prisma.sourceContentAuthorization.findMany({
+      where: {
+        revokedAt: null,
+        historicalState: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
+        historicalWindowFloorAt: { not: null },
+        OR: [{ historicalBackoffUntil: null }, { historicalBackoffUntil: { lt: now } }],
+      },
+      orderBy: [{ historicalLastRunAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+      take: Math.max(1, Math.min(limit, 2000)),
+      select: { organizationId: true, userId: true, provider: true, historicalCursor: true, historicalWindowFloorAt: true },
+    });
+    return rows.map((r) => ({
+      organizationId: r.organizationId,
+      userId: r.userId,
+      provider: r.provider as ConnectionProvider,
+      historicalCursor: r.historicalCursor ?? null,
+      // Non-null by the WHERE above; the fallback keeps the type honest without a non-null assertion.
+      historicalWindowFloorAt: r.historicalWindowFloorAt ?? now,
+    }));
+  }
+
+  /**
+   * Record one HISTORICAL content run's outcome. Scoped to (org, user, provider) and skips an
+   * authorization revoked in the meantime (revokedAt: null in the WHERE), so a revoke always wins. THIS
+   * METHOD NEVER TOUCHES source_connections, source_baseline_checkpoints OR the forward contentCursor --
+   * it advances only the historical* columns here. Returns true when exactly one authorization advanced.
+   */
+  async recordHistoricalProgress(
+    organizationId: string,
+    userId: string,
+    provider: ConnectionProvider,
+    progress: HistoricalContentProgress,
+  ): Promise<boolean> {
+    const data: Record<string, unknown> = {
+      historicalCursor: progress.historicalCursor,
+      historicalState: progress.state,
+      historicalLastFailureClass: progress.failureClass ?? null,
+      historicalBackoffUntil: progress.backoffUntil ?? null,
+      historicalLastRunAt: progress.now,
+    };
+    // Only advance the oldest-reached marker when this run reached further; an empty page must not erase it.
+    if (progress.oldestReachedAt) data.historicalOldestReachedAt = progress.oldestReachedAt;
+    // A PERMANENT triage failure advances past the conversation and is COUNTED, never silently lost.
+    if (progress.failedItemsDelta && progress.failedItemsDelta > 0) data.historicalFailedItems = { increment: progress.failedItemsDelta };
+    const { count } = await this.prisma.sourceContentAuthorization.updateMany({
+      where: { organizationId, userId, provider, revokedAt: null },
+      data: data as never,
     });
     return count === 1;
   }

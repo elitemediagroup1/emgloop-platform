@@ -298,7 +298,24 @@ export class SourceConnectionService {
       actor: this.actor(principal),
     });
     switch (result.outcome) {
-      case 'AUTHORIZED': return 'AUTHORIZED';
+      case 'AUTHORIZED': {
+        // v2 conversation triage: when the content-free history baseline is already COMPLETE, arm the
+        // one-off HISTORICAL backfill so obligations still unresolved in the already-imported recent
+        // window surface without waiting for a new message. The one content consent covers it (no new
+        // toggle). Best-effort and idempotent -- it never resets an in-progress or completed backfill,
+        // and a failure here never fails the consent the person just gave (forward triage still runs).
+        try {
+          const baseline = await this.baselines.get(principal.organizationId, principal.userId, provider);
+          if (baseline?.state === 'COMPLETE') {
+            await this.content.enableHistoricalBackfill(principal.organizationId, principal.userId, provider, {
+              floorAt: baseline.windowFloorAt,
+            });
+          }
+        } catch {
+          // The backfill is an enhancement over forward triage; if arming it fails, forward triage still runs.
+        }
+        return 'AUTHORIZED';
+      }
       case 'NO_CONNECTION': return 'NO_CONNECTION';
       default: return 'NOT_PERMITTED';
     }

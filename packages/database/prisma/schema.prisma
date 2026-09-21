@@ -5940,6 +5940,28 @@ model SourceContentAuthorization {
   /// Set when the provider asked Loop to wait (FLOOD_WAIT): the sweep holds until then.
   backoffUntil     DateTime?
 
+  /// v2 CONVERSATION-TRIAGE HISTORICAL BACKFILL. These columns track a one-off, resumable transient read
+  /// of the ALREADY-IMPORTED recent window (the baseline's floor), surfacing obligations still unresolved
+  /// without waiting for a new message. They are advanced ONLY by the historical content sweep and are
+  /// PROVABLY INDEPENDENT of every other cursor: NEVER the live observation cursor (source_connections),
+  /// NEVER the baseline checkpoint (source_baseline_checkpoints), and NEVER the forward contentCursor above.
+  /// NOT_STARTED | IN_PROGRESS | COMPLETE (a revoke stops it via revokedAt). No content column is added.
+  historicalState            String    @default("NOT_STARTED")
+  /// Opaque DIALOG-pagination frontier the historical sweep resumes from. NEVER content, and DISTINCT from
+  /// the live cursor, the baseline checkpoint and the forward contentCursor.
+  historicalCursor           String?
+  /// The instant the backfill's transient reads stop at (the baseline window floor, set when enabled).
+  historicalWindowFloorAt    DateTime?
+  /// The oldest conversation activity the backfill has reached so far (honest progress). Never content.
+  historicalOldestReachedAt  DateTime?
+  historicalLastRunAt        DateTime?
+  /// Last historical failure class (AUTH | TRANSIENT | PROVIDER_NOT_CONFIGURED | REFUSED_BY_LOOP | FLOOD_WAIT).
+  historicalLastFailureClass String?
+  /// Set when the provider asked Loop to wait (FLOOD_WAIT): the historical sweep holds until then.
+  historicalBackoffUntil     DateTime?
+  /// Conversations the backfill advanced past on a PERMANENT triage failure -- counted, never silently lost.
+  historicalFailedItems      Int       @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -5948,6 +5970,7 @@ model SourceContentAuthorization {
 
   @@unique([organizationId, userId, provider])
   @@index([revokedAt, lastRunAt])
+  @@index([historicalState, historicalLastRunAt])
   @@map("source_content_authorizations")
 }
 
