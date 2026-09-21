@@ -179,7 +179,7 @@ export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
  */
 export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   taskId: 'telegram.content.triage',
-  version: '1.0.0',
+  version: '1.1.0',
   // A single-message actionability judgment: general reasoning, not communication drafting and not
   // technical analysis. GENERAL_REASONING has no default provider, so the routing entry names one
   // and says why.
@@ -322,7 +322,7 @@ export interface AiTriageVerdict {
 }
 
 /** Bounds on a triage verdict a person has to read. The schema cannot say these for every provider. */
-export const AI_TRIAGE_LIMITS = Object.freeze({ maxMeaningChars: 140 });
+export const AI_TRIAGE_LIMITS = Object.freeze({ maxMeaningChars: 140, maxLimitations: 6, maxLimitationChars: 200 });
 
 /**
  * What the supplied evidence actually contains, for checking an answer against.
@@ -498,6 +498,15 @@ export function validateAiTaskOutput(
       const meaning = t.oneLineMeaning?.trim() ?? '';
       if (meaning === '') out.push('EMPTY_ANSWER');
       if ((t.oneLineMeaning?.length ?? 0) > AI_TRIAGE_LIMITS.maxMeaningChars) out.push('ANSWER_TOO_LONG');
+      // A triage verdict's limitations are tighter than the general answer bounds (6 items, 200 chars
+      // each), and this is the only place those tighter bounds are enforced -- the schema no longer
+      // encodes them, because Anthropic's structured outputs reject those length/size keywords.
+      if (
+        output.limitations.length > AI_TRIAGE_LIMITS.maxLimitations ||
+        output.limitations.some((l) => l.length > AI_TRIAGE_LIMITS.maxLimitationChars)
+      ) {
+        out.push('ANSWER_TOO_LONG');
+      }
       // A verdict and its category cannot disagree: an actionable verdict names a real category, and
       // a non-actionable one is NONE. Anything else is not the verdict Loop asked for.
       if (t.actionable === (t.category === 'NONE')) out.push('WRONG_SCHEMA');
