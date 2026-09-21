@@ -69,7 +69,7 @@ test('the shipped routing policy conforms for every task, and Case Explanation n
   // The version moves when a ROUTE is added, and only then. GM-3 added Mail Reply Draft and the
   // content-triage slice added Telegram Content Triage; Case Explanation's own entry is untouched,
   // which is what the assertions around this one check.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-21.4');
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-21.5');
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.providerChoiceReason, undefined);
   // The fallback is another provider, and that is not a departure.
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.fallback!.providerId, 'openai');

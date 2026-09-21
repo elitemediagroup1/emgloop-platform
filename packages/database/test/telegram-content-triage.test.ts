@@ -21,6 +21,7 @@ import { AI_ACTIVATION_OFF, type AiActivation, type AiModelResult } from '@emglo
 
 import { AiRuntimeGateway, InMemoryAiUsageLedger } from '../src/services/ai-runtime/gateway';
 import { TelegramContentTriageService } from '../src/services/ai-runtime/telegram-content-triage.service';
+import { TELEGRAM_CONTENT_TRIAGE_SCHEMA } from '../src/services/ai-runtime/templates/telegram-content-triage';
 
 const ORG = 'org_ct';
 const USER = 'user_ct';
@@ -79,7 +80,7 @@ test('a schema-valid answer returns a MINIMIZED verdict, with provenance and a k
   assert.deepEqual([...res.verdict.limitations], []);
   // Provenance: an invocation id and the task version, and a keyed source ref (never the body).
   assert.equal(res.verdict.provenance.invocationId, 'inv_ct_1');
-  assert.equal(res.verdict.provenance.taskVersion, '1.0.0');
+  assert.equal(res.verdict.provenance.taskVersion, '1.1.0');
   assert.equal(res.verdict.sourceRef, 'telegram_message:ck_abc:42');
   // The verdict object carries ONLY the minimized fields -- no draft, no claims, no raw body.
   assert.deepEqual(Object.keys(res.verdict).sort(), ['actionable', 'category', 'limitations', 'oneLineMeaning', 'provenance', 'sourceRef']);
@@ -139,4 +140,57 @@ test('SourceObservation has NO content column: the content path added none', () 
   }
   // The content sweep judged bodies transiently; the durable store still holds only hadText (a boolean).
   assert.ok(block.includes('hadText'), 'SourceObservation still records only whether there was text');
+});
+
+test('a triage verdict whose limitations exceed the bounds is REJECTED', async () => {
+  // The tighter triage bounds (<=6 items, <=200 chars each) are enforced in validateAiTaskOutput, not
+  // in the schema (Anthropic structured outputs reject those keywords). Both of these clear the general
+  // answer bounds (8 items / 400 chars), so ONLY the triage-specific check rejects them.
+  const tooMany = await service({
+    result: verdict({ limitations: Array.from({ length: 7 }, (_, i) => `note ${i + 1}`) }),
+  }).triage(principal, input('hi'));
+  assert.equal(tooMany.outcome, 'REJECTED_OUTPUT');
+
+  const tooLong = await service({ result: verdict({ limitations: ['x'.repeat(201)] }) }).triage(principal, input('hi'));
+  assert.equal(tooLong.outcome, 'REJECTED_OUTPUT');
+});
+
+test('the triage schema sent to Anthropic uses only structured-output-supported keywords (no maxLength/maxItems)', () => {
+  // A structural regression guard. Anthropic's Messages API structured outputs reject a range of
+  // JSON-Schema keywords with a 400 INVALID_REQUEST -- which is what took the content-triage AI path
+  // down. This walks the ACTUAL schema object we send and fails if any unsupported keyword reappears
+  // at any depth.
+  const UNSUPPORTED = ['maxLength', 'minLength', 'pattern', 'maximum', 'minimum', 'multipleOf', 'maxItems'];
+  function violations(node: unknown, path = '$'): string[] {
+    const problems: string[] = [];
+    if (Array.isArray(node)) {
+      node.forEach((child, i) => problems.push(...violations(child, `${path}[${i}]`)));
+      return problems;
+    }
+    if (node === null || typeof node !== 'object') return problems;
+    const obj = node as Record<string, unknown>;
+    for (const key of UNSUPPORTED) {
+      if (key in obj) problems.push(`${path}.${key} is not a supported structured-output keyword`);
+    }
+    if ('minItems' in obj && typeof obj.minItems === 'number' && obj.minItems > 1) {
+      problems.push(`${path}.minItems=${String(obj.minItems)} exceeds the supported 0/1`);
+    }
+    if ('additionalProperties' in obj && obj.additionalProperties !== false) {
+      problems.push(`${path}.additionalProperties must be false`);
+    }
+    if (obj.type === 'string' && 'format' in obj) {
+      problems.push(`${path}.format on a string is not supported`);
+    }
+    for (const [k, v] of Object.entries(obj)) {
+      if (v !== null && typeof v === 'object') problems.push(...violations(v, `${path}.${k}`));
+    }
+    return problems;
+  }
+
+  assert.deepEqual(violations(TELEGRAM_CONTENT_TRIAGE_SCHEMA), []);
+
+  // Lock the specific failure class that caused the 400: the serialized schema names neither keyword.
+  const serialized = JSON.stringify(TELEGRAM_CONTENT_TRIAGE_SCHEMA);
+  assert.ok(!serialized.includes('"maxLength"'), 'schema must not contain maxLength');
+  assert.ok(!serialized.includes('"maxItems"'), 'schema must not contain maxItems');
 });

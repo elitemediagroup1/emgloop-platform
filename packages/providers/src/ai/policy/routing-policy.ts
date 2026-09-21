@@ -71,7 +71,10 @@ function target(
 // reasoning, and Claude Opus 5 is the reviewed primary for it, with GPT-6 Astra as the availability
 // fallback. Both run at LOW effort with a SMALL output ceiling -- the verdict is a few fields, not
 // prose -- and the deadlines are short because this is a background sweep, not a person waiting.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-21.4';
+// .5 (2026-09-21, schema fix): Telegram Content Triage moves to task 1.1.0. Its output schema drops
+// the structured-output keywords Anthropic rejects (a 400), and the length bounds it dropped are now
+// enforced in `validateAiTaskOutput`; this route's `taskVersion` moves in lockstep with the task.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-21.5';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
@@ -104,7 +107,7 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     // primary; GPT-6 Astra is the availability fallback, never a second opinion.
     'telegram.content.triage': Object.freeze({
       taskId: 'telegram.content.triage',
-      taskVersion: '1.0.0',
+      taskVersion: '1.1.0',
       primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1_000 }),
       fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 1_000 }),
       fallbackPermitted: true,
