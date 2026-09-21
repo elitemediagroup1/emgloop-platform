@@ -30,6 +30,13 @@ export interface ConnectionsStackProps extends StackProps {
   readonly image: ecs.ContainerImage;
   /** Retention horizon (days) for the content-free observation store. */
   readonly observationRetentionDays?: number;
+  /**
+   * Operator-activated AI content triage (staging). Set ONLY when the operator supplies a real
+   * organization id (via CDK context `aiOrganizationId`, wired in app.ts). When undefined, no AI
+   * secret is referenced and no LOOP_AI_* env is set: the worker stays fail-closed (NOT_ACTIVATED)
+   * and the synthesized stack is byte-for-byte identical to the AI-off shape.
+   */
+  readonly aiActivation?: { readonly organizationId: string; readonly openAiFallback: boolean };
 }
 
 /** The Secrets Manager names this stack references or creates. */
@@ -39,6 +46,7 @@ export const CONNECTION_SECRET_NAMES = Object.freeze({
   conversationSecret: 'loop/connections/staging/conversation-secret',
   workerControl: 'loop/connections/staging/worker-control',
   databaseUrl: 'loop/connections/staging/database-url',
+  ai: 'loop/connections/staging/ai',
 } as const);
 
 const CONTAINER_PORT = 8080;
@@ -86,6 +94,31 @@ export class ConnectionsStack extends Stack {
     const conversationSecret = generated('ConversationSecret', CONNECTION_SECRET_NAMES.conversationSecret, 'HMAC key for one-way conversation keys (generated).');
     const workerControl = generated('WorkerControlSecret', CONNECTION_SECRET_NAMES.workerControl, 'Web<->worker control channel shared secret (generated).');
 
+    // --- AI content triage (staging): operator-activated, fail-closed, credential via Secrets Manager
+    // apps/connections-worker/src/ai-runtime.ts is OFF unless LOOP_AI_ENABLED === 'true' AND a provider
+    // is listed, terms-confirmed, and its key present. We feed exactly that env, and ONLY when the
+    // operator supplied an organization id (CDK context aiOrganizationId -> app.ts -> props.aiActivation).
+    // When absent: no ai secret reference, no LOOP_AI_* env, no key -- the stack is unchanged and the
+    // worker refuses every invocation. The credential is injected from Secrets Manager JSON fields, never
+    // as plaintext env; OpenAI is opt-in, so a default activation never requires an OpenAI key.
+    const aiEnvironment: Record<string, string> = {};
+    const aiSecrets: Record<string, ecs.Secret> = {};
+    if (props.aiActivation) {
+      const providers = props.aiActivation.openAiFallback ? 'anthropic,openai' : 'anthropic';
+      // Referenced, not created (like telegram/connection-key/database-url): the operator pre-creates
+      // `loop/connections/staging/ai` with the real key(s) before deploy. See the runbook.
+      const aiSecret = secretsmanager.Secret.fromSecretNameV2(this, 'AiSecret', CONNECTION_SECRET_NAMES.ai);
+      aiSecrets.ANTHROPIC_API_KEY = ecs.Secret.fromSecretsManager(aiSecret, 'anthropic_api_key');
+      if (props.aiActivation.openAiFallback) {
+        aiSecrets.OPENAI_API_KEY = ecs.Secret.fromSecretsManager(aiSecret, 'openai_api_key');
+      }
+      aiEnvironment.LOOP_AI_ENABLED = 'true';
+      aiEnvironment.LOOP_AI_PROVIDERS = providers;
+      aiEnvironment.LOOP_AI_PROVIDER_TERMS_CONFIRMED = providers;
+      aiEnvironment.LOOP_AI_ORGANIZATIONS = props.aiActivation.organizationId;
+      aiEnvironment.LOOP_AI_TASKS = 'telegram.content.triage';
+    }
+
     // --- Compute: one small always-on Fargate task -------------------------------------------
     const cluster = new ecs.Cluster(this, 'Cluster', { vpc, containerInsightsV2: ecs.ContainerInsights.DISABLED });
     const logGroup = new logs.LogGroup(this, 'WorkerLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.DESTROY });
@@ -99,6 +132,7 @@ export class ConnectionsStack extends Stack {
         PORT: String(CONTAINER_PORT),
         LOOP_CONNECTION_OBSERVATION_RETENTION_DAYS: String(props.observationRetentionDays ?? 30),
         LOOP_CONNECTION_SWEEP_INTERVAL_MS: '60000',
+        ...aiEnvironment,
       },
       secrets: {
         TELEGRAM_API_ID: ecs.Secret.fromSecretsManager(telegram, 'api_id'),
@@ -107,6 +141,7 @@ export class ConnectionsStack extends Stack {
         LOOP_CONNECTION_CONVERSATION_SECRET: ecs.Secret.fromSecretsManager(conversationSecret),
         LOOP_CONNECTIONS_WORKER_SECRET: ecs.Secret.fromSecretsManager(workerControl),
         DATABASE_URL: ecs.Secret.fromSecretsManager(databaseUrl),
+        ...aiSecrets,
       },
       portMappings: [{ containerPort: CONTAINER_PORT }],
     });
