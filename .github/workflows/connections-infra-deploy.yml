@@ -97,7 +97,7 @@ jobs:
 
       - name: Diff
         working-directory: infra/connections
-        run: npx cdk diff --no-notices LoopConnections-staging
+        run: npx cdk diff --no-notices LoopConnections-staging -c aiOrganizationId=${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}
 
       - name: Deploy
         if: ${{ inputs.action == 'deploy' }}
