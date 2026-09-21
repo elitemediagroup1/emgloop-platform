@@ -688,6 +688,10 @@ export type {
 // retention (the worker's observation sink lands here).
 export { SourceObservationRepository } from './repositories/source-observation.repository';
 export type { SourceObservationRow } from './repositories/source-observation.repository';
+// Governed historical baseline checkpoints (Telegram): persistence. INDEPENDENT of the live
+// observation cursor -- the baseline path never writes source_connections.
+export { SourceBaselineCheckpointRepository } from './repositories/source-baseline.repository';
+export type { BaselineCheckpointRecord, DueBaseline, BaselineProgress, BaselineWriteOutcome } from './repositories/source-baseline.repository';
 export { SourceConnectionService } from './services/connections/source-connection.service';
 export type {
   SourceConnectionPrincipal,

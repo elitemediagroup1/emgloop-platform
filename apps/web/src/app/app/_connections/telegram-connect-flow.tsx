@@ -1,14 +1,20 @@
 'use client';
 
 // The Telegram sign-in widget: the ONLY interactive leaf in Connections. It walks the person through
-// phone -> code -> (2FA) inside Loop's secure flow and, on success, refreshes so the tile reads Ready.
+// phone -> code -> (2FA) inside Loop's secure flow and, on success, offers a bounded HISTORICAL
+// BASELINE depth chooser before returning to the tile.
 //
 // It is NOT a chat surface -- it establishes an authorized session so Loop can observe. The phone,
 // code and 2FA password are typed here and sent straight to the server action (which forwards them to
 // the worker over the signed channel); nothing is kept beyond the input, and the fields are cleared
-// after each step. There is no composer, message list or reply anywhere in this component.
+// after each step. There is no composer, message list, reply, or any message CONTENT anywhere here.
+//
+// The baseline chooser offers only a CLOSED set of windows (30/90/180/365 days, default 90) and a
+// "Don't import history" option -- there is deliberately no all-time choice. It submits a server
+// action (org/user from the session), which redirects back to the tile. No content is ever shown.
 
 import { useState, useTransition } from 'react';
+import { SOURCE_CONNECTION_BASELINE_WINDOWS, SOURCE_CONNECTION_BASELINE_DEFAULT_WINDOW_DAYS } from '@emgloop/shared';
 
 import {
   cancelTelegramLoginAction,
@@ -17,8 +23,9 @@ import {
   submitTelegramPasswordAction,
   type TelegramLoginResult,
 } from '../../../connections/telegram-connect-actions';
+import { authorizeBaselineAction, revokeBaselineAction } from '../../../connections/actions';
 
-type Step = 'idle' | 'phone' | 'code' | 'password' | 'done' | 'unavailable';
+type Step = 'idle' | 'phone' | 'code' | 'password' | 'baseline' | 'unavailable';
 
 export function TelegramConnectFlow({ label }: { label: string }) {
   const [step, setStep] = useState<Step>('idle');
@@ -37,9 +44,9 @@ export function TelegramConnectFlow({ label }: { label: string }) {
         setStep('password');
         break;
       case 'AUTHORIZED':
-        setStep('done');
-        // Reload so the server re-reads the connection and the tile shows its true (Ready) state.
-        if (typeof window !== 'undefined') window.location.reload();
+        // Signed in. Offer the bounded history-baseline choice before returning to the tile; the
+        // chosen server action redirects (a full navigation), so no manual reload is needed here.
+        setStep('baseline');
         break;
       case 'NO_LOGIN_IN_PROGRESS':
         setStep('phone');
@@ -77,8 +84,27 @@ export function TelegramConnectFlow({ label }: { label: string }) {
     );
   }
 
-  if (step === 'done') {
-    return <p className="loop-panel__lead" role="status">Signed in. Finishing up…</p>;
+  if (step === 'baseline') {
+    // A bounded depth chooser. "Import history" submits the chosen window; "Don't import history"
+    // revokes (a no-op when nothing was authorized). Both are server actions that redirect back.
+    return (
+      <form className="loop-stack" action={authorizeBaselineAction}>
+        <input type="hidden" name="provider" value="TELEGRAM" />
+        <p className="loop-panel__lead" role="status">Signed in. Import a window of past history? Loop reads who and when only — never message contents.</p>
+        <fieldset className="loop-stack">
+          <legend className="muted">How far back to import</legend>
+          {SOURCE_CONNECTION_BASELINE_WINDOWS.map((d) => (
+            <label key={d} className="muted">
+              <input type="radio" name="windowDays" value={String(d)} defaultChecked={d === SOURCE_CONNECTION_BASELINE_DEFAULT_WINDOW_DAYS} /> Last {d} days
+            </label>
+          ))}
+        </fieldset>
+        <div className="loop-btnrow">
+          <button className="loop-btn loop-btn--primary" type="submit">Import history</button>
+          <button className="loop-btn" type="submit" formAction={revokeBaselineAction}>Don’t import history</button>
+        </div>
+      </form>
+    );
   }
 
   if (step === 'unavailable') {

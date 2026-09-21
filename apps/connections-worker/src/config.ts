@@ -36,6 +36,12 @@ export interface WorkerConfig {
   readonly sweepIntervalMs: number;
   /** Retention horizon for content-free observations. */
   readonly observationRetentionDays: number;
+  /** How often to run a historical-baseline sweep (independent of the live observation sweep). */
+  readonly baselineIntervalMs: number;
+  /** How many message-metadata facts one baseline page fetches (bounded). */
+  readonly baselinePageSize: number;
+  /** Hard ceiling on how far back any baseline may walk, whatever a checkpoint says. */
+  readonly baselineMaxWindowDays: number;
   /** Control server port. */
   readonly port: number;
 }
@@ -50,6 +56,9 @@ export function readWorkerConfig(): WorkerConfig {
     workerControlSecret: required('LOOP_CONNECTIONS_WORKER_SECRET'),
     sweepIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_SWEEP_INTERVAL_MS ?? '60000') || 60_000),
     observationRetentionDays: Math.max(1, Number(process.env.LOOP_CONNECTION_OBSERVATION_RETENTION_DAYS ?? '30') || 30),
+    baselineIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_BASELINE_INTERVAL_MS ?? '45000') || 45_000),
+    baselinePageSize: Math.min(500, Math.max(1, Number(process.env.LOOP_CONNECTION_BASELINE_PAGE_SIZE ?? '200') || 200)),
+    baselineMaxWindowDays: 365,
     port: Math.max(1, Number(process.env.PORT ?? '8080') || 8080),
   };
 }

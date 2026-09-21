@@ -37,3 +37,26 @@ test('sourceConnections mirrors googleWorkspace, role for role', () => {
     );
   }
 });
+
+// --- Governed historical baseline authority -----------------------------------------------------
+//
+// Authorizing, re-scoping or revoking a baseline is the SAME authority as connecting: it reuses
+// `sourceConnections:update`. It introduces NO new IAM resource, so it cannot widen access -- every
+// human role that may connect may baseline, and AI_EMPLOYEE (which may never connect) may never baseline.
+
+import { SOURCE_CONNECTION_AUDIT_ACTIONS } from '@emgloop/shared';
+
+test('baseline actions require sourceConnections:update, and AI_EMPLOYEE is denied', () => {
+  for (const role of HUMAN_ROLES) {
+    // The one authority the baseline actions guard is exactly sourceConnections:update.
+    assert.equal(matrixAllows(role, 'sourceConnections', 'update'), true, `${role} may baseline (update)`);
+  }
+  // AI_EMPLOYEE holds no sourceConnections action, so it can neither connect nor baseline.
+  assert.equal(matrixAllows('AI_EMPLOYEE', 'sourceConnections', 'update'), false);
+});
+
+test('the baseline audit vocabulary is namespaced under source_connection.baseline.*', () => {
+  assert.equal(SOURCE_CONNECTION_AUDIT_ACTIONS.baseline_authorized, 'source_connection.baseline.authorized');
+  assert.equal(SOURCE_CONNECTION_AUDIT_ACTIONS.baseline_scope_changed, 'source_connection.baseline.scope_changed');
+  assert.equal(SOURCE_CONNECTION_AUDIT_ACTIONS.baseline_revoked, 'source_connection.baseline.revoked');
+});

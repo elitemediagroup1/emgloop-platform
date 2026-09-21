@@ -111,7 +111,7 @@ function toRecord(row: Record<string, any>): SourceConnectionRecord {
   };
 }
 
-async function writeAudit(
+export async function writeAudit(
   prisma: PrismaClient,
   tx: Tx,
   args: { organizationId: string; connectionId: string; action: string; provider: ConnectionProvider; actor: SourceConnectionActor; metadata?: Record<string, unknown> },

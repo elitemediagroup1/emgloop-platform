@@ -45,7 +45,7 @@ export type TeamsAdapter = (typeof TEAMS_ADAPTERS)[number];
  * capability that a provider restriction blocks can be left GATED while the connection is
  * still truthfully "connected", instead of the whole connection being called Ready or Failed.
  */
-export const CONNECTION_CAPABILITIES = ['AUTHENTICATED', 'BACKGROUND_OBSERVATION'] as const;
+export const CONNECTION_CAPABILITIES = ['AUTHENTICATED', 'BACKGROUND_OBSERVATION', 'HISTORICAL_BASELINE'] as const;
 export type ConnectionCapability = (typeof CONNECTION_CAPABILITIES)[number];
 
 export const CAPABILITY_STATUSES = ['OPERATIONAL', 'GATED', 'UNAVAILABLE'] as const;
@@ -119,6 +119,12 @@ export interface ConnectionProviderProfile {
   readonly credentialKinds: readonly ConnectionCredentialKind[];
   readonly claims: readonly ConnectionCapability[];
   readonly requiresDeviceAuthorization: boolean;
+  /**
+   * The honest, employee-facing description of the OPTIONAL historical baseline this source can
+   * import: WHO/WHEN history only (content-free), never message content. Present only where a
+   * baseline is offered; absent providers do not import history.
+   */
+  readonly baseline?: string;
 }
 
 // WHY WE CONNECT THESE SOURCES (product principle, locked). Teams and Telegram are INTELLIGENCE
@@ -149,8 +155,9 @@ export const CONNECTION_PROVIDER_PROFILES: Readonly<Record<ConnectionProvider, C
     label: 'Telegram',
     observes: 'Loop observes this account as an intelligence source — never a chat client. You read and reply in Telegram itself; Loop surfaces what matters and points you back there.',
     credentialKinds: ['MTPROTO_SESSION'],
-    claims: ['AUTHENTICATED', 'BACKGROUND_OBSERVATION'],
+    claims: ['AUTHENTICATED', 'BACKGROUND_OBSERVATION', 'HISTORICAL_BASELINE'],
     requiresDeviceAuthorization: true,
+    baseline: 'Loop can read a bounded window of your past Telegram history — who a conversation was with and when, never what was said. You choose how far back (up to a year); Loop imports that metadata once, then keeps observing going forward. It is still not a chat client, and it never stores message content.',
   },
 });
 
@@ -174,6 +181,82 @@ export const SOURCE_CONNECTION_AUDIT_ACTIONS = Object.freeze({
   connected: 'source_connection.connected',
   disconnected: 'source_connection.disconnected',
   offboarded: 'source_connection.offboarded',
+  baseline_authorized: 'source_connection.baseline.authorized',
+  baseline_scope_changed: 'source_connection.baseline.scope_changed',
+  baseline_revoked: 'source_connection.baseline.revoked',
 } as const);
 export type SourceConnectionAuditAction =
   (typeof SOURCE_CONNECTION_AUDIT_ACTIONS)[keyof typeof SOURCE_CONNECTION_AUDIT_ACTIONS];
+
+// --- Governed historical baseline (Telegram, Slice 1) -------------------------------------------
+//
+// The historical baseline walks a connection's past BACKWARD from the connect point to an
+// employee-chosen floor, landing the SAME content-free observations the live sweep does (who/when
+// only). It is metadata/state only here: no content, no session, no cursor value that could carry a
+// message. The depth is EMPLOYEE-SELECTED from a bounded allowlist -- there is deliberately NO
+// all-time option -- and it advances a checkpoint that is INDEPENDENT of the live observation cursor.
+
+/**
+ * The depths an employee may pick for a historical baseline, in days. A CLOSED allowlist: any other
+ * value is rejected, and there is no all-time option, by product decision. The default is 90.
+ */
+export const SOURCE_CONNECTION_BASELINE_WINDOWS = [30, 90, 180, 365] as const;
+export type BaselineWindowDays = (typeof SOURCE_CONNECTION_BASELINE_WINDOWS)[number];
+
+/** The default depth offered when the employee has expressed no preference. */
+export const SOURCE_CONNECTION_BASELINE_DEFAULT_WINDOW_DAYS: BaselineWindowDays = 90;
+
+/** True only for a value on the closed allowlist. Everything else -- including all-time -- is refused. */
+export function isBaselineWindowDays(v: unknown): v is BaselineWindowDays {
+  return typeof v === 'number' && (SOURCE_CONNECTION_BASELINE_WINDOWS as readonly number[]).includes(v);
+}
+
+/**
+ * Truthful baseline states, ordered from not-begun to terminal.
+ *  - NOT_STARTED  authorized with a window, but no history has been walked yet.
+ *  - IN_PROGRESS  the backward walk is under way (or paused on a provider backoff).
+ *  - COMPLETE     the walk reached the employee-chosen floor (or the end of history).
+ *  - REVOKED      the employee stopped it; no further history is walked. Already-written
+ *                 observations expire only via the existing retention policy.
+ */
+export const BASELINE_STATES = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETE', 'REVOKED'] as const;
+export type BaselineState = (typeof BASELINE_STATES)[number];
+
+export function isBaselineState(v: unknown): v is BaselineState {
+  return typeof v === 'string' && (BASELINE_STATES as readonly string[]).includes(v);
+}
+
+/**
+ * Reduce baseline facts to the one truthful state a checkpoint reads, mirroring deriveConnectionState:
+ * priority-ordered guards, no I/O. REVOKED wins (the employee's stop is absolute); then COMPLETE once
+ * the floor is reached; then IN_PROGRESS once any walk has begun; otherwise NOT_STARTED.
+ */
+export function deriveBaselineState(facts: {
+  readonly revoked: boolean;
+  readonly reachedFloor: boolean;
+  readonly hasStarted: boolean;
+}): BaselineState {
+  if (facts.revoked) return 'REVOKED';
+  if (facts.reachedFloor) return 'COMPLETE';
+  if (facts.hasStarted) return 'IN_PROGRESS';
+  return 'NOT_STARTED';
+}
+
+/**
+ * The outcome of authorizing, re-scoping or revoking a baseline. Codes, never a provider's own text.
+ */
+export const SOURCE_BASELINE_ACTION_OUTCOMES = [
+  'AUTHORIZED',     // a baseline was authorized (or re-authorized) at the chosen depth
+  'SCOPE_CHANGED',  // the depth of an existing baseline was changed
+  'REVOKED',        // an active baseline was stopped
+  'NOT_IMPORTING',  // the employee chose not to import history (nothing to stop)
+  'NOT_PERMITTED',  // the person's role does not include a source connection
+  'NOT_CONFIGURED', // this deployment cannot connect the provider
+  'NO_CONNECTION',  // there is no live connection to baseline
+  'INVALID',        // the request did not name a known provider or a valid window
+] as const;
+export type SourceBaselineActionOutcome = (typeof SOURCE_BASELINE_ACTION_OUTCOMES)[number];
+
+export function isSourceBaselineActionOutcome(v: unknown): v is SourceBaselineActionOutcome {
+  return typeof v === 'string' && (SOURCE_BASELINE_ACTION_OUTCOMES as readonly string[]).includes(v);
+}

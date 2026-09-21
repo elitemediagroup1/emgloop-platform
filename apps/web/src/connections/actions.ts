@@ -55,3 +55,54 @@ export async function disconnectSourceAction(formData: FormData): Promise<void> 
   revalidatePath(CONNECTIONS_PATH);
   back(outcome, provider);
 }
+
+// --- Governed historical baseline (Telegram) --------------------------------------------------
+//
+// Same authority as connecting (`sourceConnections:update`, re-derived from the session). Only the
+// provider (which tile) and the chosen depth are read from the form; the organization and person are
+// ALWAYS the signed session's. The depth is validated against the closed allowlist at the data layer
+// (any other value -- including an "all-time" attempt -- is refused as INVALID). No worker call: the
+// baseline is authorized in the database and the durable worker's baseline sweep picks it up.
+
+function backBaseline(outcome: string, provider: string): never {
+  const params = new URLSearchParams({ baseline: outcome });
+  if (provider) params.set('provider', provider);
+  redirect(`${CONNECTIONS_PATH}?${params.toString()}`);
+}
+
+export async function authorizeBaselineAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('sourceConnections', 'update');
+  const provider = String(formData.get('provider') ?? '').trim();
+  const windowDays = Number(String(formData.get('windowDays') ?? '').trim());
+  const outcome = await sourceConnections().authorizeBaseline(
+    { organizationId: session.organizationId, userId: session.userId, name: session.name },
+    provider,
+    windowDays,
+  );
+  revalidatePath(CONNECTIONS_PATH);
+  backBaseline(outcome, provider);
+}
+
+export async function changeBaselineScopeAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('sourceConnections', 'update');
+  const provider = String(formData.get('provider') ?? '').trim();
+  const windowDays = Number(String(formData.get('windowDays') ?? '').trim());
+  const outcome = await sourceConnections().changeBaselineScope(
+    { organizationId: session.organizationId, userId: session.userId, name: session.name },
+    provider,
+    windowDays,
+  );
+  revalidatePath(CONNECTIONS_PATH);
+  backBaseline(outcome, provider);
+}
+
+export async function revokeBaselineAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('sourceConnections', 'update');
+  const provider = String(formData.get('provider') ?? '').trim();
+  const outcome = await sourceConnections().revokeBaseline(
+    { organizationId: session.organizationId, userId: session.userId, name: session.name },
+    provider,
+  );
+  revalidatePath(CONNECTIONS_PATH);
+  backBaseline(outcome, provider);
+}
