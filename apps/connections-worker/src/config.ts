@@ -42,6 +42,10 @@ export interface WorkerConfig {
   readonly baselinePageSize: number;
   /** Hard ceiling on how far back any baseline may walk, whatever a checkpoint says. */
   readonly baselineMaxWindowDays: number;
+  /** How often to run a CONTENT-triage sweep (independent of the live and baseline sweeps). */
+  readonly contentIntervalMs: number;
+  /** How many NEW messages one content-triage run reads per authorization (bounded). */
+  readonly contentPageSize: number;
   /** Control server port. */
   readonly port: number;
 }
@@ -59,6 +63,8 @@ export function readWorkerConfig(): WorkerConfig {
     baselineIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_BASELINE_INTERVAL_MS ?? '45000') || 45_000),
     baselinePageSize: Math.min(500, Math.max(1, Number(process.env.LOOP_CONNECTION_BASELINE_PAGE_SIZE ?? '200') || 200)),
     baselineMaxWindowDays: 365,
+    contentIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_CONTENT_INTERVAL_MS ?? '90000') || 90_000),
+    contentPageSize: Math.min(200, Math.max(1, Number(process.env.LOOP_CONNECTION_CONTENT_PAGE_SIZE ?? '50') || 50)),
     port: Math.max(1, Number(process.env.PORT ?? '8080') || 8080),
   };
 }

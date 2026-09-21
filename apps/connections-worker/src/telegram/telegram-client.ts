@@ -20,6 +20,7 @@ import { computeCheck } from 'teleproto/Password';
 import type { TelegramClientHandle, TelegramClientPort } from './telegram-adapter';
 import { TelegramAuthError, TelegramFloodWaitError } from './telegram-adapter';
 import type { TelegramMessageFacts } from './content-free-mapping';
+import type { TelegramContentMessage } from './telegram-content';
 import type { TelegramLoginBinding, TelegramLoginFailure, TelegramLoginPort, TelegramAuthorization } from './telegram-login';
 
 export interface TelegramAppCredentials {
@@ -50,6 +51,29 @@ function factsOf(message: any): TelegramMessageFacts | null {
     out: Boolean(message.out),
     dateSeconds: typeof message.date === 'number' ? message.date : Math.floor(Date.now() / 1000),
     hadText: Boolean(message.message), // the boolean only -- the text itself is never read out
+  };
+}
+
+/**
+ * Read a message's CONTENT for TRANSIENT triage. Unlike factsOf, this returns the text -- which the
+ * content sweep judges through the governed AI runtime and then drops. It is NEVER persisted, NEVER
+ * logged, and NEVER turned into a stored observation. Returns null for a message with no id, no chat, or
+ * no text (nothing to triage).
+ */
+function contentOf(message: any): TelegramContentMessage | null {
+  if (message?.id === undefined || message?.id === null) return null;
+  const chatId = message.chatId ?? message.peerId;
+  if (chatId === undefined || chatId === null) return null;
+  const text = typeof message.message === 'string' ? message.message : '';
+  if (text === '') return null;
+  const senderId = message.senderId ?? null;
+  return {
+    messageId: String(message.id),
+    chatId: String(chatId),
+    senderId: senderId === null ? null : String(senderId),
+    out: Boolean(message.out),
+    dateSeconds: typeof message.date === 'number' ? message.date : Math.floor(Date.now() / 1000),
+    text,
   };
 }
 
@@ -132,6 +156,34 @@ export function createTelegramClientPort(creds: TelegramAppCredentials): Telegra
             if (beforeId !== null && Number.isFinite(beforeId) && !(Number(facts.messageId) < beforeId)) continue;
             collected.push(facts);
             if (collected.length >= limit) return collected;
+          }
+        }
+      } catch (err) {
+        const flood = floodWaitSecondsOf(err);
+        if (flood !== null) throw new TelegramFloodWaitError(flood);
+        throw err;
+      }
+      return collected;
+    },
+
+    async fetchContentSince(handle, cursor, limit, _now): Promise<readonly TelegramContentMessage[]> {
+      // Read NEW message CONTENT (text) newer than the content cursor, for TRANSIENT triage. This
+      // NEVER advances the live observation cursor or the baseline checkpoint. FLOOD_WAIT is surfaced as
+      // TelegramFloodWaitError so the content sweep can back off; no code, session or body is ever logged.
+      const client = handle.client as TelegramClient;
+      const minId = cursor ? Number(cursor) : 0;
+      const cap = Math.min(Math.max(1, limit), 200);
+      const collected: TelegramContentMessage[] = [];
+      try {
+        const dialogs = await client.getDialogs({ limit: DIALOG_LIMIT });
+        for (const dialog of dialogs) {
+          const entity = (dialog as any).entity ?? (dialog as any).inputEntity;
+          if (!entity) continue;
+          const messages = await client.getMessages(entity, { limit: PER_DIALOG_LIMIT, minId: Number.isFinite(minId) ? minId : 0 });
+          for (const message of messages) {
+            const content = contentOf(message);
+            if (content) collected.push(content);
+            if (collected.length >= cap) return collected;
           }
         }
       } catch (err) {

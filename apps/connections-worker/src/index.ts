@@ -16,9 +16,12 @@ import {
   ConnectionSecretSealer,
   SourceConnectionRepository,
   SourceBaselineCheckpointRepository,
+  SourceContentAuthorizationRepository,
+  WorkItemRepository,
   prisma,
   type DueConnection,
   type DueBaseline,
+  type DueContent,
 } from '@emgloop/database';
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
@@ -26,6 +29,8 @@ import { readWorkerConfig } from './config';
 import { createDbObservationSink } from './observation-sink';
 import { runObservationSweep, type SweepPorts } from './orchestrator';
 import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
+import { runContentSweep, type ContentSweepPorts } from './content-orchestrator';
+import { createWorkerAiRuntime } from './ai-runtime';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
@@ -43,8 +48,15 @@ async function main(): Promise<void> {
   const config = readWorkerConfig();
   const connections = new SourceConnectionRepository(prisma);
   const baselines = new SourceBaselineCheckpointRepository(prisma);
+  const contentAuthorizations = new SourceContentAuthorizationRepository(prisma);
+  const workItems = new WorkItemRepository(prisma);
   const sealer = new ConnectionSecretSealer(config.connectionSecretKey);
   const sink = createDbObservationSink(prisma);
+
+  // The governed AI runtime, assembled from THIS deployment's own env. OFF by default: with
+  // LOOP_AI_ENABLED anything but exactly "true", or no listed+confirmed+credentialled provider, it is
+  // not enabled and the content sweep never runs -- so no message body is ever read.
+  const aiRuntime = createWorkerAiRuntime(prisma);
 
   const clientPort = createTelegramClientPort(config.telegram);
   const loginPort = createTelegramLoginPort(config.telegram);
@@ -163,6 +175,56 @@ async function main(): Promise<void> {
     }
   }
 
+  // --- The CONTENT-triage sweep ports (INDEPENDENT of the live and baseline sweeps) --------------
+  // These share the credential opener but have NO port that could write the live observation cursor or
+  // the baseline checkpoint -- they advance ONLY the content cursor. Bodies are read transiently, judged
+  // by the governed runtime, and dropped; nothing content-bearing is persisted.
+  const contentPorts: ContentSweepPorts = {
+    dueForContent: () => contentAuthorizations.dueForContent(500),
+    adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
+    async openCredential(due: DueContent): Promise<string | null> {
+      const held = await connections.credential(due.organizationId, due.userId, due.provider);
+      if (!held || !held.record.credentialKind) return null; // liveness: no live credential, no content
+      try {
+        return sealer.open(
+          { organizationId: due.organizationId, userId: due.userId, provider: due.provider, credentialKind: held.record.credentialKind },
+          held.sealed,
+        );
+      } catch {
+        return null; // a credential that will not open is skipped, not guessed
+      }
+    },
+    conversationSecret: config.conversationSecret,
+    triage: (principal, input) => aiRuntime.service.triage(principal, input),
+    async raiseWorkItem(principal, detection) {
+      await workItems.detect(principal, detection);
+    },
+    async recordContentProgress(due, progress) {
+      await contentAuthorizations.recordContentProgress(due.organizationId, due.userId, due.provider, {
+        contentCursor: progress.contentCursor,
+        failureClass: progress.failureClass,
+        backoffUntil: progress.backoffUntil,
+        now: progress.now,
+      });
+    },
+    contentPageSize: config.contentPageSize,
+    now: () => new Date(),
+  };
+
+  let contentSweeping = false;
+  async function content(): Promise<void> {
+    if (contentSweeping) return; // never overlap content sweeps
+    contentSweeping = true;
+    try {
+      const summary = await runContentSweep(contentPorts);
+      if (summary.due > 0) log('content', { ...summary });
+    } catch (err) {
+      log('content_error', { name: (err as Error)?.name ?? 'error' });
+    } finally {
+      contentSweeping = false;
+    }
+  }
+
   async function purge(): Promise<void> {
     const cutoff = new Date(Date.now() - config.observationRetentionDays * 24 * 60 * 60 * 1000);
     try {
@@ -207,14 +269,20 @@ async function main(): Promise<void> {
   const sweepTimer = setInterval(() => void sweep(), config.sweepIntervalMs);
   const purgeTimer = setInterval(() => void purge(), RETENTION_SWEEP_MS);
   const baselineTimer = setInterval(() => void baseline(), config.baselineIntervalMs);
+  // The content sweep runs ONLY when the governed AI runtime is enabled for this deployment. With AI
+  // off (the default everywhere today), no content loop is scheduled and no message body is ever read.
+  const contentTimer = aiRuntime.enabled ? setInterval(() => void content(), config.contentIntervalMs) : null;
+  log('ai_runtime', { contentTriage: aiRuntime.enabled ? 'enabled' : 'off' });
   void sweep();
   void purge();
   void baseline();
+  if (aiRuntime.enabled) void content();
 
   const shutdown = () => {
     clearInterval(sweepTimer);
     clearInterval(purgeTimer);
     clearInterval(baselineTimer);
+    if (contentTimer) clearInterval(contentTimer);
     server.close();
     void prisma.$disconnect();
     log('worker_stopping');
