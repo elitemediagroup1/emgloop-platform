@@ -36,6 +36,7 @@ import {
   AI_TASKS,
   AI_TASK_CASE_EXPLANATION,
   AI_TASK_MAIL_REPLY_DRAFT,
+  AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_ACTIVATION_OFF,
   AI_NO_SPEND,
   admitAiInvocation,
@@ -50,6 +51,7 @@ import {
   aiProvenanceOf,
   aiSensitivityRank,
   aiTask,
+  aiTaskContractViolations,
   aiToolsAdmissible,
   providerFailurePolicy,
   validateAiContextPackage,
@@ -156,7 +158,7 @@ function output(patch: Partial<AiTaskOutput> = {}): AiTaskOutput {
 
 test('the first task is read-only, operational, structured, and tool-free', () => {
   assert.equal(AI_CONTRACT_VERSION, 'loop-ai.v1');
-  assert.deepEqual(AI_TASKS.map((t) => t.taskId), ['case.explanation', 'mail.reply.draft']);
+  assert.deepEqual(AI_TASKS.map((t) => t.taskId), ['case.explanation', 'mail.reply.draft', 'telegram.content.triage']);
   const task = aiTask('case.explanation')!;
   assert.equal(task, AI_TASK_CASE_EXPLANATION);
   assert.equal(task.consequence, 'READ_ONLY');
@@ -195,6 +197,25 @@ test('the drafting task proposes text for a person, and can reach nothing itself
   // authority, and never against a CRM conversation.
   assert.deepEqual({ ...task.resultOwner }, { authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_MAIL_THREAD' });
   assert.deepEqual([...task.tools], []);
+});
+
+test('the telegram content-triage task is a conservative, employee-private, tool-free classification', () => {
+  const task = aiTask('telegram.content.triage')!;
+  assert.equal(task, AI_TASK_TELEGRAM_CONTENT_TRIAGE);
+  assert.equal(task.resultType, 'TRIAGE');
+  assert.equal(task.capabilityRoute, 'GENERAL_REASONING', 'a classification, not communication or technical analysis');
+  assert.equal(task.consequence, 'READ_ONLY', 'a verdict, not an approval item');
+  // The evidence IS the message, so the ceiling is content; the read authority is the employee's own
+  // source connection, which grants their own rows and nobody else's.
+  assert.equal(task.sensitivityCeiling, 'COMMUNICATION_CONTENT');
+  assert.deepEqual([...task.requires], [{ resource: 'sourceConnections', action: 'view' }]);
+  // Every human role may triage their own conversation; a machine is never an invoker.
+  assert.equal(task.invokerRoles.includes('AI_EMPLOYEE'), false);
+  assert.deepEqual([...task.invokerRoles], ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']);
+  // The verdict is held privately by the employee whose conversation it is -- never a shared authority.
+  assert.deepEqual({ ...task.resultOwner }, { authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_CONVERSATION' });
+  assert.deepEqual([...task.tools], []);
+  assert.equal(aiTaskContractViolations(task).length, 0, 'the task contract is coherent');
 });
 
 // --- 2. Context -------------------------------------------------------------------

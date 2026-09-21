@@ -33,7 +33,7 @@
 
 import type { AiContentTrustLevel } from './provider';
 
-export const BRAIN_RESULT_TYPES = ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'DRAFT', 'PROPOSED_ACTION'] as const;
+export const BRAIN_RESULT_TYPES = ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'DRAFT', 'PROPOSED_ACTION', 'TRIAGE'] as const;
 export type BrainResultType = (typeof BRAIN_RESULT_TYPES)[number];
 
 /** The only standing a result can have. Anything stronger is granted by its owner, later. */
@@ -51,6 +51,8 @@ export const BRAIN_RESULT_TYPE_STANDING: Readonly<Record<BrainResultType, BrainR
   RECOMMENDATION: 'PROPOSED',
   DRAFT: 'NON_AUTHORITATIVE',
   PROPOSED_ACTION: 'PROPOSED',
+  // A TRIAGE verdict informs one person about one of their own messages; it proposes nothing.
+  TRIAGE: 'NON_AUTHORITATIVE',
 });
 
 /** Loop authorities that may own a Brain result. */
@@ -94,6 +96,10 @@ export const BRAIN_RESULT_SUBJECT_TYPES = [
   // is the CRM's shared record of the business talking to a customer, and this is somebody's
   // private correspondence, which never becomes the other by being drafted against.
   'EMPLOYEE_MAIL_THREAD',
+  // One conversation in one employee's own background source (e.g. Telegram). Deliberately not
+  // EMPLOYEE_MAIL_THREAD (that is mail) and not CUSTOMER_CONVERSATION (that is the CRM's shared
+  // record): this is somebody's private messaging, employee-private and never promoted.
+  'EMPLOYEE_CONVERSATION',
 ] as const;
 export type BrainResultSubjectType = (typeof BRAIN_RESULT_SUBJECT_TYPES)[number];
 
@@ -131,6 +137,10 @@ export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freez
   // machine principal can hold.
   rule('DRAFT', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_MAIL_THREAD', 'a reply drafted for the employee whose mail it is, sent only by that employee'),
   rule('PROPOSED_ACTION', 'DECISION_ENGINE', 'DECISION', 'a Decision Engine approval item'),
+  // Content-triage slice. A conservative actionability verdict on one message in the employee's own
+  // conversation, held privately to that employee -- never published into an organization surface,
+  // and sent nowhere (the task publishes no tool and its result acts on nothing).
+  rule('TRIAGE', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_CONVERSATION', 'a triage verdict held privately for the employee whose conversation it is'),
 ]);
 
 function rule(

@@ -1,7 +1,7 @@
 // Reading the connection outcome a redirect carried back to the page. Presentation only: an
 // unknown value is ignored, and nothing here decides anything.
 
-import { isConnectionActionOutcome, isConnectionProvider, isSourceBaselineActionOutcome, type ConnectionActionOutcome, type ConnectionProvider, type SourceBaselineActionOutcome } from '@emgloop/shared';
+import { isConnectionActionOutcome, isConnectionProvider, isSourceBaselineActionOutcome, isSourceContentActionOutcome, type ConnectionActionOutcome, type ConnectionProvider, type SourceBaselineActionOutcome, type SourceContentActionOutcome } from '@emgloop/shared';
 
 export type PageSearchParams = { readonly [key: string]: string | string[] | undefined } | undefined;
 
@@ -22,4 +22,9 @@ export function connectionProviderParam(searchParams: PageSearchParams): Connect
 export function baselineOutcomeParam(searchParams: PageSearchParams): SourceBaselineActionOutcome | null {
   const value = single(searchParams?.baseline);
   return isSourceBaselineActionOutcome(value) ? value : null;
+}
+
+export function contentOutcomeParam(searchParams: PageSearchParams): SourceContentActionOutcome | null {
+  const value = single(searchParams?.content);
+  return isSourceContentActionOutcome(value) ? value : null;
 }

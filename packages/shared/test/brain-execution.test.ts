@@ -170,7 +170,7 @@ test('execution class, result type and capability route are three separate vocab
     }
   }
   assert.deepEqual([...BRAIN_EXECUTION_CLASSES], ['INTERACTIVE', 'DURABLE']);
-  assert.deepEqual([...BRAIN_RESULT_TYPES], ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'DRAFT', 'PROPOSED_ACTION']);
+  assert.deepEqual([...BRAIN_RESULT_TYPES], ['ANSWER', 'ANALYSIS', 'FINDING', 'RECOMMENDATION', 'DRAFT', 'PROPOSED_ACTION', 'TRIAGE']);
   assert.deepEqual([...AI_CAPABILITY_ROUTES], ['COMMUNICATION', 'TECHNICAL_ANALYSIS', 'GENERAL_REASONING']);
   // A task declares each on its own; none is derived from another.
   const t = AI_TASK_CASE_EXPLANATION;

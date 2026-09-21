@@ -21,6 +21,7 @@ function port(over: Partial<TelegramClientPort> = {}): TelegramClientPort {
     async connectFromSession() { return HANDLE; },
     async fetchSince() { return []; },
     async fetchHistory() { return []; },
+    async fetchContentSince() { return []; },
     async close() {},
     ...over,
   };

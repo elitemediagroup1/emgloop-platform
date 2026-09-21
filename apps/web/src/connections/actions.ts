@@ -106,3 +106,40 @@ export async function revokeBaselineAction(formData: FormData): Promise<void> {
   revalidatePath(CONNECTIONS_PATH);
   backBaseline(outcome, provider);
 }
+
+// --- Governed content processing (Telegram content-triage) ------------------------------------
+//
+// The employee's EXPLICIT, revocable consent for Loop to process message CONTENT with AI -- a separate
+// act from connecting (which is about authorizing an account) and from the history baseline (which is
+// who/when only). Same authority as connecting (`sourceConnections:update`, re-derived from the
+// session). Only the provider (which tile) is read from the form; the organization and person are
+// ALWAYS the signed session's. No worker call: consent is recorded in the database and the durable
+// worker's content sweep -- which runs only when the deployment's AI runtime is enabled -- picks it up.
+
+function backContent(outcome: string, provider: string): never {
+  const params = new URLSearchParams({ content: outcome });
+  if (provider) params.set('provider', provider);
+  redirect(`${CONNECTIONS_PATH}?${params.toString()}`);
+}
+
+export async function authorizeContentAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('sourceConnections', 'update');
+  const provider = String(formData.get('provider') ?? '').trim();
+  const outcome = await sourceConnections().authorizeContent(
+    { organizationId: session.organizationId, userId: session.userId, name: session.name },
+    provider,
+  );
+  revalidatePath(CONNECTIONS_PATH);
+  backContent(outcome, provider);
+}
+
+export async function revokeContentAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('sourceConnections', 'update');
+  const provider = String(formData.get('provider') ?? '').trim();
+  const outcome = await sourceConnections().revokeContent(
+    { organizationId: session.organizationId, userId: session.userId, name: session.name },
+    provider,
+  );
+  revalidatePath(CONNECTIONS_PATH);
+  backContent(outcome, provider);
+}

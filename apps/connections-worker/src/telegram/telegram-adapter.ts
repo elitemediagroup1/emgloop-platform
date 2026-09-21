@@ -17,7 +17,9 @@ import type { AdapterSession, ConnectionAdapter, ObservationResult } from '@emgl
 import type { CapabilityStatus } from '@emgloop/shared';
 
 import { telegramCursorAfter, telegramMessageToConversationEvent, type TelegramMessageFacts } from './content-free-mapping';
+import { telegramContentCursorAfter, type TelegramContentMessage } from './telegram-content';
 import type { BaselineObservationResult } from '../baseline-orchestrator';
+import type { ContentObservationResult } from '../content-orchestrator';
 
 /** A stale or invalid MTProto session. Named so runConnectionCycle classifies it as auth loss. */
 export class TelegramAuthError extends Error {
@@ -54,6 +56,13 @@ export interface TelegramClientPort {
    * the baseline; it never advances the live observation cursor.
    */
   fetchHistory(handle: TelegramClientHandle, request: TelegramHistoryPageRequest): Promise<readonly TelegramMessageFacts[]>;
+  /**
+   * Message CONTENT since `cursor` (a message id), oldest first, bounded by `limit`. TRANSIENT: the
+   * bodies are judged by the triage service and dropped, never persisted. Used ONLY by the content
+   * sweep; it never advances the live observation cursor or the baseline checkpoint. Throws
+   * TelegramFloodWaitError when Telegram asks Loop to wait.
+   */
+  fetchContentSince(handle: TelegramClientHandle, cursor: string | null, limit: number, now: Date): Promise<readonly TelegramContentMessage[]>;
   /** Close the socket. Never modifies the Telegram account. */
   close(handle: TelegramClientHandle): Promise<void>;
   /** Revoke this authorization at Telegram (used only by disconnect). Optional; best-effort. */
@@ -152,6 +161,27 @@ export class TelegramAdapter implements ConnectionAdapter {
     const nextCursor = telegramHistoryCursorBefore(beforeId, withinWindow);
     const reachedFloor = withinWindow.length < pageSize; // a short page: the floor or the end of history
     return { events, nextCursor, oldestReachedAt: oldestOccurredAt(withinWindow), reachedFloor };
+  }
+
+  /**
+   * One bounded page of NEW message CONTENT for the content sweep, read TRANSIENTLY. It fetches message
+   * bodies newer than the content cursor (a message id), oldest first, at most `limit`, and reports the
+   * next content cursor. It maps NOTHING to a ConversationEvent and persists NOTHING: the bodies flow to
+   * the triage service and are dropped. A FLOOD_WAIT yields no messages, the cursor unchanged, and the
+   * wait reported so the caller can back off. It NEVER touches the live observation cursor or the baseline.
+   */
+  async observeContent(session: AdapterSession, cursor: string | null, limit: number, now: Date): Promise<ContentObservationResult> {
+    const handle = session.handle as TelegramClientHandle;
+    let batch: readonly TelegramContentMessage[];
+    try {
+      batch = await this.port.fetchContentSince(handle, cursor, Math.max(1, limit), now);
+    } catch (err) {
+      if (err instanceof TelegramFloodWaitError) {
+        return { messages: [], nextCursor: cursor, floodWaitSeconds: err.retryAfterSeconds };
+      }
+      throw err;
+    }
+    return { messages: batch, nextCursor: telegramContentCursorAfter(cursor, batch) };
   }
 
   async disconnect(session: AdapterSession): Promise<void> {

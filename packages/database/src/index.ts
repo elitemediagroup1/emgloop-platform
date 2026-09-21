@@ -650,6 +650,31 @@ export {
   renderMailReplyDraftInstructions,
 } from './services/ai-runtime/templates/mail-reply-draft';
 
+// Telegram content triage (content-triage slice): a conservative, employee-private verdict on ONE
+// inbound message. The body is read transiently by the worker, judged through the governed AI runtime,
+// and dropped -- never persisted, never logged, never in the derived WorkItem or its evidence.
+export {
+  TelegramContentTriageService,
+  type TelegramContentTriageDeps,
+  type TelegramContentTriageRuntime,
+  type TelegramTriageInput,
+  type TelegramTriageResult,
+  type TelegramTriageVerdict,
+} from './services/ai-runtime/telegram-content-triage.service';
+export {
+  buildTelegramTriageContext,
+  TELEGRAM_TRIAGE_CONTEXT_LIMITS,
+  type TelegramTriageContext,
+  type TelegramTriageContextInput,
+} from './services/ai-runtime/telegram-content-triage-context';
+export {
+  TELEGRAM_CONTENT_TRIAGE_SCHEMA,
+  TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
+  TELEGRAM_CONTENT_TRIAGE_TEMPLATE_ID,
+  TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION,
+  renderTelegramContentTriageInstructions,
+} from './services/ai-runtime/templates/telegram-content-triage';
+
 // A mailbox's state as the employee's own work items (GM-3). A detection never overrules a person:
 // a closed item reopens only on new evidence, and a correction is recorded beside the facts.
 export { MailAttentionService, mailThreadFacts, type MailAttentionDeps, type MailAttentionOutcome } from './services/work-state';
@@ -692,6 +717,8 @@ export type { SourceObservationRow } from './repositories/source-observation.rep
 // observation cursor -- the baseline path never writes source_connections.
 export { SourceBaselineCheckpointRepository } from './repositories/source-baseline.repository';
 export type { BaselineCheckpointRecord, DueBaseline, BaselineProgress, BaselineWriteOutcome } from './repositories/source-baseline.repository';
+export { SourceContentAuthorizationRepository } from './repositories/source-content-authorization.repository';
+export type { ContentAuthorizationRecord, DueContent, ContentProgress, ContentWriteOutcome } from './repositories/source-content-authorization.repository';
 export { SourceConnectionService } from './services/connections/source-connection.service';
 export type {
   SourceConnectionPrincipal,

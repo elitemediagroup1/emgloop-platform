@@ -268,43 +268,46 @@ model Organization {
   workStageEvents          WorkStageEvent[]
   workDependencies         WorkDependency[]
 
-  crmRelationships          CrmRelationship[]
-  crmRelationshipEvents     CrmRelationshipEvent[]
-  crmParticipants           CrmParticipant[]
-  aiInvocations             AiInvocation[]
+  crmRelationships            CrmRelationship[]
+  crmRelationshipEvents       CrmRelationshipEvent[]
+  crmParticipants             CrmParticipant[]
+  aiInvocations               AiInvocation[]
   // --- Brain durable execution (B4) ---
-  brainJobs                 BrainJob[]
-  brainJobTransitions       BrainJobTransition[]
-  brainJobSteps             BrainJobStep[]
-  brainJobWaits             BrainJobWait[]
-  brainCommands             BrainCommand[]
-  brainEvents               BrainEvent[]
-  aiControls                AiControl[]
-  aiControlCurrent          AiControlCurrent[]
+  brainJobs                   BrainJob[]
+  brainJobTransitions         BrainJobTransition[]
+  brainJobSteps               BrainJobStep[]
+  brainJobWaits               BrainJobWait[]
+  brainCommands               BrainCommand[]
+  brainEvents                 BrainEvent[]
+  aiControls                  AiControl[]
+  aiControlCurrent            AiControlCurrent[]
   /// Google Workspace connection (Private V1). One per member; see GoogleConnection.
-  googleConnections         GoogleConnection[]
+  googleConnections           GoogleConnection[]
   /// Background conversation sources (Teams, Telegram). One per member per provider; see
   /// SourceConnection.
-  sourceConnections         SourceConnection[]
+  sourceConnections           SourceConnection[]
   /// Content-free observations from those sources (who/when, never content); see SourceObservation.
-  sourceObservations        SourceObservation[]
+  sourceObservations          SourceObservation[]
   /// Historical baseline checkpoints (Telegram): per member per provider; see SourceBaselineCheckpoint.
-  sourceBaselineCheckpoints SourceBaselineCheckpoint[]
+  sourceBaselineCheckpoints   SourceBaselineCheckpoint[]
+  /// Content-processing authorizations (Telegram content-triage): per member per provider; see
+  /// SourceContentAuthorization. The employee's explicit consent to process message content with AI.
+  sourceContentAuthorizations SourceContentAuthorization[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
-  workSourceCursors         WorkSourceCursor[]
-  workDrafts                WorkDraft[]
-  workSyncRuns              WorkSyncRun[]
-  workCorrespondents        WorkCorrespondent[]
-  workThreads               WorkThread[]
-  workMessages              WorkMessage[]
-  workEvents                WorkEvent[]
-  workDocuments             WorkDocument[]
-  workItems                 WorkItem[]
-  workItemObservations      WorkItemObservation[]
-  workBriefs                WorkBrief[]
-  workFeedback              WorkFeedback[]
-  employeeWorkPreferences   EmployeeWorkPreferences[]
-  workRetentionOverrides    WorkRetentionOverride[]
+  workSourceCursors           WorkSourceCursor[]
+  workDrafts                  WorkDraft[]
+  workSyncRuns                WorkSyncRun[]
+  workCorrespondents          WorkCorrespondent[]
+  workThreads                 WorkThread[]
+  workMessages                WorkMessage[]
+  workEvents                  WorkEvent[]
+  workDocuments               WorkDocument[]
+  workItems                   WorkItem[]
+  workItemObservations        WorkItemObservation[]
+  workBriefs                  WorkBrief[]
+  workFeedback                WorkFeedback[]
+  employeeWorkPreferences     EmployeeWorkPreferences[]
+  workRetentionOverrides      WorkRetentionOverride[]
 
   googleOAuthStates GoogleOAuthState[]
 
@@ -504,41 +507,44 @@ model OrganizationMembership {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user                      User                       @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
-  invitedBy                 User?                      @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  organization                Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                        User                         @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy                   User?                        @relation("MembershipInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   /// B4. Brain work runs on a membership's authority: a job's principal must hold one here.
-  brainJobs                 BrainJob[]                 @relation("BrainJobPrincipal")
-  brainJobWaits             BrainJobWait[]             @relation("BrainJobWaitPrincipal")
+  brainJobs                   BrainJob[]                   @relation("BrainJobPrincipal")
+  brainJobWaits               BrainJobWait[]               @relation("BrainJobWaitPrincipal")
   /// A Google connection belongs to a membership: the person, in THIS organization.
-  googleConnection          GoogleConnection[]         @relation("GoogleConnectionMember")
-  googleOAuthStates         GoogleOAuthState[]         @relation("GoogleOAuthStateMember")
+  googleConnection            GoogleConnection[]           @relation("GoogleConnectionMember")
+  googleOAuthStates           GoogleOAuthState[]           @relation("GoogleOAuthStateMember")
   /// A source connection (Teams, Telegram) belongs to a membership: the person, in THIS
   /// organization, so offboarding takes it with them.
-  sourceConnections         SourceConnection[]         @relation("SourceConnectionMember")
+  sourceConnections           SourceConnection[]           @relation("SourceConnectionMember")
   /// Content-free observations from those sources belong to the membership too, so offboarding
   /// takes them with the person.
-  sourceObservations        SourceObservation[]        @relation("SourceObservationMember")
+  sourceObservations          SourceObservation[]          @relation("SourceObservationMember")
   /// The Telegram historical-baseline checkpoint belongs to the membership too, so offboarding
   /// takes it with the person.
-  sourceBaselineCheckpoints SourceBaselineCheckpoint[] @relation("SourceBaselineCheckpointMember")
+  sourceBaselineCheckpoints   SourceBaselineCheckpoint[]   @relation("SourceBaselineCheckpointMember")
+  /// The content-processing authorization belongs to the membership too, so offboarding takes the
+  /// employee's content consent with them.
+  sourceContentAuthorizations SourceContentAuthorization[] @relation("SourceContentAuthorizationMember")
   /// Daily Loop (DL-1). One person's own work state, in THIS organization: it belongs to the
   /// membership, so offboarding takes it with them.
-  workSourceCursors         WorkSourceCursor[]         @relation("WorkSourceCursorMember")
-  workDrafts                WorkDraft[]                @relation("WorkDraftMember")
-  workSyncRuns              WorkSyncRun[]              @relation("WorkSyncRunMember")
-  workCorrespondents        WorkCorrespondent[]        @relation("WorkCorrespondentMember")
-  workThreads               WorkThread[]               @relation("WorkThreadMember")
-  workMessages              WorkMessage[]              @relation("WorkMessageMember")
-  workEvents                WorkEvent[]                @relation("WorkEventMember")
-  workDocuments             WorkDocument[]             @relation("WorkDocumentMember")
-  workItems                 WorkItem[]                 @relation("WorkItemMember")
-  workItemObservations      WorkItemObservation[]      @relation("WorkItemObservationMember")
-  workBriefs                WorkBrief[]                @relation("WorkBriefMember")
-  workFeedback              WorkFeedback[]             @relation("WorkFeedbackMember")
-  employeeWorkPreferences   EmployeeWorkPreferences[]  @relation("EmployeeWorkPreferencesMember")
+  workSourceCursors           WorkSourceCursor[]           @relation("WorkSourceCursorMember")
+  workDrafts                  WorkDraft[]                  @relation("WorkDraftMember")
+  workSyncRuns                WorkSyncRun[]                @relation("WorkSyncRunMember")
+  workCorrespondents          WorkCorrespondent[]          @relation("WorkCorrespondentMember")
+  workThreads                 WorkThread[]                 @relation("WorkThreadMember")
+  workMessages                WorkMessage[]                @relation("WorkMessageMember")
+  workEvents                  WorkEvent[]                  @relation("WorkEventMember")
+  workDocuments               WorkDocument[]               @relation("WorkDocumentMember")
+  workItems                   WorkItem[]                   @relation("WorkItemMember")
+  workItemObservations        WorkItemObservation[]        @relation("WorkItemObservationMember")
+  workBriefs                  WorkBrief[]                  @relation("WorkBriefMember")
+  workFeedback                WorkFeedback[]               @relation("WorkFeedbackMember")
+  employeeWorkPreferences     EmployeeWorkPreferences[]    @relation("EmployeeWorkPreferencesMember")
   /// Identity match suggestions resting on this person's private evidence (D1).
-  privateHypotheses         IntelligenceHypothesis[]   @relation("IntelligenceHypothesisPrivateTo")
+  privateHypotheses           IntelligenceHypothesis[]     @relation("IntelligenceHypothesisPrivateTo")
 
   @@unique([userId, organizationId])
   @@index([organizationId, status])
@@ -5895,6 +5901,54 @@ model SourceBaselineCheckpoint {
   @@unique([organizationId, userId, provider])
   @@index([state, lastRunAt])
   @@map("source_baseline_checkpoints")
+}
+
+/// EMPLOYEE CONTENT-PROCESSING CONSENT for a background source (Telegram, content-triage slice). This
+/// is the employee's EXPLICIT, revocable authorization for Loop to read message CONTENT transiently and
+/// have AI decide whether a new inbound message is meaningfully actionable. It is a SEPARATE consent
+/// from connecting the source and from the content-free history baseline: connection alone is NOT this
+/// consent, and this table is the only place that consent is recorded.
+///
+/// NO CONTENT, EVER. `contentCursor` is an opaque content-free message id (the worker's resume point
+/// for the content sweep) -- never a message, a name or a raw id. There is no column that can hold a
+/// body. The AI reads bodies transiently in the worker and drops them; nothing content-bearing lands here.
+///
+/// EMPLOYEE-PRIVATE, ONE PER PROVIDER. Both ids are on the row and every repository method takes both.
+/// The composite foreign key is to the MEMBERSHIP, so offboarding cascades this away with the person.
+/// Authorized means `authorizedAt` set and `revokedAt` null; a revoke stamps `revokedAt` and stops all
+/// further content processing immediately. The content sweep NEVER writes the live observation cursor
+/// or the baseline checkpoint -- it advances only `contentCursor` here.
+model SourceContentAuthorization {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+  /// MICROSOFT_TEAMS | TELEGRAM (CONNECTION_PROVIDERS). Only TELEGRAM is triaged in this slice.
+  provider       String
+
+  /// When the employee authorized (or last re-affirmed) content processing.
+  authorizedAt DateTime
+  /// Set when the employee withdrew consent. Non-null means REVOKED: no further content is processed.
+  revokedAt    DateTime?
+
+  /// Opaque content-free message id the content sweep resumes from. NEVER content, and NEVER the live
+  /// observation cursor or the baseline checkpoint.
+  contentCursor    String?
+  lastRunAt        DateTime?
+  /// Last failure class (AUTH | TRANSIENT | PROVIDER_NOT_CONFIGURED | REFUSED_BY_LOOP | FLOOD_WAIT).
+  /// A class, never a provider's text and never a secret.
+  lastFailureClass String?
+  /// Set when the provider asked Loop to wait (FLOOD_WAIT): the sweep holds until then.
+  backoffUntil     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("SourceContentAuthorizationMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, provider])
+  @@index([revokedAt, lastRunAt])
+  @@map("source_content_authorizations")
 }
 
 // ---------------------------------------------------------------------------

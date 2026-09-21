@@ -11,7 +11,9 @@ import { RefreshCalendar } from './_home/refresh-calendar';
 import { DayUnavailable } from './_home/day-calendar';
 import { loadYourDay } from '../../daily-loop/your-day';
 import { YourMail } from './_home/your-mail';
+import { NeedsYou } from './_home/needs-you';
 import { loadMailDashboard } from '../../daily-loop/mail-dashboard';
+import { loadNeedsYou } from '../../daily-loop/needs-you';
 import { mailCurrency } from './mail/_mail/mail-parts';
 import { readerTimeZone } from '../../daily-loop/reader-zone';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
@@ -44,12 +46,14 @@ export default async function LoopHome() {
 
   // A visit refreshes the calendar and the mailbox at most on their own schedules; everything
   // below is concluded from what is stored, so one sync serves Home and Mail alike.
-  const [dayResult, mailResult] = await Promise.all([
+  const [dayResult, mailResult, needsYouResult] = await Promise.all([
     settle(() => loadYourDay(principal)),
     settle(() => loadMailDashboard(principal, { timeZone: zone.timeZone })),
+    settle(() => loadNeedsYou(principal)),
   ]);
   const day = dayResult.ok ? dayResult.value : null;
   const mail = mailResult.ok ? mailResult.value : null;
+  const needsYou = needsYouResult.ok ? needsYouResult.value : [];
   const time = createTimeView(zone, new Date());
 
   // How current Loop is about this mailbox, in the Inbox's own words. Not connected at all: nothing.
@@ -70,6 +74,7 @@ export default async function LoopHome() {
           groups={await navFor(session)}
           day={dayResult.ok ? <YourDay view={day} refresh={<RefreshCalendar />} /> : <DayUnavailable title="Your day" />}
           mail={<YourMail dashboard={connected ? mail : null} time={time} currency={currency} />}
+          needsYou={<NeedsYou items={needsYou} time={time} />}
         />
       )}
     </WorkspaceShell>

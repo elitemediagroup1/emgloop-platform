@@ -34,6 +34,7 @@ function historyPort(messages: readonly TelegramMessageFacts[], opts: { flood?: 
   return {
     async connectFromSession() { return { kind: 'telegram-mtproto', client: {} }; },
     async fetchSince() { return []; },
+    async fetchContentSince() { return []; },
     async fetchHistory(_handle, req: TelegramHistoryPageRequest) {
       if (opts.flood) throw new TelegramFloodWaitError(opts.flood);
       const floorSec = SECS(req.floorAt);
