@@ -5,6 +5,9 @@
 // WHAT IT PROVES
 //   - discovery -> window -> obligations: a new inbound message triggers a conversation-window read whose
 //     obligations become minimized, employee-private WorkItems (distinct recurrenceKeys, same subjectRef);
+//   - PERIODIC REVIEW is activity-driven: a conversation is eligible on ANY new text since the frontier --
+//     INBOUND or OUTBOUND. Several new messages in a cycle -> ONE review; an unchanged conversation is not
+//     reread; activity in A does not reread B; an OUTBOUND reply drives the reconcile that closes an item;
 //   - RECONCILE runs with the kept anchors and the evaluated-window boundary (the guard itself lives in the
 //     repository, proven against Postgres);
 //   - RESOLUTION: an empty obligation list raises nothing and still reconciles (closing prior items);
@@ -49,6 +52,27 @@ function windowOf(ids: string[], reason: TelegramConversationWindow['truncation'
   };
 }
 
+// A second and third conversation for the multi-conversation cases (A has activity, B does not).
+const RAW_CHAT_A = 'rawchat-AAA';
+const RAW_CHAT_B = 'rawchat-BBB';
+const CONV_KEY_A = conversationKeyOf('conversation', RAW_CHAT_A, SECRET);
+const CONV_KEY_B = conversationKeyOf('conversation', RAW_CHAT_B, SECRET);
+
+function windowForChat(rawChat: string, ids: string[]): TelegramConversationWindow {
+  const convKey = conversationKeyOf('conversation', rawChat, SECRET);
+  const messages = ids.map((id) => ({
+    providerEventId: `${convKey}:${id}`,
+    direction: 'INBOUND' as const,
+    occurredAt: new Date((1_700_000_000 + Number(id)) * 1000),
+    text: `body-${id}`,
+  }));
+  return {
+    conversationKey: convKey,
+    messages,
+    truncation: { includedCount: messages.length, reason: 'NONE', oldestIncludedProviderEventId: messages.length ? messages[0]!.providerEventId : null },
+  };
+}
+
 const PROVENANCE = {
   invocationId: 'inv-777',
   organizationId: ORG,
@@ -84,6 +108,7 @@ interface Recorder {
   reconciled: { subjectRef: string; kept: readonly string[]; evaluatedFloor: string }[];
   progress: { due: DueContent; contentCursor: string | null; failureClass: string | null; backoffUntil: Date | null }[];
   triageInputs: TelegramConversationTriageInput[];
+  windows: string[]; // the raw chat ids a window was fetched for -- one entry per conversation reviewed
 }
 
 function ports(opts: {
@@ -94,7 +119,7 @@ function ports(opts: {
   triage?: (input: TelegramConversationTriageInput) => TelegramConversationTriageResult;
   observeFlood?: number;
 }): { ports: ContentSweepPorts; rec: Recorder } {
-  const rec: Recorder = { raised: [], reconciled: [], progress: [], triageInputs: [] };
+  const rec: Recorder = { raised: [], reconciled: [], progress: [], triageInputs: [], windows: [] };
   const adapter: ContentAdapter = {
     provider: 'TELEGRAM',
     async resume() {
@@ -107,6 +132,7 @@ function ports(opts: {
       return { messages, nextCursor: nextCursor > 0 ? String(nextCursor) : cursor };
     },
     async fetchConversationWindow(_s, request): Promise<ContentWindowResult> {
+      rec.windows.push(request.chatId);
       return (opts.window ?? ((chatId) => ({ window: windowOf(['10']) })))(request.chatId);
     },
     async disconnect() {},
@@ -172,12 +198,15 @@ test('RESOLUTION: an empty obligation list raises nothing but still reconciles (
   assert.deepEqual([...rec.reconciled[0]!.kept], [], 'no kept anchors -> in-window prior obligations close');
 });
 
-test('only conversations with a NEW inbound text message are triaged; outbound/empty do not trigger', async () => {
-  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10', { out: true }), newMsg('11', { text: '   ' })] });
+test('non-text activity does not trigger a review: empty/whitespace messages (inbound or outbound) never triage, but the cursor still advances', async () => {
+  // The empty-text skip is preserved from the inbound-only era: only TEXT is activity. Direction no longer
+  // gates the trigger (see the OUTBOUND-activity test below), so both a blank inbound and a blank outbound
+  // message are non-events -- yet discovery still advances the content frontier past them.
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10', { text: '   ' }), newMsg('11', { out: true, text: '' })] });
   await runContentSweep(p);
-  assert.equal(rec.triageInputs.length, 0, 'no inbound text -> no window read, no triage');
+  assert.equal(rec.triageInputs.length, 0, 'no text activity -> no window read, no triage');
   assert.equal(rec.raised.length, 0);
-  // The cursor still advances past the seen (outbound/empty) messages.
+  // The content cursor still advances past the seen (non-text) messages.
   assert.equal(rec.progress[0]!.contentCursor, '11');
 });
 
@@ -268,4 +297,79 @@ test('the sweep has NO port that could write the live observation cursor or the 
   assert.ok(!keys.includes('recordBaselineProgress'), 'no baseline writer');
   assert.ok(!keys.includes('recordHistoricalProgress'), 'the forward sweep never writes the historical cursor');
   assert.ok(!keys.includes('sink'), 'no observation sink -- the content path never writes SourceObservation');
+});
+
+// --- Periodic conversation review: activity-driven eligibility (inbound OR outbound) ---------------
+// These six prove the amendment that turns the forward path from "triage on a new inbound message" into an
+// autonomous periodic review keyed on ANY new text since the content frontier.
+
+test('ACTIVITY (inbound): a new inbound text makes the conversation eligible -> reviewed exactly once', async () => {
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')] });
+  const summary = await runContentSweep(p);
+  assert.equal(summary.swept, 1);
+  assert.equal(rec.triageInputs.length, 1, 'inbound activity -> the conversation is reviewed once');
+  assert.equal(rec.windows.length, 1, 'exactly one window read');
+});
+
+test('ACTIVITY (outbound): a new OUTBOUND text with no inbound still makes the conversation eligible -> reviewed', async () => {
+  // Matt replying/confirming is activity: the conversation must be reviewed so RECONCILE can close the item.
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('9', { out: true })] });
+  const summary = await runContentSweep(p);
+  assert.equal(summary.swept, 1);
+  assert.equal(rec.triageInputs.length, 1, 'outbound-only activity -> the conversation IS reviewed');
+  assert.equal(rec.windows.length, 1, 'the window is read for the outbound-active conversation');
+});
+
+test('ONE review per conversation: several new messages (in+out) in a cycle -> exactly one triage call', async () => {
+  // Three new messages in ONE conversation within the interval must collapse to a single review/one AI call.
+  const messages = [newMsg('7'), newMsg('8', { out: true }), newMsg('9')];
+  const { ports: p, rec } = ports({ due: [due('5')], messages });
+  await runContentSweep(p);
+  assert.equal(rec.triageInputs.length, 1, 'several messages in one conversation -> ONE triage call');
+  assert.deepEqual(rec.windows, [RAW_CHAT], 'exactly one window fetch, for the single conversation');
+  // Discovery still advances the frontier to the highest new message id seen this cycle.
+  assert.equal(rec.progress[0]!.contentCursor, '9');
+});
+
+test('UNCHANGED conversations are not reread: no new message since the frontier -> zero triage calls, cursor unchanged', async () => {
+  // A due authorization whose discovery page is empty (nothing new since the content cursor): no review runs.
+  const { ports: p, rec } = ports({ due: [due('5')] });
+  const summary = await runContentSweep(p);
+  assert.equal(summary.swept, 1, 'the authorization is processed');
+  assert.equal(summary.held, 0, 'nothing held: an empty page is a clean no-op, not a failure');
+  assert.equal(rec.triageInputs.length, 0, 'no new message -> no AI invocation');
+  assert.equal(rec.windows.length, 0, 'no window is even read for an unchanged conversation');
+  assert.equal(rec.raised.length, 0);
+  assert.equal(rec.progress[0]!.contentCursor, '5', 'the content cursor is unchanged (advances to the same value)');
+  assert.equal(rec.progress[0]!.failureClass, null);
+});
+
+test('OUTBOUND resolution -> RECONCILE closes the open obligation: outbound reply, model judges resolved, reconcile runs with the empty kept-list and the evaluated-window boundary', async () => {
+  // An open obligation exists for conversation C (raised on an earlier inbound). Matt then sends an OUTBOUND
+  // reply that resolves it. The outbound message makes C eligible; the model returns NO remaining obligations;
+  // the sweep raises nothing and RECONCILES with an empty kept-list at the evaluated-window boundary -- the
+  // exact call that closes the open WorkItem. The close itself and the truncation guard are proven against a
+  // real Postgres in packages/database/test/work-item-reconcile.postgres.test.ts, which this PR does not touch.
+  const window = () => ({ window: windowOf(['7', '8']) }); // the bounded window; oldest included is CONV_KEY:7
+  const triage = (i: TelegramConversationTriageInput): TelegramConversationTriageResult => triaged([], i.evaluatedFloorProviderEventId);
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('9', { out: true })], window, triage });
+  await runContentSweep(p);
+  assert.equal(rec.triageInputs.length, 1, 'the outbound reply triggered the review');
+  assert.equal(rec.raised.length, 0, 'nothing unresolved remains -> no new WorkItem');
+  assert.equal(rec.reconciled.length, 1, 'reconcile runs to close prior open obligations');
+  assert.deepEqual([...rec.reconciled[0]!.kept], [], 'no kept anchors -> the in-window open obligation closes');
+  assert.equal(rec.reconciled[0]!.subjectRef, `telegram_conversation:${CONV_KEY}`);
+  assert.equal(rec.reconciled[0]!.evaluatedFloor, `${CONV_KEY}:7`, 'the evaluated-window boundary the guard reads is preserved');
+});
+
+test('A-activity does not reread B: a new message in conversation A triages A only, never the unchanged B', async () => {
+  // Only A has new activity this cycle; B has no new message since the frontier and is not in the page.
+  const window = (chatId: string): ContentWindowResult => ({ window: windowForChat(chatId, ['10']) });
+  const triage = (i: TelegramConversationTriageInput): TelegramConversationTriageResult => triaged([], i.evaluatedFloorProviderEventId);
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10', { chatId: RAW_CHAT_A })], window, triage });
+  await runContentSweep(p);
+  assert.deepEqual(rec.windows, [RAW_CHAT_A], 'only A is read; B is never fetched');
+  assert.equal(rec.triageInputs.length, 1, 'exactly one conversation reviewed');
+  assert.equal(rec.triageInputs[0]!.conversationKey, CONV_KEY_A, 'the review is for A');
+  assert.ok(!rec.triageInputs.some((i) => i.conversationKey === CONV_KEY_B), 'B (unchanged) is never reread');
 });

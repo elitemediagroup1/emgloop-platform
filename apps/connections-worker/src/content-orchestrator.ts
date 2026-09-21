@@ -1,10 +1,17 @@
-// The worker's FORWARD content sweep (v2 conversation triage): discover NEW inbound messages
-// TRANSIENTLY, and for each conversation that has one, read a bounded recent WINDOW of that conversation
-// and judge which obligations are STILL UNRESOLVED. Raise a minimized, employee-private WorkItem per
-// obligation, then RECONCILE (close obligations a later message answered). COMPLETELY INDEPENDENT of the
-// live observation sweep and the baseline sweep: this orchestrator has NO port that can write the live
-// observation cursor (SourceConnection.cursor) or the baseline checkpoint. It advances ONLY the content
-// cursor. That independence is structural, not a promise.
+// The worker's PERIODIC CONVERSATION REVIEW (v2 conversation triage). It runs autonomously on a cadence
+// (default 10 minutes; LOOP_CONNECTION_CONTENT_INTERVAL_MS, see config.ts) rather than reacting to one
+// inbound message. Each cycle discovers the conversations with ANY new activity since the content frontier
+// -- an INBOUND or OUTBOUND text message -- and for each such conversation reads a bounded recent WINDOW
+// of that conversation TRANSIENTLY and judges which obligations are STILL UNRESOLVED. A conversation with
+// NO new message since the frontier is NOT reread. Several new messages in one conversation within a cycle
+// cause ONE review (ONE AI invocation), never one call per message. OUTBOUND activity counts on purpose:
+// when Matt replies, confirms or resolves, the conversation becomes eligible so RECONCILE can close the
+// open Needs You item. Raise a minimized, employee-private WorkItem per obligation, then RECONCILE (close
+// obligations a later message answered). The one-time HISTORICAL backfill (historical-content-orchestrator.ts)
+// does the initial content seeding; after that, this periodic review maintains understanding incrementally
+// from activity. COMPLETELY INDEPENDENT of the live observation sweep and the baseline sweep: this
+// orchestrator has NO port that can write the live observation cursor (SourceConnection.cursor) or the
+// baseline checkpoint. It advances ONLY the content cursor. That independence is structural, not a promise.
 //
 // THREE THINGS MUST HOLD BEFORE ANY BODY IS READ FOR AN EMPLOYEE:
 //   1. content authorization (dueForContent returns only authorized, not-revoked rows);
@@ -206,9 +213,10 @@ interface ConversationsOutcome {
 }
 
 /**
- * For each conversation with a NEW inbound text message, read its bounded recent window and triage it.
- * A governance refusal (NOT_AVAILABLE) or a window flood HOLDS the cursor (retry next run); a per-model
- * outcome is recorded as handled. Obligations are raised, then reconciled (with the guard).
+ * For each conversation with a NEW text message (INBOUND or OUTBOUND) since the content frontier, read its
+ * bounded recent window and review it. A governance refusal (NOT_AVAILABLE) or a window flood HOLDS the
+ * cursor (retry next run); a per-model outcome is recorded as handled. Obligations are raised, then
+ * reconciled (with the guard) -- so an outbound reply that resolves an open item closes it on this cycle.
  */
 async function processConversations(
   ports: ContentSweepPorts,
@@ -223,11 +231,12 @@ async function processConversations(
   let raised = 0;
   let reconciled = 0;
 
-  // The conversations that have a NEW inbound text message, by raw chat id, oldest-first-seen for stability.
+  // The conversations with ANY new text message (INBOUND or OUTBOUND) since the frontier, by raw chat id,
+  // oldest-first-seen for stability. The `seen` set makes several new messages in one conversation ONE review.
   const chatIds: string[] = [];
   const seen = new Set<string>();
   for (const message of [...messages].sort((a, b) => Number(a.messageId) - Number(b.messageId))) {
-    if (message.out || message.text.trim() === '') continue; // only new INBOUND text starts a triage
+    if (message.text.trim() === '') continue; // any new TEXT (inbound OR outbound) is activity; non-text is not
     if (seen.has(message.chatId)) continue;
     seen.add(message.chatId);
     chatIds.push(message.chatId);
