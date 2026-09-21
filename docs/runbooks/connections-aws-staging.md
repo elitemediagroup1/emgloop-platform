@@ -101,3 +101,44 @@ restart is needed. Then:
 
 Disconnect revokes at Telegram and clears the stored session. Teams remains a first-class tile for
 its own adapter, added later.
+
+## Enable AI content triage (staging)
+
+AI content triage is **operator-activated and fail-closed**. The worker
+(`apps/connections-worker/src/ai-runtime.ts`) stays OFF (`NOT_ACTIVATED`, refusing every invocation)
+unless it is fed the `LOOP_AI_*` activation env AND its provider credential. The stack wires that env
+**only** when the operator supplies a real staging organization id through CDK context — and injects
+the credential from Secrets Manager, never as plaintext. If EITHER the secret below OR the variable
+below is absent, AI stays off and the synthesized stack is byte-for-byte the AI-off shape. The org id
+lives ONLY in the GitHub variable; it is never committed to source.
+
+1. **Create the AI credential secret** in Secrets Manager (`065148797865` / `us-east-1`), BEFORE the
+   next deploy. Enter the value in the AWS console or CloudShell — **never paste a real key into chat,
+   a PR, an issue or a log.** The secret is a JSON document; Anthropic is required, OpenAI is opt-in:
+
+    ```sh
+    aws sts get-caller-identity --query Account --output text   # must print 065148797865 — stop otherwise
+    aws secretsmanager create-secret --region us-east-1 --name loop/connections/staging/ai \
+      --secret-string '{"anthropic_api_key":"REPLACE_WITH_ANTHROPIC_API_KEY"}'
+    ```
+
+   To also enable the OpenAI fallback (`aiOpenAiFallback` context, off by default), add the second
+   field: `{"anthropic_api_key":"…","openai_api_key":"…"}`. A default activation needs no OpenAI key.
+   The stack **references** this secret (like the Telegram secret); it never creates it, so it must
+   exist with real values before deploy.
+
+2. **Set the GitHub Actions variable** `CONNECTIONS_STAGING_AI_ORG_ID` in the `connections-staging`
+   environment (repo Settings → Environments → `connections-staging` → **Variables**) to the **real
+   staging EMG organization id**. The operator looks this up in the governed staging data — it is NOT
+   in source and must not be committed anywhere. An empty or unset variable leaves AI off (the deploy
+   passes an empty context, which the app treats as inactive).
+
+3. **Re-run the connections-infra-deploy workflow** (Actions → connections-infra-deploy → Run
+   workflow → `action: deploy` + `confirm: deploy loop-connections-staging`). The deploy reads the
+   variable into `-c aiOrganizationId=…`, references the `loop/connections/staging/ai` secret, and the
+   task definition gains the five `LOOP_AI_*` env vars plus `ANTHROPIC_API_KEY` (and `OPENAI_API_KEY`
+   only if the fallback field and context are set) injected from Secrets Manager.
+
+**Fail-closed:** with the secret missing, the deploy's ECS task cannot resolve the credential; with the
+variable missing/empty, no `LOOP_AI_*` env is set at all. Either way the worker refuses AI work. To
+turn AI back off, clear `CONNECTIONS_STAGING_AI_ORG_ID` and re-deploy.
