@@ -107,7 +107,7 @@ describe('the Connections page and actions', () => {
   it('the actions act under sourceConnections:update from the session, never the form', () => {
     const actions = code(read('connections/actions.ts'));
     assert.match(actions, /^\s*'use server';/);
-    assert.equal((actions.match(/await requirePermission\('sourceConnections', 'update'\)/g) ?? []).length, 5); // 2 connect/disconnect + 3 baseline
+    assert.equal((actions.match(/await requirePermission\('sourceConnections', 'update'\)/g) ?? []).length, 7); // 2 connect/disconnect + 3 baseline + 2 content
     assert.doesNotMatch(actions, /formData\.get\('(organizationId|userId|org|user)'\)/);
     // Only the provider (which tile) is read from the form.
     assert.match(actions, /formData\.get\('provider'\)/);

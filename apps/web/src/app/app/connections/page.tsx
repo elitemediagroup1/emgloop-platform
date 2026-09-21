@@ -7,7 +7,7 @@ import WorkspaceShell from '../../../workspaces/WorkspaceShell';
 import { GoogleWorkspacePanel } from '../_google/google-workspace-panel';
 import { googleOutcomeParam, googleReconnectParam, type PageSearchParams } from '../_google/search-params';
 import { SourceConnectionsPanel } from '../_connections/source-connections-panel';
-import { connectionOutcomeParam, baselineOutcomeParam } from '../_connections/search-params';
+import { connectionOutcomeParam, baselineOutcomeParam, contentOutcomeParam } from '../_connections/search-params';
 import { sourceConnections } from '../../../connections/source-connection-runtime';
 import type { SourceConnectionStatus } from '@emgloop/database';
 import { LoopPage, PageHead, StateBlock } from '../_loop-os/record';
@@ -62,7 +62,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams?:
         ) : (
           <StateBlock kind="denied" title="You cannot view connections here" body="Your role in this organization does not include a Google connection." />
         )}
-        <SourceConnectionsPanel status={connectionStatus} outcome={connectionOutcomeParam(searchParams)} baselineOutcome={baselineOutcomeParam(searchParams)} time={viewerTime()} />
+        <SourceConnectionsPanel status={connectionStatus} outcome={connectionOutcomeParam(searchParams)} baselineOutcome={baselineOutcomeParam(searchParams)} contentOutcome={contentOutcomeParam(searchParams)} time={viewerTime()} />
       </LoopPage>
     </WorkspaceShell>
   );

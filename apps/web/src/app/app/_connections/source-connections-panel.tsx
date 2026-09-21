@@ -18,10 +18,10 @@
 // SERVER COMPONENT. Connect, disconnect and the baseline controls are server-action forms; no client
 // code, and no value here is a secret, a code, or a provider's text.
 
-import { SOURCE_CONNECTION_BASELINE_WINDOWS, SOURCE_CONNECTION_BASELINE_DEFAULT_WINDOW_DAYS, type ConnectionActionOutcome, type ConnectionState, type SourceBaselineActionOutcome, type TimeView } from '@emgloop/shared';
+import { SOURCE_CONNECTION_BASELINE_WINDOWS, SOURCE_CONNECTION_BASELINE_DEFAULT_WINDOW_DAYS, type ConnectionActionOutcome, type ConnectionState, type SourceBaselineActionOutcome, type SourceContentActionOutcome, type TimeView } from '@emgloop/shared';
 import type { ProviderConnectionView, SourceConnectionStatus } from '@emgloop/database';
 
-import { beginConnectSourceAction, disconnectSourceAction, authorizeBaselineAction, changeBaselineScopeAction, revokeBaselineAction } from '../../../connections/actions';
+import { beginConnectSourceAction, disconnectSourceAction, authorizeBaselineAction, changeBaselineScopeAction, revokeBaselineAction, authorizeContentAction, revokeContentAction } from '../../../connections/actions';
 import { TelegramConnectFlow } from './telegram-connect-flow';
 import type { SubjectState } from '../../../crm/subject-display';
 import { Facts, Panel, StateBlock, StatePill } from '../_loop-os/record';
@@ -57,6 +57,17 @@ export const BASELINE_OUTCOME_MESSAGES: Readonly<Record<SourceBaselineActionOutc
   NOT_CONFIGURED: { tone: 'warn', title: 'Not available yet', body: 'This Loop deployment has not been set up to import history for this source yet.' },
   NO_CONNECTION: { tone: 'warn', title: 'Connect first', body: 'There is no live connection to import history from. Connect the account first.' },
   INVALID: { tone: 'warn', title: 'That request could not be used', body: 'Choose one of the offered windows and try again.' },
+};
+
+/** What each content-processing outcome tells the person. AI CONTENT processing is a separate consent. */
+export const CONTENT_OUTCOME_MESSAGES: Readonly<Record<SourceContentActionOutcome, { readonly tone: Tone; readonly title: string; readonly body: string }>> = {
+  AUTHORIZED: { tone: 'good', title: 'AI triage on', body: 'Loop will read new messages on this account and use AI to flag the few that need you — surfaced privately to you on your Home, with a link back to Telegram. It never replies for you, and it stores no message contents. You can turn it off at any time.' },
+  REVOKED: { tone: 'good', title: 'AI triage off', body: 'Loop will stop processing message contents for this account. Anything it already flagged stays in your queue until you clear it, and no message contents were kept.' },
+  NOTHING_TO_DO: { tone: 'warn', title: 'Nothing to change', body: 'AI triage was not on for this account.' },
+  NOT_PERMITTED: { tone: 'crit', title: 'You cannot do this here', body: 'Your role in this organization does not include changing a communication source.' },
+  NOT_CONFIGURED: { tone: 'warn', title: 'Not available yet', body: 'This Loop deployment has not been set up for AI triage on this source yet.' },
+  NO_CONNECTION: { tone: 'warn', title: 'Connect first', body: 'There is no live connection to process content for. Connect the account first.' },
+  INVALID: { tone: 'warn', title: 'That request could not be used', body: 'Start again from this page.' },
 };
 
 /** One connection state's tile presentation. "Ready" is said ONLY when observation is operational. */
@@ -108,6 +119,18 @@ function BaselineBanner({ outcome }: { outcome: SourceBaselineActionOutcome }) {
   const message = BASELINE_OUTCOME_MESSAGES[outcome];
   return (
     <div className={`loop-banner loop-banner--${message.tone}`} role="status" data-baseline-outcome={outcome}>
+      <div className="loop-banner__text">
+        <div className="loop-banner__title">{message.title}</div>
+        <div className="loop-banner__body">{message.body}</div>
+      </div>
+    </div>
+  );
+}
+
+function ContentBanner({ outcome }: { outcome: SourceContentActionOutcome }) {
+  const message = CONTENT_OUTCOME_MESSAGES[outcome];
+  return (
+    <div className={`loop-banner loop-banner--${message.tone}`} role="status" data-content-outcome={outcome}>
       <div className="loop-banner__text">
         <div className="loop-banner__title">{message.title}</div>
         <div className="loop-banner__body">{message.body}</div>
@@ -186,6 +209,40 @@ function BaselineSection({ view, time }: { view: ProviderConnectionView; time: T
   );
 }
 
+/**
+ * The AI content-triage consent control for a LIVE Telegram tile. It authorizes Loop to process message
+ * CONTENT with AI -- a SEPARATE consent from connecting and from the history baseline. Connecting alone
+ * is NOT this consent. Every control is a server-action form; the person and organization are the
+ * session's, never the form. The copy is honest: Loop reads content, uses AI, surfaces privately, never
+ * replies, and keeps no message contents.
+ */
+function ContentSection({ view }: { view: ProviderConnectionView }) {
+  if (view.profile.provider !== 'TELEGRAM' || !view.canDisconnect) return null;
+  const on = view.contentAuthorized;
+  return (
+    <div className="loop-stack" data-content-authorized={on ? 'yes' : 'no'}>
+      <p data-content-detail>
+        {on
+          ? 'AI triage is on: Loop reads new messages and flags the few that need you, privately to you. It keeps no message contents and never replies for you.'
+          : 'Optional, and separate from connecting: let Loop use AI to read new messages and flag the few that need you. It surfaces them privately to you, keeps no message contents, and never replies for you.'}
+      </p>
+      <div className="loop-btnrow">
+        {on ? (
+          <form action={revokeContentAction}>
+            <input type="hidden" name="provider" value={view.profile.provider} />
+            <button className="loop-btn" type="submit">Turn off AI triage</button>
+          </form>
+        ) : (
+          <form action={authorizeContentAction}>
+            <input type="hidden" name="provider" value={view.profile.provider} />
+            <button className="loop-btn" type="submit">Turn on AI triage</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ProviderTile({ view, time }: { view: ProviderConnectionView; time: TimeView }) {
   const shown = connectionPresentation(view, time);
   const live = view.canDisconnect;
@@ -201,6 +258,7 @@ function ProviderTile({ view, time }: { view: ProviderConnectionView; time: Time
         {view.connectedAt && live ? <p className="muted">Connected {time.dateTime(view.connectedAt)}.</p> : null}
         {!view.configured ? <p className="muted">This deployment cannot connect {view.profile.label} yet.</p> : null}
         <BaselineSection view={view} time={time} />
+        <ContentSection view={view} />
       </div>
       <div className="loop-btnrow">
         {view.canConnect && view.profile.provider === 'TELEGRAM' ? (
@@ -226,8 +284,8 @@ function ProviderTile({ view, time }: { view: ProviderConnectionView; time: Time
   );
 }
 
-export function SourceConnectionsPanel(props: { status: SourceConnectionStatus | null; outcome: ConnectionActionOutcome | null; baselineOutcome?: SourceBaselineActionOutcome | null; time: TimeView }) {
-  const { status, outcome, baselineOutcome, time } = props;
+export function SourceConnectionsPanel(props: { status: SourceConnectionStatus | null; outcome: ConnectionActionOutcome | null; baselineOutcome?: SourceBaselineActionOutcome | null; contentOutcome?: SourceContentActionOutcome | null; time: TimeView }) {
+  const { status, outcome, baselineOutcome, contentOutcome, time } = props;
 
   // The status read failed (e.g. this deployment's web reached its database before the connections
   // migration did). Say so honestly and let the rest of the page render -- never crash the view.
@@ -257,6 +315,7 @@ export function SourceConnectionsPanel(props: { status: SourceConnectionStatus |
     <div className="loop-stack" data-source-connections-panel>
       {outcome ? <OutcomeBanner outcome={outcome} /> : null}
       {baselineOutcome ? <BaselineBanner outcome={baselineOutcome} /> : null}
+      {contentOutcome ? <ContentBanner outcome={contentOutcome} /> : null}
 
       {!anyConfigured ? (
         <StateBlock
