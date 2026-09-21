@@ -22,6 +22,8 @@ function port(over: Partial<TelegramClientPort> = {}): TelegramClientPort {
     async fetchSince() { return []; },
     async fetchHistory() { return []; },
     async fetchContentSince() { return []; },
+    async fetchDialogWindow() { return []; },
+    async fetchHistoricalDialogs() { return { dialogs: [], nextCursor: null, reachedEnd: true }; },
     async close() {},
     ...over,
   };

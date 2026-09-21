@@ -22,6 +22,7 @@ import {
   type DueConnection,
   type DueBaseline,
   type DueContent,
+  type DueHistoricalContent,
 } from '@emgloop/database';
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
@@ -30,6 +31,7 @@ import { createDbObservationSink } from './observation-sink';
 import { runObservationSweep, type SweepPorts } from './orchestrator';
 import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
 import { runContentSweep, type ContentSweepPorts } from './content-orchestrator';
+import { runHistoricalContentSweep, type HistoricalContentSweepPorts } from './historical-content-orchestrator';
 import { createWorkerAiRuntime } from './ai-runtime';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
@@ -175,30 +177,47 @@ async function main(): Promise<void> {
     }
   }
 
-  // --- The CONTENT-triage sweep ports (INDEPENDENT of the live and baseline sweeps) --------------
+  // The credential opener shared by both content sweeps: liveness is enforced here (no live credential,
+  // no content), exactly like the live and baseline sweeps.
+  async function openContentCredential(due: { organizationId: string; userId: string; provider: DueContent['provider'] }): Promise<string | null> {
+    const held = await connections.credential(due.organizationId, due.userId, due.provider);
+    if (!held || !held.record.credentialKind) return null;
+    try {
+      return sealer.open(
+        { organizationId: due.organizationId, userId: due.userId, provider: due.provider, credentialKind: held.record.credentialKind },
+        held.sealed,
+      );
+    } catch {
+      return null; // a credential that will not open is skipped, not guessed
+    }
+  }
+
+  // Close obligations a later message answered, WITH the reconcile guard (an anchor outside the evaluated
+  // window is left open). Shared by both content sweeps.
+  async function resolveObligations(
+    principal: { organizationId: string; userId: string },
+    subjectRef: string,
+    keptAnchorProviderEventIds: readonly string[],
+    evaluatedFloorProviderEventId: string,
+    occurredAt: Date,
+  ): Promise<void> {
+    await workItems.resolveObligationsNotIn(principal, subjectRef, keptAnchorProviderEventIds, evaluatedFloorProviderEventId, occurredAt);
+  }
+
+  // --- The FORWARD CONTENT-triage sweep ports (INDEPENDENT of the live and baseline sweeps) ------
   // These share the credential opener but have NO port that could write the live observation cursor or
   // the baseline checkpoint -- they advance ONLY the content cursor. Bodies are read transiently, judged
   // by the governed runtime, and dropped; nothing content-bearing is persisted.
   const contentPorts: ContentSweepPorts = {
     dueForContent: () => contentAuthorizations.dueForContent(500),
     adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
-    async openCredential(due: DueContent): Promise<string | null> {
-      const held = await connections.credential(due.organizationId, due.userId, due.provider);
-      if (!held || !held.record.credentialKind) return null; // liveness: no live credential, no content
-      try {
-        return sealer.open(
-          { organizationId: due.organizationId, userId: due.userId, provider: due.provider, credentialKind: held.record.credentialKind },
-          held.sealed,
-        );
-      } catch {
-        return null; // a credential that will not open is skipped, not guessed
-      }
-    },
+    openCredential: (due: DueContent) => openContentCredential(due),
     conversationSecret: config.conversationSecret,
     triage: (principal, input) => aiRuntime.service.triage(principal, input),
     async raiseWorkItem(principal, detection) {
       await workItems.detect(principal, detection);
     },
+    resolveObligations,
     async recordContentProgress(due, progress) {
       await contentAuthorizations.recordContentProgress(due.organizationId, due.userId, due.provider, {
         contentCursor: progress.contentCursor,
@@ -208,6 +227,7 @@ async function main(): Promise<void> {
       });
     },
     contentPageSize: config.contentPageSize,
+    contentWindowDays: config.contentWindowDays,
     now: () => new Date(),
   };
 
@@ -222,6 +242,49 @@ async function main(): Promise<void> {
       log('content_error', { name: (err as Error)?.name ?? 'error' });
     } finally {
       contentSweeping = false;
+    }
+  }
+
+  // --- The HISTORICAL CONTENT-triage backfill ports (INDEPENDENT of every other sweep) -----------
+  // These advance ONLY the historical* columns (recordHistoricalProgress) -- there is NO port that could
+  // write the live observation cursor, the baseline checkpoint or the forward content cursor. Bodies are
+  // read transiently, judged by the governed runtime, and dropped; nothing content-bearing is persisted.
+  const historicalContentPorts: HistoricalContentSweepPorts = {
+    dueForHistoricalContent: () => contentAuthorizations.dueForHistoricalContent(500),
+    adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
+    openCredential: (due: DueHistoricalContent) => openContentCredential(due),
+    conversationSecret: config.conversationSecret,
+    triage: (principal, input) => aiRuntime.service.triage(principal, input),
+    async raiseWorkItem(principal, detection) {
+      await workItems.detect(principal, detection);
+    },
+    resolveObligations,
+    async recordHistoricalProgress(due, progress) {
+      await contentAuthorizations.recordHistoricalProgress(due.organizationId, due.userId, due.provider, {
+        historicalCursor: progress.historicalCursor,
+        state: progress.state,
+        oldestReachedAt: progress.oldestReachedAt,
+        failureClass: progress.failureClass,
+        backoffUntil: progress.backoffUntil,
+        failedItemsDelta: progress.failedItemsDelta,
+        now: progress.now,
+      });
+    },
+    conversationsPerSweep: config.historicalConversationsPerSweep,
+    now: () => new Date(),
+  };
+
+  let historicalContentSweeping = false;
+  async function historicalContent(): Promise<void> {
+    if (historicalContentSweeping) return; // never overlap historical content sweeps
+    historicalContentSweeping = true;
+    try {
+      const summary = await runHistoricalContentSweep(historicalContentPorts);
+      if (summary.due > 0) log('historical_content', { ...summary });
+    } catch (err) {
+      log('historical_content_error', { name: (err as Error)?.name ?? 'error' });
+    } finally {
+      historicalContentSweeping = false;
     }
   }
 
@@ -272,17 +335,23 @@ async function main(): Promise<void> {
   // The content sweep runs ONLY when the governed AI runtime is enabled for this deployment. With AI
   // off (the default everywhere today), no content loop is scheduled and no message body is ever read.
   const contentTimer = aiRuntime.enabled ? setInterval(() => void content(), config.contentIntervalMs) : null;
+  // The HISTORICAL backfill sweep runs ONLY when the governed AI runtime is enabled, exactly like the
+  // forward content sweep. With AI off (the default everywhere today), no historical loop is scheduled and
+  // no message body is ever read.
+  const historicalContentTimer = aiRuntime.enabled ? setInterval(() => void historicalContent(), config.historicalContentIntervalMs) : null;
   log('ai_runtime', { contentTriage: aiRuntime.enabled ? 'enabled' : 'off' });
   void sweep();
   void purge();
   void baseline();
   if (aiRuntime.enabled) void content();
+  if (aiRuntime.enabled) void historicalContent();
 
   const shutdown = () => {
     clearInterval(sweepTimer);
     clearInterval(purgeTimer);
     clearInterval(baselineTimer);
     if (contentTimer) clearInterval(contentTimer);
+    if (historicalContentTimer) clearInterval(historicalContentTimer);
     server.close();
     void prisma.$disconnect();
     log('worker_stopping');
