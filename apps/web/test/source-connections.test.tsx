@@ -129,6 +129,7 @@ function view(over: Partial<ProviderConnectionView> & { provider: 'MICROSOFT_TEA
     baselineState: null,
     baselineWindowDays: null,
     oldestReachedAt: null,
+    contentAuthorized: false,
     ...over,
   };
 }
