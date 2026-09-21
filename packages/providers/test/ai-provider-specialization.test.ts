@@ -26,12 +26,14 @@ import {
   AI_CAPABILITY_ROUTES,
   AI_TASKS,
   AI_TASK_CASE_EXPLANATION,
+  AI_TRIAGE_LIMITS,
   aiRoutingConformance,
   aiTaskContractViolations,
   type AiRoutingPolicy,
 } from '@emgloop/shared';
 
 import {
+  AI_BUDGET_POLICY,
   AI_PROVIDER_SPECIALIZATION_POLICY,
   AI_PROVIDER_SPECIALIZATION_POLICY_VERSION,
   AI_ROUTING_POLICY,
@@ -66,10 +68,11 @@ test('the shipped routing policy conforms for every task, and Case Explanation n
   assert.equal(caseExplanation.preferredProviderId, 'anthropic');
   assert.equal(caseExplanation.primaryProviderId, 'anthropic');
   assert.equal(caseExplanation.departure, 'NONE');
-  // The version moves when a ROUTE is added, and only then. GM-3 added Mail Reply Draft and the
-  // content-triage slice added Telegram Content Triage; Case Explanation's own entry is untouched,
-  // which is what the assertions around this one check.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-21.5');
+  // The version moves for a reviewed change to the policy: a new route (GM-3's Mail Reply Draft, the
+  // content-triage slice's Telegram Content Triage) OR a task version bump (v2 conversation triage moved
+  // the Telegram entry's taskVersion). Case Explanation's own entry is untouched, which is what the
+  // assertions around this one check.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-21.6');
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.providerChoiceReason, undefined);
   // The fallback is another provider, and that is not a departure.
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.fallback!.providerId, 'openai');
@@ -213,4 +216,24 @@ test('fence: no task definition carries a provider or model, only a capability',
     assert.equal('modelId' in task, false);
     assert.equal('profile' in task, false, 'the retired field is gone, not kept beside the route');
   }
+});
+
+test('telegram content triage: task 2.0.0 and its routing entry move in lockstep, at the pinned policy version', () => {
+  const task = AI_TASKS.find((t) => t.taskId === 'telegram.content.triage')!;
+  assert.equal(task.version, '2.0.0', 'the v2 conversation-triage task');
+  const entry = AI_ROUTING_POLICY.tasks['telegram.content.triage']!;
+  assert.equal(entry.taskVersion, task.version, 'the routing taskVersion tracks the task in lockstep');
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-21.6', 'the policy version increment for v2');
+  // The reviewed models were NOT changed by v2: only two ids appear, both from the verified catalog.
+  assert.equal(entry.primary.modelId, 'claude-opus-5');
+  assert.equal(entry.fallback!.modelId, 'gpt-6-astra');
+});
+
+test('telegram content triage: the whole-context input cap sits INSIDE the budget class per-call cap (the budget class was NOT raised)', () => {
+  const cls = AI_BUDGET_POLICY.classes['telegram-content-triage']!;
+  assert.equal(cls.maxInputTokensPerCall, 8000, 'the reviewed 8000-token input cap is unchanged');
+  assert.ok(
+    AI_TRIAGE_LIMITS.maxContextInputTokens <= cls.maxInputTokensPerCall,
+    `the adaptive window cap (${AI_TRIAGE_LIMITS.maxContextInputTokens}) must not exceed the budget class cap (${cls.maxInputTokensPerCall})`,
+  );
 });

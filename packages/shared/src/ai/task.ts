@@ -159,17 +159,21 @@ export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
 });
 
 /**
- * TELEGRAM CONTENT TRIAGE (Slice: content-triage). A conservative, employee-private verdict on
- * whether ONE new inbound message in the employee's own Telegram conversation is meaningfully
- * actionable, and if so what kind of thing it is and what it means in one minimized line.
+ * TELEGRAM CONTENT TRIAGE (Slice: content-triage, v2 conversation triage). A conservative,
+ * employee-private read of a bounded RECENT CONVERSATION that returns the obligations still
+ * UNRESOLVED given the whole back-and-forth, each anchored to the message where it originated. If a
+ * later message answers or fulfils an earlier ask, that ask is NOT returned. A conversation may carry
+ * several unrelated obligations, or none.
  *
  * IT RUNS ONLY AFTER THE EMPLOYEE AUTHORIZES CONTENT PROCESSING (a separate consent from connecting
  * the source and from the content-free history baseline), and only while a live credential is held.
- * The message body is transient: it is read for this one call and dropped -- never persisted, never
- * logged, never in the derived WorkItem or its evidence. The verdict is EMPLOYEE-PRIVATE: an OWNER
- * does not hold it, an ADMIN does not hold it, and nothing here is promoted to an organization surface.
+ * The one consent covers BOTH the recent historical window (transiently re-read to surface existing
+ * unresolved items) and new messages going forward. Every message body is transient: read for this one
+ * call and dropped -- never persisted, never logged, never in the derived WorkItem or its evidence. The
+ * result is EMPLOYEE-PRIVATE: an OWNER does not hold it, an ADMIN does not hold it, and nothing here is
+ * promoted to an organization surface.
  *
- * COMMUNICATION_CONTENT, because the evidence IS the message. The one context block is marked
+ * COMMUNICATION_CONTENT, because the evidence IS the conversation. Every message block is marked
  * UNTRUSTED_INPUT -- a Telegram message is data, never an instruction, whatever it says inside.
  *
  * `sourceConnections:view` is the read authority (the employee may view their own Telegram source).
@@ -179,10 +183,13 @@ export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
  */
 export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   taskId: 'telegram.content.triage',
-  version: '1.1.0',
-  // A single-message actionability judgment: general reasoning, not communication drafting and not
-  // technical analysis. GENERAL_REASONING has no default provider, so the routing entry names one
-  // and says why.
+  // v2 (conversation triage): reads a bounded recent conversation and returns still-unresolved
+  // obligations, each anchored to its originating message. The output schema and the routing entry's
+  // taskVersion move in lockstep with this.
+  version: '2.0.0',
+  // A conservative actionability judgment over a conversation: general reasoning, not communication
+  // drafting and not technical analysis. GENERAL_REASONING has no default provider, so the routing
+  // entry names one and says why.
   capabilityRoute: 'GENERAL_REASONING',
   resultType: 'TRIAGE',
   // The verdict belongs to the employee's own work context, about one of their own conversations,
@@ -199,7 +206,7 @@ export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   consequence: 'READ_ONLY',
   requires: Object.freeze([{ resource: 'sourceConnections', action: 'view' } as const]),
   invokerRoles: Object.freeze(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']),
-  outputSchemaId: 'telegram-content-triage.v1',
+  outputSchemaId: 'telegram-content-triage.v2',
   // Informational: the reviewed routing policy sets each call's actual ceiling and deadline.
   maxOutputTokens: 1000,
   timeoutMs: 20_000,
@@ -280,11 +287,13 @@ export interface AiTaskOutput {
   readonly draft?: AiDraftText;
   /**
    * The classification, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
-   * Like `draft`, it is checked for shape and size and NOT figure-checked -- a minimized paraphrase
-   * naturally restates a fact from the message, and what stands behind it is a person reading their
-   * own conversation, not a validator.
+   * v2 conversation triage: the still-unresolved obligations across a bounded recent conversation,
+   * each anchored to its originating message. Like `draft`, it is checked for shape and size and NOT
+   * figure-checked -- a minimized paraphrase naturally restates a fact, and what stands behind it is a
+   * person reading their own conversation, not a validator. An EMPTY list is a VALID answer (nothing
+   * is unresolved), and nothing is raised.
    */
-  readonly triage?: AiTriageVerdict;
+  readonly conversationTriage?: AiConversationTriage;
 }
 
 export interface AiDraftText {
@@ -292,14 +301,16 @@ export interface AiDraftText {
 }
 
 /**
- * TELEGRAM CONTENT TRIAGE (Slice: content-triage). What Loop will accept as the verdict on one
- * inbound message, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
+ * TELEGRAM CONTENT TRIAGE (Slice: content-triage, v2). What Loop will accept as the read of a bounded
+ * recent CONVERSATION, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
  *
- * It carries NO evidence and NO body. `oneLineMeaning` is a MINIMIZED PARAPHRASE the reader sees --
- * never a verbatim excerpt of the message, and never figure-checked, because a conservative
- * one-line meaning naturally restates a fact. What stands behind it is not a validator: it is the
- * employee reading their own conversation. A non-actionable verdict is category NONE, and nothing is
- * raised.
+ * It carries NO body and NO verbatim excerpt. Each obligation is one still-UNRESOLVED item, its
+ * `oneLineMeaning` a MINIMIZED PARAPHRASE the reader sees (never a quote), and its `anchorOrdinal` the
+ * 1-based position of the message that ORIGINATED it inside the evaluated window. NONE is never a
+ * category here -- the list holds only real, unresolved obligations, and an EMPTY list is the honest
+ * answer when the conversation resolved everything (or asked nothing). Nothing is figure-checked: a
+ * minimized paraphrase naturally restates a fact, and what stands behind it is the employee reading
+ * their own conversation.
  */
 export const AI_TRIAGE_CATEGORIES = [
   'REQUEST',
@@ -314,15 +325,36 @@ export const AI_TRIAGE_CATEGORIES = [
 ] as const;
 export type AiTriageCategory = (typeof AI_TRIAGE_CATEGORIES)[number];
 
-export interface AiTriageVerdict {
-  readonly actionable: boolean;
+/** One still-unresolved obligation, anchored to the 1-based ordinal of its originating message. */
+export interface AiTriageObligation {
+  /** 1-based position of the originating message in the evaluated window ([1..chunkSize]). */
+  readonly anchorOrdinal: number;
+  /** The kind of unresolved thing. Never NONE -- the list holds only real obligations. */
   readonly category: AiTriageCategory;
-  /** A minimized paraphrase (<=140 chars). Never a verbatim excerpt of the message. */
+  /** A minimized paraphrase (<=140 chars). Never a verbatim excerpt of any message. */
   readonly oneLineMeaning: string;
 }
 
-/** Bounds on a triage verdict a person has to read. The schema cannot say these for every provider. */
-export const AI_TRIAGE_LIMITS = Object.freeze({ maxMeaningChars: 140, maxLimitations: 6, maxLimitationChars: 200 });
+/** The whole conversation's read: the obligations still unresolved. An empty list is valid. */
+export interface AiConversationTriage {
+  readonly items: readonly AiTriageObligation[];
+}
+
+/**
+ * Bounds the schema cannot say for every provider, enforced in `validateAiTaskOutput` and the worker's
+ * window gather. `maxContextInputTokens` is the whole-context input ceiling the adaptive window keeps
+ * every chunk within; a routing test asserts it does not exceed the budget class's per-call input cap.
+ * `maxWindowMessages` and `maxMessageChars` bound one gathered window (count and per-message text).
+ */
+export const AI_TRIAGE_LIMITS = Object.freeze({
+  maxMeaningChars: 140,
+  maxLimitations: 6,
+  maxLimitationChars: 200,
+  maxObligations: 8,
+  maxContextInputTokens: 8000,
+  maxWindowMessages: 40,
+  maxMessageChars: 500,
+});
 
 /**
  * What the supplied evidence actually contains, for checking an answer against.
@@ -404,13 +436,22 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     if (typeof body !== 'string') return null;
     draft = { body };
   }
-  // A task whose result is a classification carries it here, flat. Absent is fine -- the validator
-  // decides whether THIS task required it. A partial verdict is not a verdict, and reading it as one
-  // would throw.
-  let triage: AiTriageVerdict | undefined;
-  if (v.actionable !== undefined || v.category !== undefined || v.oneLineMeaning !== undefined) {
-    if (typeof v.actionable !== 'boolean' || typeof v.category !== 'string' || typeof v.oneLineMeaning !== 'string') return null;
-    triage = { actionable: v.actionable, category: v.category as AiTriageCategory, oneLineMeaning: v.oneLineMeaning };
+  // v2 conversation triage: a flat `items` list of still-unresolved obligations. Absent is fine -- the
+  // validator decides whether THIS task required it, and an EMPTY list is a valid answer. A partial
+  // obligation is not an obligation; reading a half-parsed one as one would throw, so the whole answer
+  // is rejected (null) on any shape error.
+  let conversationTriage: AiConversationTriage | undefined;
+  if (v.items !== undefined) {
+    if (!Array.isArray(v.items)) return null;
+    const items: AiTriageObligation[] = [];
+    for (const raw of v.items) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+      const o = raw as Record<string, unknown>;
+      if (typeof o.anchorOrdinal !== 'number' || !Number.isFinite(o.anchorOrdinal)) return null;
+      if (typeof o.category !== 'string' || typeof o.oneLineMeaning !== 'string') return null;
+      items.push({ anchorOrdinal: o.anchorOrdinal, category: o.category as AiTriageCategory, oneLineMeaning: o.oneLineMeaning });
+    }
+    conversationTriage = { items };
   }
   return {
     schemaId: v.schemaId,
@@ -418,7 +459,7 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     claims,
     limitations: v.limitations as string[],
     ...(draft ? { draft } : {}),
-    ...(triage ? { triage } : {}),
+    ...(conversationTriage ? { conversationTriage } : {}),
   };
 }
 
@@ -489,30 +530,41 @@ export function validateAiTaskOutput(
     const body = output.draft?.body?.trim() ?? '';
     if (body === '') out.push('EMPTY_ANSWER');
     if ((output.draft?.body?.length ?? 0) > AI_DRAFT_LIMITS.maxBodyChars) out.push('ANSWER_TOO_LONG');
-    if (output.triage !== undefined) out.push('WRONG_SCHEMA');
+    if (output.conversationTriage !== undefined) out.push('WRONG_SCHEMA');
   } else if (task.resultType === 'TRIAGE') {
-    const t = output.triage;
-    if (!t) out.push('EMPTY_ANSWER');
+    // v2 conversation triage: a list of still-unresolved obligations. An ABSENT list is not the answer
+    // asked for; an EMPTY list IS a valid answer (nothing unresolved) and raises nothing.
+    const ct = output.conversationTriage;
+    if (!ct) out.push('EMPTY_ANSWER');
     else {
-      if (!(AI_TRIAGE_CATEGORIES as readonly string[]).includes(t.category)) out.push('WRONG_SCHEMA');
-      const meaning = t.oneLineMeaning?.trim() ?? '';
-      if (meaning === '') out.push('EMPTY_ANSWER');
-      if ((t.oneLineMeaning?.length ?? 0) > AI_TRIAGE_LIMITS.maxMeaningChars) out.push('ANSWER_TOO_LONG');
-      // A triage verdict's limitations are tighter than the general answer bounds (6 items, 200 chars
-      // each), and this is the only place those tighter bounds are enforced -- the schema no longer
-      // encodes them, because Anthropic's structured outputs reject those length/size keywords.
+      if (ct.items.length > AI_TRIAGE_LIMITS.maxObligations) out.push('ANSWER_TOO_LONG');
+      // Exactly one context item per message, so the anchor names one of the evaluated messages.
+      const chunkSize = suppliedRefs.size;
+      for (const item of ct.items) {
+        // NONE is never a real obligation, and an unknown category is not the answer asked for.
+        if (item.category === 'NONE' || !(AI_TRIAGE_CATEGORIES as readonly string[]).includes(item.category)) {
+          out.push('WRONG_SCHEMA');
+        }
+        // The anchor must point at a message actually inside the evaluated window ([1..chunkSize]).
+        if (!Number.isInteger(item.anchorOrdinal) || item.anchorOrdinal < 1 || item.anchorOrdinal > chunkSize) {
+          out.push('WRONG_SCHEMA');
+        }
+        const meaning = item.oneLineMeaning?.trim() ?? '';
+        if (meaning === '') out.push('EMPTY_ANSWER');
+        if ((item.oneLineMeaning?.length ?? 0) > AI_TRIAGE_LIMITS.maxMeaningChars) out.push('ANSWER_TOO_LONG');
+      }
+      // Triage limitations are tighter than the general answer bounds (6 items, 200 chars each), and
+      // this is the only place those tighter bounds are enforced -- the schema no longer encodes them,
+      // because Anthropic's structured outputs reject those length/size keywords.
       if (
         output.limitations.length > AI_TRIAGE_LIMITS.maxLimitations ||
         output.limitations.some((l) => l.length > AI_TRIAGE_LIMITS.maxLimitationChars)
       ) {
         out.push('ANSWER_TOO_LONG');
       }
-      // A verdict and its category cannot disagree: an actionable verdict names a real category, and
-      // a non-actionable one is NONE. Anything else is not the verdict Loop asked for.
-      if (t.actionable === (t.category === 'NONE')) out.push('WRONG_SCHEMA');
     }
     if (output.draft !== undefined) out.push('WRONG_SCHEMA');
-  } else if (output.draft !== undefined || output.triage !== undefined) {
+  } else if (output.draft !== undefined || output.conversationTriage !== undefined) {
     out.push('WRONG_SCHEMA');
   }
 

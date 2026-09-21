@@ -74,7 +74,12 @@ function target(
 // .5 (2026-09-21, schema fix): Telegram Content Triage moves to task 1.1.0. Its output schema drops
 // the structured-output keywords Anthropic rejects (a 400), and the length bounds it dropped are now
 // enforced in `validateAiTaskOutput`; this route's `taskVersion` moves in lockstep with the task.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-21.5';
+// .6 (2026-09-21, conversation-triage v2): Telegram Content Triage moves to task 2.0.0. It now reads a
+// bounded recent CONVERSATION and returns the still-unresolved obligations (historical backfill and the
+// forward path share one contract). The provider, effort, deadlines and budget class are UNCHANGED --
+// the reviewed 8000-token input cap and the shared daily ceilings still bind, and the adaptive window
+// keeps every chunk inside that cap. This route's `taskVersion` moves in lockstep with the task.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-21.6';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
@@ -107,7 +112,7 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     // primary; GPT-6 Astra is the availability fallback, never a second opinion.
     'telegram.content.triage': Object.freeze({
       taskId: 'telegram.content.triage',
-      taskVersion: '1.1.0',
+      taskVersion: '2.0.0',
       primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1_000 }),
       fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 1_000 }),
       fallbackPermitted: true,

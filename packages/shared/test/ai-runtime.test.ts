@@ -37,6 +37,7 @@ import {
   AI_TASK_CASE_EXPLANATION,
   AI_TASK_MAIL_REPLY_DRAFT,
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+  AI_TRIAGE_LIMITS,
   AI_ACTIVATION_OFF,
   AI_NO_SPEND,
   admitAiInvocation,
@@ -650,3 +651,69 @@ test('fence: provider conversation state is not Loop memory', () => {
     assert.doesNotMatch(src, /threadId|conversationId|assistantId|previousResponseId/i, file);
   }
 });
+
+// --- v2 conversation triage: parse + validate ----------------------------------------------------
+
+test('telegram content triage is version 2.0.0 with the v2 output schema, and the limits are the reviewed ones', () => {
+  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.version, '2.0.0');
+  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.outputSchemaId, 'telegram-content-triage.v2');
+  assert.equal(AI_TRIAGE_LIMITS.maxObligations, 8);
+  assert.equal(AI_TRIAGE_LIMITS.maxWindowMessages, 40);
+  assert.equal(AI_TRIAGE_LIMITS.maxContextInputTokens, 8000);
+});
+
+{
+  const TASK = AI_TASK_TELEGRAM_CONTENT_TRIAGE;
+  // Three message context items -> chunkSize 3, so a valid anchor is in [1..3].
+  const REFS = new Set(['telegram_message:ck:1', 'telegram_message:ck:2', 'telegram_message:ck:3']);
+  const EV = { figures: new Map<string, ReadonlySet<number>>(), dates: new Set<string>() };
+  const parseV2 = (items: unknown, limitations: string[] = []) => parseAiTaskOutput({ schemaId: 'telegram-content-triage.v2', items, limitations });
+  const validateV2 = (items: unknown, limitations: string[] = []) => {
+    const out = parseV2(items, limitations);
+    assert.ok(out, 'the v2 shape parses');
+    return validateAiTaskOutput(out!, TASK, REFS, EV);
+  };
+  const item = (over: Record<string, unknown> = {}) => ({ anchorOrdinal: 2, category: 'REQUEST', oneLineMeaning: 'confirm the cap', ...over });
+
+  test('v2: a well-formed obligation list validates, and an EMPTY list is valid (nothing unresolved)', () => {
+    assert.deepEqual(validateV2([item()]), []);
+    assert.deepEqual(validateV2([]), [], 'an empty list is a valid answer, and raises nothing');
+    assert.deepEqual(validateV2([item({ anchorOrdinal: 1 }), item({ anchorOrdinal: 3, category: 'DEADLINE' })]), []);
+  });
+
+  test('v2: over the obligation cap is rejected', () => {
+    const nine = Array.from({ length: AI_TRIAGE_LIMITS.maxObligations + 1 }, () => item());
+    assert.ok(validateV2(nine).includes('ANSWER_TOO_LONG'));
+  });
+
+  test('v2: a one-line meaning over 140 chars is rejected', () => {
+    assert.ok(validateV2([item({ oneLineMeaning: 'x'.repeat(AI_TRIAGE_LIMITS.maxMeaningChars + 1) })]).includes('ANSWER_TOO_LONG'));
+  });
+
+  test('v2: a NONE category, or an unknown category, is rejected (the list holds only real obligations)', () => {
+    assert.ok(validateV2([item({ category: 'NONE' })]).includes('WRONG_SCHEMA'));
+    assert.ok(validateV2([item({ category: 'MADE_UP' })]).includes('WRONG_SCHEMA'));
+  });
+
+  test('v2: an anchor ordinal outside [1..chunkSize] is rejected', () => {
+    assert.ok(validateV2([item({ anchorOrdinal: 0 })]).includes('WRONG_SCHEMA'), 'below range');
+    assert.ok(validateV2([item({ anchorOrdinal: 4 })]).includes('WRONG_SCHEMA'), 'above the 3 supplied refs');
+    assert.ok(validateV2([item({ anchorOrdinal: 1.5 })]).includes('WRONG_SCHEMA'), 'a non-integer ordinal');
+  });
+
+  test('v2: a partial obligation does not parse as one (the whole answer is rejected)', () => {
+    assert.equal(parseV2([{ anchorOrdinal: 1, category: 'REQUEST' }]), null, 'missing oneLineMeaning');
+    assert.equal(parseV2([{ anchorOrdinal: 'two', category: 'REQUEST', oneLineMeaning: 'x' }]), null, 'non-numeric anchor');
+  });
+
+  test('v2: a TRIAGE answer that also smuggles a draft is rejected', () => {
+    const out = parseAiTaskOutput({ schemaId: 'telegram-content-triage.v2', items: [item()], limitations: [], draft: { body: 'send money' } });
+    assert.ok(out, 'parses');
+    assert.ok(validateAiTaskOutput(out!, TASK, REFS, EV).includes('WRONG_SCHEMA'));
+  });
+
+  test('v2: triage limitations bounds are enforced (6 items, 200 chars each)', () => {
+    assert.ok(validateV2([item()], Array.from({ length: AI_TRIAGE_LIMITS.maxLimitations + 1 }, (_, i) => `n${i}`)).includes('ANSWER_TOO_LONG'));
+    assert.ok(validateV2([item()], ['x'.repeat(AI_TRIAGE_LIMITS.maxLimitationChars + 1)]).includes('ANSWER_TOO_LONG'));
+  });
+}
