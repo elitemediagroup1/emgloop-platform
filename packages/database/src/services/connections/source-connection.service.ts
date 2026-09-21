@@ -25,10 +25,12 @@ import {
   type ConnectionProviderProfile,
   type ConnectionState,
   type SourceBaselineActionOutcome,
+  type SourceContentActionOutcome,
 } from '@emgloop/shared';
 
 import { SourceConnectionRepository, type SourceConnectionActor } from '../../repositories/source-connection.repository';
 import { SourceBaselineCheckpointRepository, type BaselineCheckpointRecord } from '../../repositories/source-baseline.repository';
+import { SourceContentAuthorizationRepository, type ContentAuthorizationRecord } from '../../repositories/source-content-authorization.repository';
 
 export interface SourceConnectionPrincipal {
   readonly organizationId: string;
@@ -54,6 +56,8 @@ export interface SourceConnectionServiceDeps {
   readonly connections?: SourceConnectionRepository;
   /** The baseline checkpoint persistence, injectable for tests; defaults to the real repository. */
   readonly baselines?: SourceBaselineCheckpointRepository;
+  /** The content-processing consent persistence, injectable for tests; defaults to the real repository. */
+  readonly content?: SourceContentAuthorizationRepository;
 }
 
 /** One provider's tile, as the person may see it. Honest: it states what is and is not configured. */
@@ -76,6 +80,12 @@ export interface ProviderConnectionView {
   readonly baselineState: BaselineState | null;
   readonly baselineWindowDays: number | null;
   readonly oldestReachedAt: Date | null;
+  /**
+   * Whether the employee has authorized CONTENT processing with AI for this source -- a separate
+   * consent from connecting and from the history baseline. False when there is none, revoked, or the
+   * table could not be read. Never exposes any cursor meaning.
+   */
+  readonly contentAuthorized: boolean;
 }
 
 export type SourceConnectionStatus =
@@ -85,11 +95,13 @@ export type SourceConnectionStatus =
 export class SourceConnectionService {
   private readonly connections: SourceConnectionRepository;
   private readonly baselines: SourceBaselineCheckpointRepository;
+  private readonly content: SourceContentAuthorizationRepository;
   private readonly now: () => Date;
 
   constructor(prisma: PrismaClient, private readonly deps: SourceConnectionServiceDeps) {
     this.connections = deps.connections ?? new SourceConnectionRepository(prisma);
     this.baselines = deps.baselines ?? new SourceBaselineCheckpointRepository(prisma);
+    this.content = deps.content ?? new SourceContentAuthorizationRepository(prisma);
     this.now = deps.now ?? (() => new Date());
   }
 
@@ -100,10 +112,11 @@ export class SourceConnectionService {
   /** What the person may see about their own connections, one tile per provider. */
   async status(principal: SourceConnectionPrincipal): Promise<SourceConnectionStatus> {
     if (!(await this.deps.authorize(principal, 'view'))) return { permitted: false };
-    const [records, canUpdate, baselines] = await Promise.all([
+    const [records, canUpdate, baselines, content] = await Promise.all([
       this.connections.findAll(principal.organizationId, principal.userId),
       this.deps.authorize(principal, 'update'),
       this.readBaselines(principal),
+      this.readContent(principal),
     ]);
     const byProvider = new Map(records.map((r) => [r.provider, r]));
     const providers = CONNECTION_PROVIDERS.map((provider): ProviderConnectionView => {
@@ -129,6 +142,7 @@ export class SourceConnectionService {
         baselineState: baseline?.state ?? null,
         baselineWindowDays: baseline?.windowDays ?? null,
         oldestReachedAt: baseline?.oldestReachedAt ?? null,
+        contentAuthorized: content.get(provider)?.authorized ?? false,
       };
     });
     return { permitted: true, providers };
@@ -144,6 +158,24 @@ export class SourceConnectionService {
     try {
       const records = await Promise.all(
         CONNECTION_PROVIDERS.map((p) => this.baselines.get(principal.organizationId, principal.userId, p)),
+      );
+      CONNECTION_PROVIDERS.forEach((p, i) => map.set(p, records[i] ?? null));
+    } catch {
+      for (const p of CONNECTION_PROVIDERS) map.set(p, null);
+    }
+    return map;
+  }
+
+  /**
+   * The content-processing consent sub-state per provider, read resiliently: a read failure (for
+   * example this deployment's web reached its database before the content migration did) degrades to
+   * nulls so the connection tiles still render.
+   */
+  private async readContent(principal: SourceConnectionPrincipal): Promise<Map<ConnectionProvider, ContentAuthorizationRecord | null>> {
+    const map = new Map<ConnectionProvider, ContentAuthorizationRecord | null>();
+    try {
+      const records = await Promise.all(
+        CONNECTION_PROVIDERS.map((p) => this.content.get(principal.organizationId, principal.userId, p)),
       );
       CONNECTION_PROVIDERS.forEach((p, i) => map.set(p, records[i] ?? null));
     } catch {
@@ -247,6 +279,46 @@ export class SourceConnectionService {
     switch (result.outcome) {
       case 'REVOKED': return 'REVOKED';
       case 'NOTHING_TO_DO': return 'NOT_IMPORTING';
+      default: return 'NOT_PERMITTED';
+    }
+  }
+
+  /**
+   * Authorize CONTENT processing for one source: the employee's explicit consent for Loop to read
+   * message content transiently and have AI decide whether a new inbound message is meaningfully
+   * actionable. Same authority as connecting (`sourceConnections:update`, re-derived from the session).
+   * A separate act from connecting and from the history baseline; content consent never precedes a
+   * connection -- NO_CONNECTION when none exists.
+   */
+  async authorizeContent(principal: SourceConnectionPrincipal, provider: string): Promise<SourceContentActionOutcome> {
+    if (!isConnectionProvider(provider)) return 'INVALID';
+    if (!(await this.deps.authorize(principal, 'update'))) return 'NOT_PERMITTED';
+    const result = await this.content.authorize(principal.organizationId, principal.userId, provider, {
+      now: this.now(),
+      actor: this.actor(principal),
+    });
+    switch (result.outcome) {
+      case 'AUTHORIZED': return 'AUTHORIZED';
+      case 'NO_CONNECTION': return 'NO_CONNECTION';
+      default: return 'NOT_PERMITTED';
+    }
+  }
+
+  /**
+   * Revoke CONTENT processing: stop all further content processing immediately. Already-derived
+   * WorkItems are the employee's own to resolve; nothing is selectively purged here. NOT_CONFIGURED
+   * never blocks a revoke, mirroring disconnect and revokeBaseline.
+   */
+  async revokeContent(principal: SourceConnectionPrincipal, provider: string): Promise<SourceContentActionOutcome> {
+    if (!isConnectionProvider(provider)) return 'INVALID';
+    if (!(await this.deps.authorize(principal, 'update'))) return 'NOT_PERMITTED';
+    const result = await this.content.revoke(principal.organizationId, principal.userId, provider, {
+      now: this.now(),
+      actor: this.actor(principal),
+    });
+    switch (result.outcome) {
+      case 'REVOKED': return 'REVOKED';
+      case 'NOTHING_TO_DO': return 'NOTHING_TO_DO';
       default: return 'NOT_PERMITTED';
     }
   }
