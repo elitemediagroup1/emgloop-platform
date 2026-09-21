@@ -87,6 +87,22 @@ const itemOf = (row: any): WorkItemRecord => ({
 /** The closed states, and what each one requires. Mirrors the migration's CHECK. */
 const CLOSED: readonly WorkItemState[] = ['RESOLVED', 'DISMISSED'];
 
+/** The numeric per-chat message id encoded at the end of a keyed providerEventId (`<key>:<id>`). Never content. */
+function messageIdOf(providerEventId: string | null | undefined): number | null {
+  if (!providerEventId) return null;
+  const idx = providerEventId.lastIndexOf(':');
+  if (idx < 0) return null;
+  const n = Number(providerEventId.slice(idx + 1));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The keyed anchor providerEventId an obligation's evidence carries, or null. Keyed id only, never content. */
+function anchorProviderEventIdOf(evidence: unknown): string | null {
+  if (!evidence || typeof evidence !== 'object') return null;
+  const value = (evidence as Record<string, unknown>).providerEventId;
+  return typeof value === 'string' ? value : null;
+}
+
 export class WorkItemRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -143,6 +159,58 @@ export class WorkItemRepository {
         newState: 'OPEN',
       });
       return itemOf(created);
+    });
+  }
+
+  /**
+   * RECONCILE-ON-ANSWER (conversation triage). A fresh read of ONE conversation concluded that a set of
+   * obligations are STILL unresolved (`keptAnchorProviderEventIds`). Close every OTHER open MODEL
+   * obligation for that conversation (`subjectRef`) whose anchor was INSIDE the evaluated window: it was
+   * raised before, is no longer among the unresolved, and a later message answered it. Employee-private
+   * and append-only, exactly like `detect` -- each close writes a RESOLVED observation in the same
+   * transaction as the projection, actorType SYSTEM (there is no AI actor).
+   *
+   * THE GUARD. An obligation whose anchor fell OUTSIDE the evaluated window -- its message id is older
+   * than `evaluatedFloorProviderEventId`, so the truncated window never reached it -- is NOT evidence of
+   * resolution: this read never saw where it stands. It is LEFT OPEN. Only anchors at or after the
+   * window's lower boundary are eligible to close. Returns how many obligations closed.
+   */
+  async resolveObligationsNotIn(
+    principal: WorkPrincipal,
+    subjectRef: string,
+    keptAnchorProviderEventIds: readonly string[],
+    evaluatedFloorProviderEventId: string,
+    occurredAt: Date,
+  ): Promise<number> {
+    const scope = workScope(principal);
+    const kept = new Set(keptAnchorProviderEventIds);
+    const floorMessageId = messageIdOf(evaluatedFloorProviderEventId);
+    // A missing or unparseable boundary means the window's extent is unknown; close nothing (fail safe).
+    if (floorMessageId === null) return 0;
+    return this.prisma.$transaction(async (tx: any) => {
+      const open = await tx.workItem.findMany({ where: { ...scope, subjectRef, producerKind: 'MODEL', state: 'OPEN' } });
+      let closed = 0;
+      for (const item of open) {
+        const anchor = anchorProviderEventIdOf(item.evidence);
+        if (!anchor || kept.has(anchor)) continue; // no keyed anchor, or still unresolved this read
+        const anchorMessageId = messageIdOf(anchor);
+        // THE GUARD: an anchor older than the window's lower boundary was truncated out -- leave it open.
+        if (anchorMessageId === null || anchorMessageId < floorMessageId) continue;
+        await tx.workItem.update({
+          where: { id: item.id },
+          data: { state: 'RESOLVED', stateChangedAt: occurredAt, resolvedAt: occurredAt, outcome: 'SUPERSEDED', snoozedUntil: null },
+        });
+        await this.append(tx, scope, item.id, {
+          observationType: 'RESOLVED',
+          occurredAt,
+          actorType: 'SYSTEM',
+          reason: 'reconciled: resolved later in the conversation',
+          previousState: item.state,
+          newState: 'RESOLVED',
+        });
+        closed += 1;
+      }
+      return closed;
     });
   }
 
