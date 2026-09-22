@@ -192,7 +192,14 @@ async function processMessages(
     // GATE 3 (the gateway's own): not authorized, not activated, no configured provider, no budget.
     // HOLD the cursor and stop -- these are deployment-level and all-or-nothing; retry next run.
     if (result.outcome === 'NOT_AVAILABLE') {
-      return { cursor, raised, refused: true, failureClass: 'REFUSED_BY_LOOP' };
+      // DIAGNOSTIC: keep the SPECIFIC admission refusal(s) so one sweep names the exact gate that
+      // refused, instead of collapsing every governed refusal to the opaque 'REFUSED_BY_LOOP'.
+      // `AiAdmissionRefusal` is a fixed, safe enum (NOT_AUTHORIZED / ORGANIZATION_NOT_ENABLED /
+      // TASK_NOT_ENABLED / KILL_SWITCH / CONTEXT_REFUSED / LEDGER_UNAVAILABLE / ...) -- never a
+      // message body, a secret, or provider text.
+      const failureClass =
+        result.refusals.length > 0 ? `REFUSED_BY_LOOP:${result.refusals.join('+')}` : 'REFUSED_BY_LOOP';
+      return { cursor, raised, refused: true, failureClass };
     }
 
     if (result.outcome === 'TRIAGED' && result.verdict.actionable) {
