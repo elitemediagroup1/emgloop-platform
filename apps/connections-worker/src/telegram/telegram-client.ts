@@ -13,11 +13,11 @@
 // handed straight to the caller to seal; this file never logs it. Message text is read ONLY as a
 // boolean (`hadText`) and never stored, logged or returned. There is no send/reply/react/read here.
 
-import { TelegramClient, Api } from 'teleproto';
+import { TelegramClient, Api, utils } from 'teleproto';
 import { StringSession } from 'teleproto/sessions';
 import { computeCheck } from 'teleproto/Password';
 
-import type { TelegramClientHandle, TelegramClientPort } from './telegram-adapter';
+import type { TelegramClientHandle, TelegramClientPort, TelegramDialogDescription, TelegramHistoricalDialogsPage } from './telegram-adapter';
 import { TelegramAuthError, TelegramFloodWaitError } from './telegram-adapter';
 import type { TelegramMessageFacts } from './content-free-mapping';
 import type { TelegramContentMessage } from './telegram-content';
@@ -74,7 +74,31 @@ function contentOf(message: any): TelegramContentMessage | null {
     out: Boolean(message.out),
     dateSeconds: typeof message.date === 'number' ? message.date : Math.floor(Date.now() / 1000),
     text,
+    // The sender's display name as Telegram resolved it for this message (entities ride along with the
+    // history page). TRANSIENT context for a GROUP read; the adaptive window minimizes it or drops it.
+    senderLabel: displayNameOf(message.sender ?? message._sender),
   };
+}
+
+/**
+ * Telegram's own display name for an entity (a user's first/last name, a chat's title), via the SDK's
+ * one helper for it. Best-effort: anything odd is null, never a guess and never an id.
+ */
+function displayNameOf(entity: unknown): string | null {
+  if (!entity || typeof entity !== 'object') return null;
+  try {
+    const name = utils.getDisplayName(entity as any);
+    return typeof name === 'string' && name.trim() !== '' ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Private chat with a user, or a group/channel. Anything unrecognised is reported as unknown (null). */
+function conversationKindOf(entity: unknown): TelegramDialogDescription['kind'] {
+  if (entity instanceof Api.User) return 'PRIVATE';
+  if (entity instanceof Api.Chat || entity instanceof Api.Channel) return 'GROUP';
+  return null;
 }
 
 /**
@@ -192,6 +216,89 @@ export function createTelegramClientPort(creds: TelegramAppCredentials): Telegra
         throw err;
       }
       return collected;
+    },
+
+    async fetchDialogWindow(handle, request, _now): Promise<readonly TelegramContentMessage[]> {
+      // Read recent CONTENT for ONE conversation, NEWEST FIRST, for the adaptive window (v2). TRANSIENT:
+      // the bodies are judged by the triage service and dropped. This NEVER advances any cursor. FLOOD_WAIT
+      // is surfaced so the caller can back off; no code, session or body is ever logged.
+      const client = handle.client as TelegramClient;
+      const floorSeconds = Math.floor(request.floorAt.getTime() / 1000);
+      const cap = Math.min(Math.max(1, request.limit), 200);
+      const collected: TelegramContentMessage[] = [];
+      try {
+        const messages = await client.getMessages(request.chatId, { limit: cap }); // newest first
+        for (const message of messages) {
+          const content = contentOf(message);
+          if (!content) continue;
+          if (content.dateSeconds < floorSeconds) break; // newest-first: once below the floor, stop
+          collected.push(content);
+        }
+      } catch (err) {
+        const flood = floodWaitSecondsOf(err);
+        if (flood !== null) throw new TelegramFloodWaitError(flood);
+        throw err;
+      }
+      return collected; // newest first, as the adaptive window expects
+    },
+
+    async describeDialog(handle, chatId, _now): Promise<TelegramDialogDescription | null> {
+      // How Telegram itself names this conversation, for the forward window. Best-effort and content-free
+      // beyond the label: a failure yields null, never a guess. The raw label is minimized by the caller.
+      const client = handle.client as TelegramClient;
+      try {
+        const entity = await client.getEntity(chatId);
+        return { label: displayNameOf(entity), kind: conversationKindOf(entity) };
+      } catch {
+        return null;
+      }
+    },
+
+    async fetchHistoricalDialogs(handle, request, _now): Promise<TelegramHistoricalDialogsPage> {
+      // A bounded PAGE of conversations from the historical dialog frontier, each with its raw CONTENT
+      // candidates (NEWEST FIRST, transient). Skips conversations inactive after the floor. It advances
+      // ONLY the dialog-pagination frontier (an offset date), never any other cursor. FLOOD_WAIT is
+      // surfaced so the caller can back off; no code, session or body is ever logged.
+      const client = handle.client as TelegramClient;
+      const floorSeconds = Math.floor(request.floorAt.getTime() / 1000);
+      const maxConversations = Math.min(Math.max(1, request.maxConversations), 100);
+      const perDialogLimit = Math.min(Math.max(1, request.perDialogLimit), 200);
+      const offsetDate = request.cursor ? Number(request.cursor) : undefined;
+      const dialogsOut: { chatId: string; messages: readonly TelegramContentMessage[]; description: TelegramDialogDescription | null }[] = [];
+      let nextCursor: string | null = request.cursor;
+      let reachedEnd = false;
+      try {
+        const opts: Record<string, unknown> = { limit: maxConversations };
+        if (offsetDate !== undefined && Number.isFinite(offsetDate)) opts.offsetDate = offsetDate; // older than this date
+        const dialogs = await client.getDialogs(opts as any);
+        reachedEnd = dialogs.length < maxConversations;
+        for (const dialog of dialogs) {
+          const entity = (dialog as any).entity ?? (dialog as any).inputEntity;
+          const lastDate = typeof (dialog as any).date === 'number' ? (dialog as any).date : null;
+          if (lastDate !== null) nextCursor = String(lastDate); // frontier advances to the oldest dialog seen
+          if (lastDate !== null && lastDate < floorSeconds) continue; // inactive after the floor: skip
+          if (!entity) continue;
+          const chatId = String((dialog as any).id ?? (entity as any).id ?? '');
+          if (chatId === '') continue;
+          const messages = await client.getMessages(entity, { limit: perDialogLimit }); // newest first
+          const collected: TelegramContentMessage[] = [];
+          for (const message of messages) {
+            const content = contentOf(message);
+            if (!content) continue;
+            if (content.dateSeconds < floorSeconds) break;
+            collected.push(content);
+          }
+          // The dialog's own title/name is how Telegram labels it; the entity says private chat or group.
+          const rawLabel = (dialog as any).title ?? (dialog as any).name ?? displayNameOf(entity);
+          const description: TelegramDialogDescription = { label: typeof rawLabel === 'string' && rawLabel.trim() !== '' ? rawLabel : null, kind: conversationKindOf(entity) };
+          dialogsOut.push({ chatId, messages: collected, description });
+        }
+      } catch (err) {
+        const flood = floodWaitSecondsOf(err);
+        if (flood !== null) throw new TelegramFloodWaitError(flood);
+        throw err;
+      }
+      return { dialogs: dialogsOut, nextCursor, reachedEnd };
     },
 
     async close(handle: TelegramClientHandle): Promise<void> {

@@ -7,15 +7,16 @@
 // see it, an ADMIN does not see it. It reads only what the content-triage sweep wrote as this person's
 // own work items.
 //
-// NO BODY, EVER. A work item's title is the AI's MINIMIZED paraphrase and its evidence is keyed
-// identifiers only; there is no message content to read here, and none is shown. Private Telegram chats
-// have no stable deep link, so return-to-source degrades honestly to a plain label rather than a
-// fabricated URL.
+// NO BODY, EVER. A work item's title is the AI's MINIMIZED paraphrase of what happened; its evidence holds
+// keyed identifiers plus the other minimized fields (who it is with -- the source's own label for the
+// conversation -- the topic, the next step and a grounded deadline). There is no message content to read
+// here, and none is shown. Private Telegram chats have no stable deep link, so return-to-source degrades
+// honestly to a plain label rather than a fabricated URL.
 //
 // SERVER ONLY, and RESILIENT: a read failure returns an empty list so Home never goes down with it.
 
 import { WorkItemRepository, prisma, type WorkPrincipal } from '@emgloop/database';
-import { isConnectionProvider, connectionProviderProfile, type ConnectionProvider } from '@emgloop/shared';
+import { AI_TRIAGE_LIMITS, isConnectionProvider, connectionProviderProfile, type ConnectionProvider } from '@emgloop/shared';
 
 /** One item a background source flagged, minimized for display. Never a message body. */
 export interface NeedsYouItem {
@@ -23,10 +24,19 @@ export interface NeedsYouItem {
   readonly provider: ConnectionProvider;
   /** The source's honest label, e.g. "Telegram". */
   readonly sourceLabel: string;
-  /** The AI's minimized one-line paraphrase (the WorkItem title). Never a verbatim message. */
+  /** The AI's minimized paraphrase of WHAT happened or is being asked (the WorkItem title). Never a verbatim message. */
   readonly title: string;
   /** The triage category, when the evidence carried one. Presentation only. */
   readonly category: string | null;
+  /** WHO it is with: the source's own label for the conversation (a contact name, a group title), or null. Never invented. */
+  readonly counterparty: string | null;
+  /** What it is about, in a few words, or null. */
+  readonly topic: string | null;
+  /** What the person needs to do, or null for an item raised before this field existed. */
+  readonly nextStep: string | null;
+  /** A time constraint as the conversation wrote it, or null when there is none. */
+  readonly deadline: string | null;
+  /** When the source last found it still unresolved. */
   readonly at: Date;
   readonly detectionCount: number;
 }
@@ -41,6 +51,16 @@ function evidenceCategory(evidence: unknown): string | null {
   if (!evidence || typeof evidence !== 'object') return null;
   const c = (evidence as Record<string, unknown>).category;
   return typeof c === 'string' && c.trim() !== '' ? c : null;
+}
+
+/** A short evidence string, trimmed and capped for display, or null. Nothing here is ever a message body. */
+function evidenceText(evidence: unknown, key: string, maxChars: number): string | null {
+  if (!evidence || typeof evidence !== 'object') return null;
+  const v = (evidence as Record<string, unknown>)[key];
+  if (typeof v !== 'string') return null;
+  const trimmed = v.trim();
+  if (trimmed === '') return null;
+  return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
 }
 
 /** The database the loader reads through. Injected only by tests; production is the shared client. */
@@ -71,6 +91,10 @@ export async function loadNeedsYou(principal: WorkPrincipal, limit = 6, db: Need
         sourceLabel: connectionProviderProfile(provider).label,
         title,
         category: evidenceCategory(item.evidence),
+        counterparty: evidenceText(item.evidence, 'counterpartyLabel', AI_TRIAGE_LIMITS.maxCounterpartyLabelChars),
+        topic: evidenceText(item.evidence, 'topic', AI_TRIAGE_LIMITS.maxTopicChars),
+        nextStep: evidenceText(item.evidence, 'nextStep', AI_TRIAGE_LIMITS.maxNextStepChars),
+        deadline: evidenceText(item.evidence, 'deadline', AI_TRIAGE_LIMITS.maxDeadlineChars),
         at: item.lastDetectedAt,
         detectionCount: item.detectionCount,
       });

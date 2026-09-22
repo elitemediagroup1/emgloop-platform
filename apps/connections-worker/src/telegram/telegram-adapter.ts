@@ -16,10 +16,40 @@
 import type { AdapterSession, ConnectionAdapter, ObservationResult } from '@emgloop/database';
 import type { CapabilityStatus } from '@emgloop/shared';
 
+import type { TelegramConversationKind } from '@emgloop/database';
+
 import { telegramCursorAfter, telegramMessageToConversationEvent, type TelegramMessageFacts } from './content-free-mapping';
-import { telegramContentCursorAfter, type TelegramContentMessage } from './telegram-content';
+import { gatherConversationWindow, telegramContentCursorAfter, type TelegramContentMessage, type TelegramConversationWindow } from './telegram-content';
 import type { BaselineObservationResult } from '../baseline-orchestrator';
-import type { ContentObservationResult } from '../content-orchestrator';
+import type { ContentObservationResult, ContentWindowResult } from '../content-orchestrator';
+import type { HistoricalConversationsResult } from '../historical-content-orchestrator';
+
+/** Raw candidates fetched per dialog for the adaptive window. Larger than the count cap so the window's own bounds bind. */
+const WINDOW_FETCH_LIMIT = 200;
+
+/**
+ * How the provider describes ONE conversation: its display label as the person sees it in Telegram (a
+ * contact's name, a group's title) and whether it is a private chat or a group. RAW here; the adaptive
+ * window minimizes it, and nothing keeps the raw value.
+ */
+export interface TelegramDialogDescription {
+  readonly label: string | null;
+  readonly kind: TelegramConversationKind | null;
+}
+
+/** A bounded page of conversations from the historical dialog frontier, each with its raw content candidates. */
+export interface TelegramHistoricalDialogsPage {
+  readonly dialogs: readonly {
+    readonly chatId: string;
+    readonly messages: readonly TelegramContentMessage[];
+    /** The provider's description of the dialog, when it had one. Minimized downstream, never stored raw. */
+    readonly description?: TelegramDialogDescription | null;
+  }[];
+  /** The next dialog-pagination frontier. NEVER the live cursor, the baseline checkpoint or the forward contentCursor. */
+  readonly nextCursor: string | null;
+  /** True when the pager reached the end of the dialog list (no more conversations to page). */
+  readonly reachedEnd: boolean;
+}
 
 /** A stale or invalid MTProto session. Named so runConnectionCycle classifies it as auth loss. */
 export class TelegramAuthError extends Error {
@@ -63,6 +93,25 @@ export interface TelegramClientPort {
    * TelegramFloodWaitError when Telegram asks Loop to wait.
    */
   fetchContentSince(handle: TelegramClientHandle, cursor: string | null, limit: number, now: Date): Promise<readonly TelegramContentMessage[]>;
+  /**
+   * Raw CONTENT candidates for ONE conversation, NEWEST FIRST, for the adaptive window (v2). TRANSIENT
+   * bodies, at most `limit`, no older than `floorAt`. Used by the forward window build. Throws
+   * TelegramFloodWaitError when Telegram asks Loop to wait; it advances no cursor.
+   */
+  fetchDialogWindow(handle: TelegramClientHandle, request: { chatId: string; floorAt: Date; limit: number }, now: Date): Promise<readonly TelegramContentMessage[]>;
+  /**
+   * A bounded PAGE of conversations from the historical dialog frontier, each with its raw CONTENT
+   * candidates (NEWEST FIRST, transient). Skips conversations with no activity after `floorAt`. It
+   * advances ONLY the dialog-pagination frontier, never any other cursor. Throws TelegramFloodWaitError
+   * when Telegram asks Loop to wait.
+   */
+  fetchHistoricalDialogs(handle: TelegramClientHandle, request: { cursor: string | null; floorAt: Date; maxConversations: number; perDialogLimit: number }, now: Date): Promise<TelegramHistoricalDialogsPage>;
+  /**
+   * How Telegram describes ONE conversation (its display label and whether it is a private chat or a
+   * group), for the forward window. Optional and best-effort: a client without it, or one that fails,
+   * yields NO label -- a review never waits on a label and a label is never invented.
+   */
+  describeDialog?(handle: TelegramClientHandle, chatId: string, now: Date): Promise<TelegramDialogDescription | null>;
   /** Close the socket. Never modifies the Telegram account. */
   close(handle: TelegramClientHandle): Promise<void>;
   /** Revoke this authorization at Telegram (used only by disconnect). Optional; best-effort. */
@@ -184,7 +233,102 @@ export class TelegramAdapter implements ConnectionAdapter {
     return { messages: batch, nextCursor: telegramContentCursorAfter(cursor, batch) };
   }
 
+  /**
+   * Build the ADAPTIVE conversation window for ONE conversation (v2), read TRANSIENTLY. It fetches raw
+   * candidate messages (newest first) for the chat and gathers them through the pure adaptive window
+   * (skip empty/non-text, never cross the floor, stop at the count cap or the input-token budget, return
+   * chronological). It maps NOTHING to a ConversationEvent and persists NOTHING: the bodies flow to the
+   * triage service and are dropped. A FLOOD_WAIT yields an empty window and the wait, so the caller can
+   * back off. It NEVER touches the live observation cursor, the baseline checkpoint or the content cursor.
+   */
+  async fetchConversationWindow(
+    session: AdapterSession,
+    request: { readonly chatId: string; readonly floorAt: Date; readonly maxMessages: number; readonly tokenBudget: number },
+    now: Date,
+  ): Promise<ContentWindowResult> {
+    const handle = session.handle as TelegramClientHandle;
+    let candidates: readonly TelegramContentMessage[];
+    try {
+      candidates = await this.port.fetchDialogWindow(handle, { chatId: request.chatId, floorAt: request.floorAt, limit: WINDOW_FETCH_LIMIT }, now);
+    } catch (err) {
+      if (err instanceof TelegramFloodWaitError) return { window: emptyWindow(request.chatId, this.conversationSecret), floodWaitSeconds: err.retryAfterSeconds };
+      throw err;
+    }
+    // The label is best-effort and never blocks the review: a client without `describeDialog`, or one
+    // that fails, means no label -- and no label is ever invented.
+    let description: TelegramDialogDescription | null = null;
+    if (this.port.describeDialog) {
+      try {
+        description = await this.port.describeDialog(handle, request.chatId, now);
+      } catch {
+        description = null;
+      }
+    }
+    const window = gatherConversationWindow(request.chatId, candidates, this.conversationSecret, {
+      floorAt: request.floorAt,
+      maxMessages: request.maxMessages,
+      tokenBudget: request.tokenBudget,
+      conversation: description,
+    });
+    return { window };
+  }
+
+  /**
+   * One bounded PAGE of conversations for the HISTORICAL backfill, each already gathered into its adaptive
+   * window (v2), read TRANSIENTLY. It pages conversations from the historical dialog frontier, skipping
+   * conversations inactive after the floor, and gathers each one's window through the SAME pure adaptive
+   * window the forward path uses. It persists NOTHING. A FLOOD_WAIT yields no conversations, the frontier
+   * unchanged, and the wait so the caller can back off. It NEVER touches the live cursor, the baseline
+   * checkpoint or the forward content cursor -- it reports only the dialog-pagination frontier to advance.
+   */
+  async observeHistoricalConversations(
+    session: AdapterSession,
+    request: {
+      readonly cursor: string | null;
+      readonly floorAt: Date;
+      readonly maxConversations: number;
+      readonly maxWindowMessages: number;
+      readonly tokenBudget: number;
+    },
+    now: Date,
+  ): Promise<HistoricalConversationsResult> {
+    const handle = session.handle as TelegramClientHandle;
+    let page: TelegramHistoricalDialogsPage;
+    try {
+      page = await this.port.fetchHistoricalDialogs(
+        handle,
+        { cursor: request.cursor, floorAt: request.floorAt, maxConversations: request.maxConversations, perDialogLimit: WINDOW_FETCH_LIMIT },
+        now,
+      );
+    } catch (err) {
+      if (err instanceof TelegramFloodWaitError) return { conversations: [], nextCursor: request.cursor, reachedEnd: false, floodWaitSeconds: err.retryAfterSeconds };
+      throw err;
+    }
+    const conversations = page.dialogs
+      .map((dialog) =>
+        gatherConversationWindow(dialog.chatId, dialog.messages, this.conversationSecret, {
+          floorAt: request.floorAt,
+          maxMessages: request.maxWindowMessages,
+          tokenBudget: request.tokenBudget,
+          conversation: dialog.description ?? null,
+        }),
+      )
+      // A conversation with no text in the window (all media, or all below the floor) has nothing to triage.
+      .filter((window) => window.messages.length > 0);
+    return { conversations, nextCursor: page.nextCursor, reachedEnd: page.reachedEnd };
+  }
+
   async disconnect(session: AdapterSession): Promise<void> {
     await this.port.close(session.handle as TelegramClientHandle);
   }
+}
+
+/** An empty window for a flood/skip, so the conversationKey stays keyed and no body is ever fabricated. */
+function emptyWindow(chatId: string, conversationSecret: string): TelegramConversationWindow {
+  const conversationKey = gatherConversationWindow(chatId, [], conversationSecret, {
+    floorAt: new Date(0),
+    maxMessages: 1,
+    tokenBudget: 0,
+  }).conversationKey;
+  return { conversationKey, conversation: { label: null, kind: null }, messages: [], truncation: { includedCount: 0, reason: 'NONE', oldestIncludedProviderEventId: null } };
 }

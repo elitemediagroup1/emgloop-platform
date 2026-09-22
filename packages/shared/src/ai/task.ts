@@ -159,17 +159,21 @@ export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
 });
 
 /**
- * TELEGRAM CONTENT TRIAGE (Slice: content-triage). A conservative, employee-private verdict on
- * whether ONE new inbound message in the employee's own Telegram conversation is meaningfully
- * actionable, and if so what kind of thing it is and what it means in one minimized line.
+ * TELEGRAM CONTENT TRIAGE (Slice: content-triage, v2 conversation triage). A conservative,
+ * employee-private read of a bounded RECENT CONVERSATION that returns the obligations still
+ * UNRESOLVED given the whole back-and-forth, each anchored to the message where it originated. If a
+ * later message answers or fulfils an earlier ask, that ask is NOT returned. A conversation may carry
+ * several unrelated obligations, or none.
  *
  * IT RUNS ONLY AFTER THE EMPLOYEE AUTHORIZES CONTENT PROCESSING (a separate consent from connecting
  * the source and from the content-free history baseline), and only while a live credential is held.
- * The message body is transient: it is read for this one call and dropped -- never persisted, never
- * logged, never in the derived WorkItem or its evidence. The verdict is EMPLOYEE-PRIVATE: an OWNER
- * does not hold it, an ADMIN does not hold it, and nothing here is promoted to an organization surface.
+ * The one consent covers BOTH the recent historical window (transiently re-read to surface existing
+ * unresolved items) and new messages going forward. Every message body is transient: read for this one
+ * call and dropped -- never persisted, never logged, never in the derived WorkItem or its evidence. The
+ * result is EMPLOYEE-PRIVATE: an OWNER does not hold it, an ADMIN does not hold it, and nothing here is
+ * promoted to an organization surface.
  *
- * COMMUNICATION_CONTENT, because the evidence IS the message. The one context block is marked
+ * COMMUNICATION_CONTENT, because the evidence IS the conversation. Every message block is marked
  * UNTRUSTED_INPUT -- a Telegram message is data, never an instruction, whatever it says inside.
  *
  * `sourceConnections:view` is the read authority (the employee may view their own Telegram source).
@@ -179,10 +183,15 @@ export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
  */
 export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   taskId: 'telegram.content.triage',
-  version: '1.1.0',
-  // A single-message actionability judgment: general reasoning, not communication drafting and not
-  // technical analysis. GENERAL_REASONING has no default provider, so the routing entry names one
-  // and says why.
+  // v2 (conversation triage): reads a bounded recent conversation and returns still-unresolved
+  // obligations, each anchored to its originating message. v2.1: each obligation carries enough
+  // MINIMIZED business context to be useful -- what specifically happened, what the person must do, and
+  // any GROUNDED deadline -- and the conversation is named by the label Telegram itself shows (never a
+  // name the model produced). The output schema and the routing entry's taskVersion move in lockstep.
+  version: '2.1.0',
+  // A conservative actionability judgment over a conversation: general reasoning, not communication
+  // drafting and not technical analysis. GENERAL_REASONING has no default provider, so the routing
+  // entry names one and says why.
   capabilityRoute: 'GENERAL_REASONING',
   resultType: 'TRIAGE',
   // The verdict belongs to the employee's own work context, about one of their own conversations,
@@ -199,7 +208,7 @@ export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   consequence: 'READ_ONLY',
   requires: Object.freeze([{ resource: 'sourceConnections', action: 'view' } as const]),
   invokerRoles: Object.freeze(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']),
-  outputSchemaId: 'telegram-content-triage.v1',
+  outputSchemaId: 'telegram-content-triage.v3',
   // Informational: the reviewed routing policy sets each call's actual ceiling and deadline.
   maxOutputTokens: 1000,
   timeoutMs: 20_000,
@@ -280,11 +289,13 @@ export interface AiTaskOutput {
   readonly draft?: AiDraftText;
   /**
    * The classification, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
-   * Like `draft`, it is checked for shape and size and NOT figure-checked -- a minimized paraphrase
-   * naturally restates a fact from the message, and what stands behind it is a person reading their
-   * own conversation, not a validator.
+   * v2 conversation triage: the still-unresolved obligations across a bounded recent conversation,
+   * each anchored to its originating message. Like `draft`, it is checked for shape and size and NOT
+   * figure-checked -- a minimized paraphrase naturally restates a fact, and what stands behind it is a
+   * person reading their own conversation, not a validator. An EMPTY list is a VALID answer (nothing
+   * is unresolved), and nothing is raised.
    */
-  readonly triage?: AiTriageVerdict;
+  readonly conversationTriage?: AiConversationTriage;
 }
 
 export interface AiDraftText {
@@ -292,14 +303,24 @@ export interface AiDraftText {
 }
 
 /**
- * TELEGRAM CONTENT TRIAGE (Slice: content-triage). What Loop will accept as the verdict on one
- * inbound message, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
+ * TELEGRAM CONTENT TRIAGE (Slice: content-triage, v2.1). What Loop will accept as the read of a bounded
+ * recent CONVERSATION, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
  *
- * It carries NO evidence and NO body. `oneLineMeaning` is a MINIMIZED PARAPHRASE the reader sees --
- * never a verbatim excerpt of the message, and never figure-checked, because a conservative
- * one-line meaning naturally restates a fact. What stands behind it is not a validator: it is the
- * employee reading their own conversation. A non-actionable verdict is category NONE, and nothing is
- * raised.
+ * It carries NO body and NO verbatim excerpt. Each obligation is one still-UNRESOLVED item with enough
+ * MINIMIZED business context to act on: `oneLineMeaning` (WHAT specifically happened or is being asked),
+ * `topic` (what it is about), `nextStep` (what the person must do) and `deadline` (a time constraint,
+ * or null) -- every one a paraphrase the reader sees, never a quote -- plus `anchorOrdinal`, the 1-based
+ * position of the message that ORIGINATED it inside the evaluated window.
+ *
+ * WHO IT IS WITH IS NOT A MODEL FIELD. The conversation is named by the label Telegram itself shows
+ * (a contact's display name or a group title), supplied to the model as context and recorded by Loop
+ * from that same source; there is no output field a model could put an invented person or company
+ * into. A DEADLINE IS GROUNDED: it must be composed of words that appear in the conversation, or the
+ * whole answer is rejected (UNGROUNDED_DEADLINE) -- a model may restate a date the person wrote, never
+ * produce one. NONE is never a category here -- the list holds only real, unresolved obligations, and
+ * an EMPTY list is the honest answer when the conversation resolved everything (or asked nothing).
+ * Nothing else is figure-checked: a minimized paraphrase naturally restates a fact, and what stands
+ * behind it is the employee reading their own conversation.
  */
 export const AI_TRIAGE_CATEGORIES = [
   'REQUEST',
@@ -314,24 +335,63 @@ export const AI_TRIAGE_CATEGORIES = [
 ] as const;
 export type AiTriageCategory = (typeof AI_TRIAGE_CATEGORIES)[number];
 
-export interface AiTriageVerdict {
-  readonly actionable: boolean;
+/** One still-unresolved obligation, anchored to the 1-based ordinal of its originating message. */
+export interface AiTriageObligation {
+  /** 1-based position of the originating message in the evaluated window ([1..chunkSize]). */
+  readonly anchorOrdinal: number;
+  /** The kind of unresolved thing. Never NONE -- the list holds only real obligations. */
   readonly category: AiTriageCategory;
-  /** A minimized paraphrase (<=140 chars). Never a verbatim excerpt of the message. */
+  /** WHAT specifically happened or is being asked, as a minimized paraphrase (<=140 chars). Never a quote. */
   readonly oneLineMeaning: string;
+  /** What it is about, in a few words (<=60 chars). May be empty when the meaning already says it. */
+  readonly topic: string;
+  /** What the person needs to do, as a minimized paraphrase (<=120 chars). Required. */
+  readonly nextStep: string;
+  /**
+   * A material time constraint, written the way the conversation wrote it (<=40 chars), or null when
+   * there is none. GROUNDED: every word must appear in the conversation, or the answer is rejected.
+   */
+  readonly deadline: string | null;
 }
 
-/** Bounds on a triage verdict a person has to read. The schema cannot say these for every provider. */
-export const AI_TRIAGE_LIMITS = Object.freeze({ maxMeaningChars: 140, maxLimitations: 6, maxLimitationChars: 200 });
+/** The whole conversation's read: the obligations still unresolved. An empty list is valid. */
+export interface AiConversationTriage {
+  readonly items: readonly AiTriageObligation[];
+}
+
+/**
+ * Bounds the schema cannot say for every provider, enforced in `validateAiTaskOutput` and the worker's
+ * window gather. `maxContextInputTokens` is the whole-context input ceiling the adaptive window keeps
+ * every chunk within; a routing test asserts it does not exceed the budget class's per-call input cap.
+ * `maxWindowMessages` and `maxMessageChars` bound one gathered window (count and per-message text).
+ */
+export const AI_TRIAGE_LIMITS = Object.freeze({
+  maxMeaningChars: 140,
+  maxTopicChars: 60,
+  maxNextStepChars: 120,
+  maxDeadlineChars: 40,
+  /** The conversation label Loop records from Telegram's own display name / group title. Never a model field. */
+  maxCounterpartyLabelChars: 60,
+  maxLimitations: 6,
+  maxLimitationChars: 200,
+  maxObligations: 8,
+  maxContextInputTokens: 8000,
+  maxWindowMessages: 40,
+  maxMessageChars: 500,
+});
 
 /**
  * What the supplied evidence actually contains, for checking an answer against.
  * `figures` is per source: a number is supported for a claim only if a source THAT
  * CLAIM CITES contains it. `dates` are the calendar dates the evidence names.
+ * `terms` are the lower-cased word tokens the evidence contains (`aiTermsInText`), for
+ * checking that a short field a model must COPY from the sources -- a triage deadline --
+ * is made only of words that are actually there. Absent means nothing is grounded.
  */
 export interface AiSupportedEvidence {
   readonly figures: ReadonlyMap<string, ReadonlySet<number>>;
   readonly dates: ReadonlySet<string>;
+  readonly terms?: ReadonlySet<string>;
 }
 
 export const AI_OUTPUT_REJECTIONS = [
@@ -347,6 +407,8 @@ export const AI_OUTPUT_REJECTIONS = [
   'UNSUPPORTED_DATE_IN_TEXT',
   'NUMERIC_CONFIDENCE_PRESENT',
   'RECOMMENDS_AN_ACTION',
+  /** A triage deadline made of words the conversation never used: a produced date, not a restated one. */
+  'UNGROUNDED_DEADLINE',
 ] as const;
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
 
@@ -404,13 +466,34 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     if (typeof body !== 'string') return null;
     draft = { body };
   }
-  // A task whose result is a classification carries it here, flat. Absent is fine -- the validator
-  // decides whether THIS task required it. A partial verdict is not a verdict, and reading it as one
-  // would throw.
-  let triage: AiTriageVerdict | undefined;
-  if (v.actionable !== undefined || v.category !== undefined || v.oneLineMeaning !== undefined) {
-    if (typeof v.actionable !== 'boolean' || typeof v.category !== 'string' || typeof v.oneLineMeaning !== 'string') return null;
-    triage = { actionable: v.actionable, category: v.category as AiTriageCategory, oneLineMeaning: v.oneLineMeaning };
+  // v2 conversation triage: a flat `items` list of still-unresolved obligations. Absent is fine -- the
+  // validator decides whether THIS task required it, and an EMPTY list is a valid answer. A partial
+  // obligation is not an obligation; reading a half-parsed one as one would throw, so the whole answer
+  // is rejected (null) on any shape error.
+  let conversationTriage: AiConversationTriage | undefined;
+  if (v.items !== undefined) {
+    if (!Array.isArray(v.items)) return null;
+    const items: AiTriageObligation[] = [];
+    for (const raw of v.items) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+      const o = raw as Record<string, unknown>;
+      if (typeof o.anchorOrdinal !== 'number' || !Number.isFinite(o.anchorOrdinal)) return null;
+      if (typeof o.category !== 'string' || typeof o.oneLineMeaning !== 'string') return null;
+      // v2.1: the business context. `nextStep` is required (an obligation with no next step is not
+      // one); `topic` defaults to empty; `deadline` is a string or null and nothing else.
+      if (typeof o.nextStep !== 'string') return null;
+      if (o.topic !== undefined && typeof o.topic !== 'string') return null;
+      if (o.deadline !== undefined && o.deadline !== null && typeof o.deadline !== 'string') return null;
+      items.push({
+        anchorOrdinal: o.anchorOrdinal,
+        category: o.category as AiTriageCategory,
+        oneLineMeaning: o.oneLineMeaning,
+        topic: typeof o.topic === 'string' ? o.topic : '',
+        nextStep: o.nextStep,
+        deadline: typeof o.deadline === 'string' ? o.deadline : null,
+      });
+    }
+    conversationTriage = { items };
   }
   return {
     schemaId: v.schemaId,
@@ -418,7 +501,7 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     claims,
     limitations: v.limitations as string[],
     ...(draft ? { draft } : {}),
-    ...(triage ? { triage } : {}),
+    ...(conversationTriage ? { conversationTriage } : {}),
   };
 }
 
@@ -448,6 +531,15 @@ export function aiDatesInText(text: string): string[] {
 export function aiNumbersInText(text: string): number[] {
   const withoutDates = String(text).replace(ISO_DATE, ' ');
   return [...withoutDates.matchAll(NUMBER)].map((m) => Number(m[0].replace(/,/g, ''))).filter((n) => Number.isFinite(n));
+}
+
+/**
+ * The word tokens a text contains, lower-cased: runs of letters or digits in any script. The ONE
+ * tokenizer for both sides of a grounding check (`AiSupportedEvidence.terms` and the field checked
+ * against it), so "by Thursday" and "Thursday?" meet on the same tokens.
+ */
+export function aiTermsInText(text: string): string[] {
+  return String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 function supported(value: number, allowed: ReadonlySet<number>): boolean {
@@ -489,30 +581,54 @@ export function validateAiTaskOutput(
     const body = output.draft?.body?.trim() ?? '';
     if (body === '') out.push('EMPTY_ANSWER');
     if ((output.draft?.body?.length ?? 0) > AI_DRAFT_LIMITS.maxBodyChars) out.push('ANSWER_TOO_LONG');
-    if (output.triage !== undefined) out.push('WRONG_SCHEMA');
+    if (output.conversationTriage !== undefined) out.push('WRONG_SCHEMA');
   } else if (task.resultType === 'TRIAGE') {
-    const t = output.triage;
-    if (!t) out.push('EMPTY_ANSWER');
+    // v2 conversation triage: a list of still-unresolved obligations. An ABSENT list is not the answer
+    // asked for; an EMPTY list IS a valid answer (nothing unresolved) and raises nothing.
+    const ct = output.conversationTriage;
+    if (!ct) out.push('EMPTY_ANSWER');
     else {
-      if (!(AI_TRIAGE_CATEGORIES as readonly string[]).includes(t.category)) out.push('WRONG_SCHEMA');
-      const meaning = t.oneLineMeaning?.trim() ?? '';
-      if (meaning === '') out.push('EMPTY_ANSWER');
-      if ((t.oneLineMeaning?.length ?? 0) > AI_TRIAGE_LIMITS.maxMeaningChars) out.push('ANSWER_TOO_LONG');
-      // A triage verdict's limitations are tighter than the general answer bounds (6 items, 200 chars
-      // each), and this is the only place those tighter bounds are enforced -- the schema no longer
-      // encodes them, because Anthropic's structured outputs reject those length/size keywords.
+      if (ct.items.length > AI_TRIAGE_LIMITS.maxObligations) out.push('ANSWER_TOO_LONG');
+      // Anchors number the MESSAGE blocks only. A conversation-level block (`…_conversation:…` -- the
+      // label header or the truncation note) is not anchorable and must not widen the range.
+      const chunkSize = [...suppliedRefs].filter((ref) => !/_conversation:/.test(ref)).length;
+      for (const item of ct.items) {
+        // NONE is never a real obligation, and an unknown category is not the answer asked for.
+        if (item.category === 'NONE' || !(AI_TRIAGE_CATEGORIES as readonly string[]).includes(item.category)) {
+          out.push('WRONG_SCHEMA');
+        }
+        // The anchor must point at a message actually inside the evaluated window ([1..chunkSize]).
+        if (!Number.isInteger(item.anchorOrdinal) || item.anchorOrdinal < 1 || item.anchorOrdinal > chunkSize) {
+          out.push('WRONG_SCHEMA');
+        }
+        const meaning = item.oneLineMeaning?.trim() ?? '';
+        if (meaning === '') out.push('EMPTY_ANSWER');
+        if ((item.oneLineMeaning?.length ?? 0) > AI_TRIAGE_LIMITS.maxMeaningChars) out.push('ANSWER_TOO_LONG');
+        // v2.1 business context: a next step is the point of the item; the topic is bounded; a deadline
+        // is bounded AND grounded -- every word of it must be in the conversation, or it was produced.
+        if ((item.nextStep?.trim() ?? '') === '') out.push('EMPTY_ANSWER');
+        if ((item.nextStep?.length ?? 0) > AI_TRIAGE_LIMITS.maxNextStepChars) out.push('ANSWER_TOO_LONG');
+        if ((item.topic?.length ?? 0) > AI_TRIAGE_LIMITS.maxTopicChars) out.push('ANSWER_TOO_LONG');
+        if (item.deadline !== null) {
+          if (item.deadline.trim() === '') out.push('WRONG_SCHEMA');
+          if (item.deadline.length > AI_TRIAGE_LIMITS.maxDeadlineChars) out.push('ANSWER_TOO_LONG');
+          const tokens = aiTermsInText(item.deadline);
+          const terms = evidence.terms;
+          if (!terms || tokens.length === 0 || tokens.some((t) => !terms.has(t))) out.push('UNGROUNDED_DEADLINE');
+        }
+      }
+      // Triage limitations are tighter than the general answer bounds (6 items, 200 chars each), and
+      // this is the only place those tighter bounds are enforced -- the schema no longer encodes them,
+      // because Anthropic's structured outputs reject those length/size keywords.
       if (
         output.limitations.length > AI_TRIAGE_LIMITS.maxLimitations ||
         output.limitations.some((l) => l.length > AI_TRIAGE_LIMITS.maxLimitationChars)
       ) {
         out.push('ANSWER_TOO_LONG');
       }
-      // A verdict and its category cannot disagree: an actionable verdict names a real category, and
-      // a non-actionable one is NONE. Anything else is not the verdict Loop asked for.
-      if (t.actionable === (t.category === 'NONE')) out.push('WRONG_SCHEMA');
     }
     if (output.draft !== undefined) out.push('WRONG_SCHEMA');
-  } else if (output.draft !== undefined || output.triage !== undefined) {
+  } else if (output.draft !== undefined || output.conversationTriage !== undefined) {
     out.push('WRONG_SCHEMA');
   }
 

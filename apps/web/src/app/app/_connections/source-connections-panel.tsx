@@ -61,7 +61,7 @@ export const BASELINE_OUTCOME_MESSAGES: Readonly<Record<SourceBaselineActionOutc
 
 /** What each content-processing outcome tells the person. AI CONTENT processing is a separate consent. */
 export const CONTENT_OUTCOME_MESSAGES: Readonly<Record<SourceContentActionOutcome, { readonly tone: Tone; readonly title: string; readonly body: string }>> = {
-  AUTHORIZED: { tone: 'good', title: 'AI triage on', body: 'Loop will read new messages on this account and use AI to flag the few that need you — surfaced privately to you on your Home, with a link back to Telegram. It never replies for you, and it stores no message contents. You can turn it off at any time.' },
+  AUTHORIZED: { tone: 'good', title: 'AI triage on', body: 'Loop will read your recent conversations — the last few days already imported — and new messages going forward, and use AI to flag the few things still needing you. It reads each message only for that moment and stores no message contents; each flagged item keeps only a short private note (who it is with, as named in Telegram, and what is needed). The results are private to you on your Home, with a link back to Telegram. It never replies for you. You can turn it off at any time.' },
   REVOKED: { tone: 'good', title: 'AI triage off', body: 'Loop will stop processing message contents for this account. Anything it already flagged stays in your queue until you clear it, and no message contents were kept.' },
   NOTHING_TO_DO: { tone: 'warn', title: 'Nothing to change', body: 'AI triage was not on for this account.' },
   NOT_PERMITTED: { tone: 'crit', title: 'You cannot do this here', body: 'Your role in this organization does not include changing a communication source.' },
@@ -214,7 +214,8 @@ function BaselineSection({ view, time }: { view: ProviderConnectionView; time: T
  * CONTENT with AI -- a SEPARATE consent from connecting and from the history baseline. Connecting alone
  * is NOT this consent. Every control is a server-action form; the person and organization are the
  * session's, never the form. The copy is honest: Loop reads content, uses AI, surfaces privately, never
- * replies, and keeps no message contents.
+ * replies, and keeps no message contents. v2: the one consent covers both the recent history already
+ * imported and new messages going forward; both are read transiently and never stored.
  */
 function ContentSection({ view }: { view: ProviderConnectionView }) {
   if (view.profile.provider !== 'TELEGRAM' || !view.canDisconnect) return null;
@@ -223,8 +224,8 @@ function ContentSection({ view }: { view: ProviderConnectionView }) {
     <div className="loop-stack" data-content-authorized={on ? 'yes' : 'no'}>
       <p data-content-detail>
         {on
-          ? 'AI triage is on: Loop reads new messages and flags the few that need you, privately to you. It keeps no message contents and never replies for you.'
-          : 'Optional, and separate from connecting: let Loop use AI to read new messages and flag the few that need you. It surfaces them privately to you, keeps no message contents, and never replies for you.'}
+          ? 'AI triage is on: Loop reads your recent conversations — the last few days already imported — and new messages going forward, flagging the few things still needing you, privately to you. It reads each message only for that moment and keeps no message contents — each flagged item is a short note of who it is with (as named in Telegram) and what is needed. It never replies for you.'
+          : 'Optional, and separate from connecting: let Loop use AI to read your recent conversations (the last few days already imported) and new messages going forward, and flag the few things still needing you. It reads each message only for that moment and keeps no message contents — each flagged item is a short private note of who it is with (as named in Telegram) and what is needed. It never replies for you.'}
       </p>
       <div className="loop-btnrow">
         {on ? (

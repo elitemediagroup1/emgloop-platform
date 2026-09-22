@@ -1,31 +1,49 @@
-// The worker's CONTENT sweep: read NEW inbound message bodies TRANSIENTLY, judge each through the
-// governed AI runtime, and raise a minimized, employee-private WorkItem only when the verdict is
-// actionable. COMPLETELY INDEPENDENT of the live observation sweep and the baseline sweep: this
+// The worker's PERIODIC CONVERSATION REVIEW (v2 conversation triage). It runs autonomously on a cadence
+// (default 10 minutes; LOOP_CONNECTION_CONTENT_INTERVAL_MS, see config.ts) rather than reacting to one
+// inbound message. Each cycle discovers the conversations with ANY new activity since the content frontier
+// -- an INBOUND or OUTBOUND text message -- and for each such conversation reads a bounded recent WINDOW
+// of that conversation TRANSIENTLY and judges which obligations are STILL UNRESOLVED. A conversation with
+// NO new message since the frontier is NOT reread. Several new messages in one conversation within a cycle
+// cause ONE review (ONE AI invocation), never one call per message. OUTBOUND activity counts on purpose:
+// when Matt replies, confirms or resolves, the conversation becomes eligible so RECONCILE can close the
+// open Needs You item. Raise a minimized, employee-private WorkItem per obligation, then RECONCILE (close
+// obligations a later message answered). The one-time HISTORICAL backfill (historical-content-orchestrator.ts)
+// does the initial content seeding; after that, this periodic review maintains understanding incrementally
+// from activity. COMPLETELY INDEPENDENT of the live observation sweep and the baseline sweep: this
 // orchestrator has NO port that can write the live observation cursor (SourceConnection.cursor) or the
-// baseline checkpoint. It advances ONLY the content cursor. That independence is structural, not a
-// promise -- there is no method here that could move the other two.
+// baseline checkpoint. It advances ONLY the content cursor. That independence is structural, not a promise.
 //
 // THREE THINGS MUST HOLD BEFORE ANY BODY IS READ FOR AN EMPLOYEE:
 //   1. content authorization (dueForContent returns only authorized, not-revoked rows);
 //   2. a live, openable credential (openCredential returns non-null);
-//   and then, for each message, the governed gateway re-checks a THIRD thing itself:
+//   and then, for each conversation, the governed gateway re-checks a THIRD thing itself:
 //   3. activation, budget, this person's authority, routing and the output contract.
-// A revoke removes (1); a disconnect removes (2); a deployment with AI off makes (3) refuse. Any of
-// them yields NO WorkItem. The gateway's refusal (REFUSED_BY_LOOP) HOLDS the content cursor, so the
-// same messages are judged again once the deployment is configured -- nothing is silently skipped.
+// A revoke removes (1); a disconnect removes (2); a deployment with AI off makes (3) refuse. Any of them
+// yields NO WorkItem. The gateway's refusal (NOT_AVAILABLE) HOLDS the content cursor, so the same new
+// messages are judged again once the deployment is configured -- nothing is silently skipped. A TRANSIENT
+// model failure (FAILED: a timeout, a provider outage) holds it the same way, so an outage never consumes
+// a conversation's activity; only a PERMANENT outcome for this content (a rejected answer, a model
+// refusal) is recorded as handled and lets the frontier advance.
 //
-// THE BODY IS TRANSIENT. It is fetched, judged, and dropped. It is never persisted, never logged, and
-// never carried into the WorkItem or its evidence -- the evidence keeps only keyed identifiers, the
-// invocation id, the task version and the category. The one-line title is the model's MINIMIZED
-// paraphrase, never the message.
+// THE BODIES ARE TRANSIENT. They are fetched, judged, and dropped. They are never persisted, never logged,
+// and never carried into a WorkItem or its evidence -- the evidence keeps keyed identifiers, the invocation
+// id, the task version, the category, a truncation flag, the model's MINIMIZED paraphrase fields (topic,
+// next step, grounded deadline) and the ONE label Telegram itself gives the conversation. Each title is the
+// model's minimized paraphrase, never the message; the label is Telegram's, never the model's.
 
 import type { AdapterSession, DueContent, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
-import { AI_TASK_TELEGRAM_CONTENT_TRIAGE, type ConnectionProvider } from '@emgloop/shared';
+import {
+  AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+  AI_TRIAGE_LIMITS,
+  type ConnectionProvider,
+} from '@emgloop/shared';
 
-import { telegramContentRefs, type TelegramContentMessage } from './telegram/telegram-content';
-import type { TelegramTriageInput, TelegramTriageResult } from '@emgloop/database';
+import type { TelegramConversationTriageInput, TelegramConversationTriageResult } from '@emgloop/database';
+import type { TelegramContentMessage, TelegramConversationWindow } from './telegram/telegram-content';
 
-/** What one content page produced. Content-bearing but TRANSIENT: bodies are dropped after triage. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** What one content DISCOVERY page produced. Content-bearing but TRANSIENT: bodies are dropped after use. */
 export interface ContentObservationResult {
   readonly messages: readonly TelegramContentMessage[];
   /** The next content cursor. NEVER the live observation cursor and NEVER the baseline checkpoint. */
@@ -34,11 +52,22 @@ export interface ContentObservationResult {
   readonly floodWaitSeconds?: number;
 }
 
-/** The adapter capability the content sweep needs. TelegramAdapter satisfies this structurally. */
+/** One conversation window fetch result. A FLOOD_WAIT yields an empty window and the wait. */
+export interface ContentWindowResult {
+  readonly window: TelegramConversationWindow;
+  readonly floodWaitSeconds?: number;
+}
+
+/** The adapter capability the forward content sweep needs. TelegramAdapter satisfies this structurally. */
 export interface ContentAdapter {
   readonly provider: ConnectionProvider;
   resume(secret: string, binding: { organizationId: string; userId: string }): Promise<AdapterSession>;
   observeContent(session: AdapterSession, cursor: string | null, limit: number, now: Date): Promise<ContentObservationResult>;
+  fetchConversationWindow(
+    session: AdapterSession,
+    request: { chatId: string; floorAt: Date; maxMessages: number; tokenBudget: number },
+    now: Date,
+  ): Promise<ContentWindowResult>;
   disconnect(session: AdapterSession): Promise<void>;
 }
 
@@ -59,14 +88,24 @@ export interface ContentSweepPorts {
   openCredential(due: DueContent): Promise<string | null>;
   /** The HMAC key that turns raw chat/user ids into one-way conversation keys. */
   readonly conversationSecret: string;
-  /** Judge ONE message through the governed AI runtime. The body reaches nothing but this call. */
-  triage(principal: WorkPrincipal, input: TelegramTriageInput): Promise<TelegramTriageResult>;
-  /** Persist ONE minimized, employee-private WorkItem (WorkItemRepository.detect). No body, ever. */
+  /** Read ONE conversation window through the governed AI runtime. The bodies reach nothing but that call. */
+  triage(principal: WorkPrincipal, input: TelegramConversationTriageInput): Promise<TelegramConversationTriageResult>;
+  /** Persist ONE minimized, employee-private obligation WorkItem (WorkItemRepository.detect). No body, ever. */
   raiseWorkItem(principal: WorkPrincipal, detection: WorkItemDetection): Promise<void>;
+  /** Close obligations a later message answered (WorkItemRepository.resolveObligationsNotIn), with the guard. */
+  resolveObligations(
+    principal: WorkPrincipal,
+    subjectRef: string,
+    keptAnchorProviderEventIds: readonly string[],
+    evaluatedFloorProviderEventId: string,
+    occurredAt: Date,
+  ): Promise<void>;
   /** Advance (or hold) the content cursor. MUST NOT touch source_connections or the baseline. */
   recordContentProgress(due: DueContent, progress: ContentProgressToRecord): Promise<void>;
-  /** How many new messages one run reads per authorization (bounded). */
+  /** How many new messages one discovery page reads per authorization (bounded). */
   readonly contentPageSize: number;
+  /** How many days back the forward conversation window may reach (bounded, so a window is never unbounded). */
+  readonly contentWindowDays: number;
   now(): Date;
 }
 
@@ -76,6 +115,7 @@ export interface ContentSweepSummary {
   readonly skipped: number;
   readonly held: number;
   readonly raised: number;
+  readonly reconciled: number;
   readonly refused: number;
   readonly floodWaits: number;
 }
@@ -83,7 +123,7 @@ export interface ContentSweepSummary {
 /** The producer identity for a content-triage WorkItem. MODEL, so it is the same row a rule would write. */
 const PRODUCER_ID = AI_TASK_TELEGRAM_CONTENT_TRIAGE.taskId;
 
-/** Run one content sweep over all due authorizations. Never throws for a single authorization. */
+/** Run one forward content sweep over all due authorizations. Never throws for a single authorization. */
 export async function runContentSweep(ports: ContentSweepPorts): Promise<ContentSweepSummary> {
   const due = await ports.dueForContent();
   const now = ports.now();
@@ -91,6 +131,7 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
   let skipped = 0;
   let held = 0;
   let raised = 0;
+  let reconciled = 0;
   let refused = 0;
   let floodWaits = 0;
 
@@ -118,6 +159,7 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
         continue;
       }
 
+      // Discovery: which NEW messages have arrived since the content cursor (bounded, transient).
       let page: ContentObservationResult;
       try {
         page = await adapter.observeContent(session, item.contentCursor, ports.contentPageSize, now);
@@ -127,25 +169,33 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
         await adapter.disconnect(session).catch(() => undefined);
         continue;
       }
-      await adapter.disconnect(session).catch(() => undefined);
 
       if (page.floodWaitSeconds !== undefined) {
         const backoffUntil = new Date(now.getTime() + Math.max(0, page.floodWaitSeconds) * 1000);
         await ports.recordContentProgress(item, hold(item.contentCursor, 'FLOOD_WAIT', backoffUntil, now));
         held += 1;
         floodWaits += 1;
+        await adapter.disconnect(session).catch(() => undefined);
         continue;
       }
 
-      const outcome = await processMessages(ports, item, page.messages, now);
+      const outcome = await processConversations(ports, adapter, session, item, page.messages, now);
+      await adapter.disconnect(session).catch(() => undefined);
+
       raised += outcome.raised;
+      reconciled += outcome.reconciled;
       if (outcome.refused) refused += 1;
-      await ports.recordContentProgress(item, {
-        contentCursor: outcome.cursor,
-        failureClass: outcome.failureClass,
-        backoffUntil: null,
-        now,
-      });
+      if (outcome.floodWait) floodWaits += 1;
+
+      if (outcome.hold) {
+        // A governance refusal or a window flood HOLDS the cursor at where it was, so the same new messages
+        // are retried; nothing is silently skipped.
+        await ports.recordContentProgress(item, hold(item.contentCursor, outcome.failureClass, outcome.backoffUntil, now));
+        held += 1;
+        continue;
+      }
+      // Discovery advances the content cursor to the highest new message id seen, exactly as before.
+      await ports.recordContentProgress(item, { contentCursor: page.nextCursor, failureClass: null, backoffUntil: null, now });
       swept += 1;
     } catch {
       // A single authorization's unexpected error never breaks the sweep.
@@ -153,99 +203,184 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
     }
   }
 
-  return { due: due.length, swept, skipped, held, raised, refused, floodWaits };
+  return { due: due.length, swept, skipped, held, raised, reconciled, refused, floodWaits };
+}
+
+interface ConversationsOutcome {
+  readonly raised: number;
+  readonly reconciled: number;
+  readonly refused: boolean;
+  readonly floodWait: boolean;
+  readonly hold: boolean;
+  readonly failureClass: string | null;
+  readonly backoffUntil: Date | null;
 }
 
 /**
- * Judge each NEW inbound message with text, oldest first, advancing the content cursor as each is
- * handled. A governance refusal (REFUSED_BY_LOOP) HOLDS the cursor at the last handled message and
- * stops the run, so nothing is silently skipped while the deployment is misconfigured. A per-message
- * model outcome (a rejection, a model refusal, a transient failure) is recorded as handled and the
- * cursor advances, so one message can never wedge the sweep.
+ * For each conversation with a NEW text message (INBOUND or OUTBOUND) since the content frontier, read its
+ * bounded recent window and review it. A governance refusal (NOT_AVAILABLE), a TRANSIENT model failure
+ * (FAILED) or a window flood HOLDS the cursor (retry next run); a PERMANENT per-model outcome (a rejected
+ * answer, a model refusal) is recorded as handled. Obligations are raised, then reconciled (with the guard)
+ * -- so an outbound reply that resolves an open item closes it on this cycle.
  */
-async function processMessages(
+async function processConversations(
   ports: ContentSweepPorts,
+  adapter: ContentAdapter,
+  session: AdapterSession,
   item: DueContent,
   messages: readonly TelegramContentMessage[],
   now: Date,
-): Promise<{ cursor: string | null; raised: number; refused: boolean; failureClass: string | null }> {
-  const ordered = [...messages].sort((a, b) => Number(a.messageId) - Number(b.messageId));
-  let cursor = item.contentCursor;
-  let raised = 0;
+): Promise<ConversationsOutcome> {
   const principal: WorkPrincipal = { organizationId: item.organizationId, userId: item.userId };
+  const floorAt = new Date(now.getTime() - Math.max(1, ports.contentWindowDays) * DAY_MS);
+  let raised = 0;
+  let reconciled = 0;
 
-  for (const message of ordered) {
-    // Only NEW inbound messages with text are triaged. An outbound or empty message is "seen" and the
-    // cursor advances past it without reading it as content.
-    if (message.out || message.text.trim() === '') {
-      cursor = advance(cursor, message);
-      continue;
-    }
-
-    const refs = telegramContentRefs(message, ports.conversationSecret);
-    const result = await ports.triage(principal, {
-      providerEventId: refs.providerEventId,
-      body: message.text,
-      occurredAt: new Date(message.dateSeconds * 1000),
-    });
-
-    // GATE 3 (the gateway's own): not authorized, not activated, no configured provider, no budget.
-    // HOLD the cursor and stop -- these are deployment-level and all-or-nothing; retry next run.
-    if (result.outcome === 'NOT_AVAILABLE') {
-      // DIAGNOSTIC: keep the SPECIFIC admission refusal(s) so one sweep names the exact gate that
-      // refused, instead of collapsing every governed refusal to the opaque 'REFUSED_BY_LOOP'.
-      // `AiAdmissionRefusal` is a fixed, safe enum (NOT_AUTHORIZED / ORGANIZATION_NOT_ENABLED /
-      // TASK_NOT_ENABLED / KILL_SWITCH / CONTEXT_REFUSED / LEDGER_UNAVAILABLE / ...) -- never a
-      // message body, a secret, or provider text.
-      const failureClass =
-        result.refusals.length > 0 ? `REFUSED_BY_LOOP:${result.refusals.join('+')}` : 'REFUSED_BY_LOOP';
-      return { cursor, raised, refused: true, failureClass };
-    }
-
-    if (result.outcome === 'TRIAGED' && result.verdict.actionable) {
-      // A minimized, employee-private WorkItem. NO BODY: the title is the model's paraphrase, and the
-      // evidence carries only keyed identifiers, the invocation id, the task version and the category.
-      const detection: WorkItemDetection = {
-        // One item per conversation (rule + keyed conversation): a newer actionable message updates it
-        // rather than stacking duplicates.
-        recurrenceKey: `${PRODUCER_ID}:${refs.conversationKey}`,
-        class: 'NEEDS_YOU',
-        subjectKind: 'THREAD',
-        subjectRef: `telegram_conversation:${refs.conversationKey}`,
-        title: result.verdict.oneLineMeaning,
-        producerKind: 'MODEL',
-        producerId: PRODUCER_ID,
-        producerVersion: result.verdict.provenance.taskVersion,
-        evidence: {
-          provider: 'TELEGRAM',
-          providerEventId: refs.providerEventId,
-          conversationKey: refs.conversationKey,
-          aiInvocationId: result.verdict.provenance.invocationId,
-          aiTaskVersion: result.verdict.provenance.taskVersion,
-          category: result.verdict.category,
-        },
-        detectedAt: now,
-      };
-      await ports.raiseWorkItem(principal, detection);
-      raised += 1;
-    }
-
-    // TRIAGED (not actionable), REJECTED_OUTPUT, REFUSED_BY_MODEL and FAILED all mean the message was
-    // judged (or a model-level outcome recorded); advance so it is not re-judged.
-    cursor = advance(cursor, message);
+  // The conversations with ANY new text message (INBOUND or OUTBOUND) since the frontier, by raw chat id,
+  // oldest-first-seen for stability. The `seen` set makes several new messages in one conversation ONE review.
+  const chatIds: string[] = [];
+  const seen = new Set<string>();
+  for (const message of [...messages].sort((a, b) => Number(a.messageId) - Number(b.messageId))) {
+    if (message.text.trim() === '') continue; // any new TEXT (inbound OR outbound) is activity; non-text is not
+    if (seen.has(message.chatId)) continue;
+    seen.add(message.chatId);
+    chatIds.push(message.chatId);
   }
 
-  return { cursor, raised, refused: false, failureClass: null };
+  for (const chatId of chatIds) {
+    const fetched = await adapter.fetchConversationWindow(
+      session,
+      { chatId, floorAt, maxMessages: AI_TRIAGE_LIMITS.maxWindowMessages, tokenBudget: AI_TRIAGE_LIMITS.maxContextInputTokens },
+      now,
+    );
+    if (fetched.floodWaitSeconds !== undefined) {
+      const backoffUntil = new Date(now.getTime() + Math.max(0, fetched.floodWaitSeconds) * 1000);
+      return { raised, reconciled, refused: false, floodWait: true, hold: true, failureClass: 'FLOOD_WAIT', backoffUntil };
+    }
+    const window = fetched.window;
+    if (window.messages.length === 0) continue; // nothing to triage in this window
+
+    const truncated = window.truncation.reason !== 'NONE';
+    const evaluatedFloor = window.truncation.oldestIncludedProviderEventId ?? '';
+    const result = await ports.triage(principal, {
+      conversationKey: window.conversationKey,
+      messages: window.messages,
+      truncated,
+      evaluatedFloorProviderEventId: evaluatedFloor,
+      conversation: window.conversation,
+    });
+
+    // GATE 3 (the gateway's own): not authorized/activated, no provider, no budget. HOLD and retry.
+    if (result.outcome === 'NOT_AVAILABLE') {
+      return { raised, reconciled, refused: true, floodWait: false, hold: true, failureClass: refusalFailureClass(result.refusals), backoffUntil: null };
+    }
+    // A TRANSIENT model/runtime failure (a timeout, a provider outage after the gateway's own retries):
+    // HOLD the frontier so this conversation's activity is retried next cycle, never consumed silently --
+    // the same rule the historical sweep applies. The frontier is per authorization, so a conversation
+    // that keeps failing holds every conversation behind it; that is the chosen trade: retry over skip.
+    if (result.outcome === 'FAILED') {
+      return { raised, reconciled, refused: false, floodWait: false, hold: true, failureClass: 'TRANSIENT', backoffUntil: null };
+    }
+
+    if (result.outcome === 'TRIAGED') {
+      const subjectRef = `telegram_conversation:${window.conversationKey}`;
+      raised += await raiseObligations(ports, principal, window, result, truncated, now);
+      // Reconcile ALWAYS (even with no items: a conversation that resolved everything closes prior items).
+      await ports.resolveObligations(principal, subjectRef, result.items.map((o) => o.anchorProviderEventId), result.evaluatedFloorProviderEventId, now);
+      reconciled += 1;
+    }
+    // TRIAGED, REJECTED_OUTPUT and REFUSED_BY_MODEL all mean this conversation was judged (the latter two
+    // are permanent for this content); carry on.
+  }
+
+  return { raised, reconciled, refused: false, floodWait: false, hold: false, failureClass: null, backoffUntil: null };
 }
 
-/** The higher of the current cursor and this message's id, as a string. Monotonic, never backward. */
-function advance(cursor: string | null, message: TelegramContentMessage): string {
-  const current = cursor ? Number(cursor) : 0;
-  const id = Number(message.messageId);
-  return String(Number.isFinite(id) && id > current ? id : current);
+/**
+ * The MINIMIZED, employee-private WorkItem for one obligation. Obligation-level identity: producer +
+ * conversation + the KEYED anchor, so a re-triage updates the same row (never a duplicate) and distinct
+ * obligations get distinct rows. NO BODY: the title is the model's paraphrase of what happened; the
+ * evidence carries keyed identifiers, the invocation id, the task version, the category, a truncation
+ * flag, the model's other minimized fields (topic, next step, grounded deadline) and Telegram's OWN label
+ * for the conversation -- taken from the window the worker gathered, never from anything the model wrote.
+ * Shared by the forward and historical sweeps so both produce byte-identical rows.
+ */
+export function buildObligationDetection(
+  window: Pick<TelegramConversationWindow, 'conversationKey' | 'conversation'>,
+  obligation: {
+    readonly anchorProviderEventId: string;
+    readonly category: string;
+    readonly oneLineMeaning: string;
+    readonly topic: string;
+    readonly nextStep: string;
+    readonly deadline: string | null;
+  },
+  provenance: { readonly invocationId: string; readonly taskVersion: string },
+  truncated: boolean,
+  detectedAt: Date,
+): WorkItemDetection {
+  const { conversationKey, conversation } = window;
+  return {
+    recurrenceKey: `${PRODUCER_ID}:${conversationKey}:${obligation.anchorProviderEventId}`,
+    class: 'NEEDS_YOU',
+    subjectKind: 'THREAD',
+    subjectRef: `telegram_conversation:${conversationKey}`,
+    title: obligation.oneLineMeaning,
+    producerKind: 'MODEL',
+    producerId: PRODUCER_ID,
+    producerVersion: provenance.taskVersion,
+    evidence: {
+      provider: 'TELEGRAM',
+      // The KEYED anchor (never a raw id, never the body); the reconcile guard reads it back.
+      providerEventId: obligation.anchorProviderEventId,
+      conversationKey,
+      aiInvocationId: provenance.invocationId,
+      aiTaskVersion: provenance.taskVersion,
+      category: obligation.category,
+      contextTruncated: truncated,
+      // WHO: Telegram's own label for the conversation (minimized upstream), and whether it is a group.
+      // Null when Telegram gave none -- never invented, never a model's guess.
+      counterpartyLabel: conversation.label,
+      conversationKind: conversation.kind,
+      // WHAT / DO / WHEN: the model's minimized paraphrases (bounded and, for the deadline, grounded by
+      // the gateway's validation). Never a quote, never the message.
+      topic: obligation.topic,
+      nextStep: obligation.nextStep,
+      deadline: obligation.deadline,
+    },
+    detectedAt,
+  };
+}
+
+/** Raise (or update) one minimized, employee-private WorkItem per obligation. No body, ever. */
+async function raiseObligations(
+  ports: ContentSweepPorts,
+  principal: WorkPrincipal,
+  window: TelegramConversationWindow,
+  result: Extract<TelegramConversationTriageResult, { outcome: 'TRIAGED' }>,
+  truncated: boolean,
+  now: Date,
+): Promise<number> {
+  let raised = 0;
+  for (const obligation of result.items) {
+    await ports.raiseWorkItem(principal, buildObligationDetection(window, obligation, result.provenance, truncated, now));
+    raised += 1;
+  }
+  return raised;
 }
 
 /** A progress record that HOLDS the content cursor where it is (never advances it). */
-function hold(cursor: string | null, failureClass: string, backoffUntil: Date | null, now: Date): ContentProgressToRecord {
+function hold(cursor: string | null, failureClass: string | null, backoffUntil: Date | null, now: Date): ContentProgressToRecord {
   return { contentCursor: cursor, failureClass, backoffUntil, now };
+}
+
+
+/**
+ * DIAGNOSTIC (#320): keep the SPECIFIC admission refusal(s) so one sweep names the exact gate that refused,
+ * instead of collapsing every governed refusal to the opaque 'REFUSED_BY_LOOP'. `AiAdmissionRefusal` is a
+ * fixed, safe enum (NOT_AUTHORIZED / ORGANIZATION_NOT_ENABLED / TASK_NOT_ENABLED / KILL_SWITCH /
+ * CONTEXT_REFUSED / LEDGER_UNAVAILABLE / BUDGET_* ...) -- never a message body, a secret, or provider text.
+ */
+export function refusalFailureClass(refusals: readonly string[]): string {
+  return refusals.length > 0 ? `REFUSED_BY_LOOP:${refusals.join('+')}` : 'REFUSED_BY_LOOP';
 }

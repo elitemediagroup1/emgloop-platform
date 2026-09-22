@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { runConnectionCycle } from '@emgloop/database';
 import { TelegramAdapter, TelegramAuthError, type TelegramClientHandle, type TelegramClientPort } from '../src/telegram/telegram-adapter';
 import type { TelegramMessageFacts } from '../src/telegram/content-free-mapping';
+import type { TelegramContentMessage } from '../src/telegram/telegram-content';
 
 const SECRET = 'conv-secret';
 const NOW = new Date('2026-09-20T12:00:00Z');
@@ -22,6 +23,8 @@ function port(over: Partial<TelegramClientPort> = {}): TelegramClientPort {
     async fetchSince() { return []; },
     async fetchHistory() { return []; },
     async fetchContentSince() { return []; },
+    async fetchDialogWindow() { return []; },
+    async fetchHistoricalDialogs() { return { dialogs: [], nextCursor: null, reachedEnd: true }; },
     async close() {},
     ...over,
   };
@@ -71,6 +74,66 @@ test('disconnect closes the client', async () => {
   const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
   await adapter.disconnect(session);
   assert.equal(closed, true);
+});
+
+// --- Conversation label: Telegram's own, minimized, best-effort, never invented -------------------
+
+const content = (id: string, over: Partial<TelegramContentMessage> = {}): TelegramContentMessage => ({
+  messageId: id, chatId: 'c1', senderId: 'u2', out: false, dateSeconds: Math.floor(NOW.getTime() / 1000), text: `hello ${id}`, ...over,
+});
+const WINDOW_REQUEST = { chatId: 'c1', floorAt: new Date(0), maxMessages: 40, tokenBudget: 1_000_000 };
+
+test('fetchConversationWindow carries Telegram\'s description of the dialog into the window, minimized', async () => {
+  const adapter = new TelegramAdapter({
+    conversationSecret: SECRET,
+    port: port({
+      async fetchDialogWindow() { return [content('2'), content('1')]; },
+      async describeDialog() { return { label: '  @Dana   Reyes ', kind: 'PRIVATE' }; },
+    }),
+  });
+  const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
+  const { window } = await adapter.fetchConversationWindow(session, WINDOW_REQUEST, NOW);
+  assert.deepEqual(window.conversation, { label: 'Dana Reyes', kind: 'PRIVATE' });
+  assert.equal(window.messages.length, 2);
+  assert.ok(!JSON.stringify(window).includes('c1') && !JSON.stringify(window).includes('u2'), 'no raw ids in the window');
+});
+
+test('a client without describeDialog, or one that fails, yields NO label -- the review proceeds and nothing is invented', async () => {
+  const without = new TelegramAdapter({ conversationSecret: SECRET, port: port({ async fetchDialogWindow() { return [content('1')]; } }) });
+  const s1 = await without.resume('s', { organizationId: 'o', userId: 'u' });
+  const r1 = await without.fetchConversationWindow(s1, WINDOW_REQUEST, NOW);
+  assert.deepEqual(r1.window.conversation, { label: null, kind: null });
+  assert.equal(r1.window.messages.length, 1, 'the window is still read');
+
+  const failing = new TelegramAdapter({
+    conversationSecret: SECRET,
+    port: port({ async fetchDialogWindow() { return [content('1')]; }, async describeDialog() { throw new Error('entity lookup failed'); } }),
+  });
+  const s2 = await failing.resume('s', { organizationId: 'o', userId: 'u' });
+  const r2 = await failing.fetchConversationWindow(s2, WINDOW_REQUEST, NOW);
+  assert.deepEqual(r2.window.conversation, { label: null, kind: null }, 'a failed lookup is no label, never an error and never a guess');
+  assert.equal(r2.window.messages.length, 1);
+});
+
+test('observeHistoricalConversations carries each dialog\'s description into its window the same way', async () => {
+  const adapter = new TelegramAdapter({
+    conversationSecret: SECRET,
+    port: port({
+      async fetchHistoricalDialogs() {
+        return {
+          dialogs: [
+            { chatId: 'c1', messages: [content('1')], description: { label: 'Acme Roofing Crew', kind: 'GROUP' } },
+            { chatId: 'c9', messages: [content('5', { chatId: 'c9' })] },
+          ],
+          nextCursor: 'next',
+          reachedEnd: true,
+        };
+      },
+    }),
+  });
+  const session = await adapter.resume('s', { organizationId: 'o', userId: 'u' });
+  const page = await adapter.observeHistoricalConversations(session, { cursor: null, floorAt: new Date(0), maxConversations: 10, maxWindowMessages: 40, tokenBudget: 1_000_000 }, NOW);
+  assert.deepEqual(page.conversations.map((w) => w.conversation), [{ label: 'Acme Roofing Crew', kind: 'GROUP' }, { label: null, kind: null }]);
 });
 
 // --- Historical baseline: observeHistory over fetchHistory ---------------------------------------

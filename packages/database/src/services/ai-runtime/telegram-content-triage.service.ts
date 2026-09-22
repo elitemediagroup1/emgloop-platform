@@ -1,37 +1,44 @@
-// Telegram content triage: a conservative, employee-private verdict on ONE inbound message.
+// Telegram conversation triage: a conservative, employee-private read of a bounded recent CONVERSATION
+// that returns the obligations STILL UNRESOLVED, each anchored to the message that originated it.
 //
-// Architecture: the content-triage slice of the Telegram intelligence plan. The message body is read
-// TRANSIENTLY by the worker, judged here through the governed AI runtime, and dropped. The employee
-// authorized content processing (a separate consent), and the invocation traces to THEM -- the gateway
-// re-checks their authority, the deployment's activation, the budget, the routing and the output
-// contract; nothing here names a provider or a model.
+// Architecture: the conversation-triage slice (v2) of the Telegram intelligence plan. The message
+// bodies are read TRANSIENTLY by the worker, judged here through the governed AI runtime, and dropped.
+// The employee authorized content processing (a separate consent), and the invocation traces to THEM --
+// the gateway re-checks their authority, the deployment's activation, the budget, the routing and the
+// output contract; nothing here names a provider or a model.
 //
-// THE BODY IS NEVER LOGGED AND NEVER PERSISTED. It enters one context package, goes to one governed
-// call, and is dropped. The verdict Loop keeps is MINIMIZED: a boolean, a category, a one-line
-// paraphrase (never a quote) and a few limitations. The ledger receives ids, versions and counts
-// through the gateway -- never the message and never the verdict text (see gateway.ts, "NO BODY IS
-// PERSISTED").
+// NO BODY IS EVER LOGGED OR PERSISTED. The window enters one context package, goes to one governed call,
+// and is dropped. What Loop keeps is MINIMIZED: a category, a few short paraphrase fields (what happened,
+// the topic, the next step, a grounded deadline -- never a quote) and a KEYED anchor (never a raw id,
+// never the body) per obligation. WHO the conversation is with is NOT a model output: the worker records
+// Telegram's own label for the conversation, and there is no field here a model could put a name into.
+// The ledger receives ids, versions and counts through the gateway -- never a message and never the
+// paraphrase text (see gateway.ts).
 //
-// IT CAN ACT ON NOTHING. The task publishes no tool and produces only a JSON verdict. Turning an
-// actionable verdict into an employee-private WorkItem is the worker's job, downstream of this service;
-// this service concludes, it does not write work state.
+// IT CAN ACT ON NOTHING. The task publishes no tool and produces only a JSON list. Turning an obligation
+// into an employee-private WorkItem, and reconciling answered obligations, are the worker's job
+// downstream of this service; this service concludes, it does not write work state.
 
 import {
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+  AI_TRIAGE_LIMITS,
   type AiAdmissionRefusal,
   type AiInvocationProvenance,
   type AiOutputRejection,
   type AiTriageCategory,
 } from '@emgloop/shared';
 
-import { buildTelegramTriageContext } from './telegram-content-triage-context';
+import {
+  buildTelegramTriageContext,
+  type TelegramTriageConversation,
+  type TelegramTriageWindowMessage,
+} from './telegram-content-triage-context';
 import type { AiPrincipal, AiRunRequest, AiRunResult } from './gateway';
 import {
   TELEGRAM_CONTENT_TRIAGE_SCHEMA,
   TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
   TELEGRAM_CONTENT_TRIAGE_TEMPLATE_ID,
   TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION,
-  renderTelegramContentTriageInstructions,
 } from './templates/telegram-content-triage';
 
 export interface TelegramContentTriageRuntime {
@@ -42,29 +49,56 @@ export interface TelegramContentTriageDeps {
   readonly runtime: TelegramContentTriageRuntime;
 }
 
-/** One inbound message to judge. `body` is transient: it is dropped after the call, never persisted. */
-export interface TelegramTriageInput {
-  /** The KEYED event id (`<conversationKey>:<messageId>`), never a raw chat/message id. */
-  readonly providerEventId: string;
-  /** The message text, read transiently by the worker. */
-  readonly body: string;
-  /** When the message was sent, per the provider (UTC). */
-  readonly occurredAt: Date;
+/** One bounded conversation window to read. Bodies are transient: dropped after the call, never persisted. */
+export interface TelegramConversationTriageInput {
+  /** The one-way conversation key this window belongs to. Never a raw chat id. */
+  readonly conversationKey: string;
+  /** The window, oldest first (ordinal 1 is messages[0]). */
+  readonly messages: readonly TelegramTriageWindowMessage[];
+  /** True when older context (before the window) was not shown -- the model is told to be cautious. */
+  readonly truncated: boolean;
+  /**
+   * The keyed providerEventId of the OLDEST message in the evaluated window (the window's lower
+   * boundary). Reconcile may only close an obligation whose anchor is at or after this point; an
+   * obligation anchored OUTSIDE the window is not evidence of resolution.
+   */
+  readonly evaluatedFloorProviderEventId: string;
+  /**
+   * How Telegram names this conversation (a contact's display name, a group title), minimized by the
+   * worker. Shown to the model as context so the verdict can say who it is with; recorded by the worker
+   * from this same value, never from anything the model writes. Absent or null: no label was available.
+   */
+  readonly conversation?: TelegramTriageConversation | null;
 }
 
-/** The minimized verdict. No body, ever -- a paraphrase, a category, and provenance by keyed refs. */
-export interface TelegramTriageVerdict {
-  readonly actionable: boolean;
+/**
+ * One still-unresolved obligation, minimized. A KEYED anchor, a category and a few short paraphrase
+ * fields -- never a body, never a quote, and NO identity field: who it is with comes from Telegram's own
+ * label upstream, not from here.
+ */
+export interface TelegramTriageObligation {
+  /** The keyed providerEventId of the message that originated it. Never a raw id, never the body. */
+  readonly anchorProviderEventId: string;
   readonly category: AiTriageCategory;
+  /** WHAT specifically happened or is being asked (<=140 chars). */
   readonly oneLineMeaning: string;
-  readonly limitations: readonly string[];
-  readonly provenance: AiInvocationProvenance;
-  /** The keyed source reference, for the WorkItem's provenance. Never the body. */
-  readonly sourceRef: string;
+  /** What it is about, in a few words (<=60 chars); may be empty. */
+  readonly topic: string;
+  /** What the person needs to do (<=120 chars). */
+  readonly nextStep: string;
+  /** A time constraint written the way the conversation wrote it (<=40 chars, grounded), or null. */
+  readonly deadline: string | null;
 }
 
-export type TelegramTriageResult =
-  | { readonly outcome: 'TRIAGED'; readonly verdict: TelegramTriageVerdict }
+export type TelegramConversationTriageResult =
+  | {
+      readonly outcome: 'TRIAGED';
+      readonly items: readonly TelegramTriageObligation[];
+      readonly limitations: readonly string[];
+      readonly provenance: AiInvocationProvenance;
+      /** The window's lower boundary, echoed for the worker's reconcile guard. */
+      readonly evaluatedFloorProviderEventId: string;
+    }
   | { readonly outcome: 'NOT_AVAILABLE'; readonly refusals: readonly AiAdmissionRefusal[] }
   | { readonly outcome: 'REJECTED_OUTPUT'; readonly rejections: readonly AiOutputRejection[] }
   | { readonly outcome: 'REFUSED_BY_MODEL' }
@@ -74,27 +108,27 @@ export class TelegramContentTriageService {
   constructor(private readonly deps: TelegramContentTriageDeps) {}
 
   /**
-   * Judge one inbound message for one employee. The principal is the employee whose Telegram it is; a
-   * message that is not theirs is never handed here (the worker resolves by (org, user, provider) and
-   * fetches from their own authorized session). NOT_AVAILABLE covers every governed refusal -- not
+   * Read one conversation window for one employee. The principal is the employee whose Telegram it is;
+   * a conversation that is not theirs is never handed here (the worker resolves by (org, user, provider)
+   * and fetches from their own authorized session). NOT_AVAILABLE covers every governed refusal -- not
    * authorized, not activated, no budget, no configured provider -- and yields NO WorkItem upstream.
    */
-  async triage(principal: AiPrincipal, input: TelegramTriageInput): Promise<TelegramTriageResult> {
+  async triage(principal: AiPrincipal, input: TelegramConversationTriageInput): Promise<TelegramConversationTriageResult> {
     const built = buildTelegramTriageContext({
       organizationId: principal.organizationId,
       viewerUserId: principal.userId,
-      providerEventId: input.providerEventId,
-      body: input.body,
-      occurredAt: input.occurredAt,
+      conversationKey: input.conversationKey,
+      messages: input.messages,
+      truncated: input.truncated,
+      conversation: input.conversation ?? null,
     });
 
-    // One governed call. The gateway owns authorization, activation, budget, routing, provenance and
-    // the output contract; nothing here names a provider or a model, and the body reaches nothing but
-    // this call.
+    // One governed call. The gateway owns authorization, activation, budget, routing, provenance and the
+    // output contract; nothing here names a provider or a model, and the bodies reach nothing but this call.
     const result = await this.deps.runtime.run(principal, {
       task: AI_TASK_TELEGRAM_CONTENT_TRIAGE,
       context: built.context,
-      instructions: renderTelegramContentTriageInstructions(built.sourceRef),
+      instructions: built.instructions,
       templateId: TELEGRAM_CONTENT_TRIAGE_TEMPLATE_ID,
       templateVersion: TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION,
       schema: TELEGRAM_CONTENT_TRIAGE_SCHEMA,
@@ -106,23 +140,37 @@ export class TelegramContentTriageService {
     if (result.outcome === 'REFUSED_BY_MODEL') return { outcome: 'REFUSED_BY_MODEL' };
     if (result.outcome !== 'ANSWERED') return { outcome: 'FAILED', failure: result.failure };
 
-    // The gateway already validated the verdict against the task's schema; defend in depth anyway, and
-    // never read a half-parsed answer as a verdict.
-    const t = result.output.triage;
-    if (!t || result.output.schemaId !== TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID) {
+    // The gateway already validated the list against the task's schema (including the anchor bound);
+    // defend in depth anyway, and never read a half-parsed answer as a result.
+    const ct = result.output.conversationTriage;
+    if (!ct || result.output.schemaId !== TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID) {
       return { outcome: 'REJECTED_OUTPUT', rejections: ['WRONG_SCHEMA'] };
+    }
+
+    // Resolve each anchor ordinal to its KEYED providerEventId. An ordinal outside the evaluated window
+    // has no mapping (the gateway already rejects those) and is dropped rather than guessed.
+    const items: TelegramTriageObligation[] = [];
+    for (const obligation of ct.items) {
+      const anchorProviderEventId = built.ordinalToProviderEventId.get(obligation.anchorOrdinal);
+      if (!anchorProviderEventId) continue;
+      // Every field was already bounded (and the deadline grounded) by the gateway's validation; the
+      // slices below are defence in depth, never a substitute for it.
+      items.push({
+        anchorProviderEventId,
+        category: obligation.category,
+        oneLineMeaning: obligation.oneLineMeaning.slice(0, AI_TRIAGE_LIMITS.maxMeaningChars),
+        topic: obligation.topic.trim().slice(0, AI_TRIAGE_LIMITS.maxTopicChars),
+        nextStep: obligation.nextStep.slice(0, AI_TRIAGE_LIMITS.maxNextStepChars),
+        deadline: obligation.deadline === null ? null : obligation.deadline.trim().slice(0, AI_TRIAGE_LIMITS.maxDeadlineChars),
+      });
     }
 
     return {
       outcome: 'TRIAGED',
-      verdict: {
-        actionable: t.actionable,
-        category: t.category,
-        oneLineMeaning: t.oneLineMeaning,
-        limitations: result.output.limitations,
-        provenance: result.provenance,
-        sourceRef: built.sourceRef,
-      },
+      items,
+      limitations: result.output.limitations,
+      provenance: result.provenance,
+      evaluatedFloorProviderEventId: input.evaluatedFloorProviderEventId,
     };
   }
 }

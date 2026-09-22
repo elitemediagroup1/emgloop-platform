@@ -42,10 +42,16 @@ export interface WorkerConfig {
   readonly baselinePageSize: number;
   /** Hard ceiling on how far back any baseline may walk, whatever a checkpoint says. */
   readonly baselineMaxWindowDays: number;
-  /** How often to run a CONTENT-triage sweep (independent of the live and baseline sweeps). */
+  /** The periodic conversation-review cadence: how often the FORWARD content-triage sweep runs (independent of the live and baseline sweeps). */
   readonly contentIntervalMs: number;
-  /** How many NEW messages one content-triage run reads per authorization (bounded). */
+  /** How many NEW messages one forward content-triage run reads per authorization (bounded). */
   readonly contentPageSize: number;
+  /** How many days back a conversation window may reach (bounded, so a window is never unbounded). */
+  readonly contentWindowDays: number;
+  /** How often to run the HISTORICAL content-triage backfill sweep (independent of all other sweeps). */
+  readonly historicalContentIntervalMs: number;
+  /** How many conversations one historical backfill sweep pages per authorization (bounded). */
+  readonly historicalConversationsPerSweep: number;
   /** Control server port. */
   readonly port: number;
 }
@@ -63,8 +69,11 @@ export function readWorkerConfig(): WorkerConfig {
     baselineIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_BASELINE_INTERVAL_MS ?? '45000') || 45_000),
     baselinePageSize: Math.min(500, Math.max(1, Number(process.env.LOOP_CONNECTION_BASELINE_PAGE_SIZE ?? '200') || 200)),
     baselineMaxWindowDays: 365,
-    contentIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_CONTENT_INTERVAL_MS ?? '90000') || 90_000),
+    contentIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_CONTENT_INTERVAL_MS ?? '600000') || 600_000),
     contentPageSize: Math.min(200, Math.max(1, Number(process.env.LOOP_CONNECTION_CONTENT_PAGE_SIZE ?? '50') || 50)),
+    contentWindowDays: Math.min(365, Math.max(1, Number(process.env.LOOP_CONNECTION_CONTENT_WINDOW_DAYS ?? '30') || 30)),
+    historicalContentIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_HISTORICAL_CONTENT_INTERVAL_MS ?? '120000') || 120_000),
+    historicalConversationsPerSweep: Math.min(50, Math.max(1, Number(process.env.LOOP_CONNECTION_HISTORICAL_CONVERSATIONS_PER_SWEEP ?? '10') || 10)),
     port: Math.max(1, Number(process.env.PORT ?? '8080') || 8080),
   };
 }
