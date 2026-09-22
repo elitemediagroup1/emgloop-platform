@@ -143,7 +143,16 @@ test('fail-closed: a governed refusal raises NO WorkItem and HOLDS the cursor', 
   await runContentSweep(p);
   assert.equal(rec.raised.length, 0, 'no WorkItem when the runtime refuses');
   assert.equal(rec.progress[0]!.contentCursor, '5', 'the cursor holds at where it was');
-  assert.equal(rec.progress[0]!.failureClass, 'REFUSED_BY_LOOP');
+  assert.equal(rec.progress[0]!.failureClass, 'REFUSED_BY_LOOP:NOT_ACTIVATED', 'the specific admission refusal is preserved for diagnosis');
+});
+
+test('DIAGNOSTIC: the specific admission refusal(s) are preserved in failureClass, never a body or secret', async () => {
+  const refuse = (): TelegramTriageResult => ({ outcome: 'NOT_AVAILABLE', refusals: ['ORGANIZATION_NOT_ENABLED', 'CONTEXT_REFUSED'] });
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [msg('10')], triage: refuse });
+  await runContentSweep(p);
+  assert.equal(rec.progress[0]!.failureClass, 'REFUSED_BY_LOOP:ORGANIZATION_NOT_ENABLED+CONTEXT_REFUSED', 'the exact gate(s) are named, joined');
+  // Only the fixed AiAdmissionRefusal enum + separators -- no message body, secret or free text.
+  assert.match(rec.progress[0]!.failureClass!, /^REFUSED_BY_LOOP:[A-Z_+]+$/);
 });
 
 test('resumable across a mid-batch refusal: earlier messages are kept, the refused one is retried', async () => {
