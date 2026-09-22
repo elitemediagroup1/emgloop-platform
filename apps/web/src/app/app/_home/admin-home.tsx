@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { loadDashboard, type DashboardData } from '../admin/dashboard-data';
 import { requireWorkspace } from '../../../workspaces/guard';
 import {
@@ -407,6 +408,7 @@ export async function AdminHome({
   dayFailed,
   mail,
   mailCurrency,
+  needsYou,
 }: {
   session: AuthSession;
   principal: WorkPrincipal;
@@ -415,6 +417,12 @@ export async function AdminHome({
   dayFailed: boolean;
   mail: MailDashboard | null;
   mailCurrency: Currency;
+  /**
+   * The viewer's own "Needs you" element (content-triage), built by the page from the SAME
+   * employee-private loader and session principal the module Home uses. This Home only places it; it
+   * neither loads nor widens it, and it never folds these items into the executive feeds below.
+   */
+  needsYou?: ReactNode;
 }) {
   // The Owner/Admin/Manager home. Its authority used to come only from the
   // /app/admin layout; it now renders at /app, so it states that authority
@@ -458,10 +466,13 @@ export async function AdminHome({
           <Metrics review={review} />
         </div>
 
-        {/* THE DAY: the signed-in person's own calendar and mailbox, and nobody else's. */}
+        {/* THE DAY: the signed-in person's own calendar, mailbox and "needs you" items, and nobody
+            else's. NEEDS YOU sits here, with the person's own things, and NOT in the executive feeds:
+            it is employee-private and source-tagged, not an organization decision. */}
         <aside className="loop-exec__side" aria-label="Your day">
           {dayFailed ? <DayUnavailable /> : <DayCalendar view={day} refresh={<RefreshCalendar />} />}
           <YourMail dashboard={mailConnected ? mail : null} time={time} currency={mailCurrency} exclude={shownMail} />
+          {needsYou}
         </aside>
 
         <div className="loop-exec__bottom">

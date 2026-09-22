@@ -56,6 +56,12 @@ export default async function LoopHome() {
   const needsYou = needsYouResult.ok ? needsYouResult.value : [];
   const time = createTimeView(zone, new Date());
 
+  // NEEDS YOU is the viewer's own, for EVERY role. It is loaded once above with the session's
+  // principal and handed to whichever Home renders, so the Owner/Admin/Manager executive Home shows
+  // the same employee-private element the module Home does -- one element, one loader, one scope.
+  // (Until 2026-09-22 only ModuleHome received it, so an OWNER could never see their own items.)
+  const needsYouElement = <NeedsYou items={needsYou} time={time} />;
+
   // How current Loop is about this mailbox, in the Inbox's own words. Not connected at all: nothing.
   const connected = mail !== null && mail.mail.freshness !== 'NOT_CONNECTED' && mail.mail.freshness !== 'NOT_CONFIGURED';
   const currency = !mailResult.ok
@@ -67,14 +73,14 @@ export default async function LoopHome() {
   return (
     <WorkspaceShell session={session}>
       {role === 'ADMIN' ? (
-        <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailCurrency={currency} />
+        <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailCurrency={currency} needsYou={needsYouElement} />
       ) : (
         <ModuleHome
           name={session.name}
           groups={await navFor(session)}
           day={dayResult.ok ? <YourDay view={day} refresh={<RefreshCalendar />} /> : <DayUnavailable title="Your day" />}
           mail={<YourMail dashboard={connected ? mail : null} time={time} currency={currency} />}
-          needsYou={<NeedsYou items={needsYou} time={time} />}
+          needsYou={needsYouElement}
         />
       )}
     </WorkspaceShell>
