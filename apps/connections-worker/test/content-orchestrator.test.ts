@@ -13,6 +13,8 @@
 //   - RESOLUTION: an empty obligation list raises nothing and still reconciles (closing prior items);
 //   - two-gate fail-closed: no credential -> skipped; a governed refusal (NOT_AVAILABLE) -> no WorkItem and
 //     the content cursor HOLDS; nothing due -> nothing happens; a window flood -> hold + backoff;
+//   - a TRANSIENT model failure (FAILED) HOLDS the content frontier as TRANSIENT and the conversation is
+//     reviewed again next cycle, while REJECTED_OUTPUT / REFUSED_BY_MODEL are permanent and advance;
 //   - MINIMIZATION: a distinctive body string never reaches the WorkItem detection or its evidence, and the
 //     raw chat/sender id and any per-message sender name never appear -- only keyed refs, the model's
 //     minimized paraphrase fields, and the ONE conversation label Telegram itself gave the window;
@@ -249,6 +251,46 @@ test('DIAGNOSTIC: the specific admission refusal(s) are preserved in failureClas
   assert.equal(rec.progress[0]!.failureClass, 'REFUSED_BY_LOOP:ORGANIZATION_NOT_ENABLED+CONTEXT_REFUSED', 'the exact gate(s) are named, joined');
   // Only the fixed AiAdmissionRefusal enum + separators -- no message body, secret or free text.
   assert.match(rec.progress[0]!.failureClass!, /^REFUSED_BY_LOOP:[A-Z_+]+$/);
+});
+
+test('TRANSIENT model failure HOLDS the forward frontier as TRANSIENT, and the conversation is reviewed again next cycle', async () => {
+  // A timeout / provider outage after the gateway's own retries. The activity that made this conversation
+  // eligible must NOT be consumed: the cursor stays where it was, the failure is recorded as TRANSIENT, and
+  // the next cycle's discovery (same frontier -> same new message) reviews the conversation again.
+  const triage = (): TelegramConversationTriageResult => ({ outcome: 'FAILED', failure: 'TIMEOUT' });
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')], triage });
+  const first = await runContentSweep(p);
+  assert.equal(first.held, 1, 'the authorization is held, not swept');
+  assert.equal(first.swept, 0);
+  assert.equal(first.refused, 0, 'a transient failure is not a governance refusal');
+  assert.equal(rec.raised.length, 0, 'no WorkItem from a failed read');
+  assert.equal(rec.reconciled.length, 0, 'no reconcile either: nothing was concluded');
+  assert.equal(rec.progress.length, 1);
+  assert.equal(rec.progress[0]!.contentCursor, '5', 'the content frontier does NOT advance');
+  assert.equal(rec.progress[0]!.failureClass, 'TRANSIENT', 'recorded as TRANSIENT, exactly like the historical sweep');
+  assert.equal(rec.progress[0]!.backoffUntil, null);
+
+  // Next cycle, same frontier: the same new message is discovered and the conversation is reviewed again.
+  await runContentSweep(p);
+  assert.equal(rec.triageInputs.length, 2, 'the conversation remained eligible and was retried');
+  assert.equal(rec.progress[1]!.contentCursor, '5', 'still held while the failure persists');
+});
+
+test('PERMANENT per-model outcomes still advance: a rejected answer or a model refusal is handled, not retried', async () => {
+  // Unchanged behaviour, locked in so the TRANSIENT hold above cannot silently widen: content the model
+  // answered badly, or declined, is judged; the frontier moves on.
+  for (const result of [
+    { outcome: 'REJECTED_OUTPUT', rejections: ['WRONG_SCHEMA'] } as const,
+    { outcome: 'REFUSED_BY_MODEL' } as const,
+  ]) {
+    const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')], triage: () => result });
+    const summary = await runContentSweep(p);
+    assert.equal(summary.swept, 1, `${result.outcome}: swept`);
+    assert.equal(summary.held, 0, `${result.outcome}: not held`);
+    assert.equal(rec.raised.length, 0);
+    assert.equal(rec.progress[0]!.contentCursor, '10', `${result.outcome}: the frontier advances past the handled activity`);
+    assert.equal(rec.progress[0]!.failureClass, null);
+  }
 });
 
 test('two-gate fail-closed: no live credential is skipped, with no WorkItem and no progress write', async () => {

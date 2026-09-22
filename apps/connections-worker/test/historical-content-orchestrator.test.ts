@@ -220,11 +220,12 @@ test('historical: a TRANSIENT model failure HOLDS the frontier (retried, never l
   assert.equal(rec.progress[0]!.failureClass, 'TRANSIENT');
 });
 
-test('historical: a governed refusal HOLDS the frontier', async () => {
+test('historical: a governed refusal HOLDS the frontier and names the specific gate (#320), like the forward sweep', async () => {
   const { ports: p, rec } = ports({ triage: () => ({ outcome: 'NOT_AVAILABLE', refusals: ['NOT_ACTIVATED'] }) });
   await runHistoricalContentSweep(p);
   assert.equal(rec.progress[0]!.historicalCursor, 'C0');
-  assert.equal(rec.progress[0]!.failureClass, 'REFUSED_BY_LOOP');
+  assert.equal(rec.progress[0]!.failureClass, 'REFUSED_BY_LOOP:NOT_ACTIVATED', 'the exact admission refusal, never the opaque class');
+  assert.match(rec.progress[0]!.failureClass!, /^REFUSED_BY_LOOP:[A-Z_+]+$/, 'only the fixed enum + separators');
 });
 
 test('historical: a PERMANENT model outcome advances past the conversation and is COUNTED', async () => {

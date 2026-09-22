@@ -20,7 +20,10 @@
 //   3. activation, budget, this person's authority, routing and the output contract.
 // A revoke removes (1); a disconnect removes (2); a deployment with AI off makes (3) refuse. Any of them
 // yields NO WorkItem. The gateway's refusal (NOT_AVAILABLE) HOLDS the content cursor, so the same new
-// messages are judged again once the deployment is configured -- nothing is silently skipped.
+// messages are judged again once the deployment is configured -- nothing is silently skipped. A TRANSIENT
+// model failure (FAILED: a timeout, a provider outage) holds it the same way, so an outage never consumes
+// a conversation's activity; only a PERMANENT outcome for this content (a rejected answer, a model
+// refusal) is recorded as handled and lets the frontier advance.
 //
 // THE BODIES ARE TRANSIENT. They are fetched, judged, and dropped. They are never persisted, never logged,
 // and never carried into a WorkItem or its evidence -- the evidence keeps keyed identifiers, the invocation
@@ -215,9 +218,10 @@ interface ConversationsOutcome {
 
 /**
  * For each conversation with a NEW text message (INBOUND or OUTBOUND) since the content frontier, read its
- * bounded recent window and review it. A governance refusal (NOT_AVAILABLE) or a window flood HOLDS the
- * cursor (retry next run); a per-model outcome is recorded as handled. Obligations are raised, then
- * reconciled (with the guard) -- so an outbound reply that resolves an open item closes it on this cycle.
+ * bounded recent window and review it. A governance refusal (NOT_AVAILABLE), a TRANSIENT model failure
+ * (FAILED) or a window flood HOLDS the cursor (retry next run); a PERMANENT per-model outcome (a rejected
+ * answer, a model refusal) is recorded as handled. Obligations are raised, then reconciled (with the guard)
+ * -- so an outbound reply that resolves an open item closes it on this cycle.
  */
 async function processConversations(
   ports: ContentSweepPorts,
@@ -270,6 +274,13 @@ async function processConversations(
     if (result.outcome === 'NOT_AVAILABLE') {
       return { raised, reconciled, refused: true, floodWait: false, hold: true, failureClass: refusalFailureClass(result.refusals), backoffUntil: null };
     }
+    // A TRANSIENT model/runtime failure (a timeout, a provider outage after the gateway's own retries):
+    // HOLD the frontier so this conversation's activity is retried next cycle, never consumed silently --
+    // the same rule the historical sweep applies. The frontier is per authorization, so a conversation
+    // that keeps failing holds every conversation behind it; that is the chosen trade: retry over skip.
+    if (result.outcome === 'FAILED') {
+      return { raised, reconciled, refused: false, floodWait: false, hold: true, failureClass: 'TRANSIENT', backoffUntil: null };
+    }
 
     if (result.outcome === 'TRIAGED') {
       const subjectRef = `telegram_conversation:${window.conversationKey}`;
@@ -278,7 +289,8 @@ async function processConversations(
       await ports.resolveObligations(principal, subjectRef, result.items.map((o) => o.anchorProviderEventId), result.evaluatedFloorProviderEventId, now);
       reconciled += 1;
     }
-    // TRIAGED, REJECTED_OUTPUT, REFUSED_BY_MODEL and FAILED all mean this conversation was judged; carry on.
+    // TRIAGED, REJECTED_OUTPUT and REFUSED_BY_MODEL all mean this conversation was judged (the latter two
+    // are permanent for this content); carry on.
   }
 
   return { raised, reconciled, refused: false, floodWait: false, hold: false, failureClass: null, backoffUntil: null };

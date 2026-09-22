@@ -5934,7 +5934,8 @@ model SourceContentAuthorization {
   /// observation cursor or the baseline checkpoint.
   contentCursor    String?
   lastRunAt        DateTime?
-  /// Last failure class (AUTH | TRANSIENT | PROVIDER_NOT_CONFIGURED | REFUSED_BY_LOOP | FLOOD_WAIT).
+  /// Last failure class (AUTH | TRANSIENT | PROVIDER_NOT_CONFIGURED | FLOOD_WAIT | REFUSED_BY_LOOP, the
+  /// last suffixed with the specific AiAdmissionRefusal(s), e.g. REFUSED_BY_LOOP:BUDGET_TASK_EXHAUSTED).
   /// A class, never a provider's text and never a secret.
   lastFailureClass String?
   /// Set when the provider asked Loop to wait (FLOOD_WAIT): the sweep holds until then.
@@ -5955,7 +5956,8 @@ model SourceContentAuthorization {
   /// The oldest conversation activity the backfill has reached so far (honest progress). Never content.
   historicalOldestReachedAt  DateTime?
   historicalLastRunAt        DateTime?
-  /// Last historical failure class (AUTH | TRANSIENT | PROVIDER_NOT_CONFIGURED | REFUSED_BY_LOOP | FLOOD_WAIT).
+  /// Last historical failure class (AUTH | TRANSIENT | PROVIDER_NOT_CONFIGURED | FLOOD_WAIT | REFUSED_BY_LOOP,
+  /// the last suffixed with the specific AiAdmissionRefusal(s), exactly as `lastFailureClass` above).
   historicalLastFailureClass String?
   /// Set when the provider asked Loop to wait (FLOOD_WAIT): the historical sweep holds until then.
   historicalBackoffUntil     DateTime?

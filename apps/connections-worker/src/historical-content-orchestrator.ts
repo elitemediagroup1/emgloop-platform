@@ -27,7 +27,7 @@ import { AI_TRIAGE_LIMITS, type ConnectionProvider } from '@emgloop/shared';
 
 import type { TelegramConversationTriageInput, TelegramConversationTriageResult } from '@emgloop/database';
 import type { TelegramConversationWindow } from './telegram/telegram-content';
-import { buildObligationDetection } from './content-orchestrator';
+import { buildObligationDetection, refusalFailureClass } from './content-orchestrator';
 
 /** A bounded page of conversations for the historical backfill, each already gathered into its window. */
 export interface HistoricalConversationsResult {
@@ -251,8 +251,9 @@ async function processHistoricalPage(
     });
 
     if (result.outcome === 'NOT_AVAILABLE') {
-      // Deployment-level (all-or-nothing): HOLD the whole page, retry when configured.
-      return { raised, reconciled, failedItemsDelta, hold: true, failureClass: 'REFUSED_BY_LOOP', oldestReachedAt: oldestReachedOf(oldestReachedMs) };
+      // Deployment-level (all-or-nothing): HOLD the whole page, retry when configured. The SPECIFIC
+      // admission refusal is preserved (#320), exactly as the forward sweep records it.
+      return { raised, reconciled, failedItemsDelta, hold: true, failureClass: refusalFailureClass(result.refusals), oldestReachedAt: oldestReachedOf(oldestReachedMs) };
     }
     if (result.outcome === 'FAILED') {
       // A transient model/runtime failure: HOLD the page so this conversation is retried, never lost.
