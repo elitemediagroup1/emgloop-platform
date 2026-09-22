@@ -43,14 +43,21 @@ function evidenceCategory(evidence: unknown): string | null {
   return typeof c === 'string' && c.trim() !== '' ? c : null;
 }
 
+/** The database the loader reads through. Injected only by tests; production is the shared client. */
+type NeedsYouDb = ConstructorParameters<typeof WorkItemRepository>[0];
+
 /**
  * The employee's open, MODEL-produced NEEDS_YOU items from a background source, newest first. It reads
  * only their own rows (both ids), filters to what a model raised (producerKind MODEL) and to the
  * provider its evidence names, and shows nothing a rule raised (the mail surface owns those).
+ *
+ * THE SCOPE IS THE PRINCIPAL'S, WHATEVER THEIR ROLE. An OWNER's Home hands in the OWNER's own
+ * (organizationId, userId), and gets the OWNER's own items -- never another employee's. The
+ * repository scopes at the data layer; nothing here can name a wider scope.
  */
-export async function loadNeedsYou(principal: WorkPrincipal, limit = 6): Promise<NeedsYouItem[]> {
+export async function loadNeedsYou(principal: WorkPrincipal, limit = 6, db: NeedsYouDb = prisma): Promise<NeedsYouItem[]> {
   try {
-    const items = await new WorkItemRepository(prisma).items(principal, { state: 'OPEN', limit: 200 });
+    const items = await new WorkItemRepository(db).items(principal, { state: 'OPEN', limit: 200 });
     const out: NeedsYouItem[] = [];
     for (const item of items) {
       if (item.class !== 'NEEDS_YOU' || item.producerKind !== 'MODEL') continue;
