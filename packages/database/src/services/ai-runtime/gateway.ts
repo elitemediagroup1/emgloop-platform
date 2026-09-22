@@ -205,12 +205,16 @@ export class InMemoryAiUsageLedger implements AiUsageLedger {
   }
 
   private snapshot(organizationId: string, taskId: string): AiSpendSnapshot {
+    // Same rule as the durable ledger's sumSpend: a reconciled call counts what the provider actually
+    // reported (null usage means it processed nothing -- ZERO, not its reserve); only a call still
+    // outstanding (reconciliation === null) holds its estimate. Falling back to the estimate for a
+    // reconciled-but-unreported call is phantom spend.
     const sum = (rows: InMemoryAiUsageLedger['calls']) =>
       rows.reduce(
         (acc, r) => ({
           invocations: acc.invocations + 1,
-          inputTokens: acc.inputTokens + (r.reconciliation?.usage?.inputTokens ?? r.estimate.inputTokens),
-          outputTokens: acc.outputTokens + (r.reconciliation?.usage?.outputTokens ?? r.estimate.outputTokens),
+          inputTokens: acc.inputTokens + (r.reconciliation ? (r.reconciliation.usage?.inputTokens ?? 0) : r.estimate.inputTokens),
+          outputTokens: acc.outputTokens + (r.reconciliation ? (r.reconciliation.usage?.outputTokens ?? 0) : r.estimate.outputTokens),
         }),
         { invocations: 0, inputTokens: 0, outputTokens: 0 },
       );
