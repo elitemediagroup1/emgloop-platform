@@ -23,9 +23,10 @@
 // messages are judged again once the deployment is configured -- nothing is silently skipped.
 //
 // THE BODIES ARE TRANSIENT. They are fetched, judged, and dropped. They are never persisted, never logged,
-// and never carried into a WorkItem or its evidence -- the evidence keeps only keyed identifiers, the
-// invocation id, the task version, the category and a truncation flag. Each title is the model's
-// MINIMIZED paraphrase, never the message.
+// and never carried into a WorkItem or its evidence -- the evidence keeps keyed identifiers, the invocation
+// id, the task version, the category, a truncation flag, the model's MINIMIZED paraphrase fields (topic,
+// next step, grounded deadline) and the ONE label Telegram itself gives the conversation. Each title is the
+// model's minimized paraphrase, never the message; the label is Telegram's, never the model's.
 
 import type { AdapterSession, DueContent, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
 import {
@@ -262,6 +263,7 @@ async function processConversations(
       messages: window.messages,
       truncated,
       evaluatedFloorProviderEventId: evaluatedFloor,
+      conversation: window.conversation,
     });
 
     // GATE 3 (the gateway's own): not authorized/activated, no provider, no budget. HOLD and retry.
@@ -285,17 +287,27 @@ async function processConversations(
 /**
  * The MINIMIZED, employee-private WorkItem for one obligation. Obligation-level identity: producer +
  * conversation + the KEYED anchor, so a re-triage updates the same row (never a duplicate) and distinct
- * obligations get distinct rows. NO BODY: the title is the model's paraphrase; the evidence carries only
- * keyed identifiers, the invocation id, the task version, the category and a truncation flag. Shared by the
- * forward and historical sweeps so both produce byte-identical rows.
+ * obligations get distinct rows. NO BODY: the title is the model's paraphrase of what happened; the
+ * evidence carries keyed identifiers, the invocation id, the task version, the category, a truncation
+ * flag, the model's other minimized fields (topic, next step, grounded deadline) and Telegram's OWN label
+ * for the conversation -- taken from the window the worker gathered, never from anything the model wrote.
+ * Shared by the forward and historical sweeps so both produce byte-identical rows.
  */
 export function buildObligationDetection(
-  conversationKey: string,
-  obligation: { readonly anchorProviderEventId: string; readonly category: string; readonly oneLineMeaning: string },
+  window: Pick<TelegramConversationWindow, 'conversationKey' | 'conversation'>,
+  obligation: {
+    readonly anchorProviderEventId: string;
+    readonly category: string;
+    readonly oneLineMeaning: string;
+    readonly topic: string;
+    readonly nextStep: string;
+    readonly deadline: string | null;
+  },
   provenance: { readonly invocationId: string; readonly taskVersion: string },
   truncated: boolean,
   detectedAt: Date,
 ): WorkItemDetection {
+  const { conversationKey, conversation } = window;
   return {
     recurrenceKey: `${PRODUCER_ID}:${conversationKey}:${obligation.anchorProviderEventId}`,
     class: 'NEEDS_YOU',
@@ -314,6 +326,15 @@ export function buildObligationDetection(
       aiTaskVersion: provenance.taskVersion,
       category: obligation.category,
       contextTruncated: truncated,
+      // WHO: Telegram's own label for the conversation (minimized upstream), and whether it is a group.
+      // Null when Telegram gave none -- never invented, never a model's guess.
+      counterpartyLabel: conversation.label,
+      conversationKind: conversation.kind,
+      // WHAT / DO / WHEN: the model's minimized paraphrases (bounded and, for the deadline, grounded by
+      // the gateway's validation). Never a quote, never the message.
+      topic: obligation.topic,
+      nextStep: obligation.nextStep,
+      deadline: obligation.deadline,
     },
     detectedAt,
   };
@@ -330,7 +351,7 @@ async function raiseObligations(
 ): Promise<number> {
   let raised = 0;
   for (const obligation of result.items) {
-    await ports.raiseWorkItem(principal, buildObligationDetection(window.conversationKey, obligation, result.provenance, truncated, now));
+    await ports.raiseWorkItem(principal, buildObligationDetection(window, obligation, result.provenance, truncated, now));
     raised += 1;
   }
   return raised;

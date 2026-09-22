@@ -665,10 +665,14 @@ export {
 export {
   buildTelegramTriageContext,
   estimateTelegramTriageContextTokens,
+  formatTriageConversationContent,
   formatTriageMessageContent,
+  TELEGRAM_CONVERSATION_KINDS,
   TELEGRAM_TRIAGE_CONTEXT_LIMITS,
+  type TelegramConversationKind,
   type TelegramTriageContext,
   type TelegramTriageContextInput,
+  type TelegramTriageConversation,
   type TelegramTriageWindowMessage,
 } from './services/ai-runtime/telegram-content-triage-context';
 export {

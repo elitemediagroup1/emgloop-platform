@@ -6359,7 +6359,10 @@ model WorkItem {
   producerKind    String
   producerId      String
   producerVersion String
-  /// References to the facts that raised it: thread, message, event ids. Never content.
+  /// References to the facts that raised it (thread, message, event ids -- keyed, never raw) plus, for a
+  /// MODEL producer, its MINIMIZED paraphrase fields (a topic, a next step, a grounded deadline) and the
+  /// source's own label for the conversation (e.g. Telegram's contact name / group title). Never a
+  /// message body, never a quotation.
   evidence        Json   @default("{}")
 
   /// A Stage 2 seam, always NULL here: a short quotation that makes "why this matters"

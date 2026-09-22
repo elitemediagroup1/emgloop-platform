@@ -17,7 +17,7 @@ import { AI_TRIAGE_LIMITS, conversationKeyOf } from '@emgloop/shared';
 import { estimateTelegramTriageContextTokens } from '@emgloop/database';
 import type { DueHistoricalContent, TelegramConversationTriageInput, TelegramConversationTriageResult, TelegramTriageObligation, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
 
-import { gatherConversationWindow, type TelegramContentMessage, type TelegramConversationWindow } from '../src/telegram/telegram-content';
+import { gatherConversationWindow, minimizeDisplayLabel, type TelegramContentMessage, type TelegramConversationWindow } from '../src/telegram/telegram-content';
 import { runHistoricalContentSweep, type HistoricalContentSweepPorts, type HistoricalContentAdapter, type HistoricalConversationsResult } from '../src/historical-content-orchestrator';
 
 const SECRET = 'conv-secret';
@@ -83,8 +83,33 @@ test('adaptive window: a 40-message worst-case chunk stays within the reviewed 8
     tokenBudget: AI_TRIAGE_LIMITS.maxContextInputTokens,
   });
   assert.equal(w.messages.length, AI_TRIAGE_LIMITS.maxWindowMessages, 'all 40 short messages fit');
-  const estimate = estimateTelegramTriageContextTokens({ organizationId: ORG, viewerUserId: USER, conversationKey: w.conversationKey, messages: w.messages, truncated: true });
+  const estimate = estimateTelegramTriageContextTokens({ organizationId: ORG, viewerUserId: USER, conversationKey: w.conversationKey, messages: w.messages, truncated: true, conversation: w.conversation });
   assert.ok(estimate <= AI_TRIAGE_LIMITS.maxContextInputTokens, `the 40-message chunk (${estimate} tok) stays within the ${AI_TRIAGE_LIMITS.maxContextInputTokens} cap`);
+});
+
+test('adaptive window: the ONE label Loop keeps is Telegram\'s, minimized -- trimmed, collapsed, no @handle, no phone, capped; never invented', async () => {
+  assert.equal(minimizeDisplayLabel('  @Dana   Reyes  '), 'Dana Reyes');
+  assert.equal(minimizeDisplayLabel('Acme Roofing Crew'), 'Acme Roofing Crew');
+  assert.equal(minimizeDisplayLabel('+1 415 555 0134'), null, 'a phone number is not a label');
+  assert.equal(minimizeDisplayLabel('   '), null);
+  assert.equal(minimizeDisplayLabel(undefined), null);
+  assert.equal(minimizeDisplayLabel(12345), null, 'an id is not a label');
+  assert.equal(minimizeDisplayLabel('x'.repeat(200))!.length, AI_TRIAGE_LIMITS.maxCounterpartyLabelChars, 'capped');
+
+  const w = gatherConversationWindow(RAW_CHAT, [cand(2), cand(1)], SECRET, {
+    floorAt: new Date(0), maxMessages: 40, tokenBudget: 1_000_000, conversation: { label: '  @Dana   Reyes ', kind: 'PRIVATE' },
+  });
+  assert.deepEqual(w.conversation, { label: 'Dana Reyes', kind: 'PRIVATE' }, 'the window carries the minimized label');
+  const none = gatherConversationWindow(RAW_CHAT, [cand(2), cand(1)], SECRET, { floorAt: new Date(0), maxMessages: 40, tokenBudget: 1_000_000 });
+  assert.deepEqual(none.conversation, { label: null, kind: null }, 'no description from the provider -> no label, not a guess');
+});
+
+test('adaptive window: a sender label rides along ONLY for an inbound message in a GROUP -- never in a private chat, never for the person\'s own messages', async () => {
+  const candidates = [cand(3, { senderLabel: 'Bob Chen' }), cand(2, { out: true, senderLabel: 'Me Myself' }), cand(1, { senderLabel: '  Ann  ' })];
+  const group = gatherConversationWindow(RAW_CHAT, candidates, SECRET, { floorAt: new Date(0), maxMessages: 40, tokenBudget: 1_000_000, conversation: { label: 'Crew', kind: 'GROUP' } });
+  assert.deepEqual(group.messages.map((m) => m.senderLabel ?? null), ['Ann', null, 'Bob Chen'], 'inbound group messages are attributed; the outbound one is not');
+  const priv = gatherConversationWindow(RAW_CHAT, candidates, SECRET, { floorAt: new Date(0), maxMessages: 40, tokenBudget: 1_000_000, conversation: { label: 'Bob Chen', kind: 'PRIVATE' } });
+  assert.deepEqual(priv.messages.map((m) => m.senderLabel ?? null), [null, null, null], 'in a private chat the counterparty IS the conversation label');
 });
 
 // --- The historical sweep ---------------------------------------------------------------------
@@ -93,9 +118,9 @@ const PROVENANCE = {
   invocationId: 'inv-hist',
   organizationId: ORG,
   taskId: 'telegram.content.triage',
-  taskVersion: '2.0.0',
+  taskVersion: '2.1.0',
   templateId: 'telegram-content-triage',
-  templateVersion: '3',
+  templateVersion: '4',
   routingPolicyVersion: 'routing.test',
   requestedModel: { providerId: 'anthropic', modelId: 'claude-opus-5' },
   servedModel: 'claude-opus-5',
@@ -109,9 +134,14 @@ const PROVENANCE = {
   recordedAt: '2026-09-21T10:00:00Z',
 };
 
-function windowOf(key: string, ids: number[], bodyOver: Record<number, string> = {}): TelegramConversationWindow {
+function windowOf(key: string, ids: number[], bodyOver: Record<number, string> = {}, label: string | null = null): TelegramConversationWindow {
   const messages = ids.map((id) => ({ providerEventId: `${key}:${id}`, direction: 'INBOUND' as const, occurredAt: new Date((BASE + id) * 1000), text: bodyOver[id] ?? `body-${id}` }));
-  return { conversationKey: key, messages, truncation: { includedCount: messages.length, reason: 'NONE', oldestIncludedProviderEventId: messages.length ? messages[0]!.providerEventId : null } };
+  return {
+    conversationKey: key,
+    conversation: { label, kind: label ? 'PRIVATE' : null },
+    messages,
+    truncation: { includedCount: messages.length, reason: 'NONE', oldestIncludedProviderEventId: messages.length ? messages[0]!.providerEventId : null },
+  };
 }
 
 function triaged(items: readonly TelegramTriageObligation[], evaluatedFloor: string): TelegramConversationTriageResult {
@@ -150,7 +180,8 @@ function ports(opts: {
       adapterFor: (p) => (p === 'TELEGRAM' ? adapter : null),
       openCredential: async () => 'session',
       conversationSecret: SECRET,
-      triage: async (_principal, input) => (opts.triage ?? ((i) => triaged([{ anchorProviderEventId: `${input.conversationKey}:10`, category: 'REQUEST', oneLineMeaning: 'do the thing' }], i.evaluatedFloorProviderEventId)))(input),
+      triage: async (_principal, input) =>
+        (opts.triage ?? ((i) => triaged([{ anchorProviderEventId: `${input.conversationKey}:10`, category: 'REQUEST', oneLineMeaning: 'do the thing', topic: '', nextStep: 'Do it', deadline: null }], i.evaluatedFloorProviderEventId)))(input),
       raiseWorkItem: async (_principal: WorkPrincipal, detection) => {
         rec.raised.push(detection);
       },
@@ -216,12 +247,14 @@ test('historical: a FLOOD_WAIT holds the frontier and backs off', async () => {
   assert.ok(rec.progress[0]!.backoffUntil instanceof Date);
 });
 
-test('historical: no raw body reaches the WorkItem, and there is NO port that could write the other three cursors', async () => {
+test('historical: no raw body reaches the WorkItem, Telegram\'s label does, and there is NO port that could write the other three cursors', async () => {
   const MARKER = 'HISTMARKER-never-persist-88';
-  const page: HistoricalConversationsResult = { conversations: [windowOf(CONV_KEY, [10], { 10: MARKER })], nextCursor: 'C-next', reachedEnd: true };
+  const page: HistoricalConversationsResult = { conversations: [windowOf(CONV_KEY, [10], { 10: MARKER }, 'Dana Reyes')], nextCursor: 'C-next', reachedEnd: true };
   const { ports: p, rec } = ports({ page });
   await runHistoricalContentSweep(p);
   assert.ok(!JSON.stringify(rec.raised).includes(MARKER), 'the raw body never reaches the WorkItem');
+  assert.equal((rec.raised[0]!.evidence as any).counterpartyLabel, 'Dana Reyes', 'the historical seed carries the same conversation label the forward path does');
+  assert.equal((rec.raised[0]!.evidence as any).nextStep, 'Do it');
   const keys = Object.keys(p);
   assert.ok(!keys.includes('recordCycle'), 'no live-cursor writer');
   assert.ok(!keys.includes('recordBaselineProgress'), 'no baseline writer');

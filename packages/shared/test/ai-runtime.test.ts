@@ -38,6 +38,7 @@ import {
   AI_TASK_MAIL_REPLY_DRAFT,
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
+  aiTermsInText,
   AI_ACTIVATION_OFF,
   AI_NO_SPEND,
   admitAiInvocation,
@@ -652,68 +653,127 @@ test('fence: provider conversation state is not Loop memory', () => {
   }
 });
 
-// --- v2 conversation triage: parse + validate ----------------------------------------------------
+// --- v2.1 conversation triage: parse + validate --------------------------------------------------
 
-test('telegram content triage is version 2.0.0 with the v2 output schema, and the limits are the reviewed ones', () => {
-  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.version, '2.0.0');
-  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.outputSchemaId, 'telegram-content-triage.v2');
+test('telegram content triage is version 2.1.0 with the v3 output schema, and the limits are the reviewed ones', () => {
+  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.version, '2.1.0');
+  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.outputSchemaId, 'telegram-content-triage.v3');
   assert.equal(AI_TRIAGE_LIMITS.maxObligations, 8);
   assert.equal(AI_TRIAGE_LIMITS.maxWindowMessages, 40);
   assert.equal(AI_TRIAGE_LIMITS.maxContextInputTokens, 8000);
+  // The v2.1 bounds: each field is small on purpose -- a card, not a transcript.
+  assert.equal(AI_TRIAGE_LIMITS.maxMeaningChars, 140);
+  assert.equal(AI_TRIAGE_LIMITS.maxTopicChars, 60);
+  assert.equal(AI_TRIAGE_LIMITS.maxNextStepChars, 120);
+  assert.equal(AI_TRIAGE_LIMITS.maxDeadlineChars, 40);
+  assert.equal(AI_TRIAGE_LIMITS.maxCounterpartyLabelChars, 60);
+});
+
+test('aiTermsInText: one tokenizer for both sides of a grounding check', () => {
+  assert.deepEqual(aiTermsInText('Send it back by Thursday? Oct 3, 2026-10-03.'), ['send', 'it', 'back', 'by', 'thursday', 'oct', '3', '2026', '10', '03']);
+  assert.deepEqual(aiTermsInText('Dana Reyes — Nürnberg'), ['dana', 'reyes', 'nürnberg'], 'letters in any script, lower-cased');
+  assert.deepEqual(aiTermsInText('   '), []);
 });
 
 {
   const TASK = AI_TASK_TELEGRAM_CONTENT_TRIAGE;
-  // Three message context items -> chunkSize 3, so a valid anchor is in [1..3].
-  const REFS = new Set(['telegram_message:ck:1', 'telegram_message:ck:2', 'telegram_message:ck:3']);
-  const EV = { figures: new Map<string, ReadonlySet<number>>(), dates: new Set<string>() };
-  const parseV2 = (items: unknown, limitations: string[] = []) => parseAiTaskOutput({ schemaId: 'telegram-content-triage.v2', items, limitations });
-  const validateV2 = (items: unknown, limitations: string[] = []) => {
-    const out = parseV2(items, limitations);
-    assert.ok(out, 'the v2 shape parses');
-    return validateAiTaskOutput(out!, TASK, REFS, EV);
+  // Three MESSAGE context items plus ONE conversation-level item (the label header or the truncation
+  // note). Anchors number the messages only, so a valid anchor is in [1..3] -- the fourth ref must not
+  // widen the range.
+  const REFS = new Set(['telegram_conversation:ck', 'telegram_message:ck:1', 'telegram_message:ck:2', 'telegram_message:ck:3']);
+  // What the model was shown, as tokens: the only thing a deadline may be made of.
+  const TERMS = new Set(aiTermsInText('Dana Reyes: Can you send the signed roofing contract back by Thursday? Also the cap is 35 for 2026-10-03.'));
+  const EV = { figures: new Map<string, ReadonlySet<number>>(), dates: new Set<string>(), terms: TERMS };
+  const parseV3 = (items: unknown, limitations: string[] = []) => parseAiTaskOutput({ schemaId: 'telegram-content-triage.v3', items, limitations });
+  const validateV3 = (items: unknown, limitations: string[] = [], evidence = EV) => {
+    const out = parseV3(items, limitations);
+    assert.ok(out, 'the v3 shape parses');
+    return validateAiTaskOutput(out!, TASK, REFS, evidence);
   };
-  const item = (over: Record<string, unknown> = {}) => ({ anchorOrdinal: 2, category: 'REQUEST', oneLineMeaning: 'confirm the cap', ...over });
-
-  test('v2: a well-formed obligation list validates, and an EMPTY list is valid (nothing unresolved)', () => {
-    assert.deepEqual(validateV2([item()]), []);
-    assert.deepEqual(validateV2([]), [], 'an empty list is a valid answer, and raises nothing');
-    assert.deepEqual(validateV2([item({ anchorOrdinal: 1 }), item({ anchorOrdinal: 3, category: 'DEADLINE' })]), []);
+  const item = (over: Record<string, unknown> = {}) => ({
+    anchorOrdinal: 2,
+    category: 'REQUEST',
+    oneLineMeaning: 'Dana Reyes asks for the signed roofing contract back',
+    topic: 'Roofing contract',
+    nextStep: 'Send the countersigned contract',
+    deadline: 'by Thursday',
+    ...over,
   });
 
-  test('v2: over the obligation cap is rejected', () => {
+  test('v2.1: a well-formed, specific obligation validates; an EMPTY list is valid; a null deadline is valid', () => {
+    assert.deepEqual(validateV3([item()]), []);
+    assert.deepEqual(validateV3([]), [], 'an empty list is a valid answer, and raises nothing');
+    assert.deepEqual(validateV3([item({ anchorOrdinal: 1, deadline: null }), item({ anchorOrdinal: 3, category: 'DEADLINE', topic: '' })]), []);
+  });
+
+  test('v2.1: the business-context fields are bounded -- meaning 140, topic 60, next step 120, deadline 40', () => {
+    assert.ok(validateV3([item({ oneLineMeaning: 'x'.repeat(AI_TRIAGE_LIMITS.maxMeaningChars + 1) })]).includes('ANSWER_TOO_LONG'));
+    assert.ok(validateV3([item({ topic: 'x'.repeat(AI_TRIAGE_LIMITS.maxTopicChars + 1) })]).includes('ANSWER_TOO_LONG'));
+    assert.ok(validateV3([item({ nextStep: 'x'.repeat(AI_TRIAGE_LIMITS.maxNextStepChars + 1) })]).includes('ANSWER_TOO_LONG'));
+    // A deadline over 40 chars, made only of grounded words, is rejected for its LENGTH.
+    const long = Array.from({ length: 12 }, () => 'thursday').join(' ');
+    assert.ok(long.length > AI_TRIAGE_LIMITS.maxDeadlineChars);
+    assert.ok(validateV3([item({ deadline: long })]).includes('ANSWER_TOO_LONG'));
     const nine = Array.from({ length: AI_TRIAGE_LIMITS.maxObligations + 1 }, () => item());
-    assert.ok(validateV2(nine).includes('ANSWER_TOO_LONG'));
+    assert.ok(validateV3(nine).includes('ANSWER_TOO_LONG'));
   });
 
-  test('v2: a one-line meaning over 140 chars is rejected', () => {
-    assert.ok(validateV2([item({ oneLineMeaning: 'x'.repeat(AI_TRIAGE_LIMITS.maxMeaningChars + 1) })]).includes('ANSWER_TOO_LONG'));
+  test('v2.1: a next step is the point of an item -- empty is rejected, and missing does not even parse', () => {
+    assert.ok(validateV3([item({ nextStep: '   ' })]).includes('EMPTY_ANSWER'));
+    assert.equal(parseV3([{ anchorOrdinal: 1, category: 'REQUEST', oneLineMeaning: 'x', deadline: null }]), null, 'missing nextStep: a partial obligation');
+    // The topic is optional and defaults to empty; a non-string topic or deadline is not the shape asked for.
+    assert.equal(parseV3([{ anchorOrdinal: 1, category: 'REQUEST', oneLineMeaning: 'x', nextStep: 'y', deadline: null }])!.conversationTriage!.items[0]!.topic, '');
+    assert.equal(parseV3([item({ topic: 7 })]), null);
+    assert.equal(parseV3([item({ deadline: 7 })]), null);
   });
 
-  test('v2: a NONE category, or an unknown category, is rejected (the list holds only real obligations)', () => {
-    assert.ok(validateV2([item({ category: 'NONE' })]).includes('WRONG_SCHEMA'));
-    assert.ok(validateV2([item({ category: 'MADE_UP' })]).includes('WRONG_SCHEMA'));
+  test('v2.1: NO INVENTED DEADLINE -- a deadline must be restated from the conversation, never produced', () => {
+    assert.deepEqual(validateV3([item({ deadline: 'by Thursday' })]), [], 'the conversation said Thursday');
+    assert.deepEqual(validateV3([item({ deadline: 'Thursday?' })]), [], 'punctuation and case do not matter: one tokenizer');
+    assert.deepEqual(validateV3([item({ deadline: '2026-10-03' })]), [], 'an ISO date the conversation wrote');
+    assert.ok(validateV3([item({ deadline: 'by Friday' })]).includes('UNGROUNDED_DEADLINE'), 'nobody wrote Friday');
+    assert.ok(validateV3([item({ deadline: 'end of month' })]).includes('UNGROUNDED_DEADLINE'), 'nobody wrote that either');
+    assert.ok(validateV3([item({ deadline: '2026-10-04' })]).includes('UNGROUNDED_DEADLINE'), 'a date one day off is a produced date');
+    assert.ok(validateV3([item({ deadline: '' })]).includes('WRONG_SCHEMA'), 'an empty deadline is null, not a blank');
+    // Evidence that grounds nothing grounds no deadline: fail closed, not open.
+    const ungroundedEvidence = { figures: new Map<string, ReadonlySet<number>>(), dates: new Set<string>() };
+    assert.ok(validateV3([item({ deadline: 'by Thursday' })], [], ungroundedEvidence).includes('UNGROUNDED_DEADLINE'));
+    assert.deepEqual(validateV3([item({ deadline: null })], [], ungroundedEvidence), [], 'and a null deadline needs no grounding');
   });
 
-  test('v2: an anchor ordinal outside [1..chunkSize] is rejected', () => {
-    assert.ok(validateV2([item({ anchorOrdinal: 0 })]).includes('WRONG_SCHEMA'), 'below range');
-    assert.ok(validateV2([item({ anchorOrdinal: 4 })]).includes('WRONG_SCHEMA'), 'above the 3 supplied refs');
-    assert.ok(validateV2([item({ anchorOrdinal: 1.5 })]).includes('WRONG_SCHEMA'), 'a non-integer ordinal');
+  test('v2.1: NO INVENTED IDENTITY -- there is no who/counterparty field; an extra one is dropped, never read', () => {
+    const parsed = parseV3([item({ who: 'Acme Roofing', counterparty: 'Dana', company: 'Acme' })]);
+    assert.ok(parsed);
+    const keys = Object.keys(parsed!.conversationTriage!.items[0]!).sort();
+    assert.deepEqual(keys, ['anchorOrdinal', 'category', 'deadline', 'nextStep', 'oneLineMeaning', 'topic']);
+    for (const forbidden of ['who', 'counterparty', 'company', 'name']) assert.ok(!keys.includes(forbidden), forbidden);
   });
 
-  test('v2: a partial obligation does not parse as one (the whole answer is rejected)', () => {
-    assert.equal(parseV2([{ anchorOrdinal: 1, category: 'REQUEST' }]), null, 'missing oneLineMeaning');
-    assert.equal(parseV2([{ anchorOrdinal: 'two', category: 'REQUEST', oneLineMeaning: 'x' }]), null, 'non-numeric anchor');
+  test('v2.1: a NONE category, or an unknown category, is rejected (the list holds only real obligations)', () => {
+    assert.ok(validateV3([item({ category: 'NONE' })]).includes('WRONG_SCHEMA'));
+    assert.ok(validateV3([item({ category: 'MADE_UP' })]).includes('WRONG_SCHEMA'));
   });
 
-  test('v2: a TRIAGE answer that also smuggles a draft is rejected', () => {
-    const out = parseAiTaskOutput({ schemaId: 'telegram-content-triage.v2', items: [item()], limitations: [], draft: { body: 'send money' } });
+  test('v2.1: an anchor ordinal outside [1..messages] is rejected, and a conversation-level ref does not widen the range', () => {
+    assert.ok(validateV3([item({ anchorOrdinal: 0 })]).includes('WRONG_SCHEMA'), 'below range');
+    assert.deepEqual(validateV3([item({ anchorOrdinal: 3 })]), [], 'the last message is anchorable');
+    assert.ok(validateV3([item({ anchorOrdinal: 4 })]).includes('WRONG_SCHEMA'), 'four refs were supplied, but only three are messages');
+    assert.ok(validateV3([item({ anchorOrdinal: 1.5 })]).includes('WRONG_SCHEMA'), 'a non-integer ordinal');
+  });
+
+  test('v2.1: a partial obligation does not parse as one (the whole answer is rejected)', () => {
+    assert.equal(parseV3([{ anchorOrdinal: 1, category: 'REQUEST', nextStep: 'y', deadline: null }]), null, 'missing oneLineMeaning');
+    assert.equal(parseV3([{ anchorOrdinal: 'two', category: 'REQUEST', oneLineMeaning: 'x', nextStep: 'y', deadline: null }]), null, 'non-numeric anchor');
+  });
+
+  test('v2.1: a TRIAGE answer that also smuggles a draft is rejected', () => {
+    const out = parseAiTaskOutput({ schemaId: 'telegram-content-triage.v3', items: [item()], limitations: [], draft: { body: 'send money' } });
     assert.ok(out, 'parses');
     assert.ok(validateAiTaskOutput(out!, TASK, REFS, EV).includes('WRONG_SCHEMA'));
   });
 
-  test('v2: triage limitations bounds are enforced (6 items, 200 chars each)', () => {
-    assert.ok(validateV2([item()], Array.from({ length: AI_TRIAGE_LIMITS.maxLimitations + 1 }, (_, i) => `n${i}`)).includes('ANSWER_TOO_LONG'));
-    assert.ok(validateV2([item()], ['x'.repeat(AI_TRIAGE_LIMITS.maxLimitationChars + 1)]).includes('ANSWER_TOO_LONG'));
+  test('v2.1: triage limitations bounds are enforced (6 items, 200 chars each)', () => {
+    assert.ok(validateV3([item()], Array.from({ length: AI_TRIAGE_LIMITS.maxLimitations + 1 }, (_, i) => `n${i}`)).includes('ANSWER_TOO_LONG'));
+    assert.ok(validateV3([item()], ['x'.repeat(AI_TRIAGE_LIMITS.maxLimitationChars + 1)]).includes('ANSWER_TOO_LONG'));
   });
 }

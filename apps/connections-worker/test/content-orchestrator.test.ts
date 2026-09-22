@@ -1,4 +1,4 @@
-// The FORWARD content sweep (v2 conversation triage), with fakes for every port. No network, no
+// The FORWARD content sweep (v2.1 conversation triage), with fakes for every port. No network, no
 // database, no model -- a fake triage stands in for the governed runtime, exactly as a
 // RecordedModelProvider would behind it.
 //
@@ -14,14 +14,17 @@
 //   - two-gate fail-closed: no credential -> skipped; a governed refusal (NOT_AVAILABLE) -> no WorkItem and
 //     the content cursor HOLDS; nothing due -> nothing happens; a window flood -> hold + backoff;
 //   - MINIMIZATION: a distinctive body string never reaches the WorkItem detection or its evidence, and the
-//     raw chat/sender id and any display name never appear -- only keyed refs do;
+//     raw chat/sender id and any per-message sender name never appear -- only keyed refs, the model's
+//     minimized paraphrase fields, and the ONE conversation label Telegram itself gave the window;
+//   - WHO IS NEVER INVENTED: the label on the item is the adapter's (Telegram's), never the model's; with no
+//     label from Telegram the item carries none;
 //   - the sweep has NO port that could write the live observation cursor or the baseline checkpoint.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { conversationKeyOf } from '@emgloop/shared';
-import type { DueContent, TelegramConversationTriageInput, TelegramConversationTriageResult, TelegramTriageObligation, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
+import type { DueContent, TelegramConversationTriageInput, TelegramConversationTriageResult, TelegramTriageObligation, TelegramTriageConversation, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
 
 import { runContentSweep, type ContentSweepPorts, type ContentAdapter, type ContentObservationResult, type ContentWindowResult } from '../src/content-orchestrator';
 import type { TelegramContentMessage, TelegramConversationWindow } from '../src/telegram/telegram-content';
@@ -32,21 +35,31 @@ const USER = 'u1';
 const RAW_CHAT = 'rawchat-778';
 const RAW_SENDER = 'rawsender-991';
 const DISPLAY_NAME = 'Alice Displayname';
+const GROUP_SENDER = 'Bob Groupsender';
 const CONV_KEY = conversationKeyOf('conversation', RAW_CHAT, SECRET);
+const NO_LABEL: TelegramTriageConversation = { label: null, kind: null };
 
 function newMsg(id: string, over: Partial<TelegramContentMessage> = {}): TelegramContentMessage {
   return { messageId: id, chatId: RAW_CHAT, senderId: RAW_SENDER, out: false, dateSeconds: 1_700_000_000 + Number(id), text: `body-${id}`, ...over };
 }
 
-function windowOf(ids: string[], reason: TelegramConversationWindow['truncation']['reason'] = 'NONE', bodyOver: Record<string, string> = {}): TelegramConversationWindow {
+function windowOf(
+  ids: string[],
+  reason: TelegramConversationWindow['truncation']['reason'] = 'NONE',
+  bodyOver: Record<string, string> = {},
+  conversation: TelegramTriageConversation = NO_LABEL,
+  senderLabel?: string,
+): TelegramConversationWindow {
   const messages = ids.map((id) => ({
     providerEventId: `${CONV_KEY}:${id}`,
     direction: 'INBOUND' as const,
     occurredAt: new Date((1_700_000_000 + Number(id)) * 1000),
     text: bodyOver[id] ?? `body-${id}`,
+    ...(senderLabel ? { senderLabel } : {}),
   }));
   return {
     conversationKey: CONV_KEY,
+    conversation,
     messages,
     truncation: { includedCount: messages.length, reason, oldestIncludedProviderEventId: messages.length ? messages[0]!.providerEventId : null },
   };
@@ -68,6 +81,7 @@ function windowForChat(rawChat: string, ids: string[]): TelegramConversationWind
   }));
   return {
     conversationKey: convKey,
+    conversation: NO_LABEL,
     messages,
     truncation: { includedCount: messages.length, reason: 'NONE', oldestIncludedProviderEventId: messages.length ? messages[0]!.providerEventId : null },
   };
@@ -77,9 +91,9 @@ const PROVENANCE = {
   invocationId: 'inv-777',
   organizationId: ORG,
   taskId: 'telegram.content.triage',
-  taskVersion: '2.0.0',
+  taskVersion: '2.1.0',
   templateId: 'telegram-content-triage',
-  templateVersion: '3',
+  templateVersion: '4',
   routingPolicyVersion: 'routing.test',
   requestedModel: { providerId: 'anthropic', modelId: 'claude-opus-5' },
   servedModel: 'claude-opus-5',
@@ -97,10 +111,19 @@ function triaged(items: readonly TelegramTriageObligation[], evaluatedFloor: str
   return { outcome: 'TRIAGED', items, limitations: [], provenance: PROVENANCE, evaluatedFloorProviderEventId: evaluatedFloor };
 }
 
-const obligation = (anchorId: string, oneLineMeaning: string, category: TelegramTriageObligation['category'] = 'REQUEST'): TelegramTriageObligation => ({
+const obligation = (
+  anchorId: string,
+  oneLineMeaning: string,
+  category: TelegramTriageObligation['category'] = 'REQUEST',
+  over: Partial<Pick<TelegramTriageObligation, 'topic' | 'nextStep' | 'deadline'>> = {},
+): TelegramTriageObligation => ({
   anchorProviderEventId: `${CONV_KEY}:${anchorId}`,
   category,
   oneLineMeaning,
+  topic: '',
+  nextStep: 'Reply in Telegram',
+  deadline: null,
+  ...over,
 });
 
 interface Recorder {
@@ -262,32 +285,68 @@ test('an observeContent flood-wait holds the cursor and backs off', async () => 
   assert.equal(rec.progress[0]!.failureClass, 'FLOOD_WAIT');
 });
 
-test('MINIMIZATION + keyed identity: no body, no raw id, no name; keyed refs and provenance present', async () => {
+test('MINIMIZATION + keyed identity: no body, no raw id, no per-message sender name; keyed refs, the minimized fields and provenance present', async () => {
   const MARKER = 'BODYMARKER-should-never-persist-55';
-  const window = (): ContentWindowResult => ({ window: windowOf(['42'], 'TOKENS', { '42': MARKER }) });
+  // A GROUP window: Telegram labelled the conversation, and the inbound message carries its sender's label
+  // (context for the model). The obligation the model returns is specific and dated.
+  const window = (): ContentWindowResult => ({ window: windowOf(['42'], 'TOKENS', { '42': MARKER }, { label: DISPLAY_NAME, kind: 'GROUP' }, GROUP_SENDER) });
   const triage = (i: TelegramConversationTriageInput): TelegramConversationTriageResult =>
-    triaged([obligation('42', 'Client asks to reschedule the call')], i.evaluatedFloorProviderEventId);
-  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('42')], window, triage });
+    triaged(
+      [obligation('42', 'Client asks to reschedule the call', 'REQUEST', { topic: 'Kickoff call', nextStep: 'Propose a new time', deadline: 'this week' })],
+      i.evaluatedFloorProviderEventId,
+    );
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('42', { senderLabel: GROUP_SENDER })], window, triage });
   await runContentSweep(p);
   assert.equal(rec.raised.length, 1);
   const detection = rec.raised[0]!.detection;
   const json = JSON.stringify(detection);
 
+  // NEVER: the body, the raw ids, a per-message sender name.
   assert.ok(!json.includes(MARKER), 'the raw message body never reaches the WorkItem');
-  assert.equal(detection.title, 'Client asks to reschedule the call');
   assert.equal((detection.evidence as any).body, undefined, 'the evidence has no body field');
   assert.ok(!json.includes(RAW_CHAT), 'the raw chat id never reaches the WorkItem');
   assert.ok(!json.includes(RAW_SENDER), 'the raw sender id never reaches the WorkItem');
-  assert.ok(!json.includes(DISPLAY_NAME), 'no display name is stored (keyed identifiers only)');
+  assert.ok(!json.includes(GROUP_SENDER), 'a per-message sender label is context only; it is never stored');
+  // ALWAYS: keyed refs, provenance, and the minimized fields a person can act on.
+  assert.equal(detection.title, 'Client asks to reschedule the call', 'WHAT, as the model paraphrased it');
   assert.equal((detection.evidence as any).providerEventId, `${CONV_KEY}:42`, 'the keyed anchor is the evidence');
   assert.equal((detection.evidence as any).conversationKey, CONV_KEY);
   assert.equal(detection.subjectRef, `telegram_conversation:${CONV_KEY}`);
   assert.equal((detection.evidence as any).aiInvocationId, 'inv-777');
-  assert.equal((detection.evidence as any).aiTaskVersion, '2.0.0');
+  assert.equal((detection.evidence as any).aiTaskVersion, '2.1.0');
   assert.equal((detection.evidence as any).category, 'REQUEST');
   assert.equal((detection.evidence as any).contextTruncated, true);
+  assert.equal((detection.evidence as any).topic, 'Kickoff call');
+  assert.equal((detection.evidence as any).nextStep, 'Propose a new time', 'what the person must DO');
+  assert.equal((detection.evidence as any).deadline, 'this week', 'the (grounded) deadline');
+  // WHO: the ONE label Telegram gave the conversation -- and only that.
+  assert.equal((detection.evidence as any).counterpartyLabel, DISPLAY_NAME, "Telegram's own conversation label is kept");
+  assert.equal((detection.evidence as any).conversationKind, 'GROUP');
   assert.equal(detection.class, 'NEEDS_YOU');
   assert.equal(detection.producerKind, 'MODEL');
+});
+
+test('WHO is Telegram\'s, never the model\'s: the label comes from the gathered window, and with no label the item carries none (nothing invented)', async () => {
+  // The model has no field for identity (TelegramTriageObligation has no who/counterparty), so the only
+  // way a label reaches the item is the adapter's window. Here Telegram gave none.
+  const window = (): ContentWindowResult => ({ window: windowOf(['7'], 'NONE', {}, NO_LABEL) });
+  const triage = (i: TelegramConversationTriageInput): TelegramConversationTriageResult =>
+    triaged([obligation('7', 'Someone asks for the paperwork', 'REQUEST', { nextStep: 'Send it' })], i.evaluatedFloorProviderEventId);
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('7')], window, triage });
+  await runContentSweep(p);
+  assert.equal(rec.raised.length, 1);
+  const evidence = rec.raised[0]!.detection.evidence as any;
+  assert.equal(evidence.counterpartyLabel, null, 'no label from Telegram -> none on the item, not a guess');
+  assert.equal(evidence.conversationKind, null);
+  assert.ok(!('who' in (rec.triageInputs[0] as any)), 'the triage input names the conversation only through `conversation`');
+  assert.deepEqual(rec.triageInputs[0]!.conversation, NO_LABEL, 'and the model was told nothing about who it is with');
+
+  // With a label, the triage input carries exactly the window's label (Telegram's), and the item records it.
+  const labelled = (): ContentWindowResult => ({ window: windowOf(['8'], 'NONE', {}, { label: DISPLAY_NAME, kind: 'PRIVATE' }) });
+  const { ports: p2, rec: rec2 } = ports({ due: [due('5')], messages: [newMsg('8')], window: labelled, triage });
+  await runContentSweep(p2);
+  assert.deepEqual(rec2.triageInputs[0]!.conversation, { label: DISPLAY_NAME, kind: 'PRIVATE' });
+  assert.equal((rec2.raised[0]!.detection.evidence as any).counterpartyLabel, DISPLAY_NAME);
 });
 
 test('the sweep has NO port that could write the live observation cursor or the baseline checkpoint', async () => {

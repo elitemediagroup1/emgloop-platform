@@ -16,6 +16,8 @@
 import type { AdapterSession, ConnectionAdapter, ObservationResult } from '@emgloop/database';
 import type { CapabilityStatus } from '@emgloop/shared';
 
+import type { TelegramConversationKind } from '@emgloop/database';
+
 import { telegramCursorAfter, telegramMessageToConversationEvent, type TelegramMessageFacts } from './content-free-mapping';
 import { gatherConversationWindow, telegramContentCursorAfter, type TelegramContentMessage, type TelegramConversationWindow } from './telegram-content';
 import type { BaselineObservationResult } from '../baseline-orchestrator';
@@ -25,9 +27,24 @@ import type { HistoricalConversationsResult } from '../historical-content-orches
 /** Raw candidates fetched per dialog for the adaptive window. Larger than the count cap so the window's own bounds bind. */
 const WINDOW_FETCH_LIMIT = 200;
 
+/**
+ * How the provider describes ONE conversation: its display label as the person sees it in Telegram (a
+ * contact's name, a group's title) and whether it is a private chat or a group. RAW here; the adaptive
+ * window minimizes it, and nothing keeps the raw value.
+ */
+export interface TelegramDialogDescription {
+  readonly label: string | null;
+  readonly kind: TelegramConversationKind | null;
+}
+
 /** A bounded page of conversations from the historical dialog frontier, each with its raw content candidates. */
 export interface TelegramHistoricalDialogsPage {
-  readonly dialogs: readonly { readonly chatId: string; readonly messages: readonly TelegramContentMessage[] }[];
+  readonly dialogs: readonly {
+    readonly chatId: string;
+    readonly messages: readonly TelegramContentMessage[];
+    /** The provider's description of the dialog, when it had one. Minimized downstream, never stored raw. */
+    readonly description?: TelegramDialogDescription | null;
+  }[];
   /** The next dialog-pagination frontier. NEVER the live cursor, the baseline checkpoint or the forward contentCursor. */
   readonly nextCursor: string | null;
   /** True when the pager reached the end of the dialog list (no more conversations to page). */
@@ -89,6 +106,12 @@ export interface TelegramClientPort {
    * when Telegram asks Loop to wait.
    */
   fetchHistoricalDialogs(handle: TelegramClientHandle, request: { cursor: string | null; floorAt: Date; maxConversations: number; perDialogLimit: number }, now: Date): Promise<TelegramHistoricalDialogsPage>;
+  /**
+   * How Telegram describes ONE conversation (its display label and whether it is a private chat or a
+   * group), for the forward window. Optional and best-effort: a client without it, or one that fails,
+   * yields NO label -- a review never waits on a label and a label is never invented.
+   */
+  describeDialog?(handle: TelegramClientHandle, chatId: string, now: Date): Promise<TelegramDialogDescription | null>;
   /** Close the socket. Never modifies the Telegram account. */
   close(handle: TelegramClientHandle): Promise<void>;
   /** Revoke this authorization at Telegram (used only by disconnect). Optional; best-effort. */
@@ -231,10 +254,21 @@ export class TelegramAdapter implements ConnectionAdapter {
       if (err instanceof TelegramFloodWaitError) return { window: emptyWindow(request.chatId, this.conversationSecret), floodWaitSeconds: err.retryAfterSeconds };
       throw err;
     }
+    // The label is best-effort and never blocks the review: a client without `describeDialog`, or one
+    // that fails, means no label -- and no label is ever invented.
+    let description: TelegramDialogDescription | null = null;
+    if (this.port.describeDialog) {
+      try {
+        description = await this.port.describeDialog(handle, request.chatId, now);
+      } catch {
+        description = null;
+      }
+    }
     const window = gatherConversationWindow(request.chatId, candidates, this.conversationSecret, {
       floorAt: request.floorAt,
       maxMessages: request.maxMessages,
       tokenBudget: request.tokenBudget,
+      conversation: description,
     });
     return { window };
   }
@@ -276,6 +310,7 @@ export class TelegramAdapter implements ConnectionAdapter {
           floorAt: request.floorAt,
           maxMessages: request.maxWindowMessages,
           tokenBudget: request.tokenBudget,
+          conversation: dialog.description ?? null,
         }),
       )
       // A conversation with no text in the window (all media, or all below the floor) has nothing to triage.
@@ -295,5 +330,5 @@ function emptyWindow(chatId: string, conversationSecret: string): TelegramConver
     maxMessages: 1,
     tokenBudget: 0,
   }).conversationKey;
-  return { conversationKey, messages: [], truncation: { includedCount: 0, reason: 'NONE', oldestIncludedProviderEventId: null } };
+  return { conversationKey, conversation: { label: null, kind: null }, messages: [], truncation: { includedCount: 0, reason: 'NONE', oldestIncludedProviderEventId: null } };
 }

@@ -61,7 +61,7 @@ export const BASELINE_OUTCOME_MESSAGES: Readonly<Record<SourceBaselineActionOutc
 
 /** What each content-processing outcome tells the person. AI CONTENT processing is a separate consent. */
 export const CONTENT_OUTCOME_MESSAGES: Readonly<Record<SourceContentActionOutcome, { readonly tone: Tone; readonly title: string; readonly body: string }>> = {
-  AUTHORIZED: { tone: 'good', title: 'AI triage on', body: 'Loop will read your recent conversations — the last few days already imported — and new messages going forward, and use AI to flag the few things still needing you. It reads each message only for that moment and stores no message contents; the results are private to you on your Home, with a link back to Telegram. It never replies for you. You can turn it off at any time.' },
+  AUTHORIZED: { tone: 'good', title: 'AI triage on', body: 'Loop will read your recent conversations — the last few days already imported — and new messages going forward, and use AI to flag the few things still needing you. It reads each message only for that moment and stores no message contents; each flagged item keeps only a short private note (who it is with, as named in Telegram, and what is needed). The results are private to you on your Home, with a link back to Telegram. It never replies for you. You can turn it off at any time.' },
   REVOKED: { tone: 'good', title: 'AI triage off', body: 'Loop will stop processing message contents for this account. Anything it already flagged stays in your queue until you clear it, and no message contents were kept.' },
   NOTHING_TO_DO: { tone: 'warn', title: 'Nothing to change', body: 'AI triage was not on for this account.' },
   NOT_PERMITTED: { tone: 'crit', title: 'You cannot do this here', body: 'Your role in this organization does not include changing a communication source.' },
@@ -224,8 +224,8 @@ function ContentSection({ view }: { view: ProviderConnectionView }) {
     <div className="loop-stack" data-content-authorized={on ? 'yes' : 'no'}>
       <p data-content-detail>
         {on
-          ? 'AI triage is on: Loop reads your recent conversations — the last few days already imported — and new messages going forward, flagging the few things still needing you, privately to you. It reads each message only for that moment, keeps no message contents, and never replies for you.'
-          : 'Optional, and separate from connecting: let Loop use AI to read your recent conversations (the last few days already imported) and new messages going forward, and flag the few things still needing you. It reads each message only for that moment, keeps no message contents, surfaces the results privately to you, and never replies for you.'}
+          ? 'AI triage is on: Loop reads your recent conversations — the last few days already imported — and new messages going forward, flagging the few things still needing you, privately to you. It reads each message only for that moment and keeps no message contents — each flagged item is a short note of who it is with (as named in Telegram) and what is needed. It never replies for you.'
+          : 'Optional, and separate from connecting: let Loop use AI to read your recent conversations (the last few days already imported) and new messages going forward, and flag the few things still needing you. It reads each message only for that moment and keeps no message contents — each flagged item is a short private note of who it is with (as named in Telegram) and what is needed. It never replies for you.'}
       </p>
       <div className="loop-btnrow">
         {on ? (

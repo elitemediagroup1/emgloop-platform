@@ -17,8 +17,10 @@
 // holds and backs off. The backfill reaches COMPLETE when the pager reaches the end of the dialog list.
 //
 // THE BODIES ARE TRANSIENT. Fetched, judged, dropped. Never persisted, never logged, never in a WorkItem or
-// its evidence -- the evidence keeps only keyed identifiers, the invocation id, the task version, the
-// category and a truncation flag. Each title is the model's MINIMIZED paraphrase, never the message.
+// its evidence -- the evidence keeps keyed identifiers, the invocation id, the task version, the category,
+// a truncation flag, the model's MINIMIZED paraphrase fields (topic, next step, grounded deadline) and the
+// ONE label Telegram itself gives the conversation (see buildObligationDetection). Each title is the
+// model's minimized paraphrase, never the message; the label is Telegram's, never the model's.
 
 import type { AdapterSession, DueHistoricalContent, HistoricalContentState, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
 import { AI_TRIAGE_LIMITS, type ConnectionProvider } from '@emgloop/shared';
@@ -245,6 +247,7 @@ async function processHistoricalPage(
       messages: window.messages,
       truncated,
       evaluatedFloorProviderEventId: window.truncation.oldestIncludedProviderEventId ?? '',
+      conversation: window.conversation,
     });
 
     if (result.outcome === 'NOT_AVAILABLE') {
@@ -264,7 +267,7 @@ async function processHistoricalPage(
     // TRIAGED: raise obligations, then reconcile (close what a later message answered, within the window).
     const subjectRef = `telegram_conversation:${window.conversationKey}`;
     for (const obligation of result.items) {
-      await ports.raiseWorkItem(principal, buildObligationDetection(window.conversationKey, obligation, result.provenance, truncated, now));
+      await ports.raiseWorkItem(principal, buildObligationDetection(window, obligation, result.provenance, truncated, now));
       raised += 1;
     }
     await ports.resolveObligations(principal, subjectRef, result.items.map((o) => o.anchorProviderEventId), result.evaluatedFloorProviderEventId, now);

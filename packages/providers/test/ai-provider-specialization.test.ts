@@ -70,9 +70,9 @@ test('the shipped routing policy conforms for every task, and Case Explanation n
   assert.equal(caseExplanation.departure, 'NONE');
   // The version moves for a reviewed change to the policy: a new route (GM-3's Mail Reply Draft, the
   // content-triage slice's Telegram Content Triage) OR a task version bump (v2 conversation triage moved
-  // the Telegram entry's taskVersion). Case Explanation's own entry is untouched, which is what the
-  // assertions around this one check.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-21.6');
+  // the Telegram entry's taskVersion, and v2.1 moved it again). Case Explanation's own entry is untouched,
+  // which is what the assertions around this one check.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-22.7');
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.providerChoiceReason, undefined);
   // The fallback is another provider, and that is not a departure.
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.fallback!.providerId, 'openai');
@@ -218,15 +218,17 @@ test('fence: no task definition carries a provider or model, only a capability',
   }
 });
 
-test('telegram content triage: task 2.0.0 and its routing entry move in lockstep, at the pinned policy version', () => {
+test('telegram content triage: task 2.1.0 and its routing entry move in lockstep, at the pinned policy version', () => {
   const task = AI_TASKS.find((t) => t.taskId === 'telegram.content.triage')!;
-  assert.equal(task.version, '2.0.0', 'the v2 conversation-triage task');
+  assert.equal(task.version, '2.1.0', 'the v2.1 conversation-triage task (minimized business context)');
   const entry = AI_ROUTING_POLICY.tasks['telegram.content.triage']!;
   assert.equal(entry.taskVersion, task.version, 'the routing taskVersion tracks the task in lockstep');
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-21.6', 'the policy version increment for v2');
-  // The reviewed models were NOT changed by v2: only two ids appear, both from the verified catalog.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-22.7', 'the policy version increment for v2.1');
+  // The reviewed models were NOT changed: only two ids appear, both from the verified catalog. Nor was
+  // the output ceiling: the richer answer still fits the same small ceiling.
   assert.equal(entry.primary.modelId, 'claude-opus-5');
   assert.equal(entry.fallback!.modelId, 'gpt-6-astra');
+  assert.equal(entry.primary.maxOutputTokens, 1_000, 'the output ceiling was NOT raised for v2.1');
 });
 
 test('telegram content triage: the whole-context input cap sits INSIDE the budget class per-call cap (the budget class was NOT raised)', () => {

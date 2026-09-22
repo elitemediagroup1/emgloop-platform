@@ -8,9 +8,12 @@
 // output contract; nothing here names a provider or a model.
 //
 // NO BODY IS EVER LOGGED OR PERSISTED. The window enters one context package, goes to one governed call,
-// and is dropped. What Loop keeps is MINIMIZED: a category, a one-line paraphrase (never a quote) and a
-// KEYED anchor (never a raw id, never the body) per obligation. The ledger receives ids, versions and
-// counts through the gateway -- never a message and never the paraphrase text (see gateway.ts).
+// and is dropped. What Loop keeps is MINIMIZED: a category, a few short paraphrase fields (what happened,
+// the topic, the next step, a grounded deadline -- never a quote) and a KEYED anchor (never a raw id,
+// never the body) per obligation. WHO the conversation is with is NOT a model output: the worker records
+// Telegram's own label for the conversation, and there is no field here a model could put a name into.
+// The ledger receives ids, versions and counts through the gateway -- never a message and never the
+// paraphrase text (see gateway.ts).
 //
 // IT CAN ACT ON NOTHING. The task publishes no tool and produces only a JSON list. Turning an obligation
 // into an employee-private WorkItem, and reconciling answered obligations, are the worker's job
@@ -25,7 +28,11 @@ import {
   type AiTriageCategory,
 } from '@emgloop/shared';
 
-import { buildTelegramTriageContext, type TelegramTriageWindowMessage } from './telegram-content-triage-context';
+import {
+  buildTelegramTriageContext,
+  type TelegramTriageConversation,
+  type TelegramTriageWindowMessage,
+} from './telegram-content-triage-context';
 import type { AiPrincipal, AiRunRequest, AiRunResult } from './gateway';
 import {
   TELEGRAM_CONTENT_TRIAGE_SCHEMA,
@@ -56,14 +63,31 @@ export interface TelegramConversationTriageInput {
    * obligation anchored OUTSIDE the window is not evidence of resolution.
    */
   readonly evaluatedFloorProviderEventId: string;
+  /**
+   * How Telegram names this conversation (a contact's display name, a group title), minimized by the
+   * worker. Shown to the model as context so the verdict can say who it is with; recorded by the worker
+   * from this same value, never from anything the model writes. Absent or null: no label was available.
+   */
+  readonly conversation?: TelegramTriageConversation | null;
 }
 
-/** One still-unresolved obligation, minimized. A KEYED anchor, a category, a paraphrase -- never a body. */
+/**
+ * One still-unresolved obligation, minimized. A KEYED anchor, a category and a few short paraphrase
+ * fields -- never a body, never a quote, and NO identity field: who it is with comes from Telegram's own
+ * label upstream, not from here.
+ */
 export interface TelegramTriageObligation {
   /** The keyed providerEventId of the message that originated it. Never a raw id, never the body. */
   readonly anchorProviderEventId: string;
   readonly category: AiTriageCategory;
+  /** WHAT specifically happened or is being asked (<=140 chars). */
   readonly oneLineMeaning: string;
+  /** What it is about, in a few words (<=60 chars); may be empty. */
+  readonly topic: string;
+  /** What the person needs to do (<=120 chars). */
+  readonly nextStep: string;
+  /** A time constraint written the way the conversation wrote it (<=40 chars, grounded), or null. */
+  readonly deadline: string | null;
 }
 
 export type TelegramConversationTriageResult =
@@ -96,6 +120,7 @@ export class TelegramContentTriageService {
       conversationKey: input.conversationKey,
       messages: input.messages,
       truncated: input.truncated,
+      conversation: input.conversation ?? null,
     });
 
     // One governed call. The gateway owns authorization, activation, budget, routing, provenance and the
@@ -128,10 +153,15 @@ export class TelegramContentTriageService {
     for (const obligation of ct.items) {
       const anchorProviderEventId = built.ordinalToProviderEventId.get(obligation.anchorOrdinal);
       if (!anchorProviderEventId) continue;
+      // Every field was already bounded (and the deadline grounded) by the gateway's validation; the
+      // slices below are defence in depth, never a substitute for it.
       items.push({
         anchorProviderEventId,
         category: obligation.category,
         oneLineMeaning: obligation.oneLineMeaning.slice(0, AI_TRIAGE_LIMITS.maxMeaningChars),
+        topic: obligation.topic.trim().slice(0, AI_TRIAGE_LIMITS.maxTopicChars),
+        nextStep: obligation.nextStep.slice(0, AI_TRIAGE_LIMITS.maxNextStepChars),
+        deadline: obligation.deadline === null ? null : obligation.deadline.trim().slice(0, AI_TRIAGE_LIMITS.maxDeadlineChars),
       });
     }
 

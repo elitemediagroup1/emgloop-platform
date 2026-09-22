@@ -125,7 +125,7 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
     const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-22T05:00:00Z'));
     const html = renderToStaticMarkup(
       <NeedsYou
-        items={[{ id: 'w1', provider: 'TELEGRAM', sourceLabel: 'Telegram', title: 'Client asks to move the Thursday call', category: 'REQUEST', at: new Date('2026-09-22T04:01:00Z'), detectionCount: 1 }]}
+        items={[{ id: 'w1', provider: 'TELEGRAM', sourceLabel: 'Telegram', title: 'Client asks to move the Thursday call', category: 'REQUEST', counterparty: null, topic: null, nextStep: null, deadline: null, at: new Date('2026-09-22T04:01:00Z'), detectionCount: 1 }]}
         time={time}
       />,
     );
@@ -145,6 +145,8 @@ describe('an OWNER\'s "Needs you" is the OWNER\'s own, and widens to nobody else
     const items = await loadNeedsYou(OWNER, 6, db.client);
     assert.deepEqual(items.map((i) => i.id).sort(), ['w_mine_1', 'w_mine_2']);
     for (const item of items) assert.equal(item.provider, 'TELEGRAM');
+    // Items raised before the v2.1 fields existed load with those fields absent -- never invented.
+    for (const item of items) assert.deepEqual([item.counterparty, item.topic, item.nextStep, item.deadline], [null, null, null, null]);
     const titles = items.map((i) => i.title).join('\n');
     assert.equal(titles.includes('Charlie'), false, "another employee's private item is not the OWNER's to see");
     assert.equal(titles.includes('Another organization'), false, 'nor is another organization\'s');

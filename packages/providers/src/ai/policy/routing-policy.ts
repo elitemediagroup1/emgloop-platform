@@ -79,7 +79,11 @@ function target(
 // forward path share one contract). The provider, effort, deadlines and budget class are UNCHANGED --
 // the reviewed 8000-token input cap and the shared daily ceilings still bind, and the adaptive window
 // keeps every chunk inside that cap. This route's `taskVersion` moves in lockstep with the task.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-21.6';
+// .7 (2026-09-22, conversation-triage v2.1): Telegram Content Triage moves to task 2.1.0. Each obligation
+// now carries minimized business context (what happened, the topic, the next step, a GROUNDED deadline)
+// and the conversation is named by Telegram's own label. Provider, effort, deadlines, output ceiling and
+// budget class are UNCHANGED: the same 1000-token output ceiling holds the richer (still small) answer.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-22.7';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
@@ -105,21 +109,21 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
       fallbackPermitted: true,
       budgetClass: 'mail-reply-draft',
     }),
-    // content-triage. A background per-message classification: LOW effort, a SMALL output ceiling
-    // (the verdict is a boolean, a category, a one-line meaning and a few limitations), and short
-    // deadlines because nothing is waiting on it interactively. GENERAL_REASONING has no default
-    // provider, so `providerChoiceReason` records why Anthropic Claude Opus 5 is the reviewed
-    // primary; GPT-6 Astra is the availability fallback, never a second opinion.
+    // content-triage. A background conversation review: LOW effort, a SMALL output ceiling (each
+    // obligation is a category, a few short paraphrase fields and an anchor; at most eight, plus a few
+    // limitations), and short deadlines because nothing is waiting on it interactively.
+    // GENERAL_REASONING has no default provider, so `providerChoiceReason` records why Anthropic
+    // Claude Opus 5 is the reviewed primary; GPT-6 Astra is the availability fallback, never a second opinion.
     'telegram.content.triage': Object.freeze({
       taskId: 'telegram.content.triage',
-      taskVersion: '2.0.0',
+      taskVersion: '2.1.0',
       primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1_000 }),
       fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 1_000 }),
       fallbackPermitted: true,
       budgetClass: 'telegram-content-triage',
       providerChoiceReason:
         'GENERAL_REASONING has no default provider. Claude Opus 5 is the reviewed primary for a ' +
-        'conservative single-message actionability judgment; GPT-6 Astra is the availability fallback.',
+        'conservative conversation-review actionability judgment; GPT-6 Astra is the availability fallback.',
     }),
   }),
 });
