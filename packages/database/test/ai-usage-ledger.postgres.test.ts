@@ -109,3 +109,57 @@ test('real Postgres: concurrent reservations from separate connections never exc
     await Promise.all(clients.map((c) => c.$disconnect()));
   }
 });
+
+test('real Postgres: reconciled failures with no usage cost zero tokens, only an outstanding call still reserves', { skip }, async () => {
+  // The staging phantom-spend bug, against real Prisma null handling (not the fake). On businessDate
+  // 2026-09-21 (America/New_York), 50 telegram triage calls reached Anthropic, came back 400
+  // INVALID_REQUEST, and each reconciled FAILED with NULL usage. The ledger used to charge each one's
+  // ~1000-token reserve, exhausting the day's token budget on calls that processed nothing.
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const organizationId = `org_pg_${randomUUID()}`;
+  const userId = `user_pg_${randomUUID()}`;
+  // 16:00 America/New_York -> businessDate 2026-09-21, the day the burst landed. spend() and every
+  // reservation resolve the same org-local day from this one instant.
+  const AT = new Date('2026-09-21T20:00:00.000Z');
+  const ledger = new DurableAiUsageLedger(prisma);
+  const resv = (callKey: string): AiCallReservation => ({ ...reservation(organizationId, userId, callKey), requestedAt: AT });
+  try {
+    await prisma.organization.create({ data: { id: organizationId, name: 'PG phantom test', slug: organizationId, timezone: 'America/New_York' } });
+    await prisma.user.create({ data: { id: userId, organizationId, email: `${userId}@example.test`, name: 'PG test' } });
+
+    for (let i = 0; i < 50; i++) {
+      const reserved = await ledger.reserve(resv(`inv_fail_${i}`), budget(1000), [organizationId]);
+      assert.ok(reserved.ok, `reservation ${i} is admitted`);
+      await ledger.reconcile(organizationId, {
+        callKey: `inv_fail_${i}`,
+        outcome: 'FAILED',
+        servedModel: null,
+        providerRequestId: null,
+        usage: null,
+        unitCostBasis: null,
+        failureClass: 'INVALID_REQUEST',
+        rejectionCodes: [],
+        completedAt: AT,
+        latencyMs: 10,
+      });
+    }
+
+    const afterFailures = await ledger.spend(organizationId, 'case.explanation', AT, [organizationId]);
+    assert.equal(afterFailures.organization.inputTokens, 0, 'reconciled failures with null usage processed nothing');
+    assert.equal(afterFailures.organization.outputTokens, 0, 'so no phantom output tokens -- the staging exhaustion is gone');
+    assert.equal(afterFailures.organization.invocations, 50, 'each failed round-trip still counts as one invocation');
+
+    // One more call, reserved and left in flight: its estimate must still be held, conservatively.
+    const inflight = await ledger.reserve(resv('inv_inflight'), budget(1000), [organizationId]);
+    assert.ok(inflight.ok);
+    const withInflight = await ledger.spend(organizationId, 'case.explanation', AT, [organizationId]);
+    assert.equal(withInflight.organization.inputTokens, 3000, 'only the outstanding reservation holds capacity');
+    assert.equal(withInflight.organization.outputTokens, 2000);
+    assert.equal(withInflight.organization.invocations, 51);
+  } finally {
+    await prisma.aiInvocation.deleteMany({ where: { organizationId } });
+    await prisma.user.deleteMany({ where: { id: userId } });
+    await prisma.organization.deleteMany({ where: { id: organizationId } });
+    await prisma.$disconnect();
+  }
+});

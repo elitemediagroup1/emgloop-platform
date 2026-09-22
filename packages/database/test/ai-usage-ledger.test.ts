@@ -203,6 +203,47 @@ test('a reconcile for an attempt nobody reserved writes nothing, and never inven
   assert.equal(w.fake.aiInvocation.__rows.length, 0);
 });
 
+// --- 2b. A reconciled failure that reported no usage is not phantom spend ----------
+//
+// Staging, businessDate 2026-09-21 (America/New_York): telegram.content.triage sent 50 calls that
+// REACHED Anthropic and came back 400 INVALID_REQUEST. Each reserved ~1000 output tokens; each
+// reconciled FAILED with NULL usage. sumSpend fell back to the reserve for a reconciled row whose
+// actual was null, so 50 x 1000 = 50,000 phantom output tokens hit the task's 50,000/day output cap
+// and every later triage was refused BUDGET_TASK_EXHAUSTED -- though those 50 calls processed nothing.
+
+test('50 reconciled INVALID_REQUEST failures with no usage cost zero tokens, not their reserve', async () => {
+  const w = world();
+  for (let i = 0; i < 50; i++) {
+    await w.repo.reserve(ORG, reserveInput(`inv_burst_${i}`, { estimatedInputTokens: 500, estimatedOutputTokens: 1000 }));
+    await w.repo.reconcile(ORG, { invocationId: `inv_burst_${i}`, outcome: 'FAILED', failureClass: 'INVALID_REQUEST', completedAt: AT });
+  }
+
+  const spend = await w.repo.spentOn(ORG, '2026-09-16');
+  // The reconciled failures processed nothing: their actual usage is zero, NOT their reserve.
+  assert.equal(spend.inputTokens, 0, 'a 400 that never ran processed no input tokens');
+  assert.equal(spend.outputTokens, 0, 'nor any output -- this is exactly where the 50,000 phantom was');
+  // The COUNT is unchanged on purpose: each was a real provider round-trip, and maxInvocations is the
+  // runaway/rate guard that is meant to stop precisely this malformed-request storm.
+  assert.equal(spend.invocations, 50, 'every failed round-trip still counts as one invocation');
+});
+
+test('an outstanding reservation still holds its estimate while the failures around it count zero', async () => {
+  const w = world();
+  // The same burst of reconciled-null failures ...
+  for (let i = 0; i < 50; i++) {
+    await w.repo.reserve(ORG, reserveInput(`inv_done_${i}`, { estimatedInputTokens: 500, estimatedOutputTokens: 1000 }));
+    await w.repo.reconcile(ORG, { invocationId: `inv_done_${i}`, outcome: 'FAILED', failureClass: 'INVALID_REQUEST', completedAt: AT });
+  }
+  // ... plus one call still in flight: reserved, not yet reconciled.
+  await w.repo.reserve(ORG, reserveInput('inv_inflight', { estimatedInputTokens: 2000, estimatedOutputTokens: 1500 }));
+
+  const spend = await w.repo.spentOn(ORG, '2026-09-16');
+  // Only the outstanding reservation holds capacity; the 50 reconciled failures hold none.
+  assert.equal(spend.inputTokens, 2000, 'the in-flight reserve is still counted, conservatively');
+  assert.equal(spend.outputTokens, 1500);
+  assert.equal(spend.invocations, 51);
+});
+
 // --- 3. Every outcome is recorded -------------------------------------------------
 
 test('refused, rejected, failed and cancelled are all recorded, because each is a fact', async () => {
@@ -446,10 +487,12 @@ test('serialization failures are recognised by code, not by guesswork', () => {
   assert.equal(isSerializationFailure(null), false);
 });
 
-test('reconcile replaces the estimate with the report, and unreported stays unreported', async () => {
+test('reconcile replaces the estimate with the report, a reconciled failure counts zero, and only an outstanding call still reserves', async () => {
   const w = world();
   await w.service.reserve(reservation('ok'), BUDGET, [ORG]);
   await w.service.reserve(reservation('failed'), BUDGET, [ORG]);
+  // A third call is reserved and never reconciled: genuinely outstanding, so its estimate must hold.
+  await w.service.reserve(reservation('inflight'), BUDGET, [ORG]);
   assert.equal(
     await w.service.reconcile(ORG, {
       callKey: 'ok',
@@ -483,8 +526,11 @@ test('reconcile replaces the estimate with the report, and unreported stays unre
   assert.equal(failed.inputTokens, null);
   assert.equal(failed.failureClass, 'TIMEOUT');
   const spend = await w.service.spend(ORG, 'case.explanation', AT, [ORG]);
-  // 1200 reported + 3000 still reserved for the call nobody reported on.
+  // 1200 reported by 'ok' + 0 for 'failed' (reconciled, but the provider reported no usage, so it
+  // processed nothing) + 3000 still reserved for 'inflight' (never reconciled, so its estimate holds).
+  // The reconciled failure counting zero rather than its 3000 reserve is the phantom-spend fix.
   assert.equal(spend.organization.inputTokens, 4200);
+  assert.equal(spend.organization.outputTokens, 2300, '300 reported + 0 for the reconciled failure + 2000 still reserved in flight');
   assert.equal(await w.service.reconcile(OTHER, { callKey: 'ok', outcome: 'FAILED', servedModel: null, providerRequestId: null, usage: null, unitCostBasis: null, failureClass: null, rejectionCodes: [], completedAt: AT, latencyMs: null }), false, 'another tenant cannot reconcile it');
 });
 

@@ -283,11 +283,28 @@ export class AiUsageLedgerRepository {
   }
 }
 
-const SPEND_COLUMNS = { inputTokens: true, outputTokens: true, estimatedInputTokens: true, estimatedOutputTokens: true } as const;
+const SPEND_COLUMNS = { outcome: true, inputTokens: true, outputTokens: true, estimatedInputTokens: true, estimatedOutputTokens: true } as const;
 
-/** Report over estimate: a reconciled row counts what the provider said; an in-flight or unreported one, the reserve. */
+/**
+ * Report over estimate, and RECONCILIATION is the switch between them.
+ *
+ * `outcome` is `IN_FLIGHT` exactly while an invocation is still outstanding: `reserve` writes that,
+ * and every `reconcile` overwrites it with a terminal outcome. It is always a non-null string, which
+ * is why the switch reads it rather than the nullable `completedAt`. So:
+ *   - outstanding (outcome === IN_FLIGHT): count the reserve. The provider has not told us the cost,
+ *     so the estimate is the only conservative number, and it must hold capacity until it reconciles.
+ *   - reconciled (any terminal outcome): count what the provider actually reported, and a reconciled
+ *     call that reported no usage cost ZERO tokens -- NOT the estimate. A call that reached the
+ *     provider and came back FAILED or INVALID_REQUEST with null usage processed nothing; falling back
+ *     to its reserve there is phantom spend, and it once exhausted a task's whole token budget on 50
+ *     zero-usage failures. A reconciled row's actual is authoritative, including when it is null.
+ *
+ * The invocation COUNT is deliberately every row, reconciled or not: it is a runaway/rate guard over
+ * real provider round-trips, and a failed round-trip is still a round-trip. See the ledger service.
+ */
 function sumSpend(
   rows: readonly {
+    outcome: string;
     inputTokens: number | null;
     outputTokens: number | null;
     estimatedInputTokens: number | null;
@@ -297,8 +314,9 @@ function sumSpend(
   let inputTokens = 0;
   let outputTokens = 0;
   for (const row of rows) {
-    inputTokens += row.inputTokens ?? row.estimatedInputTokens ?? 0;
-    outputTokens += row.outputTokens ?? row.estimatedOutputTokens ?? 0;
+    const outstanding = row.outcome === AI_INVOCATION_IN_FLIGHT;
+    inputTokens += outstanding ? (row.inputTokens ?? row.estimatedInputTokens ?? 0) : (row.inputTokens ?? 0);
+    outputTokens += outstanding ? (row.outputTokens ?? row.estimatedOutputTokens ?? 0) : (row.outputTokens ?? 0);
   }
   return { invocations: rows.length, inputTokens, outputTokens };
 }
