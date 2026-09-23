@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-23 (Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-24 (Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -24,6 +24,47 @@ marked _(needs deploy validation)_ is verified only by typecheck + build + unit 
 NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
+
+## Loop Home as a daily briefing — BUILT, IN REVIEW (draft PR on `feat/loop-home-briefing`) · design approved 2026-09-24
+
+**What it is.** Home answers three questions in order — what changed that matters, what needs you, what
+to do next — then shows movement, not dashboards: What changed (≤5 rows: what · source · why Loop
+surfaced it · next action or the way back to the source; "Headlines history" opens the existing
+Headlines page) → Needs your attention (one ranked list: the viewer's own Telegram obligations and
+the executive review's attention rows, ranked by grounded deadline → kind → how long it has waited)
+→ Today (calendar events, work expected back today, mail as counts; a source that is not connected
+is one line with its connect link) → Business pulse (movement only; unchanged figures are one
+sentence; untracked ones are omitted, never a zero). The module Home (employees) is the same
+briefing over the viewer's own sources plus the areas they can open. The creator Home is untouched.
+
+**How.** `apps/web/src/app/app/_home/briefing.ts` is a pure composer over the existing loaders'
+outputs (executive review, dashboard, Headlines, `loadNeedsYou`, your day, mail); `briefing-view.tsx`
+draws it. No new loader, table, provider or permission; no change to Telegram triage, observations,
+WorkItem state, Brain rules, CRM or Work OS authority. The one read-side fix: the Home read of
+Headlines passes `dismissed: false` (`CaseWorkspaceService.attention` gained the option; the Headlines
+page still reads them all), so a dismissed Headline never reappears on Home. `MyWorkItem` carries the
+Work OS rows' `expectedReturnAt`/`dueAt` so "due today" is a date the row already had. Retired with
+their panels: `admin-home`'s review card, metric cards, CallGrid table and quick actions;
+`your-day.tsx`, `day-calendar.tsx`, `your-mail.tsx`, `needs-you.tsx` and their CSS.
+
+**Rail.** `LOOP_NAV` stays one registry; `NavGroup.fold` / `NavItem.folded` mark what sits behind a
+disclosure. Primary: Home · Mail · Connections | People · Relationships · Command Center (+ Intake
+tools ▸7) | My Work (+ Team work & types ▸2); Intelligence ▸, Operations ▸, Administration ▸ fold
+entirely. A fold opens itself when the page shown is inside it; a person's choice is remembered per
+browser (`loop.nav.folds`). Opportunities, Campaigns and Workflows (`soon`) left the rail; the Command
+Center's Upcoming list names them. Mobile five-area bar and the creator rail unchanged.
+
+**Validated (2026-09-24, local):** web 715 tests (new `home-briefing`, `shell-nav-folds`; rewritten
+`home-needs-you-owner`, `one-loop-shell`; retired `home-executive`, `needs-you`, `your-day` with their
+intents ported), database 1651 (Postgres suite included), both web tsconfigs clean, build passes.
+Browser verification against `next dev` + local Postgres for OWNER, EMPLOYEE and CREATOR seats:
+section order; Telegram change and decision rows (seeded triage rows) with no link; the employee
+sees none of the owner's items; no Business pulse for the employee; creator Home and rail untouched;
+folds closed by default, open on click, persist across reload, close and stay closed, auto-open
+inside Headlines and Inbox; phone bar unchanged, no horizontal scroll; composing Home for three seats
+changed no work item, stage, headline or instance row (only `auth.login` audit rows from signing in).
+
+**Next:** Matt reviews the draft PR. Staging deploy follows the usual path (merge → `staging` FF).
 
 ## Creator Hub — COMMISSIONED ON STAGING (2026-09-23) · #323 #324 #325 on main · staging = main `c4bd264` · production schema untouched
 
