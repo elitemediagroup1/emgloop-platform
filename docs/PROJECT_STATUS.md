@@ -25,7 +25,7 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Creator Hub — MERGED (#323, main `77f249a`) · STAGING: infra deployed + migration applied (2026-09-23) · SEED BLOCKED on the workflow fix PR · NOT YET COMMISSIONED
+## Creator Hub — MERGED (#323, #324 on main) · STAGING: infra deployed + migration applied (2026-09-23) · SEED BLOCKED on the confirmation-gate fix PR · NOT YET COMMISSIONED
 
 **What it is.** The approved design (Mockup #1 locked, Mockup #2 reviewed) built as one system with two
 experiences: a managed creator's own login (`SystemRole.CREATOR`, same organization, one `LOOP_NAV`
@@ -61,9 +61,19 @@ succeeded (00:24Z, 00:26Z); `connections-migrate-staging` succeeded (00:45Z). Th
 `fix/creator-seed-workflow-runner-context` (the variable moved to the two steps that use it; actionlint
 clean; the step scripts executed locally in dry-run and real mode; a test now pins context availability).
 
-**Next (Matt, in order):** merge the fix PR → confirm Netlify staging env `LOOP_MEDIA_STORAGE=aws` →
-re-dispatch `creator-demo-seed-staging` from `main` → then I fast-forward `staging`, verify the branch
-deploy, run the acceptance drive on staging and write the handoff. Production is untouched by all of it.
+**Second seed failure (2026-09-23 13:02–13:08Z, runs 35864380064…35864984789, after #324):** the
+Confirm step refused the exact phrase five times. The job's own env dump shows the dispatch inputs
+arriving padded — the organization slug with 4, then 8, leading spaces — while the `if:` expression
+compared bytes. Fixed on `fix/creator-seed-confirm-normalization`: the gate is a shell step that trims
+(including NBSP/zero-width), collapses whitespace and compares case-insensitively to the exact phrase,
+printing what arrived on refusal; every string input is trimmed the same way and validated; the three
+addresses are read from the event payload (never a step env the runner would print), masked first, and
+never written to the summary. Executed-shell tests cover it; the dispatched path was simulated locally.
+
+**Next (Matt, in order):** merge the confirmation-gate fix PR → confirm Netlify staging env
+`LOOP_MEDIA_STORAGE=aws` → re-dispatch `creator-demo-seed-staging` from `main` → then I fast-forward
+`staging`, verify the branch deploy, run the acceptance drive on staging and write the handoff.
+Production is untouched by all of it.
 
 **Known limits:** payouts are not a rail (the transfer control is inert and says so); notification
 preferences are saved but nothing sends; the Work OS reassign dropdown lists every ACTIVE member
