@@ -747,3 +747,8 @@ export type {
 // Read-only, redacted acceptance verification for background-source observations.
 export { verifyObservations, isVerifiableProvider } from './verification/source-observation-verifier';
 export type { ObservationVerificationReport, ObservationVerificationCounts, ObservationAcceptanceResult } from './verification/source-observation-verifier';
+
+// Creator Hub (2026-09-22): the creator domain -- profiles, content and immutable versions,
+// approvals and publication marks, productions as Work OS work -- and the minimal CRM
+// Opportunity/Campaign/Deliverable records it composes. One business, two seats, the same rows.
+export * from './creator';
