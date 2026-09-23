@@ -94,6 +94,10 @@ export interface MyWorkItem {
   verb: string;          // Open | Resume | Review | Complete
   assignedLabel: string; // human "assigned"/"waiting" line from real timestamps
   href: string;
+  /** When EMG committed to return this work (WorkInstance.expectedReturnAt), if a date was set. */
+  expectedReturnAtIso: string | null;
+  /** The current step's own due date (WorkStage.dueAt), if one was set. */
+  dueAtIso: string | null;
 }
 
 export interface NotificationView {
@@ -396,6 +400,8 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
       verb: stageVerb(stage.status),
       assignedLabel: 'Waiting ' + age(started, now),
       href: '/app/admin/work/' + inst.id,
+      expectedReturnAtIso: inst.expectedReturnAt ? new Date(inst.expectedReturnAt).toISOString() : null,
+      dueAtIso: stage.dueAt ? new Date(stage.dueAt).toISOString() : null,
     };
     waitingSince.set(inst.id, started.getTime());
     assignedItems.push(item);
@@ -424,6 +430,8 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
       verb: 'Open',
       assignedLabel: 'Waiting on an earlier step',
       href: '/app/admin/work/' + s.workInstanceId,
+      expectedReturnAtIso: null,
+      dueAtIso: null,
     });
   }
 
@@ -440,6 +448,8 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
       verb: 'Review',
       assignedLabel: s.completedAt ? 'Completed ' + time.relative(s.completedAt) : 'Completed today',
       href: '/app/admin/work/' + s.workInstanceId,
+      expectedReturnAtIso: null,
+      dueAtIso: null,
     });
   }
 

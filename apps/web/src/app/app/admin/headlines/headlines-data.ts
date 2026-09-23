@@ -46,10 +46,13 @@ async function attempt<T>(what: string, read: () => Promise<T>): Promise<ReadRes
   }
 }
 
-/** The governed attention state, plus the Headlines behind it. */
-export function loadAttention(organizationId: string, now: Date = new Date()) {
+/**
+ * The governed attention state, plus the Headlines behind it. `dismissed: false` reads only the
+ * Headlines nobody has dismissed (Loop Home asks for that); the Headlines surface reads them all.
+ */
+export function loadAttention(organizationId: string, now: Date = new Date(), options: { readonly dismissed?: boolean } = {}) {
   return attempt<AttentionView>("today's headlines", () =>
-    new CaseWorkspaceService(prisma).attention(organizationId, now),
+    new CaseWorkspaceService(prisma).attention(organizationId, now, options),
   );
 }
 

@@ -3739,17 +3739,6 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 @media (max-width: 1100px) { .loop-home { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .loop-home { grid-template-columns: 1fr; } }
 
-/* ===================== YOUR DAY =====================
-   The Daily Loop's employee surface (DL-4). Not a new component family: the
-   panel, the eyebrow, the Home list, line and dot are the primitives it is
-   drawn with, and the CRM's `.val` / `.muted` emphasis pair is bound here for
-   the same reason `.loop-row` binds it -- it is scoped, never global.
-   These rules carry the reading order the surface exists for: how current
-   Loop is, then what is next, then today, then tomorrow -- at every width. */
-.loop-day { display: flex; flex-direction: column; gap: 16px; }
-.loop-day .loop-eyebrow { margin: 0; }
-.loop-day .val { color: var(--loop-ink); font-weight: 650; }
-.loop-day .muted { color: var(--loop-muted); }
 /* What the employee is walking into. The rule is the emphasis; nothing here is a card. */
 .loop-day__next { display: flex; flex-direction: column; gap: 5px; padding-left: 14px; border-left: 2px solid var(--loop-accent); }
 .loop-day__next--idle { border-left-color: var(--loop-line-strong); }
@@ -3947,7 +3936,6 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-mx-attn__acts form { display: contents; }
 
 /* YOUR MAIL on Home: counts, a few rows, and the way to Mail. */
-.loop-yourmail { display: flex; flex-direction: column; gap: 12px; }
 .loop-yourmail__counts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .loop-yourmail__count, .loop-page a.loop-yourmail__count { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius-sm); background: var(--loop-surface); color: var(--loop-ink); text-decoration: none; }
 .loop-yourmail__count:hover { border-color: var(--loop-line-strong); }
@@ -3964,16 +3952,12 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .loop-yourmail__count, .loop-page a.loop-yourmail__count { padding: 8px 10px; }
 }
 
-/* ===================== EXECUTIVE HOME (/app, Owner / Admin / Manager) =====================
+/* ===================== METRIC CARDS (/app/mail summary; formerly the executive Home) =====================
    Today's Review on the left, the day on the right. One grid with named areas, so a phone reads
    the review, then the day, then what changed -- not the whole left column before the calendar. */
-.loop-exec { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 372px); grid-template-rows: auto 1fr; grid-template-areas: 'top side' 'bottom side'; gap: 18px 20px; align-items: start; }
 .loop-exec__top { grid-area: top; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .loop-exec__side { grid-area: side; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .loop-exec__bottom { grid-area: bottom; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.loop-exec .loop-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.loop-exec .loop-panel__title, .loop-exec .loop-panel__lead { margin: 0; }
-.loop-exec .score { margin: 0; }
 
 .loop-exec__review { display: flex; flex-direction: column; gap: 10px; padding: 20px 22px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius-lg); background: var(--loop-surface); box-shadow: var(--loop-shadow); }
 .loop-exec__review-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; }
@@ -4019,7 +4003,6 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 
 /* Today's calendar: a timeline of the day. Positions come from the stored instants (inline, in
    pixels per HOUR_PX); every colour here is a palette token, one per event type. */
-.loop-cal { display: flex; flex-direction: column; gap: 12px; }
 .loop-cal__summary { margin: 0; font-size: 13.5px; color: var(--loop-body); }
 .loop-cal__allday { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .loop-cal__chip { padding: 4px 10px; border-radius: 8px; background: var(--loop-accent-soft); font-size: 12.5px; color: var(--loop-ink); }
@@ -4070,9 +4053,6 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 /* A text link is a touch target too: 40px tall on a phone or a touch screen. */
 @media (max-width: 760px), (pointer: coarse) {
   .loop-page a.loop-mx__viewall, .loop-exec a.loop-link, .loop-cal a.loop-link, .loop-yourmail a.loop-link { display: inline-flex; align-items: center; min-height: 40px; }
-}
-@media (max-width: 1180px) {
-  .loop-exec { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: 'top' 'side' 'bottom'; }
 }
 @media (max-width: 760px) {
   .loop-exec__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4583,4 +4563,76 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .loop-sb__fold.is-inside .loop-sb__chev { color: var(--loop-accent); }
   .loop-sb__chev, .loop-sb__foldcount { color: var(--loop-muted); }
   .loop-sb__foldlist { border-left-color: var(--loop-line); }
+}
+
+/* ===================== LOOP HOME BRIEFING (/app, every seat) =====================
+   What changed → Needs your attention → Today → Business pulse (approved design pass, 2026-09-24).
+   Tokens only. The old executive-home and your-day/your-mail blocks were retired with their panels. */
+.loop-brief__lead { margin: -6px 0 4px; font-size: 15px; line-height: 1.5; color: var(--loop-body); max-width: 80ch; }
+.loop-brief__lead b { font-weight: 650; color: var(--loop-ink); }
+.loop-brief__sources { color: var(--loop-muted); font-size: 13px; }
+.loop-brief { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+.loop-brief__main { display: grid; gap: 18px; min-width: 0; }
+.loop-brief__side { display: grid; gap: 18px; min-width: 0; }
+.loop-brief__pulse { grid-column: 1 / -1; min-width: 0; }
+.loop-brief__panel { padding: 0 0 8px; }
+.loop-brief__panel > .loop-brief__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 14px 18px 8px; }
+.loop-brief__head .loop-panel__title { margin: 0; }
+.loop-brief__sub { font-size: 12.5px; color: var(--loop-muted); }
+.loop-brief__more { margin-left: auto; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.loop-brief__rows { list-style: none; margin: 0; padding: 0 8px; display: grid; }
+.loop-brief__row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 10px; border-radius: var(--loop-radius-sm); align-items: start; }
+.loop-brief__row + .loop-brief__row { border-top: 1px solid var(--loop-line); border-radius: 0 0 var(--loop-radius-sm) var(--loop-radius-sm); }
+.loop-brief__row:hover { background: var(--loop-hover); }
+.loop-brief__dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; justify-self: center; background: var(--loop-neutral); }
+.loop-brief__dot.is-critical { background: var(--loop-crit); }
+.loop-brief__dot.is-attention { background: var(--loop-warn); }
+.loop-brief__dot.is-good { background: var(--loop-good); }
+.loop-brief__rank { font-size: 11px; font-weight: 700; color: var(--loop-muted); justify-self: center; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.loop-brief__body { min-width: 0; }
+.loop-brief__what { margin: 0; font-size: 14px; font-weight: 600; color: var(--loop-ink); line-height: 1.35; }
+.loop-brief__meta { margin: 3px 0 0; font-size: 12.5px; color: var(--loop-muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.loop-brief__why, .loop-brief__next { color: var(--loop-body); }
+.loop-brief__src { white-space: nowrap; }
+.loop-brief__where { font-weight: 600; }
+.loop-pill--source { background: var(--loop-accent-soft); color: var(--loop-accent-strong); }
+.loop-brief__ways { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; white-space: nowrap; }
+.loop-brief__act { padding-inline: 4px; }
+.loop-brief__place { font-size: 12.5px; font-weight: 600; color: var(--loop-accent-strong); }
+.loop-brief__quiet, .loop-brief__foot { margin: 0; padding: 8px 18px 10px; font-size: 12.5px; color: var(--loop-muted); display: flex; gap: 10px; flex-wrap: wrap; }
+.loop-brief__foot .loop-link { font-weight: 600; }
+/* today */
+.loop-brief__now { margin: 0; padding: 0 18px 8px; font-size: 13px; color: var(--loop-body); }
+.loop-brief__now b { font-weight: 600; }
+.loop-brief__subhead { margin: 0; padding: 10px 18px 2px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--loop-muted); }
+.loop-brief__tl { list-style: none; margin: 0; padding: 0 10px; display: grid; gap: 2px; }
+.loop-brief__tl li { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; padding: 7px 8px; border-radius: 8px; font-size: 13px; align-items: start; }
+.loop-brief__tl li.is-live { background: var(--loop-accent-soft); }
+.loop-brief__tl li.is-live .loop-brief__t { color: var(--loop-accent-strong); font-weight: 700; }
+.loop-brief__tl li.is-due .loop-brief__t { color: var(--loop-warn); font-weight: 700; }
+.loop-brief__t { color: var(--loop-muted); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; }
+.loop-brief__e { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.loop-brief__e b { font-weight: 600; color: var(--loop-ink); }
+.loop-brief__e span { color: var(--loop-muted); font-size: 12px; }
+.loop-brief__source-line { margin: 0; padding: 8px 18px 4px; font-size: 12.5px; color: var(--loop-muted); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.loop-brief__source-line .loop-link { font-weight: 600; }
+.loop-brief__ring { width: 14px; height: 14px; border-radius: 50%; border: 1.5px dashed var(--loop-line-strong); flex: 0 0 14px; }
+.loop-brief__mailline { margin: 0; padding: 6px 18px 4px; font-size: 12.5px; color: var(--loop-muted); }
+.loop-brief__mailline .loop-link { font-weight: 600; }
+.loop-brief__refresh { padding: 6px 18px 4px; }
+/* pulse */
+.loop-brief__kpis { padding: 4px 18px 6px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 22px; }
+.loop-brief__kpi { display: grid; gap: 2px; padding: 8px 0; border-top: 1px solid var(--loop-line); }
+.loop-brief__kpi-l { font-size: 11.5px; color: var(--loop-muted); font-weight: 600; }
+.loop-brief__kpi-v { font-size: 20px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 8px; color: var(--loop-ink); }
+.loop-page .loop-brief__kpi-v a { color: var(--loop-ink); text-decoration: none; }
+.loop-brief__kpi-d { font-size: 12px; font-weight: 700; color: var(--loop-muted); }
+.loop-brief__kpi-d.is-up { color: var(--loop-good); }
+.loop-brief__kpi-d.is-down { color: var(--loop-crit); }
+.loop-brief__kpi-d.is-new { color: var(--loop-accent-strong); }
+.loop-brief__kpi-s { font-size: 11.5px; color: var(--loop-faint); }
+@media (max-width: 1100px) { .loop-brief { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .loop-brief__row { grid-template-columns: 18px minmax(0, 1fr); }
+  .loop-brief__ways { grid-column: 2; flex-direction: row; align-items: center; }
 }
