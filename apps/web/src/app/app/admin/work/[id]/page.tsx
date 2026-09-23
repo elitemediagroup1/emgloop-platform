@@ -23,6 +23,12 @@ import {
   assignStageAction,
   addWorkCommentAction,
 } from '../actions';
+// Creator Hub (2026-09-22): a work item that is a creator production renders the EMG
+// editing view in place of the generic "Complete this step" -- uploading a version is how
+// an Edit step completes, and the creator's review step is theirs to complete.
+import { creatorDomain, EMG_HREFS } from '../../../../../creator/creator-runtime';
+import { readMediaRuntime } from '../../../../../creator/media-runtime';
+import { ProductionPanel } from '../../../../../creator/production-panel';
 import {
   EntityPage,
   type EntityPageModel,
@@ -66,10 +72,10 @@ function stepTone(status: string): EntityTone {
   return 'idle';
 }
 
-export default async function WorkDetailPage({ params }: { params: { id: string } }) {
+export default async function WorkDetailPage({ params, searchParams }: { params: { id: string }; searchParams?: { refused?: string } }) {
   const actor = await requireWorkActor();
   const work = workRepo();
-  const [instance, users, execution] = await Promise.all([
+  const [instance, users, execution, production] = await Promise.all([
     work.getWorkInstance(actor.organizationId, params.id),
     listAssignableUsers(actor.organizationId),
     // THE CANONICAL ASSESSMENT, from the service that owns execution truth.
@@ -82,12 +88,16 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
     // timestamp or applies a threshold; the verdict arrives decided and this
     // page renders it.
     new WorkExecutionService(prisma).getForWorkInstance(actor.organizationId, params.id),
+    // The creator production behind this work, when it is one (null for every other work item).
+    creatorDomain().records.productionForWork(actor.organizationId, params.id),
   ]);
 
   // Another tenant's id is indistinguishable from a deleted one, by design.
   if (!instance) {
     notFound();
   }
+  const mediaRuntime = production ? readMediaRuntime() : null;
+  const media = mediaRuntime?.state === 'CONFIGURED' ? ({ state: 'CONFIGURED' } as const) : ({ state: 'NOT_CONFIGURED', reason: mediaRuntime?.reason ?? 'Media storage is not configured for this deployment.' } as const);
 
   const stages = [...instance.stages].sort((a, b) => a.position - b.position);
   const total = stages.length;
@@ -272,13 +282,34 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
 
   // 7. Related — where to go from here.
   const related: EntityRelatedItem[] = [
+    ...(production
+      ? [
+          { icon: 'star', title: production.record.creator.displayName, detail: 'The creator’s operating view', href: EMG_HREFS.creator(production.record.creator.profileId) },
+          { icon: 'grid', title: production.record.title, detail: 'The content record: lineage, versions, marks', href: EMG_HREFS.creatorContent(production.record.creator.profileId, production.record.id) },
+          { icon: 'check', title: 'Creator requests', detail: 'Every production across creators', href: EMG_HREFS.requests },
+        ]
+      : []),
     { icon: 'flow', title: 'All work', detail: 'Every work item across your organization', href: '/app/admin/work' },
     { icon: 'grid', title: 'Home', detail: 'What needs your attention today', href: '/app/admin' },
   ];
 
-  // 5. The completable step (interactive primary action).
-  const primaryAction =
-    !isComplete && current ? (
+  // 5. The completable step (interactive primary action). A creator production has no
+  // generic "Complete this step": an Edit step completes by uploading a version, and the
+  // creator's review step is completed by the creator.
+  const primaryAction = production ? (
+    <ProductionPanel
+      view={production}
+      actor={{ userId: actor.userId, canActOnAnyStep: true }}
+      workspace="ADMIN"
+      hrefs={{
+        work: EMG_HREFS.adminWork(instance.id),
+        content: EMG_HREFS.creatorContent(production.record.creator.profileId, production.record.id),
+        creator: EMG_HREFS.creator(production.record.creator.profileId),
+      }}
+      media={media}
+      refused={searchParams?.refused}
+    />
+  ) : !isComplete && current ? (
       <form action={completeCurrentStageAction} className="ent-manage">
         <input type="hidden" name="workInstanceId" value={instance.id} />
         <div className="ent-action__main">
@@ -331,6 +362,8 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
         </div>
       ) : null}
 
+      {/* A production's comments carry a visibility and live in the production panel above. */}
+      {production ? null : (
       <div className="ent-manage__block">
         <p className="ent-manage__label">Comments <span className="ent-count">{instance.comments.length}</span></p>
         {instance.comments.length === 0 ? (
@@ -352,11 +385,12 @@ export default async function WorkDetailPage({ params }: { params: { id: string 
           <button className="ent-btn ent-btn--ghost" type="submit">Add comment</button>
         </form>
       </div>
+      )}
     </div>
   );
 
   const model: EntityPageModel = {
-    eyebrow: 'Work OS',
+    eyebrow: production ? 'Work OS · Creator production' : 'Work OS',
     title: instance.title,
     subtitle: instance.description ?? (isComplete ? 'A completed work item.' : 'A multi-step work item in your organization.'),
     backHref: '/app/admin/work',

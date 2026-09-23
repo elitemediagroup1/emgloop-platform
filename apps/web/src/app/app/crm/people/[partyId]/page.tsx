@@ -5,6 +5,11 @@ import { crmSubjectReads, personHref, PEOPLE_HREF, relationshipHref } from '../.
 import { readPersonView } from '../../../../../crm/crm-subject-reads';
 import { governedTerm, partyIdentityState } from '../../../../../crm/subject-display';
 import { viewerTime } from '../../../../../time/viewer-time';
+// Creator Hub (2026-09-22): when a creator profile exists for this person, their operating
+// view (opportunities, campaigns, work in production) lives in Creator Operations. Only a
+// seat that can open that tree gets a link; anyone else is told where it is, honestly.
+import { creatorDomain, EMG_HREFS } from '../../../../../creator/creator-runtime';
+import { resolveWorkspaceRole } from '../../../../../workspaces/role-router';
 import {
   ActionButton,
   ContextTabs,
@@ -43,7 +48,7 @@ const LIMITATION_TEXT: Record<string, string> = {
 };
 
 export default async function PersonPage({ params }: { params: { partyId: string } }) {
-  await requirePermission('identityResolution', 'view');
+  const session = await requirePermission('identityResolution', 'view');
   const view = await readPersonView(await crmSubjectReads(), params.partyId, { relationship: relationshipHref });
   const trailBase = [{ label: 'CRM' }, { label: 'People', href: PEOPLE_HREF }];
   if (view.outcome !== 'OK') {
@@ -64,12 +69,21 @@ export default async function PersonPage({ params }: { params: { partyId: string
   const relationships = view.relationships;
 
   const channel = (label: string): ActionSpec => ({ label, href: null, reason: NO_CHANNEL });
+  // A creator profile for this person, within the session's organization. Its operating view
+  // is in the ADMIN tree, so the link exists only for a seat that can open it.
+  const creatorProfile = await creatorDomain().creator.profileByParty(session.organizationId, record.partyId);
+  const creatorHref = creatorProfile && resolveWorkspaceRole(session) === 'ADMIN' ? EMG_HREFS.creator(creatorProfile.id) : null;
+  const CREATOR_ELSEWHERE = 'This person is a creator; their operating view opens in the Admin workspace.';
   const tabs = [
     { label: 'Overview', href: personHref(record.partyId), current: true },
     { label: 'Relationships', href: '#relationships' },
     { label: 'Activity', href: null, reason: 'Activity is not projected onto a person yet.' },
-    { label: 'Opportunities', href: null, reason: 'Opportunities are not tracked in Loop yet.' },
-    { label: 'Work', href: null, reason: 'Work is not linked to a person yet.' },
+    creatorHref
+      ? { label: 'Opportunities', href: `${creatorHref}#commercial` }
+      : { label: 'Opportunities', href: null, reason: creatorProfile ? CREATOR_ELSEWHERE : 'Opportunities are not tracked in Loop yet.' },
+    creatorHref
+      ? { label: 'Work', href: `${creatorHref}#content` }
+      : { label: 'Work', href: null, reason: creatorProfile ? CREATOR_ELSEWHERE : 'Work is not linked to a person yet.' },
     { label: 'Intelligence', href: null, reason: 'Intelligence does not cover a person yet.' },
   ];
 
@@ -243,6 +257,15 @@ export default async function PersonPage({ params }: { params: { partyId: string
                 <Link href={`/crm/parties/${encodeURIComponent(record.partyId)}`}>Open verification record</Link>
               </p>
             </Panel>
+
+            {creatorProfile ? (
+              <Panel title="Creator">
+                <p className="loop-note">
+                  {subject.name} has a creator profile{creatorProfile.handle ? ` (${creatorProfile.handle.startsWith('@') ? creatorProfile.handle : `@${creatorProfile.handle}`})` : ''}.{' '}
+                  {creatorHref ? <Link href={creatorHref}>Open creator operations</Link> : CREATOR_ELSEWHERE}
+                </p>
+              </Panel>
+            ) : null}
           </>
         }
       />

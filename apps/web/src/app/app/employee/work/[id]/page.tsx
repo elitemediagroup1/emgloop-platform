@@ -17,6 +17,12 @@ import {
   completeCurrentStageAction,
   addWorkCommentAction,
 } from '../actions';
+// Creator Hub (2026-09-22): a work item that is a creator production renders the EMG
+// editing view in place of the generic "Complete current stage" -- uploading a version is
+// how an Edit step completes, and the creator's review step is the creator's to complete.
+import { creatorDomain, EMG_HREFS } from '../../../../../creator/creator-runtime';
+import { readMediaRuntime } from '../../../../../creator/media-runtime';
+import { ProductionPanel } from '../../../../../creator/production-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,18 +37,24 @@ function ownerName(
 
 export default async function EmployeeWorkDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { refused?: string };
 }) {
   const actor = await requireEmployeeActor();
-  const [instance, users] = await Promise.all([
+  const [instance, users, production] = await Promise.all([
     loadEmployeeInstance(params.id, actor.organizationId),
     listAssignableUsers(actor.organizationId),
+    // The creator production behind this work, when it is one (null for every other work item).
+    creatorDomain().records.productionForWork(actor.organizationId, params.id),
   ]);
 
   if (!instance) {
     notFound();
   }
+  const mediaRuntime = production ? readMediaRuntime() : null;
+  const media = mediaRuntime?.state === 'CONFIGURED' ? ({ state: 'CONFIGURED' } as const) : ({ state: 'NOT_CONFIGURED', reason: mediaRuntime?.reason ?? 'Media storage is not configured for this deployment.' } as const);
 
   const current =
     instance.stages.find((s) => s.id === instance.currentStageId) ?? null;
@@ -66,8 +78,26 @@ export default async function EmployeeWorkDetailPage({
           </p>
         </div>
 
-        {/* Complete current stage — only when it is assigned to me */}
-        {instance.status === 'active' && current && isMine ? (
+        {/* A creator production: the editing view is the way its steps complete. */}
+        {production ? (
+          <section className="loop-card">
+            <div className="loop-card__head">
+              <h2 className="loop-card__title">Creator production</h2>
+              <span className="loop-card__hint">{production.record.creator.displayName}</span>
+            </div>
+            <ProductionPanel
+              view={production}
+              actor={{ userId: actor.userId, canActOnAnyStep: false }}
+              workspace="EMPLOYEE"
+              hrefs={{ work: EMG_HREFS.employeeWork(instance.id), content: null, creator: null }}
+              media={media}
+              refused={searchParams?.refused}
+            />
+          </section>
+        ) : null}
+
+        {/* Complete current stage — only when it is assigned to me, and never on a production */}
+        {production ? null : instance.status === 'active' && current && isMine ? (
           <section className="loop-card">
             <div className="loop-card__head">
               <h2 className="loop-card__title">Complete current stage</h2>
@@ -131,7 +161,8 @@ export default async function EmployeeWorkDetailPage({
           </ol>
         </section>
 
-        {/* Comments */}
+        {/* Comments — a production's carry a visibility and live in its panel above */}
+        {production ? null : (
         <section className="loop-card loop-feed">
           <div className="loop-card__head">
             <h2 className="loop-card__title">Comments</h2>
@@ -160,6 +191,7 @@ export default async function EmployeeWorkDetailPage({
             </button>
           </form>
         </section>
+        )}
       </div>
     </div>
   );
