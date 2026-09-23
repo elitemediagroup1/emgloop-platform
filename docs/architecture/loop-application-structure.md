@@ -162,6 +162,26 @@ bound to their login, resolved from the signed session. Operations → Creators 
 is the EMG side of the same objects. Everything else in D5 stands: no participant memberships, no
 participant portal, no multi-org sign-in.
 
+**Amended 2026-09-24 (the rail folds; approved).** One shell and one registry stand; what changes is
+how much of `LOOP_NAV` is primary. Each group leads with its primary items and keeps the rest behind
+one disclosure row, as data in the registry (`NavGroup.fold`, `NavItem.folded`), never a code branch:
+- Home: Home, Mail, Connections, all primary.
+- CRM: People, Relationships and the Command Center primary; the intake tools fold ("Intake tools").
+- Work: My Work primary for every role that has a queue (ADMIN and EMPLOYEE alike; final); Team Work
+  and Work Types fold ("Team work & types").
+- Intelligence, Operations and Administration fold entirely: the group label is the row. Headlines
+  stays registered under Intelligence (a real page; the breadcrumb resolves through the registry) and
+  Loop Home links to it directly.
+- The creator seat does not fold. The phone's area bar (`areaEntries`, `AreaBar`) is unchanged.
+
+A fold is open exactly when the page shown is inside it, on the server and the first client render
+alike; a person's own open/closed choice is a per-browser convenience (`localStorage`,
+`loop.nav.folds`), never state the shell trusts. Nothing unbuilt is in the rail any more: the `soon`
+items (Opportunities, Campaigns, Work OS Workflows) are removed from `LOOP_NAV`, and the Command
+Center's Upcoming list is where what is coming is named; the `soon` mechanism stays so an unbuilt
+destination can never be offered as a link. Nav visibility is still not authorization: every
+destination enforces its own.
+
 ### D6 — Development review page
 
 `/app/admin/review` is development-only. It is removed from the production route tree. If kept for
@@ -267,3 +287,4 @@ and landing and shell merge together. #235 and #236 close as superseded.
 | 2026-09-15 | **C-03:** CallGrid is split by authority. Operations → CallGrid holds operational surfaces; Intelligence holds analytical and interpretive surfaces; system/workspace administration holds only credentials, connection state and integration governance. No duplicate tree; D3 and D4 amended; no route moves in Identity 2.0/2.0b |
 | 2026-09-15 | **C-04:** D2 superseded. People = established, non-superseded PERSON Parties; Companies = established, non-superseded COMPANY Parties; legacy Customer records are Intake Records; `/app/crm/people` reserved for PERSON Parties. Detail in `identity-evidence-resolution.md` |
 | 2026-09-15 | **C-05:** "identity confidence" in the specification means governed identity posture, never a number. Recorded in `identity-evidence-resolution.md`; no effect on this record |
+| 2026-09-24 | **The rail folds** (amends D5): each `LOOP_NAV` group leads with its primary items, the rest behind one disclosure row (`NavGroup.fold`, `NavItem.folded`); My Work stays primary; Intelligence, Operations and Administration fold whole; the `soon` items are removed (the Command Center's Upcoming names them) and the mechanism kept; creator seat and phone area bar unchanged |

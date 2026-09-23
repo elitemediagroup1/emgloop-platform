@@ -4557,3 +4557,30 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 /* Home: the two mid panels side by side when there is room */
 .ch-home { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
 @media (min-width: 821px) { .ch-home { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---- Sidebar folds (2026-09-24) ----
+   A group's secondary items sit behind one disclosure row (workspaces/ShellNav.tsx:
+   NavGroup.fold, NavItem.folded). The row is a real button with the metrics of
+   .loop-sb__link; the list beneath is indented behind a rule and is hidden with
+   the `hidden` attribute, never by style here. Rail tokens only; the phone sheet
+   below reads the canvas tokens like the rest of the light menu. */
+.loop-sb__fold { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 10px; border: none; border-radius: 10px; background: transparent; color: var(--loop-rail-muted); font: inherit; font-size: 13.5px; font-weight: 500; text-align: left; cursor: pointer; transition: background .15s ease, color .15s ease; }
+.loop-sb__fold:hover { background: var(--loop-rail-2); color: var(--loop-rail-text); }
+.loop-sb__fold:focus-visible { outline: 2px solid var(--loop-rail-active); outline-offset: 1px; }
+.loop-sb__fold.is-inside { color: var(--loop-rail-text); }
+.loop-sb__fold.is-inside .loop-sb__chev { color: var(--loop-rail-active); }
+.loop-sb__chev { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 18px; color: var(--loop-rail-muted); transition: transform .15s ease; }
+.loop-sb__fold[aria-expanded="true"] .loop-sb__chev { transform: rotate(90deg); }
+.loop-sb__foldcount { margin-left: auto; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--loop-rail-muted); }
+.loop-sb__foldlist { margin: 2px 0 0 18px; padding-left: 8px; border-left: 1px solid var(--loop-rail-line); }
+.loop-sb__foldlist .loop-sb__link.is-active::before { left: -9px; }
+@media (prefers-reduced-motion: reduce) { .loop-sb__fold, .loop-sb__chev { transition: none; } }
+@media (max-width: 820px) {
+  .loop-sb__fold { min-height: 44px; color: var(--loop-body); }
+  .loop-sb__fold:hover { background: var(--loop-hover); color: var(--loop-ink); }
+  .loop-sb__fold:focus-visible { outline-color: var(--loop-focus); }
+  .loop-sb__fold.is-inside { color: var(--loop-ink); }
+  .loop-sb__fold.is-inside .loop-sb__chev { color: var(--loop-accent); }
+  .loop-sb__chev, .loop-sb__foldcount { color: var(--loop-muted); }
+  .loop-sb__foldlist { border-left-color: var(--loop-line); }
+}

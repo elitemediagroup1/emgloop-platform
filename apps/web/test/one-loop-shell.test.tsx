@@ -9,6 +9,10 @@
 // The central claim is checked against the PAGES, not against the registry's own
 // description of them: for every role, an item is shown exactly when its
 // destination page would let that role in.
+//
+// Since 2026-09-24 the rail folds: an item marked `folded` is drawn behind its
+// group's disclosure row (shell-nav-folds.test.tsx covers the drawing). Here it is
+// pinned as ' ▸' after its label, so each role's list says what is primary.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,6 +20,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { createTimeView } from '@emgloop/shared';
 // The context next/navigation's usePathname() reads: the client router's current path.
 import { PathnameContext } from 'next/dist/shared/lib/hooks-client-context.shared-runtime';
 import { matrixAllows, type Action, type Resource } from '@emgloop/database';
@@ -101,7 +106,8 @@ const navForRole = (systemRole: string): NavGroup[] =>
     workspace: resolveWorkspaceRole({ systemRole }),
     permitted: (item) => matrixAllows(systemRole, item.requires!.resource, item.requires!.action),
   });
-const labels = (groups: NavGroup[]) => groups.map((g) => [g.label, g.items.map((i) => i.label + (i.soon ? ' (soon)' : ''))]);
+// A role's rail as a list: '(soon)' for an unbuilt item (none today), ' ▸' for one behind its group's fold.
+const labels = (groups: NavGroup[]) => groups.map((g) => [g.label, g.items.map((i) => i.label + (i.soon ? ' (soon)' : '') + (i.folded ? ' ▸' : ''))]);
 
 // ---------------------------------------------------------------------------
 
@@ -194,22 +200,22 @@ describe('Grouping', () => {
 
   it('CRM leads with the redesigned People and Relationships, then the real CRM under /crm', () => {
     const crm = LOOP_NAV.nav.find((g) => g.label === 'CRM')!;
-    assert.deepEqual(crm.items.map((i) => [i.label, i.href, Boolean(i.soon)]), [
+    // [label, href, soon, folded]: the first three are primary; the intake tools fold.
+    assert.deepEqual(crm.items.map((i) => [i.label, i.href, Boolean(i.soon), Boolean(i.folded)]), [
       // Canonical People (established PERSON Parties, C-04) and Relationships, redesigned.
-      ['People', '/app/crm/people', false],
-      ['Relationships', '/app/crm/relationships', false],
-      ['Command Center', '/crm', false],
-      ['Opportunities', '/crm/opportunities', true],
-      ['Campaigns', '/crm/campaigns', true],
-      ['Conversations', '/crm/conversations', false],
-      ['Intake Records', '/crm/customers', false],
-      ['Intake Board', '/crm/pipeline', false],
+      ['People', '/app/crm/people', false, false],
+      ['Relationships', '/app/crm/relationships', false, false],
+      ['Command Center', '/crm', false, false],
+      ['Conversations', '/crm/conversations', false, true],
+      ['Intake Records', '/crm/customers', false, true],
+      ['Intake Board', '/crm/pipeline', false, true],
       // Identity review is its own governed workflow, on the temporary operator screen.
-      ['Identity Review', '/crm/parties', false],
-      ['Inbox', '/crm/inbox', false],
-      ['Search', '/crm/search', false],
-      ['Automations', '/crm/workflows', false],
+      ['Identity Review', '/crm/parties', false, true],
+      ['Inbox', '/crm/inbox', false, true],
+      ['Search', '/crm/search', false, true],
+      ['Automations', '/crm/workflows', false, true],
     ]);
+    assert.deepEqual(crm.fold, { label: 'Intake tools' });
     assert.equal(find('People').href.startsWith('/crm/customers'), false, 'People are never Intake Records');
   });
 
@@ -233,6 +239,10 @@ describe('Grouping', () => {
   });
 
   it('unbuilt items are disabled and have no route', () => {
+    // Nothing unbuilt is in the rail today (2026-09-24): Opportunities, Campaigns and Work OS
+    // Workflows were Soon items and are gone; the Command Center's Upcoming list names what is
+    // coming. The rule below holds vacuously and protects the next item someone marks Soon.
+    assert.equal(items.filter((i) => i.soon).length, 0, 'no Soon item in LOOP_NAV');
     for (const item of items.filter((i) => i.soon)) {
       assert.equal(existsSync(join(APP, item.href, 'page.tsx')), false, `${item.label} must stay soon until a route exists`);
       assert.equal(treeOf(item.href), undefined, `${item.label} must not fall into a catch-all`);
@@ -242,18 +252,29 @@ describe('Grouping', () => {
   it('the intake board is never presented as the Opportunity pipeline', () => {
     assert.equal(find('Intake Board').href, '/crm/pipeline');
     assert.equal(items.some((i) => /pipeline/i.test(i.label)), false);
-    assert.notEqual(find('Opportunities').href, '/crm/pipeline');
+    // The organization has no Opportunities or Campaigns entry: neither is built, and the
+    // Command Center lists both under Upcoming. The only Opportunities item is the creator
+    // seat's own, and it is not the intake board.
+    assert.equal(items.some((i) => i.href === '/crm/opportunities' || i.href === '/crm/campaigns'), false);
+    assert.deepEqual(items.filter((i) => i.label === 'Opportunities').map((i) => [i.group, i.href]), [['Creator', '/app/creator/opportunities']]);
+    assert.notEqual(find('Opportunities', '/app/creator/opportunities').href, '/crm/pipeline');
+    const command = code(read('app/crm/page.tsx'));
+    assert.match(command, /<UpcomingItem label="Opportunities"/);
+    assert.match(command, /<UpcomingItem label="Campaigns"/);
   });
 
   it('CRM Automations, Work OS and Commercial Intelligence stay separate authorities', () => {
     const work = LOOP_NAV.nav.find((g) => g.label === 'Work')!;
-    assert.deepEqual(work.items.map((i) => [i.label, i.href, i.workspace ?? null, Boolean(i.soon)]), [
-      ['My Work', '/app/admin/work', 'ADMIN', false],
-      ['My Work', '/app/employee/work', 'EMPLOYEE', false],
-      ['Team Work', '/app/admin/work/team', 'ADMIN', false],
-      ['Workflows', '/app/work/workflows', null, true],
-      ['Work Types', '/app/admin/administration/work-types', 'ADMIN', false],
+    // [label, href, workspace, soon, folded]: My Work stays primary for both authorities (final).
+    assert.deepEqual(work.items.map((i) => [i.label, i.href, i.workspace ?? null, Boolean(i.soon), Boolean(i.folded)]), [
+      ['My Work', '/app/admin/work', 'ADMIN', false, false],
+      ['My Work', '/app/employee/work', 'EMPLOYEE', false, false],
+      ['Team Work', '/app/admin/work/team', 'ADMIN', false, true],
+      ['Work Types', '/app/admin/administration/work-types', 'ADMIN', false, true],
     ]);
+    assert.deepEqual(work.fold, { label: 'Team work & types' });
+    // Work OS Workflows (human work execution) is not built and has no entry at all.
+    assert.equal(items.some((i) => i.href === '/app/work/workflows' || (i.group === 'Work' && i.label === 'Workflows')), false);
     assert.equal(work.items.some((i) => i.href.startsWith('/crm/')), false, 'CRM automation is not Work OS');
     assert.equal(find('Automations').group, 'CRM');
     assert.equal(find('Your queue').group, 'Intelligence', "CI's attention queue is not Work OS");
@@ -304,9 +325,9 @@ describe('Navigation follows the authority each page enforces', () => {
   });
 
   it('Employees get the CRM, the intelligence they can read, their own work queue, and nothing administrative they cannot open', () => {
-    const intelligence = ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue'];
-    const operations = ['Live Operations', 'Live Calls', 'Websites'];
-    const crm = ['People', 'Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations'];
+    const intelligence = ['Intelligence Flow ▸', 'Analytics ▸', 'Traffic ▸', 'Revenue ▸'];
+    const operations = ['Live Operations ▸', 'Live Calls ▸', 'Websites ▸'];
+    const crm = ['People', 'Relationships', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸'];
     // A PERSON employee reaches canonical identity and the commercial area; an AI
     // principal reaches NEITHER. `identityResolution` has its own grant table with no
     // READ_ONLY fallback, and `relationships` hard-denies AI_EMPLOYEE because PD-F-04
@@ -315,20 +336,20 @@ describe('Navigation follows the authority each page enforces', () => {
     assert.deepEqual(labels(navForRole('EMPLOYEE')), [
       ['', ['Home', 'Mail', 'Connections']],
       ['CRM', crm],
-      ['Work', ['My Work', 'Workflows (soon)']],
+      ['Work', ['My Work']],
       ['Intelligence', intelligence],
       ['Operations', operations],
-      ['Administration', ['AI Employees']],
+      ['Administration', ['AI Employees ▸']],
     ]);
     assert.deepEqual(labels(navForRole('AI_EMPLOYEE')), [
       // No Mail and no Connections: an AI Employee holds neither a Google connection nor the
       // work state derived from one, and no Permission row can give it either.
       ['', ['Home']],
-      ['CRM', crm.filter((l) => !['People', 'Relationships', 'Identity Review'].includes(l))],
-      ['Work', ['My Work', 'Workflows (soon)']],
+      ['CRM', crm.filter((l) => !['People', 'Relationships', 'Identity Review ▸'].includes(l))],
+      ['Work', ['My Work']],
       ['Intelligence', intelligence],
       ['Operations', operations],
-      ['Administration', ['AI Employees']],
+      ['Administration', ['AI Employees ▸']],
     ]);
     for (const role of ['EMPLOYEE', 'AI_EMPLOYEE']) {
       assert.equal(myWorkHref(navForRole(role)), '/app/employee/work', role);
@@ -336,27 +357,27 @@ describe('Navigation follows the authority each page enforces', () => {
   });
 
   it('Read Only is not isolated in a placeholder: it sees what its permissions allow, and no Work OS it cannot open', () => {
-    const intelligence = ['Intelligence Flow', 'Analytics', 'Traffic', 'Revenue'];
-    const operations = ['Live Operations', 'Live Calls', 'Websites'];
+    const intelligence = ['Intelligence Flow ▸', 'Analytics ▸', 'Traffic ▸', 'Revenue ▸'];
+    const operations = ['Live Operations ▸', 'Live Calls ▸', 'Websites ▸'];
     const expected = [
       // A read-only member still connects their OWN Google account (googleWorkspace).
       ['', ['Home', 'Mail', 'Connections']],
       // READ_ONLY holds identityResolution:view and relationships:view, and may
       // perform no act through either -- capabilities decide that, not the nav.
-      ['CRM', ['People', 'Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations']],
+      ['CRM', ['People', 'Relationships', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
       ['Intelligence', intelligence],
       ['Operations', operations],
-      ['Administration', ['AI Employees']],
+      ['Administration', ['AI Employees ▸']],
     ];
     assert.deepEqual(labels(navForRole('READ_ONLY')), expected);
     // An unknown role falls back to READ_ONLY in the matrix -- but identityResolution
     // has no such fallback, so it does NOT see People or Identity Review. Least, never more.
     assert.deepEqual(labels(navForRole('SOMETHING_NEW')), [
       ['', ['Home']],
-      ['CRM', ['Relationships', 'Command Center', 'Opportunities (soon)', 'Campaigns (soon)', 'Conversations', 'Intake Records', 'Intake Board', 'Inbox', 'Search', 'Automations']],
+      ['CRM', ['Relationships', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
       ['Intelligence', intelligence],
       ['Operations', operations],
-      ['Administration', ['AI Employees']],
+      ['Administration', ['AI Employees ▸']],
     ], 'an unknown role gets the least, never more');
     assert.equal(myWorkHref(navForRole('READ_ONLY')), null);
   });
@@ -384,8 +405,11 @@ describe('Navigation follows the authority each page enforces', () => {
   it('a group with nothing a person can open is not drawn, even if it holds Soon items', () => {
     const nav = visibleNav(LOOP_NAV.nav, { workspace: 'CLIENT', permitted: () => false });
     // With the Command Center gated on customers:view, a person who holds no permission
-    // can open nothing in the CRM group: its two Soon items alone do not earn a header.
+    // can open nothing in the CRM group: it earns neither a header nor a fold.
     assert.deepEqual(labels(nav), [['', ['Home']]]);
+    // No registry item is Soon today; the rule still holds for one.
+    const soon = { href: '/soon', label: 'Soon item', icon: 'flow', soon: true };
+    assert.deepEqual(visibleNav([{ label: 'Later', items: [soon] }], { workspace: 'ADMIN', permitted: () => true }), []);
   });
 
   it('a creator sees Home and the creator seat, nothing of the organization, and has no Work OS queue', () => {
@@ -434,18 +458,28 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     }
   });
 
-  it('draws only the items it is given, with Soon as a non-link and the Administration foot labelled', () => {
+  it('draws only the items it is given, with the Administration foot as its own disclosure row', () => {
     const html = renderAt('/crm/customers', <ShellNav groups={navForRole('READ_ONLY')} label="Loop" />);
     assert.match(html, /<nav class="loop-sb__scroll" aria-label="Loop">/);
+    // Intake Records is behind the CRM fold, which is open because the page shown is inside it.
     assert.match(html, /<a class="loop-sb__link is-active" aria-current="page" href="\/crm\/customers">/);
     assert.equal(html.includes('/app/admin'), false, 'nothing from a tree Read Only cannot open');
     assert.equal(html.includes('>Work<'), false, 'no Work area for a role without a queue');
-    // Opportunities is still Soon; Relationships is built and is a real link now.
-    assert.match(html, /<span class="loop-sb__link is-disabled" aria-disabled="true">.*?Opportunities.*?Soon<\/span><\/span>/);
-    assert.equal(/href="\/crm\/opportunities"/.test(html), false);
+    // Nothing unbuilt is offered: Opportunities and Campaigns have no entry at all.
+    assert.equal(/opportunities|campaigns/i.test(html), false);
     assert.match(html, /href="\/app\/crm\/relationships"/, 'Relationships is reachable');
     assert.match(html, /href="\/app\/crm\/people"/, 'People is reachable');
-    assert.match(html, /<nav class="loop-sb__adminarea" aria-label="Administration"><div class="loop-sb__group"><div class="loop-sb__grouplabel">Administration<\/div>/);
+    // Every Administration item folds, so the foot has no heading: its disclosure row carries the label.
+    assert.match(html, /<nav class="loop-sb__adminarea" aria-label="Administration"><div class="loop-sb__group"><button type="button" class="loop-sb__fold" aria-expanded="false" aria-controls="loop-fold-administration-administration">/);
+  });
+
+  it('a Soon item is still drawn as a disabled non-link, never a route', () => {
+    // Nothing in LOOP_NAV is Soon today; the rendering stays so an unbuilt destination can never become a link.
+    const later: NavGroup = { label: 'Later', items: [{ href: '/later', label: 'Later thing', icon: 'flow', soon: true }, { href: '/crm', label: 'Command Center', icon: 'grid' }] };
+    const html = renderAt('/crm', <ShellNav groups={[later]} label="Loop" />);
+    assert.match(html, /<span class="loop-sb__link is-disabled" aria-disabled="true">.*?Later thing.*?Soon<\/span><\/span>/);
+    assert.equal(/href="\/later"/.test(html), false);
+    assert.match(html, /<a class="loop-sb__link is-active" aria-current="page" href="\/crm">/);
   });
 
   it('offers the notifications link only to someone with a Work OS queue, at their own queue', () => {
@@ -468,7 +502,7 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.equal(active('/app/crm/people/p_1'), 'People');
     assert.equal(active('/crm/parties/p_1'), 'Identity Review');
     assert.equal(active('/crm/relationships/r_1'), 'Command Center', 'the verification screens sit under the CRM command center');
-    assert.equal(active('/crm/opportunities'), 'Command Center', 'a Soon item is never active');
+    assert.equal(active('/crm/opportunities'), 'Command Center', 'an address no item owns falls to the CRM command center');
     assert.equal(active('/app/admin/work/abc123'), 'My Work');
     assert.equal(active('/app/admin/work/team'), 'Team Work');
     assert.equal(active('/app/employee/work/abc123'), 'My Work');
@@ -567,8 +601,10 @@ describe('Loop Home', () => {
   });
 
   it('greets the person and links only to what they can open', () => {
-    const html = render(<ModuleHome name="Charlie Reyes" groups={navForRole('EMPLOYEE')} />);
-    assert.match(html, /<h1 class="loop-title">Welcome, Charlie Reyes<\/h1>/);
+    const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-24T14:00:00Z'));
+    const html = render(<ModuleHome name="Charlie Reyes" groups={navForRole('EMPLOYEE')} time={time} day={null} dayFailed={false} mail={null} mailFailed={false} needsYou={[]} />);
+    // The module Home is the daily briefing too (2026-09-24): it greets by the reader's clock.
+    assert.match(html, /<h1 class="loop-title">Good morning, Charlie Reyes<\/h1>/);
     // Relationships and Parties are built and an employee can open both, so Home
     // links to them. It was in the absent list only while they were `soon`.
     for (const href of ['/crm', '/crm/customers', '/app/crm/people', '/app/crm/relationships', '/crm/parties', '/crm/intelligence', '/app/employee/work', '/crm/ai-employees']) {
