@@ -7,7 +7,7 @@ import type { YourDayView } from '../../../daily-loop/your-day';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
 import type { TimeView } from '@emgloop/shared';
 import { LoopPage, PageHead, Panel } from '../_loop-os/record';
-import { composeBriefing } from './briefing';
+import { composeBriefing, dueTodayFromQueue, type QueueInstance } from './briefing';
 import { BriefingLead, NeedsAttention, TodayPanel, WhatChanged } from './briefing-view';
 import { RefreshCalendar } from './refresh-calendar';
 
@@ -25,6 +25,7 @@ const MAIL_PATH = '/app/mail';
 
 export function ModuleHome({
   name,
+  userId,
   groups,
   time,
   day,
@@ -32,8 +33,11 @@ export function ModuleHome({
   mail,
   mailFailed,
   needsYou,
+  queue,
 }: {
   name: string;
+  /** The viewer, for the "due today" projection over their own queue rows. */
+  userId: string;
   groups: readonly NavGroup[];
   /** The reader's clock and zone, from the page. */
   time: TimeView;
@@ -43,7 +47,11 @@ export function ModuleHome({
   mailFailed: boolean;
   /** The viewer's own items, from the one employee-private loader with the session principal. */
   needsYou: readonly NeedsYouItem[];
+  /** The viewer's own work queue rows, read by the page for the employee seat only; empty otherwise. */
+  queue: readonly QueueInstance[];
 }) {
+  const dayStart = time.startOfDay();
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const briefing = composeBriefing({
     now: time.now,
     review: null,
@@ -55,7 +63,7 @@ export function ModuleHome({
     mail,
     mailFailed,
     dashboard: null,
-    workDue: [],
+    workDue: dueTodayFromQueue(queue, userId, dayStart, dayEnd, (id) => `/app/employee/work/${encodeURIComponent(id)}`),
     connectionsHref: CONNECTIONS_PATH,
     headlinesHref: HEADLINES_PATH,
   });

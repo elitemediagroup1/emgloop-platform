@@ -43,7 +43,10 @@ draws it. No new loader, table, provider or permission; no change to Telegram tr
 WorkItem state, Brain rules, CRM or Work OS authority. The one read-side fix: the Home read of
 Headlines passes `dismissed: false` (`CaseWorkspaceService.attention` gained the option; the Headlines
 page still reads them all), so a dismissed Headline never reappears on Home. `MyWorkItem` carries the
-Work OS rows' `expectedReturnAt`/`dueAt` so "due today" is a date the row already had. Retired with
+Work OS rows' `expectedReturnAt`/`dueAt` so "due today" is a date the row already had; the employee seat's Home
+reads its own queue through `loadMyQueueForHome` (the queue page's EMPLOYEE guard and
+`WorkRepository.listMyWork`, nothing more) and projects "due today" with the pure `dueTodayFromQueue`
+(only a current stage the person owns; links into the employee tree). Retired with
 their panels: `admin-home`'s review card, metric cards, CallGrid table and quick actions;
 `your-day.tsx`, `day-calendar.tsx`, `your-mail.tsx`, `needs-you.tsx` and their CSS.
 
@@ -62,7 +65,9 @@ section order; Telegram change and decision rows (seeded triage rows) with no li
 sees none of the owner's items; no Business pulse for the employee; creator Home and rail untouched;
 folds closed by default, open on click, persist across reload, close and stay closed, auto-open
 inside Headlines and Inbox; phone bar unchanged, no horizontal scroll; composing Home for three seats
-changed no work item, stage, headline or instance row (only `auth.login` audit rows from signing in).
+changed no work item, stage, headline or instance row (only `auth.login` audit rows from signing in);
+the employee seat shows its own step expected back today under Due today, linked into its tree,
+while the owner's and a read-only seat's Homes do not (fixture created through the repository).
 
 **Next:** Matt reviews the draft PR. Staging deploy follows the usual path (merge → `staging` FF).
 

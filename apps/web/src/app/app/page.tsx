@@ -9,6 +9,7 @@ import { ModuleHome } from './_home/module-home';
 import { loadYourDay } from '../../daily-loop/your-day';
 import { loadMailDashboard } from '../../daily-loop/mail-dashboard';
 import { loadNeedsYou } from '../../daily-loop/needs-you';
+import { loadMyQueueForHome } from './employee/work/work-data';
 import { readerTimeZone } from '../../daily-loop/reader-zone';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 import { settle } from './_home/settle';
@@ -45,16 +46,21 @@ export default async function LoopHome() {
 
   // A visit refreshes the calendar and the mailbox at most on their own schedules; everything
   // below is concluded from what is stored, so one sync serves Home and Mail alike.
-  const [dayResult, mailResult, needsYouResult] = await Promise.all([
+  // The employee seat also reads its own work queue -- the same guarded read its My Work page
+  // makes -- so Home can say what is due today. No other seat reads it (an Owner's work arrives
+  // through the executive Home's dashboard; a read-only seat has no queue).
+  const [dayResult, mailResult, needsYouResult, queueResult] = await Promise.all([
     settle(() => loadYourDay(principal)),
     settle(() => loadMailDashboard(principal, { timeZone: zone.timeZone })),
     settle(() => loadNeedsYou(principal)),
+    role === 'EMPLOYEE' ? settle(() => loadMyQueueForHome()) : Promise.resolve(null),
   ]);
   const day = dayResult.ok ? dayResult.value : null;
   const mail = mailResult.ok ? mailResult.value : null;
   // NEEDS YOU is the viewer's own, for EVERY role: loaded once with the session's principal and
   // handed to whichever Home renders -- one loader, one scope, one set of items.
   const needsYou = needsYouResult.ok ? needsYouResult.value : [];
+  const queue = queueResult?.ok ? queueResult.value.rows : [];
   const time = createTimeView(zone, new Date());
 
   return (
@@ -64,7 +70,7 @@ export default async function LoopHome() {
       ) : role === 'ADMIN' ? (
         <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} />
       ) : (
-        <ModuleHome name={session.name} groups={await navFor(session)} time={time} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} />
+        <ModuleHome name={session.name} userId={session.userId} groups={await navFor(session)} time={time} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} queue={queue} />
       )}
     </WorkspaceShell>
   );

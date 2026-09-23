@@ -596,13 +596,13 @@ describe('The active item and breadcrumb follow the page actually shown', () => 
 describe('Loop Home', () => {
   it('Owner/Admin/Manager get the operational overview; everyone else gets the areas they can open', () => {
     const app = code(read('app/app/page.tsx'));
-    assert.match(app, /role === 'ADMIN' \? \(\s*<AdminHome session=\{session\} principal=\{principal\} day=\{day\}[^>]*\/>\s*\) : \(\s*<ModuleHome\s+name=\{session\.name\}\s+groups=\{await navFor\(session\)\}/);
+    assert.match(app, /role === 'ADMIN' \? \(\s*<AdminHome session=\{session\} principal=\{principal\} day=\{day\}[^>]*\/>\s*\) : \(\s*<ModuleHome\s+name=\{session\.name\}\s+userId=\{session\.userId\}\s+groups=\{await navFor\(session\)\}/);
     assert.equal(existsSync(join(APP, 'app', '_home', 'workspace-home.tsx')), false, 'the role-branded placeholder home is gone');
   });
 
   it('greets the person and links only to what they can open', () => {
     const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-24T14:00:00Z'));
-    const html = render(<ModuleHome name="Charlie Reyes" groups={navForRole('EMPLOYEE')} time={time} day={null} dayFailed={false} mail={null} mailFailed={false} needsYou={[]} />);
+    const html = render(<ModuleHome name="Charlie Reyes" userId="user_charlie" groups={navForRole('EMPLOYEE')} time={time} day={null} dayFailed={false} mail={null} mailFailed={false} needsYou={[]} queue={[]} />);
     // The module Home is the daily briefing too (2026-09-24): it greets by the reader's clock.
     assert.match(html, /<h1 class="loop-title">Good morning, Charlie Reyes<\/h1>/);
     // Relationships and Parties are built and an employee can open both, so Home

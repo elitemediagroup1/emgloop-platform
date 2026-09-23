@@ -28,7 +28,7 @@ import {
   type ReviewContribution,
   type ReviewUpdate,
 } from '@emgloop/shared';
-import { BRIEFING_LIMITS, briefingWords, composeBriefing, dueTodayFromWork, rankAttention, type Briefing, type BriefingInput } from '../src/app/app/_home/briefing';
+import { BRIEFING_LIMITS, briefingWords, composeBriefing, dueTodayFromQueue, dueTodayFromWork, rankAttention, type Briefing, type BriefingInput, type QueueInstance } from '../src/app/app/_home/briefing';
 import { BriefingLead, NeedsAttention, PulsePanel, TodayPanel, WhatChanged } from '../src/app/app/_home/briefing-view';
 import type { NeedsYouItem } from '../src/daily-loop/needs-you';
 import type { YourDayView } from '../src/daily-loop/your-day';
@@ -318,6 +318,37 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(b.sentence.inProgress, true);
   });
 
+  it('the employee seat: due today comes from its own queue rows -- only a current stage this person owns, dated by the row itself, linked into the employee tree', () => {
+    const me = 'user_charlie';
+    const dayStart = time.startOfDay();
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+    const stage = (over: Partial<QueueInstance['stages'][number]> = {}) => ({ id: 's-edit', name: 'Edit', ownerUserId: me, status: 'in_progress', dueAt: null, ...over });
+    const row = (over: Partial<QueueInstance> = {}): QueueInstance => ({ id: 'w1', title: 'Production 1 · Kona unboxing — cut A', currentStageId: 's-edit', expectedReturnAt: at('2026-09-24T16:00:00Z'), stages: [stage()], ...over });
+    const href = (id: string) => `/app/employee/work/${id}`;
+    const rows = dueTodayFromQueue(
+      [
+        row(), // expected back today, my current step
+        row({ id: 'w2', title: 'Step due today', expectedReturnAt: null, stages: [stage({ dueAt: at('2026-09-24T18:00:00Z') })] }),
+        row({ id: 'w3', title: 'Waiting on someone else', stages: [stage({ ownerUserId: 'user_other' })] }),
+        row({ id: 'w4', title: 'My later step, not current', currentStageId: 's-other', stages: [stage({ id: 's-other', ownerUserId: 'user_other' }), stage({ id: 's-mine', status: 'pending' })] }),
+        row({ id: 'w5', title: 'Tomorrow', expectedReturnAt: at('2026-09-25T16:00:00Z') }),
+        row({ id: 'w6', title: 'Undated', expectedReturnAt: null }),
+        row({ id: 'w7', title: 'Completed step', stages: [stage({ status: 'completed' })] }),
+      ],
+      me,
+      dayStart,
+      dayEnd,
+      href,
+    );
+    assert.deepEqual(rows.map((d) => [d.what, d.detail, d.href, time.time(d.at)]), [
+      ['Production 1 · Kona unboxing — cut A', 'expected back · Edit', '/app/employee/work/w1', '12:00 PM'],
+      ['Step due today', 'Edit due', '/app/employee/work/w2', '2:00 PM'],
+    ]);
+    const b = brief({ review: null, dashboard: null, headlines: null, period: null, workDue: rows });
+    assert.equal(b.today.due.length, 2);
+    assert.match(html(<TodayPanel today={b.today} time={time} mailHref="/app/mail" />), /Due today[\s\S]*href="\/app\/employee\/work\/w1"[\s\S]*expected back · Edit/);
+  });
+
   it('a source that is not connected is one line with its way in; one Loop is not set up for says nothing; one that failed says it failed', () => {
     const notConnected = brief({ day: day({ freshness: 'CAPABILITY_NOT_GRANTED' }), mail: mailDashboard('NOT_CONNECTED') });
     assert.deepEqual(notConnected.today.calendar, { state: 'NOT_CONNECTED', line: 'Calendar isn’t connected, so your day isn’t here yet.', href: '/app/connections', action: 'Connect Calendar' });
@@ -485,6 +516,11 @@ describe('both Homes compose the same briefing from the page’s reads, and load
     const page = code(read('../src/app/app/page.tsx'));
     assert.match(page, /const principal = \{ organizationId: session\.organizationId, userId: session\.userId \};/);
     for (const loader of ['loadYourDay(principal)', 'loadMailDashboard(principal', 'loadNeedsYou(principal)']) assert.equal(page.split(loader).length - 1, 1, loader);
+    // The employee seat's own queue: the same guarded read its My Work page makes, and only for that seat.
+    assert.match(page, /role === 'EMPLOYEE' \? settle\(\(\) => loadMyQueueForHome\(\)\) : Promise\.resolve\(null\),/);
+    assert.equal(page.split('loadMyQueueForHome(').length - 1, 1);
+    assert.match(page, /<ModuleHome[^>]*queue=\{queue\}/);
+    assert.equal(page.includes('loadWorkspaceHome') || page.includes('loadDashboard') || page.includes('loadEmployeeWork'), false, 'no admin loader and no wider employee read for Home');
     assert.match(page, /<AdminHome[^>]*needsYou=\{needsYou\}/);
     assert.match(page, /<ModuleHome[^>]*needsYou=\{needsYou\}/);
     assert.match(page, /<CreatorHome seat=\{creatorSeat\} time=\{time\} \/>/, 'the creator Home is untouched');
@@ -505,8 +541,15 @@ describe('both Homes compose the same briefing from the page’s reads, and load
 
   it('the module Home composes from the viewer’s own sources only and keeps the areas they can open', () => {
     const home = code(read('../src/app/app/_home/module-home.tsx'));
-    for (const forbidden of ['loadNeedsYou', 'loadDashboard', 'loadExecutiveReview', 'prisma', 'repositories']) assert.equal(home.includes(forbidden), false, forbidden);
+    for (const forbidden of ['loadNeedsYou', 'loadDashboard', 'loadExecutiveReview', 'loadMyQueueForHome', 'loadEmployeeWork', 'prisma', 'repositories']) assert.equal(home.includes(forbidden), false, forbidden);
     assert.match(home, /review: null,[\s\S]*?dashboard: null,/);
+    assert.match(home, /workDue: dueTodayFromQueue\(queue, userId, dayStart, dayEnd, \(id\) => `\/app\/employee\/work\/\$\{encodeURIComponent\(id\)\}`\),/);
+    // The narrow loader: the queue page's guard and read, nothing more.
+    const loader = code(read('../src/app/app/employee/work/work-data.ts'));
+    const narrow = loader.slice(loader.indexOf('export async function loadMyQueueForHome'), loader.indexOf('export async function listMyCompletedToday'));
+    assert.match(narrow, /const actor = await requireEmployeeActor\(\);/);
+    assert.match(narrow, /workRepo\(\)\.listMyWork\(actor\.userId, actor\.organizationId\)/);
+    for (const extra of ['getMyNextAction', 'listMyCompletedToday', 'listNotifications', 'prisma.']) assert.equal(narrow.includes(extra), false, extra);
     assert.match(home, /<NeedsAttention[\s\S]*<TodayPanel[\s\S]*loop-launchers/);
   });
 });

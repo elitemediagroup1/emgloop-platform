@@ -667,3 +667,40 @@ export function dueTodayFromWork(items: readonly MyWorkItem[], dayStart: Date, d
   }
   return out.sort((a, b) => a.at.getTime() - b.at.getTime());
 }
+
+/**
+ * A queue row as `WorkRepository.listMyWork` returns it -- an instance with its stages -- named
+ * structurally so this module imports nothing from the database package.
+ */
+export interface QueueInstance {
+  readonly id: string;
+  readonly title: string;
+  readonly currentStageId: string | null;
+  readonly expectedReturnAt: Date | null;
+  readonly stages: readonly { readonly id: string; readonly name: string; readonly ownerUserId: string | null; readonly status: string; readonly dueAt: Date | null }[];
+}
+
+/**
+ * Work due today for the employee seat, from the rows its own queue read returned: only an instance
+ * whose CURRENT stage this person owns and can act on, dated by that stage's own due date or by the
+ * return EMG committed to, falling inside the reader's day. A row waiting on someone else is not
+ * due; a row with no date is not due. Links go to the employee tree.
+ */
+export function dueTodayFromQueue(rows: readonly QueueInstance[], userId: string, dayStart: Date, dayEnd: Date, hrefFor: (workInstanceId: string) => string): BriefingDue[] {
+  const out: BriefingDue[] = [];
+  for (const row of rows) {
+    const current = row.stages.find((s) => s.id === row.currentStageId);
+    if (!current || current.ownerUserId !== userId || (current.status !== 'ready' && current.status !== 'in_progress')) continue;
+    const candidates: { at: Date | null; detail: string }[] = [
+      { at: current.dueAt, detail: `${current.name} due` },
+      { at: row.expectedReturnAt, detail: `expected back · ${current.name}` },
+    ];
+    for (const c of candidates) {
+      if (!c.at) continue;
+      const at = new Date(c.at);
+      if (Number.isNaN(at.getTime()) || at < dayStart || at >= dayEnd) continue;
+      out.push({ key: `work:${row.id}:${c.detail}`, at, what: row.title, detail: c.detail, href: hrefFor(row.id) });
+    }
+  }
+  return out.sort((a, b) => a.at.getTime() - b.at.getTime());
+}
