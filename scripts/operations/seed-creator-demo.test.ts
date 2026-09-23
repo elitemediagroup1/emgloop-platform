@@ -689,3 +689,16 @@ test('the workflow is human-dispatched, staging-only, reads no production secret
     assert.ok(!/\$\{\{\s*inputs\./.test(step), 'no input interpolated into a run body');
   }
 });
+
+test('the workflow uses each expression context only where GitHub allows it', () => {
+  // A job-level `env:` block may read github, inputs, matrix, needs, secrets, strategy and vars —
+  // NOT `runner`. Naming `runner.temp` there failed workflow validation before any step ran
+  // (run 35803956508), which is why INVITE_OUT lives on the two steps that use it.
+  const jobEnv = WORKFLOW.match(/\n {4}env:\n([\s\S]*?)\n {4}steps:/)?.[1] ?? '';
+  assert.ok(jobEnv.includes('STAGING_DB_SECRET'), 'found the job-level env block');
+  for (const expression of jobEnv.matchAll(/\$\{\{([^}]*)\}\}/g)) {
+    assert.match(expression[1]!.trim(), /^(github|inputs|matrix|needs|secrets|strategy|vars)\./, `job env: ${expression[0]}`);
+  }
+  const stepsWithInviteOut = [...WORKFLOW.matchAll(/\n {10}INVITE_OUT: \$\{\{ runner\.temp \}\}\/creator-invite\.txt/g)].length;
+  assert.equal(stepsWithInviteOut, 2, 'the seed step and the summary step each name the same runner-temp file');
+});

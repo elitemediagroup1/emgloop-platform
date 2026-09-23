@@ -86,7 +86,9 @@ jobs:
       MIGRATE_ROLE_ARN: ${{ vars.CONNECTIONS_STAGING_MIGRATE_ROLE_ARN }}
       # The ONLY secret this workflow reads. The production secret is never referenced.
       STAGING_DB_SECRET: 'loop/connections/staging/database-url'
-      INVITE_OUT: ${{ runner.temp }}/creator-invite.txt
+      # INVITE_OUT (the one-time link's file under the runner's temp dir) is set on the two steps
+      # that use it, not here: the `runner` context is not available in a job-level env block, and
+      # naming it here failed workflow validation before any step ran (run 35803956508).
     steps:
       - name: Confirm
         if: ${{ inputs.confirm != 'seed loop-connections-staging' }}
@@ -184,6 +186,8 @@ jobs:
         env:
           # The human assertion the script requires alongside the host check.
           LOOP_SEED_TARGET: staging
+          # Where the one-time accept link is written; the summary step reads and deletes it.
+          INVITE_OUT: ${{ runner.temp }}/creator-invite.txt
           ORG_SLUG: ${{ inputs.organization_slug }}
           OWNER_EMAIL: ${{ inputs.owner_email }}
           CREATOR_EMAIL: ${{ inputs.creator_email }}
@@ -207,6 +211,8 @@ jobs:
       - name: Publish the invitation link to the job summary (never the log)
         if: always()
         env:
+          # The same path the seed step wrote to.
+          INVITE_OUT: ${{ runner.temp }}/creator-invite.txt
           ORG_SLUG: ${{ inputs.organization_slug }}
           OWNER_EMAIL: ${{ inputs.owner_email }}
           CREATOR_EMAIL: ${{ inputs.creator_email }}

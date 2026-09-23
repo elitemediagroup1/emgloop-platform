@@ -25,7 +25,7 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Creator Hub — BUILT, LOCALLY ACCEPTANCE-TESTED, IN REVIEW (draft PR on `feat/creator-hub-demo`, off main `88d1a9c`) · NOT ON STAGING YET
+## Creator Hub — MERGED (#323, main `77f249a`) · STAGING: infra deployed + migration applied (2026-09-23) · SEED BLOCKED on the workflow fix PR · NOT YET COMMISSIONED
 
 **What it is.** The approved design (Mockup #1 locked, Mockup #2 reviewed) built as one system with two
 experiences: a managed creator's own login (`SystemRole.CREATOR`, same organization, one `LOOP_NAV`
@@ -54,10 +54,16 @@ survive reload) → request changes continues the SAME Production (round 2) → 
 photo uploaded and manually marked published, persisting across reload → a creator cannot open EMG
 pages, another creator gets 404 on the record and the media, anonymous gets 401.
 
-**Next (Matt, in order — `docs/runbooks/creator-hub-staging.md`):** merge → `connections-infra-deploy`
-(diff, then deploy) → Netlify staging env `LOOP_MEDIA_STORAGE=aws` → `connections-migrate-staging` →
-`creator-demo-seed-staging` → fast-forward `staging`. Then the staging acceptance run and the handoff
-(one URL, how each person enters). Production is untouched by all of it.
+**Done by Matt 2026-09-23 (`gh run list`):** #323 merged 00:19Z; `connections-infra-deploy` diff + deploy
+succeeded (00:24Z, 00:26Z); `connections-migrate-staging` succeeded (00:45Z). The first
+`creator-demo-seed-staging` dispatch (run 35803956508) failed workflow validation before any step ran:
+`runner.temp` in a job-level `env:` block, where the `runner` context does not exist. Fixed on
+`fix/creator-seed-workflow-runner-context` (the variable moved to the two steps that use it; actionlint
+clean; the step scripts executed locally in dry-run and real mode; a test now pins context availability).
+
+**Next (Matt, in order):** merge the fix PR → confirm Netlify staging env `LOOP_MEDIA_STORAGE=aws` →
+re-dispatch `creator-demo-seed-staging` from `main` → then I fast-forward `staging`, verify the branch
+deploy, run the acceptance drive on staging and write the handoff. Production is untouched by all of it.
 
 **Known limits:** payouts are not a rail (the transfer control is inert and says so); notification
 preferences are saved but nothing sends; the Work OS reassign dropdown lists every ACTIVE member
