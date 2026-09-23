@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-23 (Creator Hub built and locally acceptance-tested, draft PR in review, staging deployment pending Matt — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-23 (Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -25,60 +25,65 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Creator Hub — MERGED (#323, #324 on main) · STAGING: infra deployed + migration applied (2026-09-23) · SEED BLOCKED on the confirmation-gate fix PR · NOT YET COMMISSIONED
+## Creator Hub — COMMISSIONED ON STAGING (2026-09-23) · #323 #324 #325 on main · staging = main `c4bd264` · production schema untouched
 
-**What it is.** The approved design (Mockup #1 locked, Mockup #2 reviewed) built as one system with two
-experiences: a managed creator's own login (`SystemRole.CREATOR`, same organization, one `LOOP_NAV`
-filtered to `/app/creator/*`) and the EMG side at Operations → Creators (`/app/admin/creator-hub`).
-No `CreatorHub*` tables: CRM owns `CrmOpportunity`/`CrmCampaign`/`CampaignDeliverable` (append-only
-transitions), Work OS owns every Production (a `WorkInstance` of work type `creator-production`, with
-`WorkInstruction` sets and `WorkComment.visibility`), the creator domain owns `CreatorProfile` /
-`CreatorContent` / immutable `ContentVersion` lineage / approvals / publications, evidence rows carry
-`source` (SEEDED_DEMO is labelled everywhere it shows), and the Brain composes "What Loop noticed"
-(`creatorContentNotice`, pure; Fact / Observation / Interpretation / Proposed / Not yet). Media bytes
-live in a private S3 bucket behind a presigning Lambda in the connections stack (browser → presigned
-PUT/GET; the web tier holds no AWS credential); `LOOP_MEDIA_STORAGE=local` is dev-only and refused on a
-production runtime.
+**Where to test:** `https://staging--emgloop2.netlify.app`. EMG side: Operations → **Creators**
+(`/app/admin/creator-hub`) with existing staging logins. Creator side: the one-time accept link in the
+job summary of `creator-demo-seed-staging` run 35901812933 (valid 14 days; whoever plays the creator
+opens it, sets a password, signs in at `/crm/login`, lands on Loop Home, starts at Content). The seed
+recorded the default editor (`EDITOR=true`), so an edit request lands on that person's My Work.
 
-**Migration:** `20260930000000_creator_hub_foundation` (additive: `CREATOR` enum value, 2 Work OS
-columns + `work_comments.visibility`, 14 tables). Applied to the local Postgres only.
+**Verified on staging (2026-09-23, read-only, Playwright + curl):** Netlify branch deploy serves
+`c4bd264` (creator API 401 where the old build gave 404); anonymous access to every creator/hub route
+redirects to login and the three creator API routes answer 401; the dev-only local media route is
+absent; media storage is configured (`LOOP_MEDIA_STORAGE=aws`: an EMG begin-upload probe answers
+NOT_FOUND, not NOT_CONFIGURED); the deployed signer refuses unsigned requests (401) and the bucket
+refuses anonymous reads (403); the roster lists the seeded creator; Requests is honestly empty; the
+creator overview shows Kona (Confirmed) and Sculpey (Pitching, brand hidden from the creator), the
+active campaign with Reel 1 of 2 / Reel 2 of 2 and their requirement sets, compensation and
+analytics labelled seeded demo data, the Person link both ways; an EMG login cannot open the creator
+tree. **Not driven on staging:** the creator-seat path (upload → edit → review → approve → publish),
+because it needs the persona's login, which only Matt/Charlie hold; that path was driven end to end
+locally (see below) and is the recommended first test.
 
-**Validated (2026-09-23, local):** typecheck clean for shared/providers/brain/database/web/infra/ops;
-web build passes; tests: web 707, database 1651 (Postgres opt-in included), shared 1380, providers 248,
-brain 8, infra 41, operations 630 — all passing. The full 52-step acceptance path was driven in a real
-browser (Playwright) against `next dev` + local Postgres + local disk media: creator video upload →
-request edit → EMG finds it in Requests → real Work OS work assigned, expected return set → editor
-uploads Edit v1 and returns it → creator reviews (same-playhead compare, Change + Keep notes, drafts
-survive reload) → request changes continues the SAME Production (round 2) → Edit v2 addresses the notes
-→ creator approves v2 → Production completes, EMG sees the approval on v2 and the immutable lineage →
-photo uploaded and manually marked published, persisting across reload → a creator cannot open EMG
-pages, another creator gets 404 on the record and the media, anonymous gets 401.
+**Seed history:** first dispatch failed validation (`runner.temp` in job env → #324); the next five
+stopped at Confirm because pasted inputs arrive padded (→ #325: normalize in a shell step, read inputs
+from the event payload, mask addresses, honest summary); then dry run and real seed succeeded (runs
+35901154308, 35901812933): party, relationship, invited CREATOR login, profile, Kona/Sculpey, campaign,
+two deliverables, 12+12 evidence rows, 5 compensation entries, the work type.
 
-**Done by Matt 2026-09-23 (`gh run list`):** #323 merged 00:19Z; `connections-infra-deploy` diff + deploy
-succeeded (00:24Z, 00:26Z); `connections-migrate-staging` succeeded (00:45Z). The first
-`creator-demo-seed-staging` dispatch (run 35803956508) failed workflow validation before any step ran:
-`runner.temp` in a job-level `env:` block, where the `runner` context does not exist. Fixed on
-`fix/creator-seed-workflow-runner-context` (the variable moved to the two steps that use it; actionlint
-clean; the step scripts executed locally in dry-run and real mode; a test now pins context availability).
+**Production:** Netlify builds `main`, so the Creator Hub *code* is on app.emgloop.com; the production
+migration has NOT been dispatched (last `Deploy Prisma Migrations` run 2026-09-19), so no table exists
+there: the hub pages render "not available on this deployment yet" and the pre-existing pages read
+creator rows as absent (`absentUntilMigrated`). No production data or schema was touched. Applying the
+migration to production is a separate human decision.
 
-**Second seed failure (2026-09-23 13:02–13:08Z, runs 35864380064…35864984789, after #324):** the
-Confirm step refused the exact phrase five times. The job's own env dump shows the dispatch inputs
-arriving padded — the organization slug with 4, then 8, leading spaces — while the `if:` expression
-compared bytes. Fixed on `fix/creator-seed-confirm-normalization`: the gate is a shell step that trims
-(including NBSP/zero-width), collapses whitespace and compares case-insensitively to the exact phrase,
-printing what arrived on refusal; every string input is trimmed the same way and validated; the three
-addresses are read from the event payload (never a step env the runner would print), masked first, and
-never written to the summary. Executed-shell tests cover it; the dispatched path was simulated locally.
+**Note for Matt:** the bootstrap demo owner login on staging (`admin@emgloop.com`, named "Matt Dunn"
+there) still accepts the repository's default demo password; the read-only EMG checks above used it.
+Rotate it if that account is yours. On the creator overview, the "Bind to an active Creator login"
+control shows "No login (unbind)" while the persona's invitation is pending — do not press *Save
+login* there, or the persona is unbound; once the invitation is accepted the binding already exists.
 
-**Next (Matt, in order):** merge the confirmation-gate fix PR → confirm Netlify staging env
-`LOOP_MEDIA_STORAGE=aws` → re-dispatch `creator-demo-seed-staging` from `main` → then I fast-forward
-`staging`, verify the branch deploy, run the acceptance drive on staging and write the handoff.
-Production is untouched by all of it.
+**What it is** (unchanged from the build): one system, two experiences over shared objects — CRM
+(`CrmOpportunity`/`CrmCampaign`/`CampaignDeliverable`, append-only transitions), Work OS (a Production
+is a `WorkInstance` of type `creator-production`, `WorkInstruction`, `WorkComment.visibility`,
+requested vs expected return), the creator domain (`CreatorProfile`, `CreatorContent`, immutable
+`ContentVersion` lineage, approvals, publications), Brain `creatorContentNotice` (pure), private S3
+behind the `media-signer` Lambda (browser ↔ bucket; no AWS credential in the web tier).
 
-**Known limits:** payouts are not a rail (the transfer control is inert and says so); notification
-preferences are saved but nothing sends; the Work OS reassign dropdown lists every ACTIVE member
-including creators; brand approval is EMG-relayed (no brand login); analytics/earnings are seeded
-evidence until a platform connection exists.
+**Validated locally before merge:** build; web 713, database 1651 (Postgres suite included), shared
+1380, providers 248, brain 8, infra 41, operations 636 tests; the full 52-step acceptance path driven
+in a browser (upload → request edit → EMG assigns + expected return → Edit v1 → same-playhead review,
+Change/Keep notes, drafts survive reload → request changes continues the SAME production → Edit v2
+addresses notes → approve v2 → completion + lineage → photo published manually → tenancy: creator
+blocked from EMG pages, other creator 404 on record and media, anonymous 401).
+
+**Known limits:** payouts are not a rail (inert control says so); notification preferences save but
+nothing sends; the Work OS reassign dropdown lists every ACTIVE member, creators included; brand
+approval is EMG-relayed (no brand login); analytics/earnings are seeded evidence until a platform
+connection exists; a presigned PUT that expires orphans a PENDING version (choose the file again).
+
+**Next:** Matt and Charlie run the first test path; anything found becomes a `fix/…` PR.
 
 ## Production migration state — AT 41 · `main` IS AT 41 (verified 2026-09-19)
 
