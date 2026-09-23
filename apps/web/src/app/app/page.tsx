@@ -61,6 +61,7 @@ export default async function LoopHome() {
   // handed to whichever Home renders -- one loader, one scope, one set of items.
   const needsYou = needsYouResult.ok ? needsYouResult.value : [];
   const queue = queueResult?.ok ? queueResult.value.rows : [];
+  const groups = await navFor(session);
   const time = createTimeView(zone, new Date());
 
   return (
@@ -68,9 +69,9 @@ export default async function LoopHome() {
       {creatorSeat ? (
         <CreatorHome seat={creatorSeat} time={time} />
       ) : role === 'ADMIN' ? (
-        <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} />
+        <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} groups={groups} />
       ) : (
-        <ModuleHome name={session.name} userId={session.userId} groups={await navFor(session)} time={time} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} queue={queue} />
+        <ModuleHome name={session.name} userId={session.userId} groups={groups} time={time} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} queue={queue} />
       )}
     </WorkspaceShell>
   );

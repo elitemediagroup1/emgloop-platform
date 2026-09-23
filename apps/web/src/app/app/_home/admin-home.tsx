@@ -6,9 +6,10 @@ import type { NeedsYouItem } from '../../../daily-loop/needs-you';
 import type { YourDayView } from '../../../daily-loop/your-day';
 import { viewerTime } from '../../../time/viewer-time';
 import { requireWorkspace } from '../../../workspaces/guard';
+import type { NavGroup } from '../../../workspaces/config';
 import { loadDashboard } from '../admin/dashboard-data';
 import { LoopPage, PageHead } from '../_loop-os/record';
-import { composeBriefing, dueTodayFromWork } from './briefing';
+import { HOME_PATHS, composeBriefing, dueTodayFromWork } from './briefing';
 import { BriefingLead, NeedsAttention, PulsePanel, SourceUnavailable, TodayPanel, WhatChanged } from './briefing-view';
 import { RefreshCalendar } from './refresh-calendar';
 import { loadExecutiveReview } from './review-data';
@@ -30,10 +31,6 @@ import { settle } from './settle';
 // EVERY SOURCE FAILS ON ITS OWN: a review or dashboard that cannot be read leaves its own section
 // saying so; the rest of Home stays current.
 
-export const HEADLINES_PATH = '/app/admin/headlines';
-export const MAIL_PATH = '/app/mail';
-export const BRAIN_PATH = '/app/admin/brain';
-
 export async function AdminHome({
   session,
   principal,
@@ -42,9 +39,12 @@ export async function AdminHome({
   mail,
   mailFailed,
   needsYou,
+  groups,
 }: {
   session: AuthSession;
   principal: WorkPrincipal;
+  /** The navigation this person is offered (resolved by the page), so Home links only where the rail would. */
+  groups: readonly NavGroup[];
   /** The viewer's own calendar and mailbox, read once by the page for Home and Mail alike. */
   day: YourDayView | null;
   dayFailed: boolean;
@@ -80,8 +80,9 @@ export async function AdminHome({
     dashboard,
     workDue: dashboard ? dueTodayFromWork(dashboard.home.workspace.myWork, dayStart, dayEnd) : [],
     connectionsHref: CONNECTIONS_PATH,
-    headlinesHref: HEADLINES_PATH,
+    headlinesHref: HOME_PATHS.headlines,
   });
+  const brainHref = groups.some((g) => g.items.some((i) => i.href === HOME_PATHS.brain)) ? HOME_PATHS.brain : null;
 
   const header = dashboard?.home.workspace.header;
   return (
@@ -107,10 +108,10 @@ export async function AdminHome({
         {/* TODAY: the signed-in person's own calendar, their work due today, and their own mailbox --
             and nobody else's. */}
         <aside className="loop-brief__side" aria-label="Your day">
-          <TodayPanel today={briefing.today} time={time} refresh={<RefreshCalendar />} mailHref={MAIL_PATH} />
+          <TodayPanel today={briefing.today} time={time} refresh={<RefreshCalendar />} mailHref={HOME_PATHS.mail} />
         </aside>
         <div className="loop-brief__pulse">
-          {briefing.pulse ? <PulsePanel pulse={briefing.pulse} brainHref={dashboard ? BRAIN_PATH : null} /> : null}
+          {briefing.pulse ? <PulsePanel pulse={briefing.pulse} brainHref={brainHref} /> : null}
           {!dashboardResult.ok ? <SourceUnavailable what="CallGrid and work" /> : null}
         </div>
       </div>

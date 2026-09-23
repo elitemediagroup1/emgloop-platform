@@ -1713,18 +1713,6 @@ a.tile__li-text:hover { color: var(--loop-accent-2); }
 .tile__li-time { flex: none; font-size: 11px; color: var(--loop-text-3); }
 
 /* CallGrid Executive Scorecard — compact Yesterday(Completed)/Today(Live) table. No charts. */
-.score { display: flex; flex-direction: column; }
-.score__row { display: grid; grid-template-columns: 1fr 92px 108px; gap: 10px; align-items: start; padding: 4px 0; }
-.score__head { border-bottom: 1px solid var(--loop-line); padding-bottom: 6px; margin-bottom: 2px; align-items: end; }
-.score__label { color: var(--loop-text-2); font-size: 13px; padding-top: 1px; }
-.score__col { display: flex; flex-direction: column; text-align: right; font-size: 11px; font-weight: 700; letter-spacing: .03em; color: var(--loop-text-2); }
-.score__sub { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--loop-text-3); font-weight: 600; }
-.score__val { text-align: right; color: var(--loop-text); font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.score__today { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-.score__delta { font-size: 10.5px; font-weight: 700; white-space: nowrap; }
-.score__delta--up { color: var(--loop-good); }
-.score__delta--down { color: var(--loop-crit); }
-.score__delta--neutral { color: var(--loop-text-3); }
 
 @media (max-width: 1160px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 680px) { .tiles { grid-template-columns: 1fr; } }
@@ -3726,11 +3714,6 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-page a.loop-home__item-text:hover { color: var(--loop-accent); text-decoration: underline; }
 .loop-home__item-time { font-size: 12px; color: var(--loop-muted); white-space: nowrap; }
 .loop-home__more { font-size: 12.5px; color: var(--loop-muted); }
-.loop-home__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--loop-neutral); transform: translateY(-1px); }
-.loop-home__dot--good { background: var(--loop-good); }
-.loop-home__dot--warn { background: var(--loop-warn); }
-.loop-home__dot--crit { background: var(--loop-crit); }
-.loop-home__dot--info { background: var(--loop-accent); }
 .loop-home__actions { display: flex; flex-wrap: wrap; gap: 14px; }
 .loop-home .score { margin: 0; }
 .loop-home .loop-launchers { display: flex; flex-direction: column; gap: 6px; }
@@ -3739,13 +3722,6 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 @media (max-width: 1100px) { .loop-home { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .loop-home { grid-template-columns: 1fr; } }
 
-/* What the employee is walking into. The rule is the emphasis; nothing here is a card. */
-.loop-day__next { display: flex; flex-direction: column; gap: 5px; padding-left: 14px; border-left: 2px solid var(--loop-accent); }
-.loop-day__next--idle { border-left-color: var(--loop-line-strong); }
-.loop-day__title { margin: 0; font-size: 17px; font-weight: 650; line-height: 1.3; letter-spacing: -0.01em; color: var(--loop-ink); text-wrap: balance; }
-.loop-day__when { margin: 0; font-size: 13px; color: var(--loop-muted); font-variant-numeric: tabular-nums; }
-.loop-day__sections { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px 32px; align-items: start; }
-.loop-day__section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 @media (max-width: 760px) { .loop-day__sections { grid-template-columns: 1fr; } }
 
 /* ===================== MAIL =====================
@@ -3936,137 +3912,23 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-mx-attn__acts form { display: contents; }
 
 /* YOUR MAIL on Home: counts, a few rows, and the way to Mail. */
-.loop-yourmail__counts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.loop-yourmail__count, .loop-page a.loop-yourmail__count { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius-sm); background: var(--loop-surface); color: var(--loop-ink); text-decoration: none; }
-.loop-yourmail__count:hover { border-color: var(--loop-line-strong); }
-.loop-yourmail__n { font-size: 22px; font-weight: 750; font-variant-numeric: tabular-nums; }
-.loop-yourmail__label { font-size: 12.5px; color: var(--loop-muted); }
-.loop-yourmail__rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.loop-yourmail__rows li + li { border-top: 1px solid var(--loop-line); }
-.loop-yourmail__row, .loop-page a.loop-yourmail__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; color: var(--loop-ink); text-decoration: none; }
-.loop-yourmail__who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.loop-yourmail__name { font-size: 13.5px; font-weight: 650; }
-.loop-yourmail__why { font-size: 12.5px; color: var(--loop-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 560px) {
-  .loop-yourmail__counts { gap: 6px; }
-  .loop-yourmail__count, .loop-page a.loop-yourmail__count { padding: 8px 10px; }
-}
 
 /* ===================== METRIC CARDS (/app/mail summary; formerly the executive Home) =====================
    Today's Review on the left, the day on the right. One grid with named areas, so a phone reads
    the review, then the day, then what changed -- not the whole left column before the calendar. */
-.loop-exec__top { grid-area: top; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.loop-exec__side { grid-area: side; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.loop-exec__bottom { grid-area: bottom; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
-.loop-exec__review { display: flex; flex-direction: column; gap: 10px; padding: 20px 22px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius-lg); background: var(--loop-surface); box-shadow: var(--loop-shadow); }
-.loop-exec__review-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; }
-.loop-exec__review-title { margin: 0; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--loop-accent); }
-.loop-exec__period { margin: 0; font-size: 12.5px; color: var(--loop-muted); font-variant-numeric: tabular-nums; }
-.loop-exec__headline { margin: 0; max-width: 72ch; font-size: 17.5px; font-weight: 550; line-height: 1.55; letter-spacing: -0.005em; color: var(--loop-ink); text-wrap: pretty; }
-.loop-exec__headline--quiet { font-size: 15px; font-weight: 500; color: var(--loop-muted); }
-.loop-exec__sources { margin: 0; font-size: 12.5px; color: var(--loop-muted); }
 
-.loop-exec__cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.loop-exec__cards .loop-mx__card { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'icon chevron' 'body body'; align-items: start; align-content: start; gap: 8px; min-height: 0; padding: 14px 14px 16px; }
-.loop-exec__cards .loop-mx__card-icon { grid-area: icon; }
-.loop-exec__cards .loop-mx__card-body { grid-area: body; }
-.loop-exec__cards .loop-mx__chevron { grid-area: chevron; }
-.loop-exec__cards .loop-mx__card-delta { font-weight: 500; }
-.loop-exec__card--none { border-style: dashed; background: var(--loop-surface); }
-.loop-exec__card--none .loop-mx__card-icon { color: var(--loop-faint); }
-.loop-exec__card-none { color: var(--loop-faint); }
 
-.loop-exec__feeds { display: flex; flex-direction: column; gap: 16px; }
-.loop-exec__feed { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--loop-line); border-radius: var(--loop-radius); background: var(--loop-surface); overflow: hidden; }
-.loop-exec__feed-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--loop-line); }
-.loop-exec__feed-title { margin: 0; font-size: 16px; font-weight: 700; color: var(--loop-ink); }
-.loop-exec__list { list-style: none; margin: 0; padding: 0; }
-.loop-exec__item + .loop-exec__item { border-top: 1px solid var(--loop-line); }
-.loop-exec__row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-height: 54px; padding: 9px 16px; color: var(--loop-ink); text-decoration: none; }
-.loop-page a.loop-exec__row { color: var(--loop-ink); }
-.loop-page a.loop-exec__row:hover { background: var(--loop-hover); }
-.loop-exec__row:focus-visible { outline: 2px solid var(--loop-focus); outline-offset: -2px; }
-.loop-exec__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--loop-neutral); }
-.loop-exec__dot--crit { background: var(--loop-crit); }
-.loop-exec__dot--warn { background: var(--loop-warn); }
-.loop-exec__dot--good { background: var(--loop-good); }
-.loop-exec__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.loop-exec__who { font-size: 13.5px; font-weight: 650; color: var(--loop-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.loop-exec__what { font-size: 12.5px; color: var(--loop-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.loop-exec__when { font-size: 12px; color: var(--loop-muted); white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
-.loop-exec__more { margin: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 12px 16px; border-top: 1px solid var(--loop-line); }
-.loop-exec__next { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; font-weight: 650; color: var(--loop-accent); white-space: nowrap; }
 
-.loop-exec__ops { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.loop-exec__ops > .loop-panel:first-child { grid-row: span 2; }
 
 /* Today's calendar: a timeline of the day. Positions come from the stored instants (inline, in
    pixels per HOUR_PX); every colour here is a palette token, one per event type. */
-.loop-cal__summary { margin: 0; font-size: 13.5px; color: var(--loop-body); }
-.loop-cal__allday { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.loop-cal__chip { padding: 4px 10px; border-radius: 8px; background: var(--loop-accent-soft); font-size: 12.5px; color: var(--loop-ink); }
-.loop-cal__chip--external { background: var(--loop-company); }
-.loop-cal__chip--focus { background: var(--loop-good-soft); }
-.loop-cal__chip--out-of-office { background: var(--loop-neutral-soft); }
-.loop-cal__chip--event { background: var(--loop-sunken); }
-.loop-cal__chip-when { font-weight: 650; color: var(--loop-text-2); }
-.loop-cal__grid { position: relative; margin: 8px 0 0 50px; border-bottom: 1px solid var(--loop-line); }
-.loop-cal__hours { list-style: none; margin: 0; padding: 0; position: absolute; inset: 0; }
-.loop-cal__hour { position: absolute; left: 0; right: 0; border-top: 1px solid var(--loop-line); }
-.loop-cal__hour-label { position: absolute; left: -50px; top: -8px; width: 42px; text-align: right; font-size: 11px; line-height: 1.3; color: var(--loop-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.loop-cal__events { list-style: none; margin: 0; padding: 0; position: absolute; inset: 0; z-index: 1; }
-.loop-cal__event { position: absolute; display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border-left: 3px solid var(--loop-accent); border-radius: 6px; background: var(--loop-accent-soft); color: var(--loop-ink); font-size: 12px; line-height: 1.3; overflow: hidden; }
-.loop-cal__event--short { flex-direction: row; align-items: center; gap: 6px; padding: 2px 8px; }
-.loop-cal__event--external { border-left-color: var(--loop-company-ink); background: var(--loop-company); }
-.loop-cal__event--focus { border-left-color: var(--loop-good); background: var(--loop-good-soft); }
-.loop-cal__event--out-of-office { border-left-color: var(--loop-neutral); background: var(--loop-neutral-soft); }
-.loop-cal__event--event { border-left-color: var(--loop-line-strong); background: var(--loop-sunken); }
-.loop-cal__event--free { background: var(--loop-surface); outline: 1px dashed var(--loop-line-strong); outline-offset: -1px; }
-.loop-cal__event--now { box-shadow: inset 0 0 0 1.5px var(--loop-accent-strong); }
-.loop-cal__event-title { display: flex; align-items: center; gap: 4px; min-width: 0; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Side by side, a title needs the room more than the time does (the hour lines carry the time). */
-.loop-cal__event--narrow:not(.loop-cal__event--short) .loop-cal__event-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
-.loop-cal__event--narrow:not(.loop-cal__event--short) .loop-cal__event-when { display: none; }
-.loop-cal__event--narrow.loop-cal__event--short .loop-cal__event-when { display: none; }
-.loop-cal__event--narrow .loop-cal__event-icon { display: inline-flex; vertical-align: -2px; margin-right: 3px; }
-.loop-cal__event-icon { display: inline-flex; flex: none; color: var(--loop-text-2); }
-.loop-cal__event-when { color: var(--loop-text-2); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* "Now" runs beneath the events, so it never strikes through a title; its dot sits in the gutter. */
-.loop-cal__now { position: absolute; left: -4px; right: 0; height: 0; border-top: 2px solid var(--loop-crit); z-index: 0; pointer-events: none; }
-.loop-cal__now::before { content: ''; position: absolute; left: -5px; top: -6px; width: 10px; height: 10px; border-radius: 50%; background: var(--loop-crit); }
-.loop-cal__legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--loop-muted); }
-.loop-cal__key { display: inline-flex; align-items: center; gap: 6px; }
-.loop-cal__swatch { flex: none; width: 10px; height: 10px; border-radius: 3px; border-left: 3px solid var(--loop-accent); background: var(--loop-accent-soft); }
-.loop-cal__swatch--external { border-left-color: var(--loop-company-ink); background: var(--loop-company); }
-.loop-cal__swatch--focus { border-left-color: var(--loop-good); background: var(--loop-good-soft); }
-.loop-cal__swatch--out-of-office { border-left-color: var(--loop-neutral); background: var(--loop-neutral-soft); }
-.loop-cal__swatch--event { border-left-color: var(--loop-line-strong); background: var(--loop-sunken); }
-.loop-cal__swatch--free { border: 1px dashed var(--loop-line-strong); background: var(--loop-surface); }
-.loop-cal__tomorrow { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--loop-line); }
-.loop-cal__tomorrow .loop-eyebrow { margin: 0; }
-.loop-cal__rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.loop-cal__row { display: grid; grid-template-columns: 62px 10px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 13px; color: var(--loop-ink); }
-.loop-cal__row-time { font-size: 12px; color: var(--loop-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.loop-cal__row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A text link is a touch target too: 40px tall on a phone or a touch screen. */
 @media (max-width: 760px), (pointer: coarse) {
   .loop-page a.loop-mx__viewall, .loop-exec a.loop-link, .loop-cal a.loop-link, .loop-yourmail a.loop-link { display: inline-flex; align-items: center; min-height: 40px; }
-}
-@media (max-width: 760px) {
-  .loop-exec__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .loop-exec__ops { grid-template-columns: minmax(0, 1fr); }
-  .loop-exec__ops > .loop-panel:first-child { grid-row: auto; }
-  .loop-exec__headline { font-size: 16px; }
-}
-@media (max-width: 560px) {
-  .loop-exec__review { padding: 16px; }
-  .loop-exec__row { grid-template-columns: 10px minmax(0, 1fr) auto; row-gap: 2px; padding: 9px 14px; }
-  .loop-exec__row > .loop-exec__dot { grid-row: 1 / span 2; }
-  .loop-exec__row > .loop-exec__text { grid-row: 1 / span 2; }
-  .loop-exec__row > :nth-child(3) { grid-column: 3; grid-row: 1; justify-self: end; }
-  .loop-exec__row > :nth-child(4) { grid-column: 3; grid-row: 2; justify-self: end; }
 }
 
 /* ===================== CALLGRID COMMAND CENTER (/app/admin/marketplace) =====================

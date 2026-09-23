@@ -155,12 +155,10 @@ function event(over: Partial<DayEvent> = {}): DayEvent {
 }
 function day(over: { events?: DayEvent[]; freshness?: CalendarFreshness; lastSyncedAt?: Date | null } = {}): YourDayView {
   const today = bounds(NOW);
-  const tomorrow = bounds(new Date(today.endsAt.getTime() + 43_200_000));
   const todaySchedule = scheduleFor(over.events ?? [], today);
-  const tomorrowSchedule = scheduleFor([], tomorrow);
   return {
-    zone: { timeZone: NY, source: 'device' }, now: NOW, today, tomorrow, todaySchedule, tomorrowSchedule,
-    summary: summarizeDay(todaySchedule, today, NOW), tomorrowSummary: summarizeDay(tomorrowSchedule, tomorrow, tomorrow.startsAt), position: positionInDay(todaySchedule, NOW),
+    zone: { timeZone: NY, source: 'device' }, now: NOW, today, todaySchedule,
+    summary: summarizeDay(todaySchedule, today, NOW), position: positionInDay(todaySchedule, NOW),
     freshness: over.freshness ?? 'CURRENT', lastSyncedAt: over.lastSyncedAt === undefined ? new Date(NOW.getTime() - 4 * 60_000) : over.lastSyncedAt, refreshed: false,
   };
 }
@@ -169,8 +167,11 @@ const DAY: DayEvent[] = [
   event({ eventId: 'brand', summary: 'Harbor / Kona — reel review', startsAt: at('2026-09-24T15:00:00Z'), endsAt: at('2026-09-24T16:00:00Z'), externalAttendeeCount: 2, attendeeCount: 3 }), // 11:00–12:00, now
   event({ eventId: 'weekly', summary: 'CallGrid weekly', startsAt: at('2026-09-24T20:00:00Z'), endsAt: at('2026-09-24T21:00:00Z') }),
 ];
-function mailDashboard(freshness: string, summary?: Partial<MailDashboard['summary']>): MailDashboard {
-  return { mail: { freshness } as MailDashboard['mail'], concludable: freshness === 'CURRENT', current: freshness === 'CURRENT', now: NOW, rows: [], recent: [], summary: { needsReply: 3, followUps: 1, waiting: 2, opportunities: 0, talent: 0, performance: 0, operations: 0, conversations: 0, inflow: { needsReply: 0, followUps: 0, waiting: 0, opportunities: 0 }, ...summary } } as unknown as MailDashboard;
+function mailDashboard(freshness: string, summary?: Partial<MailDashboard['summary']>, over: { concludable?: boolean; current?: boolean; lastSyncedAt?: Date | null } = {}): MailDashboard {
+  const lastSyncedAt = over.lastSyncedAt === undefined ? (freshness === 'NEVER_SYNCED' ? null : new Date(NOW.getTime() - 4 * 60_000)) : over.lastSyncedAt;
+  const concludable = over.concludable ?? (lastSyncedAt !== null && (freshness === 'CURRENT' || freshness === 'STALE' || freshness === 'SYNC_FAILED'));
+  const current = over.current ?? freshness === 'CURRENT';
+  return { mail: { freshness, lastSyncedAt } as MailDashboard['mail'], concludable, current, now: NOW, rows: [], recent: [], summary: { needsReply: 3, followUps: 1, waiting: 2, opportunities: 0, talent: 0, performance: 0, operations: 0, conversations: 0, inflow: { needsReply: 0, followUps: 0, waiting: 0, opportunities: 0 }, ...summary } } as unknown as MailDashboard;
 }
 function myWork(over: Partial<MyWorkItem> = {}): MyWorkItem {
   return { workInstanceId: 'w1', title: 'Production 1 · Kona unboxing — cut A', stageName: 'Edit', status: 'in_progress', verb: 'Resume', assignedLabel: 'Waiting 2 hours', href: '/app/admin/work/w1', expectedReturnAtIso: '2026-09-24T16:00:00Z', dueAtIso: null, ...over };
@@ -252,6 +253,8 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(change.place, 'In Telegram');
     assert.equal(b.attention.some((a) => a.key === 'needs-you:chg'), false, 'not repeated as an obligation');
     assert.ok(b.attention.some((a) => a.key === 'needs-you:ask'));
+    const old = brief({ needsYou: [needsYou({ id: 'old', category: 'BUSINESS_CHANGE', at: at('2026-09-20T12:00:00Z') })] });
+    assert.equal(old.changes.some((c) => c.key === 'needs-you:old'), false, 'a change is "since yesterday", like every other change');
   });
 
   it('a review update already listed under needs you is not repeated as a change; CallGrid is one row and only when it moved', () => {
@@ -309,11 +312,11 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
 
   it('today: the calendar as read, work due today from dates the Work OS rows carry, and mail as counts', () => {
     const b = brief({ workDue: dueTodayFromWork([myWork(), myWork({ workInstanceId: 'w2', title: 'Tomorrow', expectedReturnAtIso: '2026-09-25T16:00:00Z' }), myWork({ workInstanceId: 'w3', title: 'Undated', expectedReturnAtIso: null })], time.startOfDay(), new Date(time.startOfDay().getTime() + 86_400_000)) });
-    assert.equal(b.today.calendar.state, 'READ');
+    assert.deepEqual(b.today.calendar, { state: 'READ', current: true, readAt: new Date(NOW.getTime() - 4 * 60_000), failed: false });
     assert.deepEqual(b.today.events.map((e) => e.eventId), ['daily', 'brand', 'weekly']);
     assert.equal(b.today.inProgress?.eventId, 'brand');
     assert.deepEqual(b.today.due.map((d) => [d.what, d.detail, d.href]), [['Production 1 · Kona unboxing — cut A', 'expected back · Edit', '/app/admin/work/w1']]);
-    assert.deepEqual(b.today.mailCounts, { needsReply: 3, followUps: 1, waiting: 2 });
+    assert.deepEqual(b.today.mailCounts, { needsReply: 3, followUps: 1, waiting: 2, current: true });
     assert.equal(b.sentence.meetings, 3);
     assert.equal(b.sentence.inProgress, true);
   });
@@ -359,8 +362,19 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.deepEqual(brief({ day: null, mail: null }).today.calendar, { state: 'NOT_CONFIGURED' });
     assert.deepEqual(brief({ day: null, dayFailed: true }).today.calendar, { state: 'UNAVAILABLE', line: 'Loop could not open your calendar just now.' });
     assert.deepEqual(brief({ mail: null, mailFailed: true }).today.mail, { state: 'UNAVAILABLE', line: 'Loop could not open your mail just now.' });
-    // A clear day is clear only when Loop read the calendar.
-    for (const freshness of ['NEVER_SYNCED', 'SYNC_FAILED', 'STALE', 'CURRENT'] as const) assert.equal(brief({ day: day({ freshness, events: [] }) }).today.calendar.state, 'READ', freshness);
+    // A clear day is clear only when Loop read the calendar: a never-read one is unread, an old read says so.
+    assert.deepEqual(brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null, events: [] }) }).today.calendar, { state: 'NOT_READ', line: 'Loop has not read your calendar yet.' });
+    assert.equal(brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null, events: [] }) }).sentence.meetings, null, 'no "no meetings" claim about an unread calendar');
+    const stale = brief({ day: day({ freshness: 'STALE', lastSyncedAt: at('2026-09-24T10:00:00Z') }) }).today.calendar;
+    assert.deepEqual(stale, { state: 'READ', current: false, readAt: at('2026-09-24T10:00:00Z'), failed: false });
+    const failed = brief({ day: day({ freshness: 'SYNC_FAILED', lastSyncedAt: at('2026-09-24T10:00:00Z') }) }).today.calendar;
+    assert.deepEqual(failed, { state: 'READ', current: false, readAt: at('2026-09-24T10:00:00Z'), failed: true });
+    assert.equal(brief({ day: day({ freshness: 'SYNC_FAILED', lastSyncedAt: null, events: [] }) }).today.calendar.state, 'NOT_READ', 'a failed first read is not an empty day');
+    // Mail: the read model's own verdict is honoured -- nothing to conclude from is unread, an old read is not current.
+    assert.deepEqual(brief({ mail: mailDashboard('NEVER_SYNCED') }).today.mail, { state: 'NOT_READ', line: 'Loop has not read your mail yet.' });
+    assert.equal(brief({ mail: mailDashboard('NEVER_SYNCED') }).today.mailCounts, null, 'no counts of a mailbox Loop has not read');
+    assert.equal(brief({ mail: mailDashboard('CURRENT', {}, { concludable: false }) }).today.mail.state, 'NOT_READ');
+    assert.equal(brief({ mail: mailDashboard('STALE', {}, { current: false }) }).today.mailCounts?.current, false);
   });
 
   it('pulse: movement only -- unchanged figures are named once, untracked ones are omitted with their reason, never drawn as a zero', () => {
@@ -369,6 +383,8 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.deepEqual(p.kpis.find((k) => k.key === 'callgrid:billable')!.delta, { kind: 'up', text: '▲ 55.6%' });
     assert.deepEqual(p.kpis.find((k) => k.key === 'review:relevantEmails')!.delta, { kind: 'up', text: '▲ 4 vs the period before' });
     assert.deepEqual(p.unchanged, ['total calls', 'outreach sent']);
+    const dropped = brief({ review: review([{ ...mailContribution, metrics: { ...mailContribution.metrics, relevantEmails: { state: 'VALUE', value: 0, prior: 5, href: '/app/mail', scope: 'your mail' } } }]) }).pulse!;
+    assert.deepEqual(dropped.kpis.find((k) => k.key === 'review:relevantEmails')!.delta, { kind: 'down', text: '▼ 5 vs the period before' }, 'a drop to zero is a move, never "unchanged"');
     assert.deepEqual(p.omitted, [{ label: 'Opportunities', reason: 'Loop does not track opportunities yet.' }]);
     assert.equal(brief({ review: null, dashboard: null }).pulse, null, 'a seat with no organization figures has no pulse');
     const quiet = brief({ dashboard: dashboard({ today: { totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000 } }) }).pulse!;
@@ -377,15 +393,18 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
 
   it('the sentence is the facts in words, and names the sources it read and the ones it could not', () => {
     const words = briefingWords(brief().sentence, time);
-    assert.match(words.lead, /^Since .*: 4 things changed, 3 need you, one by Thursday\. Your day has 3 meetings, one on now\.$/);
+    assert.match(words.lead, /^Since .*: 4 things changed, 6 need you, one by Thursday\. Your day has 3 meetings, one on now\.$/);
+    assert.equal(brief().sentence.attention, brief().attentionTotal, 'the sentence counts what the list counts');
     assert.match(words.sources!, /From your mail, Loop work, Telegram\./);
     assert.match(words.sources!, /Not read: your calendar — Loop has not read your calendar yet; CallGrid — Loop could not read CallGrid just now; Headlines — Loop could not read Headlines just now\./);
     const quiet = briefingWords(brief({ review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), headlines: [], needsYou: [], dashboard: null, day: null, mail: null }).sentence, time);
-    assert.match(quiet.lead, /nothing meaningful changed, nothing needs you\./i);
+    assert.match(quiet.lead, /nothing changed in what Loop can read, nothing needs you\./i);
     for (const forbidden of ['accelerat', 'major', 'urgent', 'momentum', 'strong week', 'probably']) assert.equal(words.lead.toLowerCase().includes(forbidden), false, forbidden);
     // The module Home, with nothing but the viewer's own sources, still says what it read.
     const own = briefingWords(brief({ review: null, dashboard: null, headlines: null, period: null }).sentence, time);
     assert.match(own.sources!, /From your calendar, your mail, Telegram\./);
+    const unread = briefingWords(brief({ review: null, dashboard: null, headlines: null, period: null, day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }), mail: mailDashboard('NEVER_SYNCED') }).sentence, time);
+    assert.match(unread.sources!, /Not read: your calendar — not read yet; your mail — not read yet\./);
   });
 });
 
@@ -405,7 +424,7 @@ describe('the briefing, drawn', () => {
     const telegramRow = out.slice(out.indexOf('data-briefing-change="TELEGRAM"'), out.indexOf('</li>', out.indexOf('data-briefing-change="TELEGRAM"')));
     assert.equal(telegramRow.includes('href='), false, 'no fabricated deep link for a private chat');
     assert.match(out, /datetime="2026-09-24T06:10:00\.000Z"/i);
-    assert.match(html(<WhatChanged briefing={brief({ headlines: [], needsYou: [], review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), dashboard: null })} time={time} />), /Nothing meaningful changed in what Loop can read since yesterday\./);
+    assert.match(html(<WhatChanged briefing={brief({ headlines: [], needsYou: [], review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), dashboard: null })} time={time} />), /Nothing changed in what Loop can read since yesterday\./);
   });
 
   it('needs you: ranked rows with who, what, kind, the grounded deadline, next and source; minimized, no forms, no invented fields', () => {
@@ -423,6 +442,8 @@ describe('the briefing, drawn', () => {
     assert.match(out, /href="\/app\/mail\/t1"[^>]*>Reply/);
     assert.match(out, /href="\/app\/admin\/work\/w9"[^>]*>Assign/);
     assert.match(out, /Showing 3 of 6\./);
+    const many = html(<WhatChanged briefing={brief({ headlines: Array.from({ length: 9 }, (_, i) => headline({ id: `h${i}`, lastDetectedAt: `2026-09-24T0${i}:00:00Z` })) })} time={time} />);
+    assert.match(many, /Not shown: \d+ earlier changes\./, 'the hidden rows are older, and it says so');
     assert.match(out, /href="\/app\/mail"[^>]*>3 more in Mail →/);
     assert.equal(/<form\b|<button\b/.test(out), false, 'corrections live on the source, not as buttons on Home');
     assert.equal(/\bnull\b|\bundefined\b/.test(out), false);
@@ -476,6 +497,17 @@ describe('the briefing, drawn', () => {
     assert.match(expired, /Google no longer accepts this connection[\s\S]*?Reconnect Google/);
     assert.match(html(<TodayPanel today={brief({ day: day({ events: [] }) }).today} time={time} mailHref="/app/mail" />), /No meetings on your calendar today\./);
     assert.match(html(<TodayPanel today={brief({ mail: mailDashboard('CURRENT', { needsReply: 0, followUps: 0, waiting: 0 }) }).today} time={time} mailHref="/app/mail" />), /Nothing in your mail needs you right now\./);
+    const staleMail = html(<TodayPanel today={brief({ mail: mailDashboard('STALE', { needsReply: 0, followUps: 0, waiting: 0 }, { current: false }) }).today} time={time} mailHref="/app/mail" />);
+    assert.match(staleMail, /Nothing in your mail needed you when Loop last read it\./);
+    assert.equal(staleMail.includes('right now'), false);
+    assert.match(staleMail, /Loop last read your mail 4 minutes ago\./);
+    const neverRead = html(<TodayPanel today={brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }), mail: mailDashboard('NEVER_SYNCED') }).today} time={time} mailHref="/app/mail" />);
+    assert.match(neverRead, /data-briefing-source-state="NOT_READ" data-briefing-source-of="calendar"[\s\S]*Loop has not read your calendar yet\./);
+    assert.equal(neverRead.includes('No meetings on your calendar today'), false, 'an unread calendar is never an empty one');
+    assert.match(neverRead, /Loop has not read your mail yet\./);
+    const failedRead = html(<TodayPanel today={brief({ day: day({ freshness: 'SYNC_FAILED', lastSyncedAt: at('2026-09-24T10:00:00Z'), events: DAY }) }).today} time={time} mailHref="/app/mail" />);
+    assert.match(failedRead, /Loop could not reach Google just now\. This is your calendar as Loop last read it, 5 hours ago\./);
+    assert.match(failedRead, /Team Daily/);
     assert.equal(html(<TodayPanel today={brief({ day: null, mail: null }).today} time={time} mailHref="/app/mail" />), '', 'no source set up, no panel');
     assert.match(html(<TodayPanel today={brief({ day: null, dayFailed: true, mail: null }).today} time={time} mailHref="/app/mail" />), /could not open your calendar/);
   });
@@ -486,7 +518,7 @@ describe('the briefing, drawn', () => {
     assert.match(out, /href="\/app\/admin\/marketplace"[^>]*>14</);
     assert.match(out, /yesterday 9/);
     assert.match(out, /href="\/app\/mail"[^>]*>12<[\s\S]*?▲ 4 vs the period before/);
-    assert.match(out, /Unchanged since yesterday: total calls, outreach sent\./);
+    assert.match(out, /No movement: total calls, outreach sent\./);
     assert.match(out, /Opportunities: Loop does not track opportunities yet\./);
     assert.match(out, /href="\/app\/admin\/brain"[^>]*>Executive Brain →/);
     assert.equal(/loop-brief__kpi-v">0</.test(out), false, 'never a zero dressed as data');
@@ -495,7 +527,7 @@ describe('the briefing, drawn', () => {
 
   it('the lead sentence is on the page as text, with the sources beside it', () => {
     const out = html(<BriefingLead briefing={brief()} time={time} />);
-    assert.match(out, /data-briefing-lead[^>]*>Since .*4 things changed, 3 need you, one by Thursday\./);
+    assert.match(out, /data-briefing-lead[^>]*>Since .*4 things changed, 6 need you, one by Thursday\./);
     assert.match(out, /From your mail, Loop work, Telegram\./);
   });
 
@@ -534,6 +566,7 @@ describe('both Homes compose the same briefing from the page’s reads, and load
     for (const forbidden of ['loadNeedsYou', 'loadYourDay', 'loadMailDashboard', 'prisma', 'repositories']) assert.equal(home.includes(forbidden), false, forbidden);
     assert.match(body, /composeBriefing\(\{[\s\S]*?headlines: review\?\.headlines \?\? null,[\s\S]*?needsYou,/);
     assert.match(body, /<WhatChanged[\s\S]*<NeedsAttention[\s\S]*<TodayPanel[\s\S]*<PulsePanel/, 'the approved order');
+    assert.match(body, /const brainHref = groups\.some\(\(g\) => g\.items\.some\(\(i\) => i\.href === HOME_PATHS\.brain\)\) \? HOME_PATHS\.brain : null;/, 'Home links to the Brain only where the rail would');
     const review = code(read('../src/app/app/_home/review-data.ts'));
     assert.match(review, /loadAttention\(organizationId, new Date\(\), \{ dismissed: false \}\)/, 'the Home read excludes dismissed Headlines');
     assert.equal(review.includes('loadNeedsYou'), false, 'the review never reads the employee-private items');

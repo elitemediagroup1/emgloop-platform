@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { counted, productLabel, type DayEvent, type TimeView } from '@emgloop/shared';
-import { Panel, StateBlock } from '../_loop-os/record';
+import { StateBlock } from '../_loop-os/record';
 import {
   BRIEFING_SOURCE_LABELS,
   briefingWords,
@@ -78,7 +78,7 @@ export function WhatChanged({ briefing, time }: { briefing: Briefing; time: Time
         ) : null}
       </div>
       {changes.length === 0 ? (
-        <p className="loop-brief__quiet">Nothing meaningful changed in what Loop can read since yesterday.</p>
+        <p className="loop-brief__quiet">Nothing changed in what Loop can read since yesterday.</p>
       ) : (
         <ul className="loop-brief__rows">
           {changes.map((c) => (
@@ -108,7 +108,7 @@ export function WhatChanged({ briefing, time }: { briefing: Briefing; time: Time
       )}
       {changesObserved > changes.length ? (
         <p className="loop-brief__foot">
-          Not shown: {counted(changesObserved - changes.length, 'further change', 'further changes')} with less movement.
+          Not shown: {counted(changesObserved - changes.length, 'earlier change', 'earlier changes')}.
         </p>
       ) : null}
     </section>
@@ -199,7 +199,7 @@ function attendance(event: DayEvent): string | null {
 }
 
 /** The facts beside an event, each one a stored column. No location, no link, no attendee names. */
-export function eventFacts(event: DayEvent): string[] {
+function eventFacts(event: DayEvent): string[] {
   const facts: string[] = [];
   const people = attendance(event);
   if (people) facts.push(people);
@@ -211,8 +211,23 @@ export function eventFacts(event: DayEvent): string[] {
   return facts;
 }
 
-function SourceLine({ state, mark }: { state: BriefingSourceState; mark: string }) {
-  if (state.state === 'READ' || state.state === 'NOT_CONFIGURED') return null;
+/** How current a read is, in the source's own words: said only when it is not current. */
+function currencyWords(state: Extract<BriefingSourceState, { state: 'READ' }>, noun: 'calendar' | 'mail', time: TimeView): string | null {
+  if (state.current) return null;
+  const when = state.readAt ? time.relative(state.readAt, { style: 'long' }) : 'earlier';
+  return state.failed ? `Loop could not reach Google just now. This is your ${noun} as Loop last read it, ${when}.` : `Loop last read your ${noun} ${when}.`;
+}
+
+function SourceLine({ state, mark, time }: { state: BriefingSourceState; mark: 'calendar' | 'mail'; time: TimeView }) {
+  if (state.state === 'NOT_CONFIGURED') return null;
+  if (state.state === 'READ') {
+    const words = currencyWords(state, mark, time);
+    return words ? (
+      <p className="loop-brief__source-line" data-briefing-source-state="STALE" data-briefing-source-of={mark}>
+        <span>{words}</span>
+      </p>
+    ) : null;
+  }
   return (
     <p className="loop-brief__source-line" data-briefing-source-state={state.state} data-briefing-source-of={mark}>
       <span className="loop-brief__ring" aria-hidden="true" />
@@ -260,7 +275,7 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
           ))}
         </p>
       ) : null}
-      <SourceLine state={today.calendar} mark="calendar" />
+      <SourceLine state={today.calendar} mark="calendar" time={time} />
       {read && today.events.length > 0 ? (
         <ul className="loop-brief__tl">
           {today.events.map((e) => (
@@ -298,7 +313,7 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
         </>
       ) : null}
       {today.mail.state !== 'NOT_CONFIGURED' ? <p className="loop-brief__subhead">Mail</p> : null}
-      <SourceLine state={today.mail} mark="mail" />
+      <SourceLine state={today.mail} mark="mail" time={time} />
       {today.mailCounts ? (
         <p className="loop-brief__mailline" data-briefing-mail>
           {today.mailCounts.needsReply > 0 || today.mailCounts.followUps > 0 || today.mailCounts.waiting > 0
@@ -309,7 +324,9 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
               ]
                 .filter(Boolean)
                 .join(' · ')
-            : 'Nothing in your mail needs you right now.'}
+            : today.mailCounts.current
+              ? 'Nothing in your mail needs you right now.'
+              : 'Nothing in your mail needed you when Loop last read it.'}
           {' '}
           <Link className="loop-link" href={mailHref}>
             Open Mail →
@@ -349,7 +366,7 @@ export function PulsePanel({ pulse, brainHref }: { pulse: BriefingPulse; brainHr
       )}
       {pulse.unchanged.length > 0 || pulse.omitted.length > 0 || brainHref ? (
         <p className="loop-brief__foot">
-          {pulse.unchanged.length > 0 ? <span>Unchanged since yesterday: {pulse.unchanged.join(', ')}. </span> : null}
+          {pulse.unchanged.length > 0 ? <span>No movement: {pulse.unchanged.join(', ')}. </span> : null}
           {pulse.omitted.map((o) => (
             <span key={o.label}>
               {o.label}: {o.reason.replace(/\.$/, '')}.{' '}

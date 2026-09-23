@@ -54,11 +54,8 @@ export interface YourDayView {
   readonly zone: DisplayTimeZone;
   readonly now: Date;
   readonly today: DayBounds;
-  readonly tomorrow: DayBounds;
   readonly todaySchedule: DaySchedule;
-  readonly tomorrowSchedule: DaySchedule;
   readonly summary: DaySummary;
-  readonly tomorrowSummary: DaySummary;
   readonly position: DayPosition;
   readonly freshness: CalendarFreshness;
   /** When Loop last completed a successful read. Null when it never has. */
@@ -157,29 +154,26 @@ export async function loadYourDay(principal: WorkPrincipal, options: { readonly 
     now,
   );
 
+  // Today only: the tomorrow preview went with the panel that drew it (2026-09-24), so the read
+  // stops at the end of the reader's day.
   const today = boundsFor(now, zone.timeZone);
-  const tomorrow = boundsFor(new Date(today.endsAt.getTime() + DAY_MS / 2), zone.timeZone);
 
   const rows = await graph.eventsForDays(principal, {
     fromInstant: today.startsAt,
-    toInstant: tomorrow.endsAt,
+    toInstant: today.endsAt,
     fromDate: civilDateValue(today.civilDate),
-    toDate: civilDateValue(tomorrow.civilDate),
+    toDate: civilDateValue(today.civilDate),
   });
   const events = rows.map(dayEventOf);
 
   const todaySchedule = scheduleFor(events, today);
-  const tomorrowSchedule = scheduleFor(events, tomorrow);
 
   return {
     zone,
     now,
     today,
-    tomorrow,
     todaySchedule,
-    tomorrowSchedule,
     summary: summarizeDay(todaySchedule, today, now),
-    tomorrowSummary: summarizeDay(tomorrowSchedule, tomorrow, tomorrow.startsAt),
     position: positionInDay(todaySchedule, now),
     freshness,
     lastSyncedAt: cursor?.lastSyncCompletedAt ?? null,

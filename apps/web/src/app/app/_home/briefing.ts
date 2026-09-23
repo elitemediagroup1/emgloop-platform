@@ -62,10 +62,10 @@ export type BriefingTone = 'critical' | 'attention' | 'good' | 'neutral';
  * The Telegram triage categories that are "what changed" rather than "needs you": a conversation
  * that named a change or a commitment. Every other category is something the person still owes.
  */
-export const CHANGE_CATEGORIES: readonly string[] = Object.freeze(['BUSINESS_CHANGE', 'COMMITMENT']);
+const CHANGE_CATEGORIES: readonly string[] = Object.freeze(['BUSINESS_CHANGE', 'COMMITMENT']);
 
 /** The category, in plain words for the person. Presentation only; the vocabulary is the AI task's. */
-export const CATEGORY_LABELS: Readonly<Record<string, string>> = Object.freeze({
+const CATEGORY_LABELS: Readonly<Record<string, string>> = Object.freeze({
   REQUEST: 'Request',
   DECISION_NEEDED: 'Decision needed',
   COMMITMENT: 'Commitment',
@@ -96,7 +96,10 @@ const TONE_WEIGHT: Readonly<Record<BriefingTone, number>> = Object.freeze({ crit
 const DEADLINE_BOOST = 100;
 
 /** Where a Telegram row points back to: the conversation, in the app it lives in. No URL exists. */
-export const TELEGRAM_PLACE = 'In Telegram';
+const TELEGRAM_PLACE = 'In Telegram';
+
+/** The three destinations Home links to for every seat. */
+export const HOME_PATHS = Object.freeze({ headlines: '/app/admin/headlines', mail: '/app/mail', brain: '/app/admin/brain' });
 
 // --- The plan the views render --------------------------------------------------------------------
 
@@ -140,7 +143,13 @@ export interface BriefingAttention {
 }
 
 export type BriefingSourceState =
-  | { readonly state: 'READ' }
+  /**
+   * Loop has read this source. `current` is false when the read is old (STALE) or the last attempt
+   * failed and this is the picture as last read (SYNC_FAILED); the view then says so and when.
+   */
+  | { readonly state: 'READ'; readonly current: boolean; readonly readAt: Date | null; readonly failed: boolean }
+  /** Connected, but Loop has not read it yet: nothing here is empty, it is unread. */
+  | { readonly state: 'NOT_READ'; readonly line: string }
   | { readonly state: 'NOT_CONNECTED'; readonly line: string; readonly href: string; readonly action: string }
   | { readonly state: 'UNAVAILABLE'; readonly line: string }
   /** Loop is not set up for this source at all: nothing is said about it. */
@@ -166,7 +175,8 @@ export interface BriefingToday {
   readonly lastSyncedAt: Date | null;
   readonly due: readonly BriefingDue[];
   readonly mail: BriefingSourceState;
-  readonly mailCounts: { readonly needsReply: number; readonly followUps: number; readonly waiting: number } | null;
+  /** Counts only from a read Loop can conclude from; `current` says whether "right now" may be said. */
+  readonly mailCounts: { readonly needsReply: number; readonly followUps: number; readonly waiting: number; readonly current: boolean } | null;
 }
 
 export interface BriefingKpi {
@@ -292,9 +302,10 @@ function headlineChanges(input: BriefingInput, since: Date): BriefingChange[] {
     });
 }
 
-function telegramChanges(input: BriefingInput): BriefingChange[] {
+function telegramChanges(input: BriefingInput, since: Date): BriefingChange[] {
   return input.needsYou
     .filter((item) => item.category !== null && CHANGE_CATEGORIES.includes(item.category))
+    .filter((item) => item.at.getTime() >= since.getTime())
     .map((item): BriefingChange => ({
       key: `needs-you:${item.id}`,
       source: 'TELEGRAM',
@@ -440,25 +451,34 @@ function calendarState(input: BriefingInput): BriefingSourceState {
   if (input.dayFailed) return { state: 'UNAVAILABLE', line: 'Loop could not open your calendar just now.' };
   const day = input.day;
   if (!day || day.freshness === 'NOT_CONFIGURED') return { state: 'NOT_CONFIGURED' };
-  return connectableState(day.freshness, 'calendar', input.connectionsHref);
+  return connectableState(day.freshness, 'calendar', input.connectionsHref, day.lastSyncedAt);
 }
 
 function mailState(input: BriefingInput): BriefingSourceState {
   if (input.mailFailed) return { state: 'UNAVAILABLE', line: 'Loop could not open your mail just now.' };
   const mail = input.mail;
   if (!mail || mail.mail.freshness === 'NOT_CONFIGURED') return { state: 'NOT_CONFIGURED' };
-  return connectableState(mail.mail.freshness, 'mail', input.connectionsHref);
+  const state = connectableState(mail.mail.freshness, 'mail', input.connectionsHref, mail.mail.lastSyncedAt);
+  // The read model's own verdict outranks the freshness word: with nothing to conclude from, the
+  // mailbox is unread, and an old read is not current.
+  if (state.state === 'READ' && !mail.concludable) return { state: 'NOT_READ', line: 'Loop has not read your mail yet.' };
+  if (state.state === 'READ' && !mail.current) return { ...state, current: false };
+  return state;
 }
 
 /** The one-line state of a Google source that could be connected, with its own way in. */
-function connectableState(freshness: WorkSourceFreshness, noun: 'calendar' | 'mail', href: string): BriefingSourceState {
+function connectableState(freshness: WorkSourceFreshness, noun: 'calendar' | 'mail', href: string, readAt: Date | null): BriefingSourceState {
   const thing = noun === 'calendar' ? 'Calendar' : 'Google';
   switch (freshness) {
     case 'CURRENT':
+      return { state: 'READ', current: true, readAt, failed: false };
     case 'STALE':
-    case 'NEVER_SYNCED':
+      return { state: 'READ', current: false, readAt, failed: false };
     case 'SYNC_FAILED':
-      return { state: 'READ' };
+      // What Loop last read, if it ever did; never an empty day dressed as a read one.
+      return readAt ? { state: 'READ', current: false, readAt, failed: true } : { state: 'NOT_READ', line: `Loop could not reach Google, and has not read your ${noun} yet.` };
+    case 'NEVER_SYNCED':
+      return { state: 'NOT_READ', line: `Loop has not read your ${noun} yet.` };
     case 'AUTHORIZATION_EXPIRED':
       return { state: 'NOT_CONNECTED', line: `Google no longer accepts this connection, so your ${noun} isn’t here.`, href, action: `Reconnect ${thing}` };
     case 'CAPABILITY_NOT_GRANTED':
@@ -485,7 +505,7 @@ function today(input: BriefingInput): BriefingToday {
     lastSyncedAt: day?.lastSyncedAt ?? null,
     due: [...input.workDue].sort((a, b) => a.at.getTime() - b.at.getTime()).slice(0, BRIEFING_LIMITS.dueToday),
     mail,
-    mailCounts: summary ? { needsReply: summary.needsReply, followUps: summary.followUps, waiting: summary.waiting } : null,
+    mailCounts: summary && mail.state === 'READ' ? { needsReply: summary.needsReply, followUps: summary.followUps, waiting: summary.waiting, current: mail.current } : null,
   };
 }
 
@@ -541,7 +561,6 @@ function pulse(input: BriefingInput): BriefingPulse | null {
       }
       const diff = metric.value - metric.prior;
       if (diff === 0) unchanged.push(label.toLowerCase());
-      else if (metric.value === 0) unchanged.push(label.toLowerCase());
       else
         kpis.push({
           key: `review:${key}`,
@@ -571,7 +590,7 @@ function pulse(input: BriefingInput): BriefingPulse | null {
 
 // --- The sentence ---------------------------------------------------------------------------------
 
-function sentence(input: BriefingInput, changes: number, attention: readonly BriefingAttention[], todayPlan: BriefingToday): BriefingSentence {
+function sentence(input: BriefingInput, changes: number, attention: readonly BriefingAttention[], attentionTotal: number, todayPlan: BriefingToday): BriefingSentence {
   const read: string[] = [];
   const notRead: { label: string; note: string }[] = [];
   for (const s of input.review?.sources ?? []) {
@@ -581,15 +600,18 @@ function sentence(input: BriefingInput, changes: number, attention: readonly Bri
   if (!input.review) {
     if (todayPlan.calendar.state === 'READ') read.push(REVIEW_SOURCE_LABELS.CALENDAR);
     else if (todayPlan.calendar.state === 'NOT_CONNECTED') notRead.push({ label: REVIEW_SOURCE_LABELS.CALENDAR, note: 'not connected' });
+    else if (todayPlan.calendar.state === 'NOT_READ') notRead.push({ label: REVIEW_SOURCE_LABELS.CALENDAR, note: 'not read yet' });
     if (todayPlan.mail.state === 'READ') read.push(REVIEW_SOURCE_LABELS.MAIL);
     else if (todayPlan.mail.state === 'NOT_CONNECTED') notRead.push({ label: REVIEW_SOURCE_LABELS.MAIL, note: 'not connected' });
+    else if (todayPlan.mail.state === 'NOT_READ') notRead.push({ label: REVIEW_SOURCE_LABELS.MAIL, note: 'not read yet' });
   }
   if (input.needsYou.length > 0) read.push(input.needsYou[0]!.sourceLabel);
   const withDeadline = attention.find((a) => a.deadline);
   return {
     since: input.period?.from ?? null,
     changes,
-    attention: attention.length,
+    attention: attentionTotal,
+    /** The first-ranked deadline, in the source's own words. Text, never a parsed date. */
     soonestDeadline: withDeadline?.deadline ?? null,
     meetings: todayPlan.calendar.state === 'READ' && input.day ? input.day.summary.timedCount : null,
     nextMeetingIn: todayPlan.minutesUntilNext,
@@ -611,7 +633,7 @@ export function composeBriefing(input: BriefingInput): Briefing {
   const cgChange = callgridChange(input);
   // Newest first; a row with no instant (none today) would sort last, never be given a time.
   const instant = (d: Date | null): number => (d ? d.getTime() : Number.NEGATIVE_INFINITY);
-  const changeRows = [...headlineChanges(input, since), ...telegramChanges(input), ...reviewChanges(input, since, attentionKeys), ...(cgChange ? [cgChange] : [])].sort(
+  const changeRows = [...headlineChanges(input, since), ...telegramChanges(input, since), ...reviewChanges(input, since, attentionKeys), ...(cgChange ? [cgChange] : [])].sort(
     (a, b) => instant(b.at) - instant(a.at),
   );
   const changes = changeRows.slice(0, BRIEFING_LIMITS.changes);
@@ -622,7 +644,7 @@ export function composeBriefing(input: BriefingInput): Briefing {
   const attentionTotal = input.review ? input.review.attentionTotal + telegramCount : telegramCount;
 
   return {
-    sentence: sentence(input, changeRows.length, attentionRows, todayPlan),
+    sentence: sentence(input, changeRows.length, attentionRows, attentionTotal, todayPlan),
     changes,
     changesObserved: changeRows.length,
     historyHref: input.headlines !== null ? input.headlinesHref : null,
@@ -638,7 +660,7 @@ export function composeBriefing(input: BriefingInput): Briefing {
 /** The words of the briefing sentence, from its facts. Kept beside the composer so the wording is tested. */
 export function briefingWords(s: BriefingSentence, time: TimeView): { lead: string; sources: string | null } {
   const parts: string[] = [];
-  parts.push(s.changes === 0 ? 'nothing meaningful changed' : `${counted(s.changes, 'thing changed', 'things changed')}`);
+  parts.push(s.changes === 0 ? 'nothing changed in what Loop can read' : `${counted(s.changes, 'thing changed', 'things changed')}`);
   parts.push(s.attention === 0 ? 'nothing needs you' : `${counted(s.attention, 'needs you', 'need you')}${s.soonestDeadline ? `, one ${s.soonestDeadline.toLowerCase().startsWith('by ') || s.soonestDeadline.toLowerCase().startsWith('before ') ? '' : 'by '}${s.soonestDeadline}` : ''}`);
   const when = s.since ? `Since ${time.dateTime(s.since)}: ` : '';
   let day = '';

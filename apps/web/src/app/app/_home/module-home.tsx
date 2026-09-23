@@ -7,7 +7,7 @@ import type { YourDayView } from '../../../daily-loop/your-day';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
 import type { TimeView } from '@emgloop/shared';
 import { LoopPage, PageHead, Panel } from '../_loop-os/record';
-import { composeBriefing, dueTodayFromQueue, type QueueInstance } from './briefing';
+import { HOME_PATHS, composeBriefing, dueTodayFromQueue, type QueueInstance } from './briefing';
 import { BriefingLead, NeedsAttention, TodayPanel, WhatChanged } from './briefing-view';
 import { RefreshCalendar } from './refresh-calendar';
 
@@ -19,9 +19,6 @@ import { RefreshCalendar } from './refresh-calendar';
 // (workspaces/nav-access.ts), so nothing here decides access, and nothing a person cannot open is
 // shown. There is no executive review and no organization pulse for this seat: the briefing is
 // composed from the viewer's own calendar, mailbox and "needs you" items, and says so.
-
-const HEADLINES_PATH = '/app/admin/headlines';
-const MAIL_PATH = '/app/mail';
 
 export function ModuleHome({
   name,
@@ -65,7 +62,7 @@ export function ModuleHome({
     dashboard: null,
     workDue: dueTodayFromQueue(queue, userId, dayStart, dayEnd, (id) => `/app/employee/work/${encodeURIComponent(id)}`),
     connectionsHref: CONNECTIONS_PATH,
-    headlinesHref: HEADLINES_PATH,
+    headlinesHref: HOME_PATHS.headlines,
   });
   const areas = groups
     .map((group) => ({
@@ -84,7 +81,7 @@ export function ModuleHome({
           <NeedsAttention briefing={briefing} time={time} />
         </div>
         <aside className="loop-brief__side" aria-label="Your day">
-          <TodayPanel today={briefing.today} time={time} refresh={<RefreshCalendar />} mailHref={MAIL_PATH} />
+          <TodayPanel today={briefing.today} time={time} refresh={<RefreshCalendar />} mailHref={HOME_PATHS.mail} />
         </aside>
       </div>
       <div className="loop-home">
