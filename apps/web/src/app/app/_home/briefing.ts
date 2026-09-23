@@ -609,14 +609,17 @@ export function composeBriefing(input: BriefingInput): Briefing {
   const attention = attentionRows.slice(0, BRIEFING_LIMITS.attention);
 
   const cgChange = callgridChange(input);
+  // Newest first; a row with no instant (none today) would sort last, never be given a time.
+  const instant = (d: Date | null): number => (d ? d.getTime() : Number.NEGATIVE_INFINITY);
   const changeRows = [...headlineChanges(input, since), ...telegramChanges(input), ...reviewChanges(input, since, attentionKeys), ...(cgChange ? [cgChange] : [])].sort(
-    (a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0),
+    (a, b) => instant(b.at) - instant(a.at),
   );
   const changes = changeRows.slice(0, BRIEFING_LIMITS.changes);
 
   const todayPlan = today(input);
   const telegramCount = attentionRows.filter((r) => r.provider === 'TELEGRAM').length;
-  const attentionTotal = (input.review?.attentionTotal ?? 0) + telegramCount;
+  // With no review (the module Home) the total is the viewer's own items; nothing is defaulted.
+  const attentionTotal = input.review ? input.review.attentionTotal + telegramCount : telegramCount;
 
   return {
     sentence: sentence(input, changeRows.length, attentionRows, todayPlan),
