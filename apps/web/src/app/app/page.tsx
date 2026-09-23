@@ -6,15 +6,10 @@ import { navFor } from '../../workspaces/nav-access';
 import { resolveWorkspaceRole } from '../../workspaces/role-router';
 import { AdminHome } from './_home/admin-home';
 import { ModuleHome } from './_home/module-home';
-import { YourDay } from './_home/your-day';
-import { RefreshCalendar } from './_home/refresh-calendar';
-import { DayUnavailable } from './_home/day-calendar';
 import { loadYourDay } from '../../daily-loop/your-day';
-import { YourMail } from './_home/your-mail';
-import { NeedsYou } from './_home/needs-you';
 import { loadMailDashboard } from '../../daily-loop/mail-dashboard';
 import { loadNeedsYou } from '../../daily-loop/needs-you';
-import { mailCurrency } from './mail/_mail/mail-parts';
+import { loadMyQueueForHome } from './employee/work/work-data';
 import { readerTimeZone } from '../../daily-loop/reader-zone';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 import { settle } from './_home/settle';
@@ -25,15 +20,15 @@ import { CreatorHome } from '../../creator/creator-home';
 //
 // It renders here rather than redirecting to a role-specific URL, inside the one
 // Loop shell. What the home shows follows authority, never a different address:
-// Owner, Admin and Manager see the executive review (which enforces that authority
-// itself); everyone else sees their own day, their own mail, and the areas of Loop
-// they can open.
+// Owner, Admin and Manager see the executive briefing (which enforces that authority
+// itself); everyone else sees their own briefing and the areas of Loop they can open.
 //
-// YOUR DAY AND YOUR MAIL ARE THE VIEWER'S OWN, FOR EVERYONE. The principal comes from
-// the session, and no role widens it.
+// YOUR DAY, YOUR MAIL AND NEEDS YOU ARE THE VIEWER'S OWN, FOR EVERYONE. The principal comes
+// from the session, and no role widens it. Each is loaded ONCE here and handed to whichever
+// Home renders, as data; the Homes compose, they do not load.
 //
 // EVERY SOURCE LOADS ON ITS OWN. A calendar or mailbox that cannot be read makes its
-// own panel say so; it never takes Home down with it. (A Home that read one missing
+// own line say so; it never takes Home down with it. (A Home that read one missing
 // table directly was a production outage on 2026-09-18.)
 
 export const dynamic = 'force-dynamic';
@@ -51,44 +46,32 @@ export default async function LoopHome() {
 
   // A visit refreshes the calendar and the mailbox at most on their own schedules; everything
   // below is concluded from what is stored, so one sync serves Home and Mail alike.
-  const [dayResult, mailResult, needsYouResult] = await Promise.all([
+  // The employee seat also reads its own work queue -- the same guarded read its My Work page
+  // makes -- so Home can say what is due today. No other seat reads it (an Owner's work arrives
+  // through the executive Home's dashboard; a read-only seat has no queue).
+  const [dayResult, mailResult, needsYouResult, queueResult] = await Promise.all([
     settle(() => loadYourDay(principal)),
     settle(() => loadMailDashboard(principal, { timeZone: zone.timeZone })),
     settle(() => loadNeedsYou(principal)),
+    role === 'EMPLOYEE' ? settle(() => loadMyQueueForHome()) : Promise.resolve(null),
   ]);
   const day = dayResult.ok ? dayResult.value : null;
   const mail = mailResult.ok ? mailResult.value : null;
+  // NEEDS YOU is the viewer's own, for EVERY role: loaded once with the session's principal and
+  // handed to whichever Home renders -- one loader, one scope, one set of items.
   const needsYou = needsYouResult.ok ? needsYouResult.value : [];
+  const queue = queueResult?.ok ? queueResult.value.rows : [];
+  const groups = await navFor(session);
   const time = createTimeView(zone, new Date());
-
-  // NEEDS YOU is the viewer's own, for EVERY role. It is loaded once above with the session's
-  // principal and handed to whichever Home renders, so the Owner/Admin/Manager executive Home shows
-  // the same employee-private element the module Home does -- one element, one loader, one scope.
-  // (Until 2026-09-22 only ModuleHome received it, so an OWNER could never see their own items.)
-  const needsYouElement = <NeedsYou items={needsYou} time={time} />;
-
-  // How current Loop is about this mailbox, in the Inbox's own words. Not connected at all: nothing.
-  const connected = mail !== null && mail.mail.freshness !== 'NOT_CONNECTED' && mail.mail.freshness !== 'NOT_CONFIGURED';
-  const currency = !mailResult.ok
-    ? { line: 'Loop could not open your mail just now.' }
-    : connected
-      ? mailCurrency(mail!.mail.freshness, mail!.mail.lastSyncedAt, mail!.mail.syncInProgress, time)
-      : null;
 
   return (
     <WorkspaceShell session={session}>
       {creatorSeat ? (
         <CreatorHome seat={creatorSeat} time={time} />
       ) : role === 'ADMIN' ? (
-        <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailCurrency={currency} needsYou={needsYouElement} />
+        <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} groups={groups} />
       ) : (
-        <ModuleHome
-          name={session.name}
-          groups={await navFor(session)}
-          day={dayResult.ok ? <YourDay view={day} refresh={<RefreshCalendar />} /> : <DayUnavailable title="Your day" />}
-          mail={<YourMail dashboard={connected ? mail : null} time={time} currency={currency} />}
-          needsYou={needsYouElement}
-        />
+        <ModuleHome name={session.name} userId={session.userId} groups={groups} time={time} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} queue={queue} />
       )}
     </WorkspaceShell>
   );

@@ -23,8 +23,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { createTimeView } from '@emgloop/shared';
 
-import { NeedsYou } from '../src/app/app/_home/needs-you';
-import { loadNeedsYou } from '../src/daily-loop/needs-you';
+import { composeBriefing } from '../src/app/app/_home/briefing';
+import { NeedsAttention } from '../src/app/app/_home/briefing-view';
+import { loadNeedsYou, type NeedsYouItem } from '../src/daily-loop/needs-you';
 import { resolveWorkspaceRole } from '../src/workspaces/role-router';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -87,51 +88,43 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
     assert.equal(resolveWorkspaceRole({ systemRole: 'EMPLOYEE' }), 'EMPLOYEE');
   });
 
-  it('the page builds ONE element from ONE loader with the session principal, and hands it to BOTH Homes', () => {
+  it('the page reads the items ONCE, from ONE loader, with the session principal, and hands the same items to BOTH Homes', () => {
     const page = code(read('../src/app/app/page.tsx'));
-    // Loaded once, as the viewer, for every role -- before the branch.
     assert.match(page, /settle\(\(\) => loadNeedsYou\(principal\)\)/);
     assert.match(page, /const principal = \{ organizationId: session\.organizationId, userId: session\.userId \};/);
-    const built = page.match(/const needsYouElement = <NeedsYou items=\{needsYou\} time=\{time\} \/>;/g) ?? [];
-    assert.equal(built.length, 1, 'the element is built exactly once');
-    // ...and the SAME element reaches the executive Home (the OWNER branch) and the module Home.
-    const adminBranch = page.slice(page.indexOf("role === 'ADMIN'"), page.indexOf('<ModuleHome'));
-    assert.match(adminBranch, /<AdminHome[\s\S]*?needsYou=\{needsYouElement\}/, 'the executive Home receives it');
-    const moduleBranch = page.slice(page.indexOf('<ModuleHome'));
-    assert.match(moduleBranch, /needsYou=\{needsYouElement\}/, 'the module Home receives the same element');
-    // No second element and no second loader anywhere on the page.
-    assert.equal((page.match(/<NeedsYou /g) ?? []).length, 1);
-    assert.equal((page.match(/loadNeedsYou\(/g) ?? []).length, 1);
+    assert.equal((page.match(/loadNeedsYou\(/g) ?? []).length, 1, 'read exactly once');
+    assert.match(page, /const needsYou = needsYouResult\.ok \? needsYouResult\.value : \[\];/);
+    assert.match(page, /<AdminHome[^>]*needsYou=\{needsYou\}/, 'the executive Home receives the items');
+    assert.match(page, /<ModuleHome[^>]*needsYou=\{needsYou\}/, 'the module Home receives the same items');
+    assert.equal(page.includes('<CreatorHome seat={creatorSeat} time={time} />'), true, 'the creator Home receives nothing of them');
   });
 
-  it('the executive Home places it with the person\'s own day and mail -- never inside the executive feeds', () => {
+  it('the executive Home carries them as data into the pure composer -- it neither loads them nor lets the executive review read them', () => {
     const home = code(read('../src/app/app/_home/admin-home.tsx'));
-    // It only PLACES the element: it neither loads it nor renders its own copy.
     assert.equal(home.includes('loadNeedsYou'), false, 'no second loader in the executive Home');
-    assert.equal(home.includes('<NeedsYou'), false, 'no second element in the executive Home');
-    assert.match(home, /needsYou\?: ReactNode;/, 'it accepts the element the page built');
-
-    const body = home.slice(home.indexOf('export async function AdminHome'));
-    const aside = body.slice(body.indexOf('className="loop-exec__side"'), body.indexOf('</aside>'));
-    assert.match(aside, /\{needsYou\}/, 'rendered inside the personal aside, beside the day and the mailbox');
-    // The executive feeds list organization decisions; a private, source-tagged item is not one.
-    const feeds = body.slice(body.indexOf('className="loop-exec__feeds"'), body.indexOf('loop-exec__ops'));
-    assert.equal(feeds.includes('needsYou'), false, 'not mixed into Key updates or Needs attention');
-    const attention = home.slice(home.indexOf('function NeedsAttention'), home.indexOf('export async function AdminHome'));
-    assert.equal(attention.includes('needsYou'), false, 'the Needs attention feed does not read it');
+    assert.match(home, /needsYou: readonly NeedsYouItem\[\];/, 'it accepts the items the page read');
+    assert.match(home, /composeBriefing\(\{[\s\S]*?needsYou,/, 'handed to the composer as data');
+    const review = code(read('../src/app/app/_home/review-data.ts'));
+    assert.equal(review.includes('needsYou'), false, 'the executive review never reads or counts them');
+    assert.equal(review.includes('loadNeedsYou'), false);
+    const composer = code(read('../src/app/app/_home/briefing.ts'));
+    for (const forbidden of ["from '@emgloop/database'", 'prisma', 'loadNeedsYou', 'fetch(']) assert.equal(composer.includes(forbidden), false, forbidden);
+    // Interleaved for display only: each row keeps its provider, and the review's own totals are untouched.
+    assert.match(composer, /provider: 'TELEGRAM',/);
+    assert.match(composer, /attentionElsewhere: input\.review\?\.attentionElsewhere \?\? \[\],/);
   });
 
-  it('the element an OWNER receives renders their items, source-labelled and minimized', () => {
-    const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-22T05:00:00Z'));
-    const html = renderToStaticMarkup(
-      <NeedsYou
-        items={[{ id: 'w1', provider: 'TELEGRAM', sourceLabel: 'Telegram', title: 'Client asks to move the Thursday call', category: 'REQUEST', counterparty: null, topic: null, nextStep: null, deadline: null, at: new Date('2026-09-22T04:01:00Z'), detectionCount: 1 }]}
-        time={time}
-      />,
-    );
-    assert.match(html, /Needs you/);
-    assert.match(html, /data-needs-you-provider="TELEGRAM"/);
+  it('the rows an OWNER receives render their items, source-labelled, minimized and without a fabricated link', () => {
+    const item: NeedsYouItem = { id: 'w1', provider: 'TELEGRAM', sourceLabel: 'Telegram', title: 'Client asks to move the Thursday call', category: 'REQUEST', counterparty: null, topic: null, nextStep: null, deadline: null, at: new Date('2026-09-22T04:01:00Z'), detectionCount: 1 };
+    const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-22T12:00:00Z'));
+    const briefing = composeBriefing({ now: time.now, review: null, period: null, headlines: null, needsYou: [item], day: null, dayFailed: false, mail: null, mailFailed: false, dashboard: null, workDue: [], connectionsHref: '/app/connections', headlinesHref: '/app/admin/headlines' });
+    const html = renderToStaticMarkup(<NeedsAttention briefing={briefing} time={time} />);
+    assert.match(html, /Needs your attention/);
+    assert.match(html, /data-briefing-provider="TELEGRAM"/);
     assert.match(html, /Client asks to move the Thursday call/);
+    assert.match(html, /Telegram/);
+    assert.match(html, /In Telegram/);
+    assert.equal(html.includes('href='), false, 'a private chat has no link, so none is invented');
   });
 });
 

@@ -74,6 +74,18 @@ export async function loadEmployeeWork() {
   return { actor, nextAction, myQueue, waiting, completedToday, notifications };
 }
 
+/**
+ * The employee's own queue for Loop Home (2026-09-24): the same EMPLOYEE guard and the same
+ * `WorkRepository.listMyWork` read the queue page makes, and nothing else -- no next action, no
+ * completed-today, no notifications, which Home does not show. Home projects "due today" from
+ * these rows; it reads nothing of its own.
+ */
+export async function loadMyQueueForHome(): Promise<{ actor: EmployeeActor; rows: (WorkInstance & { stages: WorkStage[] })[] }> {
+  const actor = await requireEmployeeActor();
+  const rows = await workRepo().listMyWork(actor.userId, actor.organizationId);
+  return { actor, rows };
+}
+
 // Work instances where THIS employee completed a stage today. Scoped to the
 // acting user + organization; used for the "Completed today" panel so employees
 // only see their own finished work, not the whole org's.

@@ -218,9 +218,18 @@ export class CaseWorkspaceService {
   async attention(
     organizationId: string,
     now: Date = new Date(),
+    options: {
+      /**
+       * Whether dismissed Headlines are read. Absent, they are (the Headlines surface shows them
+       * with their dismissal); `false` leaves them out and out of the count, which is what a
+       * surface that only says "what changed" must ask for, so a dismissed Headline never
+       * reappears there (Loop Home, 2026-09-24).
+       */
+      readonly dismissed?: boolean;
+    } = {},
   ): Promise<AttentionView> {
     const [headlines, objectives] = await Promise.all([
-      this.headlines.list(organizationId, { take: 200 }),
+      this.headlines.list(organizationId, { take: 200, ...(options.dismissed === undefined ? {} : { dismissed: options.dismissed }) }),
       this.objectives.list(organizationId, { status: 'ACTIVE' }),
     ]);
 

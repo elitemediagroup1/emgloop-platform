@@ -31,9 +31,11 @@ describe('11. Net profit labelling matches the math', () => {
   });
 
   it('Home and the Marketplace overview label the figure Net profit, and compute it with cost', () => {
-    const home = read('../src/app/app/_home/admin-home.tsx');
-    assert.match(home, /label="Net profit"[^>]*profitCents/);
-    assert.equal(/label="Profit"/.test(home), false);
+    // Home's pulse labels the figure Net profit and reads the day score's own profitCents (2026-09-24:
+    // the executive Home became the briefing; the label and the source column are the same).
+    const home = read('../src/app/app/_home/briefing.ts');
+    assert.match(home, /label: 'Net profit', yv: y\.profitCents, tv: t\.profitCents/);
+    assert.equal(/label: 'Profit'/.test(home), false);
     const dashboard = read('../src/app/app/admin/dashboard-data.ts');
     assert.match(dashboard, /agg\.revenueCents - agg\.payoutCents - agg\.costCents/);
 

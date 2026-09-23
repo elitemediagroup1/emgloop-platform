@@ -29,7 +29,6 @@ import { ConversationRow, FilterBar, LaneSection, SummaryCards, mailFilterFrom, 
 import { ThreadAttention } from '../src/app/app/mail/_mail/thread-attention';
 import type { MailThreadSummary } from '../src/daily-loop/mail';
 import type { MailDashboard, MailDashboardRow } from '../src/daily-loop/mail-dashboard';
-import { YourMail, homeMailRows } from '../src/app/app/_home/your-mail';
 
 const NY = { timeZone: 'America/New_York', source: 'device' as const };
 const NOW = new Date('2026-09-18T16:00:00Z');
@@ -488,7 +487,6 @@ describe('nothing in the mail surface can send on its own, or be aimed at anybod
       '../src/app/app/mail/_mail/dashboard.tsx',
       '../src/app/app/mail/_mail/thread-attention.tsx',
       '../src/app/app/mail/page.tsx',
-      '../src/app/app/_home/your-mail.tsx',
     ]) {
       const src = read(file);
       for (const forbidden of ['dangerouslySetInnerHTML', 'style=', 'styled', '<iframe']) {
@@ -594,7 +592,7 @@ describe('the Mail dashboard: four lanes, each a stated rule, and filters that w
   });
 
   it('the dashboard is a read model over what Gmail sync stored: nothing here talks to Google or writes mail', () => {
-    for (const file of ['../src/daily-loop/mail-dashboard.ts', '../src/app/app/mail/_mail/dashboard.tsx', '../src/app/app/mail/page.tsx', '../src/app/app/_home/your-mail.tsx']) {
+    for (const file of ['../src/daily-loop/mail-dashboard.ts', '../src/app/app/mail/_mail/dashboard.tsx', '../src/app/app/mail/page.tsx']) {
       const src = code(read(file));
       for (const forbidden of ['googleapis', 'fetch(', 'sendDraft(', 'upsertMessage', 'upsertThread', 'loadThread', 'mailReadableText', '.body.text', 'dangerouslySetInnerHTML', 'anthropic', 'aiRuntime']) {
         assert.equal(src.includes(forbidden), false, `${file}: ${forbidden}`);
@@ -618,86 +616,7 @@ describe('the Mail dashboard: four lanes, each a stated rule, and filters that w
   });
 });
 
-describe('Home: Your Mail is a few truly useful alerts, not a second inbox', () => {
-  it('shows three counts, at most three conversations, and the way to Mail', () => {
-    const many = [
-      ...MAILBOX,
-      ...[1, 2, 3, 4, 5].map((n) => convo(`r${n}`, `Question ${n}`, [outbound(ago(3 * D)), inbound(ago((5 + n) * H), `p${n}@client.example`)], { address: `p${n}@client.example`, name: `Person ${n}` })),
-    ];
-    const html = renderToStaticMarkup(<YourMail dashboard={dashboard(many)} time={time} />);
-    assert.match(html, /Needs reply/);
-    assert.match(html, /Follow-ups due/);
-    assert.match(html, /New opportunities/);
-    assert.equal((html.match(/class="loop-yourmail__row"/g) ?? []).length, 3, 'never a giant list');
-    assert.match(html, /href="\/app\/mail"[^>]*>Open Mail →/);
-    for (const view of ['needs-reply', 'follow-ups', 'opportunities']) assert.ok(html.includes(`href="/app/mail?view=${view}"`), view);
-    // Corrections live on the conversation, not as a wall of buttons on Home.
-    assert.equal(/<form\b/.test(html), false);
-    // No adjective Loop cannot defend from a header.
-    for (const forbidden of ['urgent', 'important', 'probably', 'seems', 'priority']) {
-      assert.equal(html.toLowerCase().includes(forbidden), false, forbidden);
-    }
-  });
-
-  it('needs-reply comes first, and a conversation already shown elsewhere on Home is not repeated', () => {
-    const rows = homeMailRows(dashboard());
-    assert.equal(rows.length, 3);
-    assert.ok(rows.every((r) => r.row.insight.lane === 'NEEDS_REPLY'), 'three need a reply, so all three shown do');
-    assert.equal(homeMailRows(dashboard(), 3, new Set(['reply'])).some((r) => r.row.insight.threadId === 'reply'), false);
-    // With the replies already shown elsewhere, the next most useful come through: follow-ups, then opportunities.
-    const rest = homeMailRows(dashboard(), 3, new Set(['reply', 'inquiry', 'outreach']));
-    assert.equal(rest[0]!.row.insight.threadId, 'followup');
-  });
-
-  it('says nothing needs you only about a current read, and says why when it cannot tell', () => {
-    const quiet = [MAILBOX.find((r) => r.insight.threadId === 'receipt')!];
-    const clear = renderToStaticMarkup(<YourMail dashboard={dashboard(quiet)} time={time} />);
-    assert.match(clear, /Nothing in your mail needs you right now\./);
-    const stale = renderToStaticMarkup(<YourMail dashboard={dashboard(quiet, { current: false })} time={time} />);
-    assert.match(stale, /Nothing in your mail needed you when Loop last read it\./);
-    assert.equal(stale.includes('right now'), false);
-
-    // Unreadable mail is never presented as an empty queue: the panel says why, and where to fix it.
-    const expired = mailCurrency('AUTHORIZATION_EXPIRED', new Date('2026-09-01T12:00:00Z'), false, time);
-    const cannot = renderToStaticMarkup(<YourMail dashboard={null} time={time} currency={expired} />);
-    assert.match(cannot, /Google no longer accepts this connection/);
-    assert.match(cannot, /href="\/app\/connections"/);
-    assert.equal(cannot.includes('Nothing in your mail'), false);
-    assert.equal(renderToStaticMarkup(<YourMail dashboard={null} time={time} />), '', 'no connection, no panel');
-
-    // A mailbox Loop has not read yet shows counts of nothing -- no counts at all.
-    const unread = renderToStaticMarkup(
-      <YourMail dashboard={dashboard([], { concludable: false, current: false })} time={time} currency={mailCurrency('NEVER_SYNCED', null, false, time)} />,
-    );
-    assert.match(unread, /Loop is setting up your mail/);
-    assert.equal(unread.includes('loop-yourmail__counts'), false);
-  });
-
-  it('5/6. neither Home nor Mail can perform the first 14-day read: every Gmail sync a page can start has FRESHNESS reach', () => {
-    const files = walk(SRC);
-    const syncCalls = files.flatMap((f) => [...code(readFileSync(f, 'utf8')).matchAll(/\.syncGmail\(([^)]*)\)/g)].map((m) => ({ f, args: m[1]! })));
-    assert.ok(syncCalls.length >= 1, 'the web tier still reads mail');
-    for (const { f, args } of syncCalls) assert.match(args, /reach: 'FRESHNESS'/, `${f} must not start a first read`);
-    // One assembly of the sync in the web tier, and Home and Mail reach it only through the read model.
-    const assemblers = files.filter((f) => /createEmployeeGmailSync\(/.test(code(readFileSync(f, 'utf8'))));
-    assert.deepEqual(assemblers.map((f) => f.slice(f.indexOf('/src/'))), ['/src/daily-loop/mail-runtime.ts']);
-    for (const page of ['../src/app/app/page.tsx', '../src/app/app/mail/page.tsx']) {
-      const text = code(read(page));
-      assert.equal(/mail-runtime|syncGmail|createEmployeeGmailSync/.test(text), false, `${page} reads mail only through loadMailDashboard`);
-      assert.match(text, /loadMailDashboard\(principal/);
-    }
-    // Refresh is offered only where it can do something: a stored position to read changes from.
-    assert.match(code(read('../src/app/app/mail/page.tsx')), /\{mail\.canRefresh \? <RefreshMail \/> : null\}/);
-  });
-
-  it('Home reads mail through the same read model as Mail, on its own, with the Inbox’s own currency line', () => {
-    const home = code(read('../src/app/app/page.tsx'));
-    assert.match(home, /settle\(\(\) => loadMailDashboard\(principal, \{ timeZone: zone\.timeZone \}\)\)/);
-    assert.match(home, /mailCurrency\(mail!\.mail\.freshness, mail!\.mail\.lastSyncedAt, mail!\.mail\.syncInProgress, time\)/);
-    assert.match(home, /mail\.mail\.freshness !== 'NOT_CONNECTED' && mail\.mail\.freshness !== 'NOT_CONFIGURED'/);
-    assert.equal(/loadMailAttention|loadMail\(/.test(home), false, 'one read model, not a second one');
-  });
-});
+// Home's mail line (a few counts and the way to Mail, never a second inbox) is covered in home-briefing.test.tsx.
 
 describe('corrections live on the conversation they are about', () => {
   it('offers Handled, Snooze and Dismiss -- and “I’m waiting on them” only where Loop says it needs a reply', () => {

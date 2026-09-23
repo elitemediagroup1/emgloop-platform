@@ -39,8 +39,21 @@ export interface NavItem {
   icon: string;
   /** The resource:action a person must hold to be offered the item: the one its destination enforces. */
   requires?: { resource: Resource; action: Action };
-  /** Not built: rendered as a disabled "Soon" item, never a link. */
+  /**
+   * Not built: rendered as a disabled "Soon" item, never a link. Nothing in the
+   * registry carries it today (2026-09-24: what is unbuilt is listed by the Command
+   * Center under Upcoming, not offered in the rail); the mechanism stays so an
+   * unbuilt destination can never be offered as a link.
+   */
   soon?: boolean;
+  /**
+   * Secondary in the rail (2026-09-24): drawn inside its group's fold, a disclosure
+   * row the person opens, rather than as a primary link under the group heading.
+   * Navigation only: a folded item is the same item, resolves the same active state
+   * and breadcrumb, and enforces the same authority. The fold opens itself while the
+   * page shown is inside it.
+   */
+  folded?: true;
   /**
    * The role authority the destination enforces with requireWorkspace, when it
    * lives in a role-guarded route tree (/app/admin → ADMIN). Anyone else would
@@ -88,6 +101,12 @@ export interface NavGroup {
   short?: string;
   /** Renders separated at the bottom of the sidebar (Administration). */
   footer?: boolean;
+  /**
+   * The disclosure row over this group's `folded` items. Its label; absent, the
+   * group's own label names the fold. A group whose every item is folded draws no
+   * heading: the disclosure row carries the group label and the whole group folds.
+   */
+  fold?: { label: string };
 }
 
 /** A navigation tree the shell renders. LOOP_NAV is the only one. */
@@ -136,20 +155,36 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // NAVIGATION ONLY. Every item opens a route that already exists, wherever it lives
 // today (/app/crm, /crm or /app/admin); no route moved.
 //
+// Primary and folded (2026-09-24, approved). The rail leads with what a person
+// opens every day and folds the rest behind one disclosure row per group:
+//   - Home: Home, Mail, Connections — all primary.
+//   - CRM: People, Relationships and the Command Center are primary; the intake
+//     tools fold behind "Intake tools".
+//   - Work: My Work is primary (final: it stays in the primary rail for ADMIN and
+//     EMPLOYEE alike); Team Work and Work Types fold behind "Team work & types".
+//   - Intelligence, Operations and Administration fold entirely; the group label
+//     is the disclosure row. Headlines stays registered (it is a real page and the
+//     breadcrumb resolves through this registry) and Loop Home links to it directly.
+//   - The creator seat does not fold.
+// Nothing unbuilt is in the rail: Opportunities, Campaigns and Work OS Workflows
+// were `soon` items here and are gone. The Command Center lists what is coming
+// under Upcoming, which is the truthful place for it. `soon` stays supported so an
+// unbuilt destination can never be offered as a link.
+//
 // Each item carries the authority its destination enforces: `requires` for the
 // page's requirePermission, `workspace` for its route tree's requireWorkspace.
-// The shell hides what a person cannot open. Never less than the page enforces;
-// the one item that asks for more (CallGrid Intelligence) says so below.
+// The shell hides what a person cannot open. Never less than the page enforces.
 //
 // Boundaries the grouping must not blur:
 //   - People are established PERSON Parties (/app/crm/people), never Intake
 //     Records. Identity review is its own governed workflow, still served by the
 //     temporary operator screen (/crm/parties) until its redesign covers it.
 //   - The intake board is the legacy Customer.status board, never an
-//     Opportunity pipeline. Opportunities and Campaigns stay `soon` until their
-//     authorities exist.
+//     Opportunity pipeline. Opportunities and Campaigns are not built and have no
+//     entry until their authorities exist.
 //   - CRM Automations (automation triggers) and Work OS Workflows (human work
-//     execution, not built) are different authorities under different areas.
+//     execution, not built, no entry) are different authorities under different
+//     areas.
 //   - "Your queue" is Commercial Intelligence's per-person attention queue, not
 //     Work OS work.
 //   - The deterministic Executive Brain is not the governed Brain, and is named
@@ -211,6 +246,7 @@ export const LOOP_NAV: ShellConfig = {
       label: 'CRM',
       area: 'CRM',
       short: 'CRM',
+      fold: { label: 'Intake tools' },
       items: [
         // Canonical People first: the redesigned CRM slice.
         { href: '/app/crm/people', label: 'People', icon: 'users', requires: IDENTITY_VIEW },
@@ -218,18 +254,17 @@ export const LOOP_NAV: ShellConfig = {
         // The operator's landing page reads intake records first; it enforces
         // customers:view itself, so a login that holds nothing (a creator) is not offered it.
         { href: '/crm', label: 'Command Center', icon: 'grid', requires: INTAKE_RECORDS_VIEW },
-        { href: '/crm/opportunities', label: 'Opportunities', icon: 'target', soon: true },
-        { href: '/crm/campaigns', label: 'Campaigns', icon: 'star', soon: true },
-        { href: '/crm/conversations', label: 'Conversations', icon: 'chat', requires: CONVERSATIONS_VIEW },
-        { href: '/crm/customers', label: 'Intake Records', icon: 'users', requires: INTAKE_RECORDS_VIEW },
-        { href: '/crm/pipeline', label: 'Intake Board', icon: 'columns', requires: INTAKE_VIEW },
+        // The intake tools, folded: the legacy operator surfaces under /crm.
+        { href: '/crm/conversations', label: 'Conversations', icon: 'chat', requires: CONVERSATIONS_VIEW, folded: true },
+        { href: '/crm/customers', label: 'Intake Records', icon: 'users', requires: INTAKE_RECORDS_VIEW, folded: true },
+        { href: '/crm/pipeline', label: 'Intake Board', icon: 'columns', requires: INTAKE_VIEW, folded: true },
         // Establishing and reviewing identity: the governed workflow on the temporary
         // operator screen, which also lists Companies until their redesign.
-        { href: '/crm/parties', label: 'Identity Review', icon: 'check', requires: IDENTITY_VIEW },
+        { href: '/crm/parties', label: 'Identity Review', icon: 'check', requires: IDENTITY_VIEW, folded: true },
         // An activity inbox, not a calendar: no calendar surface exists.
-        { href: '/crm/inbox', label: 'Inbox', icon: 'activity', requires: INTAKE_RECORDS_VIEW },
-        { href: '/crm/search', label: 'Search', icon: 'search', requires: INTAKE_RECORDS_VIEW },
-        { href: '/crm/workflows', label: 'Automations', icon: 'flow', requires: AUTOMATIONS_VIEW },
+        { href: '/crm/inbox', label: 'Inbox', icon: 'activity', requires: INTAKE_RECORDS_VIEW, folded: true },
+        { href: '/crm/search', label: 'Search', icon: 'search', requires: INTAKE_RECORDS_VIEW, folded: true },
+        { href: '/crm/workflows', label: 'Automations', icon: 'flow', requires: AUTOMATIONS_VIEW, folded: true },
       ],
     },
     {
@@ -238,49 +273,50 @@ export const LOOP_NAV: ShellConfig = {
       label: 'Work',
       area: 'WORK',
       short: 'Work',
+      fold: { label: 'Team work & types' },
       items: [
         { href: '/app/admin/work', label: 'My Work', icon: 'check', workspace: 'ADMIN' },
         { href: '/app/employee/work', label: 'My Work', icon: 'check', workspace: 'EMPLOYEE' },
-        { href: '/app/admin/work/team', label: 'Team Work', icon: 'columns', workspace: 'ADMIN' },
-        { href: '/app/work/workflows', label: 'Workflows', icon: 'flow', soon: true },
-        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: SETTINGS_VIEW, workspace: 'ADMIN' },
+        { href: '/app/admin/work/team', label: 'Team Work', icon: 'columns', workspace: 'ADMIN', folded: true },
+        { href: '/app/admin/administration/work-types', label: 'Work Types', icon: 'flow', requires: SETTINGS_VIEW, workspace: 'ADMIN', folded: true },
       ],
     },
     {
+      // Every item folds: the group label is the disclosure row.
       label: 'Intelligence',
       area: 'INTELLIGENCE',
       short: 'Intel',
       items: [
         // HEADLINES is the product noun Charlie and Lexi established. Gated on the
         // READ half of commercialIntelligence plus the route tree's authority.
-        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: CI_VIEW, workspace: 'ADMIN' },
+        { href: '/app/admin/headlines', label: 'Headlines', icon: 'bell', requires: CI_VIEW, workspace: 'ADMIN', folded: true },
         // The same intelligence, ordered for one person: "nothing is waiting on
         // me" and "nothing needs the organization's attention" are different
         // questions, so they are different destinations.
-        { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: CI_VIEW, workspace: 'ADMIN' },
-        { href: '/app/admin/brain', label: 'Executive Brain', icon: 'brain', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
-        { href: '/crm/intelligence', label: 'Intelligence Flow', icon: 'brain', requires: INTELLIGENCE_VIEW },
-        // Its pages enforce ADMIN authority only. The item also asks for the
-        // intelligence read grant, as this sidebar entry always has, so an explicit
-        // DENY on intelligence hides it. Every ADMIN-authority role holds the grant.
-        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN' },
-        { href: '/crm/analytics', label: 'Analytics', icon: 'chart', requires: ANALYTICS_VIEW },
-        { href: '/crm/traffic', label: 'Traffic', icon: 'chart', requires: ANALYTICS_VIEW },
-        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue', requires: ANALYTICS_VIEW },
+        { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: CI_VIEW, workspace: 'ADMIN', folded: true },
+        { href: '/app/admin/brain', label: 'Executive Brain', icon: 'brain', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN', folded: true },
+        { href: '/crm/intelligence', label: 'Intelligence Flow', icon: 'brain', requires: INTELLIGENCE_VIEW, folded: true },
+        // Its pages enforce ADMIN authority and the intelligence read grant, the same
+        // as the item states, so an explicit DENY on intelligence hides it.
+        { href: '/app/admin/marketplace', label: 'CallGrid Intelligence', icon: 'chart', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN', folded: true },
+        { href: '/crm/analytics', label: 'Analytics', icon: 'chart', requires: ANALYTICS_VIEW, folded: true },
+        { href: '/crm/traffic', label: 'Traffic', icon: 'chart', requires: ANALYTICS_VIEW, folded: true },
+        { href: '/crm/revenue', label: 'Revenue', icon: 'revenue', requires: ANALYTICS_VIEW, folded: true },
       ],
     },
     {
+      // Every item folds: the group label is the disclosure row.
       label: 'Operations',
       area: 'OPERATIONS',
       short: 'Ops',
       items: [
-        { href: '/crm/live/activity', label: 'Live Operations', icon: 'activity', requires: INTELLIGENCE_VIEW },
-        { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat', requires: INTELLIGENCE_VIEW },
-        { href: '/crm/live/websites', label: 'Websites', icon: 'grid', requires: INTELLIGENCE_VIEW },
+        { href: '/crm/live/activity', label: 'Live Operations', icon: 'activity', requires: INTELLIGENCE_VIEW, folded: true },
+        { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat', requires: INTELLIGENCE_VIEW, folded: true },
+        { href: '/crm/live/websites', label: 'Websites', icon: 'grid', requires: INTELLIGENCE_VIEW, folded: true },
         // Internal creator administration (C-02, Creator Hub 2026-09-22): the roster of
         // managed creators, each creator's operating view, and the edit-request queue.
         // Productions themselves are Work OS work and open under WORK, not here.
-        { href: '/app/admin/creator-hub', label: 'Creators', icon: 'star', workspace: 'ADMIN' },
+        { href: '/app/admin/creator-hub', label: 'Creators', icon: 'star', workspace: 'ADMIN', folded: true },
       ],
     },
     {
@@ -291,7 +327,7 @@ export const LOOP_NAV: ShellConfig = {
       // and enforce requireWorkspace('CREATOR') themselves; what a creator may then read
       // or change is authorized by the creator profile bound to the login, never by the
       // organization's permission matrix. The four items with an `area` make, with Home,
-      // the creator's five-area phone bar.
+      // the creator's five-area phone bar. Nothing here folds.
       label: 'Creator',
       items: [
         { href: '/app/creator/content', label: 'Content', icon: 'grid', workspace: 'CREATOR', area: 'CONTENT' },
@@ -303,16 +339,17 @@ export const LOOP_NAV: ShellConfig = {
       ],
     },
     {
+      // Every item folds: the disclosure row, pinned at the foot, is "Administration".
       label: 'Administration',
       footer: true,
       items: [
-        { href: '/app/admin/administration/team', label: 'Team', icon: 'team', requires: USERS_VIEW, workspace: 'ADMIN' },
-        { href: '/crm/organizations', label: 'Workspace', icon: 'building', requires: ORGANIZATION_VIEW },
-        { href: '/crm/settings', label: 'Settings', icon: 'cog', requires: SETTINGS_VIEW },
-        { href: '/app/admin/administration/objectives', label: 'Objectives', icon: 'target', requires: CI_VIEW, workspace: 'ADMIN' },
-        { href: '/crm/audit', label: 'Audit Log', icon: 'activity', requires: AUDIT_VIEW },
-        { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot', requires: AI_EMPLOYEES_VIEW },
-        { href: '/crm/integrations', label: 'Integration OS', icon: 'plug', requires: INTEGRATIONS_VIEW },
+        { href: '/app/admin/administration/team', label: 'Team', icon: 'team', requires: USERS_VIEW, workspace: 'ADMIN', folded: true },
+        { href: '/crm/organizations', label: 'Workspace', icon: 'building', requires: ORGANIZATION_VIEW, folded: true },
+        { href: '/crm/settings', label: 'Settings', icon: 'cog', requires: SETTINGS_VIEW, folded: true },
+        { href: '/app/admin/administration/objectives', label: 'Objectives', icon: 'target', requires: CI_VIEW, workspace: 'ADMIN', folded: true },
+        { href: '/crm/audit', label: 'Audit Log', icon: 'activity', requires: AUDIT_VIEW, folded: true },
+        { href: '/crm/ai-employees', label: 'AI Employees', icon: 'robot', requires: AI_EMPLOYEES_VIEW, folded: true },
+        { href: '/crm/integrations', label: 'Integration OS', icon: 'plug', requires: INTEGRATIONS_VIEW, folded: true },
       ],
     },
   ],
@@ -356,7 +393,8 @@ export function areaOfItem(groups: readonly NavGroup[], item: NavItem | null): S
 /**
  * The navigation one person is offered: the items whose authority they hold.
  * A group is dropped when nothing in it can be opened, so no one sees a header
- * over only "Soon" items or over nothing at all.
+ * (or a fold) over only "Soon" items or over nothing at all. Folding is drawn by
+ * the shell from `folded`/`fold`, which pass through unchanged.
  */
 export function visibleNav(
   nav: readonly NavGroup[],
