@@ -27,6 +27,7 @@ import type {
   WorkStage,
   WorkNotification,
   WorkComment,
+  WorkInstruction,
 } from '@prisma/client';
 import {
   dedupeActiveMembers,
@@ -120,6 +121,46 @@ export interface AddWorkCommentInput {
   workStageId?: string | null;
   userId: string;
   body: string;
+  /** Creator Hub: `internal` (default, EMG only) or `creator_visible`. */
+  visibility?: WorkCommentVisibility;
+}
+
+/** Creator Hub (2026-09-22): who a comment on a work item is written for. */
+export const WORK_COMMENT_VISIBILITIES = ['internal', 'creator_visible'] as const;
+export type WorkCommentVisibility = (typeof WORK_COMMENT_VISIBILITIES)[number];
+
+/** Creator Hub (2026-09-22): an instruction set on a work item, with provenance. */
+export interface AddWorkInstructionInput {
+  organizationId: string;
+  workInstanceId: string;
+  workStageId?: string | null;
+  /** CREATOR | EMG | BRAND_RELAYED -- who said it. */
+  originatorKind: string;
+  /** The originator's creator-visible label when it is not a Loop user. */
+  originatorLabel?: string | null;
+  /** The Loop user who entered it -- a different fact from who said it. */
+  enteredByUserId: string;
+  refersToVersionId?: string | null;
+  summary?: string | null;
+  /** Validated timestamped notes (see @emgloop/shared validateNotes). Stored as given. */
+  notes: readonly Record<string, unknown>[];
+  requestedReturnAt?: Date | null;
+  visibleToCreator?: boolean;
+}
+
+export interface AnswerWorkInstructionInput {
+  organizationId: string;
+  instructionId: string;
+  answeredByVersionId: string;
+  /** [{ noteId, addressed, reply }] as the answering person recorded it. */
+  addressed: readonly Record<string, unknown>[];
+}
+
+export interface SetExpectedReturnInput {
+  organizationId: string;
+  workInstanceId: string;
+  expectedReturnAt: Date | null;
+  setByUserId: string;
 }
 
 // A work instance with its stages ordered by position.
@@ -254,6 +295,8 @@ export interface CreateWorkItemInput {
   steps: WorkflowStepDef[];
   responsibilityOwners?: Record<string, string> | null;
   activeMemberIds?: ReadonlySet<string> | null;
+  /** Creator Hub: what the requester asked for. Never an organization commitment. */
+  requestedReturnAt?: Date | null;
 }
 
 export interface CompleteWorkStepInput {
@@ -264,6 +307,14 @@ export interface CompleteWorkStepInput {
   note?: string | null;
   responsibilityOwners?: Record<string, string> | null;
   activeMemberIds?: ReadonlySet<string> | null;
+  /**
+   * Creator Hub (2026-09-22): steps to APPEND after the last existing step, in the same
+   * transaction, before the next step is chosen. This is how a completed step can continue the
+   * same work item with a further round (a creator's "request changes" completes their review
+   * step and appends the next edit and review) WITHOUT reopening anything: completed steps stay
+   * completed, and the log stays append-only.
+   */
+  appendSteps?: readonly WorkflowStepDef[];
 }
 
 // Serialize a builder step's assignment/completion config into a stage's metadata
@@ -712,6 +763,7 @@ export class WorkRepository {
           description: input.outcome,
           status: 'active',
           createdByUserId: input.creatorUserId,
+          requestedReturnAt: input.requestedReturnAt ?? null,
           metadata: {
             kind: 'work_item',
             workTypeId: input.workTypeId,
@@ -808,7 +860,32 @@ export class WorkRepository {
         },
       });
 
-      const next = instance.stages
+      // Follow-up steps join the same work item after its last step, before the next one is
+      // chosen, so a completion that continues the work (a further round) never needs to reopen
+      // a completed step. Nothing already recorded is touched.
+      const appended: WorkStage[] = [];
+      if (input.appendSteps && input.appendSteps.length > 0) {
+        let position = Math.max(...instance.stages.map((s) => s.position));
+        for (const s of input.appendSteps) {
+          position += 1;
+          appended.push(
+            await tx.workStage.create({
+              data: {
+                workInstanceId: instance.id,
+                name: s.name,
+                description: s.instruction,
+                position,
+                status: 'pending',
+                ownerUserId: null,
+                startedAt: null,
+                metadata: stepToStageMeta(s) as Prisma.InputJsonValue,
+              },
+            }),
+          );
+        }
+      }
+
+      const next = [...instance.stages, ...appended]
         .filter((s) => s.position > current.position && s.status !== 'skipped' && s.status !== 'completed')
         .sort((a, b) => a.position - b.position)[0];
 
@@ -1276,7 +1353,99 @@ export class WorkRepository {
         workStageId: input.workStageId ?? null,
         userId: input.userId,
         body: input.body,
+        visibility: input.visibility ?? 'internal',
       },
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Creator Hub (2026-09-22): turnaround and instruction sets.
+  //
+  // Requested and expected return are two facts. The first arrives with the
+  // request (createWorkItem); the second is set here by an authorized person,
+  // with who and when, and a change is a fact too. Instruction sets are the
+  // append-only, provenanced requests an external participant makes of the
+  // work; a version answers one, and that answer is stamped once.
+  // ------------------------------------------------------------------
+
+  async setExpectedReturn(input: SetExpectedReturnInput): Promise<WorkInstance | null> {
+    const existing = await this.prisma.workInstance.findFirst({
+      where: { id: input.workInstanceId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!existing) return null;
+    return this.prisma.workInstance.update({
+      where: { id: existing.id },
+      data: {
+        expectedReturnAt: input.expectedReturnAt,
+        expectedReturnSetByUserId: input.setByUserId,
+        expectedReturnSetAt: new Date(),
+      },
+    });
+  }
+
+  async addInstruction(input: AddWorkInstructionInput): Promise<WorkInstruction> {
+    return this.prisma.$transaction(async (tx) => {
+      const instance = await tx.workInstance.findFirst({
+        where: { id: input.workInstanceId, organizationId: input.organizationId },
+        select: { id: true },
+      });
+      if (!instance) throw new Error(`Work instance not found: ${input.workInstanceId}`);
+      const last = await tx.workInstruction.findFirst({
+        where: { workInstanceId: instance.id },
+        orderBy: { sequence: 'desc' },
+        select: { sequence: true },
+      });
+      return tx.workInstruction.create({
+        data: {
+          organizationId: input.organizationId,
+          workInstanceId: instance.id,
+          workStageId: input.workStageId ?? null,
+          sequence: (last?.sequence ?? 0) + 1,
+          originatorKind: input.originatorKind,
+          originatorLabel: input.originatorLabel ?? null,
+          enteredByUserId: input.enteredByUserId,
+          refersToVersionId: input.refersToVersionId ?? null,
+          summary: input.summary ?? null,
+          notes: input.notes as Prisma.InputJsonValue,
+          requestedReturnAt: input.requestedReturnAt ?? null,
+          visibleToCreator: input.visibleToCreator ?? true,
+        },
+      });
+    });
+  }
+
+  /** Stamp the version that answers an instruction set. Once: a second answer is refused. */
+  async answerInstruction(input: AnswerWorkInstructionInput): Promise<WorkInstruction | null> {
+    const existing = await this.prisma.workInstruction.findFirst({
+      where: { id: input.instructionId, organizationId: input.organizationId },
+      select: { id: true, answeredByVersionId: true },
+    });
+    if (!existing) return null;
+    if (existing.answeredByVersionId) throw new Error('That instruction set has already been answered');
+    return this.prisma.workInstruction.update({
+      where: { id: existing.id },
+      data: {
+        answeredByVersionId: input.answeredByVersionId,
+        answeredAt: new Date(),
+        addressed: input.addressed as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  async listInstructions(organizationId: string, workInstanceId: string): Promise<WorkInstruction[]> {
+    return this.prisma.workInstruction.findMany({
+      where: { organizationId, workInstanceId },
+      orderBy: { sequence: 'asc' },
+    });
+  }
+
+  /** The work instances behind a set of ids, WITHIN one organization, with stages and comments. */
+  async getWorkInstances(organizationId: string, ids: readonly string[]): Promise<(WorkInstance & { stages: WorkStage[]; comments: WorkComment[] })[]> {
+    if (ids.length === 0) return [];
+    return this.prisma.workInstance.findMany({
+      where: { id: { in: [...ids] }, organizationId },
+      include: { stages: { orderBy: { position: 'asc' } }, comments: { orderBy: { createdAt: 'asc' } } },
     });
   }
 
