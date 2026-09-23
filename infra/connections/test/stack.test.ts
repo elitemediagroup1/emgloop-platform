@@ -1,22 +1,25 @@
 // What the connections worker stack creates -- and what it does not. Staging.
 //
-// Synth-only: a registry image is injected so no Docker build is needed. Proves the smallest
-// appropriate shape (one Fargate service, private, behind an internal ALB reached only via an HTTPS
-// HTTP API), the secret wiring (each env var from Secrets Manager; the session key and DB URL are
-// created here, the Telegram secret is referenced not created), and that nothing is over-built.
+// Synth-only: a registry image is injected so no Docker build is needed, and the function bundle
+// is stubbed. Proves the smallest appropriate shape (one Fargate service, private, behind an
+// internal ALB reached only via an HTTPS HTTP API), the secret wiring (each env var from Secrets
+// Manager; the two HMAC secrets are generated here, the operator-provided ones are referenced not
+// created), the creator-media bucket and signer (private bucket, least-privilege role, one route),
+// and that nothing is over-built.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 
-import { buildConnectionsApp } from '../lib/app';
-import { CONNECTION_SECRET_NAMES } from '../lib/connections-stack';
+import { buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, mediaOriginsFromContext } from '../lib/app';
+import { CONNECTION_SECRET_NAMES, MEDIA_KEY_PREFIX, MEDIA_SIGN_PATH } from '../lib/connections-stack';
 import { assertStagingCredentials, WrongTargetError } from '../lib/target';
+import { stubAssets } from './assets';
 
 function synth(): Template {
   const image = ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:22-slim');
-  const { stack } = buildConnectionsApp({ image });
+  const { stack } = buildConnectionsApp({ image, assetsDir: stubAssets() });
   return Template.fromStack(stack);
 }
 
@@ -24,7 +27,7 @@ function synth(): Template {
 // operator-activated AI wiring. buildConnectionsApp is what the CLI runs, so this is the real path.
 function synthWith(context: Record<string, unknown>): Template {
   const image = ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:22-slim');
-  const { stack } = buildConnectionsApp({ image, context });
+  const { stack } = buildConnectionsApp({ image, assetsDir: stubAssets(), context });
   return Template.fromStack(stack);
 }
 
@@ -142,10 +145,188 @@ test('the internal ALB admits ONLY the VPC Link security group -- no 0.0.0.0/0 i
   assert.equal(gid(vpcLink!.Properties.SecurityGroupIds[0]), vpcLinkSgId);
 });
 
-test('nothing speculative: no queue, no database, no public load balancer, no IAM users', () => {
-  for (const forbidden of ['AWS::SQS::Queue', 'AWS::RDS::DBInstance', 'AWS::DynamoDB::Table', 'AWS::IAM::User', 'AWS::IAM::AccessKey']) {
+test('nothing speculative: no queue, no database, no public load balancer, no IAM users or access keys', () => {
+  for (const forbidden of ['AWS::SQS::Queue', 'AWS::RDS::DBInstance', 'AWS::DynamoDB::Table', 'AWS::IAM::User', 'AWS::IAM::AccessKey', 'AWS::Lambda::Url', 'AWS::CloudFront::Distribution']) {
     assert.equal(count(forbidden), 0, `unexpected ${forbidden}`);
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Creator media: a PRIVATE bucket the browser reaches only through presigned URLs, minted by one
+// Lambda on the existing control API. The web tier holds no AWS credential, so what the signer's
+// role may do IS the security boundary: objects under media/ only, and the worker-control secret.
+// ---------------------------------------------------------------------------------------------
+
+/** A CloudFormation reference's logical id, for Ref and Fn::GetAtt alike. */
+const logicalId = (ref: any): string | undefined => (ref && ref['Fn::GetAtt'] ? ref['Fn::GetAtt'][0] : ref && ref.Ref ? ref.Ref : undefined);
+
+type Statement = { Sid?: string; Effect: string; Action: string | string[]; Resource: unknown };
+const actionsOf = (s: Statement) => (Array.isArray(s.Action) ? s.Action : [s.Action]);
+const resourcesOf = (s: Statement) => (Array.isArray(s.Resource) ? s.Resource : [s.Resource]);
+
+/** The single media signer function and its role's inline policy statements. */
+function mediaSigner(t: Template = template) {
+  const res = t.toJSON().Resources as Record<string, { Type: string; Properties?: any }>;
+  const fns = Object.entries(res).filter(([id, r]) => r.Type === 'AWS::Lambda::Function' && /^MediaSigner/.test(id));
+  assert.equal(fns.length, 1, 'exactly one Lambda function named for the media signer');
+  // The only other function is CDK's own provider for restrictDefaultSecurityGroup (pre-existing).
+  const others = Object.keys(res).filter((id) => res[id]!.Type === 'AWS::Lambda::Function' && !/^MediaSigner/.test(id));
+  assert.deepEqual(others.map((id) => id.replace(/[0-9A-F]{8}$/, '')), ['CustomVpcRestrictDefaultSGCustomResourceProviderHandler'], 'no other function');
+  const [fnId, fn] = fns[0]!;
+  const roleId = logicalId(fn.Properties.Role);
+  assert.ok(roleId && res[roleId]?.Type === 'AWS::IAM::Role', 'the signer has its own role');
+  const statements = Object.values(res)
+    .filter((r) => r.Type === 'AWS::IAM::Policy' && (r.Properties.Roles as any[]).some((ref) => logicalId(ref) === roleId))
+    .flatMap((r) => r.Properties.PolicyDocument.Statement as Statement[]);
+  return { fnId, fn: fn.Properties, roleId, role: res[roleId]!.Properties, statements };
+}
+
+const bucketId = () => Object.entries(resources).find(([, r]) => r.Type === 'AWS::S3::Bucket')?.[0];
+const workerControlId = () => Object.entries(resources).find(([, r]) => r.Type === 'AWS::SecretsManager::Secret' && r.Properties?.Name === CONNECTION_SECRET_NAMES.workerControl)?.[0];
+
+test('media bucket: exactly one, private in every dimension, encrypted, TLS-only, kept, unversioned', () => {
+  assert.equal(count('AWS::S3::Bucket'), 1);
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
+    BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }] },
+    OwnershipControls: { Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }] },
+    VersioningConfiguration: Match.absent(),
+    LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ Status: 'Enabled', AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } })]) },
+  });
+  const bucket = resources[bucketId()!] as any;
+  assert.equal(bucket.DeletionPolicy, 'Retain', 'media outlives any stack mistake');
+  assert.equal(bucket.UpdateReplacePolicy, 'Retain');
+  assert.equal(bucket.Properties.BucketName, undefined, 'no fixed bucket name (globally unique names collide on a re-create)');
+  // enforceSSL: the bucket policy denies every non-TLS request, for every principal.
+  template.hasResourceProperties('AWS::S3::BucketPolicy', {
+    PolicyDocument: { Statement: Match.arrayWith([Match.objectLike({ Effect: 'Deny', Principal: { AWS: '*' }, Action: 's3:*', Condition: { Bool: { 'aws:SecureTransport': 'false' } } })]) },
+  });
+});
+
+test('media bucket: CORS admits PUT/GET/HEAD from the staging web origin only, exposing ETag', () => {
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    CorsConfiguration: {
+      CorsRules: [{ AllowedMethods: ['PUT', 'GET', 'HEAD'], AllowedOrigins: [...DEFAULT_MEDIA_ORIGINS], AllowedHeaders: ['*'], ExposedHeaders: ['ETag'], MaxAge: 3600 }],
+    },
+  });
+  assert.deepEqual([...DEFAULT_MEDIA_ORIGINS], ['https://staging--emgloop2.netlify.app']);
+});
+
+test('mediaOrigins context: a comma-separated list replaces the default exactly; junk fails synth', () => {
+  const t = synthWith({ mediaOrigins: 'https://a.example,https://b.example' });
+  t.hasResourceProperties('AWS::S3::Bucket', {
+    CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedOrigins: ['https://a.example', 'https://b.example'] })] },
+  });
+  assert.deepEqual(mediaOriginsFromContext(' https://a.example , https://b.example:8443 '), ['https://a.example', 'https://b.example:8443']);
+  assert.deepEqual(mediaOriginsFromContext(undefined), DEFAULT_MEDIA_ORIGINS);
+  assert.deepEqual(mediaOriginsFromContext('  '), DEFAULT_MEDIA_ORIGINS);
+  assert.throws(() => mediaOriginsFromContext('https://a.example/path'), /bare http\(s\) origin/);
+  assert.throws(() => mediaOriginsFromContext('https://a.example/'), /bare http\(s\) origin/);
+  assert.throws(() => mediaOriginsFromContext('*'), /not a URL/);
+  assert.throws(() => mediaOriginsFromContext('ftp://a.example'), /bare http\(s\) origin/);
+});
+
+test('media signer: one Node 24 function, small and short-lived, fed the bucket, the prefix and the worker-control secret ARN', () => {
+  const { fn } = mediaSigner();
+  assert.equal(fn.Runtime, 'nodejs24.x');
+  assert.equal(fn.Handler, 'index.handler');
+  assert.equal(fn.MemorySize, 256);
+  assert.equal(fn.Timeout, 10);
+  const env = fn.Environment.Variables as Record<string, unknown>;
+  assert.equal(logicalId(env.LOOP_MEDIA_BUCKET), bucketId(), 'LOOP_MEDIA_BUCKET is the media bucket');
+  assert.equal(env.LOOP_MEDIA_KEY_PREFIX, MEDIA_KEY_PREFIX);
+  assert.equal(env.LOOP_MEDIA_KEY_PREFIX, 'media/');
+  assert.equal(logicalId(env.LOOP_MEDIA_SIGNER_SECRET_ARN), workerControlId(), 'the signer verifies against the EXISTING worker-control secret, not a new one');
+  assert.ok(!JSON.stringify(env).match(/anthropic|openai|postgresql/i), 'no provider or database in the signer environment');
+  // Its own log group, one month, destroyable; the worker's log group is untouched.
+  assert.equal(count('AWS::Logs::LogGroup'), 2);
+  for (const r of Object.values(resources).filter((r) => r.Type === 'AWS::Logs::LogGroup')) assert.equal(r.Properties.RetentionInDays, 30);
+  assert.equal(logicalId(fn.LoggingConfig?.LogGroup), Object.entries(resources).find(([id, r]) => r.Type === 'AWS::Logs::LogGroup' && /MediaSigner/.test(id))?.[0]);
+});
+
+test('media signer: its role may touch ONLY objects under media/ (put/get/delete) and read ONLY the worker-control secret', () => {
+  const { role, statements } = mediaSigner();
+  assert.equal(role.ManagedPolicyArns, undefined, 'no managed policy');
+  const actions = [...new Set(statements.flatMap(actionsOf))].sort();
+  assert.deepEqual(actions, [
+    'logs:CreateLogStream',
+    'logs:PutLogEvents',
+    's3:DeleteObject',
+    's3:GetObject',
+    's3:PutObject',
+    'secretsmanager:DescribeSecret',
+    'secretsmanager:GetSecretValue',
+  ]);
+  for (const s of statements) {
+    assert.equal(s.Effect, 'Allow');
+    for (const a of actionsOf(s)) assert.ok(!a.endsWith(':*') && a !== '*' && a !== 's3:ListBucket', `forbidden action ${a}`);
+    for (const r of resourcesOf(s)) assert.notEqual(r, '*', 'no wildcard resource');
+  }
+  // Every S3 grant is the object ARN under media/ -- never the bucket root, never bucket/*.
+  const s3Statements = statements.filter((s) => actionsOf(s).some((a) => a.startsWith('s3:')));
+  assert.equal(s3Statements.length, 1);
+  for (const r of resourcesOf(s3Statements[0]!) as any[]) {
+    const parts = r['Fn::Join']?.[1] as any[] | undefined;
+    assert.ok(parts, 'the S3 resource is bucketArn + suffix');
+    assert.equal(logicalId(parts[0]), bucketId());
+    assert.equal(parts[parts.length - 1], `/${MEDIA_KEY_PREFIX}*`);
+  }
+  const bare = statements.flatMap(resourcesOf).filter((r: any) => logicalId(r) === bucketId() && !r['Fn::Join']);
+  assert.equal(bare.length, 0, 'no grant on the bucket ARN itself (that is where ListBucket would live)');
+  // The secret grant is the worker-control secret and nothing else.
+  const secretStatements = statements.filter((s) => actionsOf(s).some((a) => a.startsWith('secretsmanager:')));
+  assert.equal(secretStatements.length, 1);
+  assert.deepEqual(resourcesOf(secretStatements[0]!).map(logicalId), [workerControlId()]);
+  // No other principal in the stack gains any S3 access: the worker task cannot reach media.
+  const signerRoleId = mediaSigner().roleId;
+  for (const [id, r] of Object.entries(resources)) {
+    if (r.Type === 'AWS::IAM::Policy') {
+      if ((r.Properties.Roles as any[]).map(logicalId).includes(signerRoleId)) continue;
+      const others = (r.Properties.PolicyDocument.Statement as Statement[]).flatMap(actionsOf).filter((a) => a.startsWith('s3:'));
+      assert.deepEqual(others, [], `${id} must not hold S3 access`);
+    }
+    if (r.Type === 'AWS::IAM::Role') {
+      const inline = ((r.Properties.Policies ?? []) as Array<{ PolicyDocument: { Statement: Statement[] } }>).flatMap((p) => p.PolicyDocument.Statement).flatMap(actionsOf);
+      assert.deepEqual(inline.filter((a) => a.startsWith('s3:')), [], `${id} must not hold inline S3 access`);
+    }
+  }
+});
+
+test('media signer: exactly one new route, POST /media/sign, proxied to the function; every other route still reaches the worker', () => {
+  const { fnId } = mediaSigner();
+  const routes = Object.values(resources).filter((r) => r.Type === 'AWS::ApiGatewayV2::Route');
+  const media = routes.filter((r) => r.Properties.RouteKey === `POST ${MEDIA_SIGN_PATH}`);
+  assert.equal(media.length, 1);
+  assert.equal(MEDIA_SIGN_PATH, '/media/sign');
+  const integrationId = (media[0]!.Properties.Target['Fn::Join'][1] as any[]).map(logicalId).find(Boolean);
+  assert.ok(integrationId, 'the route targets an integration in this template');
+  const integration = resources[integrationId]!;
+  assert.equal(integration.Type, 'AWS::ApiGatewayV2::Integration');
+  assert.equal(integration.Properties.IntegrationType, 'AWS_PROXY');
+  assert.equal(integration.Properties.PayloadFormatVersion, '2.0');
+  assert.equal(logicalId(integration.Properties.IntegrationUri), fnId);
+  // The worker's routes are intact: the ALB default, five control endpoints and health, all via
+  // the VPC Link -- and none of them is a Lambda integration.
+  const viaAlb = routes.filter((r) => r.Properties.RouteKey !== `POST ${MEDIA_SIGN_PATH}`);
+  assert.deepEqual(viaAlb.map((r) => r.Properties.RouteKey).sort(), ['$default', 'GET /healthz', 'POST /telegram/disconnect', 'POST /telegram/login/cancel', 'POST /telegram/login/code', 'POST /telegram/login/password', 'POST /telegram/login/start']);
+  const lambdaIntegrations = Object.values(resources).filter((r) => r.Type === 'AWS::ApiGatewayV2::Integration' && r.Properties.IntegrationType === 'AWS_PROXY');
+  assert.equal(lambdaIntegrations.length, 1, 'the signer is the only Lambda integration');
+  assert.equal(count('AWS::ApiGatewayV2::Api'), 1, 'the signer rides the EXISTING API');
+  assert.equal(count('AWS::ApiGatewayV2::VpcLink'), 1);
+  // Only API Gateway may invoke the function.
+  const permissions = Object.values(resources).filter((r) => r.Type === 'AWS::Lambda::Permission');
+  assert.ok(permissions.length >= 1);
+  for (const p of permissions) assert.equal(p.Properties.Principal, 'apigateway.amazonaws.com');
+});
+
+test('media: the stack still creates exactly the two HMAC secrets and exposes the bucket name and signer URL', () => {
+  assert.equal(createdSecretNames(template).length, 2, 'the signer adds no secret; it shares the worker-control secret');
+  const outputs = template.toJSON().Outputs as Record<string, { Value: unknown }>;
+  assert.ok(outputs.MediaBucketName, 'MediaBucketName output');
+  assert.equal(logicalId(outputs.MediaBucketName!.Value), bucketId());
+  assert.ok(outputs.MediaSignerUrl, 'MediaSignerUrl output');
+  assert.ok(JSON.stringify(outputs.MediaSignerUrl!.Value).includes(MEDIA_SIGN_PATH));
+  assert.ok(outputs.WorkerUrl && outputs.WorkerControlSecretArn, 'the existing outputs remain');
 });
 
 test('the target guard refuses non-staging credentials, allows credential-free synth', () => {

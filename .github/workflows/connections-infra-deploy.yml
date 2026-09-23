@@ -91,6 +91,10 @@ jobs:
             exit 1
           fi
 
+      # The media signer's Lambda asset (infra/connections/dist/media-signer) must exist before synth.
+      - name: Bundle the media signer
+        run: npm --prefix infra/connections run bundle
+
       - name: Synthesize (creates nothing)
         working-directory: infra/connections
         run: npx cdk synth --no-notices LoopConnections-staging -c aiOrganizationId=${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}

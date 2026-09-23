@@ -17,6 +17,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 
 import { buildConnectionsApp } from '../lib/app';
 import { CONNECTIONS_STAGING_TARGET } from '../lib/target';
+import { stubAssets } from './assets';
 
 const ACCESS_TEMPLATE = resolve(__dirname, '..', 'access', 'github-deploy-access.yaml');
 const DEPLOY_WORKFLOW = resolve(__dirname, '..', '..', '..', '.github', 'workflows', 'connections-infra-deploy.yml');
@@ -93,7 +94,7 @@ test('the role may assume exactly the four CDK bootstrap roles (deploy, file-pub
 test('the non-image roles are exactly the ones the stack deployment asks CDK to assume; image-publishing covers the Fargate image', () => {
   const image = ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:22-slim');
   const outdir = mkdtempSync(join(tmpdir(), 'connections-cdk-out-'));
-  buildConnectionsApp({ image, outdir }).app.synth();
+  buildConnectionsApp({ image, assetsDir: stubAssets(), outdir }).app.synth();
   const literal = (arn: string) => arn.replace('${AWS::Partition}', 'aws');
   const stack = JSON.parse(readFileSync(join(outdir, 'manifest.json'), 'utf8')).artifacts[CONNECTIONS_STAGING_TARGET.stackName];
   const published = JSON.parse(readFileSync(join(outdir, `${CONNECTIONS_STAGING_TARGET.stackName}.assets.json`), 'utf8'));
