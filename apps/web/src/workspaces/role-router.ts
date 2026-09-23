@@ -28,8 +28,8 @@ import {
 //   - READ_ONLY                 -> CLIENT (no role-guarded tree; sees what its
 //                                  permissions allow, like everyone else)
 //
-// BUSINESS_OWNER and CREATOR are product roles that today's SystemRole enum has
-// no dedicated value for. Rather than change the DB (out of scope, no schema
+// BUSINESS_OWNER is a product role that today's SystemRole enum has no dedicated
+// value for (CREATOR gained one on 2026-09-22 and is a row below). Rather than change the DB (out of scope, no schema
 // redesign), they are opt-in via a per-user workspace hint carried in the
 // existing user metadata bag (session.systemRole is unaffected). If no hint is
 // present, the SystemRole mapping above applies. This keeps routing fully
@@ -43,6 +43,9 @@ export const SYSTEM_ROLE_TO_WORKSPACE: Record<string, WorkspaceRole> = {
   EMPLOYEE: 'EMPLOYEE',
   AI_EMPLOYEE: 'EMPLOYEE',
   READ_ONLY: 'CLIENT',
+  // Creator Hub (2026-09-22): the dedicated SystemRole the comment above anticipated. A managed
+  // creator's login opens the creator tree (/app/creator) and nothing else.
+  CREATOR: 'CREATOR',
 };
 
 /** Default authority when a systemRole is unknown/missing — the least-privileged

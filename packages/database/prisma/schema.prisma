@@ -311,6 +311,17 @@ model Organization {
 
   googleOAuthStates GoogleOAuthState[]
 
+  /// Creator Hub (2026-09-22): the creator domain and the CRM commercial records it composes.
+  workInstructions            WorkInstruction[]
+  creatorProfiles             CreatorProfile[]
+  creatorContents             CreatorContent[]
+  crmOpportunities            CrmOpportunity[]
+  crmCampaigns                CrmCampaign[]
+  campaignDeliverables        CampaignDeliverable[]
+  creatorPerformanceSnapshots CreatorPerformanceSnapshot[]
+  creatorAudienceSnapshots    CreatorAudienceSnapshot[]
+  creatorCompensationEntries  CreatorCompensationEntry[]
+
   @@index([sourceKey])
   @@map("organizations")
 }
@@ -1167,6 +1178,10 @@ enum SystemRole {
   EMPLOYEE
   AI_EMPLOYEE
   READ_ONLY
+  /// Creator Hub (2026-09-22): an external MANAGED CREATOR who signs in to their own seat. Holds
+  /// nothing in the capability matrix; the creator route tree and the creator domain services
+  /// authorize by the CreatorProfile bound to the login, never by this role's grants.
+  CREATOR
 }
 
 enum InvitationStatus {
@@ -1515,9 +1530,18 @@ model WorkInstance {
   completedAt     DateTime?
   metadata        Json      @default("{}")
 
+  /// Creator Hub (2026-09-22): two DIFFERENT dated facts. What the requester asked for, and what
+  /// the organization committed to. A request is never silently an EMG commitment; the second is
+  /// set by an authorized person and every change to it is a fact with an actor and a time.
+  requestedReturnAt         DateTime?
+  expectedReturnAt          DateTime?
+  expectedReturnSetByUserId String?
+  expectedReturnSetAt       DateTime?
+
   stages        WorkStage[]
   notifications WorkNotification[]
   comments      WorkComment[]
+  instructions  WorkInstruction[]
 
   @@index([organizationId, status])
   @@map("work_instances")
@@ -1744,6 +1768,9 @@ model WorkComment {
   workStageId    String?
   userId         String
   body           String
+  /// Creator Hub (2026-09-22): `internal` (the default -- EMG only) or `creator_visible`. An
+  /// external participant on the work sees only comments written for them, never by inheritance.
+  visibility     String   @default("internal")
   createdAt      DateTime @default(now())
 
   workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
@@ -6551,4 +6578,525 @@ model WorkRetentionOverride {
 
   @@unique([organizationId, category])
   @@map("work_retention_overrides")
+}
+
+// ===========================================================================
+// Creator Hub (2026-09-22) -- the creator domain, and what it composes.
+//
+// ONE BUSINESS, TWO SEATS, THE SAME ROWS. A managed creator and EMG look at the
+// same Content, the same Versions, the same Work and the same commercial records
+// through two authorized projections. Nothing below is a "creator copy" of
+// something another authority owns:
+//
+//   - Work OS stays the authority for execution. A Production IS a WorkInstance
+//     (an Edit step, then a Creator-review step; a change request appends the
+//     next round to the same instance). `WorkInstruction` extends Work OS with
+//     the one thing an external participant's request needs: an instruction set
+//     with provenance (who originated it, who entered it, which version it is
+//     about, which version answered it).
+//   - CRM stays the authority for commercial intent. `CrmOpportunity` and
+//     `CrmCampaign` are the locked shapes of commercial-opportunity-campaign.md,
+//     built at the minimum the creator seat needs, with append-only transition
+//     logs. `CampaignDeliverable` is what the creator owes on a campaign; its
+//     requirements are what "complete" means, and the record reads them.
+//   - The creator domain owns only what nothing else does: the creator's
+//     profile attributes and the login that acts for them, Content and its
+//     immutable Versions (bytes live in object storage; only the KEY is here),
+//     approvals as marks on a specific version, and manual publication marks.
+//   - Performance, audience and compensation rows exist so the product can be
+//     tested end to end; every row carries its `source`, and SEEDED_DEMO rows
+//     are labelled as such wherever they are shown. Nothing here pretends a
+//     platform or a payment rail is connected.
+// ===========================================================================
+
+/// Work OS: an instruction set on a work item, with provenance.
+///
+/// WHO SAID IT AND WHO TYPED IT ARE TWO FACTS. A creator's change request is
+/// originated and entered by the creator. A brand's note relayed by an EMG
+/// employee is originated by the brand and entered by that employee, and the
+/// history never lets the second look like the first.
+///
+/// APPEND-ONLY. A sent instruction set is never edited; a later set supersedes
+/// it. `answeredByVersionId` is stamped once, when a version answers it, and
+/// `addressed` records what the answering person said about each note.
+model WorkInstruction {
+  id             String  @id @default(cuid())
+  organizationId String
+  workInstanceId String
+  workStageId    String?
+
+  /// Monotonic per work instance: set 1, set 2, ...
+  sequence Int
+
+  /// CREATOR | EMG | BRAND_RELAYED.
+  originatorKind  String
+  /// The originator's creator-visible label when it is not a Loop user (e.g. the brand's
+  /// designated name), else null.
+  originatorLabel String?
+  /// The Loop user who entered it.
+  enteredByUserId String
+
+  /// The content version the instruction is about (scalar id; the creator domain resolves it).
+  refersToVersionId String?
+  /// The free-text part of the request.
+  summary           String?
+  /// Timestamped notes: [{ id, atSeconds, untilSeconds?, kind: 'CHANGE'|'KEEP', text }].
+  notes             Json      @default("[]")
+  /// What the requester asked for, if they said.
+  requestedReturnAt DateTime?
+
+  /// Stamped when a version answers this set; never changed afterwards.
+  answeredByVersionId String?
+  answeredAt          DateTime?
+  /// [{ noteId, addressed: boolean, reply: string|null }] as recorded by the answering person.
+  addressed           Json      @default("[]")
+
+  visibleToCreator Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([workInstanceId, sequence])
+  @@index([organizationId, workInstanceId])
+  @@map("work_instructions")
+}
+
+/// The creator domain's binding of a PERSON Party to a creator seat and its
+/// creator-only attributes. NOT identity: the Party stays the identity; this row
+/// says which login acts as the creator and what the creator maintains about
+/// themselves. `partyId` is a scalar id, like every identity reference here.
+model CreatorProfile {
+  id             String  @id @default(cuid())
+  organizationId String
+  partyId        String
+  /// The login that acts as this creator (a CREATOR membership). Null until invited.
+  userId         String? @unique
+
+  displayName         String
+  handle              String?
+  bio                 String?
+  categories          String[] @default([])
+  /// [{ platform, handle, state: 'NOT_CONNECTED'|'SEEDED_DEMO', audience?: number }]
+  socialAccounts      Json     @default("[]")
+  /// NOT_SET_UP | SEEDED_DEMO. No bank detail is ever stored in Loop.
+  payoutState         String   @default("NOT_SET_UP")
+  /// EMG-maintained commercial fields the creator may see (designated), e.g. rate cards.
+  rateInfo            Json     @default("{}")
+  documents           Json     @default("[]")
+  preferences         Json     @default("{}")
+  /// The EMG editor who receives this creator's edit requests by default, if any.
+  defaultEditorUserId String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contents     CreatorContent[]
+
+  @@unique([organizationId, partyId])
+  @@index([organizationId])
+  @@map("creator_profiles")
+}
+
+/// A creator's piece of work through its life. The durable creator-facing record.
+/// Owns its name and its version lineage; everything else it shows is a projection.
+model CreatorContent {
+  id               String @id @default(cuid())
+  organizationId   String
+  creatorProfileId String
+
+  title String
+  /// VIDEO | PHOTO
+  kind  String
+
+  /// Commercial context, by id (CRM owns it). Null for independent content.
+  campaignId    String?
+  deliverableId String?
+  opportunityId String?
+
+  createdByUserId String
+  archivedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creatorProfile CreatorProfile           @relation(fields: [creatorProfileId], references: [id], onDelete: Cascade)
+  versions       ContentVersion[]
+  approvals      ContentVersionApproval[]
+  publications   ContentPublication[]
+  productions    ContentProduction[]
+
+  @@index([organizationId, creatorProfileId, createdAt])
+  @@index([organizationId, campaignId])
+  @@map("creator_contents")
+}
+
+/// One immutable version of a piece of content. NEVER OVERWRITTEN: a new cut is a
+/// new row with the next number. The bytes live in object storage under
+/// `storageKey`; this row is their meaning -- who uploaded it, from which
+/// production, answering which instruction set, and the marks it carries.
+model ContentVersion {
+  id             String @id @default(cuid())
+  organizationId String
+  contentId      String
+
+  /// 0 is the Original; edits count up from 1.
+  number Int
+  /// 'Original', 'Edit v1', ...
+  label  String
+  /// ORIGINAL | EDIT
+  kind   String
+
+  storageKey  String  @unique
+  contentType String
+  byteSize    Int?
+  fileName    String?
+  /// PENDING (URL issued, bytes not confirmed) | READY (verified in storage) | FAILED
+  uploadState String  @default("PENDING")
+
+  /// Facts read from the file in the uploader's browser (duration, dimensions), labelled as such.
+  durationSeconds Float?
+  width           Int?
+  height          Int?
+  clientFacts     Json   @default("{}")
+
+  uploadedByUserId String
+  /// CREATOR | EMG
+  uploadedByKind   String
+
+  /// The production (work instance) that produced it, if any, and the instruction set it answers.
+  producedByWorkInstanceId String?
+  answersInstructionId     String?
+
+  /// The uploader's note for the creator (visible) and for EMG only (never shown to the creator).
+  noteToCreator    String?
+  internalNote     String?
+  /// A version an editor saved without sending: EMG-only until it is returned for review.
+  visibleToCreator Boolean @default(true)
+
+  readyAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  content      CreatorContent           @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  approvals    ContentVersionApproval[]
+  publications ContentPublication[]
+
+  @@unique([contentId, number])
+  @@index([organizationId, contentId])
+  @@map("content_versions")
+}
+
+/// An approval is a mark on ONE version, for ONE requirement, by ONE actor. A
+/// later version inherits nothing; the mark stays visible in history forever.
+model ContentVersionApproval {
+  id             String @id @default(cuid())
+  organizationId String
+  contentId      String
+  versionId      String
+
+  /// creator | emg | brand -- the deliverable requirement this mark satisfies.
+  requirementKey   String
+  /// CREATOR | EMG | BRAND_RELAYED
+  approverKind     String
+  /// The Loop user who recorded it (for BRAND_RELAYED, the relaying employee).
+  approvedByUserId String
+  /// The originator's creator-visible label when relayed (e.g. the brand's designated name).
+  originatorLabel  String?
+  note             String?
+  approvedAt       DateTime @default(now())
+
+  content CreatorContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  version ContentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, requirementKey])
+  @@index([organizationId, contentId])
+  @@map("content_version_approvals")
+}
+
+/// A manual publication mark: the creator says which version went where, and links the post.
+model ContentPublication {
+  id             String @id @default(cuid())
+  organizationId String
+  contentId      String
+  versionId      String
+
+  platform       String
+  url            String?
+  publishedAt    DateTime
+  markedByUserId String
+  createdAt      DateTime @default(now())
+
+  content CreatorContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  version ContentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, contentId])
+  @@map("content_publications")
+}
+
+/// A production cycle on a piece of content: the join to the Work OS instance that
+/// executes it. A new edit after a completed production is a NEW row (Production 2)
+/// on the same content; a completed instance is never reopened.
+model ContentProduction {
+  id             String @id @default(cuid())
+  organizationId String
+  contentId      String
+
+  /// Production 1, 2, ... per content.
+  number Int
+  /// EDIT (the only kind today; thumbnails, cutdowns and localisation are later kinds).
+  kind   String @default("EDIT")
+
+  workInstanceId  String @unique
+  sourceVersionId String
+
+  requestedByUserId String
+  requestedReturnAt DateTime?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  content CreatorContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([contentId, number])
+  @@index([organizationId, contentId])
+  @@map("content_productions")
+}
+
+/// CRM: a commercial pursuit (commercial-opportunity-campaign.md §3.4, the locked
+/// shape at its minimum). Category is governed; the stage is an organization
+/// label within OPEN; the creator sees only the designated creator-visible state
+/// and never the forecast, the notes or the internal stage names.
+model CrmOpportunity {
+  id             String @id @default(cuid())
+  organizationId String
+
+  title                 String
+  /// OPEN | CLOSED_WON | CLOSED_LOST
+  category              String  @default("OPEN")
+  /// The organization's stage label within OPEN.
+  stage                 String
+  /// The represented creator this pursuit concerns (a PERSON Party, by id).
+  creatorPartyId        String
+  /// What the creator sees, designated by EMG: BRAND_INTEREST | PITCHING | NEGOTIATING |
+  /// CONFIRMED | DIDNT_GO_AHEAD, or null (not shown to the creator at all).
+  creatorVisibleState   String?
+  /// The brand as the creator may see it. Shown only when designated visible.
+  brandLabel            String?
+  brandVisibleToCreator Boolean @default(false)
+  /// EMG's creator-facing overview, in words written for the creator.
+  summaryForCreator     String?
+  /// EMG only.
+  internalNotes         String?
+
+  /// Human-authored forecast (never computed). Attribution and time on every change.
+  forecastProbability      Int?
+  forecastAuthoredByUserId String?
+  forecastAuthoredAt       DateTime?
+  amountMinor              Int?
+  currency                 String?
+  expectedCloseDate        DateTime? @db.Date
+
+  /// Set when closed.
+  outcome    String?
+  lossReason String?
+
+  /// Optional: the Relationship this pursuit sits under (PD-F-02).
+  relationshipId String?
+
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transitions  CrmOpportunityTransition[]
+  campaigns    CrmCampaign[]
+
+  @@index([organizationId, creatorPartyId])
+  @@index([organizationId, category])
+  @@map("crm_opportunities")
+}
+
+/// APPEND-ONLY stage and state history of an Opportunity.
+model CrmOpportunityTransition {
+  id             String @id @default(cuid())
+  organizationId String
+  opportunityId  String
+
+  sequence       Int
+  fromCategory   String?
+  fromStage      String?
+  toCategory     String
+  toStage        String
+  actorUserId    String?
+  occurredAt     DateTime @default(now())
+  note           String?
+  /// Whether the creator's timeline shows this move.
+  creatorVisible Boolean  @default(false)
+
+  opportunity CrmOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, sequence])
+  @@map("crm_opportunity_transitions")
+}
+
+/// CRM: the agreed commercial program (§4.4 at its minimum). Human-declared
+/// lifecycle; execution truth (deliverables, versions, work) is composed, never copied.
+model CrmCampaign {
+  id             String @id @default(cuid())
+  organizationId String
+
+  name  String
+  /// DRAFT | AGREED | ACTIVE | PAUSED | ENDED | CANCELLED
+  state String @default("DRAFT")
+
+  opportunityId  String?
+  creatorPartyId String
+
+  brandLabel            String?
+  brandVisibleToCreator Boolean   @default(false)
+  startDate             DateTime? @db.Date
+  endDate               DateTime? @db.Date
+
+  /// Creator-facing brief (visible) and the commercial terms summary (EMG only).
+  creatorBrief String?
+  termsSummary String?
+
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  opportunity  CrmOpportunity?         @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  transitions  CrmCampaignTransition[]
+  deliverables CampaignDeliverable[]
+
+  @@index([organizationId, creatorPartyId])
+  @@map("crm_campaigns")
+}
+
+/// APPEND-ONLY lifecycle history of a Campaign.
+model CrmCampaignTransition {
+  id             String @id @default(cuid())
+  organizationId String
+  campaignId     String
+
+  sequence       Int
+  fromState      String?
+  toState        String
+  actorUserId    String?
+  occurredAt     DateTime @default(now())
+  note           String?
+  creatorVisible Boolean  @default(false)
+
+  campaign CrmCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, sequence])
+  @@map("crm_campaign_transitions")
+}
+
+/// What the creator owes on a campaign. Its `requirements` are what "complete"
+/// means for it -- the record reads them, it never invents them:
+/// [{ key: 'creator'|'emg'|'brand'|'published', label, required: true, dueAt? }]
+model CampaignDeliverable {
+  id             String @id @default(cuid())
+  organizationId String
+  campaignId     String
+  creatorPartyId String
+
+  title           String
+  /// REEL | VIDEO | PHOTO | STORY | OTHER
+  deliverableType String
+  dueAt           DateTime?
+  requirements    Json      @default("[]")
+  /// Whether an unedited Original may enter approval without an EMG production.
+  acceptsUnedited Boolean   @default(false)
+
+  /// The content fulfilling it, once one is attached.
+  contentId   String?
+  /// OPEN | COMPLETE (derived from the requirements, stamped when they are all met).
+  status      String    @default("OPEN")
+  completedAt DateTime?
+
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign     CrmCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, campaignId])
+  @@index([organizationId, creatorPartyId])
+  @@map("campaign_deliverables")
+}
+
+/// Performance evidence for a published version or a creator's account, per
+/// platform and window. `source` is PLATFORM (a connected platform reported it)
+/// or SEEDED_DEMO (loaded for testing, and labelled so everywhere it appears).
+model CreatorPerformanceSnapshot {
+  id               String  @id @default(cuid())
+  organizationId   String
+  creatorProfileId String
+  contentId        String?
+  versionId        String?
+
+  platform    String
+  windowStart DateTime
+  windowEnd   DateTime
+  /// { views, reach, likes, comments, saves, shares, completionPct, ... }
+  metrics     Json
+  source      String
+  observedAt  DateTime
+  createdAt   DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, creatorProfileId, platform, windowEnd])
+  @@index([organizationId, contentId])
+  @@map("creator_performance_snapshots")
+}
+
+/// Audience evidence per platform over time. Same `source` rule.
+model CreatorAudienceSnapshot {
+  id               String @id @default(cuid())
+  organizationId   String
+  creatorProfileId String
+
+  platform     String
+  observedAt   DateTime
+  followers    Int
+  growth30dPct Float?
+  source       String
+  createdAt    DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, creatorProfileId, platform, observedAt])
+  @@map("creator_audience_snapshots")
+}
+
+/// Compensation and payment state, as append-only entries that trace to their
+/// business context. No payment rail exists: every row today is SEEDED_DEMO and
+/// says so. The states are the product's: EXPECTED | PENDING | RECEIVED_BY_EMG |
+/// AVAILABLE | TRANSFER_PENDING | PAID.
+model CreatorCompensationEntry {
+  id               String  @id @default(cuid())
+  organizationId   String
+  creatorProfileId String
+  campaignId       String?
+  deliverableId    String?
+
+  description     String
+  amountMinor     Int
+  currency        String   @default("USD")
+  state           String
+  occurredAt      DateTime
+  source          String
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, creatorProfileId, occurredAt])
+  @@map("creator_compensation_entries")
 }

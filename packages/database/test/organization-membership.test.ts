@@ -94,7 +94,13 @@ test('the migration backfill encodes the same rule: real roles, real statuses, r
   assert.equal(/[^\x00-\x7F]/.test(sql), false, 'ASCII only');
   const body = sql.replace(/^\s*--.*$/gm, ' ');
   const roleList = body.match(/"role" IN \(([^)]*)\)/)?.[1] ?? '';
-  assert.deepEqual(roleList.split(',').map((r) => r.trim().replace(/'/g, '')).sort(), [...Object.values(SystemRole)].sort());
+  // The backfill names the roles that existed on 2026-09-14. A role added to the enum later
+  // (CREATOR, 2026-09-22) is derived at runtime by membership.repository.ts, which validates
+  // against the live enum; the applied migration is never edited to learn about it.
+  const ROLES_ADDED_AFTER_BACKFILL = new Set<string>([SystemRole.CREATOR]);
+  const rolesAtBackfill = [...Object.values(SystemRole)].filter((r) => !ROLES_ADDED_AFTER_BACKFILL.has(r)).sort();
+  assert.deepEqual(roleList.split(',').map((r) => r.trim().replace(/'/g, '')).sort(), rolesAtBackfill);
+  for (const r of ROLES_ADDED_AFTER_BACKFILL) assert.ok(Object.values(SystemRole).includes(r as SystemRole), `${r} is a real role`);
   assert.match(body, /"userStatus" IN \('INVITED', 'ACTIVE', 'DISABLED'\)/);
   assert.match(body, /WHEN 'string' {2}THEN \(u\."metadata" ->> 'removedAt'\) <> ''/);
   assert.match(body, /'mbr_' \|\| d\."userId"/);
