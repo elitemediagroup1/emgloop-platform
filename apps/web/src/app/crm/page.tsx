@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { crmRepos, requireCrmContext } from '../../crm/crm-data';
-import { hasPermission } from '../../auth/guard';
+import { hasPermission, requirePermission } from '../../auth/guard';
 import { loadOrFallback } from '../../demo/db-health';
 import { loadCommandCenter } from '../../crm/command-center-data';
 import { CrmLoadError } from '../../crm/load-error';
@@ -37,6 +37,10 @@ function fmtNum(n: number): string {
 
 export default async function CrmCommandCenter() {
   const ctx = await requireCrmContext('/crm');
+  // The page is an intake-record surface first, so it enforces the authority its nav
+  // item states (customers:view) before any read. A login that holds nothing on the
+  // organization -- a managed creator's -- is refused here, not merely not offered it.
+  await requirePermission('customers', 'view');
   const time = viewerTime();
   // Resolved before any read: without audit:view the audit query is not issued,
   // and without access to Headlines no CI read is issued either.

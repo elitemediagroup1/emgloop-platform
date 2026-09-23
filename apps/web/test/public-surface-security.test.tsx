@@ -179,7 +179,11 @@ describe('Every API route authenticates, except static public endpoints', () => 
   // proves each internal Brain route calls it before anything else.
   // `getSessionBinding` resolves the same signed session as `getSession` and also returns its
   // row id (the Google connect routes bind their state to it).
-  const AUTH = /getSession\(|getSessionBinding\(|\bcan\(|requireCrmContext\(|requirePermission\(|authenticateService\(|verifyWebhook|timingSafeEqual|LOOP_EVENT_SECRET|authenticateBrainWorkerRequest\(/;
+  // `apiCaller` (creator API routes) resolves the same signed session through `getSession` and
+  // answers 401/403 itself. `verifyLocalMediaToken` is the expiring per-request HMAC behind the
+  // DEV-ONLY local media disk route (`@emgloop/providers`, timing-safe), which also answers 404 on
+  // any production runtime before reading the token.
+  const AUTH = /getSession\(|getSessionBinding\(|\bcan\(|requireCrmContext\(|requirePermission\(|authenticateService\(|verifyWebhook|timingSafeEqual|LOOP_EVENT_SECRET|authenticateBrainWorkerRequest\(|apiCaller\(|verifyLocalMediaToken\(/;
   const PUBLIC_ROUTES = new Set(['health/route.ts', 'sdk/config/route.ts', 'sdk/emg-loop/route.ts']);
   const DB_ACCESS = /repositories\.|prisma\.|crmRepos|\.findMany\(|\.findFirst\(|\.create\(/;
 
