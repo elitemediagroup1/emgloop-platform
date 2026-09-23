@@ -1,0 +1,37 @@
+<title>Creator Hub Design Set</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--canvas:#f5f6f6;--surface:#fff;--sunken:#eef1f2;--line:#dce3e6;--line-strong:#c7d1d6;--ink:#0f1c2a;--body:#25333f;--muted:#5a6a76;--faint:#7a8894;--accent:#1d6e85;--accent-soft:#e3eff2;--good:#1d7449;--good-soft:#e1f1e8;--warn:#8a5a00;--warn-soft:#f8efdc;--rail:#0e1b2c;--font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--canvas:#0b1521;--surface:#132133;--sunken:#1a2c42;--line:#27394f;--line-strong:#3a4f68;--ink:#e8eef4;--body:#dbe4ec;--muted:#aab7c3;--faint:#8395a4;--accent:#9fd6e3;--accent-soft:#163241;--good:#6fcf97;--good-soft:#153123;--warn:#f0b35a;--warn-soft:#3a2a10}}
+:root[data-theme="dark"]{--canvas:#0b1521;--surface:#132133;--sunken:#1a2c42;--line:#27394f;--line-strong:#3a4f68;--ink:#e8eef4;--body:#dbe4ec;--muted:#aab7c3;--faint:#8395a4;--accent:#9fd6e3;--accent-soft:#163241;--good:#6fcf97;--good-soft:#153123;--warn:#f0b35a;--warn-soft:#3a2a10}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--body);font-family:var(--font);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:880px;margin:0 auto;padding-block:36px 72px;padding-inline:20px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--faint)}
+h1{font-size:clamp(28px,5vw,40px);line-height:1.06;letter-spacing:-.02em;font-weight:800;color:var(--ink);margin:6px 0 10px;text-wrap:balance}
+.lede{font-size:16.5px;color:var(--muted);max-width:66ch;margin:0 0 26px}
+.set{display:flex;flex-direction:column;gap:12px}
+a.item{display:grid;grid-template-columns:44px 1fr auto;gap:16px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;text-decoration:none;color:inherit}
+a.item:hover{border-color:var(--line-strong)}
+a.item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.n{width:44px;height:44px;border-radius:12px;background:var(--rail);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:15px}
+.t{font-size:16px;font-weight:700;color:var(--ink);margin:0 0 3px}
+.d{font-size:13.5px;color:var(--muted);margin:0}
+.pill{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good)}.pill.warn{background:var(--warn-soft);color:var(--warn)}.pill.accent{background:var(--accent-soft);color:var(--accent)}
+.note{margin-top:26px;border-left:3px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 10px 10px 0;font-size:13.5px;color:var(--body)}
+.foot{margin-top:18px;font-size:12.5px;color:var(--faint)}
+@media (max-width:560px){a.item{grid-template-columns:36px 1fr}.n{width:36px;height:36px;font-size:13px}.pill{grid-column:2;justify-self:start}}
+</style>
+<div class="wrap">
+  <div class="eyebrow">Loop · Creator Hub · design set · 2026-09-22</div>
+  <h1>Creator Hub — the design set so far</h1>
+  <p class="lede">One business, two seats, the same governed objects. The design pass sets the product direction; each mockup then proves one piece of it on Loop's own design system. Everything here is design only: nothing is built, and the backend authorities behind the product nouns remain deliberately undecided.</p>
+  <div class="set">
+    <a class="item" href="creator-hub-design-pass.html"><span class="n">0</span><span><p class="t">Creator Hub design pass</p><p class="d">Product definition for both seats: objects and authorities, information architecture, journeys, state models, EMG Creator Operations, visibility rules, capability gaps, decisions, mockup sequence.</p></span><span class="pill good">Approved direction</span></a>
+    <a class="item" href="content-record-mockup.html"><span class="n">1</span><span><p class="t">Content Record</p><p class="d">The centre of the creator experience through eight lifecycle states on a phone, its desktop adaptation, immutable history with provenance, per-rung evidence, and the matching EMG Work OS view.</p></span><span class="pill good">Locked</span></a>
+    <a class="item" href="edit-review-handoff.html"><span class="n">2</span><span><p class="t">Edit review handoff</p><p class="d">Creator review mode with timestamped notes, request-changes and approve sheets, submitting an original for approval, and the editor's upload-as-answer on the same Production — designed once for both seats.</p></span><span class="pill warn">For review</span></a>
+  </div>
+  <div class="note">Example data throughout: creator Denise R., the “Kona unboxing reel”, campaign Kona Product Video, editor Sam, deliverable Reel 1 of 2. Names, dates and numbers exist only to judge the design.</div>
+  <p class="foot">Next in the approved sequence: Mockup 3 — Request an Edit and the EMG Requests lane.</p>
+</div>

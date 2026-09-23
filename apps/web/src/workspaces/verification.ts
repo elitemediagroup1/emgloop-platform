@@ -51,6 +51,7 @@ const KNOWN_SYSTEM_ROLES = [
   'EMPLOYEE',
   'AI_EMPLOYEE',
   'READ_ONLY',
+  'CREATOR',
 ];
 
 export function runWorkspaceRoutingVerification(): VerificationReport {

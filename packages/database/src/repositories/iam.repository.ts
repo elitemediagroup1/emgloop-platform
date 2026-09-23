@@ -136,6 +136,9 @@ export const SYSTEM_ROLES: SystemRole[] = [
   SystemRole.MANAGER,
   SystemRole.EMPLOYEE,
   SystemRole.READ_ONLY,
+  // Creator Hub (2026-09-22): a managed creator's own seat. Invitable from Team so a creator's
+  // login is made the same way every other login is -- never by a side path.
+  SystemRole.CREATOR,
 ];
 
 
@@ -147,6 +150,7 @@ export const SYSTEM_ROLE_LABELS: Record<string, string> = {
   EMPLOYEE: 'Agent',
   AI_EMPLOYEE: 'AI Employee',
   READ_ONLY: 'Read Only',
+  CREATOR: 'Creator',
 };
 
 
@@ -335,6 +339,12 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     analytics: RO, integrations: [], intelligence: RO,
     commercialIntelligence: RO,
   },
+  // Creator Hub (2026-09-22). A managed creator holds NOTHING on the organization's resources:
+  // no intake, no conversations, no relationships, no intelligence. Listed explicitly so the
+  // READ_ONLY fallback below can never reach a creator -- that fallback is how an unlisted role
+  // quietly inherits the whole read side of the CRM. The creator seat authorizes through the
+  // CreatorProfile bound to the login (packages/database/src/creator), never through this table.
+  CREATOR: {},
 };
 
 

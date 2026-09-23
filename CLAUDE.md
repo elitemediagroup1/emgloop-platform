@@ -111,7 +111,8 @@ packages/
   shared/                    kernel types + kg.v1 contract. Incoherent; don't add to it casually.
   providers/                 interfaces + adapters. CallGrid, Resend, Website are REAL. Rest are mocks.
   brain/                     intelligence contracts. Pure. ~80% type declarations today.
-  database/                  Prisma + 24 repositories + 5 services. Largest real asset.
+  database/                  Prisma + 24 repositories + 5 services, plus src/creator/ (the creator
+                             domain: 2 repositories + 2 services over the Work OS repository). Largest real asset.
   work-os/                   types only, ZERO importers. Contracts the runtime ignored.
   marketplace-intelligence/  ZERO importers. Does not typecheck.
 ```
@@ -168,6 +169,12 @@ Deny-by-default. Static `MATRIX` in `iam.repository.ts` maps `SystemRole` → `r
 `identityResolution` has its own grant table (`IDENTITY_RESOLUTION_GRANTS`, no READ_ONLY fallback,
 AI_EMPLOYEE hard-denied); `approve` is the only action that establishes a Party.
 
+`CREATOR` (2026-09-22) is an explicit **empty** matrix row, so a creator's login holds no organization
+permission at all (the READ_ONLY fallback would otherwise apply). Everything a creator may read or
+change is authorized by the `CreatorProfile` bound to that login (`requireCreator()`), resolved from
+the signed session — never by a permission, never by an id in the request. A CREATOR login with no
+profile is refused, not defaulted.
+
 ⚠️ `passwordHash` and the legacy `systemRole` both still live in the `user.metadata` JSON bag, and
 the membership is derived from it. **Always merge, never replace** that bag (see §Multi-Tenant
 Rules). `Invitation.systemRole` is a real column that nothing reads — the role is in metadata.
@@ -194,7 +201,7 @@ Those two workspaces are unreachable. Don't build into them without fixing the h
 
 ## Coding Standards
 
-- **Server Components first.** Only a handful of `'use client'` files exist (nine on 2026-09-15), all leaves. Zero client layouts,
+- **Server Components first.** Only a handful of `'use client'` files exist (thirteen on 2026-09-23: three of them are the Creator Hub's uploaders and review sheet), all leaves. Zero client layouts,
   zero client pages. This is the strongest property of the frontend — do not erode it. If you need
   `'use client'`, push it to the smallest possible leaf.
 - **Repository pattern.** Feature code never touches `prisma.*` directly. Go through a repository.

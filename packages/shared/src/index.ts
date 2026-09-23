@@ -524,6 +524,8 @@ export * from './gmail-send-reconcile';
 // One policy shape; Calendar and Gmail differ only in their numbers.
 export * from './work-freshness';
 export * from './intelligence-item';
+// Creator Hub (2026-09-22): the vocabulary both seats share and the pure state derivations.
+export * from './creator-hub';
 // Reading an email as text (GM-2). Loop renders mail as text and only as text: a body is
 // attacker-controlled markup, and the words are what an employee needs.
 export * from './mail-text';

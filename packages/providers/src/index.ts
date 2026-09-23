@@ -354,3 +354,29 @@ export {
   GOOGLE_GMAIL_RECONCILE_MAX_PAGES,
 } from './google-workspace/gmail';
 export type { GmailCallOptions, GmailWindowRequest, GmailChangesRequest } from './google-workspace/gmail';
+
+// Creator media object storage: file bytes only, behind one contract with two adapters
+// (the staging media signer over the existing HMAC control channel, and a dev-only disk adapter).
+export {
+  MEDIA_CONTENT_TYPES,
+  MEDIA_SIZE_LIMITS,
+  MEDIA_KEY_PREFIX,
+  mediaKindOf,
+  mediaExtensionOf,
+  isValidMediaKey,
+  MediaStorageError,
+  SignerMediaStorage,
+  LocalMediaStorage,
+  localMediaToken,
+  verifyLocalMediaToken,
+  localMediaPath,
+} from './storage/media-storage';
+export type {
+  MediaKind,
+  MediaObjectStorage,
+  MediaUploadTarget,
+  MediaDownloadTarget,
+  MediaHead,
+  SignerMediaStorageDeps,
+  LocalMediaStorageDeps,
+} from './storage/media-storage';

@@ -44,7 +44,7 @@ const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => {
   return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(n) ? [p] : [];
 });
 
-const SYSTEM_ROLES = ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'AI_EMPLOYEE', 'READ_ONLY', 'SOMETHING_NEW'] as const;
+const SYSTEM_ROLES = ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'AI_EMPLOYEE', 'READ_ONLY', 'CREATOR', 'SOMETHING_NEW'] as const;
 const items = LOOP_NAV.nav.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label, footer: Boolean(g.footer) })));
 const enabled = items.filter((i) => !i.soon);
 const find = (label: string, href?: string) => {
@@ -143,10 +143,12 @@ describe('One shell, one registry', () => {
 });
 
 describe('Grouping', () => {
-  it('is the five operating areas (Home · CRM · Work · Intelligence · Operations), with Administration at the foot', () => {
+  it('is the five operating areas (Home · CRM · Work · Intelligence · Operations), the creator seat, and Administration at the foot', () => {
+    // The creator seat (C-02, amended 2026-09-22) is a group of its own, not an operating
+    // area: a creator holds none of the five, and the organization never sees the seat.
     assert.deepEqual(LOOP_NAV.nav.map((g) => [g.label, g.area ?? null, Boolean(g.footer)]), [
       ['', 'HOME', false], ['CRM', 'CRM', false], ['Work', 'WORK', false], ['Intelligence', 'INTELLIGENCE', false],
-      ['Operations', 'OPERATIONS', false], ['Administration', null, true],
+      ['Operations', 'OPERATIONS', false], ['Creator', null, false], ['Administration', null, true],
     ]);
     assert.deepEqual(LOOP_NAV.nav.map((g) => g.area).filter(Boolean), [...config.OPERATING_AREAS]);
     // Home, and the person's own connections (their Google account), shown only to a
@@ -167,9 +169,27 @@ describe('Grouping', () => {
     ]);
     // Accounting is its own domain surfaced contextually (C-01): no global entry while it is not built.
     assert.equal(items.some((i) => /accounting/i.test(i.href + i.label)), false);
-    assert.deepEqual(LOOP_NAV.nav[5]!.items.map((i) => i.label), [
+    assert.deepEqual(LOOP_NAV.nav.find((g) => g.label === 'Administration')!.items.map((i) => i.label), [
       'Team', 'Workspace', 'Settings', 'Objectives', 'Audit Log', 'AI Employees', 'Integration OS',
     ]);
+  });
+
+  it('the creator seat is one group in the one registry: every item in the creator tree, four of them areas of the phone bar', () => {
+    const creator = LOOP_NAV.nav.find((g) => g.label === 'Creator')!;
+    assert.equal(creator.area, undefined, 'not an operating area');
+    assert.equal(creator.footer, undefined, 'not administration');
+    assert.deepEqual(creator.items.map((i) => [i.label, i.href, i.workspace, i.requires ?? null, i.area ?? null]), [
+      ['Content', '/app/creator/content', 'CREATOR', null, 'CONTENT'],
+      ['Opportunities', '/app/creator/opportunities', 'CREATOR', null, 'OPPORTUNITIES'],
+      ['Analytics', '/app/creator/analytics', 'CREATOR', null, null],
+      ['Tasks', '/app/creator/tasks', 'CREATOR', null, 'TASKS'],
+      ['Earnings', '/app/creator/earnings', 'CREATOR', null, 'EARNINGS'],
+      ['Profile', '/app/creator/profile', 'CREATOR', null, null],
+    ]);
+    // Every item area is a creator area, and only creator items carry one.
+    for (const item of items) {
+      assert.equal(item.area !== undefined, item.group === 'Creator' && (config.CREATOR_AREAS as readonly string[]).includes(item.area ?? ''), `${item.label}: ${item.area}`);
+    }
   });
 
   it('CRM leads with the redesigned People and Relationships, then the real CRM under /crm', () => {
@@ -203,7 +223,12 @@ describe('Grouping', () => {
 
   it('only the unbuilt modules open the honest not-built page; every other item opens its own page', () => {
     const placeholders = enabled.filter((i) => pageFor(i.href)?.includes('[...slug]')).map((i) => i.label);
-    assert.deepEqual(placeholders, ['Creators']);
+    // The creator seat's six pages are being built; until each one lands, the creator
+    // tree's catch-all serves its address (and enforces the tree's authority). Nothing
+    // else is a placeholder: Creators (EMG Creator Operations) is built now and has its
+    // own page under /app/admin/creator-hub.
+    const creatorItems = LOOP_NAV.nav.find((g) => g.label === 'Creator')!.items.map((i) => i.label);
+    assert.deepEqual(placeholders.filter((l) => !creatorItems.includes(l)), []);
     for (const item of enabled) assert.ok(pageFor(item.href), `${item.label} → ${item.href} has no page`);
   });
 
@@ -349,13 +374,41 @@ describe('Navigation follows the authority each page enforces', () => {
       permitted: (item) => !(item.requires!.resource === 'customers' && item.requires!.action === 'view'),
     });
     const shown = nav.flatMap((g) => g.items).map((i) => i.label);
-    for (const hidden of ['Intake Records', 'Inbox', 'Search']) assert.equal(shown.includes(hidden), false, hidden);
-    for (const kept of ['Command Center', 'Conversations', 'Intake Board', 'Headlines']) assert.ok(shown.includes(kept), kept);
+    // The Command Center is an intake-record surface and now enforces customers:view
+    // itself (so a creator's login, which holds nothing, is refused it); a DENY on that
+    // permission therefore hides it along with the other intake surfaces.
+    for (const hidden of ['Command Center', 'Intake Records', 'Inbox', 'Search']) assert.equal(shown.includes(hidden), false, hidden);
+    for (const kept of ['Conversations', 'Intake Board', 'Headlines']) assert.ok(shown.includes(kept), kept);
   });
 
   it('a group with nothing a person can open is not drawn, even if it holds Soon items', () => {
     const nav = visibleNav(LOOP_NAV.nav, { workspace: 'CLIENT', permitted: () => false });
-    assert.deepEqual(labels(nav), [['', ['Home']], ['CRM', ['Command Center', 'Opportunities (soon)', 'Campaigns (soon)']]]);
+    // With the Command Center gated on customers:view, a person who holds no permission
+    // can open nothing in the CRM group: its two Soon items alone do not earn a header.
+    assert.deepEqual(labels(nav), [['', ['Home']]]);
+  });
+
+  it('a creator sees Home and the creator seat, nothing of the organization, and has no Work OS queue', () => {
+    assert.deepEqual(labels(navForRole('CREATOR')), [
+      ['', ['Home']],
+      ['Creator', ['Content', 'Opportunities', 'Analytics', 'Tasks', 'Earnings', 'Profile']],
+    ]);
+    assert.equal(myWorkHref(navForRole('CREATOR')), null, 'no My Work item, so no notifications bell');
+    // The creator's five-area phone bar: Home, then the four items that are areas of their own.
+    assert.deepEqual(config.areaEntries(navForRole('CREATOR')), [
+      { area: 'HOME', label: 'Home', href: '/app' },
+      { area: 'CONTENT', label: 'Content', href: '/app/creator/content' },
+      { area: 'OPPORTUNITIES', label: 'Opportunities', href: '/app/creator/opportunities' },
+      { area: 'TASKS', label: 'Tasks', href: '/app/creator/tasks' },
+      { area: 'EARNINGS', label: 'Earnings', href: '/app/creator/earnings' },
+    ]);
+    // The bar marks the area of the page shown, through the item's own area.
+    const html = renderAt('/app/creator/tasks/t_1', <AreaBar groups={navForRole('CREATOR')} />);
+    assert.match(html, /<a class="loop-areabar__link is-active" aria-current="true" href="\/app\/creator\/tasks">/);
+    assert.equal((html.match(/is-active/g) ?? []).length, 1);
+    // Analytics and Profile are in the sidebar but are no area: on those pages nothing is current.
+    const analytics = renderAt('/app/creator/analytics', <AreaBar groups={navForRole('CREATOR')} />);
+    assert.equal(/is-active/.test(analytics), false);
   });
 
   it('the shell resolves permissions for the signed session, in one read, with the rules pages enforce', () => {
@@ -422,6 +475,8 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.equal(active('/app/admin/marketplace/buyers'), 'CallGrid Intelligence');
     assert.equal(active('/app/admin/headlines/h1'), 'Headlines');
     assert.equal(active('/app/admin/administration/work-types'), 'Work Types');
+    assert.equal(active('/app/creator/content/c_1'), 'Content');
+    assert.equal(active('/app/creator/earnings'), 'Earnings');
   });
 });
 

@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-19 (Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-23 (Creator Hub built and locally acceptance-tested, draft PR in review, staging deployment pending Matt — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -24,6 +24,45 @@ marked _(needs deploy validation)_ is verified only by typecheck + build + unit 
 NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
+
+## Creator Hub — BUILT, LOCALLY ACCEPTANCE-TESTED, IN REVIEW (draft PR on `feat/creator-hub-demo`, off main `88d1a9c`) · NOT ON STAGING YET
+
+**What it is.** The approved design (Mockup #1 locked, Mockup #2 reviewed) built as one system with two
+experiences: a managed creator's own login (`SystemRole.CREATOR`, same organization, one `LOOP_NAV`
+filtered to `/app/creator/*`) and the EMG side at Operations → Creators (`/app/admin/creator-hub`).
+No `CreatorHub*` tables: CRM owns `CrmOpportunity`/`CrmCampaign`/`CampaignDeliverable` (append-only
+transitions), Work OS owns every Production (a `WorkInstance` of work type `creator-production`, with
+`WorkInstruction` sets and `WorkComment.visibility`), the creator domain owns `CreatorProfile` /
+`CreatorContent` / immutable `ContentVersion` lineage / approvals / publications, evidence rows carry
+`source` (SEEDED_DEMO is labelled everywhere it shows), and the Brain composes "What Loop noticed"
+(`creatorContentNotice`, pure; Fact / Observation / Interpretation / Proposed / Not yet). Media bytes
+live in a private S3 bucket behind a presigning Lambda in the connections stack (browser → presigned
+PUT/GET; the web tier holds no AWS credential); `LOOP_MEDIA_STORAGE=local` is dev-only and refused on a
+production runtime.
+
+**Migration:** `20260930000000_creator_hub_foundation` (additive: `CREATOR` enum value, 2 Work OS
+columns + `work_comments.visibility`, 14 tables). Applied to the local Postgres only.
+
+**Validated (2026-09-23, local):** typecheck clean for shared/providers/brain/database/web/infra/ops;
+web build passes; tests: web 707, database 1651 (Postgres opt-in included), shared 1380, providers 248,
+brain 8, infra 41, operations 630 — all passing. The full 52-step acceptance path was driven in a real
+browser (Playwright) against `next dev` + local Postgres + local disk media: creator video upload →
+request edit → EMG finds it in Requests → real Work OS work assigned, expected return set → editor
+uploads Edit v1 and returns it → creator reviews (same-playhead compare, Change + Keep notes, drafts
+survive reload) → request changes continues the SAME Production (round 2) → Edit v2 addresses the notes
+→ creator approves v2 → Production completes, EMG sees the approval on v2 and the immutable lineage →
+photo uploaded and manually marked published, persisting across reload → a creator cannot open EMG
+pages, another creator gets 404 on the record and the media, anonymous gets 401.
+
+**Next (Matt, in order — `docs/runbooks/creator-hub-staging.md`):** merge → `connections-infra-deploy`
+(diff, then deploy) → Netlify staging env `LOOP_MEDIA_STORAGE=aws` → `connections-migrate-staging` →
+`creator-demo-seed-staging` → fast-forward `staging`. Then the staging acceptance run and the handoff
+(one URL, how each person enters). Production is untouched by all of it.
+
+**Known limits:** payouts are not a rail (the transfer control is inert and says so); notification
+preferences are saved but nothing sends; the Work OS reassign dropdown lists every ACTIVE member
+including creators; brand approval is EMG-relayed (no brand login); analytics/earnings are seeded
+evidence until a platform connection exists.
 
 ## Production migration state — AT 41 · `main` IS AT 41 (verified 2026-09-19)
 

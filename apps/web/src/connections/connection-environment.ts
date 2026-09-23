@@ -56,6 +56,17 @@ function validUrl(raw: string | undefined): string | null {
  * This runtime's connection configuration. CONFIGURED requires at least one enabled provider AND a
  * reachable worker (valid URL + a control secret); anything short is NOT_CONFIGURED.
  */
+/**
+ * The worker endpoint alone (URL + control secret), whether or not any connection provider is
+ * enabled. The creator-media signer lives in the same worker stack and is signed with the same
+ * control secret, so it needs the endpoint but not a messaging provider. Null when either is unset.
+ */
+export function readConnectionWorkerEndpoint(source: ConnectionEnvironmentSource = process.env): ConnectionWorkerEndpoint | null {
+  const url = validUrl(source[CONNECTION_ENVIRONMENT.workerUrl]);
+  const secret = (source[CONNECTION_ENVIRONMENT.workerSecret] ?? '').trim();
+  return url && secret ? { url, secret } : null;
+}
+
 export function readConnectionEnvironment(source: ConnectionEnvironmentSource = process.env): ConnectionEnvironment {
   const providers = parseProviders(source[CONNECTION_ENVIRONMENT.providers]);
   const url = validUrl(source[CONNECTION_ENVIRONMENT.workerUrl]);

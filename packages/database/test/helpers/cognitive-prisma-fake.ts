@@ -92,6 +92,14 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   // state hash; the live-account key is in EXTRA_UNIQUE_KEYS.
   googleConnection: ['organizationId', 'userId'],
   googleOAuthState: ['stateHash'],
+  // Creator Hub (2026-09-22). The single-key models; the two-key ones are in EXTRA_UNIQUE_KEYS.
+  // One instruction set per sequence per work item, so a concurrent double-append fails loudly.
+  workInstruction: ['workInstanceId', 'sequence'],
+  // One mark per (version, requirement): a repeat approval converges on the existing mark.
+  contentVersionApproval: ['versionId', 'requirementKey'],
+  // Append-only commercial history: one transition per sequence per record.
+  crmOpportunityTransition: ['opportunityId', 'sequence'],
+  crmCampaignTransition: ['campaignId', 'sequence'],
 };
 
 /**
@@ -251,7 +259,44 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
     ownerUserId: null,
     metadata: {},
   },
-  workInstance: { status: 'active', metadata: {}, currentStageId: null, completedAt: null },
+  // Creator Hub (2026-09-22) added the two return dates a work item is born without (the
+  // request and the commitment are two facts, both null until somebody states one).
+  workInstance: {
+    status: 'active', metadata: {}, currentStageId: null, completedAt: null,
+    requestedReturnAt: null, expectedReturnAt: null, expectedReturnSetByUserId: null, expectedReturnSetAt: null,
+  },
+  // Creator Hub (2026-09-22): a comment is internal unless written for the creator.
+  workComment: { workStageId: null, visibility: 'internal' },
+  workInstruction: {
+    workStageId: null, originatorLabel: null, refersToVersionId: null, summary: null, notes: [], requestedReturnAt: null,
+    answeredByVersionId: null, answeredAt: null, addressed: [], visibleToCreator: true,
+  },
+  // The creator domain: every @default and every nullable column a row is born with, so a
+  // repository reading one back sees what Postgres returns (null, never undefined).
+  creatorProfile: {
+    userId: null, handle: null, bio: null, categories: [], socialAccounts: [], payoutState: 'NOT_SET_UP', rateInfo: {}, documents: [],
+    preferences: {}, defaultEditorUserId: null, createdByUserId: null,
+  },
+  creatorContent: { campaignId: null, deliverableId: null, opportunityId: null, archivedAt: null },
+  contentVersion: {
+    byteSize: null, fileName: null, uploadState: 'PENDING', durationSeconds: null, width: null, height: null, clientFacts: {},
+    producedByWorkInstanceId: null, answersInstructionId: null, noteToCreator: null, internalNote: null, visibleToCreator: true, readyAt: null,
+  },
+  contentVersionApproval: { originatorLabel: null, note: null },
+  contentPublication: { url: null },
+  contentProduction: { kind: 'EDIT', requestedReturnAt: null, completedAt: null },
+  crmOpportunity: {
+    category: 'OPEN', creatorVisibleState: null, brandLabel: null, brandVisibleToCreator: false, summaryForCreator: null, internalNotes: null,
+    forecastProbability: null, forecastAuthoredByUserId: null, forecastAuthoredAt: null, amountMinor: null, currency: null, expectedCloseDate: null,
+    outcome: null, lossReason: null, relationshipId: null,
+  },
+  crmOpportunityTransition: { fromCategory: null, fromStage: null, actorUserId: null, note: null, creatorVisible: false },
+  crmCampaign: { state: 'DRAFT', opportunityId: null, brandLabel: null, brandVisibleToCreator: false, startDate: null, endDate: null, creatorBrief: null, termsSummary: null },
+  crmCampaignTransition: { fromState: null, actorUserId: null, note: null, creatorVisible: false },
+  campaignDeliverable: { dueAt: null, requirements: [], acceptsUnedited: false, contentId: null, status: 'OPEN', completedAt: null },
+  creatorPerformanceSnapshot: { contentId: null, versionId: null },
+  creatorAudienceSnapshot: { growth30dPct: null },
+  creatorCompensationEntry: { campaignId: null, deliverableId: null, currency: 'USD', createdByUserId: null },
   // Every nullable column on a dependency. `resolvedAt: null` is what makes a
   // dependency OPEN, so a row born without it reads `undefined` and every block
   // looks already cleared -- the same defect class the participant row hit.
@@ -303,6 +348,11 @@ const TIMESTAMP_DEFAULTS: Record<string, string[]> = {
   // learned about an act, and the repository leaves it to the database default.
   crmRelationshipEvent: ['recordedAt'],
   brainJob: ['acceptedAt'],
+  // Creator Hub (2026-09-22): an approval's and a transition's instant default to now() and
+  // the repositories leave them to the database.
+  contentVersionApproval: ['approvedAt'],
+  crmOpportunityTransition: ['occurredAt'],
+  crmCampaignTransition: ['occurredAt'],
 };
 
 /**
@@ -393,6 +443,12 @@ const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
   // One stage cannot declare the same work dependency twice. NULLs are distinct
   // in Postgres, so several external conditions on one stage stay legal.
   workDependency: [['workStageId', 'dependsOnWorkInstanceId']],
+  // Creator Hub (2026-09-22). A version is one row per storage key AND one per number on its
+  // content; a production joins exactly one work item AND is numbered per content; a profile
+  // binds one login (NULL until invited, and NULLs never collide) AND one party per organization.
+  contentVersion: [['storageKey'], ['contentId', 'number']],
+  contentProduction: [['workInstanceId'], ['contentId', 'number']],
+  creatorProfile: [['userId'], ['organizationId', 'partyId']],
 };
 
 const DELEGATES = [
@@ -866,6 +922,24 @@ export const OPTIONAL_DELEGATES = [
   'brainEvent',
   'aiControl',
   'aiControlCurrent',
+  // Creator Hub (2026-09-22), requested by the creator repository suite alongside the
+  // always-on Work OS delegates.
+  'workComment',
+  'workInstruction',
+  'creatorProfile',
+  'creatorContent',
+  'contentVersion',
+  'contentVersionApproval',
+  'contentPublication',
+  'contentProduction',
+  'crmOpportunity',
+  'crmOpportunityTransition',
+  'crmCampaign',
+  'crmCampaignTransition',
+  'campaignDeliverable',
+  'creatorPerformanceSnapshot',
+  'creatorAudienceSnapshot',
+  'creatorCompensationEntry',
 ] as const;
 
 export function makeCognitivePrisma(

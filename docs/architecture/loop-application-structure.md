@@ -152,6 +152,16 @@ for any role. Unreachable Business Owner and Creator workspace shells are retire
 
 *Replaced:* "Creator Hub remains a module".
 
+**Amended 2026-09-22 (Creator Hub functional demo, Matt's instruction).** Exactly one participant
+type now has its own login inside the ONE application: a managed creator, `SystemRole.CREATOR`, a
+member of the same organization that manages them. It is not a portal, not a second application and
+not multi-org sign-in: the creator enters at `/crm/login`, lands on Loop Home, and sees the one
+`LOOP_NAV` filtered to the creator group (`/app/creator/*`, transitional route kept). A CREATOR holds
+nothing in the permission matrix; what they may read or change is authorized by the `CreatorProfile`
+bound to their login, resolved from the signed session. Operations → Creators (`/app/admin/creator-hub`)
+is the EMG side of the same objects. Everything else in D5 stands: no participant memberships, no
+participant portal, no multi-org sign-in.
+
 ### D6 — Development review page
 
 `/app/admin/review` is development-only. It is removed from the production route tree. If kept for

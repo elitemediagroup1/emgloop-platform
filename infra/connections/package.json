@@ -2,20 +2,26 @@
   "name": "@emgloop/infra-connections",
   "version": "0.1.0",
   "private": true,
-  "description": "The connections worker environment on AWS (Teams/Telegram durable worker). A separate deployable, not an npm workspace, so the web build never installs it. Staging only.",
+  "description": "The connections worker environment on AWS (Teams/Telegram durable worker) plus the creator-media signer. A separate deployable, not an npm workspace, so the web build never installs it. Staging only.",
   "scripts": {
-    "synth": "CONNECTIONS_SYNTH_OFFLINE=1 cdk synth --quiet --no-notices",
+    "bundle": "tsx scripts/bundle.ts",
+    "synth": "tsx scripts/bundle.ts && CONNECTIONS_SYNTH_OFFLINE=1 cdk synth --quiet --no-notices",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": { "node": ">=22.0.0" },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1134.0",
+    "@aws-sdk/client-secrets-manager": "3.1134.0",
+    "@aws-sdk/s3-request-presigner": "3.1134.0",
     "aws-cdk-lib": "2.269.0",
     "constructs": "10.8.1"
   },
   "devDependencies": {
+    "@types/aws-lambda": "8.10.163",
     "@types/node": "22.20.3",
     "aws-cdk": "2.1142.0",
+    "esbuild": "0.28.2",
     "tsx": "4.23.13",
     "typescript": "5.9.3"
   }

@@ -18,6 +18,8 @@ import { mailCurrency } from './mail/_mail/mail-parts';
 import { readerTimeZone } from '../../daily-loop/reader-zone';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 import { settle } from './_home/settle';
+import { creatorSeatOf } from '../../creator/creator-runtime';
+import { CreatorHome } from '../../creator/creator-home';
 
 // Loop Home — the first destination after sign-in, for every role.
 //
@@ -41,6 +43,9 @@ export default async function LoopHome() {
   if (!session) redirect(loginPathFor(LOOP_HOME));
 
   const role = resolveWorkspaceRole(session);
+  // A CREATOR login with a creator profile bound to it gets the creator's Home (Creator Hub,
+  // 2026-09-22). A CREATOR login with no profile is not a creator yet and sees the module Home.
+  const creatorSeat = await creatorSeatOf(session);
   const principal = { organizationId: session.organizationId, userId: session.userId };
   const zone = resolveDisplayTimeZone({ preference: null, device: readerTimeZone() });
 
@@ -72,7 +77,9 @@ export default async function LoopHome() {
 
   return (
     <WorkspaceShell session={session}>
-      {role === 'ADMIN' ? (
+      {creatorSeat ? (
+        <CreatorHome seat={creatorSeat} time={time} />
+      ) : role === 'ADMIN' ? (
         <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailCurrency={currency} needsYou={needsYouElement} />
       ) : (
         <ModuleHome

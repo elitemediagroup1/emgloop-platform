@@ -8,26 +8,40 @@
 // internet-facing except the HTTP API, and only signed requests are honoured by the worker itself.
 //
 // SECRETS. api_id/api_hash come from the pre-created `loop/connections/staging/telegram`. The
-// session-sealing key and the Neon URL are created here as UNSET placeholders for an operator to
-// populate; the conversation-key secret and the web<->worker control secret are generated here and
-// never leave AWS (the control secret is also read once by the operator to set the web env var).
-// Every secret reaches the container as an environment variable injected by the task from Secrets
-// Manager; the worker holds no AWS SDK and reads only its environment.
+// session-sealing key and the Neon URL are operator-provided and referenced, not created; the
+// conversation-key secret and the web<->worker control secret are generated here and never leave
+// AWS (the control secret is also read once by the operator to set the web env var). Every secret
+// reaches the container as an environment variable injected by the task from Secrets Manager; the
+// worker holds no AWS SDK and reads only its environment.
+//
+// CREATOR MEDIA. The same HTTP API also fronts the media signer: one small Lambda (lambda/
+// media-signer.ts) that mints short-lived presigned URLs for a PRIVATE S3 bucket, so the browser
+// uploads and plays creator media directly against S3 while the web tier holds no AWS credential.
+// The signer honours only calls signed with the SAME worker-control secret, and its role can touch
+// only objects under `media/`. Nothing about the worker's shape changes for it.
 
+import { join } from 'node:path';
 import { Stack, StackProps, CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { HttpApi, HttpMethod, VpcLink } from 'aws-cdk-lib/aws-apigatewayv2';
-import { HttpAlbIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { HttpAlbIntegration, HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import type { Construct } from 'constructs';
 
 export interface ConnectionsStackProps extends StackProps {
   readonly stage: 'staging';
   /** The worker container image. bin/ builds it from the Dockerfile; tests inject a registry image. */
   readonly image: ecs.ContainerImage;
+  /** Where `npm run bundle` wrote the function bundles (dist/<function>/index.js). */
+  readonly assetsDir: string;
+  /** The browser origins the media bucket answers CORS for (the web tier's deploy URLs). */
+  readonly mediaOrigins: readonly string[];
   /** Retention horizon (days) for the content-free observation store. */
   readonly observationRetentionDays?: number;
   /**
@@ -50,6 +64,12 @@ export const CONNECTION_SECRET_NAMES = Object.freeze({
 } as const);
 
 const CONTAINER_PORT = 8080;
+
+/** The only key prefix the media signer mints URLs for, and the only prefix its role may touch. */
+export const MEDIA_KEY_PREFIX = 'media/';
+
+/** The route on the control API that the media signer answers (`${WorkerUrl}/media/sign`). */
+export const MEDIA_SIGN_PATH = '/media/sign';
 
 export class ConnectionsStack extends Stack {
   // Pin the AZs so `cdk synth` is deterministic and needs NO AWS credentials or context lookup: a
@@ -192,8 +212,71 @@ export class ConnectionsStack extends Stack {
     }
     httpApi.addRoutes({ path: '/healthz', methods: [HttpMethod.GET], integration: new HttpAlbIntegration('RHealth', listener, { vpcLink }) });
 
+    // --- Creator media: a private bucket and the signer that is the only way to reach it ---------
+    // PRIVATE in every dimension: public access blocked, owner-enforced (no ACLs), SSE at rest, TLS
+    // in transit. The browser reaches objects ONLY through presigned URLs, which is why CORS allows
+    // PUT/GET/HEAD from the web tier's origins. RETAIN: media outlives any stack mistake.
+    const mediaBucket = new s3.Bucket(this, 'MediaBucket', {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: RemovalPolicy.RETAIN,
+      versioned: false,
+      // An abandoned multipart upload otherwise bills forever and is invisible to a listing.
+      lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(1) }],
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: [...props.mediaOrigins],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3600,
+        },
+      ],
+    });
+
+    // The signer's role is built by hand (no managed policy) so it holds exactly: its own log
+    // group, the three object actions under `media/`, and a read of the worker-control secret.
+    // No ListBucket, nothing on the bucket root, no other secret.
+    const mediaSignerLogs = new logs.LogGroup(this, 'MediaSignerLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.DESTROY });
+    const mediaSignerRole = new iam.Role(this, 'MediaSignerRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      description: 'Loop connections media signer: presigned URLs under media/ only',
+    });
+    mediaSignerRole.addToPolicy(new iam.PolicyStatement({ sid: 'WriteOwnLogs', actions: ['logs:CreateLogStream', 'logs:PutLogEvents'], resources: [mediaSignerLogs.logGroupArn] }));
+    mediaSignerRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: 'MediaObjectsOnly',
+        actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],
+        resources: [mediaBucket.arnForObjects(`${MEDIA_KEY_PREFIX}*`)],
+      }),
+    );
+    workerControl.grantRead(mediaSignerRole);
+
+    const mediaSigner = new lambda.Function(this, 'MediaSigner', {
+      description: 'Creator media signer: presigned S3 URLs for HMAC-signed calls from the Loop web tier',
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(join(props.assetsDir, 'media-signer')),
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      role: mediaSignerRole,
+      logGroup: mediaSignerLogs,
+      environment: {
+        LOOP_MEDIA_BUCKET: mediaBucket.bucketName,
+        LOOP_MEDIA_KEY_PREFIX: MEDIA_KEY_PREFIX,
+        LOOP_MEDIA_SIGNER_SECRET_ARN: workerControl.secretArn,
+        NODE_OPTIONS: '--enable-source-maps',
+      },
+    });
+    // The one route on the existing API that is NOT the worker: everything else still goes to the ALB.
+    httpApi.addRoutes({ path: MEDIA_SIGN_PATH, methods: [HttpMethod.POST], integration: new HttpLambdaIntegration('MediaSignIntegration', mediaSigner) });
+
     // The worker URL the web tier uses (set LOOP_CONNECTIONS_WORKER_URL to this).
     new CfnOutput(this, 'WorkerUrl', { value: httpApi.apiEndpoint, description: 'LOOP_CONNECTIONS_WORKER_URL for the web tier' });
     new CfnOutput(this, 'WorkerControlSecretArn', { value: workerControl.secretArn, description: 'Read this once to set LOOP_CONNECTIONS_WORKER_SECRET in the web tier' });
+    new CfnOutput(this, 'MediaBucketName', { value: mediaBucket.bucketName, description: 'The private creator-media bucket (reached only via the signer)' });
+    new CfnOutput(this, 'MediaSignerUrl', { value: `${httpApi.apiEndpoint}${MEDIA_SIGN_PATH}`, description: 'The media signer endpoint for the web tier (signed with the worker-control secret)' });
   }
 }

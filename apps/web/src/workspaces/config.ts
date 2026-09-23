@@ -47,6 +47,13 @@ export interface NavItem {
    * be sent back to Loop Home, so the item is shown only to that authority.
    */
   workspace?: WorkspaceRole;
+  /**
+   * This item is its own entry in the compact mobile bar, rather than part of its
+   * group's area. The creator's five-area phone bar is Home · Content · Opportunities ·
+   * Tasks · Earnings (design pass 2026-09-22, approved): four of the creator group's
+   * items carry an area of their own, and the group itself has none.
+   */
+  area?: ShellArea;
 }
 
 /** Whether a nav item is offered: its permission, if any, and its role authority, if any. */
@@ -62,6 +69,15 @@ export function navItemVisible(
 /** The five operating areas (handoff 2026-09-16, p. 3). Administration is not one of them. */
 export const OPERATING_AREAS = ['HOME', 'CRM', 'WORK', 'INTELLIGENCE', 'OPERATIONS'] as const;
 export type OperatingArea = (typeof OPERATING_AREAS)[number];
+
+/**
+ * The creator seat's own areas (Creator Hub design pass, 2026-09-22, approved). They are
+ * not operating areas: a creator never sees the organization's five, and the organization
+ * never sees these. Together with HOME they make the creator's five-area phone bar.
+ */
+export const CREATOR_AREAS = ['CONTENT', 'OPPORTUNITIES', 'TASKS', 'EARNINGS'] as const;
+/** Every area the compact mobile bar can hold: an operating area or a creator area. */
+export type ShellArea = OperatingArea | (typeof CREATOR_AREAS)[number];
 
 export interface NavGroup {
   label: string;
@@ -199,7 +215,9 @@ export const LOOP_NAV: ShellConfig = {
         // Canonical People first: the redesigned CRM slice.
         { href: '/app/crm/people', label: 'People', icon: 'users', requires: IDENTITY_VIEW },
         { href: '/app/crm/relationships', label: 'Relationships', icon: 'flow', requires: RELATIONSHIPS_VIEW },
-        { href: '/crm', label: 'Command Center', icon: 'grid' },
+        // The operator's landing page reads intake records first; it enforces
+        // customers:view itself, so a login that holds nothing (a creator) is not offered it.
+        { href: '/crm', label: 'Command Center', icon: 'grid', requires: INTAKE_RECORDS_VIEW },
         { href: '/crm/opportunities', label: 'Opportunities', icon: 'target', soon: true },
         { href: '/crm/campaigns', label: 'Campaigns', icon: 'star', soon: true },
         { href: '/crm/conversations', label: 'Conversations', icon: 'chat', requires: CONVERSATIONS_VIEW },
@@ -259,9 +277,29 @@ export const LOOP_NAV: ShellConfig = {
         { href: '/crm/live/activity', label: 'Live Operations', icon: 'activity', requires: INTELLIGENCE_VIEW },
         { href: '/crm/live/calls', label: 'Live Calls', icon: 'chat', requires: INTELLIGENCE_VIEW },
         { href: '/crm/live/websites', label: 'Websites', icon: 'grid', requires: INTELLIGENCE_VIEW },
-        // Internal creator administration (C-02). Not built: it opens the honest
-        // not-built page in the /app/admin tree.
+        // Internal creator administration (C-02, Creator Hub 2026-09-22): the roster of
+        // managed creators, each creator's operating view, and the edit-request queue.
+        // Productions themselves are Work OS work and open under WORK, not here.
         { href: '/app/admin/creator-hub', label: 'Creators', icon: 'star', workspace: 'ADMIN' },
+      ],
+    },
+    {
+      // The creator seat (C-02, amended 2026-09-22 for exactly one participant type: a
+      // managed creator's own login, SystemRole CREATOR). Not an operating area: the
+      // group has no `area`, and a creator holds no organization permission, so none of
+      // the five areas above is drawn for them. Its pages live in the /app/creator tree
+      // and enforce requireWorkspace('CREATOR') themselves; what a creator may then read
+      // or change is authorized by the creator profile bound to the login, never by the
+      // organization's permission matrix. The four items with an `area` make, with Home,
+      // the creator's five-area phone bar.
+      label: 'Creator',
+      items: [
+        { href: '/app/creator/content', label: 'Content', icon: 'grid', workspace: 'CREATOR', area: 'CONTENT' },
+        { href: '/app/creator/opportunities', label: 'Opportunities', icon: 'target', workspace: 'CREATOR', area: 'OPPORTUNITIES' },
+        { href: '/app/creator/analytics', label: 'Analytics', icon: 'chart', workspace: 'CREATOR' },
+        { href: '/app/creator/tasks', label: 'Tasks', icon: 'check', workspace: 'CREATOR', area: 'TASKS' },
+        { href: '/app/creator/earnings', label: 'Earnings', icon: 'revenue', workspace: 'CREATOR', area: 'EARNINGS' },
+        { href: '/app/creator/profile', label: 'Profile', icon: 'users', workspace: 'CREATOR' },
       ],
     },
     {
@@ -281,23 +319,37 @@ export const LOOP_NAV: ShellConfig = {
 };
 
 /**
- * One entry per operating area this person can open, for the compact mobile bar:
- * the area's first openable item. An area with nothing openable is absent, never a
- * dead tab.
+ * One entry per area this person can open, for the compact mobile bar. A group that
+ * is an operating area contributes one entry, its first openable item; then each
+ * openable item that is an area of its own (the creator seat) contributes itself.
+ * Encounter order, one entry per area, and an area with nothing openable is absent,
+ * never a dead tab. Administration is neither, and contributes nothing.
  */
-export function areaEntries(groups: readonly NavGroup[]): { area: OperatingArea; label: string; href: string }[] {
-  const out: { area: OperatingArea; label: string; href: string }[] = [];
+export function areaEntries(groups: readonly NavGroup[]): { area: ShellArea; label: string; href: string }[] {
+  const out: { area: ShellArea; label: string; href: string }[] = [];
+  const seen = new Set<ShellArea>();
+  const add = (area: ShellArea, label: string, href: string) => {
+    if (seen.has(area)) return;
+    seen.add(area);
+    out.push({ area, label, href });
+  };
   for (const group of groups) {
-    if (!group.area) continue;
-    const first = group.items.find((i) => !i.soon);
-    if (first) out.push({ area: group.area, label: group.short ?? group.label, href: first.href });
+    if (group.area) {
+      const first = group.items.find((i) => !i.soon);
+      if (first) add(group.area, group.short ?? group.label, first.href);
+    }
+    if (group.footer) continue;
+    for (const item of group.items) {
+      if (item.area && !item.soon) add(item.area, item.label, item.href);
+    }
   }
   return out;
 }
 
-/** The operating area that owns a nav item, through the one resolver. */
-export function areaOfItem(groups: readonly NavGroup[], item: NavItem | null): OperatingArea | null {
+/** The area that owns a nav item, through the one resolver: its own, else its group's. */
+export function areaOfItem(groups: readonly NavGroup[], item: NavItem | null): ShellArea | null {
   if (!item) return null;
+  if (item.area) return item.area;
   return groups.find((g) => g.items.includes(item))?.area ?? null;
 }
 

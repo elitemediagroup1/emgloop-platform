@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
-import { areaEntries, areaOfItem, resolveActiveNav, type NavGroup, type NavItem, type OperatingArea } from './config';
+import { areaEntries, areaOfItem, resolveActiveNav, type NavGroup, type NavItem, type ShellArea } from './config';
 
 // The Loop sidebar navigation and breadcrumb leaf, drawn from groups already
 // resolved for one person on the server (see nav-access.ts).
@@ -85,12 +85,17 @@ export function ShellCrumb({ groups }: { groups: readonly NavGroup[] }) {
   return <span aria-current="page">{useActiveItem(groups)?.label ?? 'Overview'}</span>;
 }
 
-const AREA_ICON: Record<OperatingArea, string> = {
+const AREA_ICON: Record<ShellArea, string> = {
   HOME: 'grid',
   CRM: 'users',
   WORK: 'columns',
   INTELLIGENCE: 'chart',
   OPERATIONS: 'activity',
+  // The creator seat's areas: the same glyphs as their sidebar items.
+  CONTENT: 'grid',
+  OPPORTUNITIES: 'target',
+  TASKS: 'check',
+  EARNINGS: 'revenue',
 };
 
 /**

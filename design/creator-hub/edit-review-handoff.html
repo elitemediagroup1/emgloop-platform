@@ -1,0 +1,641 @@
+<title>Edit Review Handoff</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --d-canvas:#f5f6f6; --d-surface:#ffffff; --d-sunken:#eef1f2; --d-line:#dce3e6; --d-line-strong:#c7d1d6;
+  --d-ink:#0f1c2a; --d-body:#25333f; --d-muted:#5a6a76; --d-faint:#7a8894;
+  --d-accent:#1d6e85; --d-accent-soft:#e3eff2; --d-good:#1d7449; --d-good-soft:#e1f1e8; --d-warn:#8a5a00; --d-warn-soft:#f8efdc; --d-crit:#ad2a22; --d-crit-soft:#fae7e5;
+  --d-font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --d-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --d-canvas:#0b1521; --d-surface:#132133; --d-sunken:#1a2c42; --d-line:#27394f; --d-line-strong:#3a4f68;
+    --d-ink:#e8eef4; --d-body:#dbe4ec; --d-muted:#aab7c3; --d-faint:#8395a4;
+    --d-accent:#9fd6e3; --d-accent-soft:#163241; --d-good:#6fcf97; --d-good-soft:#153123; --d-warn:#f0b35a; --d-warn-soft:#3a2a10; --d-crit:#f28b82; --d-crit-soft:#3e1a18;
+  }
+}
+:root[data-theme="dark"]{
+  --d-canvas:#0b1521; --d-surface:#132133; --d-sunken:#1a2c42; --d-line:#27394f; --d-line-strong:#3a4f68;
+  --d-ink:#e8eef4; --d-body:#dbe4ec; --d-muted:#aab7c3; --d-faint:#8395a4;
+  --d-accent:#9fd6e3; --d-accent-soft:#163241; --d-good:#6fcf97; --d-good-soft:#153123; --d-warn:#f0b35a; --d-warn-soft:#3a2a10; --d-crit:#f28b82; --d-crit-soft:#3e1a18;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--d-canvas);color:var(--d-body);font-family:var(--d-font);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 80px;padding-inline:20px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--d-faint)}
+h1{font-size:clamp(30px,5vw,42px);line-height:1.06;letter-spacing:-.02em;font-weight:800;color:var(--d-ink);margin:6px 0 10px;text-wrap:balance}
+h2{font-size:23px;letter-spacing:-.015em;font-weight:750;color:var(--d-ink);margin:0 0 6px;text-wrap:balance}
+h3{font-size:16px;font-weight:700;color:var(--d-ink);margin:22px 0 8px}
+p{margin:0 0 12px;max-width:74ch}
+.lede{font-size:17px;color:var(--d-muted);max-width:70ch}
+section{margin-top:48px;scroll-margin-top:12px}
+section>header{margin-bottom:14px}
+.note{border-left:3px solid var(--d-accent);background:var(--d-accent-soft);padding:10px 14px;border-radius:0 10px 10px 0;font-size:14px;margin:12px 0;color:var(--d-body)}
+.note.warn{border-left-color:var(--d-warn);background:var(--d-warn-soft)}
+.tbl{overflow-x:auto;border:1px solid var(--d-line);border-radius:14px;background:var(--d-surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--d-line)}
+th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-faint);font-weight:700;background:var(--d-sunken)}
+tr:last-child td{border-bottom:0}
+code{font-family:var(--d-mono);font-size:12.5px;background:var(--d-sunken);padding:1px 5px;border-radius:5px;color:var(--d-ink)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.card{background:var(--d-surface);border:1px solid var(--d-line);border-radius:14px;padding:14px 16px}
+.card h4{margin:0 0 6px;font-size:14px;color:var(--d-ink)}
+.card p,.card li{font-size:14px;color:var(--d-muted)}
+.card ul{margin:0;padding-left:18px}
+ol.callouts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+ol.callouts li{display:grid;grid-template-columns:26px 1fr;gap:10px;font-size:14px;color:var(--d-body)}
+ol.callouts b{color:var(--d-ink)}
+.num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--d-ink);color:var(--d-canvas);font-size:11.5px;font-weight:800}
+.frames{display:flex;gap:18px;overflow-x:auto;padding:6px 4px 14px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.frames>*{scroll-snap-align:start}
+.hint{font-size:12.5px;color:var(--d-faint);margin:0 0 8px}
+.anat{display:grid;grid-template-columns:360px minmax(0,1fr);gap:26px;align-items:start}
+@media (max-width:820px){.anat{grid-template-columns:1fr}}
+.desk-wrap{overflow-x:auto;border:1px solid var(--d-line-strong);border-radius:16px;background:var(--d-surface)}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--d-good-soft);color:var(--d-good)}.pill.warn{background:var(--d-warn-soft);color:var(--d-warn)}.pill.neutral{background:var(--d-sunken);color:var(--d-muted)}.pill.accent{background:var(--d-accent-soft);color:var(--d-accent)}
+.fig{background:var(--d-surface);border:1px solid var(--d-line);border-radius:14px;padding:14px;overflow-x:auto}
+.fig figcaption{font-size:12.5px;color:var(--d-faint);margin-top:8px}
+figure{margin:14px 0}
+svg text{font-family:var(--d-font);fill:var(--d-body)}
+svg .m{font-family:var(--d-mono);font-size:10.5px}
+:focus-visible{outline:2px solid var(--d-accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+
+/* ---------- Loop frames: the product's own light system (loop-os.css values), painted explicitly ---------- */
+.lf{
+  --loop-canvas:#f5f6f6; --loop-surface:#ffffff; --loop-sunken:#eef1f2; --loop-hover:#f1f4f5;
+  --loop-line:#dce3e6; --loop-line-strong:#c7d1d6;
+  --loop-ink:#0f1c2a; --loop-body:#25333f; --loop-muted:#5a6a76; --loop-faint:#5f6d78;
+  --loop-primary:#0e1b2c; --loop-primary-hover:#1c2d42; --loop-on-primary:#ffffff;
+  --loop-accent:#1d6e85; --loop-accent-strong:#155a6d; --loop-accent-soft:#e3eff2; --loop-focus:#1d6e85;
+  --loop-good:#1d7449; --loop-good-soft:#e1f1e8; --loop-warn:#8a5a00; --loop-warn-soft:#f8efdc; --loop-crit:#ad2a22; --loop-crit-soft:#fae7e5; --loop-neutral:#53616c; --loop-neutral-soft:#eaeef0;
+  --loop-avatar:#dbe8ec; --loop-avatar-ink:#1c5a6f; --loop-company:#e6e9f2; --loop-company-ink:#2c3d63;
+  --loop-rail:#0e1b2c; --loop-rail-2:#1a2c42; --loop-rail-line:rgba(255,255,255,.09); --loop-rail-text:#c9d3dc; --loop-rail-muted:#8fa0ae; --loop-rail-active:#9fd6e3;
+  --loop-radius:14px; --loop-radius-sm:10px;
+  color-scheme:light; font-family:var(--d-font); color:var(--loop-body); font-size:14px; line-height:1.5; text-align:left;
+}
+.lf *{box-sizing:border-box}
+.lf a{color:inherit;text-decoration:none}
+.lf .loop-trail{margin:0 0 6px;font-size:11.5px;font-weight:650;letter-spacing:.14em;text-transform:uppercase;color:var(--loop-muted);display:flex;flex-wrap:wrap;gap:6px}
+.lf .loop-trail__sep{opacity:.55}
+.lf .loop-title{margin:0;font-size:26px;line-height:1.12;font-weight:750;letter-spacing:-.02em;color:var(--loop-ink);text-wrap:balance}
+.lf.desk .loop-title{font-size:30px}
+.lf .loop-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.lf .loop-head__text{min-width:0;flex:1 1 300px}
+.lf .loop-head__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lf .loop-pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:650;line-height:1.3;white-space:nowrap}
+.lf .loop-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 7px}
+.lf .loop-pill--good{background:var(--loop-good-soft);color:var(--loop-good)}
+.lf .loop-pill--attention{background:var(--loop-warn-soft);color:var(--loop-warn)}
+.lf .loop-pill--neutral{background:var(--loop-neutral-soft);color:var(--loop-neutral)}
+.lf .loop-pill--info{background:var(--loop-accent-soft);color:var(--loop-accent)}
+.lf .loop-pill--sm{font-size:11px;padding:2px 8px}
+.lf .loop-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:8px 14px;border-radius:var(--loop-radius-sm);border:1px solid var(--loop-line-strong);background:var(--loop-surface);color:var(--loop-ink);font:inherit;font-size:13.5px;font-weight:650;white-space:nowrap;cursor:pointer}
+.lf .loop-btn--primary{background:var(--loop-primary);border-color:var(--loop-primary);color:var(--loop-on-primary)}
+.lf .loop-btn--quiet{border-color:transparent;background:transparent}
+.lf .loop-btn[aria-disabled="true"]{background:var(--loop-sunken);border-color:var(--loop-line);color:var(--loop-faint)}
+.lf .loop-btnrow{display:flex;flex-wrap:wrap;gap:8px}
+.lf .loop-link{color:var(--loop-accent);font-weight:650;font-size:13.5px}
+.lf .loop-panel{background:var(--loop-surface);border:1px solid var(--loop-line);border-radius:var(--loop-radius);padding:16px;position:relative}
+.lf.desk .loop-panel{padding:20px}
+.lf .loop-panel__title{margin:0 0 10px;font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--loop-muted)}
+.lf .loop-facts{display:grid;grid-template-columns:minmax(100px,38%) 1fr;gap:9px 12px;margin:0}
+.lf .loop-facts dt{font-size:12.5px;color:var(--loop-muted)}
+.lf .loop-facts dd{margin:0;font-size:13.5px;color:var(--loop-ink);font-weight:600;min-width:0;overflow-wrap:anywhere}
+.lf .loop-facts dd.q{font-weight:500}
+.lf .loop-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--loop-line);border:1px solid var(--loop-line);border-radius:var(--loop-radius);overflow:hidden}
+.lf .loop-strip__item{background:var(--loop-surface);padding:12px 14px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.lf .loop-strip__label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--loop-muted)}
+.lf .loop-strip__value{font-size:17px;font-weight:700;color:var(--loop-ink);font-variant-numeric:tabular-nums}
+.lf .loop-state{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--loop-radius);border:1px dashed var(--loop-line-strong);background:var(--loop-surface)}
+.lf .loop-state__mark{flex:0 0 30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;background:var(--loop-neutral-soft);color:var(--loop-neutral);font-size:13px}
+.lf .loop-state__title{margin:0 0 2px;font-size:14px;font-weight:700;color:var(--loop-ink)}
+.lf .loop-state__body{margin:0;color:var(--loop-muted);font-size:13px}
+.lf .loop-record{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:22px;align-items:start}
+.lf .loop-record__main,.lf .loop-record__rail{display:flex;flex-direction:column;gap:16px;min-width:0}
+.lf .loop-activity{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.lf .loop-act{border-top:1px solid var(--loop-line);display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:10px 2px}
+.lf .loop-act:first-child{border-top:none}
+.lf .loop-act__truth{font-size:10px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:6px;background:var(--loop-neutral-soft);color:var(--loop-neutral);white-space:nowrap}
+.lf .loop-act__truth--communication{background:var(--loop-accent-soft);color:var(--loop-accent)}
+.lf .loop-act__truth--state_change,.lf .loop-act__truth--decision{background:var(--loop-company);color:var(--loop-company-ink)}
+.lf .loop-act__truth--work{background:var(--loop-good-soft);color:var(--loop-good)}
+.lf .loop-act__story{color:var(--loop-ink);font-weight:600;font-size:13px;overflow-wrap:anywhere}
+.lf .loop-act__sub{display:block;font-weight:500;color:var(--loop-muted);font-size:12.5px;margin-top:2px}
+.lf .loop-act__when{font-size:12px;color:var(--loop-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.lf .loop-act--hi{background:var(--loop-accent-soft);border-radius:10px;padding-left:8px;padding-right:8px;margin:4px -6px}
+.lf .loop-avatar{width:34px;height:34px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:var(--loop-avatar);color:var(--loop-avatar-ink);font-weight:750;font-size:12px}
+.lf .media{position:relative;border-radius:var(--loop-radius);overflow:hidden;background:linear-gradient(165deg,#1b2a3a 0%,#2c3f52 55%,#5f6d78 100%);color:#fff;aspect-ratio:4/5;max-height:340px;display:flex;flex-direction:column;justify-content:flex-end;padding:12px}
+.lf .media__seg{position:absolute;top:10px;left:10px;display:inline-flex;background:rgba(15,28,42,.55);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:3px;gap:2px;backdrop-filter:blur(6px)}
+.lf .media__seg span{padding:4px 9px;border-radius:999px;font-size:11.5px;font-weight:650;color:#dfe7ee}
+.lf .media__seg span.on{background:#fff;color:var(--loop-ink)}
+.lf .media__badge{position:absolute;top:12px;right:12px;font-size:10.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.92);color:var(--loop-ink)}
+.lf .media__play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.92);color:var(--loop-ink);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800}
+.lf .media__bar{height:4px;border-radius:4px;background:rgba(255,255,255,.28);position:relative;margin-top:6px}
+.lf .media__bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:#fff}
+.lf .media__bar em{position:absolute;top:-4px;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--loop-accent);transform:translateX(-50%)}
+.lf .media__bar em.done{border-color:var(--loop-good)}
+.lf .media__time{display:flex;justify-content:space-between;font-size:11.5px;font-variant-numeric:tabular-nums;color:#e6edf3}
+.lf .media__hint{font-size:11.5px;color:#cfd9e2}
+.lf .media__scene{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#cfd9e2;margin-bottom:4px}
+.lf .rung{display:flex;flex-direction:column;gap:4px;padding:9px 0;border-top:1px solid var(--loop-line)}
+.lf .rung:first-child,.lf .loop-panel__title + .rung{border-top:none;padding-top:0}
+.lf .rung__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lf .rung__text{margin:0;font-size:13.5px;color:var(--loop-ink);font-weight:600}
+.lf .rung__meta{margin:0;font-size:12px;color:var(--loop-muted)}
+.lf .t{font-size:10px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:6px;white-space:nowrap}
+.lf .t--fact{background:var(--loop-neutral-soft);color:var(--loop-neutral)}
+.lf .t--obs{background:var(--loop-accent-soft);color:var(--loop-accent)}
+.lf .callout{position:absolute;top:-9px;left:-9px;z-index:12;width:22px;height:22px;border-radius:50%;background:var(--loop-ink);color:#fff;font-size:11.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;border:2px solid #fff}
+.lf .rel{position:relative}
+.lf .req{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:5px}
+.lf .req li{display:grid;grid-template-columns:18px 1fr;gap:8px;font-size:12.5px;color:var(--loop-body);align-items:baseline}
+.lf .req i{font-style:normal;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--loop-line-strong);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--loop-good)}
+.lf .req li.done i{background:var(--loop-good-soft);border-color:var(--loop-good)}
+.lf .req li.done{color:var(--loop-ink)}
+.lf .req li small{color:var(--loop-muted)}
+/* notes */
+.lf .notes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.lf .nt{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--loop-line);border-radius:10px;background:var(--loop-surface)}
+.lf .nt__t{font-family:var(--d-mono);font-size:11.5px;font-weight:700;color:var(--loop-accent);background:var(--loop-accent-soft);padding:2px 7px;border-radius:6px;white-space:nowrap}
+.lf .nt--keep .nt__t{color:var(--loop-neutral);background:var(--loop-neutral-soft)}
+.lf .nt--done .nt__t{color:var(--loop-good);background:var(--loop-good-soft)}
+.lf .nt__b{font-size:13px;color:var(--loop-ink);font-weight:600}
+.lf .nt__m{display:block;font-size:11.5px;color:var(--loop-muted);font-weight:500;margin-top:2px}
+.lf .nt__x{color:var(--loop-muted);font-size:12px}
+.lf .kind{display:inline-flex;border:1px solid var(--loop-line-strong);border-radius:999px;overflow:hidden;font-size:12px}
+.lf .kind span{padding:5px 11px;color:var(--loop-body)}
+.lf .kind span.on{background:var(--loop-primary);color:#fff;font-weight:650}
+.lf .field{display:flex;flex-direction:column;gap:5px;font-size:12.5px}
+.lf .field label{font-weight:650;color:var(--loop-body)}
+.lf .textarea{border:1px solid var(--loop-line-strong);border-radius:10px;background:var(--loop-surface);padding:10px 12px;min-height:56px;color:var(--loop-ink);font-size:13.5px}
+.lf .textarea.ph{color:var(--loop-faint)}
+.lf .consequence{border:1px solid var(--loop-line);border-radius:10px;padding:12px;background:var(--loop-sunken);font-size:13px;color:var(--loop-body)}
+.lf .consequence b{color:var(--loop-ink)}
+.lf .drop{border:1.5px dashed var(--loop-line-strong);border-radius:12px;padding:14px;text-align:center;color:var(--loop-muted);font-size:13px;background:var(--loop-sunken)}
+.lf .chk{display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start;font-size:13px;color:var(--loop-body)}
+.lf .chk i{width:16px;height:16px;border:1.5px solid var(--loop-line-strong);border-radius:4px;margin-top:2px}
+.lf .chk.on i{background:var(--loop-accent);border-color:var(--loop-accent)}
+.lf .radio{display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start;font-size:13px;color:var(--loop-body)}
+.lf .radio i{width:16px;height:16px;border:1.5px solid var(--loop-line-strong);border-radius:50%;margin-top:2px}
+.lf .radio.on i{border:5px solid var(--loop-accent)}
+.lf .banner{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;background:var(--loop-warn-soft);color:var(--loop-warn);font-size:12.5px;font-weight:600}
+.lf .toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--loop-body)}
+.lf .toggle i{width:30px;height:18px;border-radius:999px;background:var(--loop-line-strong);position:relative;display:inline-block}
+.lf .toggle i::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff}
+.lf .toggle.on i{background:var(--loop-accent)}.lf .toggle.on i::after{left:14px}
+/* phone shell */
+.ph{flex:0 0 340px;width:340px;border:1px solid var(--d-line-strong);border-radius:30px;background:var(--loop-canvas);overflow:hidden;box-shadow:0 18px 48px -24px rgba(15,28,42,.35)}
+.ph__cap{font-family:var(--d-font);font-size:12.5px;font-weight:700;color:var(--d-ink);padding:10px 14px 0;text-align:center}
+.ph__cap small{display:block;font-weight:500;color:var(--d-faint);font-size:11.5px}
+.ph__frame{margin:8px 8px 8px;border-radius:24px;overflow:hidden;background:var(--loop-canvas);border:1px solid var(--loop-line)}
+.ph__status{display:flex;justify-content:space-between;font-size:11px;color:var(--loop-muted);padding:6px 16px 0;background:var(--loop-surface)}
+.ph__scroll{height:700px;overflow-y:auto;position:relative;background:var(--loop-canvas)}
+.lf .loop-mhead{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 14px;background:var(--loop-surface);border-bottom:1px solid var(--loop-line)}
+.lf .loop-sb__menubtn{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:5px 11px;font-size:13px;font-weight:650;color:var(--loop-ink);background:var(--loop-surface);border:1px solid var(--loop-line-strong);border-radius:var(--loop-radius-sm)}
+.lf .loop-sb__menubtn::before{content:'\2261';font-size:18px;line-height:1}
+.lf .wordmark{font-weight:800;letter-spacing:-.02em;color:var(--loop-ink);font-size:16px}
+.lf .loop-main{padding:16px 14px 14px;display:flex;flex-direction:column;gap:12px}
+.lf .titlerow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--loop-muted)}
+.lf .actbar{position:sticky;bottom:60px;z-index:6;display:flex;gap:8px;padding:10px 12px;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-top:1px solid var(--loop-line)}
+.lf .actbar .loop-btn{flex:1}
+.lf .loop-areabar{position:sticky;bottom:0;z-index:7;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--loop-surface);border-top:1px solid var(--loop-line);padding:6px 4px 10px}
+.lf .loop-areabar__link{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 2px;font-size:11px;font-weight:500;color:var(--loop-muted)}
+.lf .loop-areabar__ico{width:18px;height:18px;border-radius:5px;border:1.5px solid currentColor;opacity:.75}
+.lf .loop-areabar__link.is-active{color:var(--loop-accent);font-weight:700}
+.lf .loop-areabar__link.is-active .loop-areabar__ico{opacity:1;background:var(--loop-accent-soft)}
+/* sheets */
+.lf .sheet{position:absolute;inset:0;z-index:9;background:var(--loop-surface);display:flex;flex-direction:column}
+.lf .sheet__sum{position:sticky;top:0;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--loop-line);font-weight:700;color:var(--loop-ink);background:var(--loop-surface);z-index:2}
+.lf .sheet__sum span{font-size:13px;font-weight:650;color:var(--loop-accent)}
+.lf .sheet__sum small{display:block;font-weight:500;color:var(--loop-muted);font-size:12px}
+.lf .sheet__body{padding:14px 16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;flex:1}
+.lf .sheet__bar{position:sticky;bottom:0;display:flex;gap:8px;padding:10px 12px 14px;background:rgba(255,255,255,.96);border-top:1px solid var(--loop-line)}
+.lf .sheet__bar .loop-btn{flex:1}
+.lf .dim{position:absolute;inset:0;z-index:8;background:rgba(15,28,42,.38)}
+.lf .sheet--half{top:auto;height:auto;max-height:78%;border-radius:18px 18px 0 0;box-shadow:0 -12px 34px rgba(15,28,42,.28);z-index:10}
+.lf .sheet--half .sheet__sum{border-radius:18px 18px 0 0}
+.lf .sheet .media{aspect-ratio:9/12;max-height:330px;border-radius:12px}
+.lf .h{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--loop-muted);margin:0 0 8px}
+/* desktop shell */
+.desk{min-width:1080px;display:grid;grid-template-columns:232px 1fr;background:var(--loop-canvas);font-size:13.5px}
+.desk .loop-sidebar{background:var(--loop-rail);color:var(--loop-rail-text);display:flex;flex-direction:column}
+.desk .loop-sb__brand{display:flex;align-items:center;gap:10px;padding:18px 18px 14px;border-bottom:1px solid var(--loop-rail-line);color:#fff;font-weight:800;letter-spacing:-.02em}
+.desk .loop-sb__os{font-size:9px;letter-spacing:.16em;font-weight:700;color:var(--loop-rail-active);border:1px solid var(--loop-rail-line);border-radius:6px;padding:2px 6px}
+.desk .loop-sb__group{padding:12px 12px 4px}
+.desk .loop-sb__grouplabel{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--loop-rail-muted);font-weight:700;padding:0 10px 8px}
+.desk .loop-sb__link{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:10px;color:var(--loop-rail-text);font-size:13px;font-weight:500;position:relative}
+.desk .loop-sb__link.is-active{background:var(--loop-rail-2);color:#fff;font-weight:650}
+.desk .loop-sb__link.is-active::before{content:'';position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--loop-rail-active)}
+.desk .loop-sb__ico{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--loop-rail-muted);flex:0 0 16px}
+.desk .loop-sb__link.is-active .loop-sb__ico{border-color:var(--loop-rail-active)}
+.desk .loop-sb__foot{margin-top:auto;border-top:1px solid var(--loop-rail-line);padding:14px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:#fff}
+.desk .loop-sb__foot small{display:block;color:var(--loop-rail-muted);font-size:11px}
+.desk .loop-content{display:flex;flex-direction:column;min-width:0}
+.desk .loop-appbar{height:56px;display:flex;align-items:center;gap:16px;padding:0 26px;border-bottom:1px solid var(--loop-line);background:rgba(255,255,255,.92)}
+.desk .loop-crumbs{font-size:13px;color:var(--loop-muted);display:flex;gap:8px}
+.desk .loop-crumbs b{color:var(--loop-ink);font-weight:650}
+.desk .loop-crumbs .sep{color:var(--loop-faint)}
+.desk .loop-iconbtn{margin-left:auto;width:34px;height:34px;border-radius:10px;border:1px solid var(--loop-line-strong);background:var(--loop-surface);position:relative}
+.desk .loop-iconbtn .badge{position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--loop-crit);border:2px solid var(--loop-surface)}
+.desk .loop-main{padding:26px 28px 40px;display:flex;flex-direction:column;gap:20px}
+.desk .compare{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.desk .compare .media{aspect-ratio:9/13;max-height:340px}
+.desk .scrub{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--loop-muted);font-variant-numeric:tabular-nums}
+.desk .scrub .media__bar{flex:1;margin:0;background:var(--loop-line)}
+.desk .scrub .media__bar i{background:var(--loop-accent)}
+.desk .scrub .media__bar em{background:var(--loop-surface)}
+.desk .stages{display:flex;flex-direction:column;gap:8px}
+.desk .stage{display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--loop-line);border-radius:12px;background:var(--loop-surface)}
+.desk .stage.on{border-color:var(--loop-accent);background:var(--loop-accent-soft)}
+.desk .stage__n{width:26px;height:26px;border-radius:50%;background:var(--loop-neutral-soft);color:var(--loop-neutral);font-weight:800;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.desk .stage.on .stage__n{background:var(--loop-accent);color:#fff}
+.desk .stage__t{font-weight:700;color:var(--loop-ink);font-size:13.5px}
+.desk .stage__d{font-size:12.5px;color:var(--loop-muted)}
+.desk .seg{display:inline-flex;border:1px solid var(--loop-line-strong);border-radius:10px;overflow:hidden;font-size:12.5px}
+.desk .seg span{padding:6px 10px;color:var(--loop-body)}
+.desk .seg span.on{background:var(--loop-accent-soft);color:var(--loop-ink);font-weight:650}
+.desk .modal{max-width:640px;margin:0 auto;background:var(--loop-surface);border:1px solid var(--loop-line-strong);border-radius:16px;box-shadow:0 18px 48px -24px rgba(15,28,42,.35);padding:20px;display:flex;flex-direction:column;gap:14px}
+.desk .modal h3{margin:0;font-size:18px;color:var(--loop-ink);font-weight:750}
+.desk .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+</style>
+
+<div class="wrap">
+<div class="eyebrow">Loop · Creator Hub · Mockup 2 of 10 · 2026-09-22</div>
+<h1>The edit-review handoff, designed once for both seats</h1>
+<p class="lede">Mockup #2 is the signature workflow: an edit comes back, the creator reviews it against the previous cut, sends timestamped changes or approves, and the editor answers on the same Production. It is designed as one handoff, not two features. The creator side is a review mode over the approved Content Record; the EMG side is the existing Work OS work detail with the fields that handoff needs. Every rule from Mockup #1 is a constraint here, not a variable.</p>
+<div class="note">Design only. Names, dates and numbers are examples. Content Record semantics (eight states, per-version approvals, stable regions, provenance, the epistemic ladder, the five separate events) are locked and reused, not redesigned. Backend authorities remain unapproved; nothing here assumes a schema.</div>
+
+<!-- ===================================================== -->
+<section id="one">
+<header><div class="eyebrow">1 · The handoff in one picture</div><h2>Six steps, one Production, one lineage</h2></header>
+<figure class="fig">
+<svg viewBox="0 0 980 330" width="980" height="330" role="img" aria-label="Swimlane: the creator reviews v1, sends two timestamped notes, the editor answers with v2, the creator approves v2 — all on one work instance and one version lineage">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--d-faint)"/></marker></defs>
+  <rect x="0" y="0" width="980" height="100" fill="var(--d-accent-soft)" rx="10"/><text x="12" y="20" font-size="11" font-weight="700" fill="var(--d-faint)" letter-spacing="1.5">CREATOR · REVIEW MODE ON THE CONTENT RECORD</text>
+  <rect x="0" y="108" width="980" height="106" fill="var(--d-sunken)" rx="10"/><text x="12" y="128" font-size="11" font-weight="700" fill="var(--d-faint)" letter-spacing="1.5">LOOP OBJECTS · ONE COPY</text>
+  <rect x="0" y="222" width="980" height="100" fill="var(--d-warn-soft)" rx="10"/><text x="12" y="242" font-size="11" font-weight="700" fill="var(--d-faint)" letter-spacing="1.5">EMG · WORK OS WORK DETAIL</text>
+  <g font-size="11.5">
+    <rect x="150" y="36" width="130" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="215" y="56" text-anchor="middle">Opens Review ·</text><text x="215" y="71" text-anchor="middle">compares v1 to Original</text>
+    <rect x="296" y="36" width="130" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="361" y="56" text-anchor="middle">Adds notes at</text><text x="361" y="71" text-anchor="middle">0:02 and 0:11 (draft)</text>
+    <rect x="442" y="36" width="130" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="507" y="56" text-anchor="middle">Sends changes</text><text x="507" y="71" text-anchor="middle">Tue 18:30</text>
+    <rect x="734" y="36" width="130" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="799" y="56" text-anchor="middle">Reviews v2 · sees</text><text x="799" y="71" text-anchor="middle">2 of 2 addressed</text>
+    <rect x="880" y="36" width="90" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="925" y="56" text-anchor="middle">Approves</text><text x="925" y="71" text-anchor="middle">v2</text>
+
+    <rect x="14" y="144" width="120" height="54" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="74" y="163" text-anchor="middle">Version v1 ·</text><text x="74" y="177" text-anchor="middle">stage 2 pending</text><text x="74" y="191" text-anchor="middle" class="m" fill="var(--d-faint)">task: Review v1</text>
+    <rect x="442" y="144" width="130" height="54" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="507" y="163" text-anchor="middle">Instruction set 2</text><text x="507" y="177" text-anchor="middle">refers to v1 · 2 notes</text><text x="507" y="191" text-anchor="middle" class="m" fill="var(--d-faint)">stage 2 → 1 (same work)</text>
+    <rect x="588" y="144" width="130" height="54" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="653" y="163" text-anchor="middle">Version v2 ·</text><text x="653" y="177" text-anchor="middle">answers set 2</text><text x="653" y="191" text-anchor="middle" class="m" fill="var(--d-faint)">stage 1 → 2</text>
+    <rect x="880" y="144" width="90" height="54" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="925" y="163" text-anchor="middle">Approval</text><text x="925" y="177" text-anchor="middle">mark on v2</text><text x="925" y="191" text-anchor="middle" class="m" fill="var(--d-faint)">Production 1 done</text>
+
+    <rect x="14" y="258" width="120" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="74" y="278" text-anchor="middle">Uploads v1 ·</text><text x="74" y="293" text-anchor="middle">completes Edit stage</text>
+    <rect x="442" y="258" width="130" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="507" y="278" text-anchor="middle">Sees “Changes</text><text x="507" y="293" text-anchor="middle">requested · 2 notes”</text>
+    <rect x="588" y="258" width="130" height="50" rx="8" fill="var(--d-surface)" stroke="var(--d-line-strong)"/><text x="653" y="278" text-anchor="middle">Uploads v2, ticks</text><text x="653" y="293" text-anchor="middle">both notes addressed</text>
+  </g>
+  <g stroke="var(--d-faint)" fill="none" marker-end="url(#ar)">
+    <path d="M74,258 L74,198"/><path d="M134,171 L150,86"/><path d="M280,61 L296,61"/><path d="M426,61 L442,61"/><path d="M507,86 L507,144"/><path d="M507,198 L507,258"/><path d="M572,283 L588,283"/><path d="M653,258 L653,198"/><path d="M718,171 L734,86"/><path d="M864,61 L880,61"/><path d="M925,86 L925,144"/>
+  </g>
+</svg>
+<figcaption>Notes are drafts until sent; sending makes them an instruction set with provenance on the same work. The editor's answer is a new Version that names the set it answers, with each note marked addressed. Approval is a mark on v2 only.</figcaption>
+</figure>
+<h3>Where each seat enters</h3>
+<div class="tbl"><table>
+<tr><th>Seat</th><th>Entry</th><th>Lands on</th></tr>
+<tr><td>Creator</td><td>Home → Things that need you → “Review Edit v1 — ready · Kona unboxing reel”</td><td>The Content Record with the Review sheet open on v1</td></tr>
+<tr><td>Creator</td><td>Tasks → Needs attention → same row · push/email notification → same deep link</td><td>Same</td></tr>
+<tr><td>Creator</td><td>Content library card “Review” badge · Content Record action bar “Review edit”</td><td>Same</td></tr>
+<tr><td>EMG</td><td>My Work → “Changes requested · Kona unboxing reel · 2 notes” · <code>next_action_ready</code> notification</td><td>Work detail, scrolled to the new instruction set</td></tr>
+<tr><td>EMG</td><td>Team Work (Production filter) · the Person record's “Needs EMG” list (Mockup 4) · the Requests lane (Mockup 3)</td><td>Same</td></tr>
+</table></div>
+</section>
+
+<!-- ===================================================== -->
+<section id="review">
+<header><div class="eyebrow">2 · Creator · Review mode</div><h2>A sheet over the record, not a second page</h2></header>
+<p>Review is a mode of the Content Record: a full-screen sheet (Loop's drawer-as-sheet pattern) that puts the player first, keeps “same moment, different cut”, collects timestamped notes as drafts, and ends in one of two decisions. Closing it returns to the record unchanged. Shown for Edit v1 on Tue 22 Sep, 18:20.</p>
+<div class="anat">
+  <div class="ph"><div class="ph__cap">Phone · Review sheet · regions numbered</div><div class="ph__frame lf"><div class="ph__status"><span>18:20</span><span>●●●</span></div><div class="ph__scroll">
+    <div class="sheet">
+      <div class="sheet__sum rel"><span class="callout">1</span><div>Review · Edit v1<small>Kona unboxing reel · returned by Sam Tue 16:02</small></div><span>Close</span></div>
+      <div class="sheet__body">
+        <div class="media rel"><span class="callout">2</span><div class="media__seg"><span>Original</span><span class="on">v1</span></div><span class="media__badge">0:41</span><div class="media__play">▶</div><div class="media__scene">Paused · 0:02</div><div class="media__bar"><i style="width:5%"></i><em style="left:5%"></em><em style="left:27%"></em></div><div class="media__time"><span>0:02</span><span>0:41</span></div><div class="media__hint">Same moment in Original: logo intro</div></div>
+        <div class="loop-btnrow rel"><span class="callout">3</span><span class="loop-btn" style="flex:1">Add a note at 0:02</span><span class="loop-btn loop-btn--quiet">Compare</span></div>
+        <div class="rel"><span class="callout">4</span><p class="h">What Sam changed</p><p style="margin:0 0 6px;font-size:13.5px;color:var(--loop-ink)">“Cut the logo intro; Kona at 0:04. Kept your 0:11 beat.”</p>
+          <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v1 vs Original · high confidence</span></div><p class="rung__text">0:47 → 0:41 · Kona first appears at 0:04 (was 0:11)</p></div></div>
+        <div class="rel"><span class="callout">5</span><p class="h">Your notes · 2 · not sent yet</p>
+          <ul class="notes">
+            <li class="nt"><span class="nt__t">0:02</span><div><div class="nt__b">Kona should come before the logo — swap the order.</div><span class="nt__m">Change</span></div><span class="nt__x">Edit</span></li>
+            <li class="nt nt--keep"><span class="nt__t">0:11</span><div><div class="nt__b">Keep this beat exactly as it is.</div><span class="nt__m">Keep</span></div><span class="nt__x">Edit</span></li>
+          </ul>
+          <p class="rung__meta" style="margin:8px 0 0">Notes stay on this phone until you send them. Tap a marker on the timeline to jump to a note.</p></div>
+      </div>
+      <div class="sheet__bar rel"><span class="callout" style="top:-4px">6</span><span class="loop-btn">Request changes · 2</span><span class="loop-btn loop-btn--primary">Approve</span></div>
+    </div>
+  </div></div></div>
+  <div>
+    <ol class="callouts">
+      <li><span class="num">1</span><div><b>Sheet header.</b> Which version, which record, who returned it and when. Close returns to the record; drafts survive.</div></li>
+      <li><span class="num">2</span><div><b>Player with note markers.</b> The segmented control switches versions at the same playhead. Your notes appear as markers on the timeline of the version they were made on; tapping one seeks. The hint under the time names what the other cut shows at this moment.</div></li>
+      <li><span class="num">3</span><div><b>“Add a note at 0:02”.</b> Pausing is how you point. The button carries the current time; Compare is the quiet alternative to the segmented control for one-handed use.</div></li>
+      <li><span class="num">4</span><div><b>What changed.</b> The editor's creator-visible note first, then Loop's Observation of the difference — tagged as an Observation with its basis, per the epistemic ladder. Never a judgment.</div></li>
+      <li><span class="num">5</span><div><b>Your notes (drafts).</b> Each is a timestamp, a sentence and a kind — <i>Change</i> or <i>Keep</i>. A Keep note is an instruction too: it tells the editor what not to touch. Drafts are yours until sent.</div></li>
+      <li><span class="num">6</span><div><b>Two decisions.</b> Request changes (with the note count) or Approve. Both open a confirmation that states the consequence in the deliverable's terms. No third state: a question goes through “Add a note” on the record and changes nothing.</div></li>
+    </ol>
+  </div>
+</div>
+
+<h3>The four sheets of the review</h3>
+<p class="hint">← scroll → · each phone scrolls on its own</p>
+<div class="frames">
+
+<!-- A: add note half sheet -->
+<div class="ph"><div class="ph__cap">A · Add a note<small>half sheet over the paused frame</small></div><div class="ph__frame lf"><div class="ph__status"><span>18:21</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="sheet"><div class="sheet__sum"><div>Review · Edit v1<small>Kona unboxing reel</small></div><span>Close</span></div>
+    <div class="sheet__body"><div class="media"><div class="media__seg"><span>Original</span><span class="on">v1</span></div><span class="media__badge">0:41</span><div class="media__scene">Paused · 0:02</div><div class="media__bar"><i style="width:5%"></i></div><div class="media__time"><span>0:02</span><span>0:41</span></div></div></div></div>
+  <div class="dim"></div>
+  <div class="sheet sheet--half"><div class="sheet__sum"><div>Note at 0:02<small>on Edit v1 · Original shows: logo intro</small></div><span>Cancel</span></div>
+    <div class="sheet__body">
+      <div class="kind"><span class="on">Change</span><span>Keep</span></div>
+      <div class="textarea">Kona should come before the logo — swap the order.</div>
+      <div class="field"><label>Covers</label><div class="loop-btnrow"><span class="loop-btn loop-btn--quiet" style="min-height:32px">This moment</span><span class="loop-btn loop-btn--quiet" style="min-height:32px">Until 0:06 ›</span></div></div>
+      <p class="rung__meta" style="margin:0">Sam will see this on his timeline at 0:02, with your words exactly as written.</p>
+    </div>
+    <div class="sheet__bar"><span class="loop-btn loop-btn--primary">Add note</span></div>
+  </div>
+</div></div></div>
+
+<!-- B: request changes -->
+<div class="ph"><div class="ph__cap">B · Request changes<small>sends the drafts as one instruction set</small></div><div class="ph__frame lf"><div class="ph__status"><span>18:28</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="sheet"><div class="sheet__sum"><div>Send changes to EMG<small>Edit v1 · Production 1 continues</small></div><span>Back</span></div>
+    <div class="sheet__body">
+      <div><p class="h">Your notes · 2</p><ul class="notes">
+        <li class="nt"><span class="nt__t">0:02</span><div><div class="nt__b">Kona should come before the logo — swap the order.</div><span class="nt__m">Change · until 0:06</span></div><span class="nt__x">Edit</span></li>
+        <li class="nt nt--keep"><span class="nt__t">0:11</span><div><div class="nt__b">Keep this beat exactly as it is.</div><span class="nt__m">Keep</span></div><span class="nt__x">Edit</span></li>
+      </ul></div>
+      <div class="field"><label>Anything else for Sam?</label><div class="textarea">Otherwise great — tighter than I expected.</div></div>
+      <div class="field"><label>When you'd like it back</label><div class="loop-btnrow"><span class="loop-btn" style="min-height:34px;border-color:var(--loop-accent)">Keep Wed 15:00</span><span class="loop-btn loop-btn--quiet" style="min-height:34px">Change…</span></div></div>
+      <div class="field"><label>References</label><span class="loop-btn loop-btn--quiet" style="align-self:flex-start;min-height:34px">Add a version or link</span></div>
+      <div class="consequence"><b>What happens</b><br>Goes back to Sam on Production 1. Edit v2 will answer these notes. EMG's expected return is Wed 12:00 — it stays unless they change it, and you'll see it on the record. Your notes become part of the history and can't be edited after sending.</div>
+    </div>
+    <div class="sheet__bar"><span class="loop-btn loop-btn--primary">Send to EMG</span></div>
+  </div>
+</div></div></div>
+
+<!-- C: review v2 -->
+<div class="ph"><div class="ph__cap">C · Review v2<small>Wed 23 Sep 12:00 · your notes answered</small></div><div class="ph__frame lf"><div class="ph__status"><span>12:00</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="sheet"><div class="sheet__sum"><div>Review · Edit v2<small>returned by Sam Wed 11:40 · 20 min early</small></div><span>Close</span></div>
+    <div class="sheet__body">
+      <div class="media"><div class="media__seg"><span>Original</span><span>v1</span><span class="on">v2</span></div><span class="media__badge">0:39</span><div class="media__play">▶</div><div class="media__scene">Kona enters · 0:02</div><div class="media__bar"><i style="width:5%"></i><em class="done" style="left:5%"></em><em class="done" style="left:28%"></em></div><div class="media__time"><span>0:02</span><span>0:39</span></div><div class="media__hint">Same moment in v1: logo intro</div></div>
+      <div class="loop-btnrow"><span class="loop-btn" style="flex:1">Add a note at 0:02</span><span class="loop-btn loop-btn--quiet">Compare</span></div>
+      <div><p class="h">Your notes on v1 · 2 of 2 addressed</p><ul class="notes">
+        <li class="nt nt--done"><span class="nt__t">✓ 0:02</span><div><div class="nt__b">Kona should come before the logo — swap the order.</div><span class="nt__m">Sam: “Swapped — Kona at 0:02, logo at 0:05.”</span></div></li>
+        <li class="nt nt--done"><span class="nt__t">✓ 0:11</span><div><div class="nt__b">Keep this beat exactly as it is.</div><span class="nt__m">Sam: “Untouched.”</span></div></li>
+      </ul></div>
+      <div><p class="h">What Sam changed</p><p style="margin:0 0 6px;font-size:13.5px;color:var(--loop-ink)">“Swapped as asked. Nothing else moved.”</p>
+        <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v2 vs v1 · high confidence</span></div><p class="rung__text">0:41 → 0:39 · Kona first appears at 0:02 (was 0:04) · logo at 0:05</p></div></div>
+    </div>
+    <div class="sheet__bar"><span class="loop-btn">Request changes</span><span class="loop-btn loop-btn--primary">Approve</span></div>
+  </div>
+</div></div></div>
+
+<!-- D: approve confirmation -->
+<div class="ph"><div class="ph__cap">D · Approve v2<small>the consequence, in the deliverable's terms</small></div><div class="ph__frame lf"><div class="ph__status"><span>12:04</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="sheet"><div class="sheet__sum"><div>Review · Edit v2<small>Kona unboxing reel</small></div><span>Close</span></div>
+    <div class="sheet__body"><div class="media"><div class="media__seg"><span>Original</span><span>v1</span><span class="on">v2</span></div><span class="media__badge">0:39</span><div class="media__scene">Kona enters · 0:02</div><div class="media__bar"><i style="width:5%"></i></div><div class="media__time"><span>0:02</span><span>0:39</span></div></div></div></div>
+  <div class="dim"></div>
+  <div class="sheet sheet--half"><div class="sheet__sum"><div>Approve Edit v2<small>your approval, for this version only</small></div><span>Cancel</span></div>
+    <div class="sheet__body">
+      <div class="consequence"><b>For Reel 1 of 2 · Kona Product Video</b>
+        <ul class="req"><li class="done"><i>✓</i>Your approval <small>· v2 · now</small></li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul>
+        <p style="margin:10px 0 0">Production 1 completes. The deliverable is not complete until every line above is ticked. If a later version changes materially, it will need your approval again — this one stays on v2 in the history.</p></div>
+      <p class="rung__meta" style="margin:0">Your 2 notes on v1 were addressed in v2.</p>
+    </div>
+    <div class="sheet__bar"><span class="loop-btn loop-btn--primary">Approve v2</span></div>
+  </div>
+</div></div></div>
+
+<!-- E: submit original for approval -->
+<div class="ph"><div class="ph__cap">E · Submit the Original<small>when the deliverable permits an unedited version</small></div><div class="ph__frame lf"><div class="ph__status"><span>10:30</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--neutral">Raw upload</span><span>Original · you · Mon 10:14</span></div></div>
+    <div class="media"><div class="media__seg"><span class="on">Original</span></div><span class="media__badge">0:47</span><div class="media__play">▶</div><div class="media__scene">Logo intro · 0:00</div><div class="media__bar"><i style="width:2%"></i></div><div class="media__time"><span>0:00</span><span>0:47</span></div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Deliverable</dt><dd>Reel 1 of 2 · awaiting content · <span style="font-weight:500;color:var(--loop-muted)">accepts an unedited original</span></dd></dl></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Not in production</p><p class="loop-state__body">This deliverable accepts an unedited original. Submit it for approval, or request an edit first.</p></div></div></section>
+  </div>
+  <div class="actbar"><span class="loop-btn">Request an edit</span><span class="loop-btn loop-btn--primary">Submit for approval</span></div>
+  <div class="dim"></div>
+  <div class="sheet sheet--half"><div class="sheet__sum"><div>Submit Original for approval<small>your approval, for this version only</small></div><span>Cancel</span></div>
+    <div class="sheet__body">
+      <div class="consequence"><b>For Reel 1 of 2 · Kona Product Video</b>
+        <ul class="req"><li class="done"><i>✓</i>Your approval <small>· Original · now</small></li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul>
+        <p style="margin:10px 0 0">No production is started. EMG will see this in their requests as “Original submitted for approval”. If anyone asks for changes, that starts Production 1 on this record.</p></div>
+    </div>
+    <div class="sheet__bar"><span class="loop-btn loop-btn--primary">Submit Original</span></div>
+  </div>
+</div></div></div>
+
+</div>
+<div class="grid2" style="margin-top:6px">
+  <div class="card"><h4>Rules the sheets obey</h4><ul>
+    <li>A note is a timestamp + a sentence + a kind (Change / Keep); it is a draft until sent, then an instruction with provenance (originated and entered by the creator, refers to that version).</li>
+    <li>Sending never creates a new Production: it reopens stage 1 of the same one. Only feedback after completion starts the next Production (Mockup #1, ruling 4).</li>
+    <li>Approve is per version and says so; the confirmation lists the deliverable's requirements verbatim, so creator approval is never mistaken for finality.</li>
+    <li>For independent content the same confirmation reads “This makes v2 the final. Nothing else is needed.” — derived, not a different flow.</li>
+    <li>“Submit for approval” appears only when the deliverable permits an unedited original; the record reads that, it does not decide it.</li>
+  </ul></div>
+  <div class="card"><h4>Desktop adaptation</h4><ul>
+    <li>Review is the record's Compare panel side by side (Mockup #1) with the notes list in the rail and the two decisions in the page head.</li>
+    <li>Notes are markers on the shared scrubber; “Add a note at 0:02” sits inline under it.</li>
+    <li>Request changes and Approve open as drawers on the right; the confirmation content is identical.</li>
+    <li>Nothing exists on desktop that the phone lacks.</li>
+  </ul></div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="emg">
+<header><div class="eyebrow">3 · EMG · the editing work view</div><h2>The same Production, on the Work OS detail Sam already uses</h2></header>
+<p>Wednesday 08:05: Sam opens My Work and sees the change request. This is <code>/app/admin/work/[id]</code> with the fields the handoff needs — the creator's notes on the timeline, the instruction sets in order, requested vs expected return, and upload as the way to answer. No creator-hub admin screen.</p>
+<div class="desk-wrap"><div class="lf desk">
+  <aside class="loop-sidebar">
+    <div class="loop-sb__brand">Loop <span class="loop-sb__os">OS</span></div>
+    <div class="loop-sb__group"><div class="loop-sb__grouplabel">Operate</div><a class="loop-sb__link"><span class="loop-sb__ico"></span>Home</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>CRM</a><a class="loop-sb__link is-active"><span class="loop-sb__ico"></span>Work</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Intelligence</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Operations</a></div>
+    <div class="loop-sb__foot"><span class="loop-avatar">SK</span><div>Sam K.<small>Employee · EMG</small></div></div>
+  </aside>
+  <div class="loop-content">
+    <div class="loop-appbar"><div class="loop-crumbs"><span>Work</span><span class="sep">/</span><span>My work</span><span class="sep">/</span><b>Production 1 · Kona unboxing reel</b></div><span class="loop-iconbtn"><span class="badge"></span></span></div>
+    <div class="loop-main">
+      <div class="loop-head"><div class="loop-head__text"><p class="loop-trail">Work <span class="loop-trail__sep">/</span> Production <span class="loop-trail__sep">/</span> Denise R.</p><h1 class="loop-title">Production 1 · Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--info">Changes requested</span><span>by Denise · Tue 18:30 · 2 notes on Edit v1 · back on stage 1 (Sam)</span></div></div><div class="loop-head__actions"><span class="loop-btn">Post an update to Denise</span><span class="loop-btn loop-btn--primary">Upload Edit v2</span></div></div>
+      <div class="loop-strip"><div class="loop-strip__item"><span class="loop-strip__label">Requested return</span><span class="loop-strip__value">Wed 15:00 · Denise</span></div><div class="loop-strip__item"><span class="loop-strip__label">Expected (committed)</span><span class="loop-strip__value">Wed 12:00 <span style="font-size:12px;font-weight:600;color:var(--loop-accent)">· change…</span></span></div><div class="loop-strip__item"><span class="loop-strip__label">Last returned</span><span class="loop-strip__value">v1 · Tue 16:02</span></div><div class="loop-strip__item"><span class="loop-strip__label">Deliverable due</span><span class="loop-strip__value">Fri 25 Sep</span></div></div>
+      <div class="loop-record">
+        <div class="loop-record__main">
+          <section class="loop-panel"><h2 class="loop-panel__title">Denise's notes on v1 · on the timeline</h2>
+            <div class="compare">
+              <div class="media"><div class="media__seg"><span class="on">Original</span></div><span class="media__badge">0:47</span><div class="media__play">▶</div><div class="media__scene">Logo intro · 0:02</div><div class="media__time"><span>0:02</span><span>0:47</span></div></div>
+              <div class="media"><div class="media__seg"><span class="on">Edit v1</span></div><span class="media__badge">0:41</span><div class="media__play">▶</div><div class="media__scene">Logo · 0:02 · note 1</div><div class="media__time"><span>0:02</span><span>0:41</span></div></div>
+            </div>
+            <div class="scrub" style="margin-top:12px"><span>0:02</span><div class="media__bar"><i style="width:5%"></i><em style="left:5%"></em><em style="left:27%"></em></div><span>0:41</span><span class="rung__meta">2 notes · click a marker to seek</span></div>
+            <ul class="notes" style="margin-top:12px">
+              <li class="nt"><span class="nt__t">0:02</span><div><div class="nt__b">Kona should come before the logo — swap the order.</div><span class="nt__m">Change · until 0:06 · Denise · Tue 18:30 · refers to Edit v1</span></div><span class="nt__x">Seek</span></li>
+              <li class="nt nt--keep"><span class="nt__t">0:11</span><div><div class="nt__b">Keep this beat exactly as it is.</div><span class="nt__m">Keep · Denise · Tue 18:30</span></div><span class="nt__x">Seek</span></li>
+            </ul>
+            <p class="rung__meta" style="margin:10px 0 0">Also: “Otherwise great — tighter than I expected.”</p>
+          </section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Stages</h2><div class="stages">
+            <div class="stage on"><span class="stage__n">1</span><div><div class="stage__t">Edit — Sam</div><div class="stage__d">Reopened Tue 18:30 by Denise's changes · v1 was returned Tue 16:02 · answer with Edit v2</div></div><span class="loop-pill loop-pill--info">Editing again</span></div>
+            <div class="stage"><span class="stage__n">2</span><div><div class="stage__t">Creator review — Denise</div><div class="stage__d">Returned to stage 1 · restarts when v2 is uploaded</div></div><span class="loop-pill loop-pill--neutral">Pending</span></div>
+          </div></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Instructions · in order</h2>
+            <ol class="loop-activity">
+              <li class="loop-act"><span class="loop-act__truth loop-act__truth--communication">Set 1</span><span class="loop-act__story">“Tighten the opening; Kona in the first 5 s.”<span class="loop-act__sub">Originated and entered by Denise · refers to Original · asked for Wed 15:00 · answered by Edit v1 (Tue 16:02)</span></span><span class="loop-act__when">Mon 15:10</span></li>
+              <li class="loop-act loop-act--hi"><span class="loop-act__truth loop-act__truth--communication">Set 2</span><span class="loop-act__story">2 notes + “Otherwise great — tighter than I expected.”<span class="loop-act__sub">Originated and entered by Denise · refers to Edit v1 · return kept at Wed 15:00 · <b>not yet answered</b></span></span><span class="loop-act__when">Tue 18:30</span></li>
+            </ol>
+          </section>
+        </div>
+        <aside class="loop-record__rail">
+          <section class="loop-panel"><h2 class="loop-panel__title">Content</h2><dl class="loop-facts"><dt>Record</dt><dd><a class="loop-link">Kona unboxing reel →</a></dd><dt>Lineage</dt><dd>Original · Edit v1</dd><dt>Next</dt><dd>Edit v2 answers Set 2</dd></dl><div class="loop-btnrow" style="margin-top:10px"><span class="loop-btn">Upload Edit v2</span></div></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Turnaround</h2><dl class="loop-facts"><dt>Requested</dt><dd>Wed 15:00 · Denise</dd><dt>Expected</dt><dd>Wed 12:00 · set by Priya Mon 15:40</dd><dt>Left</dt><dd>3 h 55 m</dd></dl><div class="loop-btnrow" style="margin-top:10px"><span class="loop-btn loop-btn--quiet">Change expected return… (with a reason)</span></div></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Needed for Reel 1 of 2</h2><ul class="req"><li><i></i>Creator approval</li><li><i></i>EMG approval</li><li><i></i>Brand approval <small>· Kona, relayed</small></li><li><i></i>Published by Fri 25 Sep</li></ul><p class="rung__meta" style="margin:10px 0 0">From the campaign's deliverable, not from this work.</p></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Creator</h2><div style="display:flex;gap:10px;align-items:center"><span class="loop-avatar">DR</span><div><div style="font-weight:700;color:var(--loop-ink)">Denise R.</div><div style="font-size:12.5px;color:var(--loop-muted)">Managed creator · <a class="loop-link" style="font-size:12.5px">Person record →</a></div></div></div></section>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<h3>Answering: Upload Edit v2</h3>
+<p>Upload is how an instruction set gets answered. The dialog names the set it answers, lets the editor tick each note as addressed with a one-line reply the creator will see, separates the creator-visible note from the internal one, and completes the stage in the same act.</p>
+<div class="desk-wrap"><div class="lf desk" style="display:block;min-width:0;padding:28px;background:var(--loop-canvas)">
+  <div class="modal">
+    <h3>Upload Edit v2 · Kona unboxing reel</h3>
+    <div class="drop">kona-unboxing-v2.mp4 · 0:39 · 9:16 · 1080p — ready<br><span style="font-size:12px">Replace file</span></div>
+    <div class="two">
+      <div class="field"><label>Version label</label><span class="seg"><span class="on">Edit v2</span><span>Other…</span></span></div>
+      <div class="field"><label>Answers</label><div style="font-size:13px;color:var(--loop-ink);font-weight:600;padding-top:6px">Set 2 · Denise · Tue 18:30 · 2 notes</div></div>
+    </div>
+    <div class="field"><label>Denise's notes — mark what this version addresses</label>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="chk on"><i></i><div><b>0:02</b> Kona should come before the logo — swap the order.<div class="textarea" style="min-height:34px;margin-top:6px">Swapped — Kona at 0:02, logo at 0:05.</div></div></div>
+        <div class="chk on"><i></i><div><b>0:11</b> Keep this beat exactly as it is.<div class="textarea" style="min-height:34px;margin-top:6px">Untouched.</div></div></div>
+      </div></div>
+    <div class="two">
+      <div class="field"><label>Note to Denise <span class="rung__meta">· visible to her</span></label><div class="textarea">Swapped as asked. Nothing else moved.</div></div>
+      <div class="field"><label>Internal note <span class="rung__meta">· EMG only</span></label><div class="textarea ph">e.g. rendered from the 4K master; colour untouched</div></div>
+    </div>
+    <div class="field"><label>Then</label>
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="radio on"><i></i>Send to Denise for review — completes the Edit stage; her task appears now</div><div class="radio"><i></i>Save as a draft version — not visible to Denise; the stage stays open</div></div></div>
+    <div class="loop-btnrow" style="justify-content:flex-end"><span class="loop-btn loop-btn--quiet">Cancel</span><span class="loop-btn loop-btn--primary">Upload and send for review</span></div>
+  </div>
+</div></div>
+
+<div class="anat" style="margin-top:16px">
+  <div class="ph"><div class="ph__cap">Phone · EMG upload on the go<small>the same act, thumb-sized</small></div><div class="ph__frame lf"><div class="ph__status"><span>11:38</span><span>●●●</span></div><div class="ph__scroll">
+    <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">SK</span></div>
+    <div class="loop-main">
+      <div><p class="loop-trail">Work <span class="loop-trail__sep">/</span> Production 1</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--info">Changes requested</span><span>Denise · 2 notes · expected Wed 12:00</span></div></div>
+      <section class="loop-panel"><h2 class="loop-panel__title">Denise's notes on v1</h2><ul class="notes"><li class="nt"><span class="nt__t">0:02</span><div><div class="nt__b">Kona should come before the logo — swap the order.</div></div></li><li class="nt nt--keep"><span class="nt__t">0:11</span><div><div class="nt__b">Keep this beat exactly as it is.</div></div></li></ul></section>
+    </div>
+    <div class="dim"></div>
+    <div class="sheet sheet--half"><div class="sheet__sum"><div>Upload Edit v2<small>answers Set 2 · Denise · Tue 18:30</small></div><span>Cancel</span></div>
+      <div class="sheet__body">
+        <div class="drop">kona-unboxing-v2.mp4 · 0:39 · uploading 64%</div>
+        <div class="chk on"><i></i><div>0:02 · addressed<div class="textarea" style="min-height:32px;margin-top:4px">Swapped — Kona at 0:02, logo at 0:05.</div></div></div>
+        <div class="chk on"><i></i><div>0:11 · addressed<div class="textarea" style="min-height:32px;margin-top:4px">Untouched.</div></div></div>
+        <div class="field"><label>Note to Denise · visible</label><div class="textarea">Swapped as asked. Nothing else moved.</div></div>
+        <div class="toggle on"><i></i>Send for Denise's review when the upload finishes</div>
+      </div>
+      <div class="sheet__bar"><span class="loop-btn loop-btn--primary">Upload and send</span></div>
+    </div>
+  </div></div></div>
+  <div>
+    <ol class="callouts">
+      <li><span class="num">1</span><div><b>“Answers Set 2”</b> is automatic: the newest unanswered instruction set on this Production. The editor can change it only to another unanswered set.</div></li>
+      <li><span class="num">2</span><div><b>Per-note addressed marks and one-line replies</b> are what the creator sees as “2 of 2 addressed” on the next review. A note left unticked shows to the creator as “not addressed” with the editor's reason — the review never hides a skipped note.</div></li>
+      <li><span class="num">3</span><div><b>Note to creator vs internal note.</b> Two fields, two visibilities, never one box with a toggle that someone forgets.</div></li>
+      <li><span class="num">4</span><div><b>“Then”.</b> Sending completes the Edit stage and reopens Creator review; saving a draft keeps the stage open and the version invisible to the creator. The default is send.</div></li>
+      <li><span class="num">5</span><div><b>On a phone</b> the same act is a half sheet: file, ticks, note, one button. Editors travel; uploads don't wait for a desk.</div></li>
+    </ol>
+    <div class="note">Provenance here is boring on purpose: every reply is by Sam, entered by Sam, on Edit v2, answering a set originated by Denise. Brand-relayed sets (Mockup #1, state 6) use the same dialog; only the set's originator differs.</div>
+  </div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="same">
+<header><div class="eyebrow">4 · One row, two projections</div><h2>What each seat sees of the same event</h2></header>
+<div class="tbl"><table>
+<tr><th>Moment</th><th>Creator sees</th><th>EMG sees</th><th>The one thing underneath</th></tr>
+<tr><td>Sam completes the Edit stage with v1</td><td>Home: “Review Edit v1 — ready” · record: <span class="pill warn">Ready for your review</span></td><td>Stage 2 “Creator review — Denise” <span class="pill warn">Waiting</span> · v1 in the lineage</td><td>One stage transition and one new Version</td></tr>
+<tr><td>Denise adds two notes</td><td>Markers on her timeline · “2 · not sent yet”</td><td>Nothing — drafts are the creator's</td><td>Nothing yet; no row exists until sending</td></tr>
+<tr><td>Denise sends changes</td><td>Record: <span class="pill accent">Changes requested</span> by you · Production: “Editing again” · her notes verbatim</td><td>My Work row “Changes requested · 2 notes” · Set 2 on the work · markers on his timeline</td><td>One instruction set (originated + entered by Denise, refers to v1) and one stage event 2 → 1</td></tr>
+<tr><td>Priya keeps the expected return</td><td>“EMG expects Wed 12:00 · unchanged”</td><td>Strip: Expected Wed 12:00 · Left 3 h 55 m</td><td>The same two dated fields; a change would be an event with a reason on both</td></tr>
+<tr><td>Sam uploads v2, ticks both notes</td><td>“Review Edit v2 — ready” · review sheet: “2 of 2 addressed” with Sam's replies</td><td>Set 2 “answered by Edit v2” · stage 2 waiting</td><td>One Version naming the set it answers, two addressed marks with replies</td></tr>
+<tr><td>Denise approves v2</td><td><span class="pill warn">Approved by you</span> · Needed list: ✓ you · ○ EMG · ○ Kona · ○ published</td><td>Stage 2 done · Production 1 completed · approval mark v2 · deliverable still open</td><td>One approval mark on v2; the deliverable's requirements re-derived</td></tr>
+</table></div>
+</section>
+
+<!-- ===================================================== -->
+<section id="states">
+<header><div class="eyebrow">5 · States</div><h2>A note's life, and a review's</h2></header>
+<div class="grid2">
+  <div class="card"><h4>A note</h4>
+    <div class="tbl" style="margin-top:8px"><table>
+      <tr><th>State</th><th>Means</th><th>Who can change it</th></tr>
+      <tr><td>Draft</td><td>On the creator's device, in this review; markers visible to them only</td><td>Creator: edit, delete</td></tr>
+      <tr><td>Sent</td><td>Part of an instruction set with provenance; immutable</td><td>Nobody</td></tr>
+      <tr><td>Addressed</td><td>Ticked by the editor on the answering version, with a reply</td><td>Editor, at upload</td></tr>
+      <tr><td>Not addressed</td><td>Left unticked at upload, with the editor's reason; shown to the creator as such</td><td>Editor, at upload</td></tr>
+      <tr><td>Superseded</td><td>A later note on the same moment of a later version</td><td>Derived</td></tr>
+    </table></div></div>
+  <div class="card"><h4>A review</h4>
+    <div class="tbl" style="margin-top:8px"><table>
+      <tr><th>Situation</th><th>The sheet shows</th></tr>
+      <tr><td>Latest version, awaiting the creator</td><td>Player, notes, both decisions</td></tr>
+      <tr><td>An older version opened</td><td>Banner “A newer version exists (v2) — you're looking at v1”; decisions hidden; notes read-only</td></tr>
+      <tr><td>Version still uploading or processing</td><td>Card state from the library (Uploading → Processing → Ready); the sheet waits</td></tr>
+      <tr><td>Playback fails</td><td>Metadata and “Loop couldn't play this version · Retry · Download”; Approve disabled until it plays (fail closed)</td></tr>
+      <tr><td>Draft notes exist and the creator closes</td><td>Drafts kept; the record's action bar reads “Review edit · 2 notes not sent”</td></tr>
+      <tr><td>Approval already given on this version</td><td>Approve becomes “Approved by you · Wed 12:05”; Request changes stays available and would start the next Production if this one has completed</td></tr>
+    </table></div></div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="constraints">
+<header><div class="eyebrow">6 · Constraints honoured</div><h2>Mockup #1 rulings, as applied here</h2></header>
+<div class="tbl"><table>
+<tr><th>Ruling / invariant</th><th>Where it bites in this handoff</th></tr>
+<tr><td>Approvals are per Version</td><td>The Approve sheet says “for this version only” and shows the mark landing on v2; a v3 would show the list reset with v2's mark kept in history.</td></tr>
+<tr><td>“Approved by you” stays amber</td><td>After approving, the record header and the Approve button state are amber until every requirement is ticked.</td></tr>
+<tr><td>Submit for approval when the deliverable permits</td><td>Sheet E: the Raw record grows a second action, derived from the deliverable; no Production is started; a later change request starts Production 1.</td></tr>
+<tr><td>Brand naming follows designation</td><td>Sets originated by a brand carry the campaign's creator-visible name or “Brand feedback via EMG”; Sam's replies never expose CRM knowledge.</td></tr>
+<tr><td>Manual publish</td><td>Untouched; publication is not part of this handoff.</td></tr>
+<tr><td>Five separate events</td><td>The Approve sheet lists Production completion, creator approval and the outstanding requirements as different lines; publication and deliverable completion are not mentioned as consequences of approving.</td></tr>
+<tr><td>Region order, plain words</td><td>Review is a sheet, so the record's order is untouched; “Production”, “What Sam changed”, “Your notes”.</td></tr>
+<tr><td>Epistemic ladder</td><td>“What changed” is an Observation with its basis; nothing in the review is a judgment by Loop.</td></tr>
+</table></div>
+</section>
+
+<!-- ===================================================== -->
+<section id="verdict">
+<header><div class="eyebrow">7 · Left to rule on</div><h2>Decisions this handoff surfaces</h2></header>
+<div class="grid2">
+  <div class="card"><h4>Proposed here — confirm or change</h4><ul>
+    <li><b>Per-note addressed marks with a reply.</b> The editor answers each note at upload; the creator sees “n of m addressed”. Recommendation: keep — it is what makes the second review short.</li>
+    <li><b>Keep notes.</b> A note kind that says “don't touch this”. Recommendation: keep; it prevents the most common regression.</li>
+    <li><b>Drafts live on the device until sent.</b> Cheap and private; the cost is that a review started on a phone can't be finished on a desktop. Alternative: creator-private server drafts. Recommendation: device drafts for v1, server drafts when desktop review is common.</li>
+    <li><b>“Then: save as draft version”</b> for editors — a version the creator can't see yet. Recommendation: keep; without it editors upload to their own machines.</li>
+  </ul></div>
+  <div class="card"><h4>Open</h4><ul>
+    <li><b>Can EMG decline or redirect a change request</b> (out of the deliverable's scope, or a brand constraint)? Proposed: a “Needs a conversation” event that pauses the expected return and posts a creator-visible update. Not designed until confirmed.</li>
+    <li><b>Approve with notes.</b> Recommendation: no — notes are changes, approval is clean; a “note that isn't a change” goes through Add a note on the record.</li>
+    <li><b>Reviewing on someone's behalf</b> (a manager, a co-creator). Out of scope for v1, as in the design pass.</li>
+    <li><b>Range notes</b> (“until 0:06”) — kept minimal; frame capture or drawn regions are later.</li>
+  </ul></div>
+</div>
+<h3>Not designed here</h3>
+<p>Request an Edit (the four-step start of a Production) and the EMG Requests lane are Mockup 3. Home's “Things that need you” and the Person record's creator context are Mockup 4. The Library and Upload are Mockup 5.</p>
+</section>
+</div>
