@@ -6,6 +6,7 @@
 // enforced before anything renders. Reuses the PR #75 WorkRepository runtime.
 
 import Link from 'next/link';
+import { absentUntilMigrated } from '@emgloop/database';
 import { notFound } from 'next/navigation';
 
 import {
@@ -46,8 +47,9 @@ export default async function EmployeeWorkDetailPage({
   const [instance, users, production] = await Promise.all([
     loadEmployeeInstance(params.id, actor.organizationId),
     listAssignableUsers(actor.organizationId),
-    // The creator production behind this work, when it is one (null for every other work item).
-    creatorDomain().records.productionForWork(actor.organizationId, params.id),
+    // The creator production behind this work, when it is one (null for every other work item,
+    // and null while the Creator Hub migration has not reached this database).
+    absentUntilMigrated(creatorDomain().records.productionForWork(actor.organizationId, params.id)),
   ]);
 
   if (!instance) {

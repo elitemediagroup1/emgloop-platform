@@ -14,7 +14,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { WorkExecutionService, prisma } from '@emgloop/database';
+import { WorkExecutionService, prisma, absentUntilMigrated } from '@emgloop/database';
 import { productLabel } from '@emgloop/shared';
 
 import { requireWorkActor, workRepo, listAssignableUsers } from '../work-data';
@@ -88,8 +88,9 @@ export default async function WorkDetailPage({ params, searchParams }: { params:
     // timestamp or applies a threshold; the verdict arrives decided and this
     // page renders it.
     new WorkExecutionService(prisma).getForWorkInstance(actor.organizationId, params.id),
-    // The creator production behind this work, when it is one (null for every other work item).
-    creatorDomain().records.productionForWork(actor.organizationId, params.id),
+    // The creator production behind this work, when it is one (null for every other work item,
+    // and null while the Creator Hub migration has not reached this database).
+    absentUntilMigrated(creatorDomain().records.productionForWork(actor.organizationId, params.id)),
   ]);
 
   // Another tenant's id is indistinguishable from a deleted one, by design.

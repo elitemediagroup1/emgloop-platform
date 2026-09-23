@@ -7,6 +7,7 @@ import { CreatorProductionService } from './creator-production.service';
 import { CreatorRecordService } from './creator-record.service';
 
 export { CreatorRepository, versionLabel } from './creator.repository';
+export { absentUntilMigrated } from './until-migrated';
 export type {
   CreateCreatorProfileInput,
   CreateContentInput,

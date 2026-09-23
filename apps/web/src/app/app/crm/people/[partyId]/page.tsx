@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { absentUntilMigrated } from '@emgloop/database';
 import { notFound } from 'next/navigation';
 import { hasPermission, requirePermission } from '../../../../../auth/guard';
 import { crmSubjectReads, personHref, PEOPLE_HREF, relationshipHref } from '../../../../../crm/crm-slice-data';
@@ -71,7 +72,8 @@ export default async function PersonPage({ params }: { params: { partyId: string
   const channel = (label: string): ActionSpec => ({ label, href: null, reason: NO_CHANNEL });
   // A creator profile for this person, within the session's organization. Its operating view
   // is in the ADMIN tree, so the link exists only for a seat that can open it.
-  const creatorProfile = await creatorDomain().creator.profileByParty(session.organizationId, record.partyId);
+  // Absent, not broken, while the Creator Hub migration has not reached this database.
+  const creatorProfile = await absentUntilMigrated(creatorDomain().creator.profileByParty(session.organizationId, record.partyId));
   const creatorHref = creatorProfile && resolveWorkspaceRole(session) === 'ADMIN' ? EMG_HREFS.creator(creatorProfile.id) : null;
   const CREATOR_ELSEWHERE = 'This person is a creator; their operating view opens in the Admin workspace.';
   const tabs = [

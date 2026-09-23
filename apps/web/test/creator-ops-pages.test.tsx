@@ -268,3 +268,29 @@ describe('The Person record and its creator context', () => {
     assert.match(src, /\{creatorHref \? <Link href=\{creatorHref\}>Open creator operations<\/Link> : CREATOR_ELSEWHERE\}/);
   });
 });
+
+describe('Pages that existed before the Creator Hub survive a database the migration has not reached', () => {
+  // Netlify deploys `main` to production on merge; the migration is applied by hand later. In that
+  // window the new tables do not exist, so every creator read on a PRE-EXISTING page must read as
+  // "absent" (absentUntilMigrated) rather than throw. The hub's own entry pages say so honestly.
+  const guarded = [
+    ['app/app/admin/work/[id]/page.tsx', /absentUntilMigrated\(creatorDomain\(\)\.records\.productionForWork\(/],
+    ['app/app/employee/work/[id]/page.tsx', /absentUntilMigrated\(creatorDomain\(\)\.records\.productionForWork\(/],
+    ['app/app/crm/people/[partyId]/page.tsx', /absentUntilMigrated\(creatorDomain\(\)\.creator\.profileByParty\(/],
+    ['app/app/admin/creator-hub/page.tsx', /absentUntilMigrated\(creatorDomain\(\)\.records\.roster\(/],
+    ['app/app/admin/creator-hub/requests/page.tsx', /absentUntilMigrated\(creatorDomain\(\)\.records\.requests\(/],
+  ] as const;
+  for (const [rel, pattern] of guarded) {
+    it(`${rel} wraps its creator read`, () => {
+      const src = readFileSync(join(SRC, rel), 'utf8');
+      assert.match(src, pattern);
+      assert.equal((src.match(/creatorDomain\(\)\.(records|creator)\./g) ?? []).length, 1, 'exactly one creator read, and it is the guarded one');
+    });
+  }
+  it('the hub entry pages render an unavailable state, not a crash, when the read is absent', () => {
+    for (const rel of ['app/app/admin/creator-hub/page.tsx', 'app/app/admin/creator-hub/requests/page.tsx']) {
+      const src = readFileSync(join(SRC, rel), 'utf8');
+      assert.match(src, /rows === null \? \(\s*<StateBlock kind="unavailable"/);
+    }
+  });
+});
