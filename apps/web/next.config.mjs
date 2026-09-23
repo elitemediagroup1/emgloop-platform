@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@emgloop/shared', '@emgloop/database', '@emgloop/providers'],
+  // @emgloop/brain: pure functions the database package composes for the Creator Hub (2026-09-22).
+  transpilePackages: ['@emgloop/shared', '@emgloop/database', '@emgloop/providers', '@emgloop/brain'],
   experimental: {
     serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
   },
