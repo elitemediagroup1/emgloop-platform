@@ -13,7 +13,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   ALLOWED_DB_HOST,
@@ -678,7 +681,7 @@ test('the workflow is human-dispatched, staging-only, reads no production secret
   assert.ok(WORKFLOW.includes('vars.CONNECTIONS_STAGING_MIGRATE_ROLE_ARN'));
   assert.ok(WORKFLOW.includes("allowed-account-ids: '065148797865'"));
   assert.ok(WORKFLOW.includes('LOOP_SEED_TARGET: staging'));
-  assert.ok(WORKFLOW.includes("inputs.confirm != 'seed loop-connections-staging'"));
+  assert.ok(WORKFLOW.includes('REQUIRED: seed loop-connections-staging'), 'the exact phrase is still the requirement');
   assert.ok(!/secrets\.DIRECT_DATABASE_URL|secrets\.DATABASE_URL/.test(WORKFLOW), 'never the production secret');
   assert.ok(!WORKFLOW.includes('::notice::'), 'the link is not a notice anyone with repo read sees in the log');
   assert.ok(WORKFLOW.includes('GITHUB_STEP_SUMMARY'));
@@ -701,4 +704,128 @@ test('the workflow uses each expression context only where GitHub allows it', ()
   }
   const stepsWithInviteOut = [...WORKFLOW.matchAll(/\n {10}INVITE_OUT: \$\{\{ runner\.temp \}\}\/creator-invite\.txt/g)].length;
   assert.equal(stepsWithInviteOut, 2, 'the seed step and the summary step each name the same runner-temp file');
+});
+
+// --- The dispatched path, executed ----------------------------------------------------------
+// The confirmation gate and the input validation are shell steps; the tests below run their
+// bodies exactly as the runner would (bash, an event payload file, a GITHUB_ENV file), so the
+// behaviour that failed on 2026-09-23 -- pasted values arriving with leading whitespace -- is
+// covered by execution, not by reading the YAML.
+
+const REQUIRED_PHRASE = 'seed loop-connections-staging';
+
+function runBody(stepName: string): string {
+  const start = WORKFLOW.indexOf(`      - name: ${stepName}\n`);
+  assert.ok(start >= 0, `step ${stepName}`);
+  const rest = WORKFLOW.slice(start);
+  const marker = '\n        run: |\n';
+  const runAt = rest.indexOf(marker);
+  const next = rest.indexOf('\n      - name: ', 1);
+  assert.ok(runAt >= 0 && (next === -1 || runAt < next), `${stepName} has a run block`);
+  return rest.slice(runAt + marker.length, next === -1 ? undefined : next).split('\n').map((l) => l.replace(/^ {10}/, '')).join('\n');
+}
+
+function dispatch(inputs: Record<string, string>, step: string, extraEnv: Record<string, string> = {}): { status: number | null; out: string; envFile: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'seed-wf-'));
+  const eventPath = join(dir, 'event.json');
+  writeFileSync(eventPath, JSON.stringify({ inputs, ref: 'refs/heads/main' }));
+  const envFile = join(dir, 'github.env');
+  writeFileSync(envFile, '');
+  const r = spawnSync('bash', ['-eo', 'pipefail', '-c', runBody(step)], {
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH ?? '', HOME: dir, GITHUB_EVENT_PATH: eventPath, GITHUB_ENV: envFile, ...extraEnv },
+  });
+  return { status: r.status, out: (r.stdout ?? '') + (r.stderr ?? ''), envFile };
+}
+
+const confirmEnv = { REQUIRED: REQUIRED_PHRASE };
+
+test('Confirm: the exact phrase passes, however it was pasted', () => {
+  for (const value of [
+    REQUIRED_PHRASE,
+    `        ${REQUIRED_PHRASE}`, // 8 leading spaces, as the slug arrived in run 35864984789
+    `${REQUIRED_PHRASE}   `,
+    ` ${REQUIRED_PHRASE} `, // non-breaking spaces from a rich-text copy
+    `﻿${REQUIRED_PHRASE}`, // a BOM
+    `\t${REQUIRED_PHRASE}\r\n`,
+    'seed  loop-connections-staging', // a doubled inner space
+    'Seed Loop-Connections-Staging', // `!=` in an expression was already case-insensitive
+  ]) {
+    const r = dispatch({ confirm: value }, 'Confirm', confirmEnv);
+    assert.equal(r.status, 0, `accepted: ${JSON.stringify(value)} -> ${r.out}`);
+    assert.match(r.out, /Confirmed\./);
+  }
+});
+
+test('Confirm: anything but the phrase stops the run before any other step, and says what arrived', () => {
+  for (const value of ['', 'seed loop-connections', 'migrate loop-connections-staging', `${REQUIRED_PHRASE} please`, 'seedloop-connections-staging', 'seed loop connections staging']) {
+    const r = dispatch({ confirm: value }, 'Confirm', confirmEnv);
+    assert.equal(r.status, 1, `refused: ${JSON.stringify(value)}`);
+    assert.match(r.out, /::error::This seeds the staging database\. Confirmation text required: seed loop-connections-staging/);
+    assert.match(r.out, /Received \d+ bytes; with whitespace made visible:/);
+  }
+  const missing = dispatch({}, 'Confirm', confirmEnv);
+  assert.equal(missing.status, 1, 'an absent input is refused, not treated as a match');
+});
+
+test('Confirm is the first step, has no expression gate, and no step env carries a typed input', () => {
+  const steps = [...WORKFLOW.matchAll(/\n {6}- name: (.+)/g)].map((m) => m[1]!);
+  assert.equal(steps[0], 'Confirm');
+  const confirmBlock = WORKFLOW.slice(WORKFLOW.indexOf('      - name: Confirm\n'), WORKFLOW.indexOf('      - name: Validate the requested input\n'));
+  assert.ok(!/\n {8}if:/.test(confirmBlock), 'the gate is the shell comparison, not an if: expression');
+  assert.ok(confirmBlock.includes('GITHUB_EVENT_PATH'), 'the phrase is read from the event payload');
+  // A step env value is printed in the step header before the body runs, so no address or pasted
+  // value may be declared there; only the boolean dry_run is.
+  for (const m of WORKFLOW.matchAll(/\$\{\{\s*inputs\.(\w+)\s*\}\}/g)) assert.equal(m[1], 'dry_run', `inputs.${m[1]} must not be an expression anywhere`);
+  const summary = runBody('Publish the invitation link to the job summary (never the log)');
+  assert.ok(!/OWNER_EMAIL|CREATOR_EMAIL|EDITOR_EMAIL/.test(summary), 'no address is written to the job summary');
+});
+
+const goodInputs = {
+  organization_slug: '        servicesinmycity-demo',
+  owner_email: ' owner.person@example.test  ',
+  creator_email: '  creator.person@example.test',
+  creator_name: '  Pat Lee ',
+  editor_email: '',
+  app_url: ' https://staging.example.test/ ',
+};
+
+test('Validate: every string input is trimmed, the addresses are masked before anything else, and the trimmed values reach the job environment', () => {
+  const r = dispatch(goodInputs, 'Validate the requested input');
+  assert.equal(r.status, 0, r.out);
+  const lines = r.out.split('\n');
+  const masks = lines.filter((l) => l.startsWith('::add-mask::'));
+  assert.deepEqual(masks, ['::add-mask::owner.person@example.test', '::add-mask::creator.person@example.test'], 'both addresses masked; the empty editor is not');
+  assert.ok(lines.indexOf(masks[0]!) < lines.findIndex((l) => l.startsWith('Validated')), 'masked before the outcome is printed');
+  const rest = lines.filter((l) => !l.startsWith('::add-mask::')).join('\n');
+  assert.ok(!rest.includes('@'), 'no address anywhere else in the output');
+  const env = Object.fromEntries(readFileSync(r.envFile, 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
+  assert.deepEqual(env, {
+    ORG_SLUG: 'servicesinmycity-demo',
+    OWNER_EMAIL: 'owner.person@example.test',
+    CREATOR_EMAIL: 'creator.person@example.test',
+    CREATOR_NAME: 'Pat Lee',
+    EDITOR_EMAIL: '',
+    APP_URL: 'https://staging.example.test/',
+    SEED_INPUTS_OK: 'true',
+  });
+});
+
+test('Validate: a bad value is refused without printing an address, and nothing reaches the job environment', () => {
+  for (const [patch, expect] of [
+    [{ organization_slug: 'Servicesinmycity Demo' }, /organization_slug must be lowercase/],
+    [{ owner_email: 'not-an-address' }, /owner_email is not an email address .*the value is not shown/],
+    [{ creator_email: 'also@bad' }, /creator_email is not an email address/],
+    [{ editor_email: 'editor without at' }, /editor_email is not an email address/],
+    [{ creator_name: '   ' }, /creator_name must be one non-empty line/],
+    [{ app_url: 'staging.example.test' }, /app_url must be an absolute http\(s\) URL/],
+  ] as const) {
+    const inputs = { ...goodInputs, ...patch };
+    const r = dispatch(inputs, 'Validate the requested input');
+    assert.equal(r.status, 1, JSON.stringify(patch));
+    assert.match(r.out, expect);
+    const rest = r.out.split('\n').filter((l) => !l.startsWith('::add-mask::')).join('\n');
+    for (const v of [inputs.owner_email, inputs.creator_email, inputs.editor_email].map((x) => x.trim()).filter(Boolean)) assert.ok(!rest.includes(v), `address not printed: ${JSON.stringify(patch)}`);
+    assert.equal(readFileSync(r.envFile, 'utf8'), '', 'nothing exported on refusal');
+  }
 });

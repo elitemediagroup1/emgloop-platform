@@ -43,6 +43,12 @@ Actions → **creator-demo-seed-staging** → Run workflow (branch with the Crea
 | `app_url` | default `https://staging--emgloop2.netlify.app` |
 | `dry_run` | `true` to report what would be created and write nothing |
 
+Every text input is trimmed before it is checked (leading/trailing spaces, non-breaking spaces,
+zero-width characters, tabs), and the confirmation is compared after that trimming, ignoring letter
+case and repeated inner spaces — the phrase itself is still required. A refused confirmation prints
+what actually arrived, with whitespace made visible, in the **Confirm** step's log. The three email
+addresses are masked in the job log the moment they are read and never appear in the job summary.
+
 The `connections-staging` environment's reviewer approves the run. Prerequisites: the Creator Hub
 migration is applied to staging (**connections-migrate-staging**) and
 `CONNECTIONS_STAGING_MIGRATE_ROLE_ARN` is set on the environment (docs/runbooks/connections-aws-staging.md).

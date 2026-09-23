@@ -91,41 +91,122 @@ jobs:
       # naming it here failed workflow validation before any step ran (run 35803956508).
     steps:
       - name: Confirm
-        if: ${{ inputs.confirm != 'seed loop-connections-staging' }}
-        run: |
-          echo "This seeds the staging database. Confirmation text required: seed loop-connections-staging"
-          exit 1
-
-      - name: Validate the requested input
+        # The gate is a shell comparison, not an `if:` expression, for two reasons learned on
+        # 2026-09-23 (runs 35864380064..35864984789): values pasted into the dispatch form arrive
+        # padded (the organization slug came in with 4 and then 8 leading spaces), and an
+        # expression gate compares bytes and explains nothing. The phrase itself is still required
+        # exactly; only surrounding/invisible whitespace, repeated inner whitespace and letter case
+        # are forgiven -- `!=` in an expression was already case-insensitive, so nothing loosened.
         env:
-          # Through the environment, never interpolated into the script body.
-          ORG_SLUG: ${{ inputs.organization_slug }}
-          OWNER_EMAIL: ${{ inputs.owner_email }}
-          CREATOR_EMAIL: ${{ inputs.creator_email }}
-          EDITOR_EMAIL: ${{ inputs.editor_email }}
-          APP_URL: ${{ inputs.app_url }}
+          REQUIRED: seed loop-connections-staging
         shell: bash
         run: |
           set -euo pipefail
-          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
-            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+          # The input is read from the event payload file, not declared as step env and never
+          # interpolated into this script: a declared env value is printed in the step header
+          # before the script runs, and an interpolated one is script injection.
+          CONFIRM="$(jq -r '.inputs.confirm // ""' "${GITHUB_EVENT_PATH}")"
+          # Strip leading/trailing whitespace, including the invisible kinds a copy-paste carries:
+          # NBSP (U+00A0), zero-width space/joiners (U+200B..U+200D), BOM (U+FEFF), CR.
+          trim() {
+            local v="$1"
+            v="${v//$'\xc2\xa0'/ }"
+            v="${v//$'\xe2\x80\x8b'/}"; v="${v//$'\xe2\x80\x8c'/}"; v="${v//$'\xe2\x80\x8d'/}"; v="${v//$'\xef\xbb\xbf'/}"
+            v="${v//$'\r'/}"
+            v="${v#"${v%%[![:space:]]*}"}"
+            v="${v%"${v##*[![:space:]]}"}"
+            printf '%s' "$v"
+          }
+          normalized="$(trim "${CONFIRM}" | tr -s '[:space:]' ' ')"
+          normalized="${normalized,,}"
+          if [ "${normalized}" != "${REQUIRED}" ]; then
+            echo "::error::This seeds the staging database. Confirmation text required: ${REQUIRED}"
+            # The phrase is not a secret; show exactly what arrived so the next attempt can be fixed.
+            echo "Received $(printf '%s' "${CONFIRM}" | wc -c | tr -d ' ') bytes; with whitespace made visible: $(printf '%q' "${CONFIRM}")"
             exit 1
           fi
+          echo "Confirmed."
+
+      - name: Validate the requested input
+        # Every string input is trimmed the same way before it is checked or used, then handed to
+        # the later steps through the job environment. The three email addresses are masked first,
+        # so neither a step header nor the seed's own report can print them. Unset optional inputs
+        # (creator_name, app_url have defaults; editor_email may be empty) arrive as their defaults.
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Read from the event payload file (see the Confirm step for why): nothing here is a
+          # declared env value the runner would print, and nothing is interpolated.
+          input() { jq -r --arg k "$1" '.inputs[$k] // ""' "${GITHUB_EVENT_PATH}"; }
+          IN_ORG_SLUG="$(input organization_slug)"
+          IN_OWNER_EMAIL="$(input owner_email)"
+          IN_CREATOR_EMAIL="$(input creator_email)"
+          IN_CREATOR_NAME="$(input creator_name)"
+          IN_EDITOR_EMAIL="$(input editor_email)"
+          IN_APP_URL="$(input app_url)"
+          trim() {
+            local v="$1"
+            v="${v//$'\xc2\xa0'/ }"
+            v="${v//$'\xe2\x80\x8b'/}"; v="${v//$'\xe2\x80\x8c'/}"; v="${v//$'\xe2\x80\x8d'/}"; v="${v//$'\xef\xbb\xbf'/}"
+            v="${v//$'\r'/}"
+            v="${v#"${v%%[![:space:]]*}"}"
+            v="${v%"${v##*[![:space:]]}"}"
+            printf '%s' "$v"
+          }
+          # A value with an inner line break cannot travel through GITHUB_ENV as one line; refuse it.
+          single_line() { case "$1" in *$'\n'*) return 1 ;; esac; }
+
+          ORG_SLUG="$(trim "${IN_ORG_SLUG}")"
+          OWNER_EMAIL="$(trim "${IN_OWNER_EMAIL}")"
+          CREATOR_EMAIL="$(trim "${IN_CREATOR_EMAIL}")"
+          CREATOR_NAME="$(trim "${IN_CREATOR_NAME}")"
+          EDITOR_EMAIL="$(trim "${IN_EDITOR_EMAIL}")"
+          APP_URL="$(trim "${IN_APP_URL}")"
+
+          # Mask before any check can mention them. An empty value must not be masked (it would
+          # mask nothing and the runner warns), so the optional editor is masked only when given.
+          for e in "${OWNER_EMAIL}" "${CREATOR_EMAIL}" "${EDITOR_EMAIL}"; do
+            if [ -n "${e}" ]; then echo "::add-mask::${e}"; fi
+          done
+
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens (received $(printf '%q' "${IN_ORG_SLUG}"))."
+            exit 1
+          fi
+          i=0
           for e in "${OWNER_EMAIL}" "${CREATOR_EMAIL}"; do
+            i=$((i + 1))
             if ! printf '%s' "${e}" | grep -Eq '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'; then
-              echo "::error::owner_email and creator_email must be email addresses."
+              echo "::error::input $([ "$i" = 1 ] && echo owner_email || echo creator_email) is not an email address ($(printf '%s' "${e}" | wc -c | tr -d ' ') bytes after trimming; the value is not shown)."
               exit 1
             fi
           done
           if [ -n "${EDITOR_EMAIL}" ] && ! printf '%s' "${EDITOR_EMAIL}" | grep -Eq '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'; then
-            echo "::error::editor_email must be an email address when given."
+            echo "::error::editor_email is not an email address when given (the value is not shown)."
+            exit 1
+          fi
+          if [ -z "${CREATOR_NAME}" ] || ! single_line "${CREATOR_NAME}"; then
+            echo "::error::creator_name must be one non-empty line."
             exit 1
           fi
           case "${APP_URL}" in
             https://*|http://*) ;;
-            *) echo "::error::app_url must be an absolute http(s) URL."; exit 1 ;;
+            *) echo "::error::app_url must be an absolute http(s) URL (received $(printf '%q' "${IN_APP_URL}"))."; exit 1 ;;
           esac
-          echo "Validated organization ${ORG_SLUG}."
+          for v in "${ORG_SLUG}" "${OWNER_EMAIL}" "${CREATOR_EMAIL}" "${EDITOR_EMAIL}" "${APP_URL}"; do
+            single_line "${v}" || { echo "::error::an input contains a line break."; exit 1; }
+          done
+
+          {
+            printf 'ORG_SLUG=%s\n' "${ORG_SLUG}"
+            printf 'OWNER_EMAIL=%s\n' "${OWNER_EMAIL}"
+            printf 'CREATOR_EMAIL=%s\n' "${CREATOR_EMAIL}"
+            printf 'CREATOR_NAME=%s\n' "${CREATOR_NAME}"
+            printf 'EDITOR_EMAIL=%s\n' "${EDITOR_EMAIL}"
+            printf 'APP_URL=%s\n' "${APP_URL}"
+            printf 'SEED_INPUTS_OK=true\n'
+          } >> "$GITHUB_ENV"
+          echo "Validated organization ${ORG_SLUG} (inputs trimmed; addresses masked)."
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -183,21 +264,18 @@ jobs:
           echo "Loaded staging DATABASE_URL into the job environment (value hidden)."
 
       - name: Seed the Creator Hub demo (staging)
+        # ORG_SLUG, OWNER_EMAIL, CREATOR_EMAIL, CREATOR_NAME, EDITOR_EMAIL and APP_URL are the
+        # trimmed values the validation step put in the job environment (addresses masked there).
         env:
           # The human assertion the script requires alongside the host check.
           LOOP_SEED_TARGET: staging
           # Where the one-time accept link is written; the summary step reads and deletes it.
           INVITE_OUT: ${{ runner.temp }}/creator-invite.txt
-          ORG_SLUG: ${{ inputs.organization_slug }}
-          OWNER_EMAIL: ${{ inputs.owner_email }}
-          CREATOR_EMAIL: ${{ inputs.creator_email }}
-          CREATOR_NAME: ${{ inputs.creator_name }}
-          EDITOR_EMAIL: ${{ inputs.editor_email }}
-          APP_URL: ${{ inputs.app_url }}
           DRY_RUN: ${{ inputs.dry_run }}
         shell: bash
         run: |
           set -euo pipefail
+          [ "${SEED_INPUTS_OK:-}" = "true" ] || { echo "::error::inputs were not validated"; exit 1; }
           set -- --organization "${ORG_SLUG}" \
                  --owner-email "${OWNER_EMAIL}" \
                  --creator-email "${CREATOR_EMAIL}" \
@@ -211,19 +289,20 @@ jobs:
       - name: Publish the invitation link to the job summary (never the log)
         if: always()
         env:
-          # The same path the seed step wrote to.
+          # The same path the seed step wrote to. The organization, creator name and app URL come
+          # from the job environment (validated, trimmed); no email address is written here.
           INVITE_OUT: ${{ runner.temp }}/creator-invite.txt
-          ORG_SLUG: ${{ inputs.organization_slug }}
-          OWNER_EMAIL: ${{ inputs.owner_email }}
-          CREATOR_EMAIL: ${{ inputs.creator_email }}
-          APP_URL: ${{ inputs.app_url }}
         shell: bash
         run: |
           set -euo pipefail
           {
             echo "### Creator Hub demo seed (staging)"
             echo ""
-            echo "- Organization \`${ORG_SLUG}\` · recorded by \`${OWNER_EMAIL}\` · creator \`${CREATOR_EMAIL}\`"
+            if [ "${SEED_INPUTS_OK:-}" != "true" ]; then
+              echo "- The run stopped at confirmation or input validation and seeded nothing -- read the job log."
+            else
+              echo "- Organization \`${ORG_SLUG}\` · creator \`${CREATOR_NAME}\`"
+            fi
             if [ -s "${INVITE_OUT}" ]; then
               echo ""
               echo "> **One-time invitation link, valid 14 days.** Anyone who can read this run can read it: send it to the creator now and have it accepted promptly. Rerunning the seed while it is pending replaces it with a new link."
@@ -233,7 +312,7 @@ jobs:
               echo "- No new invitation: the creator login already exists and is ACTIVE (sign in with the existing password), this was a dry run, or the seed stopped before issuing one -- read the job log."
             fi
             echo ""
-            echo "- Creator's first path after signing in: \`${APP_URL}/app/creator/content\`"
+            echo "- Creator's first path after signing in: \`${APP_URL:-https://staging--emgloop2.netlify.app}/app/creator/content\`"
             echo "- EMG side: Matt and Charlie sign in with their existing logins and open **Creators** in the admin navigation."
             echo "- Everything marked \`SEEDED_DEMO\` is demo evidence, not platform data."
           } >> "$GITHUB_STEP_SUMMARY"
