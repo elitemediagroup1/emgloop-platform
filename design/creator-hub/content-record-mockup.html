@@ -1,0 +1,767 @@
+<title>Content Record Mockup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* ---------- document chrome (theme-aware) ---------- */
+:root{
+  --d-canvas:#f5f6f6; --d-surface:#ffffff; --d-sunken:#eef1f2; --d-line:#dce3e6; --d-line-strong:#c7d1d6;
+  --d-ink:#0f1c2a; --d-body:#25333f; --d-muted:#5a6a76; --d-faint:#7a8894;
+  --d-accent:#1d6e85; --d-accent-soft:#e3eff2; --d-good:#1d7449; --d-good-soft:#e1f1e8; --d-warn:#8a5a00; --d-warn-soft:#f8efdc; --d-crit:#ad2a22; --d-crit-soft:#fae7e5;
+  --d-font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --d-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --d-canvas:#0b1521; --d-surface:#132133; --d-sunken:#1a2c42; --d-line:#27394f; --d-line-strong:#3a4f68;
+    --d-ink:#e8eef4; --d-body:#dbe4ec; --d-muted:#aab7c3; --d-faint:#8395a4;
+    --d-accent:#9fd6e3; --d-accent-soft:#163241; --d-good:#6fcf97; --d-good-soft:#153123; --d-warn:#f0b35a; --d-warn-soft:#3a2a10; --d-crit:#f28b82; --d-crit-soft:#3e1a18;
+  }
+}
+:root[data-theme="dark"]{
+  --d-canvas:#0b1521; --d-surface:#132133; --d-sunken:#1a2c42; --d-line:#27394f; --d-line-strong:#3a4f68;
+  --d-ink:#e8eef4; --d-body:#dbe4ec; --d-muted:#aab7c3; --d-faint:#8395a4;
+  --d-accent:#9fd6e3; --d-accent-soft:#163241; --d-good:#6fcf97; --d-good-soft:#153123; --d-warn:#f0b35a; --d-warn-soft:#3a2a10; --d-crit:#f28b82; --d-crit-soft:#3e1a18;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--d-canvas);color:var(--d-body);font-family:var(--d-font);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 80px;padding-inline:20px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--d-faint)}
+h1{font-size:clamp(30px,5vw,42px);line-height:1.06;letter-spacing:-.02em;font-weight:800;color:var(--d-ink);margin:6px 0 10px;text-wrap:balance}
+h2{font-size:23px;letter-spacing:-.015em;font-weight:750;color:var(--d-ink);margin:0 0 6px;text-wrap:balance}
+h3{font-size:16px;font-weight:700;color:var(--d-ink);margin:22px 0 8px}
+p{margin:0 0 12px;max-width:74ch}
+.lede{font-size:17px;color:var(--d-muted);max-width:70ch}
+section{margin-top:48px;scroll-margin-top:12px}
+section>header{margin-bottom:14px}
+.note{border-left:3px solid var(--d-accent);background:var(--d-accent-soft);padding:10px 14px;border-radius:0 10px 10px 0;font-size:14px;margin:12px 0;color:var(--d-body)}
+.note.warn{border-left-color:var(--d-warn);background:var(--d-warn-soft)}
+.tbl{overflow-x:auto;border:1px solid var(--d-line);border-radius:14px;background:var(--d-surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--d-line)}
+th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-faint);font-weight:700;background:var(--d-sunken)}
+tr:last-child td{border-bottom:0}
+code{font-family:var(--d-mono);font-size:12.5px;background:var(--d-sunken);padding:1px 5px;border-radius:5px;color:var(--d-ink)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.card{background:var(--d-surface);border:1px solid var(--d-line);border-radius:14px;padding:14px 16px}
+.card h4{margin:0 0 6px;font-size:14px;color:var(--d-ink)}
+.card p,.card li{font-size:14px;color:var(--d-muted)}
+.card ul{margin:0;padding-left:18px}
+ol.callouts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+ol.callouts li{display:grid;grid-template-columns:26px 1fr;gap:10px;font-size:14px;color:var(--d-body)}
+ol.callouts b{color:var(--d-ink)}
+.num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--d-ink);color:var(--d-canvas);font-size:11.5px;font-weight:800}
+.frames{display:flex;gap:18px;overflow-x:auto;padding:6px 4px 14px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.frames>*{scroll-snap-align:start}
+.hint{font-size:12.5px;color:var(--d-faint);margin:0 0 8px}
+.anat{display:grid;grid-template-columns:360px minmax(0,1fr);gap:26px;align-items:start}
+@media (max-width:820px){.anat{grid-template-columns:1fr}}
+.desk-wrap{overflow-x:auto;border:1px solid var(--d-line-strong);border-radius:16px;background:var(--d-surface)}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--d-good-soft);color:var(--d-good)}.pill.warn{background:var(--d-warn-soft);color:var(--d-warn)}.pill.neutral{background:var(--d-sunken);color:var(--d-muted)}.pill.accent{background:var(--d-accent-soft);color:var(--d-accent)}
+:focus-visible{outline:2px solid var(--d-accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+
+/* ---------- Loop frames: the product's own light system, painted explicitly.
+   Loop has one visual system and no dark theme (loop-os.css), so a frame stays
+   light whatever the viewer's theme. Values copied from apps/web/src/app/loop-os.css. ---------- */
+.lf{
+  --loop-canvas:#f5f6f6; --loop-surface:#ffffff; --loop-sunken:#eef1f2; --loop-hover:#f1f4f5;
+  --loop-line:#dce3e6; --loop-line-strong:#c7d1d6;
+  --loop-ink:#0f1c2a; --loop-body:#25333f; --loop-muted:#5a6a76; --loop-faint:#5f6d78;
+  --loop-primary:#0e1b2c; --loop-primary-hover:#1c2d42; --loop-on-primary:#ffffff;
+  --loop-accent:#1d6e85; --loop-accent-strong:#155a6d; --loop-accent-soft:#e3eff2; --loop-focus:#1d6e85;
+  --loop-good:#1d7449; --loop-good-soft:#e1f1e8; --loop-warn:#8a5a00; --loop-warn-soft:#f8efdc; --loop-crit:#ad2a22; --loop-crit-soft:#fae7e5; --loop-neutral:#53616c; --loop-neutral-soft:#eaeef0;
+  --loop-avatar:#dbe8ec; --loop-avatar-ink:#1c5a6f; --loop-company:#e6e9f2; --loop-company-ink:#2c3d63;
+  --loop-rail:#0e1b2c; --loop-rail-2:#1a2c42; --loop-rail-line:rgba(255,255,255,.09); --loop-rail-text:#c9d3dc; --loop-rail-muted:#8fa0ae; --loop-rail-active:#9fd6e3;
+  --loop-radius:14px; --loop-radius-sm:10px;
+  color-scheme:light; font-family:var(--d-font); color:var(--loop-body); font-size:14px; line-height:1.5; text-align:left;
+}
+.lf *{box-sizing:border-box}
+.lf a{color:inherit;text-decoration:none}
+.lf .loop-trail{margin:0 0 6px;font-size:11.5px;font-weight:650;letter-spacing:.14em;text-transform:uppercase;color:var(--loop-muted);display:flex;flex-wrap:wrap;gap:6px}
+.lf .loop-trail__sep{opacity:.55}
+.lf .loop-title{margin:0;font-size:26px;line-height:1.12;font-weight:750;letter-spacing:-.02em;color:var(--loop-ink);text-wrap:balance}
+.lf.desk .loop-title{font-size:30px}
+.lf .loop-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.lf .loop-head__text{min-width:0;flex:1 1 300px}
+.lf .loop-head__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lf .loop-pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:650;line-height:1.3;white-space:nowrap}
+.lf .loop-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 7px}
+.lf .loop-pill--good{background:var(--loop-good-soft);color:var(--loop-good)}
+.lf .loop-pill--attention{background:var(--loop-warn-soft);color:var(--loop-warn)}
+.lf .loop-pill--critical{background:var(--loop-crit-soft);color:var(--loop-crit)}
+.lf .loop-pill--neutral{background:var(--loop-neutral-soft);color:var(--loop-neutral)}
+.lf .loop-pill--info{background:var(--loop-accent-soft);color:var(--loop-accent)}
+.lf .loop-pill--sm{font-size:11px;padding:2px 8px}
+.lf .loop-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:8px 14px;border-radius:var(--loop-radius-sm);border:1px solid var(--loop-line-strong);background:var(--loop-surface);color:var(--loop-ink);font:inherit;font-size:13.5px;font-weight:650;white-space:nowrap;cursor:pointer}
+.lf .loop-btn--primary{background:var(--loop-primary);border-color:var(--loop-primary);color:var(--loop-on-primary)}
+.lf .loop-btn--quiet{border-color:transparent;background:transparent}
+.lf .loop-btn[aria-disabled="true"]{background:var(--loop-sunken);border-color:var(--loop-line);color:var(--loop-faint)}
+.lf .loop-btnrow{display:flex;flex-wrap:wrap;gap:8px}
+.lf .loop-link{color:var(--loop-accent);font-weight:650;font-size:13.5px}
+.lf .loop-panel{background:var(--loop-surface);border:1px solid var(--loop-line);border-radius:var(--loop-radius);padding:16px;position:relative}
+.lf.desk .loop-panel{padding:20px}
+.lf .loop-panel__title{margin:0 0 10px;font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--loop-muted)}
+.lf .loop-facts{display:grid;grid-template-columns:minmax(100px,38%) 1fr;gap:9px 12px;margin:0}
+.lf .loop-facts dt{font-size:12.5px;color:var(--loop-muted)}
+.lf .loop-facts dd{margin:0;font-size:13.5px;color:var(--loop-ink);font-weight:600;min-width:0;overflow-wrap:anywhere}
+.lf .loop-facts dd.is-unknown{color:var(--loop-faint);font-weight:500}
+.lf .loop-facts dd.q{font-weight:500}
+.lf .loop-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--loop-line);border:1px solid var(--loop-line);border-radius:var(--loop-radius);overflow:hidden}
+.lf .loop-strip__item{background:var(--loop-surface);padding:12px 14px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.lf .loop-strip__label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--loop-muted)}
+.lf .loop-strip__value{font-size:17px;font-weight:700;color:var(--loop-ink);font-variant-numeric:tabular-nums}
+.lf .loop-state{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--loop-radius);border:1px dashed var(--loop-line-strong);background:var(--loop-surface)}
+.lf .loop-state__mark{flex:0 0 30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;background:var(--loop-neutral-soft);color:var(--loop-neutral);font-size:13px}
+.lf .loop-state--attention .loop-state__mark{background:var(--loop-warn-soft);color:var(--loop-warn)}
+.lf .loop-state__title{margin:0 0 2px;font-size:14px;font-weight:700;color:var(--loop-ink)}
+.lf .loop-state__body{margin:0;color:var(--loop-muted);font-size:13px}
+.lf .loop-record{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:22px;align-items:start}
+.lf .loop-record__main,.lf .loop-record__rail{display:flex;flex-direction:column;gap:16px;min-width:0}
+.lf .loop-activity{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.lf .loop-act{border-top:1px solid var(--loop-line);display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:10px 2px}
+.lf .loop-act:first-child{border-top:none}
+.lf .loop-act__truth{font-size:10px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:6px;background:var(--loop-neutral-soft);color:var(--loop-neutral);white-space:nowrap}
+.lf .loop-act__truth--communication{background:var(--loop-accent-soft);color:var(--loop-accent)}
+.lf .loop-act__truth--state_change,.lf .loop-act__truth--decision{background:var(--loop-company);color:var(--loop-company-ink)}
+.lf .loop-act__truth--finding,.lf .loop-act__truth--recommendation{background:var(--loop-surface);color:var(--loop-ink);border:1px dashed var(--loop-line-strong);font-style:italic}
+.lf .loop-act__truth--work{background:var(--loop-good-soft);color:var(--loop-good)}
+.lf .loop-act__truth--external{background:var(--loop-warn-soft);color:var(--loop-warn)}
+.lf .loop-act__story{color:var(--loop-ink);font-weight:600;font-size:13px;overflow-wrap:anywhere}
+.lf .loop-act__sub{display:block;font-weight:500;color:var(--loop-muted);font-size:12.5px;margin-top:2px}
+.lf .loop-act__when{font-size:12px;color:var(--loop-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.lf .loop-act--hi{background:var(--loop-warn-soft);border-radius:10px;padding-left:8px;padding-right:8px;margin:4px -6px}
+.lf .loop-drawer{border:1px solid var(--loop-line);border-radius:var(--loop-radius-sm);background:var(--loop-surface)}
+.lf .loop-drawer__sum{padding:10px 12px;font-weight:650;color:var(--loop-ink);display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13.5px}
+.lf .loop-drawer__sum::after{content:'+';font-size:18px;color:var(--loop-muted)}
+.lf .loop-avatar{width:34px;height:34px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:var(--loop-avatar);color:var(--loop-avatar-ink);font-weight:750;font-size:12px}
+/* domain components proposed in the design pass (creator UI only) */
+.lf .media{position:relative;border-radius:var(--loop-radius);overflow:hidden;background:linear-gradient(165deg,#1b2a3a 0%,#2c3f52 55%,#5f6d78 100%);color:#fff;aspect-ratio:4/5;max-height:340px;display:flex;flex-direction:column;justify-content:flex-end;padding:12px}
+.lf.desk .media{aspect-ratio:9/12;max-height:420px}
+.lf .media__seg{position:absolute;top:10px;left:10px;display:inline-flex;background:rgba(15,28,42,.55);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:3px;gap:2px;backdrop-filter:blur(6px)}
+.lf .media__seg span{padding:4px 9px;border-radius:999px;font-size:11.5px;font-weight:650;color:#dfe7ee}
+.lf .media__seg span.on{background:#fff;color:var(--loop-ink)}
+.lf .media__badge{position:absolute;top:12px;right:12px;font-size:10.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.92);color:var(--loop-ink)}
+.lf .media__play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.92);color:var(--loop-ink);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800}
+.lf .media__bar{height:4px;border-radius:4px;background:rgba(255,255,255,.28);position:relative;margin-top:6px}
+.lf .media__bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:#fff}
+.lf .media__time{display:flex;justify-content:space-between;font-size:11.5px;font-variant-numeric:tabular-nums;color:#e6edf3}
+.lf .media__hint{font-size:11.5px;color:#cfd9e2}
+.lf .media__scene{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#cfd9e2;margin-bottom:4px}
+.lf .vstrip{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.lf .vchip{flex:0 0 auto;display:flex;flex-direction:column;gap:4px;width:84px}
+.lf .vchip__thumb{height:52px;border-radius:9px;background:linear-gradient(160deg,#2c3f52,#5f6d78);border:2px solid transparent;position:relative}
+.lf .vchip.on .vchip__thumb{border-color:var(--loop-accent)}
+.lf .vchip.ghost .vchip__thumb{background:var(--loop-sunken);border:1.5px dashed var(--loop-line-strong)}
+.lf .vchip__thumb b{position:absolute;right:4px;bottom:4px;font-size:9.5px;padding:1px 5px;border-radius:5px;background:rgba(255,255,255,.92);color:var(--loop-ink);font-weight:750}
+.lf .vchip__l{font-size:11.5px;font-weight:650;color:var(--loop-ink);line-height:1.2}
+.lf .vchip__m{font-size:10.5px;color:var(--loop-muted);line-height:1.2}
+.lf .req{list-style:none;margin:10px 0 0;padding:10px 0 0;border-top:1px solid var(--loop-line);display:flex;flex-direction:column;gap:5px}
+.lf .req__t{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--loop-muted);margin-bottom:2px}
+.lf .req li{display:grid;grid-template-columns:18px 1fr;gap:8px;font-size:12.5px;color:var(--loop-body);align-items:baseline}
+.lf .req li.req__t{display:block}
+.lf .req i{font-style:normal;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--loop-line-strong);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--loop-good)}
+.lf .req li.done i{background:var(--loop-good-soft);border-color:var(--loop-good)}
+.lf .req li.done{color:var(--loop-ink)}
+.lf .req li small{color:var(--loop-muted)}
+.lf .rung{display:flex;flex-direction:column;gap:4px;padding:9px 0;border-top:1px solid var(--loop-line)}
+.lf .rung:first-child,.lf .loop-panel__title + .rung,.lf p + .rung{border-top:none;padding-top:0}
+.lf .rung__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lf .rung__text{margin:0;font-size:13.5px;color:var(--loop-ink);font-weight:600}
+.lf .rung__meta{margin:0;font-size:12px;color:var(--loop-muted)}
+.lf .rung--held{border-radius:9px;border:1px dashed var(--loop-line-strong);padding:9px 10px;margin-top:6px}
+.lf .rung--held .rung__text{font-weight:500;color:var(--loop-body)}
+.lf .rung__row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.lf .t{font-size:10px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:6px;white-space:nowrap}
+.lf .t--fact{background:var(--loop-neutral-soft);color:var(--loop-neutral)}
+.lf .t--obs{background:var(--loop-accent-soft);color:var(--loop-accent)}
+.lf .t--int{background:var(--loop-surface);color:var(--loop-ink);border:1px dashed var(--loop-line-strong);font-style:italic}
+.lf .t--rec{background:var(--loop-company);color:var(--loop-company-ink)}
+.lf .t--held{background:var(--loop-warn-soft);color:var(--loop-warn)}
+.lf .spark{width:100%;height:56px;display:block}
+.lf .callout{position:absolute;top:-9px;left:-9px;z-index:3;width:22px;height:22px;border-radius:50%;background:var(--loop-ink);color:#fff;font-size:11.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;border:2px solid #fff}
+.lf .rel{position:relative}
+.lf .jump{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:650;color:var(--loop-accent);margin-top:6px}
+/* phone shell */
+.ph{flex:0 0 340px;width:340px;border:1px solid var(--d-line-strong);border-radius:30px;background:var(--loop-canvas);overflow:hidden;box-shadow:0 18px 48px -24px rgba(15,28,42,.35)}
+.ph__cap{font-family:var(--d-font);font-size:12.5px;font-weight:700;color:var(--d-ink);padding:10px 14px 0;text-align:center}
+.ph__cap small{display:block;font-weight:500;color:var(--d-faint);font-size:11.5px}
+.ph__frame{margin:8px 8px 8px;border-radius:24px;overflow:hidden;background:var(--loop-canvas);border:1px solid var(--loop-line)}
+.ph__status{display:flex;justify-content:space-between;font-size:11px;color:var(--loop-muted);padding:6px 16px 0;background:var(--loop-surface)}
+.ph__scroll{height:700px;overflow-y:auto;position:relative;background:var(--loop-canvas)}
+.lf .loop-mhead{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 14px;background:var(--loop-surface);border-bottom:1px solid var(--loop-line)}
+.lf .loop-sb__menubtn{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:5px 11px;font-size:13px;font-weight:650;color:var(--loop-ink);background:var(--loop-surface);border:1px solid var(--loop-line-strong);border-radius:var(--loop-radius-sm)}
+.lf .loop-sb__menubtn::before{content:'\2261';font-size:18px;line-height:1}
+.lf .wordmark{font-weight:800;letter-spacing:-.02em;color:var(--loop-ink);font-size:16px}
+.lf .loop-main{padding:16px 14px 14px;display:flex;flex-direction:column;gap:12px}
+.lf .titlerow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--loop-muted)}
+.lf .actbar{position:sticky;bottom:60px;z-index:6;display:flex;gap:8px;padding:10px 12px;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-top:1px solid var(--loop-line)}
+.lf .actbar .loop-btn{flex:1}
+.lf .actbar__status{flex:1;display:flex;flex-direction:column;justify-content:center;font-size:12.5px;color:var(--loop-body);min-width:0}
+.lf .actbar__status b{color:var(--loop-ink);font-size:13px}
+.lf .loop-areabar{position:sticky;bottom:0;z-index:7;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--loop-surface);border-top:1px solid var(--loop-line);padding:6px 4px 10px}
+.lf .loop-areabar__link{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 2px;font-size:11px;font-weight:500;color:var(--loop-muted)}
+.lf .loop-areabar__ico{width:18px;height:18px;border-radius:5px;border:1.5px solid currentColor;opacity:.75}
+.lf .loop-areabar__link.is-active{color:var(--loop-accent);font-weight:700}
+.lf .loop-areabar__link.is-active .loop-areabar__ico{opacity:1;background:var(--loop-accent-soft)}
+.lf .sheet{position:absolute;inset:0;z-index:9;background:var(--loop-surface);display:flex;flex-direction:column}
+.lf .sheet__sum{position:sticky;top:0;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--loop-line);font-weight:700;color:var(--loop-ink);background:var(--loop-surface)}
+.lf .sheet__sum span{font-size:13px;font-weight:650;color:var(--loop-accent)}
+.lf .sheet__body{padding:14px 16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.lf .ev{border:1px solid var(--loop-line);border-radius:var(--loop-radius-sm);overflow:hidden}
+.lf .ev__row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 12px;border-top:1px solid var(--loop-line);font-size:12.5px}
+.lf .ev__row:first-child{border-top:none}
+.lf .ev__row b{display:block;color:var(--loop-ink);font-size:13px}
+.lf .ev__row small{display:block;color:var(--loop-muted)}
+.lf .ev__val{font-weight:700;color:var(--loop-ink);font-variant-numeric:tabular-nums;text-align:right}
+.lf .ev__standing{padding:7px 12px;background:var(--loop-sunken);font-size:12px;color:var(--loop-body);border-top:1px solid var(--loop-line)}
+/* mini frames (Raw, two contexts) */
+.mini{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.mini .lf{border:1px solid var(--d-line-strong);border-radius:18px;padding:14px;background:var(--loop-canvas);display:flex;flex-direction:column;gap:10px}
+.mini .lf .actbar{position:static;border-radius:10px;border:1px solid var(--loop-line)}
+/* desktop shell */
+.desk{min-width:1080px;display:grid;grid-template-columns:232px 1fr;background:var(--loop-canvas);font-size:13.5px}
+.desk .loop-sidebar{background:var(--loop-rail);color:var(--loop-rail-text);display:flex;flex-direction:column}
+.desk .loop-sb__brand{display:flex;align-items:center;gap:10px;padding:18px 18px 14px;border-bottom:1px solid var(--loop-rail-line);color:#fff;font-weight:800;letter-spacing:-.02em}
+.desk .loop-sb__os{font-size:9px;letter-spacing:.16em;font-weight:700;color:var(--loop-rail-active);border:1px solid var(--loop-rail-line);border-radius:6px;padding:2px 6px}
+.desk .loop-sb__group{padding:12px 12px 4px}
+.desk .loop-sb__grouplabel{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--loop-rail-muted);font-weight:700;padding:0 10px 8px}
+.desk .loop-sb__link{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:10px;color:var(--loop-rail-text);font-size:13px;font-weight:500;position:relative}
+.desk .loop-sb__link.is-active{background:var(--loop-rail-2);color:#fff;font-weight:650}
+.desk .loop-sb__link.is-active::before{content:'';position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--loop-rail-active)}
+.desk .loop-sb__ico{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--loop-rail-muted);flex:0 0 16px}
+.desk .loop-sb__link.is-active .loop-sb__ico{border-color:var(--loop-rail-active)}
+.desk .loop-sb__foot{margin-top:auto;border-top:1px solid var(--loop-rail-line);padding:14px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:#fff}
+.desk .loop-sb__foot small{display:block;color:var(--loop-rail-muted);font-size:11px}
+.desk .loop-content{display:flex;flex-direction:column;min-width:0}
+.desk .loop-appbar{height:56px;display:flex;align-items:center;gap:16px;padding:0 26px;border-bottom:1px solid var(--loop-line);background:rgba(255,255,255,.92)}
+.desk .loop-crumbs{font-size:13px;color:var(--loop-muted);display:flex;gap:8px}
+.desk .loop-crumbs b{color:var(--loop-ink);font-weight:650}
+.desk .loop-crumbs .sep{color:var(--loop-faint)}
+.desk .loop-iconbtn{margin-left:auto;width:34px;height:34px;border-radius:10px;border:1px solid var(--loop-line-strong);background:var(--loop-surface);position:relative}
+.desk .loop-iconbtn .badge{position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--loop-crit);border:2px solid var(--loop-surface)}
+.desk .loop-main{padding:26px 28px 40px;display:flex;flex-direction:column;gap:20px}
+.desk .compare{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.desk .compare .media{aspect-ratio:9/13;max-height:380px}
+.desk .scrub{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--loop-muted);font-variant-numeric:tabular-nums}
+.desk .scrub .media__bar{flex:1;margin:0;background:var(--loop-line)}
+.desk .scrub .media__bar i{background:var(--loop-accent)}
+.desk .stages{display:flex;flex-direction:column;gap:8px}
+.desk .stage{display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--loop-line);border-radius:12px;background:var(--loop-surface)}
+.desk .stage.on{border-color:var(--loop-accent);background:var(--loop-accent-soft)}
+.desk .stage__n{width:26px;height:26px;border-radius:50%;background:var(--loop-neutral-soft);color:var(--loop-neutral);font-weight:800;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.desk .stage.on .stage__n{background:var(--loop-accent);color:#fff}
+.desk .stage__t{font-weight:700;color:var(--loop-ink);font-size:13.5px}
+.desk .stage__d{font-size:12.5px;color:var(--loop-muted)}
+.desk .textarea{border:1px solid var(--loop-line-strong);border-radius:10px;background:var(--loop-surface);padding:10px 12px;min-height:56px;color:var(--loop-faint);font-size:13.5px}
+.desk .toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--loop-body)}
+.desk .toggle i{width:30px;height:18px;border-radius:999px;background:var(--loop-line-strong);position:relative;display:inline-block}
+.desk .toggle i::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff}
+.desk .toggle.on i{background:var(--loop-accent)}.desk .toggle.on i::after{left:14px}
+.desk .seg{display:inline-flex;border:1px solid var(--loop-line-strong);border-radius:10px;overflow:hidden;font-size:12.5px}
+.desk .seg span{padding:6px 10px;color:var(--loop-body)}
+.desk .seg span.on{background:var(--loop-accent-soft);color:var(--loop-ink);font-weight:650}
+.desk .field{display:flex;flex-direction:column;gap:5px;font-size:12.5px}
+.desk .field label{font-weight:650;color:var(--loop-body)}
+</style>
+
+<div class="wrap">
+<div class="eyebrow">Loop · Creator Hub · Mockup 1 of 10 · revision 2 · 2026-09-22</div>
+<h1>The Content Record, through its whole life</h1>
+<p class="lede">Mockup #1 tests the claim at the centre of the Creator Hub design: that one Content record — a creator's piece of work carried from raw upload to published performance — can be the place Home, Tasks, edit review, approvals, publishing and intelligence all point at. Revision 2 folds in the product review: approvals with provenance that are separate from deliverable completion, brand feedback relayed through EMG, a second production cycle on the same lineage, contextual publishing, a stable region order, and a per-rung epistemic ladder — all on the same page, with no new screens.</p>
+<div class="note">Design only. All names, dates and numbers are examples for judging the design. Content, Version, Deliverable, Performance and the other product nouns are the approved <em>product</em> vocabulary; their authoritative placement is decided in the architecture pass. The record composes campaign, opportunity, work, deliverable, performance and intelligence truth — it owns none of them.</div>
+
+<!-- ===================================================== -->
+<section id="decisions">
+<header><div class="eyebrow">0 · Revision 2</div><h2>Where each product decision landed</h2></header>
+<div class="tbl"><table>
+<tr><th>Decision</th><th>How the record expresses it</th><th>See</th></tr>
+<tr><td>1 · Creator approval ≠ deliverable fulfilment</td><td>The deliverable line moves through <i>awaiting content → in production → awaiting your approval → Content approved → Final approved · publish by Fri → Complete</i>. “Complete” appears only when the obligation is satisfied (here: brand-approved and published by Fri 25 Sep), never when a version is approved.</td><td>States 5–8, matrix</td></tr>
+<tr><td>2 · Approval has provenance</td><td>A <b>Needed for Reel 1 of 2</b> checklist under “Where this fits”, sourced from the campaign/deliverable, lists each requirement with who satisfied it, for which version, when. The header pill says <i>Approved by you</i> until every requirement is met, then <i>Final</i>. No universal “Approved”.</td><td>States 5–8, callout 4</td></tr>
+<tr><td>3 · Brand/agency feedback via EMG</td><td>State 6: <i>Changes requested · Brand feedback via EMG</i>. Production shows <i>From: Kona (brand) · relayed by Priya, EMG · refers to v2</i>. History keeps originator and Loop actor as two facts and links the instruction to the version that answered it.</td><td>State 6, history, EMG view</td></tr>
+<tr><td>4 · New production after completion</td><td>The brand feedback starts <b>Production 2</b> on the same Content and lineage; Production 1 stays completed with its turnaround intact. “Request an edit” on a published piece says so.</td><td>States 6–8, history</td></tr>
+<tr><td>5 · Raw publishing is contextual</td><td>Campaign content whose deliverable requires approvals offers no publish action while raw; independent content offers <i>Publish as-is</i>. The record reads the requirement, it does not invent it.</td><td>“Raw, two contexts”</td></tr>
+<tr><td>6 · Stable region order</td><td>Regions never move. When published, the header carries <i>Published · Instagram · 18.4K views · 61% watched to end</i> and a <i>Jump to performance ↓</i> link.</td><td>State 8</td></tr>
+<tr><td>7 · Epistemic ladder</td><td>“What Loop noticed” and the evidence sheet tag every line as <b>Fact</b> (source, read time), <b>Observation</b> (read/derived by Loop, confidence), <b>Interpretation</b> (inferred, sample, standing) or <b>Proposed</b> (recommendation). The blanket “not verified” label is gone; “Not yet” remains as a withheld interpretation.</td><td>All states, evidence sheet</td></tr>
+<tr><td>8 · Comparison UX</td><td>Kept: same moment, different cut; shared playhead on the phone; side-by-side with one scrubber and <i>Add a note at 0:04</i> on desktop.</td><td>Anatomy, desktop</td></tr>
+<tr><td>9 · Language</td><td>“Production” and “What Loop noticed” throughout. Productions are numbered so future kinds of production (thumbnails, cutdowns, localisation) fit the same panel.</td><td>Everywhere</td></tr>
+<tr><td>10 · Boundary unchanged</td><td>Every projected panel names its source in its own words (campaign, production, Loop's read, Instagram). Nothing in the record is presented as the record's own truth except the version lineage and the creator's name for it.</td><td>§7 nouns table</td></tr>
+</table></div>
+</section>
+
+<!-- ===================================================== -->
+<section id="anatomy">
+<header><div class="eyebrow">1 · Anatomy</div><h2>One record, eight regions, in the order a creator needs them — always</h2></header>
+<p>The record is one page. On a phone it reads top to bottom; every region is a Loop <code>Panel</code> with an anchor, so a task or notification can land on the right one. Shown in the <b>Creator Review</b> state, because that is where the record does the most work.</p>
+<div class="anat">
+  <div class="ph"><div class="ph__cap">Phone · Creator Review · regions numbered</div><div class="ph__frame lf">
+    <div class="ph__status"><span>9:41</span><span>●●●</span></div>
+    <div class="ph__scroll">
+      <div class="loop-mhead rel"><span class="callout">1</span><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+      <div class="loop-main">
+        <div class="rel"><span class="callout">2</span>
+          <p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p>
+          <h1 class="loop-title">Kona unboxing reel</h1>
+          <div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--attention">Ready for your review</span><span>Edit v1 · returned Tue 16:02</span></div>
+        </div>
+        <div class="media rel"><span class="callout">3</span>
+          <div class="media__seg"><span>Original</span><span class="on">v1</span></div>
+          <span class="media__badge">0:41</span>
+          <div class="media__play">▶</div>
+          <div class="media__scene">Kona enters · 0:04</div>
+          <div class="media__bar"><i style="width:12%"></i></div>
+          <div class="media__time"><span>0:04</span><span>0:41</span></div>
+          <div class="media__hint">Switch versions to compare this moment · Add a note at 0:04</div>
+        </div>
+        <section class="loop-panel rel"><span class="callout">4</span><h2 class="loop-panel__title">Where this fits</h2>
+          <dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video <span class="loop-pill loop-pill--good loop-pill--sm">Active</span></dd><dt>Deliverable</dt><dd>Reel 1 of 2 · awaiting your approval</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+          <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li><i></i>Your approval</li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul>
+        </section>
+        <section class="loop-panel rel"><span class="callout">5</span><h2 class="loop-panel__title">Production</h2>
+          <dl class="loop-facts"><dt>Production 1</dt><dd>Your review</dd><dt>Returned by</dt><dd>Sam · Tue 16:02 · 4 h early</dd><dt>Sam's note</dt><dd class="q">“Cut the logo intro; Kona at 0:04. Kept your 0:11 beat.”</dd><dt>You asked for</dt><dd>Wed 15:00</dd></dl>
+        </section>
+        <section class="loop-panel rel"><span class="callout">6</span><h2 class="loop-panel__title">Versions</h2>
+          <div class="vstrip">
+            <div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div>
+            <div class="vchip on"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue 16:02</span></div>
+          </div>
+          <div class="loop-drawer" style="margin-top:10px"><div class="loop-drawer__sum">Full history · 4 events</div></div>
+        </section>
+        <section class="loop-panel rel"><span class="callout">7</span><h2 class="loop-panel__title">What Loop noticed</h2>
+          <div class="rung"><div class="rung__head"><span class="t t--fact">Fact</span><span class="rung__meta">from the file</span></div><p class="rung__text">v1 is 0:41 (Original 0:47) · 9:16 vertical</p></div>
+          <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v1 · high confidence</span></div><p class="rung__text">Kona first appears at 0:04 (was 0:11) — earlier than in 10 of your last 12 videos.</p></div>
+          <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">inferred · 12 videos · proposed</span></div><p class="rung__text">In your last 12, videos with Kona in the first 5 s had higher 48-hour views.</p><div class="rung__row"><span class="rung__meta">5 vs 7 videos · Instagram only</span><a class="loop-link" href="#evidence">View evidence →</a></div></div>
+        </section>
+        <section class="loop-panel rel"><span class="callout">8</span><h2 class="loop-panel__title">After publishing</h2>
+          <div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">Performance appears here after you publish and connect the post.</p></div></div>
+        </section>
+      </div>
+      <div class="actbar rel"><span class="callout" style="top:-4px">9</span><span class="loop-btn">Request changes</span><span class="loop-btn loop-btn--primary">Approve</span></div>
+      <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+    </div>
+  </div></div>
+  <div>
+    <ol class="callouts">
+      <li><span class="num">1</span><div><b>Loop's phone header.</b> The existing light header with Menu and the person's avatar (Profile). Nothing creator-specific.</div></li>
+      <li><span class="num">2</span><div><b>Trail · title · state.</b> The trail names the campaign; the title is the creator's own name for the piece; the pill is the one lifecycle state, always followed by the fact that put it there. After publishing this row also carries the headline numbers and a “Jump to performance” link — the header gets richer, the page never reorders.</div></li>
+      <li><span class="num">3</span><div><b>Media preview (a Version, never “the file”).</b> Plays the selected Version; the segmented control keeps the playhead, so comparison is “same moment, different cut”. “Add a note at 0:04” captures the timestamp for a change request.</div></li>
+      <li><span class="num">4</span><div><b>Where this fits.</b> Campaign, Deliverable, Opportunity as three plain, read-only lines — and below them <b>Needed for Reel 1 of 2</b>: the deliverable's own requirements, each ticked with who, which version and when once satisfied. The record reads this list from the campaign context; it never decides what counts as done.</div></li>
+      <li><span class="num">5</span><div><b>Production.</b> The current production cycle projected from Work OS: which cycle, its stage, who returned it, their creator-visible note, requested vs expected return. Completed cycles collapse to one line each and are never reopened.</div></li>
+      <li><span class="num">6</span><div><b>Versions.</b> The immutable lineage as a strip, the selected one outlined, with the full event history behind one disclosure. Approvals are marks on a version; a new version needs its own.</div></li>
+      <li><span class="num">7</span><div><b>What Loop noticed.</b> Each line is tagged with its rung — Fact, Observation, Interpretation, Proposed — and carries its own source, confidence or sample and standing. A rung Loop cannot yet defend is shown as “Not yet”, not omitted and not asserted.</div></li>
+      <li><span class="num">8</span><div><b>After publishing.</b> Performance, or an honest “nothing yet” that says what will fill it.</div></li>
+      <li><span class="num">9</span><div><b>State-dependent action bar.</b> Sticky above the five-area bar: one primary and one secondary action for the current state, or a status line when the ball is with EMG or with the brand. Which actions exist is derived from the state and from the deliverable's requirements.</div></li>
+    </ol>
+  </div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="states">
+<header><div class="eyebrow">2 · Lifecycle</div><h2>The same record in eight states</h2></header>
+<p>Scroll sideways. Every frame is the same page with the same regions in the same order; only the facts and the actions change. States 5 and 6 are the two the review asked for: creator approval that is not yet final, and brand feedback relayed through EMG.</p>
+<p class="hint">← scroll → · each phone scrolls on its own · the action bar and the five-area bar stay put</p>
+<div class="frames">
+
+<!-- 1 RAW -->
+<div class="ph"><div class="ph__cap">1 · Raw<small>Mon 21 Sep</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--neutral">Raw upload</span><span>Original · you · Mon 10:14</span></div></div>
+    <div class="media"><div class="media__seg"><span class="on">Original</span></div><span class="media__badge">0:47</span><div class="media__play">▶</div><div class="media__scene">Logo intro · 0:00</div><div class="media__bar"><i style="width:2%"></i></div><div class="media__time"><span>0:00</span><span>0:47</span></div><div class="media__hint">9:16 vertical · 1080p</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · awaiting content</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li><i></i>Your approval</li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Not in production</p><p class="loop-state__body">This deliverable needs EMG's and Kona's approval before it can be published. Request an edit to start production.</p></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip on"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2>
+      <div class="rung"><div class="rung__head"><span class="t t--fact">Fact</span><span class="rung__meta">from the file</span></div><p class="rung__text">0:47 · 9:16 vertical · 1080p</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">not read yet</span></div><p class="rung__text" style="font-weight:500;color:var(--loop-muted)">Analyze reads what appears and when, and compares it with your published videos. A few minutes.</p></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">Performance appears here after you publish and connect the post.</p></div></div></section>
+  </div>
+  <div class="actbar"><span class="loop-btn">Analyze</span><span class="loop-btn loop-btn--primary">Request an edit</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+<!-- 2 IN PRODUCTION -->
+<div class="ph"><div class="ph__cap">2 · In production<small>Mon 21 – Tue 22 Sep</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--info">In production</span><span>With EMG · Sam is editing</span></div></div>
+    <div class="media"><div class="media__seg"><span class="on">Original</span></div><span class="media__badge">0:47</span><div class="media__play">▶</div><div class="media__scene">Kona enters · 0:11</div><div class="media__bar"><i style="width:24%"></i></div><div class="media__time"><span>0:11</span><span>0:47</span></div><div class="media__hint">Edit v1 expected Wed 12:00</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · in production</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li><i></i>Your approval</li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 1</dt><dd>Editing</dd><dt>Your request</dt><dd class="q">“Tighten the opening; Kona in the first 5 s.”</dd><dt>Sent</dt><dd>Mon 15:10</dd><dt>Editor</dt><dd>Sam · started Mon 16:20</dd><dt>You asked for</dt><dd>Wed 15:00</dd><dt>EMG expects</dt><dd>Wed 12:00 · set Mon 15:40</dd></dl></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip on"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div><div class="vchip ghost"><div class="vchip__thumb"></div><span class="vchip__l">Edit v1</span><span class="vchip__m">expected Wed 12:00</span></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2>
+      <div class="rung"><div class="rung__head"><span class="t t--fact">Fact</span><span class="rung__meta">from the file</span></div><p class="rung__text">0:47 · 9:16 vertical</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of Original · high confidence</span></div><p class="rung__text">Kona first appears at 0:11 · logo intro 0:00–0:06 — later than in 9 of your last 12 videos.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">inferred · 12 videos · proposed</span></div><p class="rung__text">In your last 12, videos with Kona in the first 5 s had higher 48-hour views.</p><div class="rung__row"><span class="rung__meta">Your request already covers this</span><a class="loop-link">View evidence →</a></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">Performance appears here after you publish and connect the post.</p></div></div></section>
+  </div>
+  <div class="actbar"><div class="actbar__status"><b>With EMG</b><span>Edit v1 expected Wed 12:00</span></div><span class="loop-btn" style="flex:0 0 auto">Add a note</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+<!-- 3 CREATOR REVIEW -->
+<div class="ph"><div class="ph__cap">3 · Your review<small>Tue 22 Sep 16:02</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--attention">Ready for your review</span><span>Edit v1 · returned Tue 16:02</span></div></div>
+    <div class="media"><div class="media__seg"><span>Original</span><span class="on">v1</span></div><span class="media__badge">0:41</span><div class="media__play">▶</div><div class="media__scene">Kona enters · 0:04</div><div class="media__bar"><i style="width:12%"></i></div><div class="media__time"><span>0:04</span><span>0:41</span></div><div class="media__hint">Switch versions to compare this moment · Add a note at 0:04</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · awaiting your approval</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li><i></i>Your approval</li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 1</dt><dd>Your review</dd><dt>Returned by</dt><dd>Sam · Tue 16:02 · 4 h early</dd><dt>Sam's note</dt><dd class="q">“Cut the logo intro; Kona at 0:04. Kept your 0:11 beat.”</dd><dt>You asked for</dt><dd>Wed 15:00</dd></dl></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div><div class="vchip on"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue 16:02</span></div></div><div class="loop-drawer" style="margin-top:10px"><div class="loop-drawer__sum">Full history · 4 events</div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2>
+      <div class="rung"><div class="rung__head"><span class="t t--fact">Fact</span><span class="rung__meta">from the file</span></div><p class="rung__text">v1 is 0:41 (Original 0:47)</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v1 · high confidence</span></div><p class="rung__text">Kona first appears at 0:04 (was 0:11) — earlier than in 10 of your last 12 videos.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">inferred · 12 videos · proposed</span></div><p class="rung__text">In your last 12, videos with Kona in the first 5 s had higher 48-hour views.</p><div class="rung__row"><span class="rung__meta">5 vs 7 videos · Instagram only</span><a class="loop-link">View evidence →</a></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">Performance appears here after you publish and connect the post.</p></div></div></section>
+  </div>
+  <div class="actbar"><span class="loop-btn">Request changes</span><span class="loop-btn loop-btn--primary">Approve</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+<!-- 4 CHANGES REQUESTED (creator) -->
+<div class="ph"><div class="ph__cap">4 · Changes requested · by you<small>Tue 22 Sep 18:30</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--info">Changes requested</span><span>By you · back with EMG</span></div></div>
+    <div class="media"><div class="media__seg"><span>Original</span><span class="on">v1</span></div><span class="media__badge">0:41</span><div class="media__play">▶</div><div class="media__scene">Your note · 0:02</div><div class="media__bar"><i style="width:5%"></i></div><div class="media__time"><span>0:02</span><span>0:41</span></div><div class="media__hint">Edit v2 expected Wed 12:00</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · in production</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li><i></i>Your approval</li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 1</dt><dd>Editing again</dd><dt>You asked</dt><dd class="q">“Kona before the logo, keep the 0:11 beat.” · note at 0:02 · Tue 18:30</dd><dt>Refers to</dt><dd>Edit v1</dd><dt>Editor</dt><dd>Sam</dd><dt>EMG expects</dt><dd>Wed 12:00 · unchanged</dd></dl></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div><div class="vchip on"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue 16:02</span></div><div class="vchip ghost"><div class="vchip__thumb"></div><span class="vchip__l">Edit v2</span><span class="vchip__m">expected Wed 12:00</span></div></div><div class="loop-drawer" style="margin-top:10px"><div class="loop-drawer__sum">Full history · 5 events</div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2><p class="rung__meta" style="margin:0 0 6px">About v1 · updates when v2 arrives</p>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v1 · high confidence</span></div><p class="rung__text">Kona first appears at 0:04 — earlier than in 10 of your last 12 videos.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">inferred · 12 videos · proposed</span></div><p class="rung__text">In your last 12, videos with Kona in the first 5 s had higher 48-hour views.</p><div class="rung__row"><span class="rung__meta">5 vs 7 videos</span><a class="loop-link">View evidence →</a></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">Performance appears here after you publish and connect the post.</p></div></div></section>
+  </div>
+  <div class="actbar"><div class="actbar__status"><b>Back with EMG</b><span>Edit v2 expected Wed 12:00</span></div><span class="loop-btn" style="flex:0 0 auto">Add a note</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+<!-- 5 APPROVED BY YOU (not final) -->
+<div class="ph"><div class="ph__cap">5 · Approved by you · not yet final<small>Wed 23 Sep 12:05 → Thu 10:20</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--attention">Approved by you</span><span>v2 · Wed 12:05 · waiting for Kona</span></div></div>
+    <div class="media"><div class="media__seg"><span>Original</span><span>v1</span><span class="on">v2</span></div><span class="media__badge">v2 · 0:39</span><div class="media__play">▶</div><div class="media__scene">Kona enters · 0:02</div><div class="media__bar"><i style="width:6%"></i></div><div class="media__time"><span>0:02</span><span>0:39</span></div><div class="media__hint">Approved by you and EMG · with Kona for approval</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · <b>Content approved</b> · publish by Fri 25 Sep</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li class="done"><i>✓</i>Your approval <small>· v2 · Wed 12:05</small></li><li class="done"><i>✓</i>EMG approval <small>· Priya · v2 · Wed 14:10</small></li><li><i></i>Kona's approval <small>· with Kona since Wed 14:15 · via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 1</dt><dd>Completed · Wed 12:05</dd><dt>Returned</dt><dd>Wed 11:40 · 20 min early</dd><dt>You asked for</dt><dd>Wed 15:00</dd><dt>EMG expected</dt><dd>Wed 12:00</dd></dl><p class="rung__meta" style="margin:10px 0 0">Nothing in production. Feedback on v2 would start Production 2.</p></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div><div class="vchip"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue 16:02</span></div><div class="vchip on"><div class="vchip__thumb"><b>✓ you · EMG</b></div><span class="vchip__l">Edit v2</span><span class="vchip__m">Sam · Wed 11:40</span></div></div><div class="loop-drawer" style="margin-top:10px"><div class="loop-drawer__sum">Full history · 9 events</div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2>
+      <div class="rung"><div class="rung__head"><span class="t t--fact">Fact</span><span class="rung__meta">from the file</span></div><p class="rung__text">v2 is 0:39 · no logo intro</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v2 · high confidence</span></div><p class="rung__text">Kona first appears at 0:02 — earlier than in any of your last 12 videos.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">inferred · 12 videos · proposed</span></div><p class="rung__text">In your last 12, videos with Kona in the first 5 s had higher 48-hour views.</p><div class="rung__row"><span class="rung__meta">5 vs 7 videos</span><a class="loop-link">View evidence →</a></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">This deliverable can be published once Kona approves.</p></div></div></section>
+  </div>
+  <div class="actbar"><div class="actbar__status"><b>Waiting for Kona's approval</b><span>via EMG · since Wed 14:15</span></div><span class="loop-btn" style="flex:0 0 auto">Add a note</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+<!-- 6 CHANGES REQUESTED (brand via EMG) -->
+<div class="ph"><div class="ph__cap">6 · Changes requested · brand feedback via EMG<small>Thu 24 Sep 10:20</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--info">Changes requested</span><span>Brand feedback via EMG · Thu 10:20</span></div></div>
+    <div class="media"><div class="media__seg"><span>Original</span><span>v1</span><span class="on">v2</span></div><span class="media__badge">v2 · 0:39</span><div class="media__play">▶</div><div class="media__scene">Product claim · 0:17</div><div class="media__bar"><i style="width:44%"></i></div><div class="media__time"><span>0:17</span><span>0:39</span></div><div class="media__hint">Edit v3 expected Thu 17:00</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · in production again · publish by Fri 25 Sep</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2 · for the next version</li><li><i></i>Your approval <small>· v2 approval kept in history</small></li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 2</dt><dd>Editing · started Thu 10:35</dd><dt>From</dt><dd>Kona (brand) · relayed by Priya, EMG · Thu 10:20</dd><dt>Instruction</dt><dd class="q">“Legal needs the product claim removed at 0:17.”</dd><dt>Refers to</dt><dd>Edit v2</dd><dt>Editor</dt><dd>Sam</dd><dt>EMG expects</dt><dd>Thu 17:00</dd><dt>Production 1</dt><dd class="q">Completed Wed 12:05</dd></dl></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div><div class="vchip"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue 16:02</span></div><div class="vchip on"><div class="vchip__thumb"><b>✓ you · EMG</b></div><span class="vchip__l">Edit v2</span><span class="vchip__m">Sam · Wed 11:40</span></div><div class="vchip ghost"><div class="vchip__thumb"></div><span class="vchip__l">Edit v3</span><span class="vchip__m">expected Thu 17:00</span></div></div><div class="loop-drawer" style="margin-top:10px"><div class="loop-drawer__sum">Full history · 11 events</div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2><p class="rung__meta" style="margin:0 0 6px">About v2 · updates when v3 arrives</p>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v2 · high confidence</span></div><p class="rung__text">Kona first appears at 0:02 — earlier than in any of your last 12 videos.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">inferred · 12 videos · proposed</span></div><p class="rung__text">In your last 12, videos with Kona in the first 5 s had higher 48-hour views.</p><div class="rung__row"><span class="rung__meta">5 vs 7 videos</span><a class="loop-link">View evidence →</a></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">Performance appears here after you publish and connect the post.</p></div></div></section>
+  </div>
+  <div class="actbar"><div class="actbar__status"><b>Back with EMG</b><span>Edit v3 expected Thu 17:00</span></div><span class="loop-btn" style="flex:0 0 auto">Add a note</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+<!-- 7 FINAL -->
+<div class="ph"><div class="ph__cap">7 · Final<small>Fri 25 Sep 09:05</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--good">Final</span><span>v3 · approved by you, EMG and Kona</span></div></div>
+    <div class="media"><div class="media__seg"><span>Original</span><span>v1</span><span>v2</span><span class="on">v3 ★</span></div><span class="media__badge">Final · 0:38</span><div class="media__play">▶</div><div class="media__scene">Claim removed · 0:17</div><div class="media__bar"><i style="width:45%"></i></div><div class="media__time"><span>0:17</span><span>0:38</span></div><div class="media__hint">Publish by Fri 25 Sep — today</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · <b>Final approved</b> · publish by Fri 25 Sep</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li class="done"><i>✓</i>Your approval <small>· v3 · Thu 16:00</small></li><li class="done"><i>✓</i>EMG approval <small>· Priya · v3 · Thu 16:30</small></li><li class="done"><i>✓</i>Kona's approval <small>· v3 · Fri 09:05 · relayed by Priya</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 2</dt><dd>Completed · Thu 16:00</dd><dt>Returned</dt><dd>Thu 15:30 · 1½ h early</dd><dt>EMG expected</dt><dd>Thu 17:00</dd><dt>Production 1</dt><dd class="q">Completed Wed 12:05</dd></dl></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div><div class="vchip"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue 16:02</span></div><div class="vchip"><div class="vchip__thumb"><b>0:39</b></div><span class="vchip__l">Edit v2</span><span class="vchip__m">Sam · Wed 11:40</span></div><div class="vchip on"><div class="vchip__thumb"><b>★ Final</b></div><span class="vchip__l">Edit v3</span><span class="vchip__m">Sam · Thu 15:30</span></div></div><div class="loop-drawer" style="margin-top:10px"><div class="loop-drawer__sum">Full history · 15 events</div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2>
+      <div class="rung"><div class="rung__head"><span class="t t--fact">Fact</span><span class="rung__meta">from the file</span></div><p class="rung__text">v3 is 0:38 · claim at 0:17 removed</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">Loop's read of v3 · high confidence</span></div><p class="rung__text">Kona first appears at 0:02 — earlier than in any of your last 12 videos.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">inferred · 12 videos · proposed</span></div><p class="rung__text">In your last 12, videos with Kona in the first 5 s had higher 48-hour views.</p><div class="rung__row"><span class="rung__meta">5 vs 7 videos</span><a class="loop-link">View evidence →</a></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state loop-state--attention"><span class="loop-state__mark">→</span><div><p class="loop-state__title">Publish by Fri 25 Sep, then connect the post</p><p class="loop-state__body">Performance from your connected platforms appears here once the post is linked.</p></div></div></section>
+  </div>
+  <div class="actbar"><span class="loop-btn">Download final</span><span class="loop-btn loop-btn--primary">Mark as published</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+<!-- 8 PUBLISHED -->
+<div class="ph"><div class="ph__cap">8 · Published<small>Fri 25 Sep 12:00 · as of Sun 27 Sep 12:00</small></div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+  <div class="loop-mhead"><span class="loop-sb__menubtn">Menu</span><span class="wordmark">Loop</span><span class="loop-avatar" style="margin-left:auto">DR</span></div>
+  <div class="loop-main">
+    <div><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--good">Published</span><span>Instagram · Fri 12:00 · <b style="color:var(--loop-ink)">18.4K views · 61% watched to end</b></span></div><a class="jump" href="#perf8">Jump to performance ↓</a></div>
+    <div class="media"><div class="media__seg"><span>Original</span><span>v1</span><span>v2</span><span class="on">v3 ★</span></div><span class="media__badge">Published</span><div class="media__play">▶</div><div class="media__scene">Kona enters · 0:02</div><div class="media__bar"><i style="width:6%"></i></div><div class="media__time"><span>0:02</span><span>0:38</span></div><div class="media__hint">instagram.com/reel/… · linked Fri 12:10</div></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · <span class="loop-pill loop-pill--good loop-pill--sm">Complete</span> Fri 12:10</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl>
+      <ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li class="done"><i>✓</i>Your approval <small>· v3 · Thu 16:00</small></li><li class="done"><i>✓</i>EMG approval <small>· Priya · v3 · Thu 16:30</small></li><li class="done"><i>✓</i>Kona's approval <small>· v3 · Fri 09:05 · relayed by Priya</small></li><li class="done"><i>✓</i>Published by Fri 25 Sep <small>· Fri 12:00</small></li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 2</dt><dd class="q">Completed Thu 16:00</dd><dt>Production 1</dt><dd class="q">Completed Wed 12:05</dd></dl><p class="rung__meta" style="margin:10px 0 0">Request an edit starts Production 3 on the same versions.</p></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2><div class="vstrip"><div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon</span></div><div class="vchip"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue</span></div><div class="vchip"><div class="vchip__thumb"><b>0:39</b></div><span class="vchip__l">Edit v2</span><span class="vchip__m">Sam · Wed</span></div><div class="vchip on"><div class="vchip__thumb"><b>★ Final</b></div><span class="vchip__l">Edit v3</span><span class="vchip__m">Sam · Thu</span></div><div class="vchip"><div class="vchip__thumb" style="background:var(--loop-accent-soft);border-color:var(--loop-accent)"><b>IG</b></div><span class="vchip__l">Post</span><span class="vchip__m">Fri 12:00</span></div></div><div class="loop-drawer" style="margin-top:10px"><div class="loop-drawer__sum">Full history · 18 events</div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2>
+      <div class="rung"><div class="rung__head"><span class="t t--fact">Fact</span><span class="rung__meta">Instagram · read Sun 12:00</span></div><p class="rung__text">Instagram reports 18,412 views at 48 hours.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">derived by Loop · 12 videos</span></div><p class="rung__text">That is 1.6× your 30-day median at 48 hours (11,500).</p></div>
+      <div class="rung rung--held"><div class="rung__head"><span class="t t--held">Not yet</span><span class="rung__meta">interpretation withheld</span></div><p class="rung__text">Whether Kona's early appearance drove this: Loop has one video with Kona before 0:05 and needs two more before it can say.</p></div>
+      <div class="rung"><div class="rung__head"><span class="t t--rec">Proposed</span><span class="rung__meta">from the 12-video interpretation</span></div><p class="rung__text">Consider opening the next Kona reel with Kona in the first 3 seconds.</p><div class="rung__row"><span class="rung__meta">Dismiss · Keep</span><a class="loop-link" href="#evidence">View evidence →</a></div></div></section>
+    <section class="loop-panel" id="perf8"><h2 class="loop-panel__title">After publishing</h2>
+      <div class="loop-strip" style="margin-bottom:10px"><div class="loop-strip__item"><span class="loop-strip__label">Views</span><span class="loop-strip__value">18.4K</span></div><div class="loop-strip__item"><span class="loop-strip__label">Reach</span><span class="loop-strip__value">14.1K</span></div><div class="loop-strip__item"><span class="loop-strip__label">Watched to end</span><span class="loop-strip__value">61%</span></div><div class="loop-strip__item"><span class="loop-strip__label">Saves</span><span class="loop-strip__value">412</span></div></div>
+      <svg class="spark" viewBox="0 0 300 56" preserveAspectRatio="none" aria-label="Views over the first 48 hours, rising steeply in the first 12 hours then flattening"><defs><linearGradient id="g1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#1d6e85" stop-opacity=".25"/><stop offset="1" stop-color="#1d6e85" stop-opacity="0"/></linearGradient></defs><path d="M0,54 L20,40 L45,26 L75,17 L110,12 L150,9 L200,7 L250,5.5 L300,5 L300,56 L0,56 Z" fill="url(#g1)"/><path d="M0,54 L20,40 L45,26 L75,17 L110,12 L150,9 L200,7 L250,5.5 L300,5" fill="none" stroke="#1d6e85" stroke-width="2"/><circle cx="300" cy="5" r="3" fill="#1d6e85"/></svg>
+      <p class="rung__meta" style="margin:6px 0 0">First 48 h · as of Sun 12:00 · from Instagram · TikTok not connected</p></section>
+  </div>
+  <div class="actbar"><span class="loop-btn">Request an edit</span><span class="loop-btn loop-btn--primary">Open on Instagram</span></div>
+  <nav class="loop-areabar"><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Home</a><a class="loop-areabar__link is-active"><span class="loop-areabar__ico"></span>Content</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Opps</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Tasks</a><a class="loop-areabar__link"><span class="loop-areabar__ico"></span>Earnings</a></nav>
+</div></div></div>
+
+</div>
+
+<h3>What changes and what does not, state by state</h3>
+<div class="tbl"><table>
+<tr><th>Region</th><th>1 Raw</th><th>2 In production</th><th>3 Your review</th><th>4 Changes · you</th><th>5 Approved by you</th><th>6 Changes · brand via EMG</th><th>7 Final</th><th>8 Published</th></tr>
+<tr><td>Pill + fact</td><td><span class="pill neutral">Raw upload</span></td><td><span class="pill accent">In production</span> editor</td><td><span class="pill warn">Ready for your review</span></td><td><span class="pill accent">Changes requested</span> by you</td><td><span class="pill warn">Approved by you</span> waiting for Kona</td><td><span class="pill accent">Changes requested</span> brand via EMG</td><td><span class="pill good">Final</span> by you, EMG, Kona</td><td><span class="pill good">Published</span> + numbers + Jump</td></tr>
+<tr><td>Deliverable line</td><td>awaiting content</td><td>in production</td><td>awaiting your approval</td><td>in production</td><td><b>Content approved</b></td><td>in production again</td><td><b>Final approved</b> · publish by Fri</td><td><b>Complete</b> · Fri 12:10</td></tr>
+<tr><td>Needed for Reel 1 of 2</td><td colspan="4" style="text-align:center;color:var(--d-faint)">four open requirements, from the campaign</td><td>✓ you · ✓ EMG · ○ Kona · ○ published</td><td>reset for v3 (v2 marks kept)</td><td>✓ ✓ ✓ · ○ published</td><td>all four ✓</td></tr>
+<tr><td>Production</td><td>honest empty + why</td><td>P1 editing · requested vs expected</td><td>P1 your review · note</td><td>P1 editing again · your request</td><td>P1 completed · nothing running</td><td><b>P2</b> from Kona via Priya · refers to v2 · P1 kept</td><td>P2 completed · P1 kept</td><td>P1, P2 collapsed · “edit starts P3”</td></tr>
+<tr><td>Versions</td><td>Original</td><td>+ ghost v1</td><td>v1</td><td>+ ghost v2</td><td>v2 ✓you ✓EMG</td><td>+ ghost v3</td><td>v3 ★</td><td>+ Post</td></tr>
+<tr><td>What Loop noticed</td><td>Fact · Observation not read</td><td>Fact · Obs · Interp</td><td>Fact · Obs · Interp</td><td>“about v1”</td><td>about v2</td><td>“about v2”</td><td>about v3</td><td>Fact · Obs · <b>Not yet</b> · Proposed</td></tr>
+<tr><td>After publishing</td><td colspan="4" style="text-align:center;color:var(--d-faint)">Nothing yet</td><td>“once Kona approves”</td><td>Nothing yet</td><td>publish by Fri, connect</td><td>strip · 48-h line · sources</td></tr>
+<tr><td>Action bar</td><td>Analyze · <b>Request an edit</b></td><td>status · Add a note</td><td>Request changes · <b>Approve</b></td><td>status · Add a note</td><td>status (with Kona) · Add a note</td><td>status · Add a note</td><td>Download final · <b>Mark as published</b></td><td>Request an edit · <b>Open on Instagram</b></td></tr>
+</table></div>
+
+<h3>Raw, two contexts — the action bar reads the deliverable, not the other way round</h3>
+<div class="mini">
+  <div class="lf"><div class="titlerow"><span class="loop-pill loop-pill--neutral">Raw upload</span><span>Campaign content</span></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Deliverable</dt><dd>Reel 1 of 2 · awaiting content</dd></dl><ul class="req"><li class="req__t">Needed</li><li><i></i>Your approval</li><li><i></i>EMG approval</li><li><i></i>Kona's approval</li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Not in production</p><p class="loop-state__body">This deliverable needs EMG's and Kona's approval before it can be published.</p></div></div></section>
+    <div class="actbar"><span class="loop-btn">Analyze</span><span class="loop-btn loop-btn--primary">Request an edit</span></div></div>
+  <div class="lf"><div class="titlerow"><span class="loop-pill loop-pill--neutral">Raw upload</span><span>Independent content</span></div>
+    <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Not part of a campaign</p><p class="loop-state__body">Yours to publish or send to EMG. <a class="loop-link" style="font-size:13px">Attach to a campaign</a></p></div></div></section>
+    <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Not in production</p><p class="loop-state__body">Publish it as it is, or request an edit.</p></div></div></section>
+    <div class="actbar"><span class="loop-btn">Publish as-is</span><span class="loop-btn loop-btn--primary">Request an edit</span></div></div>
+</div>
+<p style="margin-top:10px">Same record, same regions. The only difference is what the campaign context requires — and the record shows it, rather than deciding it.</p>
+</section>
+
+<!-- ===================================================== -->
+<section id="history">
+<header><div class="eyebrow">3 · Immutable history</div><h2>The full chain, with provenance</h2></header>
+<p>The disclosure under the version strip opens Loop's activity grammar. Every instruction names <b>who originated it</b> and <b>who entered it into Loop</b> as two facts, <b>which version it referred to</b>, and — once it exists — <b>which version answered it</b>. Productions are separate cycles on one lineage; completed ones stay completed. The highlighted rows are the brand's feedback and approval.</p>
+<div class="lf desk" style="min-width:0;display:block;background:transparent"><div class="loop-panel" style="max-width:820px"><h2 class="loop-panel__title">History · Kona unboxing reel · 18 events</h2>
+<ol class="loop-activity">
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--work">Version</span><span class="loop-act__story">Original uploaded by you<span class="loop-act__sub">0:47 · 9:16 · 1080p</span></span><span class="loop-act__when">Mon 21 Sep 10:14</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--communication">Request</span><span class="loop-act__story">You asked EMG for an edit — Production 1 started<span class="loop-act__sub">Originated and entered by you · refers to Original · “Tighten the opening; Kona in the first 5 s.” · asked for Wed 15:00 · answered by Edit v1</span></span><span class="loop-act__when">Mon 21 Sep 15:10</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--state_change">Production</span><span class="loop-act__story">EMG set the expected return: Wed 12:00<span class="loop-act__sub">Priya, EMG · editor Sam</span></span><span class="loop-act__when">Mon 21 Sep 15:40</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--work">Version</span><span class="loop-act__story">Edit v1 returned by Sam<span class="loop-act__sub">0:41 · answers your request of Mon 15:10 · note to you: “Cut the logo intro; Kona at 0:04. Kept your 0:11 beat.”</span></span><span class="loop-act__when">Tue 22 Sep 16:02</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--communication">Request</span><span class="loop-act__story">You requested changes to v1<span class="loop-act__sub">Originated and entered by you · refers to Edit v1 · “Kona before the logo, keep the 0:11 beat.” · note at 0:02 · answered by Edit v2</span></span><span class="loop-act__when">Tue 22 Sep 18:30</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--work">Version</span><span class="loop-act__story">Edit v2 returned by Sam<span class="loop-act__sub">0:39 · answers your changes of Tue 18:30</span></span><span class="loop-act__when">Wed 23 Sep 11:40</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--decision">Approval</span><span class="loop-act__story">You approved v2 — Production 1 completed<span class="loop-act__sub">Your approval, for Reel 1 of 2 · v2</span></span><span class="loop-act__when">Wed 23 Sep 12:05</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--decision">Approval</span><span class="loop-act__story">EMG approved v2<span class="loop-act__sub">Priya, EMG · for Reel 1 of 2 · v2</span></span><span class="loop-act__when">Wed 23 Sep 14:10</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--state_change">Approval</span><span class="loop-act__story">v2 sent to Kona for approval<span class="loop-act__sub">Priya, EMG · outside Loop</span></span><span class="loop-act__when">Wed 23 Sep 14:15</span></li>
+  <li class="loop-act loop-act--hi"><span class="loop-act__truth loop-act__truth--external">Brand → EMG</span><span class="loop-act__story">Kona requested changes to v2 — Production 2 started<span class="loop-act__sub"><b>Originated by:</b> Kona (brand), via Harbor Agency · <b>Entered by:</b> Priya, EMG · refers to Edit v2 · “Legal needs the product claim removed at 0:17.” · answered by Edit v3</span></span><span class="loop-act__when">Thu 24 Sep 10:20</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--state_change">Production</span><span class="loop-act__story">EMG set the expected return: Thu 17:00<span class="loop-act__sub">Priya, EMG · editor Sam · Production 2</span></span><span class="loop-act__when">Thu 24 Sep 10:35</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--work">Version</span><span class="loop-act__story">Edit v3 returned by Sam<span class="loop-act__sub">0:38 · answers Kona's feedback of Thu 10:20 · note to you: “Claim at 0:17 removed; nothing else touched.”</span></span><span class="loop-act__when">Thu 24 Sep 15:30</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--decision">Approval</span><span class="loop-act__story">You approved v3 — Production 2 completed<span class="loop-act__sub">Your approval, for Reel 1 of 2 · v3</span></span><span class="loop-act__when">Thu 24 Sep 16:00</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--decision">Approval</span><span class="loop-act__story">EMG approved v3<span class="loop-act__sub">Priya, EMG · v3</span></span><span class="loop-act__when">Thu 24 Sep 16:30</span></li>
+  <li class="loop-act loop-act--hi"><span class="loop-act__truth loop-act__truth--external">Brand → EMG</span><span class="loop-act__story">Kona approved v3 — Final<span class="loop-act__sub"><b>Originated by:</b> Kona (brand), via Harbor Agency · <b>Entered by:</b> Priya, EMG · v3</span></span><span class="loop-act__when">Fri 25 Sep 09:05</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--state_change">Published</span><span class="loop-act__story">You marked v3 published on Instagram Reels and linked the post<span class="loop-act__sub">instagram.com/reel/…</span></span><span class="loop-act__when">Fri 25 Sep 12:10</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--state_change">Deliverable</span><span class="loop-act__story">Reel 1 of 2 complete<span class="loop-act__sub">All four requirements met · from the campaign</span></span><span class="loop-act__when">Fri 25 Sep 12:10</span></li>
+  <li class="loop-act"><span class="loop-act__truth loop-act__truth--finding">Observation</span><span class="loop-act__story">Loop: 48-hour views are 1.6× your 30-day median<span class="loop-act__sub">Instagram reports 18,412 (Fact) · median 11,500 across 12 videos (derived)</span></span><span class="loop-act__when">Sun 27 Sep 12:04</span></li>
+</ol></div></div>
+<div class="grid2" style="margin-top:14px">
+  <div class="card"><h4>What the highlighted feedback row answers</h4><ul><li><b>Who originated:</b> Kona (brand), via Harbor Agency.</li><li><b>Who entered it into Loop:</b> Priya, EMG — a different fact.</li><li><b>When:</b> Thu 24 Sep 10:20.</li><li><b>Which version:</b> Edit v2.</li><li><b>What was asked:</b> the instruction, verbatim as entered.</li><li><b>What answered it:</b> Edit v3, Thu 15:30 — linked once it exists.</li></ul></div>
+  <div class="card"><h4>Rules the chain keeps</h4><ul><li>Approvals are marks on a version, with actor, requirement and time; a new version needs its own.</li><li>A production cycle that has completed stays completed; new feedback starts the next cycle on the same lineage.</li><li>External parties never act in Loop; an authorized EMG user enters what they said and is recorded as having done so.</li><li>Brand feedback is never shown as creator feedback or as EMG's own editorial decision.</li></ul></div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="evidence">
+<header><div class="eyebrow">4 · Evidence access</div><h2>“View evidence” — four rungs, each with its own standing</h2></header>
+<p>Tapping “View evidence” opens Loop's context drawer as a full-screen sheet. The sheet is organised by rung, and each rung states its own basis: a Fact its source and read time; an Observation how Loop derived or read it and how confident it is; an Interpretation what it was inferred from, its sample and its standing; a Recommendation that it is proposed and what it rests on. There is no single “verified / not verified” stamp.</p>
+<div class="anat">
+  <div class="ph"><div class="ph__cap">Phone · evidence sheet open (Published)</div><div class="ph__frame lf"><div class="ph__status"><span>9:41</span><span>●●●</span></div><div class="ph__scroll">
+    <div class="sheet">
+      <div class="sheet__sum">What this rests on <span>Close</span></div>
+      <div class="sheet__body">
+        <div><h2 class="loop-panel__title">Facts · sourced</h2><div class="ev"><div class="ev__row"><div><b>Instagram reports 18,412 views at 48 h</b><small>Instagram · read Sun 27 Sep 12:00</small></div><span class="ev__val">18,412</span></div><div class="ev__row"><div><b>48-h views of your 12 previous Instagram videos</b><small>Instagram · 25 Aug – 21 Sep · each read at its own 48 h</small></div><span class="ev__val">12 rows ›</span></div><div class="ev__row"><div><b>v3 is 0:38 long</b><small>from the file</small></div><span class="ev__val">0:38</span></div></div></div>
+        <div><h2 class="loop-panel__title">Observations · read or derived by Loop</h2><div class="ev"><div class="ev__row"><div><b>1.6× your 30-day median (11,500)</b><small>derived from the 12 rows above · exact</small></div></div><div class="ev__row"><div><b>Kona first appears at 0:02</b><small>Loop's read of v3 · Thu 15:31 · confidence high</small></div></div><div class="ev__row"><div><b>Kona in the first 5 s in 5 of your 12 previous videos</b><small>Loop's read of each · confidence high on 11, medium on 1</small></div></div></div></div>
+        <div><h2 class="loop-panel__title">Interpretation · inferred</h2><div class="ev"><div class="ev__row"><div><b>In your last 12, videos with Kona in the first 5 s had higher 48-h views</b><small>median 14.2K (5 videos) vs 10.1K (7 videos)</small></div></div><div class="ev__standing">Standing: proposed by Loop · not yet reviewed by EMG · would change with 3 more videos either way</div><div class="ev__row"><div><b>Limitations</b><small>Only Instagram is connected — TikTok and YouTube are not in this comparison. 2 of the 12 were sponsored; Loop has not separated them. 12 is a small sample.</small></div></div></div></div>
+        <div><h2 class="loop-panel__title">Withheld</h2><div class="ev"><div class="ev__row"><div><b>Not yet: whether Kona's early appearance drove this video's result</b><small>Loop has one video with Kona before 0:05 and needs two more.</small></div></div></div></div>
+        <div class="loop-panel" style="padding:12px"><div class="rung__head"><span class="t t--rec">Proposed</span><span class="rung__meta">rests on the interpretation above</span></div><p class="rung__text" style="margin-top:6px">Consider opening the next Kona reel with Kona in the first 3 seconds.</p><div class="loop-btnrow" style="margin-top:8px"><span class="loop-btn loop-btn--quiet">Dismiss</span><span class="loop-btn">Keep for later</span></div></div>
+      </div>
+    </div>
+  </div></div></div>
+  <div>
+    <ol class="callouts">
+      <li><span class="num">1</span><div><b>Facts</b> are sourced: a value, where it came from, when it was read. “Instagram reports…” is the wording, because Instagram is the source and Loop is not vouching for Instagram.</div></li>
+      <li><span class="num">2</span><div><b>Observations</b> are what Loop read from a version or derived from facts. A derived number says “derived · exact”; a read says when and with what confidence.</div></li>
+      <li><span class="num">3</span><div><b>Interpretation</b> is inferred from evidence and says so: the sample, the split, the standing (proposed by Loop; whether a person at EMG has reviewed it), what would change it, and its limitations — before any recommendation.</div></li>
+      <li><span class="num">4</span><div><b>Withheld</b> is a first-class rung: Loop names the question it cannot yet answer and what it needs.</div></li>
+      <li><span class="num">5</span><div><b>Proposed</b> recommendations name the rung they rest on and can be dismissed or kept; they never change anything by themselves.</div></li>
+    </ol>
+    <div class="note">When EMG accepts or rejects the interpretation in the Decision Center, only the standing line changes. The creator's record needs no other update — the same finding, a different standing.</div>
+  </div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="desktop">
+<header><div class="eyebrow">5 · Desktop</div><h2>Same record, more room — the Creator Review state on desktop</h2></header>
+<p>Desktop adds density, not features: the navy rail with the creator's seven areas, the light app bar with the trail, Loop's <code>RecordLayout</code> with the media and versions in the main column and the projections in the 330 px rail, and side-by-side comparison with one shared scrubber and <b>Add a note at 0:04</b>. The actions move from the sticky bar into the page head, exactly as the Person record does today.</p>
+<div class="desk-wrap"><div class="lf desk">
+  <aside class="loop-sidebar">
+    <div class="loop-sb__brand">Loop <span class="loop-sb__os">OS</span></div>
+    <div class="loop-sb__group"><div class="loop-sb__grouplabel">Creator</div>
+      <a class="loop-sb__link"><span class="loop-sb__ico"></span>Home</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Opportunities</a><a class="loop-sb__link is-active"><span class="loop-sb__ico"></span>Content</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Analytics</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Tasks</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Earnings</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Profile</a></div>
+    <div class="loop-sb__foot"><span class="loop-avatar">DR</span><div>Denise R.<small>Creator · EMG</small></div></div>
+  </aside>
+  <div class="loop-content">
+    <div class="loop-appbar"><div class="loop-crumbs"><span>Content</span><span class="sep">/</span><b>Kona unboxing reel</b></div><span class="loop-iconbtn"><span class="badge"></span></span></div>
+    <div class="loop-main">
+      <div class="loop-head"><div class="loop-head__text"><p class="loop-trail">Content <span class="loop-trail__sep">/</span> Kona Product Video</p><h1 class="loop-title">Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--attention">Ready for your review</span><span>Edit v1 · returned Tue 16:02 · 4 h before expected</span></div></div><div class="loop-head__actions"><span class="loop-btn">Request changes</span><span class="loop-btn loop-btn--primary">Approve</span></div></div>
+      <div class="loop-record">
+        <div class="loop-record__main">
+          <section class="loop-panel"><h2 class="loop-panel__title">Compare · same moment, different cut</h2>
+            <div class="compare">
+              <div class="media"><div class="media__seg"><span class="on">Original</span></div><span class="media__badge">0:47</span><div class="media__play">▶</div><div class="media__scene">Logo intro · 0:04</div><div class="media__time"><span>0:04</span><span>0:47</span></div></div>
+              <div class="media"><div class="media__seg"><span class="on">Edit v1</span></div><span class="media__badge">0:41</span><div class="media__play">▶</div><div class="media__scene">Kona enters · 0:04</div><div class="media__time"><span>0:04</span><span>0:41</span></div></div>
+            </div>
+            <div class="scrub" style="margin-top:12px"><span>0:04</span><div class="media__bar"><i style="width:10%"></i></div><span>0:47</span><span class="loop-btn loop-btn--quiet" style="min-height:30px;padding:4px 10px">Add a note at 0:04</span></div>
+          </section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Versions</h2>
+            <div class="vstrip"><div class="vchip"><div class="vchip__thumb"><b>0:47</b></div><span class="vchip__l">Original</span><span class="vchip__m">You · Mon 10:14</span></div><div class="vchip on"><div class="vchip__thumb"><b>0:41</b></div><span class="vchip__l">Edit v1</span><span class="vchip__m">Sam · Tue 16:02</span></div></div>
+            <ol class="loop-activity" style="margin-top:12px;border-top:1px solid var(--loop-line)">
+              <li class="loop-act"><span class="loop-act__truth loop-act__truth--work">Version</span><span class="loop-act__story">Edit v1 returned by Sam<span class="loop-act__sub">answers your request of Mon 15:10 · “Cut the logo intro; Kona at 0:04. Kept your 0:11 beat.”</span></span><span class="loop-act__when">Tue 16:02</span></li>
+              <li class="loop-act"><span class="loop-act__truth loop-act__truth--state_change">Production</span><span class="loop-act__story">EMG set the expected return: Wed 12:00<span class="loop-act__sub">Priya, EMG · editor Sam</span></span><span class="loop-act__when">Mon 15:40</span></li>
+              <li class="loop-act"><span class="loop-act__truth loop-act__truth--communication">Request</span><span class="loop-act__story">You asked EMG for an edit — Production 1 started<span class="loop-act__sub">refers to Original · “Tighten the opening; Kona in the first 5 s.” · asked for Wed 15:00</span></span><span class="loop-act__when">Mon 15:10</span></li>
+              <li class="loop-act"><span class="loop-act__truth loop-act__truth--work">Version</span><span class="loop-act__story">Original uploaded by you<span class="loop-act__sub">0:47 · 9:16 · 1080p</span></span><span class="loop-act__when">Mon 10:14</span></li>
+            </ol>
+          </section>
+        </div>
+        <aside class="loop-record__rail">
+          <section class="loop-panel"><h2 class="loop-panel__title">Where this fits</h2><dl class="loop-facts"><dt>Campaign</dt><dd>Kona Product Video</dd><dt>Deliverable</dt><dd>Reel 1 of 2 · awaiting your approval</dd><dt>Opportunity</dt><dd>Kona — Confirmed</dd></dl><ul class="req"><li class="req__t">Needed for Reel 1 of 2</li><li><i></i>Your approval</li><li><i></i>EMG approval</li><li><i></i>Kona's approval <small>· via EMG</small></li><li><i></i>Published by Fri 25 Sep</li></ul></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Production</h2><dl class="loop-facts"><dt>Production 1</dt><dd>Your review</dd><dt>Returned by</dt><dd>Sam · Tue 16:02</dd><dt>You asked for</dt><dd>Wed 15:00</dd><dt>EMG expected</dt><dd>Wed 12:00</dd></dl></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">What Loop noticed</h2>
+            <div class="rung"><div class="rung__head"><span class="t t--obs">Observation</span><span class="rung__meta">read of v1 · high</span></div><p class="rung__text">Kona at 0:04 (was 0:11) — earlier than in 10 of your last 12.</p></div>
+            <div class="rung"><div class="rung__head"><span class="t t--int">Interpretation</span><span class="rung__meta">12 videos · proposed</span></div><p class="rung__text">Videos with Kona in the first 5 s had higher 48-h views.</p><div class="rung__row"><span class="rung__meta">5 vs 7</span><a class="loop-link">View evidence →</a></div></div></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">After publishing</h2><div class="loop-state"><span class="loop-state__mark">—</span><div><p class="loop-state__title">Nothing yet</p><p class="loop-state__body">Appears after you publish and connect the post.</p></div></div></section>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div></div>
+<div class="grid2" style="margin-top:14px">
+  <div class="card"><h4>What desktop changes</h4><ul><li>Two columns: the record's substance (media, versions, history) left; the projections (context and requirements, production, what Loop noticed, performance) right.</li><li>Compare becomes side by side with one scrubber and “Add a note at …” inline — a core production interaction, kept.</li><li>Actions in the page head, as on every Loop record. History inline under the version strip.</li></ul></div>
+  <div class="card"><h4>What desktop does not change</h4><ul><li>No extra actions, no extra data, no tabs, no reordering. Every region and every action exists on the phone.</li><li>At 1100 px and below the rail folds under the main column — Loop's existing <code>loop-record</code> breakpoint — and the page becomes the phone order.</li><li>Same tokens, pills and panel titles: the Person record and this record are visibly one product.</li></ul></div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="emg">
+<header><div class="eyebrow">6 · The other seat</div><h2>The same production, seen from EMG's Work OS — Production 2, brand feedback relayed</h2></header>
+<p>Still the minimum: one Work OS work-detail page — the surface EMG already has at <code>/app/admin/work/[id]</code> — at the moment Priya has relayed Kona's feedback and Sam is editing v3. The editor is looking at the row the creator's “Production” panel projects; the relayed instruction carries its originator and its Loop actor as two facts.</p>
+<div class="desk-wrap"><div class="lf desk">
+  <aside class="loop-sidebar">
+    <div class="loop-sb__brand">Loop <span class="loop-sb__os">OS</span></div>
+    <div class="loop-sb__group"><div class="loop-sb__grouplabel">Operate</div><a class="loop-sb__link"><span class="loop-sb__ico"></span>Home</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>CRM</a><a class="loop-sb__link is-active"><span class="loop-sb__ico"></span>Work</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Intelligence</a><a class="loop-sb__link"><span class="loop-sb__ico"></span>Operations</a></div>
+    <div class="loop-sb__foot"><span class="loop-avatar">SK</span><div>Sam K.<small>Employee · EMG</small></div></div>
+  </aside>
+  <div class="loop-content">
+    <div class="loop-appbar"><div class="loop-crumbs"><span>Work</span><span class="sep">/</span><span>My work</span><span class="sep">/</span><b>Production 2 · Kona unboxing reel</b></div><span class="loop-iconbtn"><span class="badge"></span></span></div>
+    <div class="loop-main">
+      <div class="loop-head"><div class="loop-head__text"><p class="loop-trail">Work <span class="loop-trail__sep">/</span> Production <span class="loop-trail__sep">/</span> Denise R.</p><h1 class="loop-title">Production 2 · Kona unboxing reel</h1><div class="titlerow" style="margin-top:8px"><span class="loop-pill loop-pill--info">Editing</span><span>Stage 1 of 2 · Sam · started Thu 10:35 · Production 1 completed Wed 12:05</span></div></div><div class="loop-head__actions"><span class="loop-btn">Post an update to Denise</span><span class="loop-btn loop-btn--primary">Upload Edit v3</span></div></div>
+      <div class="loop-strip"><div class="loop-strip__item"><span class="loop-strip__label">Requested return</span><span class="loop-strip__value">Fri 25 Sep · Kona</span></div><div class="loop-strip__item"><span class="loop-strip__label">Expected (committed)</span><span class="loop-strip__value">Thu 17:00</span></div><div class="loop-strip__item"><span class="loop-strip__label">Returned</span><span class="loop-strip__value" style="color:var(--loop-faint)">—</span></div><div class="loop-strip__item"><span class="loop-strip__label">Deliverable due</span><span class="loop-strip__value">Fri 25 Sep</span></div></div>
+      <div class="loop-record">
+        <div class="loop-record__main">
+          <section class="loop-panel"><h2 class="loop-panel__title">Stages</h2><div class="stages">
+            <div class="stage on"><span class="stage__n">1</span><div><div class="stage__t">Edit — Sam</div><div class="stage__d">In progress since Thu 10:35 · source: Edit v2 · Denise sees “Changes requested · Brand feedback via EMG”</div></div><span class="loop-pill loop-pill--info">Editing</span></div>
+            <div class="stage"><span class="stage__n">2</span><div><div class="stage__t">Creator review — Denise</div><div class="stage__d">Starts when v3 is uploaded · then EMG and Kona approvals for v3</div></div><span class="loop-pill loop-pill--neutral">Pending</span></div>
+          </div></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Instructions · in order</h2>
+            <ol class="loop-activity">
+              <li class="loop-act loop-act--hi"><span class="loop-act__truth loop-act__truth--external">Brand → EMG</span><span class="loop-act__story">“Legal needs the product claim removed at 0:17.”<span class="loop-act__sub"><b>Originated by:</b> Kona (brand), via Harbor Agency · <b>Entered by:</b> Priya · refers to Edit v2 · visible to Denise</span></span><span class="loop-act__when">Thu 10:20</span></li>
+            </ol>
+            <p class="rung__meta" style="margin:10px 0 0">Production 1's instructions (Denise, Mon 15:10 and Tue 18:30) are on <a class="loop-link" style="font-size:12.5px">Production 1 →</a></p>
+          </section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Add an instruction or comment</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+              <div class="field"><label>From</label><span class="seg"><span>EMG team</span><span class="on">Brand / agency — relayed</span></span></div>
+              <div class="field"><label>Refers to version</label><span class="seg"><span>Original</span><span>v1</span><span class="on">v2</span></span></div>
+            </div>
+            <div class="textarea">Enter the feedback exactly as it was given…</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:8px"><span class="toggle on"><i></i>Visible to Denise</span><span class="loop-btn">Add</span></div>
+          </section>
+        </div>
+        <aside class="loop-record__rail">
+          <section class="loop-panel"><h2 class="loop-panel__title">Content</h2><dl class="loop-facts"><dt>Record</dt><dd><a class="loop-link">Kona unboxing reel →</a></dd><dt>Lineage</dt><dd>Original · v1 · v2</dd><dt>v2 approvals</dt><dd class="q">Denise Wed 12:05 · EMG (Priya) Wed 14:10 · Kona: changes requested</dd></dl></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Needed for Reel 1 of 2</h2><ul class="req" style="border-top:0;padding-top:0;margin-top:0"><li><i></i>Creator approval <small>· for v3</small></li><li><i></i>EMG approval</li><li><i></i>Brand approval <small>· Kona, relayed</small></li><li><i></i>Published by Fri 25 Sep</li></ul><p class="rung__meta" style="margin:10px 0 0">From the campaign's deliverable, not from this work.</p></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Creator</h2><div style="display:flex;gap:10px;align-items:center"><span class="loop-avatar">DR</span><div><div style="font-weight:700;color:var(--loop-ink)">Denise R.</div><div style="font-size:12.5px;color:var(--loop-muted)">Managed creator · <a class="loop-link" style="font-size:12.5px">Person record →</a></div></div></div></section>
+          <section class="loop-panel"><h2 class="loop-panel__title">Campaign context</h2><dl class="loop-facts"><dt>Campaign</dt><dd><a class="loop-link">Kona Product Video →</a></dd><dt>Deliverable</dt><dd>Reel 1 of 2 · due Fri 25 Sep</dd><dt>Brand contact</dt><dd class="q">Harbor Agency · outside Loop</dd></dl></section>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<h3>Same row, two projections</h3>
+<div class="tbl"><table>
+<tr><th>Creator sees (Content record)</th><th>EMG sees (Work detail)</th><th>The one thing underneath</th></tr>
+<tr><td><span class="pill accent">Changes requested</span> · “Brand feedback via EMG · Thu 10:20”</td><td>Production 2, stage 1 <span class="pill accent">Editing</span>, instruction tagged Brand → EMG</td><td>One new work instance on the same content, started by a relayed instruction</td></tr>
+<tr><td>Production → “From: Kona (brand) · relayed by Priya, EMG · refers to v2”</td><td>Instruction row: Originated by Kona via Harbor Agency · Entered by Priya · refers to v2</td><td>One instruction with two provenance facts (originator, Loop actor) and a version reference</td></tr>
+<tr><td>Needed for Reel 1 of 2 → ○ ○ ○ ○ “for the next version · v2 approval kept in history”</td><td>Rail: Needed for Reel 1 of 2 · “from the campaign's deliverable, not from this work”</td><td>One requirement list on the deliverable; approvals are per version</td></tr>
+<tr><td>Production 1 → “Completed Wed 12:05” (one line)</td><td>Link to Production 1 with its own turnaround</td><td>A completed work instance that nothing reopens</td></tr>
+<tr><td><span class="pill warn">Approved by you</span> · waiting for Kona (state 5)</td><td>v2 approvals: Denise ✓ · EMG ✓ · “sent to Kona Wed 14:15”</td><td>Two approval marks on v2 and one outstanding requirement; no work is running</td></tr>
+<tr><td><span class="pill good">Final</span> — deliverable “Final approved · publish by Fri”</td><td>All approvals for v3 recorded; deliverable still open</td><td>Approval complete ≠ deliverable complete</td></tr>
+<tr><td>Deliverable <span class="pill good">Complete</span> Fri 12:10</td><td>Campaign deliverable board: complete, with the post link</td><td>The campaign's rule (approved + published by Fri) satisfied; derived, not declared by the record</td></tr>
+<tr><td>Version strip · ✓ you · EMG on v2</td><td>Content rail · v2 approvals by name and time</td><td>The same marks; the creator sees roles, EMG sees names</td></tr>
+</table></div>
+<div class="note">The EMG frame shows fields Work OS does not have today, all already recorded as gaps in the design pass: a stage an external participant completes, requested vs expected return with an actor, an instruction's originator and version reference, and comment visibility. They appear because the creator record cannot be honest without them — not as an implementation decision.</div>
+</section>
+
+<!-- ===================================================== -->
+<section id="nouns">
+<header><div class="eyebrow">7 · Distinctions kept, complexity hidden</div><h2>Seven nouns, seven plain words — and whose truth each is</h2></header>
+<div class="tbl"><table>
+<tr><th>Noun</th><th>Where it appears on the record</th><th>The creator's word for it</th><th>What the creator can do to it here</th><th>Whose truth it is</th></tr>
+<tr><td>File / Asset</td><td>Media preview, version strip, duration badge</td><td>“Original”, “v1”, “Final”</td><td>Play, compare, download the final. Never replace or delete.</td><td>Bytes: storage; meaning: the lineage</td></tr>
+<tr><td>Content</td><td>The page itself: trail, title, state pill</td><td>The name they gave it</td><td>Rename; otherwise state-dependent actions</td><td>The record's own: name and lineage only</td></tr>
+<tr><td>Deliverable</td><td>One line plus the “Needed for” list in “Where this fits”</td><td>“Reel 1 of 2 · Content approved”</td><td>Nothing directly; satisfied by approvals and publication</td><td>Campaign/deliverable context (architecture pass)</td></tr>
+<tr><td>Campaign</td><td>The trail, one line in “Where this fits”</td><td>“Kona Product Video”</td><td>Open it</td><td>CRM</td></tr>
+<tr><td>Opportunity</td><td>One line, in the creator-visible vocabulary</td><td>“Kona — Confirmed”</td><td>Open it</td><td>CRM</td></tr>
+<tr><td>Work</td><td>“Production 1 / 2”, ghost version chips, the status bar</td><td>“With EMG”, “Your review”, “Editing again”</td><td>Request an edit, add a note, request changes, approve</td><td>Work OS</td></tr>
+<tr><td>Intelligence</td><td>“What Loop noticed” and the evidence sheet</td><td>“Loop noticed…”, “Not yet”</td><td>View evidence, dismiss or keep a proposal</td><td>Brain / Decision Engine</td></tr>
+</table></div>
+</section>
+
+<!-- ===================================================== -->
+<section id="verdict">
+<header><div class="eyebrow">8 · Does it still hold?</div><h2>What revision 2 shows, and what is left to rule on</h2></header>
+<div class="grid2">
+  <div class="card"><h4>Holds</h4><ul>
+    <li>Eight states, one page, fixed region order; two new business situations (approval not final; brand feedback via EMG) expressed with no new screen — a checklist, a provenance line and a numbered production.</li>
+    <li>Creative approval, production completion, final approval, publication and deliverable completion are five visibly different moments on the record.</li>
+    <li>Brand feedback is never mistaken for creator feedback or EMG editorial: originator and Loop actor are two facts on the same row, on both seats.</li>
+    <li>The record reads requirements; it never decides them. The two Raw contexts prove the action bar is derived.</li>
+    <li>The four rungs each carry their own basis; “Not yet” survives as a first-class answer.</li>
+  </ul></div>
+  <div class="card"><h4>Left to rule on (specific to this record)</h4><ul>
+    <li><b>Approvals per version.</b> Modelled here as marks on a version: a new version needs every approval again (state 6 resets the list, keeps v2's marks in history). Alternative: an approver's mark carries over unless the change affects them — simpler for the creator, harder to make honest. Recommendation: per version.</li>
+    <li><b>Pill tone for “Approved by you”.</b> Amber (something still outstanding) rather than green. Confirm.</li>
+    <li><b>Submitting a raw Original for approvals without an edit.</b> The campaign Raw frame offers only “Request an edit”. If a deliverable can be satisfied by an unedited version, a “Submit for approval” action belongs on the same bar. Not designed until confirmed.</li>
+    <li><b>Feedback after Final or after publication</b> (a take-down, a re-cut) starts Production 3 on the same lineage; whether it also re-opens the deliverable's requirements is a campaign rule, not a record rule. Out of scope here.</li>
+    <li><b>The brand's name.</b> “Kona” is shown because it is in the campaign's name; a campaign whose brand is not designated visible would show “the brand”. Confirm the design-pass designation rule applies.</li>
+    <li><b>“Mark as published” stays manual</b> with a hand-entered post link (design-pass decision 11); detection from a connected platform later.</li>
+  </ul></div>
+</div>
+<h3>Not designed here</h3>
+<p>The Content Library, Upload, the Request an Edit sheet and the Request Changes sheet are mockups 2, 3 and 5. The EMG Requests lane, roster and Person-record creator context are mockups 3 and 4. Analytics and the Feed Analysis are mockup 9.</p>
+</section>
+</div>

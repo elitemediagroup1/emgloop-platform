@@ -1,0 +1,855 @@
+<title>Creator Hub Design Pass</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --canvas:#f5f6f6; --surface:#ffffff; --surface-2:#eef2f4; --line:#d9e0e6; --line-strong:#b9c5cf;
+  --ink:#0e1b2c; --text:#1c2733; --text-2:#4a5a68; --text-3:#7a8996;
+  --primary:#0e1b2c; --on-primary:#ffffff; --accent:#1d6e85; --accent-soft:#e3f1f5; --accent-strong:#155a6d;
+  --good:#1f7a4d; --good-soft:#e4f3ea; --warn:#a15c00; --warn-soft:#fbf0dc; --crit:#b3261e; --crit-soft:#fbe6e4; --neutral:#5c6b78; --neutral-soft:#eceff2;
+  --rail:#0e1b2c; --rail-text:#c9d3dc; --rail-active:#9fd6e3;
+  --lane-creator:#e3f1f5; --lane-loop:#eef2f4; --lane-emg:#fbf0dc;
+  --radius:14px; --radius-sm:10px; --shadow:0 1px 2px rgba(14,27,44,.06);
+  --font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --canvas:#0b1521; --surface:#132133; --surface-2:#1a2c42; --line:#27394f; --line-strong:#3a4f68;
+    --ink:#e8eef4; --text:#e6edf3; --text-2:#b7c4d0; --text-3:#8fa0ae;
+    --primary:#9fd6e3; --on-primary:#0b1521; --accent:#9fd6e3; --accent-soft:#163241; --accent-strong:#c4e8f0;
+    --good:#6fcf97; --good-soft:#153123; --warn:#f0b35a; --warn-soft:#3a2a10; --crit:#f28b82; --crit-soft:#3e1a18; --neutral:#a9b6c2; --neutral-soft:#223246;
+    --rail:#0e1b2c; --rail-text:#c9d3dc; --rail-active:#9fd6e3;
+    --lane-creator:#163241; --lane-loop:#1a2c42; --lane-emg:#3a2a10;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --canvas:#0b1521; --surface:#132133; --surface-2:#1a2c42; --line:#27394f; --line-strong:#3a4f68;
+  --ink:#e8eef4; --text:#e6edf3; --text-2:#b7c4d0; --text-3:#8fa0ae;
+  --primary:#9fd6e3; --on-primary:#0b1521; --accent:#9fd6e3; --accent-soft:#163241; --accent-strong:#c4e8f0;
+  --good:#6fcf97; --good-soft:#153123; --warn:#f0b35a; --warn-soft:#3a2a10; --crit:#f28b82; --crit-soft:#3e1a18; --neutral:#a9b6c2; --neutral-soft:#223246;
+  --rail:#0e1b2c; --rail-text:#c9d3dc; --rail-active:#9fd6e3;
+  --lane-creator:#163241; --lane-loop:#1a2c42; --lane-emg:#3a2a10;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 72px;padding-inline:20px}
+.layout{display:grid;grid-template-columns:232px minmax(0,1fr);gap:36px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}.toc{position:static}}
+.toc{position:sticky;top:env(safe-area-inset-top,0px);padding-top:8px}
+.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.toc a{color:var(--text-2);text-decoration:none;font-size:13px;display:block;padding:4px 8px;border-left:2px solid transparent}
+.toc a:hover,.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent);outline:none}
+.toc .eyebrow{margin-bottom:10px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--text-3)}
+h1{font-size:clamp(30px,5vw,44px);line-height:1.05;letter-spacing:-.02em;font-weight:800;color:var(--ink);margin:6px 0 10px;text-wrap:balance}
+h2{font-size:24px;letter-spacing:-.015em;font-weight:750;color:var(--ink);margin:0 0 6px;text-wrap:balance}
+h3{font-size:16.5px;font-weight:700;color:var(--ink);margin:22px 0 8px}
+h4{font-size:14px;font-weight:700;color:var(--text);margin:14px 0 6px}
+p{margin:0 0 12px;max-width:72ch}
+section{margin-top:44px;scroll-margin-top:12px}
+section > header{margin-bottom:14px}
+.lede{font-size:17px;color:var(--text-2);max-width:70ch}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:18px 0 8px}
+.strip div{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px}
+.strip b{display:block;font-size:12px;color:var(--text-3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:4px}
+.strip span{font-size:14.5px;color:var(--text);font-weight:600}
+.rule{border:0;border-top:1px solid var(--line);margin:28px 0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
+.panel + .panel{margin-top:12px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.card h4{margin-top:0}
+.card p{font-size:14px;color:var(--text-2);margin-bottom:8px}
+.card ul{font-size:14px;color:var(--text-2);margin:0;padding-left:18px}
+.card li{margin:2px 0}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);font-weight:700;background:var(--surface-2)}
+tr:last-child td{border-bottom:0}
+td code,li code,p code{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);padding:1px 5px;border-radius:5px;color:var(--text)}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.02em;padding:2px 8px;border-radius:999px;border:1px solid transparent;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.crit{background:var(--crit-soft);color:var(--crit)}
+.pill.neutral{background:var(--neutral-soft);color:var(--neutral)}
+.pill.accent{background:var(--accent-soft);color:var(--accent-strong)}
+.mono{font-family:var(--mono);font-size:12.5px}
+.kbd{font-family:var(--mono);font-size:12px;color:var(--text-2)}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:14px;margin:12px 0}
+.note.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+.note.crit{border-left-color:var(--crit);background:var(--crit-soft)}
+.fig{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;overflow-x:auto}
+.fig figcaption{font-size:12.5px;color:var(--text-3);margin-top:8px}
+figure{margin:14px 0}
+svg text{font-family:var(--font);fill:var(--text)}
+svg .m{font-family:var(--mono);font-size:10.5px}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:8px 0}
+ol.steps li{position:relative;padding-left:34px;margin:6px 0;font-size:14px}
+ol.steps li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:1px;width:22px;height:22px;border-radius:50%;background:var(--surface-2);color:var(--text-2);font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;border:1px solid var(--line)}
+ol.steps .auth{color:var(--text-3);font-family:var(--mono);font-size:11.5px;margin-left:6px}
+.phone{background:var(--surface);border:1px solid var(--line-strong);border-radius:22px;padding:10px 10px 12px;max-width:300px;width:100%;box-shadow:var(--shadow);font-size:13px}
+.phone .bar{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-3);padding:2px 6px 8px}
+.phone .hdr{display:flex;justify-content:space-between;align-items:center;padding:4px 6px 8px;border-bottom:1px solid var(--line)}
+.phone .hdr b{font-size:14px;color:var(--ink)}
+.phone .body{padding:8px 4px;display:flex;flex-direction:column;gap:8px}
+.phone .row{background:var(--surface-2);border-radius:10px;padding:8px 10px}
+.phone .row small{display:block;color:var(--text-3);font-size:11px}
+.phone .media{aspect-ratio:9/12;max-width:100%;border-radius:10px;background:linear-gradient(160deg,var(--surface-2),var(--line));display:flex;align-items:flex-end;padding:8px;color:var(--text-2);font-size:11px}
+.phone .actions{display:flex;gap:6px;position:sticky;bottom:0;padding-top:6px}
+.phone .btn{flex:1;text-align:center;padding:9px 6px;border-radius:10px;font-weight:700;font-size:12.5px;border:1px solid var(--line-strong);color:var(--text)}
+.phone .btn.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.phone .tabs{display:flex;justify-content:space-around;border-top:1px solid var(--line);padding-top:8px;margin-top:6px;font-size:10.5px;color:var(--text-3)}
+.phone .tabs b{color:var(--accent);font-weight:700}
+.phones{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;align-items:start}
+.dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;font-size:14px;margin:8px 0}
+.dl dt{font-weight:700;color:var(--ink)}.dl dd{margin:0;color:var(--text-2)}
+ul.tight{margin:6px 0 10px;padding-left:18px}ul.tight li{margin:3px 0;font-size:14px}
+.gap{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:5px;background:var(--crit-soft);color:var(--crit);font-weight:600}
+.have{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:5px;background:var(--good-soft);color:var(--good);font-weight:600}
+.part{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:5px;background:var(--warn-soft);color:var(--warn);font-weight:600}
+.new{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:5px;background:var(--accent-soft);color:var(--accent-strong);font-weight:600}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+
+<div class="wrap">
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <div class="eyebrow">Contents</div>
+  <ol>
+    <li><a href="#s1">1 · What Creator Hub is</a></li>
+    <li><a href="#s2">2 · Objects and authorities</a></li>
+    <li><a href="#s3">3 · Information architecture</a></li>
+    <li><a href="#s4">4 · Screen and experience map</a></li>
+    <li><a href="#s5">5 · Primary creator journeys</a></li>
+    <li><a href="#s6">6 · Creator ↔ EMG handoffs</a></li>
+    <li><a href="#s7">7 · Mobile interaction model</a></li>
+    <li><a href="#s8">8 · Area by area</a></li>
+    <li><a href="#s9">9 · State models</a></li>
+    <li><a href="#s10">10 · EMG Creator Operations</a></li>
+    <li><a href="#s11">11 · Visibility and permissions</a></li>
+    <li><a href="#s12">12 · Staying synchronized</a></li>
+    <li><a href="#s13">13 · Visual direction</a></li>
+    <li><a href="#s14">14 · Capability gaps</a></li>
+    <li><a href="#s15">15 · Decisions before mockups</a></li>
+    <li><a href="#s16">16 · Mockup sequence</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="eyebrow">Loop · Creator Hub · first design pass · 2026-09-22</div>
+<h1>One business, two seats: the creator's and EMG's, over the same objects</h1>
+<p class="lede">Creator Hub is the environment where a creator and EMG run the creator's business together. This pass defines the product and the experience — both the creator seat and EMG's Creator Operations seat — grounded in what Loop already is. It designs nothing that would become a second authority. Where today's backend cannot support a screen, the gap is named, not invented around.</p>
+<div class="strip">
+  <div><b>Status</b><span>Design definition for approval. Nothing built.</span></div>
+  <div><b>Shape</b><span>One Loop shell · two authorized projections</span></div>
+  <div><b>Authorities</b><span>CRM · Work OS · Brain · Storage · Loop meaning</span></div>
+  <div><b>New creator concepts</b><span>Content · Asset/Version · Deliverable · Earnings ledger · Social evidence</span></div>
+</div>
+<div class="note">The one rule that shapes everything below: <b>the creator and EMG never look at two copies.</b> They look at the same Opportunity, the same Work, the same Version chain, the same ledger row — through different authorized projections with different actions. Synchronization is a property of sharing the object, not a process.</div>
+
+<!-- ============================================================ -->
+<section id="s1">
+<header><div class="eyebrow">Section 1</div><h2>What Creator Hub is, and where it sits in Loop</h2></header>
+<p>Loop is an AI-first operating system for customer-facing businesses; the CRM, Work OS, Brain and the source connections are its organs. EMG's creator business is one such business, and the creator is its most important external participant. Creator Hub is therefore not a module beside CRM or Work — it is a <b>participant projection</b>: the set of surfaces, states and actions Loop composes for a person whose participation is "managed creator", plus the internal surfaces EMG uses to operate that creator. This is exactly the direction the UI architecture record already states ("responsive projections composed for a participant according to identity, membership, participation, and permissions") and it keeps decision C-02's line: no second Creator application, no second Opportunity, task, campaign or intelligence system.</p>
+<p>The creator should be able to answer eight questions without understanding any of that: what's happening, what's developing, what EMG needs from me, what am I working on, where is it in production, how did the published work do, what is Loop learning about what works for me, and what have I earned versus what I can actually move. EMG should be able to answer the mirror image for each creator and across all creators: what needs us, what needs them, what is due, what is in production, what is performing, what is owed.</p>
+
+<h3>What exists today (verified on <span class="mono">main@88d1a9c</span>)</h3>
+<div class="tbl"><table>
+<tr><th>Capability</th><th>Today</th><th>Notes for the design</th></tr>
+<tr><td>Design system and shell</td><td><span class="have">exists</span></td><td>One global <code>--loop-*</code> system: navy rail, light canvas, teal accent, Inter; mobile = light header, Menu sheet, fixed five-area bar. Primitives in <code>_loop-os</code> (PageHead, SummaryStrip, RecordLayout, Panel, Facts, ContextDrawer, StatePill, StateBlock, ActivityList, Subject Display). Creator Hub renders on this foundation, not a skin.</td></tr>
+<tr><td>Creator identity and sign-in</td><td><span class="gap">gap</span></td><td><code>CREATOR</code> exists as a workspace role but nothing sets it; <code>SystemRole</code> has no creator value; one org per login; C-02 says external participant authentication is "not authorized". A managed creator is "a Person with creator participation and capability" (Party, TALENT_REPRESENTATION Relationship). This is decision #1 in §15.</td></tr>
+<tr><td>Transitional <code>/app/creator</code></td><td><span class="part">shell only</span></td><td>An inert "Upload Video" page (old <code>ds-*</code> classes) and an honest Unavailable catch-all. Reusable as the route root; nothing else to keep.</td></tr>
+<tr><td>Opportunity, Campaign</td><td><span class="gap">contract locked, unbuilt</span></td><td>Shapes are decided (OPEN/CLOSED_WON/CLOSED_LOST + org-configured versioned stage sets; human forecast only; Campaign DRAFT→AGREED→ACTIVE→PAUSED→ENDED→CANCELLED; "creator deliverables" named as an execution domain). Nav items are marked <em>soon</em>. Creator Hub designs against the locked shape.</td></tr>
+<tr><td>Work OS</td><td><span class="have">exists</span></td><td>Blueprint → WorkInstance → WorkStage (pending/…/completed) → WorkAssignment (a user), stage events, comments, notifications (<code>next_action_ready</code>, <code>assigned</code>, <code>completed</code>, <code>approval_needed</code>); My Work, Team Work, Start work from a blueprint. No external actor, no requested-vs-committed turnaround, no attachments, dormant <code>requiresApproval</code>.</td></tr>
+<tr><td>Employee-private work items ("Needs you")</td><td><span class="have">exists</span></td><td>WorkItem (NEEDS_YOU/WAITING_ON_THEM/GONE_QUIET/FYI), append-only observations, Home "Needs you" panel. The pattern Creator Home's "Things that need you" should reuse — with the creator as the principal.</td></tr>
+<tr><td>Brain / Decision Engine / Findings</td><td><span class="have">exists</span></td><td>Cases (NEEDS_REVIEW → ASSIGNED → WATCHING → RESOLVED/DISMISSED, outcomes with reasons), append-only evidence with limitations, Findings (accept/reject), Recommendations (select/dismiss/revise), result standings NON_AUTHORITATIVE/PROPOSED, evidence authorities already include <code>CREATOR_HUB</code>. A creator-onboarding review already fires on a TALENT_REPRESENTATION relationship becoming ACTIVE and waits for "creator context" nothing owns yet.</td></tr>
+<tr><td>Governed AI runtime</td><td><span class="have">exists</span></td><td>Tasks by name, validated structured outputs, usage ledger, budgets. Content intelligence producers would be new tasks on this runtime — never a second AI path.</td></tr>
+<tr><td>Object storage, uploads, versions</td><td><span class="gap">gap</span></td><td>No S3, no presigned uploads, no asset or version model anywhere.</td></tr>
+<tr><td>Social accounts and performance</td><td><span class="gap">gap</span></td><td>Source connections exist only for employee sources (Google, Teams, Telegram). No creator platform connection, no performance evidence.</td></tr>
+<tr><td>Earnings, compensation, payout</td><td><span class="gap">gap</span></td><td>Nothing. Revenue pages are CallGrid revenue. The CRM record assigns "transactions, invoices, payment and settlement" to Accounting, which does not exist yet.</td></tr>
+</table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+<header><div class="eyebrow">Section 2</div><h2>The objects, who owns each, and how they reference one another</h2></header>
+<p>File ≠ Content ≠ Deliverable ≠ Campaign ≠ Opportunity ≠ Work ≠ Intelligence. They reference each other; none is another. The table is the design's contract with the later architecture pass: every screen in this document draws only from these nouns, and each noun has exactly one home.</p>
+<div class="tbl"><table>
+<tr><th>Noun</th><th>Authority</th><th>Status</th><th>Creator Hub's relationship to it</th></tr>
+<tr><td>Creator (Person + participation)</td><td>CRM Party + Relationship (TALENT_REPRESENTATION)</td><td><span class="have">exists</span></td><td>Projects it as "you"; creator-editable profile fields are creator-domain attributes hung off the Person, never a second person record.</td></tr>
+<tr><td>Opportunity</td><td>CRM</td><td><span class="gap">unbuilt (locked shape)</span></td><td>Creator-safe projection of category + stage, mapped through a declared visibility (§9.4). Creator never edits it.</td></tr>
+<tr><td>Campaign</td><td>CRM</td><td><span class="gap">unbuilt (locked shape)</span></td><td>Creator sees the agreed program, its lifecycle state and its deliverables; never its commercial terms unless designated visible.</td></tr>
+<tr><td>Deliverable</td><td><span class="new">Creator domain (to establish)</span> — the CRM record already names "creator deliverables" as execution truth owned outside CRM</td><td><span class="gap">new</span></td><td>What the creator owes on a Campaign: type, due, status, the Content that fulfils it. The join between commercial intent and creator execution.</td></tr>
+<tr><td>Content</td><td><span class="new">Creator domain (to establish)</span></td><td><span class="gap">new</span></td><td>A creator's piece of work through its life: raw → edited → approved → published. Owns lifecycle state, associations (Campaign, Deliverable, Work, Opportunity), publication state, and the Version chain.</td></tr>
+<tr><td>Asset / Version</td><td>Bytes: object storage. Meaning: Loop (creator domain)</td><td><span class="gap">new</span></td><td>Every file is a Version of a Content with type, uploader, time, producing Work, preceding instructions, approval and publication marks. Never overwritten.</td></tr>
+<tr><td>Work (edit requests, production)</td><td>Work OS</td><td><span class="have">exists</span> <span class="part">needs external-actor + turnaround fields</span></td><td>"Request an Edit" starts a WorkInstance from an Editing blueprint; creator review and change requests are stage events on that same instance. Creator Tasks are a projection of assignments and stage state.</td></tr>
+<tr><td>Intelligence (facts, findings, recommendations)</td><td>Brain / Decision Engine</td><td><span class="have">exists</span> <span class="part">no content producers</span></td><td>Creator Hub renders findings with their evidence where a decision is made. Content features would be evidence rows produced by governed tasks; nothing scores.</td></tr>
+<tr><td>Performance (views, reach, engagement)</td><td><span class="new">Social source evidence (to establish)</span> — a measurement source like CallGrid's</td><td><span class="gap">new</span></td><td>Attached to a Published Version by platform and post id. Analytics is a read over it; Intelligence interprets it.</td></tr>
+<tr><td>Earnings (compensation and payment state)</td><td><span class="new">Loop commercial/payment ledger (to establish)</span>; rails via a payout provider later</td><td><span class="gap">new</span></td><td>Append-only entries that trace Opportunity → Campaign → Deliverable → payment event; EMG release is a governed act; the provider holds destinations and transfers.</td></tr>
+<tr><td>Social account</td><td><span class="new">Creator connection (to establish)</span>, modelled on SourceConnection</td><td><span class="gap">new</span></td><td>Connected by the creator on Profile; a per-creator provider connection with state, never credentials in Loop tables in the clear.</td></tr>
+</table></div>
+
+<figure class="fig">
+<svg viewBox="0 0 980 420" width="980" height="420" role="img" aria-label="Object relationship model: CRM owns Party, Relationship, Opportunity, Campaign; the creator domain owns Deliverable, Content and Version; Work OS owns Work; Brain owns Findings; storage owns bytes; the ledger owns earnings; social sources own performance.">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--text-3)"/></marker></defs>
+  <rect x="10" y="10" width="290" height="180" rx="12" fill="var(--surface-2)" stroke="var(--line)"/>
+  <text x="24" y="32" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">CRM · COMMERCIAL TRUTH</text>
+  <rect x="24" y="44" width="120" height="40" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="84" y="68" text-anchor="middle" font-size="13" font-weight="700">Party (Person)</text>
+  <rect x="164" y="44" width="120" height="40" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="224" y="61" text-anchor="middle" font-size="12" font-weight="700">Relationship</text><text x="224" y="76" text-anchor="middle" class="m" fill="var(--text-3)">TALENT_REPRESENTATION</text>
+  <rect x="24" y="112" width="120" height="40" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="84" y="136" text-anchor="middle" font-size="13" font-weight="700">Opportunity</text>
+  <rect x="164" y="112" width="120" height="40" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="224" y="136" text-anchor="middle" font-size="13" font-weight="700">Campaign</text>
+  <line x1="144" y1="64" x2="164" y2="64" stroke="var(--text-3)"/><line x1="144" y1="132" x2="164" y2="132" stroke="var(--text-3)" marker-end="url(#ar)"/>
+
+  <rect x="340" y="10" width="300" height="180" rx="12" fill="var(--accent-soft)" stroke="var(--line)"/>
+  <text x="354" y="32" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">CREATOR DOMAIN · TO ESTABLISH</text>
+  <rect x="354" y="44" width="130" height="40" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="419" y="68" text-anchor="middle" font-size="13" font-weight="700">Deliverable</text>
+  <rect x="496" y="44" width="130" height="40" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="561" y="68" text-anchor="middle" font-size="13" font-weight="700">Content</text>
+  <rect x="496" y="112" width="130" height="40" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="561" y="129" text-anchor="middle" font-size="12" font-weight="700">Version (Asset)</text><text x="561" y="144" text-anchor="middle" class="m" fill="var(--text-3)">meaning here · bytes in storage</text>
+  <line x1="284" y1="64" x2="354" y2="64" stroke="var(--text-3)" marker-end="url(#ar)"/><text x="318" y="56" text-anchor="middle" class="m" fill="var(--text-3)">owes</text>
+  <line x1="484" y1="64" x2="496" y2="64" stroke="var(--text-3)" marker-end="url(#ar)"/>
+  <line x1="561" y1="84" x2="561" y2="112" stroke="var(--text-3)" marker-end="url(#ar)"/><text x="600" y="102" class="m" fill="var(--text-3)">1..n, never overwritten</text>
+
+  <rect x="680" y="10" width="290" height="80" rx="12" fill="var(--surface-2)" stroke="var(--line)"/>
+  <text x="694" y="32" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">OBJECT STORAGE · BYTES</text>
+  <rect x="694" y="44" width="260" height="34" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="824" y="66" text-anchor="middle" font-size="12">objects keyed by Version id · never the truth</text>
+  <line x1="626" y1="132" x2="694" y2="78" stroke="var(--text-3)" stroke-dasharray="4 3"/>
+
+  <rect x="680" y="110" width="290" height="80" rx="12" fill="var(--surface-2)" stroke="var(--line)"/>
+  <text x="694" y="132" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">SOCIAL SOURCES · EVIDENCE</text>
+  <rect x="694" y="144" width="260" height="34" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="824" y="166" text-anchor="middle" font-size="12">Performance of a Published Version</text>
+  <line x1="626" y1="140" x2="694" y2="160" stroke="var(--text-3)" marker-end="url(#ar)"/>
+
+  <rect x="10" y="230" width="290" height="80" rx="12" fill="var(--surface-2)" stroke="var(--line)"/>
+  <text x="24" y="252" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">WORK OS · EXECUTION</text>
+  <rect x="24" y="264" width="260" height="34" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="154" y="286" text-anchor="middle" font-size="12">Work · stages · assignments · events</text>
+  <line x1="284" y1="281" x2="496" y2="152" stroke="var(--text-3)" marker-end="url(#ar)"/><text x="400" y="228" class="m" fill="var(--text-3)">produces Versions</text>
+
+  <rect x="340" y="230" width="300" height="80" rx="12" fill="var(--surface-2)" stroke="var(--line)"/>
+  <text x="354" y="252" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">BRAIN · INTERPRETATION</text>
+  <rect x="354" y="264" width="272" height="34" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="490" y="286" text-anchor="middle" font-size="12">Evidence → Finding → Recommendation</text>
+  <line x1="694" y1="178" x2="626" y2="264" stroke="var(--text-3)" marker-end="url(#ar)"/>
+
+  <rect x="680" y="230" width="290" height="80" rx="12" fill="var(--surface-2)" stroke="var(--line)"/>
+  <text x="694" y="252" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">LEDGER · EARNINGS (TO ESTABLISH)</text>
+  <rect x="694" y="264" width="260" height="34" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="824" y="286" text-anchor="middle" font-size="12">Opp → Campaign → Deliverable → payment</text>
+  <line x1="419" y1="84" x2="700" y2="264" stroke="var(--text-3)" stroke-dasharray="4 3"/>
+
+  <rect x="10" y="340" width="960" height="66" rx="12" fill="var(--surface)" stroke="var(--line-strong)"/>
+  <text x="490" y="366" text-anchor="middle" font-size="13" font-weight="700">Creator Hub composes all of the above into two authorized projections: the creator's seat and EMG's Creator Operations seat</text>
+  <text x="490" y="388" text-anchor="middle" font-size="12" fill="var(--text-2)">It owns only the creator-domain nouns marked "to establish", and only because no authority owns them today</text>
+</svg>
+<figcaption>Solid arrows: references that carry state. Dashed: references by id only. Nothing crosses in the other direction — CRM never stores execution, Work OS never stores commercial terms, the Brain never stores truth.</figcaption>
+</figure>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+<header><div class="eyebrow">Section 3</div><h2>Information architecture and navigation</h2></header>
+<h3>Creator seat</h3>
+<p>Seven areas, exactly as briefed: <b>Home · Opportunities · Content · Analytics · Tasks · Earnings · Profile</b>. They live in the one Loop shell under the transitional root <code>/app/creator/…</code>, listed in <code>LOOP_NAV</code> as a group offered only to the creator authority — the same registry, filtered, never a second menu.</p>
+<div class="split">
+<div class="panel">
+<h4>Mobile: the fixed five-area bar</h4>
+<p>Loop's mobile shell puts five operating areas in a fixed bottom bar. The creator's five are the five things a thumb reaches for daily: <b>Home · Content · Opportunities · Tasks · Earnings</b>.</p>
+<ul class="tight">
+<li><b>Analytics</b> is one tap from Home (the audience number) and from Content's <em>Published</em> filter, and sits in the Menu sheet. It is a reading surface, not a daily action.</li>
+<li><b>Profile</b> is the avatar in the header — where Loop already puts the person — and the Menu sheet.</li>
+<li>Upload and Request an Edit are actions inside Content, not areas.</li>
+</ul>
+</div>
+<div class="panel">
+<h4>Desktop: the navy rail</h4>
+<p>All seven areas as one rail group, Profile also on the person block at the rail's foot. Desktop adds density, not features: two-column records (RecordLayout main + rail), tables instead of card lists where a list is long, side-by-side version comparison.</p>
+<dl class="dl">
+<dt>Routes</dt><dd><span class="mono">/app/creator</span> (Home) · <span class="mono">/opportunities/[id]</span> · <span class="mono">/content/[id]</span> · <span class="mono">/content/[id]/versions/[v]</span> · <span class="mono">/analytics</span> · <span class="mono">/tasks</span> · <span class="mono">/earnings/[campaignId]</span> · <span class="mono">/profile</span></dd>
+<dt>Guard</dt><dd>Every page calls <span class="mono">requireWorkspace('CREATOR')</span> itself, as the tree already does — once the creator authority is real (§15, decision 1).</dd>
+</dl>
+</div>
+</div>
+
+<h3>EMG seat (Creator Operations)</h3>
+<p>Per decision C-02, internal creator administration is <b>Operations → Creators</b>. This pass keeps that and answers the harder question — which of the twenty-odd EMG concerns need a Creator Operations surface, and which compose or deep-link into surfaces Loop already has. Section 10 gives the full map; the shape is:</p>
+<div class="tbl"><table>
+<tr><th>Surface</th><th>Where</th><th>New?</th><th>What it is</th></tr>
+<tr><td>Creators roster</td><td>Operations → Creators (<span class="mono">/app/admin/creator-hub</span>, already in <code>LOOP_NAV</code>)</td><td><span class="new">new list</span></td><td>Every managed creator (Persons with an ACTIVE TALENT_REPRESENTATION), with the four counts that mean "needs us / needs them / due / in production".</td></tr>
+<tr><td>Individual creator overview</td><td>The CRM <b>Person record</b>, with a creator-participation panel and a "Creator" context tab</td><td><span class="part">compose into existing</span></td><td>Not a new page. The Person record already composes identity, relationships, Opportunities, Campaigns, open work, activity and intelligence; the creator seat's objects are the same objects, so the EMG overview is the Person record wearing its creator context.</td></tr>
+<tr><td>Cross-creator operating view</td><td>Work OS <b>Team Work</b> (workload, due, assignments) + a <b>Creator requests</b> lane in Operations → Creators</td><td><span class="part">extend existing + one new lane</span></td><td>Editing workload, deadlines and turnaround commitments are Work OS facts and belong in Team Work filtered by the Editing blueprint. Incoming requests, items awaiting EMG, items awaiting creators and payment actions are the one cross-creator lane that has no home today.</td></tr>
+<tr><td>Editing work view</td><td>Work OS <b>work detail</b> (<span class="mono">/app/admin/work/[id]</span>, <span class="mono">/app/employee/work/[id]</span>)</td><td><span class="part">extend existing</span></td><td>The editor works here: creator, assets, instructions, references, campaign context, requested vs committed turnaround, upload of the next Version. Same record the creator's "Editing request detail" projects.</td></tr>
+<tr><td>Commercial and payment state</td><td>CRM Opportunity/Campaign records (commercial) + Earnings ledger detail (payment)</td><td><span class="gap">both unbuilt</span></td><td>EMG edits commercial truth in CRM; releases funds through a governed ledger action; the creator's Earnings page is the projection.</td></tr>
+</table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+<header><div class="eyebrow">Section 4</div><h2>Screen and experience map</h2></header>
+<p>Type legend — <span class="pill accent">Screen</span> a top-level area with its own route · <span class="pill neutral">Record</span> a detail page composed from authorities · <span class="pill good">Sheet</span> a short workflow that opens over the current page (a drawer on desktop, a full-height sheet on phones) · <span class="pill warn">Section</span> a nested state inside a record, reachable by a tab or scroll, with its own anchor.</p>
+
+<h3>Creator seat</h3>
+<div class="tbl"><table>
+<tr><th>Experience</th><th>Type</th><th>Composes</th><th>Primary actions</th></tr>
+<tr><td>Creator Home</td><td><span class="pill accent">Screen</span></td><td>Snapshot (social evidence, CRM, ledger) · Things that need you (Work OS + WorkItems + setup) · Active Opportunities (CRM projection) · Content in progress (Content) · Latest intelligence (Brain)</td><td>Tap-through only</td></tr>
+<tr><td>Opportunities</td><td><span class="pill accent">Screen</span></td><td>CRM Opportunity + Campaign projections, grouped by creator-visible state</td><td>Open</td></tr>
+<tr><td>Opportunity Detail</td><td><span class="pill neutral">Record</span></td><td>Overview · Campaign · Deliverables · Timeline · Files · Your tasks · Production · Payment · Updates</td><td>Open a deliverable, open content, open a task; no commercial edits</td></tr>
+<tr><td>Content Library</td><td><span class="pill accent">Screen</span></td><td>Content and Versions, filters All / Videos / Photos / Campaigns / In production / Published</td><td>Upload · Request an Edit · Open</td></tr>
+<tr><td>Content / Asset Detail</td><td><span class="pill neutral">Record</span></td><td>Preview · Status · Context · Versions · Intelligence · Performance · Actions</td><td>State-dependent: Request an Edit · Review edit · Request changes · Approve · Mark published · Analyze</td></tr>
+<tr><td>Upload Content / Deliverable</td><td><span class="pill good">Sheet</span></td><td>Object storage upload → new Content or new Version; optional Deliverable target</td><td>Pick file(s) · name · attach to campaign/deliverable · Upload</td></tr>
+<tr><td>Request an Edit</td><td><span class="pill good">Sheet</span> (4 steps)</td><td>Source → Instructions → References → Context &amp; requested return; submit starts Work</td><td>Submit request</td></tr>
+<tr><td>Editing Request Detail</td><td><span class="pill warn">Section</span> of Content Detail (Production)</td><td>Work OS instance projection: stage, assignee (EMG name only), requested vs expected turnaround, instructions history</td><td>Open review when ready</td></tr>
+<tr><td>Creator Edit Review</td><td><span class="pill neutral">Record</span> (Version view)</td><td>Version preview with compare-to-previous, the change request it answered, the editor's note</td><td>Approve · Request changes</td></tr>
+<tr><td>Request Changes</td><td><span class="pill good">Sheet</span></td><td>Notes, optional timestamped points, optional reference; appends to the same Work</td><td>Send to EMG</td></tr>
+<tr><td>Revision History</td><td><span class="pill warn">Section</span> of Content Detail (Versions)</td><td>The full chain with who/when/which Work/which instructions/approved/published marks</td><td>Open any version · Compare two</td></tr>
+<tr><td>Pre-publish intelligence</td><td><span class="pill warn">Section</span> of Content Detail (before publication)</td><td>Findings about this content versus the creator's own history, with evidence</td><td>View evidence</td></tr>
+<tr><td>Post-publish intelligence</td><td><span class="pill warn">Section</span> of Content Detail (after publication)</td><td>What happened versus what was expected; version-change findings</td><td>View evidence</td></tr>
+<tr><td>Single Content Analysis</td><td><span class="pill neutral">Record</span> reached from Content Detail "Analyze"</td><td>Facts · observations · interpretations · recommendations for one piece, each with evidence rows and limitations</td><td>Read only</td></tr>
+<tr><td>Feed Analysis</td><td><span class="pill neutral">Record</span> reached from Analytics</td><td>Patterns across the creator's published work (recurring characters, formats, hooks, length, posting time…), each a Finding with evidence</td><td>Read only</td></tr>
+<tr><td>Analytics</td><td><span class="pill accent">Screen</span></td><td>Social evidence across platforms and windows; top content; intelligence explanations</td><td>Filter · open the Content behind a point</td></tr>
+<tr><td>Tasks</td><td><span class="pill accent">Screen</span></td><td>Needs attention · Upcoming · Completed — projection of Work OS assignments/stages, WorkItems, and setup prompts</td><td>Open the object where the action belongs</td></tr>
+<tr><td>Earnings</td><td><span class="pill accent">Screen</span></td><td>Available balance · Transfer · Expected / Pending / Available / Paid YTD · history</td><td>Transfer funds (when the provider exists)</td></tr>
+<tr><td>Campaign Payment Detail</td><td><span class="pill neutral">Record</span></td><td>One campaign's compensation trace: deliverables, entries, states, dates</td><td>Read only</td></tr>
+<tr><td>Available Balance · Transfer Funds · Transfer History</td><td><span class="pill good">Sheet</span> / <span class="pill warn">Section</span></td><td>Provider-backed: destination, amount, status, retries</td><td>Transfer</td></tr>
+<tr><td>Payout Setup</td><td><span class="pill good">Sheet</span> from Profile / Earnings</td><td>Provider onboarding (identity, destination) — Loop stores state, never bank details</td><td>Start · Resume</td></tr>
+<tr><td>Profile</td><td><span class="pill accent">Screen</span></td><td>Creator information · profile · social connections · categories · audience · rates (where designated) · payout · documents · notifications · preferences</td><td>Edit creator-owned fields; connect accounts</td></tr>
+</table></div>
+
+<h3>EMG seat</h3>
+<div class="tbl"><table>
+<tr><th>Experience</th><th>Type</th><th>Lives in</th><th>Primary actions</th></tr>
+<tr><td>Creators roster</td><td><span class="pill accent">Screen</span></td><td>Operations → Creators</td><td>Open creator · filter by needs-us / needs-them / due</td></tr>
+<tr><td>Creator overview</td><td><span class="pill neutral">Record</span></td><td>CRM Person record, "Creator" context</td><td>Everything below, by deep link</td></tr>
+<tr><td>Creator requests lane</td><td><span class="pill accent">Screen</span> (cross-creator)</td><td>Operations → Creators → Requests</td><td>Assign · set expected turnaround · open work</td></tr>
+<tr><td>Editing workload / turnaround</td><td><span class="pill accent">Screen</span></td><td>Work OS Team Work, Editing blueprint filter</td><td>Reassign · reprioritize</td></tr>
+<tr><td>EMG editing work view</td><td><span class="pill neutral">Record</span></td><td>Work OS work detail</td><td>Start · set/adjust expected turnaround · upload Version · complete stage · comment (creator-visible or internal)</td></tr>
+<tr><td>Opportunity / Campaign (internal)</td><td><span class="pill neutral">Record</span></td><td>CRM</td><td>Stage · forecast · terms · designate creator-visible · declare deliverables</td></tr>
+<tr><td>Deliverable board</td><td><span class="pill warn">Section</span></td><td>Campaign record (CRM) — deliverables panel</td><td>Declare · link fulfilling Content · mark fulfilled</td></tr>
+<tr><td>Payment / release</td><td><span class="pill neutral">Record</span> + <span class="pill good">Sheet</span></td><td>Earnings ledger detail (new) reached from Campaign and from the creator overview</td><td>Record received · release to creator (authorized roles) · view payout status</td></tr>
+<tr><td>Creator intelligence</td><td><span class="pill warn">Section</span></td><td>Person record → Intelligence; Decision Center cases</td><td>Accept / reject findings · resolve cases</td></tr>
+<tr><td>Creator-visible updates</td><td><span class="pill good">Sheet</span> on any object</td><td>Work, Opportunity, Campaign records</td><td>Post an update marked creator-visible</td></tr>
+</table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+<header><div class="eyebrow">Section 5</div><h2>Primary creator journeys</h2></header>
+<p>Each step names the authority that changes, so the journey is also a proof that no step needs a second system.</p>
+
+<figure class="fig">
+<svg viewBox="0 0 980 300" width="980" height="300" role="img" aria-label="Swimlane of the flagship journey across the creator, Loop objects and EMG lanes">
+  <rect x="0" y="0" width="980" height="96" fill="var(--lane-creator)" rx="10"/><text x="12" y="20" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">CREATOR</text>
+  <rect x="0" y="102" width="980" height="96" fill="var(--lane-loop)" rx="10"/><text x="12" y="122" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">LOOP OBJECTS (ONE COPY)</text>
+  <rect x="0" y="204" width="980" height="96" fill="var(--lane-emg)" rx="10"/><text x="12" y="224" font-size="11" font-weight="700" fill="var(--text-3)" letter-spacing="1.5">EMG</text>
+  <g font-size="11.5">
+    <rect x="14" y="36" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="74" y="55" text-anchor="middle">Sees “Review</text><text x="74" y="69" text-anchor="middle">Edit v2” on Home</text>
+    <rect x="150" y="36" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="210" y="55" text-anchor="middle">Compares v2</text><text x="210" y="69" text-anchor="middle">with Original</text>
+    <rect x="286" y="36" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="346" y="55" text-anchor="middle">Requests one</text><text x="346" y="69" text-anchor="middle">change</text>
+    <rect x="558" y="36" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="618" y="55" text-anchor="middle">Reviews v3,</text><text x="618" y="69" text-anchor="middle">approves</text>
+    <rect x="830" y="36" width="136" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="898" y="55" text-anchor="middle">Reads the finding,</text><text x="898" y="69" text-anchor="middle">plans next content</text>
+
+    <rect x="14" y="138" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="74" y="157" text-anchor="middle">WorkItem NEEDS_YOU</text><text x="74" y="171" text-anchor="middle" class="m" fill="var(--text-3)">from Work stage event</text>
+    <rect x="150" y="138" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="210" y="157" text-anchor="middle">Version chain</text><text x="210" y="171" text-anchor="middle" class="m" fill="var(--text-3)">Original · v1 · v2</text>
+    <rect x="286" y="138" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="346" y="157" text-anchor="middle">Same Work reopens</text><text x="346" y="171" text-anchor="middle" class="m" fill="var(--text-3)">stage → CHANGES_REQUESTED</text>
+    <rect x="422" y="138" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="482" y="157" text-anchor="middle">Version v3 appended</text><text x="482" y="171" text-anchor="middle" class="m" fill="var(--text-3)">producedBy = that Work</text>
+    <rect x="558" y="138" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="618" y="157" text-anchor="middle">Approved Final →</text><text x="618" y="171" text-anchor="middle">Deliverable fulfilled</text>
+    <rect x="694" y="138" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="754" y="157" text-anchor="middle">Published Version;</text><text x="754" y="171" text-anchor="middle">performance attaches</text>
+    <rect x="830" y="138" width="136" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="898" y="157" text-anchor="middle">Brain Finding + evidence</text><text x="898" y="171" text-anchor="middle" class="m" fill="var(--text-3)">NON_AUTHORITATIVE</text>
+
+    <rect x="286" y="240" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="346" y="259" text-anchor="middle">Editor sees the</text><text x="346" y="273" text-anchor="middle">change on the Work</text>
+    <rect x="422" y="240" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="482" y="259" text-anchor="middle">Uploads v3,</text><text x="482" y="273" text-anchor="middle">completes stage</text>
+    <rect x="694" y="240" width="120" height="44" rx="8" fill="var(--surface)" stroke="var(--line-strong)"/><text x="754" y="259" text-anchor="middle">Marks Campaign</text><text x="754" y="273" text-anchor="middle">deliverable complete</text>
+  </g>
+  <g stroke="var(--text-3)" fill="none" marker-end="url(#ar)">
+    <path d="M74,80 L74,138"/><path d="M134,58 L150,58"/><path d="M210,80 L210,138"/><path d="M270,58 L286,58"/><path d="M346,80 L346,138"/><path d="M346,182 L346,240"/><path d="M406,262 L422,262"/><path d="M482,240 L482,182"/><path d="M542,160 L558,160"/><path d="M618,80 L618,138"/><path d="M678,160 L694,160"/><path d="M754,182 L754,240"/><path d="M814,160 L830,160"/><path d="M898,138 L898,80"/>
+  </g>
+</svg>
+<figcaption>The flagship journey. Every arrow into the middle lane is a state change on an object that already exists or is deliberately established here; every arrow out of it is a projection. There is no "creator copy" anywhere on the diagram.</figcaption>
+</figure>
+
+<div class="grid2">
+<div class="card"><h4>J1 · Review and approve an edit</h4>
+<ol class="steps">
+<li>Home → "Review EMG Edit v2 — ready" <span class="auth">WorkItem ← Work stage event</span></li>
+<li>Opens the Content record on the v2 version <span class="auth">Content / Version</span></li>
+<li>Plays v2; toggles Compare to Original at the same timestamp <span class="auth">Version chain</span></li>
+<li>Approve → v2 becomes Approved Final; the Work stage completes; the WorkItem resolves <span class="auth">Content · Work OS · WorkItem</span></li>
+<li>If a Deliverable is linked, it is marked fulfilled by v2 <span class="auth">Deliverable (creator domain)</span></li>
+</ol></div>
+<div class="card"><h4>J2 · Request an edit</h4>
+<ol class="steps">
+<li>Content → Request an Edit (or from any raw Content's actions)</li>
+<li>Source: pick an existing Version or upload new <span class="auth">Storage + Version</span></li>
+<li>Instructions, references (Versions or links), optional Campaign/Deliverable <span class="auth">Content associations</span></li>
+<li>Requested return: date and time <span class="auth">requested turnaround (Work OS field, new)</span></li>
+<li>Submit → a WorkInstance from the Editing blueprint, stage Submitted, creator visible <span class="auth">Work OS</span></li>
+<li>EMG sets expected turnaround → reflected on the request and on Tasks/Upcoming <span class="auth">Work OS</span></li>
+</ol></div>
+<div class="card"><h4>J3 · Request changes and receive the next version</h4>
+<ol class="steps">
+<li>From Edit Review → Request changes (notes, optional timestamped points)</li>
+<li>The same Work reopens: stage Creator Review → Changes Requested → Editing <span class="auth">Work OS stage events</span></li>
+<li>Editor uploads v3 against the same chain; stage → Creator Review <span class="auth">Version · Work OS</span></li>
+<li>Creator gets "v3 ready for review" — the same WorkItem re-detected, never a duplicate</li>
+</ol></div>
+<div class="card"><h4>J4 · Opportunity to confirmed campaign to tasks</h4>
+<ol class="steps">
+<li>Home shows a new Active Opportunity at "Brand interest" <span class="auth">CRM Opportunity (creator-visible projection)</span></li>
+<li>EMG moves it through Pitching / Negotiating internally; the creator sees only designated states and updates</li>
+<li>Confirmed → EMG creates a Campaign and declares Deliverables <span class="auth">CRM Campaign · Deliverables</span></li>
+<li>Deliverables appear as Tasks/Upcoming with due dates; each links to a Content slot</li>
+<li>Upload deliverable → Request an Edit if needed → approve → fulfilled</li>
+</ol></div>
+<div class="card"><h4>J5 · Publish, perform, learn</h4>
+<ol class="steps">
+<li>Approved Final → creator marks it published and connects the post (platform, url) <span class="auth">Published Version</span></li>
+<li>Performance attaches from the connected platform <span class="auth">social evidence</span></li>
+<li>Analytics reflects it; tapping the spike opens the Content record</li>
+<li>Brain produces a Finding about this creator from eligible evidence <span class="auth">Decision Engine</span></li>
+<li>Home / Content / Analytics show the finding with "View evidence"</li>
+</ol></div>
+<div class="card"><h4>J6 · Get set up, get paid</h4>
+<ol class="steps">
+<li>Home "Things that need you": Connect Instagram · Complete payout setup <span class="auth">setup prompts derived from Profile state</span></li>
+<li>Profile → Social accounts → connect (provider consent) <span class="auth">creator connection</span></li>
+<li>Earnings shows Expected as campaigns confirm; Pending as they complete; Received; then Available once an authorized EMG user releases <span class="auth">ledger</span></li>
+<li>Transfer funds → provider transfer → Transfer pending → Paid <span class="auth">payout provider</span></li>
+</ol></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+<header><div class="eyebrow">Section 6</div><h2>Creator ↔ EMG workflow handoffs</h2></header>
+<p>Every handoff is an event on one object. The columns show what each seat sees of it and what the creator-visible update is — an intentional projection, never the raw record.</p>
+<div class="tbl"><table>
+<tr><th>Event</th><th>Object that changes (authority)</th><th>EMG sees</th><th>Creator sees</th><th>Creator-visible update</th></tr>
+<tr><td>Creator submits an edit request</td><td>WorkInstance created, stage Submitted (Work OS); associations on Content</td><td>Requests lane + Team Work: creator, source Version, instructions, references, campaign context, requested return</td><td>Content → Production: "Submitted · requested by Fri 3 PM"</td><td>system: "Request received"</td></tr>
+<tr><td>EMG assigns and sets expected turnaround</td><td>WorkAssignment; expected turnaround (Work OS, new field)</td><td>Work detail; workload</td><td>"Assigned · expected Fri 5 PM" (assignee first name only)</td><td>system: "EMG expects to return this by …"</td></tr>
+<tr><td>Editor uploads Edit v1, completes stage</td><td>Version appended (producedBy Work); stage → Creator Review</td><td>Work detail shows the Version and the stage</td><td>WorkItem "Review EMG Edit v1 — ready"; Content Detail action Review edit</td><td>system + optional editor note (creator-visible)</td></tr>
+<tr><td>Creator requests changes</td><td>Stage event Creator Review → Changes Requested → Editing on the <em>same</em> Work; notes stored as the next instruction set</td><td>Work reopens in My Work with the change request in the instruction history</td><td>"Changes requested · back to EMG"</td><td>—</td></tr>
+<tr><td>Creator approves</td><td>Version marked Approved Final; stage completes; Work completes; Deliverable fulfilled (creator domain)</td><td>Work completes; Campaign deliverable board shows fulfilled</td><td>Content status Approved; task completes</td><td>system: "Approved — thank you"</td></tr>
+<tr><td>Creator publishes and connects the post</td><td>Published Version (platform, post id, publishedAt)</td><td>Campaign deliverable shows Published; performance begins</td><td>Content status Published; Performance section appears</td><td>—</td></tr>
+<tr><td>EMG advances an Opportunity</td><td>CRM stage transition (append-only)</td><td>Full CRM record</td><td>Only if the new stage is in the creator-visible mapping (§9.4)</td><td>optional EMG-posted update</td></tr>
+<tr><td>EMG records payment received / releases funds</td><td>Ledger entries (new); release is an authorized act</td><td>Ledger detail; Campaign payment panel</td><td>Earnings: Received → Available</td><td>system: "$X is available to you"</td></tr>
+<tr><td>Creator transfers funds</td><td>Provider transfer; ledger entry Transfer pending → Paid</td><td>Payout status on the ledger detail</td><td>Transfer history</td><td>system on completion/failure</td></tr>
+</table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+<header><div class="eyebrow">Section 7</div><h2>Mobile interaction model</h2></header>
+<p>Creators will upload, review, approve, request changes, check opportunities, finish tasks, read analytics, check earnings and read intelligence on a phone. The model: <b>media first, one decision per screen, actions under the thumb, and the shortest path from a notification to the object.</b></p>
+<div class="phones">
+<div class="phone" aria-label="Creator Home, phone">
+  <div class="bar"><span>9:41</span><span>Loop</span></div>
+  <div class="hdr"><b>Good morning, Denise</b><span class="pill accent">DR</span></div>
+  <div class="body">
+    <div class="row"><small>Total audience · 30-day growth</small><b>1.03M</b> · +4.2%</div>
+    <div class="row"><small>Things that need you</small>Review EMG Edit v2 — ready<br>Upload Sculpey draft — due Fri<br>Complete payout setup</div>
+    <div class="row"><small>Active opportunities · 3</small>Kona Product Video — Confirmed</div>
+    <div class="row"><small>Latest intelligence</small>Kona in the first 5 s → 1.7× views <span class="kbd">View evidence →</span></div>
+  </div>
+  <div class="tabs"><b>Home</b><span>Content</span><span>Opps</span><span>Tasks</span><span>Earnings</span></div>
+</div>
+<div class="phone" aria-label="Creator Edit Review, phone">
+  <div class="bar"><span>9:42</span><span>Loop</span></div>
+  <div class="hdr"><b>Sculpey Reel · Edit v2</b><span class="pill warn">Review</span></div>
+  <div class="body">
+    <div class="media">Original ◦ <b>v2</b> · 0:11 / 0:47 · tap to compare at this moment</div>
+    <div class="row"><small>What changed since v1</small>Opening shortened; Kona moved to 0:03 (your request)</div>
+    <div class="row"><small>Pre-publish intelligence</small>Kona appears at 0:03 — earlier than 4 of your last 5 videos. <span class="kbd">Evidence →</span></div>
+    <div class="actions"><span class="btn">Request changes</span><span class="btn primary">Approve</span></div>
+  </div>
+</div>
+</div>
+<div class="grid2" style="margin-top:14px">
+<div class="card"><h4>Thumb-zone rules</h4><ul>
+<li>The one primary and one secondary action of a screen live in a sticky bottom bar above the five-area bar (Approve / Request changes; Upload; Transfer).</li>
+<li>Destructive or money-moving actions confirm in a sheet, never a modal dialog.</li>
+<li>Lists are cards with a thumbnail, a state pill and one line; a long-press is never required.</li>
+<li>Filters are horizontal chips under the page title; sorting is implicit (recency, due).</li>
+</ul></div>
+<div class="card"><h4>Media-first review</h4><ul>
+<li>The player is the page; metadata sits under it, actions under the thumb.</li>
+<li>Compare is a segmented control (Original · v1 · v2) that keeps the playhead — same moment, different version.</li>
+<li>Request changes opens a sheet over the paused frame; "Add a note at 0:11" captures the timestamp.</li>
+<li>Approve shows a one-line consequence ("This becomes the final for the Kona deliverable") before confirming.</li>
+</ul></div>
+<div class="card"><h4>Upload</h4><ul>
+<li>Full-height sheet; the file picker opens immediately; progress is a ring on the card in the library while it uploads.</li>
+<li>Name, campaign/deliverable and "request an edit right after" are optional follow-ups, not gates.</li>
+<li>Large videos: background upload with a persistent card state Uploading → Processing → Ready; failure shows a Retry on the card.</li>
+</ul></div>
+<div class="card"><h4>Tasks and notifications</h4><ul>
+<li>A task row opens the object where the action belongs — never a task detail page.</li>
+<li>Push/email notifications deep-link the same way (Review v2 → the Version view).</li>
+<li>Completed tasks are read-only history with the object link preserved.</li>
+</ul></div>
+<div class="card"><h4>Analytics on a phone</h4><ul>
+<li>One number per card, sparkline, delta; platform chips; window chips.</li>
+<li>Tapping a spike opens a sheet listing the Content published in that window; tapping one opens the record.</li>
+<li>Intelligence explanations sit under the chart as one-line findings with "Evidence".</li>
+</ul></div>
+<div class="card"><h4>Desktop adaptation</h4><ul>
+<li>Records use RecordLayout: main column (preview, versions) plus a rail (context, actions, intelligence).</li>
+<li>Version comparison side by side with a shared scrubber.</li>
+<li>Library becomes a denser grid with a list toggle; Analytics gets full charts and a table of top content.</li>
+<li>Nothing is desktop-only except density; every action exists on the phone.</li>
+</ul></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s8">
+<header><div class="eyebrow">Section 8</div><h2>Area by area: hierarchy, intelligence, states, transitions</h2></header>
+
+<div class="panel"><h3 style="margin-top:0">Home — the 10-second snapshot</h3>
+<dl class="dl">
+<dt>Hierarchy</dt><dd>Greeting → four numbers (Total audience, 30-day growth, Active opportunities, Available balance) → Things that need you → Active opportunities → Content in progress → Latest intelligence.</dd>
+<dt>Sources</dt><dd>Numbers: social evidence, CRM projection, ledger. Needs you: Work OS assignments/stages due to the creator + creator-private WorkItems + setup prompts derived from Profile (unconnected platform, incomplete payout) — no Home task system. Opportunities: CRM projection. In progress: Content with an active Work. Intelligence: the newest accepted-or-proposed Finding with evidence.</dd>
+<dt>Intelligence</dt><dd>One finding, one CTA ("View evidence →" opens the Finding's evidence drawer). Never a score.</dd>
+<dt>Empty / loading / error</dt><dd>No connected platform: the audience tile says "Connect a platform to see your audience" and links to Profile. No opportunities: "No active opportunities — EMG will add them here." No balance: "No earnings yet" — never $0 dressed as data. Each panel loads and fails on its own (Loop's settle pattern): a panel that cannot read says so; Home never goes down with it.</dd>
+<dt>Transitions</dt><dd>Every row is a link to its object: a Needs-you row → the Version view / the Deliverable / Profile; an opportunity → its record; content → its record; the number tiles → Analytics / Opportunities / Earnings.</dd>
+</dl></div>
+
+<div class="panel"><h3 style="margin-top:0">Opportunities</h3>
+<dl class="dl">
+<dt>List</dt><dd>Grouped by creator-visible state (§9.4), newest change first; each card: brand (as designated), campaign name if one exists, state pill, next thing for the creator if any.</dd>
+<dt>Detail</dt><dd>Overview (what it is, in EMG's creator-facing words) → Campaign (state, dates) → Deliverables (type, due, status, linked Content) → Timeline (designated transitions and creator-visible updates only) → Files (Versions designated as shared: briefs, references) → Your tasks → Production (Work in progress) → Payment (the ledger's view for this campaign) → Updates.</dd>
+<dt>Intelligence</dt><dd>Where a campaign has published content: commercial-performance context ("sponsored posts using your recurring-character format close most of the gap") with evidence; never forecasts, never internal assessments.</dd>
+<dt>States</dt><dd>Empty: "Nothing developing yet." Loading skeleton. A creator can never see an Opportunity not designated for them: not-found, not forbidden.</dd>
+</dl></div>
+
+<div class="panel"><h3 style="margin-top:0">Content — library and record</h3>
+<dl class="dl">
+<dt>Library</dt><dd>Visual grid of Content cards (latest Version thumbnail, name, state pill, campaign chip, platform badge if published, performance number if published). Chips: All · Videos · Photos · Campaigns · In production · Published. Two actions: Upload, Request an Edit.</dd>
+<dt>Record</dt><dd>Preview → Status (Raw → Editing → Review → Approved → Published) → Context (Campaign, Opportunity, Deliverable, Work) → Versions → Intelligence → Performance → state-dependent actions.</dd>
+<dt>Intelligence</dt><dd>Pre-publish: findings comparing this content to the creator's own history (facts and observations from version metadata and any governed content-feature evidence). Post-publish: what happened versus the pattern, and version-change findings ("shortening the opening preceded a +12% completion versus your baseline" — only when the evidence supports it). Each finding shows Fact / Observation / Interpretation / Recommendation and its evidence rows with limitations.</dd>
+<dt>States</dt><dd>Empty library: "Your content lives here. Upload your first video." Uploading / Processing / Ready card states. Failed upload: Retry on the card. A version whose bytes are unavailable shows the metadata and says so.</dd>
+</dl></div>
+
+<div class="panel"><h3 style="margin-top:0">Request an Edit</h3>
+<dl class="dl">
+<dt>Flow</dt><dd>Source → Instructions → References → Context &amp; requested return → Submit. Four sheet steps; each is one screen on a phone with a progress dots row.</dd>
+<dt>Turnaround</dt><dd>Two distinct fields the creator always sees side by side: <b>Requested</b> (theirs) and <b>Expected</b> (EMG's, set after review; blank shows "EMG will confirm a return time"). Later, service-level defaults can pre-fill Expected for EMG to adjust.</dd>
+<dt>After submit</dt><dd>Lands on the Content record's Production section showing Submitted with the requested time; a task appears in Upcoming.</dd>
+</dl></div>
+
+<div class="panel"><h3 style="margin-top:0">Analytics</h3>
+<dl class="dl">
+<dt>Hierarchy</dt><dd>Platform chips (All · TikTok · Instagram · YouTube · Facebook) and window chips (7D · 30D · 90D · 1Y) → summary tiles (audience, growth, views, reach, engagement, posting frequency) → chart → top content → platform comparison.</dd>
+<dt>Connection to Content</dt><dd>Every point, bar and top-content row resolves to Published Versions; tapping opens the Content record. Analytics provides evidence, Intelligence interprets it, Content is the object.</dd>
+<dt>Intelligence</dt><dd>Findings that explain a change in the selected window ("this spike is one post" / "posting frequency fell"), each with evidence; a Feed Analysis link for the deeper pattern view.</dd>
+<dt>States</dt><dd>No platform: connect prompt. Platform connected but no data yet: "Reading your last 90 days — usually a few minutes." Partial platforms: a PartialDataNotice naming which are missing.</dd>
+</dl></div>
+
+<div class="panel"><h3 style="margin-top:0">Tasks</h3>
+<dl class="dl">
+<dt>Views</dt><dd>Needs attention (due to the creator now) · Upcoming (due later, expected returns) · Completed.</dd>
+<dt>Sources</dt><dd>Work OS: stages assigned to the creator (review, approve, upload deliverable). WorkItems: creator-private detections. Setup: derived prompts. Deliverables: due dates.</dd>
+<dt>Rule</dt><dd>A task is a pointer with a due date and a verb; it opens the object. No task detail, no task management.</dd>
+</dl></div>
+
+<div class="panel"><h3 style="margin-top:0">Earnings</h3>
+<dl class="dl">
+<dt>Hierarchy</dt><dd>Available balance (the only big number) → Transfer funds → Expected · Pending · Available · Paid YTD → campaign/transaction history → each row opens the Campaign Payment Detail with the trace Opportunity → Campaign → Deliverable → payment event.</dd>
+<dt>Rule</dt><dd>Expected and Pending are never styled as money you can move: muted, labelled "not yet payable", no button near them. Only Available carries the transfer action.</dd>
+<dt>States</dt><dd>No earnings: "No earnings yet — confirmed campaigns will appear here as Expected." Payout not set up: the Transfer button is replaced by "Set up payouts". Provider unavailable: an honest unavailable state, balance still shown.</dd>
+</dl></div>
+
+<div class="panel"><h3 style="margin-top:0">Profile</h3>
+<dl class="dl">
+<dt>Sections</dt><dd>Creator information · Profile · Social account connections · Content categories · Audience · Commercial/rate information (only fields EMG designates) · Payout setup · Documents · Notifications · Preferences.</dd>
+<dt>Rule</dt><dd>Every field is labelled by its owner: creator-editable, EMG-maintained (read-only with "Ask EMG to change"), or system-derived (read-only with its source). Identity fields come from the CRM Person; the creator edits creator-domain attributes only.</dd>
+</dl></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s9">
+<header><div class="eyebrow">Section 9</div><h2>State models</h2></header>
+
+<h3>9.1 Content lifecycle and the Version chain</h3>
+<figure class="fig">
+<svg viewBox="0 0 980 150" width="980" height="150" role="img" aria-label="Content lifecycle: Raw, Editing, Review, Approved, Published, over a version chain">
+  <g font-size="12.5" font-weight="700">
+    <rect x="10" y="20" width="150" height="44" rx="10" fill="var(--neutral-soft)" stroke="var(--line-strong)"/><text x="85" y="47" text-anchor="middle">Raw</text>
+    <rect x="200" y="20" width="150" height="44" rx="10" fill="var(--accent-soft)" stroke="var(--line-strong)"/><text x="275" y="47" text-anchor="middle">Editing</text>
+    <rect x="390" y="20" width="150" height="44" rx="10" fill="var(--warn-soft)" stroke="var(--line-strong)"/><text x="465" y="47" text-anchor="middle">Review</text>
+    <rect x="580" y="20" width="150" height="44" rx="10" fill="var(--good-soft)" stroke="var(--line-strong)"/><text x="655" y="47" text-anchor="middle">Approved</text>
+    <rect x="770" y="20" width="150" height="44" rx="10" fill="var(--good-soft)" stroke="var(--line-strong)"/><text x="845" y="47" text-anchor="middle">Published</text>
+  </g>
+  <g stroke="var(--text-3)" fill="none" marker-end="url(#ar)"><path d="M160,42 L200,42"/><path d="M350,42 L390,42"/><path d="M540,42 L580,42"/><path d="M730,42 L770,42"/><path d="M465,64 C465,100 275,100 275,64" stroke-dasharray="4 3"/></g>
+  <text x="370" y="92" text-anchor="middle" class="m" fill="var(--text-3)">changes requested (same Work)</text>
+  <g class="m" fill="var(--text-2)"><text x="85" y="128" text-anchor="middle">Original upload</text><text x="275" y="128" text-anchor="middle">EMG Edit v1 · v2 …</text><text x="465" y="128" text-anchor="middle">a Version awaiting the creator</text><text x="655" y="128" text-anchor="middle">Approved Final (one Version)</text><text x="845" y="128" text-anchor="middle">Published Version + post link</text></g>
+</svg>
+<figcaption>The state is a projection of the chain: Content is "Review" when its newest Version was produced by Work and not yet judged; "Approved" when a Version carries the approved mark; "Published" when one carries a publication. Nothing is overwritten.</figcaption>
+</figure>
+<div class="tbl"><table>
+<tr><th>Each Version records</th><th>Who / when</th><th>Producing Work</th><th>Preceding instructions</th><th>Marks</th></tr>
+<tr><td>type (Original · EMG Edit · Approved Final · Published), file meaning (kind, duration, dimensions)</td><td>uploader (creator or EMG user), uploadedAt</td><td>the WorkInstance/stage that produced it, or none</td><td>the request or change-request text that preceded it</td><td>approvedBy/At · publishedAt · platform · post id</td></tr>
+</table></div>
+
+<h3>9.2 Editing work: creator-visible state ↔ Work OS</h3>
+<figure class="fig">
+<svg viewBox="0 0 980 200" width="980" height="200" role="img" aria-label="Edit request state machine mapped to Work OS stages">
+  <g font-size="12" font-weight="700">
+    <rect x="10" y="30" width="120" height="40" rx="10" fill="var(--neutral-soft)" stroke="var(--line-strong)"/><text x="70" y="55" text-anchor="middle">Submitted</text>
+    <rect x="160" y="30" width="120" height="40" rx="10" fill="var(--neutral-soft)" stroke="var(--line-strong)"/><text x="220" y="55" text-anchor="middle">Assigned</text>
+    <rect x="310" y="30" width="120" height="40" rx="10" fill="var(--accent-soft)" stroke="var(--line-strong)"/><text x="370" y="55" text-anchor="middle">Editing</text>
+    <rect x="460" y="30" width="140" height="40" rx="10" fill="var(--warn-soft)" stroke="var(--line-strong)"/><text x="530" y="55" text-anchor="middle">Creator Review</text>
+    <rect x="630" y="30" width="150" height="40" rx="10" fill="var(--warn-soft)" stroke="var(--line-strong)"/><text x="705" y="55" text-anchor="middle">Changes Requested</text>
+    <rect x="820" y="30" width="140" height="40" rx="10" fill="var(--good-soft)" stroke="var(--line-strong)"/><text x="890" y="55" text-anchor="middle">Approved</text>
+  </g>
+  <g stroke="var(--text-3)" fill="none" marker-end="url(#ar)"><path d="M130,50 L160,50"/><path d="M280,50 L310,50"/><path d="M430,50 L460,50"/><path d="M600,50 L630,50"/><path d="M705,70 C705,120 370,120 370,70" stroke-dasharray="4 3"/><path d="M600,44 C640,10 790,10 820,44"/></g>
+  <text x="537" y="112" text-anchor="middle" class="m" fill="var(--text-3)">reopens the same Work · new instruction set</text>
+  <g class="m" fill="var(--text-2)"><text x="70" y="160" text-anchor="middle">stage 1 pending</text><text x="220" y="160" text-anchor="middle">assignment made</text><text x="370" y="160" text-anchor="middle">stage 1 in progress</text><text x="530" y="160" text-anchor="middle">stage 2 (creator) pending</text><text x="705" y="160" text-anchor="middle">event: stage 2 → 1</text><text x="890" y="160" text-anchor="middle">stage 2 completed by creator</text></g>
+  <text x="490" y="188" text-anchor="middle" font-size="11" fill="var(--text-3)">Work OS mapping: one WorkInstance from the Editing blueprint · stage 1 "Edit" (EMG) · stage 2 "Creator review" (creator) · a change request is a stage event, never a new instance</text>
+</svg>
+</figure>
+<div class="note warn">Gaps this model needs from Work OS (recorded, not solved here): a stage that an <b>external participant</b> completes; <b>requested</b> and <b>expected/committed turnaround</b> as distinct fields; attachments (Versions) on a stage; a way to <b>reopen</b> a completed stage with a reason; comment visibility (creator-visible vs internal). Today <code>requiresApproval</code> exists but is dormant.</div>
+
+<h3>9.3 Turnaround</h3>
+<div class="tbl"><table>
+<tr><th>Field</th><th>Set by</th><th>Shown to creator as</th><th>Notes</th></tr>
+<tr><td>Requested return</td><td>Creator, at request time</td><td>"You asked for Fri 3 PM"</td><td>Never silently replaced.</td></tr>
+<tr><td>Expected / committed return</td><td>Authorized EMG user after review; later pre-filled from service-level defaults (24–48 h) and adjustable</td><td>"EMG expects Fri 5 PM" — or "EMG will confirm" until set</td><td>A change to Expected is an event with a reason; the creator sees the new time and a system update.</td></tr>
+<tr><td>Actual return</td><td>System, when the Version is uploaded and the stage completes</td><td>"Returned Fri 4:40 PM"</td><td>Feeds EMG's turnaround metrics; never a creator-facing score.</td></tr>
+</table></div>
+
+<h3>9.4 Opportunity: creator-visible states over CRM's locked shape</h3>
+<p>CRM's Opportunity has a category (OPEN / CLOSED_WON / CLOSED_LOST) and an organization-configured, versioned stage label within OPEN. The creator-facing vocabulary is a <b>declared mapping</b> from each configured stage to a creator-visible state — part of the stage-set configuration, so no second lifecycle exists and no stage leaks by default (an unmapped stage shows the last mapped state).</p>
+<div class="tbl"><table>
+<tr><th>Creator-visible</th><th>Backed by</th><th>Rule</th></tr>
+<tr><td>Brand interest · Pitching · Negotiating</td><td>OPEN stages mapped by EMG</td><td>Stages EMG chooses not to expose collapse into the nearest exposed one; the creator never sees a stage name EMG did not designate.</td></tr>
+<tr><td>Confirmed</td><td>CLOSED_WON, or an OPEN stage mapped as confirmed</td><td>Winning does not create a Campaign; "Confirmed" without a Campaign shows "EMG is setting up the campaign".</td></tr>
+<tr><td>In production · Submitted · Complete</td><td>Campaign ACTIVE + Deliverable states (creator domain) + Work state</td><td>Derived from execution objects, never stored on the Opportunity.</td></tr>
+<tr><td>Payment pending · Paid</td><td>Ledger entries for the Campaign</td><td>Derived from the ledger, never from CRM.</td></tr>
+<tr><td>(not shown)</td><td>CLOSED_LOST</td><td>Shown as "Didn't go ahead" only if EMG designates; otherwise it leaves the list.</td></tr>
+</table></div>
+
+<h3>9.5 Earnings ledger</h3>
+<figure class="fig">
+<svg viewBox="0 0 980 120" width="980" height="120" role="img" aria-label="Earnings states from Expected to Paid">
+  <g font-size="12" font-weight="700">
+    <rect x="10" y="26" width="130" height="40" rx="10" fill="var(--neutral-soft)" stroke="var(--line-strong)"/><text x="75" y="51" text-anchor="middle">Expected</text>
+    <rect x="170" y="26" width="130" height="40" rx="10" fill="var(--neutral-soft)" stroke="var(--line-strong)"/><text x="235" y="51" text-anchor="middle">Pending</text>
+    <rect x="330" y="26" width="140" height="40" rx="10" fill="var(--accent-soft)" stroke="var(--line-strong)"/><text x="400" y="51" text-anchor="middle">Received by EMG</text>
+    <rect x="500" y="26" width="140" height="40" rx="10" fill="var(--good-soft)" stroke="var(--good)" stroke-width="2"/><text x="570" y="51" text-anchor="middle">Available to you</text>
+    <rect x="670" y="26" width="140" height="40" rx="10" fill="var(--warn-soft)" stroke="var(--line-strong)"/><text x="740" y="51" text-anchor="middle">Transfer pending</text>
+    <rect x="840" y="26" width="130" height="40" rx="10" fill="var(--good-soft)" stroke="var(--line-strong)"/><text x="905" y="51" text-anchor="middle">Paid</text>
+  </g>
+  <g stroke="var(--text-3)" fill="none" marker-end="url(#ar)"><path d="M140,46 L170,46"/><path d="M300,46 L330,46"/><path d="M470,46 L500,46"/><path d="M640,46 L670,46"/><path d="M810,46 L840,46"/></g>
+  <g class="m" fill="var(--text-2)"><text x="75" y="96" text-anchor="middle">campaign confirmed</text><text x="235" y="96" text-anchor="middle">deliverables complete</text><text x="400" y="96" text-anchor="middle">EMG records funds in</text><text x="570" y="96" text-anchor="middle">authorized EMG release</text><text x="740" y="96" text-anchor="middle">creator initiated</text><text x="905" y="96" text-anchor="middle">provider confirmed</text></g>
+</svg>
+<figcaption>Only the green-bordered state carries an action for the creator. Every entry traces Opportunity → Campaign → Deliverable/compensation → payment event, and every transition is an append-only entry with an actor.</figcaption>
+</figure>
+<div class="tbl"><table>
+<tr><th>Invariant</th><th>Meaning</th></tr>
+<tr><td>Expected is never available</td><td>A confirmed campaign's compensation is shown muted, labelled, and with no transfer affordance. A creator cannot be shown a number they cannot move as if they could.</td></tr>
+<tr><td>Release is a governed human act</td><td>Received → Available happens only when an authorized EMG role releases the creator's portion, with the conditions it satisfied recorded.</td></tr>
+<tr><td>Loop is not the rail</td><td>Destinations, identity checks, transfers, failures and retries live with the payout provider; Loop holds the state and the authorization.</td></tr>
+<tr><td>Every amount has a source</td><td>No balance is a sum without rows; the rows are the truth, the balance is a projection.</td></tr>
+</table></div>
+
+<h3>9.6 Intelligence ladder mapped to Loop's vocabulary</h3>
+<div class="tbl"><table>
+<tr><th>Brief</th><th>Loop today</th><th>Creator-facing presentation</th></tr>
+<tr><td>Fact ("47 seconds long")</td><td>Evidence row (value, source, window, limitations)</td><td>Plain statement with its source; never disputed by AI.</td></tr>
+<tr><td>Observation ("Kona first appears at 0:11")</td><td>Evidence row from a governed content-feature task (new producer) with confidence and limitations</td><td>Stated as an observation; limitations visible on demand.</td></tr>
+<tr><td>Interpretation ("earlier appearances correlate with stronger performance")</td><td>FINDING — standing NON_AUTHORITATIVE; accept/reject by a person</td><td>"Loop observes…" with the evidence it rests on and the sample size.</td></tr>
+<tr><td>Recommendation ("consider moving Kona into the opening")</td><td>RECOMMENDATION — standing PROPOSED; select/dismiss/revise</td><td>"Consider…" with a dismiss; never applied to anything.</td></tr>
+</table></div>
+<p>No 83/100 scores. Comparisons are always against the creator's own baseline with the count of eligible published versions, and a finding is withheld below a defensible minimum rather than shown with a caveat nobody reads.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s10">
+<header><div class="eyebrow">Section 10</div><h2>EMG Creator Operations</h2></header>
+<p>The test for every EMG concern: <b>does an existing Loop surface already own this object?</b> If yes, Creator Operations composes or deep-links; if no, and the object is creator-domain, Creator Operations hosts it. The result is one new list, one new lane, one new record (the ledger), and extensions to records Loop already has.</p>
+
+<div class="tbl"><table>
+<tr><th>EMG concern</th><th>Belongs in</th><th>How</th></tr>
+<tr><td>Creator roster</td><td><b>Creator Ops</b> (Operations → Creators)</td><td>A list of managed creators with needs-us / needs-them / due / in-production counts and last activity.</td></tr>
+<tr><td>Individual creator overview</td><td><b>CRM Person record</b></td><td>The Person page in its "Creator" context (see the operating view below). No new page.</td></tr>
+<tr><td>Profile / relationship context</td><td>CRM</td><td>Identity, TALENT_REPRESENTATION relationship, participants, activity — as today.</td></tr>
+<tr><td>Connected social accounts</td><td>Creator connection (new), shown on the Person record</td><td>State only (connected / needs reconnection / never), never credentials; the creator connects, EMG sees state.</td></tr>
+<tr><td>Opportunities and Campaigns</td><td>CRM records</td><td>EMG operates them where CRM puts them; the Person record lists them.</td></tr>
+<tr><td>Campaign deliverables</td><td>Campaign record → Deliverables panel (creator-domain objects hosted on the CRM record)</td><td>Declare, link fulfilling Content, mark fulfilled.</td></tr>
+<tr><td>Incoming creator requests</td><td><b>Creator Ops → Requests lane</b></td><td>Cross-creator: unassigned edit requests, uploads awaiting review, approvals pending on EMG. Rows open the Work or Content.</td></tr>
+<tr><td>Editing workflow, assignments, workload, turnaround commitments</td><td><b>Work OS</b> (Team Work, My Work, work detail)</td><td>Editing blueprint filter; requested vs expected turnaround as columns; overdue and due-soon lanes.</td></tr>
+<tr><td>Asset versions / revision history</td><td>Content record (shared with the creator, EMG projection)</td><td>Same chain, plus internal notes and upload.</td></tr>
+<tr><td>Creator change requests and approvals</td><td>Work OS work detail</td><td>Instruction history on the same Work; approvals complete the creator stage.</td></tr>
+<tr><td>Published content, analytics, performance</td><td>Content record + creator Analytics (EMG projection)</td><td>EMG sees the same evidence; nothing separate.</td></tr>
+<tr><td>Creator-specific intelligence</td><td>Decision Center cases + Person record → Intelligence</td><td>Findings accepted/rejected here become what the creator sees.</td></tr>
+<tr><td>Creator tasks / actions</td><td>Work OS</td><td>"Awaiting creator" is a stage assigned to the creator; visible in Team Work and on the Person record.</td></tr>
+<tr><td>Commercial / compensation state</td><td>CRM (terms) + ledger (entries)</td><td>Terms stay in CRM; compensation entries in the ledger reference the Campaign.</td></tr>
+<tr><td>Payment status, release, payout state</td><td><b>Ledger detail</b> (new) linked from Campaign and the Person record</td><td>Record received; release (authorized roles); see provider transfer status.</td></tr>
+<tr><td>Creator-visible updates</td><td>A sheet on any Work / Opportunity / Campaign record</td><td>A comment or update explicitly marked creator-visible; the default is internal.</td></tr>
+<tr><td>Permissions / visibility</td><td>RBAC + designation on the object</td><td>See §11.</td></tr>
+</table></div>
+
+<h3>The individual creator operating view (on the Person record)</h3>
+<p>Opening a creator internally should answer "what does this creator need from us, and what are we waiting on" in one screen — an operating view, not a dashboard. The Person record already has the frame (identity, relationships, opportunities, campaigns, open work, activity, intelligence). The creator context adds one summary strip and reorders the rail:</p>
+<div class="split">
+<div class="card"><h4>Summary strip</h4><ul>
+<li>Needs EMG (count) · Needs creator (count) · Due this week · In production</li>
+<li>Relationship status (representation active since …) · account status (signed in / never / needs reconnection)</li>
+</ul></div>
+<div class="card"><h4>Main column</h4><ul>
+<li>Needs EMG attention: unassigned requests, expected turnaround unset, approvals to acknowledge, funds to release</li>
+<li>Awaiting creator: reviews, uploads, approvals, setup</li>
+<li>Active opportunities and campaigns with deliverable progress</li>
+<li>Content in production (each with stage, assignee, requested vs expected)</li>
+<li>Recent published performance (last 5, with the finding if any)</li>
+</ul></div>
+<div class="card"><h4>Rail</h4><ul>
+<li>Commercial and payment state: expected / pending / received / available / paid, with "Release" where authorized</li>
+<li>Meaningful intelligence: open cases and accepted findings about this creator</li>
+<li>Connections: platforms and payout status</li>
+<li>Post a creator-visible update</li>
+</ul></div>
+</div>
+
+<h3>Cross-creator operating view: what's genuinely new, and what isn't</h3>
+<div class="tbl"><table>
+<tr><th>Need</th><th>Verdict</th><th>Reason</th></tr>
+<tr><td>Incoming creator requests, items awaiting EMG, items awaiting creators, approvals</td><td><b>New: Requests lane</b> under Operations → Creators</td><td>These are cross-creator and cross-object (Work + Content + ledger); nothing today lists "what creators are waiting on us for".</td></tr>
+<tr><td>Editing workload, deadlines, turnaround commitments, content production</td><td><b>Work OS Team Work</b>, filtered to the Editing blueprint</td><td>They are assignments and due dates — Work OS facts. Building them elsewhere would be the duplicate task system the brief forbids.</td></tr>
+<tr><td>Commercial / payment actions across creators</td><td><b>Ledger list</b> reached from Requests ("funds to release") and from Campaigns</td><td>Release is an authorized ledger act; a list of releasable entries is a query over the ledger, not a screen of its own.</td></tr>
+</table></div>
+
+<h3>Desktop and mobile on the EMG side</h3>
+<p>EMG's seat is desktop-first: the roster, Team Work, records and the ledger want density. Three workflows must also work on a phone, because an editor or a manager will be away from a desk: <b>acknowledge and set expected turnaround</b> on a new request; <b>upload a Version</b> from a phone after an on-site edit; <b>post a creator-visible update</b>. Each is the same sheet pattern as the creator side, on the same objects. Approving a fund release stays desktop-only until the ledger's authorization rules are settled.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s11">
+<header><div class="eyebrow">Section 11</div><h2>Creator-visible versus EMG-only: information and action boundaries</h2></header>
+<p>Sharing an object does not share its information. Every field and action in Creator Hub carries one of six classes, and the default for anything internal is <b>EMG-only</b>. Creator visibility is always a deliberate designation on the object or a fixed rule in the projection, never inheritance.</p>
+<div class="tbl"><table>
+<tr><th>Object</th><th>Creator-visible</th><th>EMG-only</th><th>Creator-actionable</th><th>EMG-actionable</th><th>System-derived</th></tr>
+<tr><td>Opportunity</td><td>brand as designated · creator-visible state · designated updates · files marked shared</td><td>stage names, forecast, amount, notes, buyer conversations, negotiations, internal assessments, activity</td><td>none</td><td>stage, forecast, close, designate visibility, post update</td><td>creator-visible state from the mapping</td></tr>
+<tr><td>Campaign</td><td>name · lifecycle state · dates · deliverables · shared files</td><td>agreed commercial terms (unless designated), participants, provider links, internal notes</td><td>none</td><td>declare/edit, deliverables, terms, designate</td><td>progress from deliverables</td></tr>
+<tr><td>Deliverable</td><td>type, due, status, fulfilling Content</td><td>internal notes</td><td>upload, submit</td><td>declare, accept, mark fulfilled</td><td>status from Content/Work</td></tr>
+<tr><td>Content / Version</td><td>everything about their own content and its chain; editor notes marked creator-visible</td><td>internal comments, internal quality notes</td><td>upload, request edit, review, request changes, approve, mark published</td><td>upload Version, comment, mark fulfilled</td><td>lifecycle state, marks</td></tr>
+<tr><td>Work (editing)</td><td>stage as creator-visible state · assignee first name · requested and expected return · instruction history they wrote</td><td>internal comments, assignment reasoning, workload, actual timings as metrics</td><td>submit, request changes, approve</td><td>assign, set expected, upload, complete, reopen, comment</td><td>overdue, actual return</td></tr>
+<tr><td>Performance</td><td>their own platforms' evidence</td><td>cross-creator comparisons</td><td>connect/disconnect platform</td><td>none on the evidence</td><td>all of it</td></tr>
+<tr><td>Intelligence</td><td>findings and recommendations about themselves that a person accepted or left proposed, with evidence</td><td>cases, rejected findings, cross-creator findings, commercial findings unless designated</td><td>dismiss a recommendation for themselves</td><td>accept/reject, resolve cases</td><td>evidence</td></tr>
+<tr><td>Earnings</td><td>their entries and states</td><td>EMG's share, margins, terms</td><td>transfer (Available only), payout setup</td><td>record received, release, adjust with reason</td><td>balances</td></tr>
+<tr><td>Profile</td><td>all creator-domain fields; identity as CRM holds it</td><td>internal assessments, ratings, notes</td><td>creator-domain fields, connections, preferences</td><td>EMG-maintained fields, designations</td><td>audience from evidence</td></tr>
+</table></div>
+
+<h3>Roles and permissions (product level)</h3>
+<div class="tbl"><table>
+<tr><th>Role</th><th>Is</th><th>May</th><th>Notes</th></tr>
+<tr><td>Creator</td><td>An external participant of EMG's organization: a Person with an active representation, holding a creator sign-in</td><td>Only creator-actionable actions on their own objects; read only creator-visible projections</td><td>Scoped like employee-private data is today: organization + person, fail-closed. Cannot see other creators, ever. Needs a real authority (§15, decision 1).</td></tr>
+<tr><td>Creator Operations (Manager / Employee with the creators capability)</td><td>EMG staff who operate creators</td><td>Roster, requests, records, designations, expected turnaround, creator-visible updates</td><td>Maps to existing RBAC resources plus a creators resource (gap).</td></tr>
+<tr><td>Editor (Employee assignee)</td><td>The person the Work is assigned to</td><td>Their assigned Work: start, upload Version, complete, comment</td><td>Existing Work OS role authority; sees only assigned work unless Creator Ops.</td></tr>
+<tr><td>Release authority (Owner / Admin, or a designated finance role)</td><td>Whoever may move Received → Available</td><td>Release funds, adjust entries with reason</td><td>Decision #5 in §15.</td></tr>
+<tr><td>Read Only</td><td>Existing</td><td>Read EMG projections only</td><td>Never creator-actionable actions.</td></tr>
+<tr><td>AI_EMPLOYEE</td><td>Existing identity, no LLM today</td><td>Nothing in Creator Hub</td><td>Findings come from governed tasks invoked by people or system producers, never an AI actor.</td></tr>
+</table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s12">
+<header><div class="eyebrow">Section 12</div><h2>How both seats stay synchronized</h2></header>
+<div class="grid2">
+<div class="card"><h4>The principle</h4><p>Both seats are read models over the same rows. A creator's "Review v2" and an editor's "awaiting creator" are the same WorkStage row read with two projections. There is nothing to reconcile because there is nothing duplicated.</p></div>
+<div class="card"><h4>What would break it (forbidden)</h4><ul>
+<li>A creator-side "project" or "request" table beside Work OS.</li>
+<li>A creator-side opportunity status stored on the creator's record.</li>
+<li>Copying performance numbers onto Content or Campaign fields.</li>
+<li>A Home task list that is not a projection of Work OS, WorkItems and derived setup state.</li>
+<li>An "admin copy" of the version chain, or a version that is overwritten in place.</li>
+</ul></div>
+</div>
+<div class="tbl" style="margin-top:12px"><table>
+<tr><th>Area</th><th>Shared object</th><th>Creator projection</th><th>EMG projection</th><th>Sync mechanism</th></tr>
+<tr><td>Opportunities</td><td>CRM Opportunity + stage set with visibility mapping</td><td>creator-visible state, designated updates</td><td>full record</td><td>the mapping is configuration; transitions are append-only events both read</td></tr>
+<tr><td>Content</td><td>Content + Version chain</td><td>library, record, review</td><td>same record with internal notes and upload</td><td>one chain; marks written by whichever seat acts</td></tr>
+<tr><td>Editing</td><td>WorkInstance / stages / assignments / events</td><td>request detail, tasks</td><td>My Work / Team Work / work detail</td><td>stage events; notifications derived from events</td></tr>
+<tr><td>Tasks</td><td>Work OS + WorkItems + derived setup</td><td>Needs attention / Upcoming</td><td>Awaiting creator, on the Person record and Team Work</td><td>projections of the same rows</td></tr>
+<tr><td>Analytics</td><td>Performance evidence on Published Versions</td><td>their analytics</td><td>the same, plus cross-creator</td><td>one evidence store; windows and filters are reads</td></tr>
+<tr><td>Earnings</td><td>Ledger entries</td><td>balances and history</td><td>ledger detail, release</td><td>append-only entries; balances are projections</td></tr>
+<tr><td>Intelligence</td><td>Cases, evidence, findings, recommendations</td><td>accepted/proposed findings with evidence</td><td>Decision Center</td><td>standing judgments in the Decision Engine; the creator sees the result of them</td></tr>
+</table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s13">
+<header><div class="eyebrow">Section 13</div><h2>Visual and hierarchy direction</h2></header>
+<p>Creator Hub uses Loop's global design system unchanged — light canvas, navy rail, teal for the current place and links, semantic green/amber/red/grey, Inter, 14 px radius, near-flat elevation — because the creator and EMG are looking at the same product. What changes for the creator seat is <b>emphasis</b>, not language: media leads, numbers are few and large only where they are the point, and every state is a pill.</p>
+<div class="tbl"><table>
+<tr><th>Need</th><th>Existing primitive</th><th>New domain component (creator UI only)</th></tr>
+<tr><td>Snapshot numbers</td><td><code>SummaryStrip</code></td><td>—</td></tr>
+<tr><td>Things that need you</td><td><code>AttentionRow</code> / the Needs-you list</td><td>—</td></tr>
+<tr><td>Records</td><td><code>LoopPage</code> · <code>PageHead</code> · <code>RecordLayout</code> · <code>Panel</code> · <code>Facts</code> · <code>ContextTabs</code> · <code>StatePill</code> · <code>ActionButton</code></td><td>—</td></tr>
+<tr><td>Library cards</td><td><code>loop-panel</code>, Subject Display card patterns</td><td><b>Media card</b>: thumbnail, state pill, campaign chip, platform badge, progress ring</td></tr>
+<tr><td>Version chain</td><td><code>ActivityList</code> (the nine truth types) for the history</td><td><b>Version strip</b> and <b>Compare viewer</b> (segmented Original · v1 · v2 with a shared playhead)</td></tr>
+<tr><td>Money</td><td><code>SummaryStrip</code>, <code>Facts</code></td><td><b>Balance block</b> with the one action and the muted non-payable rows</td></tr>
+<tr><td>Intelligence</td><td><code>BrainWorkState</code> words, <code>ContextDrawer</code> for evidence</td><td><b>Finding card</b>: one line, evidence count, "View evidence" opening the drawer with Fact / Observation / Interpretation / Recommendation and limitations</td></tr>
+<tr><td>Workflows</td><td><code>ContextDrawer</code> (a sheet on phones), <code>StateBlock</code> for empty/unavailable/error</td><td>—</td></tr>
+<tr><td>Charts</td><td><code>Sparkline</code></td><td><b>Analytics chart</b> drawn to scale, theme tokens, points that open Content</td></tr>
+</table></div>
+<p>Hierarchy on a phone: page title → one summary → the list or the media → the thumb bar. On desktop: the same order in two columns. No creator-specific palette, no "hub" chrome; the rail's wordmark and the person block already say whose Loop this is.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s14">
+<header><div class="eyebrow">Section 14</div><h2>Capability gaps (for the architecture pass, not for now)</h2></header>
+<p>Each is recorded as a gap the approved experience requires. None is a permission to build.</p>
+<div class="grid2">
+<div class="card"><h4>Identity and access</h4><ul><li>Creator sign-in as an external participant (C-02 currently forbids; no <code>SystemRole</code>, the <code>CREATOR</code> workspace is unreachable)</li><li>Creator-scoped authorization (org + person, fail-closed) and a creators RBAC resource for EMG</li><li>Creator-visible designation as a first-class flag on Opportunity/Campaign stages, files, comments and updates</li></ul></div>
+<div class="card"><h4>Commercial</h4><ul><li>Opportunity and Campaign services (contracts locked, unbuilt), plus the stage-to-creator-state mapping in the stage set</li><li>Deliverable as a creator-domain object linked to Campaign and Content</li><li>Compensation entries and the Earnings ledger; release authorization; payout provider integration</li></ul></div>
+<div class="card"><h4>Content</h4><ul><li>Object storage with presigned upload/download; Content and Version models with marks and producedBy</li><li>Publication linkage (platform, post id) on a Version</li><li>Thumbnails, duration and dimensions as system-derived meaning</li></ul></div>
+<div class="card"><h4>Work OS</h4><ul><li>External-participant stage completion; requested vs expected/committed turnaround with change reasons; reopen with reason; Version attachments; creator-visible vs internal comments; an Editing blueprint</li><li>Creator-facing notifications (push/email) derived from stage events</li></ul></div>
+<div class="card"><h4>Evidence and intelligence</h4><ul><li>Creator platform connections and performance ingestion as a measurement source (tenant-safe from day one — the CallGrid single-tenant lesson)</li><li>Governed content-feature tasks producing evidence rows with limitations; creator-baseline Findings; version-change findings</li><li>The creator context the onboarding review already waits for (categories, audience)</li></ul></div>
+<div class="card"><h4>Surfaces</h4><ul><li>Creator seat routes on <code>/app/creator</code> in the one shell; the Creators roster and Requests lane; the Person record's creator context; Team Work's Editing filter and turnaround columns; ledger detail</li></ul></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s15">
+<header><div class="eyebrow">Section 15</div><h2>Decisions to resolve before mockups</h2></header>
+<ol class="steps">
+<li><b>Creator access.</b> C-02 (2026-09-15) says external participant authentication, memberships and portals are not authorized; this brief requires a creator-facing seat. Recommendation: amend C-02 for <em>one</em> participant type — the managed creator — as an external participant of EMG's organization with creator-scoped authority, keeping "no multi-org sign-in" and "no second application". Everything else in this document depends on it.</li>
+<li><b>Mobile bar composition.</b> Recommendation: Home · Content · Opportunities · Tasks · Earnings, with Analytics one tap from Home and Content and Profile on the avatar. Alternative: swap Tasks for Analytics and rely on Home's "Things that need you" — weaker for creators with many deliverables.</li>
+<li><b>Creator-domain nouns.</b> Approve Content, Version, Deliverable, Earnings ledger, Social connection and Performance evidence as the concepts Creator Hub deliberately establishes; confirm Deliverable is hosted on the CRM Campaign record but owned by the creator domain, as the CRM readiness record already implies.</li>
+<li><b>Opportunity visibility mapping.</b> Approve the model: creator-visible state is a declared mapping in the organization's stage set; unmapped stages never show; internal information never inherits. Confirm whether "Didn't go ahead" is ever shown.</li>
+<li><b>Earnings vocabulary and release authority.</b> Confirm the six states and their names, who may release (Owner/Admin, or a finance role), and whether "Received by EMG" is creator-visible or collapses into Pending.</li>
+<li><b>Turnaround defaults.</b> Whether a service-level default (24–48 h) pre-fills Expected on submission, or Expected stays blank until a person sets it. Recommendation: blank until set, defaults as the second step.</li>
+<li><b>Platforms in scope for v1 evidence.</b> Which of TikTok, Instagram, YouTube, Facebook connect first; this bounds Analytics and every performance-based finding.</li>
+<li><b>Intelligence scope for v1.</b> Which features are computable from evidence without a model (length, version diffs, posting time, platform, organic/sponsored) versus which need a governed content-feature task (people, animals, products, hooks, tone). Recommendation: ship the evidence-only findings first; they are defensible immediately.</li>
+<li><b>Notifications.</b> Whether creator notifications (push/email) are in the first release; the design deep-links assume they exist eventually.</li>
+<li><b>Managers and multiple creators.</b> Whether a creator's manager or a multi-creator household signs in as the creator, as a delegate, or not at all in v1. Recommendation: not in v1.</li>
+<li><b>Publication linkage.</b> Whether the creator marks and connects published posts by hand, or connected platforms detect them. Recommendation: by hand first, detection later.</li>
+</ol>
+</section>
+
+<!-- ============================================================ -->
+<section id="s16">
+<header><div class="eyebrow">Section 16</div><h2>Proposed mockup sequence</h2></header>
+<p>Design the objects that everything else composes first, on the phone first, and the EMG side of each workflow beside its creator side so the handoff is designed once.</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>Mockups</th><th>Why now</th></tr>
+<tr><td>1</td><td>Content record (phone): preview, status, versions, intelligence, performance, actions in every state</td><td>The centre of gravity; Home, Tasks, Review, Publish and Intelligence all point at it.</td></tr>
+<tr><td>2</td><td>Creator Edit Review + Request Changes (phone) · EMG editing work view (desktop, on Work OS detail)</td><td>The signature workflow, designed as one handoff.</td></tr>
+<tr><td>3</td><td>Request an Edit (phone, 4 sheets) · Requests lane (desktop)</td><td>The start of the same handoff; settles turnaround presentation.</td></tr>
+<tr><td>4</td><td>Creator Home (phone and desktop) · individual creator operating view (Person record, desktop)</td><td>The two "what matters now" views over the same objects.</td></tr>
+<tr><td>5</td><td>Content Library + Upload (phone)</td><td>Media-first patterns and card states.</td></tr>
+<tr><td>6</td><td>Opportunities list + detail (phone) · CRM Opportunity/Campaign with visibility designation and deliverables (desktop)</td><td>Fixes the creator-visible mapping visually before it is configured.</td></tr>
+<tr><td>7</td><td>Earnings + Campaign Payment Detail + Transfer/Payout setup (phone) · ledger detail with release (desktop)</td><td>The "never expected = available" rule must be seen to be approved.</td></tr>
+<tr><td>8</td><td>Tasks (phone) · Team Work Editing filter (desktop)</td><td>Projections; quick once 2–4 exist.</td></tr>
+<tr><td>9</td><td>Analytics + Feed Analysis + Single Content Analysis (phone, then desktop)</td><td>Depends on the evidence scope decision (#7, #8).</td></tr>
+<tr><td>10</td><td>Profile (connections, payout, ownership labels) · Creators roster (desktop)</td><td>Setup surfaces; last because their patterns are the most conventional.</td></tr>
+</table></div>
+<div class="note" style="margin-top:16px">After approval of the experience, the separate architecture pass maps every visible requirement here to its authoritative source, the existing capability, the missing capability and the required delta — and only then does implementation begin.</div>
+</section>
+</main>
+</div>
+</div>
