@@ -1,9 +1,16 @@
 # Opportunity and Campaign — readiness record
 
 **Status:** CONTRACT LOCKED FOR DESIGN (2026-09-15). Product approved PD-F-02, PD-F-06 and PD-F-07.
-**Neither authority is implemented.** Implementation follows the Relationship and Participant slices
-(`relationship-participant.md` §10). Two small confirmations (PD-F-11, PD-F-12, §6) are needed before
-the Opportunity and Campaign *service* slices, not before UI design.
+**A minimum slice of both authorities exists since 2026-09-22** (Creator Hub demo, migration
+`20260930000000_creator_hub_foundation`): `CrmOpportunity` and `CrmCampaign`, tenant-local with real
+organization FKs, each with an append-only transition table (`CrmOpportunityTransition`,
+`CrmCampaignTransition`: prior state, new state, actor, time) and a `CampaignDeliverable` row per
+governed deliverable. Categories are OPEN / CLOSED_WON / CLOSED_LOST as read in §3.3; the stage is a
+free string per organization until stage sets are built; the forecast fields are human-entered and
+attributed; the creator side is the Party Reference (`creatorPartyId`). **Not yet built:** versioned
+stage sets, the RBAC resource, the outbox subject, `activity.v1` composition and the Intake → Opportunity
+act. The writer is `CrmCommercialRepository` (`packages/database/src/creator/`). Everything below
+that describes the full contract still stands as the target.
 
 ---
 

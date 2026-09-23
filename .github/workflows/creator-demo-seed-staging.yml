@@ -1,0 +1,234 @@
+# Creator Hub -- STAGING demo seed. Manual, approved, staging only.
+#
+# Seeds what Matt and Charlie need to test the Creator Hub end to end -- a creator Party and
+# TALENT_REPRESENTATION relationship, a CREATOR login by invitation, a CreatorProfile, one confirmed
+# Opportunity with an ACTIVE Campaign and two Deliverables, one pitching Opportunity, twelve weeks of
+# SEEDED_DEMO evidence, five compensation entries, and the "Creator production" work type -- into the
+# STAGING database, whose URL lives in AWS Secrets Manager at loop/connections/staging/database-url.
+#
+# It NEVER touches production. It reads only the staging secret, through the dedicated OIDC role
+# scoped to exactly that secret (the same identity connections-migrate-staging uses), and it does not
+# reference the production migration secret (DIRECT_DATABASE_URL) at all. The script refuses on its
+# own as well: it runs only with LOOP_SEED_TARGET=staging and only against a *.neon.tech or local
+# host (scripts/operations/seed-creator-demo.ts). Nothing here changes the schema.
+#
+# The DATABASE_URL is masked and passed through the job environment; it is never printed.
+#
+# THE INVITATION LINK IS A ONE-TIME SECRET. The seed writes it to a file it never prints, and the last
+# step puts it in the job summary -- not the job log -- with a warning. Anyone who can read this run
+# can read the summary, so send it to the creator and have it accepted promptly; it expires in 14
+# days. Rerunning while the invitation is still pending supersedes it with a fresh link (as Resend
+# does); everything else is idempotent and a rerun creates nothing that already exists.
+#
+# Prerequisites (docs/runbooks/creator-hub-staging.md): the Creator Hub migration applied to staging
+# via connections-migrate-staging, and CONNECTIONS_STAGING_MIGRATE_ROLE_ARN on the connections-staging
+# environment.
+
+name: creator-demo-seed-staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type exactly: seed loop-connections-staging'
+        required: true
+        type: string
+      organization_slug:
+        description: 'Organization slug (staging)'
+        required: true
+        type: string
+      owner_email:
+        description: 'The EMG OWNER or ADMIN in that organization who records the seed'
+        required: true
+        type: string
+      creator_email:
+        description: 'The creator login to invite (must not already be an ACTIVE non-creator member)'
+        required: true
+        type: string
+      creator_name:
+        description: 'The creator display name'
+        required: false
+        default: 'Denise Rivera'
+        type: string
+      editor_email:
+        description: 'Optional: the ACTIVE EMG member who becomes the creator default editor'
+        required: false
+        default: ''
+        type: string
+      app_url:
+        description: 'The app origin the accept-invite link points at'
+        required: false
+        default: 'https://staging--emgloop2.netlify.app'
+        type: string
+      dry_run:
+        description: 'Report what would be created and write nothing'
+        required: false
+        default: false
+        type: boolean
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: creator-demo-seed-staging
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment: connections-staging
+    timeout-minutes: 20
+    env:
+      CONNECTIONS_ACCOUNT: '065148797865'
+      MIGRATE_ROLE_ARN: ${{ vars.CONNECTIONS_STAGING_MIGRATE_ROLE_ARN }}
+      # The ONLY secret this workflow reads. The production secret is never referenced.
+      STAGING_DB_SECRET: 'loop/connections/staging/database-url'
+      INVITE_OUT: ${{ runner.temp }}/creator-invite.txt
+    steps:
+      - name: Confirm
+        if: ${{ inputs.confirm != 'seed loop-connections-staging' }}
+        run: |
+          echo "This seeds the staging database. Confirmation text required: seed loop-connections-staging"
+          exit 1
+
+      - name: Validate the requested input
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          OWNER_EMAIL: ${{ inputs.owner_email }}
+          CREATOR_EMAIL: ${{ inputs.creator_email }}
+          EDITOR_EMAIL: ${{ inputs.editor_email }}
+          APP_URL: ${{ inputs.app_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          for e in "${OWNER_EMAIL}" "${CREATOR_EMAIL}"; do
+            if ! printf '%s' "${e}" | grep -Eq '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'; then
+              echo "::error::owner_email and creator_email must be email addresses."
+              exit 1
+            fi
+          done
+          if [ -n "${EDITOR_EMAIL}" ] && ! printf '%s' "${EDITOR_EMAIL}" | grep -Eq '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'; then
+            echo "::error::editor_email must be an email address when given."
+            exit 1
+          fi
+          case "${APP_URL}" in
+            https://*|http://*) ;;
+            *) echo "::error::app_url must be an absolute http(s) URL."; exit 1 ;;
+          esac
+          echo "Validated organization ${ORG_SLUG}."
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install dependencies
+        # A dummy URL is enough for `prisma generate` at install; it never connects.
+        env:
+          DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the seed before touching the database
+        # RUN BEFORE THE DATABASE CREDENTIAL IS READ, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run typecheck:operations
+          npm run test:operations
+
+      - name: The migrate role belongs to Loop Brain Staging
+        run: |
+          case "$MIGRATE_ROLE_ARN" in
+            "arn:aws:iam::${CONNECTIONS_ACCOUNT}:role/"?*) ;;
+            *) echo "CONNECTIONS_STAGING_MIGRATE_ROLE_ARN is not a role in ${CONNECTIONS_ACCOUNT}"; exit 1 ;;
+          esac
+
+      - name: AWS credentials (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.CONNECTIONS_STAGING_MIGRATE_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: creator-demo-seed-${{ github.run_id }}
+          allowed-account-ids: '065148797865'
+
+      - name: The credentials are for Loop Brain Staging
+        run: |
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$account" != "$CONNECTIONS_ACCOUNT" ]; then
+            echo "Refusing: credentials are for $account, not $CONNECTIONS_ACCOUNT"
+            exit 1
+          fi
+
+      - name: Read the staging DATABASE_URL (masked, never printed)
+        run: |
+          set -euo pipefail
+          url="$(aws secretsmanager get-secret-value --region us-east-1 --secret-id "$STAGING_DB_SECRET" --query SecretString --output text)"
+          if [ -z "$url" ] || [ "$url" = "None" ]; then
+            echo "Staging DATABASE_URL is empty or unset"; exit 1
+          fi
+          echo "::add-mask::$url"
+          printf 'DATABASE_URL=%s\n' "$url" >> "$GITHUB_ENV"
+          echo "Loaded staging DATABASE_URL into the job environment (value hidden)."
+
+      - name: Seed the Creator Hub demo (staging)
+        env:
+          # The human assertion the script requires alongside the host check.
+          LOOP_SEED_TARGET: staging
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          OWNER_EMAIL: ${{ inputs.owner_email }}
+          CREATOR_EMAIL: ${{ inputs.creator_email }}
+          CREATOR_NAME: ${{ inputs.creator_name }}
+          EDITOR_EMAIL: ${{ inputs.editor_email }}
+          APP_URL: ${{ inputs.app_url }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -- --organization "${ORG_SLUG}" \
+                 --owner-email "${OWNER_EMAIL}" \
+                 --creator-email "${CREATOR_EMAIL}" \
+                 --creator-name "${CREATOR_NAME}" \
+                 --editor-email "${EDITOR_EMAIL}" \
+                 --app-url "${APP_URL}" \
+                 --invite-out "${INVITE_OUT}"
+          if [ "${DRY_RUN}" = "true" ]; then set -- "$@" --dry-run; fi
+          npx tsx scripts/operations/seed-creator-demo.ts "$@"
+
+      - name: Publish the invitation link to the job summary (never the log)
+        if: always()
+        env:
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          OWNER_EMAIL: ${{ inputs.owner_email }}
+          CREATOR_EMAIL: ${{ inputs.creator_email }}
+          APP_URL: ${{ inputs.app_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Creator Hub demo seed (staging)"
+            echo ""
+            echo "- Organization \`${ORG_SLUG}\` · recorded by \`${OWNER_EMAIL}\` · creator \`${CREATOR_EMAIL}\`"
+            if [ -s "${INVITE_OUT}" ]; then
+              echo ""
+              echo "> **One-time invitation link, valid 14 days.** Anyone who can read this run can read it: send it to the creator now and have it accepted promptly. Rerunning the seed while it is pending replaces it with a new link."
+              echo ""
+              echo "    $(cat "${INVITE_OUT}")"
+            else
+              echo "- No new invitation: the creator login already exists and is ACTIVE (sign in with the existing password), this was a dry run, or the seed stopped before issuing one -- read the job log."
+            fi
+            echo ""
+            echo "- Creator's first path after signing in: \`${APP_URL}/app/creator/content\`"
+            echo "- EMG side: Matt and Charlie sign in with their existing logins and open **Creators** in the admin navigation."
+            echo "- Everything marked \`SEEDED_DEMO\` is demo evidence, not platform data."
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f "${INVITE_OUT}"
