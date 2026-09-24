@@ -26,6 +26,8 @@ import {
   type DueBaseline,
   type DueContent,
   type DueHistoricalContent,
+  type WorkItemDetection,
+  type WorkPrincipal,
 } from '@emgloop/database';
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
@@ -208,6 +210,26 @@ async function main(): Promise<void> {
     await workItems.resolveObligationsNotIn(principal, subjectRef, keptAnchorProviderEventIds, evaluatedFloorProviderEventId, occurredAt);
   }
 
+  // Persist one obligation (WorkItemRepository.detect). Detect re-checks the employee's content
+  // authorization inside its own transaction and REFUSES -- writing nothing -- when it ended after this
+  // sweep snapshotted the principal (a revoke or an offboarding mid-sweep). Refusals are counted per
+  // sweep and logged as a count: never an id, never content. One counter per sweep, because the forward
+  // and historical sweeps run independently and may overlap.
+  function consentedRaise(sweep: 'content' | 'historical_content') {
+    let refused = 0;
+    return {
+      async raiseWorkItem(principal: WorkPrincipal, detection: WorkItemDetection): Promise<void> {
+        if ((await workItems.detect(principal, detection)) === null) refused += 1;
+      },
+      flush(): void {
+        if (refused > 0) log('detect_refused', { sweep, refused });
+        refused = 0;
+      },
+    };
+  }
+  const contentRaise = consentedRaise('content');
+  const historicalRaise = consentedRaise('historical_content');
+
   // --- The FORWARD CONTENT-triage sweep ports (INDEPENDENT of the live and baseline sweeps) ------
   // These share the credential opener but have NO port that could write the live observation cursor or
   // the baseline checkpoint -- they advance ONLY the content cursor. Bodies are read transiently, judged
@@ -218,9 +240,7 @@ async function main(): Promise<void> {
     openCredential: (due: DueContent) => openContentCredential(due),
     conversationSecret: config.conversationSecret,
     triage: (principal, input) => aiRuntime.service.triage(principal, input),
-    async raiseWorkItem(principal, detection) {
-      await workItems.detect(principal, detection);
-    },
+    raiseWorkItem: contentRaise.raiseWorkItem,
     resolveObligations,
     async recordContentProgress(due, progress) {
       await contentAuthorizations.recordContentProgress(due.organizationId, due.userId, due.provider, {
@@ -245,6 +265,7 @@ async function main(): Promise<void> {
     } catch (err) {
       log('content_error', { name: (err as Error)?.name ?? 'error' });
     } finally {
+      contentRaise.flush();
       contentSweeping = false;
     }
   }
@@ -259,9 +280,7 @@ async function main(): Promise<void> {
     openCredential: (due: DueHistoricalContent) => openContentCredential(due),
     conversationSecret: config.conversationSecret,
     triage: (principal, input) => aiRuntime.service.triage(principal, input),
-    async raiseWorkItem(principal, detection) {
-      await workItems.detect(principal, detection);
-    },
+    raiseWorkItem: historicalRaise.raiseWorkItem,
     resolveObligations,
     async recordHistoricalProgress(due, progress) {
       await contentAuthorizations.recordHistoricalProgress(due.organizationId, due.userId, due.provider, {
@@ -288,6 +307,7 @@ async function main(): Promise<void> {
     } catch (err) {
       log('historical_content_error', { name: (err as Error)?.name ?? 'error' });
     } finally {
+      historicalRaise.flush();
       historicalContentSweeping = false;
     }
   }

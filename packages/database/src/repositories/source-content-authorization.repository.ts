@@ -20,6 +20,11 @@
 // transaction, withdraws what that processing already derived: every MODEL-produced WorkItem for the
 // provider is closed (REVOKED) and minimized to provenance (WorkWithdrawalRepository, §21.2). The
 // content cursor is kept, so a later re-authorization does not re-triage what was already judged.
+//
+// THE WRITE RE-CHECKS IT (2026-09-24). `contentAuthorizedInTx` is the one read of that derived fact
+// for a writer: WorkItemRepository.detect calls it inside its own transaction before writing a MODEL
+// item on a derived subject, so a content sweep that was already in flight when the revoke committed
+// cannot land a fresh paraphrase, or refresh a just-minimized row, afterwards.
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emgloop/shared';
@@ -27,6 +32,11 @@ import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emglo
 import { membershipAuthority } from './membership.repository';
 import { writeAudit, type SourceConnectionActor } from './source-connection.repository';
 import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repository';
+
+// The one consent read the work-item repository makes at every derived write. Defined in its own
+// module (source-content-consent.ts) so that repository need not import this one, which imports
+// the withdrawal repository, which imports it back.
+export { contentAuthorizedInTx } from './source-content-consent';
 
 /** The words a withdrawal observation and the minimized evidence carry for an employee's own revoke. */
 const CONTENT_REVOKED_REASON = 'content authorization revoked';
@@ -61,6 +71,7 @@ export async function revokeContentAuthorizationsInTx(
   }
   return live.length;
 }
+
 
 /** The historical-backfill lifecycle. A revoke stops it via revokedAt; there is no REVOKED state column. */
 export type HistoricalContentState = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE';

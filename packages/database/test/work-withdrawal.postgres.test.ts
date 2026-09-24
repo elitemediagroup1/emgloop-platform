@@ -65,6 +65,15 @@ function derived(conversationKey: string, anchorId: number, title: string) {
   };
 }
 
+/**
+ * A live content authorization, seeded directly. A derived (MODEL, Telegram) item is written only under
+ * one: detect re-checks it inside its own transaction (2026-09-24). A disconnect does not revoke consent
+ * (only the employee's revoke or an offboarding does), so a disconnected principal can still hold it.
+ */
+async function consented(prisma: PrismaClient, organizationId: string, userId: string) {
+  await prisma.sourceContentAuthorization.create({ data: { organizationId, userId, provider: 'TELEGRAM', authorizedAt: daysAgo(60) } });
+}
+
 async function disconnected(prisma: PrismaClient, organizationId: string, userId: string, provider: 'TELEGRAM' | 'MICROSOFT_TEAMS', disconnectedAt: Date | null, state = 'DISCONNECTED') {
   return prisma.sourceConnection.create({
     data: { organizationId, userId, provider, state, disconnectedAt, backgroundObservation: 'UNAVAILABLE', connectedAt: daysAgo(90) },
@@ -89,7 +98,8 @@ test('grace-window expiry: discovery finds only past-grace non-live connections;
 
     for (const [user, key] of [[pastGrace, 'ck_p'], [withinGrace, 'ck_w'], [liveAgain, 'ck_l'], [staleLive, 'ck_s']] as const) {
       const P = { organizationId, userId: user };
-      const a = await items.detect(P, derived(key, 1, 'first obligation'));
+      await consented(prisma, organizationId, user);
+      const a = (await items.detect(P, derived(key, 1, 'first obligation')))!;
       await items.record(P, a.id, { state: 'RESOLVED', observationType: 'RESOLVED', occurredAt: NOW, outcome: 'HANDLED' });
       await items.detect(P, derived(key, 2, 'second obligation'));
       // A RULE item on the same person survives an expiry: only derived items are governed here.
@@ -146,6 +156,8 @@ test('deleteDerived is scoped to the principal and the provider prefix; the with
   const items = new WorkItemRepository(prisma);
   try {
     const { organizationId, users: [alice, bob] } = await tenant(prisma, 'scope', 2);
+    await consented(prisma, organizationId, alice);
+    await consented(prisma, organizationId, bob);
     await items.detect({ organizationId, userId: alice }, derived('ck_a', 1, 'alice'));
     await items.detect({ organizationId, userId: bob }, derived('ck_b', 1, 'bob'));
     const deleted = await prisma.$transaction((tx) => new WorkWithdrawalRepository(tx).deleteDerived({ organizationId, userId: alice }, { provider: 'TELEGRAM' }));

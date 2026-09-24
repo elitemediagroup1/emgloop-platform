@@ -414,7 +414,14 @@ test('a NOTHING_TO_DO revoke (no consent was ever given) withdraws nothing', { s
     const { organizationId, users: [alice] } = await tenant(prisma, 'nothing');
     const A = { organizationId, userId: alice };
     await connection(prisma, organizationId, alice, 'LIVE-1');
-    const item = await items.detect(A, derived('ck_n', 1, 'Stays as it is'));
+    // No consent was ever given, so detect refuses to write a derived item for this person at all
+    // (2026-09-24). The row below is seeded directly, as one written before the re-check would be, so
+    // the assertion that a no-op revoke withdraws nothing still has something to leave alone.
+    const { detectedAt, ...seed } = derived('ck_n', 1, 'Stays as it is');
+    assert.equal(await items.detect(A, { ...seed, detectedAt }), null, 'never consented: nothing is written');
+    const item = await prisma.workItem.create({
+      data: { ...A, ...seed, firstDetectedAt: detectedAt, lastDetectedAt: detectedAt, state: 'OPEN', stateChangedAt: detectedAt },
+    });
     assert.deepEqual(await repo.revoke(organizationId, alice, 'TELEGRAM', { now: NOW, actor: actor(alice) }), { outcome: 'NOTHING_TO_DO' });
     const row = (await items.item(A, item.id))!;
     assert.equal(row.state, 'OPEN');

@@ -336,6 +336,20 @@ export function derivedWorkSubjectPrefix(provider: string): string | null {
   return (DERIVED_WORK_SUBJECT_PREFIXES as Readonly<Record<string, string>>)[provider] ?? null;
 }
 
+/**
+ * The reverse lookup: the provider whose derived-subject prefix `subjectRef` carries, or null for any
+ * other subject (a Gmail thread id, a calendar event, an empty string). This is how a writer holding
+ * only a detection tells an item produced under a revocable content authorization from one that was
+ * not -- `WorkItemRepository.detect` re-checks that authorization only when this returns a provider.
+ * Matches exactly what a withdrawal's `startsWith` matches, so the two cannot disagree.
+ */
+export function derivedWorkProviderOf(subjectRef: string): string | null {
+  for (const [provider, prefix] of Object.entries(DERIVED_WORK_SUBJECT_PREFIXES)) {
+    if (subjectRef.startsWith(prefix)) return provider;
+  }
+  return null;
+}
+
 /** The one `subjectRef` for a Telegram conversation: the keyed conversation, never a raw chat id. */
 export function telegramConversationSubjectRef(conversationKey: string): string {
   return `${DERIVED_WORK_SUBJECT_PREFIXES.TELEGRAM}${conversationKey}`;

@@ -352,12 +352,15 @@ variable set and the secret missing, AI also stays off -- but the task definitio
 secret that does not exist, tasks cannot start, and the deployment circuit breaker rolls the deploy
 back: a loud failure, not a quiet one. To turn AI off, clear the variable and re-deploy.
 
-**Before this step, land the consent re-check inside `WorkItemRepository.detect`** (follow-up
-recorded in #328): today a content sweep already in flight when an employee revokes, or is
-offboarded, can still write one more derived item after the revoke committed. The window is one
-sweep iteration and the item is employee-private, but the guarantee "no derived item after the
-authorization ended" is only as strong as that re-check, so it belongs in production before AI is
-turned on there.
+**The consent re-check inside `WorkItemRepository.detect` landed on `fix/detect-consent-recheck`
+(PR #331) and must be on `main`, and in the deployed worker image,
+before AI is turned on here.** Before it, a content sweep already in flight when an employee
+revoked, or was offboarded, could still write one more derived item after the revoke committed: a
+fresh OPEN paraphrase, or a refreshed title and evidence on a row the revoke had just minimized.
+`detect` now reads the authorization inside the transaction that would write and refuses — no
+create, no update, no observation, no audit — so "no derived item after the authorization ended"
+holds at the write itself, not by a worker-side pre-check that would re-open the same window. The
+worker logs `detect_refused` with a per-sweep count, never an id.
 
 ## Part 10 — Open governance items (recorded here so they are not mistaken for cleared)
 
