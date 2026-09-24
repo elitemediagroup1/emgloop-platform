@@ -33,6 +33,11 @@ import { membershipAuthority } from './membership.repository';
 import { writeAudit, type SourceConnectionActor } from './source-connection.repository';
 import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repository';
 
+// The one consent read the work-item repository makes at every derived write. Defined in its own
+// module (source-content-consent.ts) so that repository need not import this one, which imports
+// the withdrawal repository, which imports it back.
+export { contentAuthorizedInTx } from './source-content-consent';
+
 /** The words a withdrawal observation and the minimized evidence carry for an employee's own revoke. */
 const CONTENT_REVOKED_REASON = 'content authorization revoked';
 
@@ -67,28 +72,6 @@ export async function revokeContentAuthorizationsInTx(
   return live.length;
 }
 
-/**
- * Is this person's content authorization for `provider` in force, read INSIDE the caller's
- * transaction? True iff a row exists with `revokedAt` null -- consent is derived, not a state column
- * (see the header). Scoped by organization, user and provider and by nothing else: not the
- * connection, not the backoff, not the cursor. Those decide whether a sweep RUNS; this decides
- * whether what a sweep concluded may still be WRITTEN, which is why `WorkItemRepository.detect`
- * reads it in the transaction that would write a MODEL item on a derived subject, and refuses when
- * the authorization ended after the sweep began. Fails closed: an empty scope is never authorized.
- */
-export async function contentAuthorizedInTx(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  userId: string,
-  provider: string,
-): Promise<boolean> {
-  if (!organizationId || !userId || !provider) return false;
-  const live = await tx.sourceContentAuthorization.findFirst({
-    where: { organizationId, userId, provider, revokedAt: null },
-    select: { id: true },
-  });
-  return live !== null;
-}
 
 /** The historical-backfill lifecycle. A revoke stops it via revokedAt; there is no REVOKED state column. */
 export type HistoricalContentState = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE';

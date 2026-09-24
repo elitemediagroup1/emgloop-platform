@@ -280,7 +280,7 @@ secret that does not exist, tasks cannot start, and the deployment circuit break
 back: a loud failure, not a quiet one. To turn AI off, clear the variable and re-deploy.
 
 **The consent re-check inside `WorkItemRepository.detect` landed on `fix/detect-consent-recheck`
-(PR #TBD — the lead fills the number) and must be on `main`, and in the deployed worker image,
+(PR #331) and must be on `main`, and in the deployed worker image,
 before AI is turned on here.** Before it, a content sweep already in flight when an employee
 revoked, or was offboarded, could still write one more derived item after the revoke committed: a
 fresh OPEN paraphrase, or a refreshed title and evidence on a row the revoke had just minimized.

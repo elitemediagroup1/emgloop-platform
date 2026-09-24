@@ -48,7 +48,7 @@ import {
   type WorkSubjectKind,
 } from '@emgloop/shared';
 
-import { contentAuthorizedInTx } from '../source-content-authorization.repository';
+import { contentAuthorizedInTx } from '../source-content-consent';
 import { workScope, type WorkPrincipal } from './work-principal';
 
 export interface WorkItemDetection {

@@ -2360,7 +2360,7 @@ then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production:
 production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,
 run the probe and report; fixes as `fix/…` PRs.
 
-**Follow-ups recorded in #328.** DONE on `fix/detect-consent-recheck` (draft PR pending; the runbook's
+**Follow-ups recorded in #328.** DONE on `fix/detect-consent-recheck` (draft PR #331; the runbook's
 Part 9 gate, must merge before step 8): `WorkItemRepository.detect` re-checks content consent inside its
 own transaction, so an in-flight sweep can no longer write a derived item after a revoke or offboarding.
 **Not done:** Telegram-side logout on offboarding (documented, not faked); `source_baseline_checkpoints`
