@@ -283,6 +283,8 @@ model Organization {
   aiControlCurrent            AiControlCurrent[]
   /// Google Workspace connection (Private V1). One per member; see GoogleConnection.
   googleConnections           GoogleConnection[]
+  /// TikTok Login Kit connection (Creator Hub). One per member; see TikTokConnection.
+  tiktokConnections           TikTokConnection[]
   /// Background conversation sources (Teams, Telegram). One per member per provider; see
   /// SourceConnection.
   sourceConnections           SourceConnection[]
@@ -310,6 +312,7 @@ model Organization {
   workRetentionOverrides      WorkRetentionOverride[]
 
   googleOAuthStates GoogleOAuthState[]
+  tiktokOAuthStates TikTokOAuthState[]
 
   /// Creator Hub (2026-09-22): the creator domain and the CRM commercial records it composes.
   workInstructions            WorkInstruction[]
@@ -458,6 +461,8 @@ model User {
   aiControlsRecorded        AiControl[]             @relation("AiControlActor")
   /// Google connections this person revoked (their own, or a member's). Attribution only.
   googleConnectionsRevoked  GoogleConnection[]      @relation("GoogleConnectionRevoker")
+  /// TikTok connections this person revoked (their own). Attribution only.
+  tiktokConnectionsRevoked  TikTokConnection[]      @relation("TikTokConnectionRevoker")
   /// Source connections this person disconnected (their own, or a member's). Attribution only.
   sourceConnectionsEnded    SourceConnection[]      @relation("SourceConnectionDisconnector")
   /// Daily Loop (DL-1). Corrections this person recorded, and retention overrides they set.
@@ -527,6 +532,9 @@ model OrganizationMembership {
   /// A Google connection belongs to a membership: the person, in THIS organization.
   googleConnection            GoogleConnection[]           @relation("GoogleConnectionMember")
   googleOAuthStates           GoogleOAuthState[]           @relation("GoogleOAuthStateMember")
+  /// A TikTok connection belongs to a membership the same way: the creator, in THIS organization.
+  tiktokConnection            TikTokConnection[]           @relation("TikTokConnectionMember")
+  tiktokOAuthStates           TikTokOAuthState[]           @relation("TikTokOAuthStateMember")
   /// A source connection (Teams, Telegram) belongs to a membership: the person, in THIS
   /// organization, so offboarding takes it with them.
   sourceConnections           SourceConnection[]           @relation("SourceConnectionMember")
@@ -1329,6 +1337,8 @@ model UserSession {
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Google connect attempts started in this session; the callback must arrive in the same one.
   googleOAuthStates GoogleOAuthState[]
+  /// TikTok connect attempts, bound to the session the same way.
+  tiktokOAuthStates TikTokOAuthState[]
 
   @@index([userId])
   @@index([organizationId])
@@ -5758,6 +5768,104 @@ model GoogleOAuthState {
 
   @@index([organizationId, userId, expiresAt])
   @@map("google_oauth_states")
+}
+
+/// A managed creator's OWN TikTok account, connected through Login Kit (Web) to their Creator
+/// Hub profile. The TikTok sibling of GoogleConnection: same discipline, same shape, NOT a
+/// second connection framework. One per member per organization; the creator seat (the
+/// CreatorProfile bound to the login) authorizes every use of it.
+///
+/// REVOKE MEANS DELETE. The sealed tokens are present only while CONNECTED. A revoked or
+/// expired connection keeps its lifecycle columns and its audit trail, and no credential.
+/// TikTok's own text is never stored: failures are classes.
+///
+/// TWO SEALED TOKENS. TikTok issues a 24-hour access token and a 365-day refresh token that
+/// ROTATES on every refresh. Both are sealed (AES-256-GCM, key LOOP_TIKTOK_TOKEN_KEY held only by
+/// the web tier, never in the database), bound to organization, user, TikTok account and purpose.
+///
+/// SCOPES ARE PINNED IN THE DATABASE. A CHECK admits only the four registered scopes in
+/// `grantedScopes` and `requestedScopes`; a broader grant cannot be recorded even by a caller
+/// that skipped the contract.
+model TikTokConnection {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  userId                String
+  /// TikTok's `open_id` for this app: stable, app-scoped, never the username. Kept after
+  /// revocation for the audit trail.
+  tiktokOpenId          String
+  /// `tiktokOpenId` while the connection is live (CONNECTED or EXPIRED), NULL once revoked.
+  /// Unique per organization, so one TikTok account is linked to at most one Loop user there
+  /// at a time; Postgres treats NULLs as distinct.
+  activeTiktokOpenId    String?
+  /// The `username` TikTok reported at link time, when `user.info.profile` was granted. Display only.
+  handleAtLink          String?
+  /// CONNECTED, EXPIRED or REVOKED (`TIKTOK_CONNECTION_STATUSES` in @emgloop/shared).
+  status                String
+  /// The scopes TikTok granted, exactly as reported (comma-separated there, one per element here).
+  grantedScopes         String[]  @default([])
+  /// The scopes this connection asked for. A requested scope that was not granted was declined
+  /// on TikTok's screen (the connection reads PARTIAL).
+  requestedScopes       String[]  @default([])
+  /// The sealed refresh token. NULL unless CONNECTED.
+  refreshTokenSealed    Bytes?
+  /// The sealed access token and when TikTok said it expires. Present exactly when the refresh
+  /// token is; a fresh one is fetched (and the refresh token rotated) when it is about to expire.
+  accessTokenSealed     Bytes?
+  accessTokenExpiresAt  DateTime?
+  sealVersion           String?
+  keyRef                String?
+  /// When the current grant was stored.
+  connectedAt           DateTime
+  /// The last time a token was used to call TikTok.
+  lastUsedAt            DateTime?
+  /// The last COMPLETED read of the account's facts (user info, and videos when granted).
+  lastReadAt            DateTime?
+  /// When TikTok refused the stored grant and Loop stopped using it.
+  expiredAt             DateTime?
+  /// `TIKTOK_CONNECTION_FAILURE_CLASSES`. Never TikTok's text.
+  lastFailureClass      String?
+  revokedAt             DateTime?
+  revokedByUserId       String?
+  /// `TIKTOK_REVOCATION_REASONS`.
+  revocationReason      String?
+  /// When TikTok confirmed the revocation. NULL on a revoked row means Loop deleted its copy
+  /// but TikTok did not confirm (see `lastFailureClass`).
+  revocationConfirmedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("TikTokConnectionMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  revokedBy    User?                  @relation("TikTokConnectionRevoker", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+  @@unique([organizationId, activeTiktokOpenId])
+  @@map("tiktok_connections")
+}
+
+/// One attempt to connect TikTok: the OAuth `state`, single-use and short-lived.
+///
+/// BOUND TO WHO STARTED IT. Organization, user AND the browser session: the callback is
+/// honoured only in the same session, within ten minutes, once. Only the hash of the state is
+/// stored; the value travels through TikTok and back and nowhere else. There is no nonce: TikTok
+/// issues no ID token, and the account is named by the token endpoint's `open_id`.
+model TikTokOAuthState {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  sessionId      String
+  /// SHA-256 (hex) of the state value.
+  stateHash      String    @unique
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("TikTokOAuthStateMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  session      UserSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, expiresAt])
+  @@map("tiktok_oauth_states")
 }
 
 /// A person's OWN background conversation source: Microsoft Teams or Telegram, connected by

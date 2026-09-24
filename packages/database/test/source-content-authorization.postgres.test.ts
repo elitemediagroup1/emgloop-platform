@@ -14,7 +14,10 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 
+import { telegramConversationSubjectRef } from '@emgloop/shared';
+
 import { SourceContentAuthorizationRepository } from '../src/repositories/source-content-authorization.repository';
+import { WorkItemRepository } from '../src/repositories/work-state/work-item.repository';
 
 const URL = process.env.LOOP_TEST_POSTGRES_URL ?? '';
 const LOCAL = /^postgres(ql)?:\/\/[^@]*@(localhost|127\.0\.0\.1)(:\d+)?\//.test(URL);
@@ -264,6 +267,167 @@ test('recordHistoricalProgress advances ONLY the historical* columns: live curso
     await repo.revoke(organizationId, alice, 'TELEGRAM', { now: NOW, actor: actor(alice) });
     assert.equal(await repo.recordHistoricalProgress(organizationId, alice, 'TELEGRAM', { historicalCursor: 'H-2', state: 'IN_PROGRESS', now: NOW }), false);
     assert.equal((await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: alice, provider: 'TELEGRAM' } })).historicalCursor, 'H-1');
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+// --- Withdrawal on revoke (§21.2, 2026-09-24) ------------------------------------------------------
+
+
+const TRIAGE_PRODUCER = 'telegram.content.triage';
+
+/** A detection shaped exactly as the worker's buildObligationDetection writes it: paraphrases + provenance. */
+function derived(conversationKey: string, anchorId: number, title: string) {
+  return {
+    recurrenceKey: `${TRIAGE_PRODUCER}:${conversationKey}:${conversationKey}:${anchorId}`,
+    class: 'NEEDS_YOU' as const,
+    subjectKind: 'THREAD' as const,
+    subjectRef: telegramConversationSubjectRef(conversationKey),
+    title,
+    producerKind: 'MODEL' as const,
+    producerId: TRIAGE_PRODUCER,
+    producerVersion: '2.1.0',
+    evidence: {
+      provider: 'TELEGRAM',
+      providerEventId: `${conversationKey}:${anchorId}`,
+      conversationKey,
+      aiInvocationId: `inv-${anchorId}`,
+      aiTaskVersion: '2.1.0',
+      category: 'REQUEST',
+      contextTruncated: false,
+      counterpartyLabel: 'Alice Displayname',
+      conversationKind: 'DIRECT',
+      topic: 'Kickoff call',
+      nextStep: 'Propose a new time',
+      deadline: 'this week',
+    },
+    detectedAt: NOW,
+  };
+}
+
+test('revoke WITHDRAWS the derived items in the same transaction: open+snoozed close REVOKED with an observation, every one is minimized to provenance, nobody else is touched', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const repo = new SourceContentAuthorizationRepository(prisma);
+  const items = new WorkItemRepository(prisma);
+  try {
+    const { organizationId, users: [alice, bob] } = await tenant(prisma, 'withdraw', 2);
+    const A = { organizationId, userId: alice };
+    const B = { organizationId, userId: bob };
+    await connection(prisma, organizationId, alice, 'LIVE-1');
+    await connection(prisma, organizationId, bob, 'LIVE-1');
+    await repo.authorize(organizationId, alice, 'TELEGRAM', { now: NOW, actor: actor(alice) });
+    await repo.authorize(organizationId, bob, 'TELEGRAM', { now: NOW, actor: actor(bob) });
+
+    // Alice: an OPEN, a SNOOZED and an already-HANDLED derived item; a RULE item on a mail thread; and a
+    // MODEL item from another provider's subject. Bob: one derived item of his own.
+    const open = await items.detect(A, derived('ck_a', 1, 'Client asks to reschedule the call'));
+    const snoozed = await items.detect(A, derived('ck_a', 2, 'Send the revised quote'));
+    await items.record(A, snoozed.id, { state: 'SNOOZED', observationType: 'SNOOZED', occurredAt: NOW, snoozedUntil: new Date('2026-09-30T00:00:00Z') });
+    const handled = await items.detect(A, derived('ck_b', 3, 'Confirm the invoice amount'));
+    await items.record(A, handled.id, { state: 'RESOLVED', observationType: 'RESOLVED', occurredAt: NOW, outcome: 'HANDLED' });
+    const ruleItem = await items.detect(A, { ...derived('ck_a', 4, 'A mail thread needs you'), recurrenceKey: 'mail:t1', producerKind: 'RULE', producerId: 'mail-attention', subjectRef: 't1', evidence: { threadId: 't1' } });
+    const otherProvider = await items.detect(A, { ...derived('ck_a', 5, 'Another source'), recurrenceKey: 'other:5', subjectRef: 'teams_conversation:xyz', evidence: { provider: 'MICROSOFT_TEAMS', topic: 'keep' } });
+    const bobs = await items.detect(B, derived('ck_bob', 6, "Bob's own obligation"));
+
+    const REVOKED_AT = new Date('2026-09-24T10:00:00Z');
+    const res = await repo.revoke(organizationId, alice, 'TELEGRAM', { now: REVOKED_AT, actor: actor(alice) });
+    assert.equal(res.outcome, 'REVOKED');
+
+    // The two live derived items closed REVOKED, at the revoke instant, snooze cleared.
+    for (const [id, was] of [[open.id, 'OPEN'], [snoozed.id, 'SNOOZED']] as const) {
+      const row = (await items.item(A, id))!;
+      assert.equal(row.state, 'RESOLVED', `${was} -> RESOLVED`);
+      assert.equal(row.outcome, 'REVOKED');
+      assert.equal(row.resolvedAt?.toISOString(), REVOKED_AT.toISOString());
+      assert.equal(row.stateChangedAt?.toISOString(), REVOKED_AT.toISOString());
+      assert.equal(row.snoozedUntil, null);
+      const log = await items.observations(A, id);
+      const last = log[log.length - 1]!;
+      assert.equal(last.observationType, 'RESOLVED');
+      assert.equal(last.actorType, 'SYSTEM');
+      assert.equal(last.actorUserId, null);
+      assert.equal(last.previousState, was);
+      assert.equal(last.newState, 'RESOLVED');
+      assert.equal(last.reason, 'withdrawn: content authorization revoked');
+      assert.deepEqual(log.map((o) => o.sequence), log.map((_, i) => i + 1), 'the sequence continues the item\'s own log');
+    }
+    // The already-handled one keeps its own outcome and history: it is MINIMIZED, not re-closed.
+    const kept = (await items.item(A, handled.id))!;
+    assert.equal(kept.state, 'RESOLVED');
+    assert.equal(kept.outcome, 'HANDLED', 'a person\'s own close is not overwritten');
+    assert.equal((await items.observations(A, handled.id)).filter((o) => o.observationType === 'RESOLVED').length, 1, 'no second RESOLVED observation');
+
+    // EVERY matched item is minimized: no title, evidence reduced to the provenance allowlist.
+    for (const id of [open.id, snoozed.id, handled.id]) {
+      const row = (await items.item(A, id))!;
+      assert.equal(row.title, null, 'the paraphrase is gone');
+      const ev = row.evidence as Record<string, unknown>;
+      assert.deepEqual(
+        Object.keys(ev).sort(),
+        ['aiInvocationId', 'aiTaskVersion', 'contextTruncated', 'conversationKey', 'conversationKind', 'minimizedAt', 'minimizedReason', 'provider', 'providerEventId'],
+      );
+      assert.equal(ev.provider, 'TELEGRAM');
+      assert.equal(ev.minimizedAt, REVOKED_AT.toISOString());
+      assert.equal(ev.minimizedReason, 'content authorization revoked');
+      const json = JSON.stringify(row);
+      for (const gone of ['Kickoff call', 'Propose a new time', 'this week', 'Alice Displayname', 'REQUEST', 'reschedule', 'revised quote', 'invoice']) {
+        assert.equal(json.includes(gone), false, `${gone} no longer stored`);
+      }
+    }
+
+    // Untouched: Alice's RULE item, her other-provider MODEL item, and Bob's derived item.
+    const rule = (await items.item(A, ruleItem.id))!;
+    assert.equal(rule.state, 'OPEN');
+    assert.equal(rule.title, 'A mail thread needs you');
+    const other = (await items.item(A, otherProvider.id))!;
+    assert.equal(other.state, 'OPEN');
+    assert.equal((other.evidence as any).topic, 'keep');
+    const bobRow = (await items.item(B, bobs.id))!;
+    assert.equal(bobRow.state, 'OPEN');
+    assert.equal(bobRow.title, "Bob's own obligation");
+    assert.equal((bobRow.evidence as any).topic, 'Kickoff call');
+    assert.equal((await repo.get(organizationId, bob, 'TELEGRAM'))?.authorized, true, "Bob's consent stands");
+
+    // The audit row carries the counts, and nothing content-bearing.
+    const audit = await prisma.auditLog.findMany({ where: { organizationId, action: 'source_connection.content.revoked' } });
+    assert.equal(audit.length, 1);
+    const metadata = audit[0]!.metadata as Record<string, unknown>;
+    assert.deepEqual(metadata.withdrawn, { closed: 2, minimized: 3 });
+    assert.equal(JSON.stringify(audit[0]).includes('Kickoff'), false);
+
+    // A second revoke is NOTHING_TO_DO and withdraws nothing more: the logs do not grow.
+    const before = (await items.observations(A, open.id)).length;
+    assert.deepEqual(await repo.revoke(organizationId, alice, 'TELEGRAM', { now: new Date('2026-09-25T00:00:00Z'), actor: actor(alice) }), { outcome: 'NOTHING_TO_DO' });
+    assert.equal((await items.observations(A, open.id)).length, before);
+    assert.equal(await prisma.auditLog.count({ where: { organizationId, action: 'source_connection.content.revoked' } }), 1);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('a NOTHING_TO_DO revoke (no consent was ever given) withdraws nothing', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const repo = new SourceContentAuthorizationRepository(prisma);
+  const items = new WorkItemRepository(prisma);
+  try {
+    const { organizationId, users: [alice] } = await tenant(prisma, 'nothing');
+    const A = { organizationId, userId: alice };
+    await connection(prisma, organizationId, alice, 'LIVE-1');
+    // No consent was ever given, so detect refuses to write a derived item for this person at all
+    // (2026-09-24). The row below is seeded directly, as one written before the re-check would be, so
+    // the assertion that a no-op revoke withdraws nothing still has something to leave alone.
+    const { detectedAt, ...seed } = derived('ck_n', 1, 'Stays as it is');
+    assert.equal(await items.detect(A, { ...seed, detectedAt }), null, 'never consented: nothing is written');
+    const item = await prisma.workItem.create({
+      data: { ...A, ...seed, firstDetectedAt: detectedAt, lastDetectedAt: detectedAt, state: 'OPEN', stateChangedAt: detectedAt },
+    });
+    assert.deepEqual(await repo.revoke(organizationId, alice, 'TELEGRAM', { now: NOW, actor: actor(alice) }), { outcome: 'NOTHING_TO_DO' });
+    const row = (await items.item(A, item.id))!;
+    assert.equal(row.state, 'OPEN');
+    assert.equal(row.title, 'Stays as it is');
+    assert.equal((row.evidence as any).topic, 'Kickoff call');
+    assert.equal(await prisma.auditLog.count({ where: { organizationId, action: 'source_connection.content.revoked' } }), 0);
   } finally {
     await prisma.$disconnect();
   }

@@ -32,6 +32,10 @@ async function person(prisma: PrismaClient) {
   await prisma.organization.create({ data: { id: organizationId, name: 'WI', slug: organizationId } });
   await prisma.user.create({ data: { id: userId, organizationId, email: `${userId}@example.test`, name: 'WI', status: 'ACTIVE', metadata: { systemRole: 'EMPLOYEE' } } });
   await prisma.organizationMembership.create({ data: { organizationId, userId, systemRole: 'EMPLOYEE', status: 'ACTIVE', effectiveFrom: new Date('2026-01-01T00:00:00Z') } });
+  // A derived (MODEL, Telegram) item is written only under a live content authorization: detect
+  // re-checks it inside its own transaction (2026-09-24). The fixture grants it; the refusal itself is
+  // proven in work-item-detect-consent.postgres.test.ts.
+  await prisma.sourceContentAuthorization.create({ data: { organizationId, userId, provider: 'TELEGRAM', authorizedAt: NOW } });
   return { organizationId, userId };
 }
 

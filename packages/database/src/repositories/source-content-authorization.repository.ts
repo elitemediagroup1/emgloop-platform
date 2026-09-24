@@ -16,13 +16,62 @@
 // message, a name or a raw id. Audit rows record ids, the provider and a class -- never a secret or text.
 //
 // CONSENT IS DERIVED, NOT A STATE COLUMN. Authorized means authorizedAt set and revokedAt null; revoked
-// means revokedAt set. A revoke stops all further content processing immediately.
+// means revokedAt set. A revoke stops all further content processing immediately -- AND, in the same
+// transaction, withdraws what that processing already derived: every MODEL-produced WorkItem for the
+// provider is closed (REVOKED) and minimized to provenance (WorkWithdrawalRepository, §21.2). The
+// content cursor is kept, so a later re-authorization does not re-triage what was already judged.
+//
+// THE WRITE RE-CHECKS IT (2026-09-24). `contentAuthorizedInTx` is the one read of that derived fact
+// for a writer: WorkItemRepository.detect calls it inside its own transaction before writing a MODEL
+// item on a derived subject, so a content sweep that was already in flight when the revoke committed
+// cannot land a fresh paraphrase, or refresh a just-minimized row, afterwards.
 
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emgloop/shared';
 
 import { membershipAuthority } from './membership.repository';
 import { writeAudit, type SourceConnectionActor } from './source-connection.repository';
+import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repository';
+
+// The one consent read the work-item repository makes at every derived write. Defined in its own
+// module (source-content-consent.ts) so that repository need not import this one, which imports
+// the withdrawal repository, which imports it back.
+export { contentAuthorizedInTx } from './source-content-consent';
+
+/** The words a withdrawal observation and the minimized evidence carry for an employee's own revoke. */
+const CONTENT_REVOKED_REASON = 'content authorization revoked';
+
+/**
+ * Revoke every live content authorization this person holds INSIDE the caller's transaction, with
+ * an audit row per provider. Used by offboarding: disabling or removing a member withdraws their
+ * content consent in the same transaction as the membership change, so a consent never outlives
+ * the membership it was given under. The derived items are not withdrawn here -- offboarding
+ * erases every work row outright (WorkErasureRepository) in the same transaction. Returns how many
+ * authorizations were revoked; nothing is written, and no audit row, for one already revoked.
+ */
+export async function revokeContentAuthorizationsInTx(
+  prisma: PrismaClient,
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  userId: string,
+  request: { readonly actor: SourceConnectionActor; readonly now: Date; readonly reason: 'MEMBER_DISABLED' | 'MEMBER_REMOVED' },
+): Promise<number> {
+  const live = await tx.sourceContentAuthorization.findMany({ where: { organizationId, userId, revokedAt: null } });
+  for (const row of live) {
+    await tx.sourceContentAuthorization.update({ where: { id: row.id }, data: { revokedAt: request.now, backoffUntil: null, historicalBackoffUntil: null } });
+    const connection = await tx.sourceConnection.findFirst({ where: { organizationId, userId, provider: row.provider } });
+    await writeAudit(prisma, tx, {
+      organizationId,
+      connectionId: connection?.id ?? row.id,
+      action: SOURCE_CONNECTION_AUDIT_ACTIONS.content_revoked,
+      provider: row.provider as ConnectionProvider,
+      actor: request.actor,
+      metadata: { subjectUserId: userId, reason: request.reason },
+    });
+  }
+  return live.length;
+}
+
 
 /** The historical-backfill lifecycle. A revoke stops it via revokedAt; there is no REVOKED state column. */
 export type HistoricalContentState = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE';
@@ -157,10 +206,13 @@ export class SourceContentAuthorizationRepository {
   }
 
   /**
-   * Revoke content processing: stop all further processing immediately (revokedAt stamped). No content
-   * is selectively purged here -- already-derived WorkItems are the employee's own to resolve, and any
-   * content-free observations expire via the existing retention policy. Returns NOTHING_TO_DO when there
-   * was nothing to revoke, and writes no audit row for a revoke that did not happen.
+   * Revoke content processing: stop all further processing immediately (revokedAt stamped) AND, in the
+   * same transaction, withdraw what it already derived -- every MODEL-produced WorkItem for this provider
+   * is closed with outcome REVOKED (open or snoozed ones) and minimized to provenance (all of them), by
+   * WorkWithdrawalRepository (§21.2). The withdrawal's counts go on the audit row. Content-free
+   * observations are not touched: they were never under this consent and expire via the existing
+   * retention policy. Returns NOTHING_TO_DO when there was nothing to revoke -- and then withdraws
+   * nothing and writes no audit row.
    */
   async revoke(
     organizationId: string,
@@ -176,13 +228,17 @@ export class SourceContentAuthorizationRepository {
         where: { id: existing.id },
         data: { revokedAt: request.now, backoffUntil: null },
       });
+      const withdrawn = await new WorkWithdrawalRepository(tx).withdrawDerived(
+        { organizationId, userId },
+        { provider, occurredAt: request.now, reason: CONTENT_REVOKED_REASON },
+      );
       await writeAudit(this.prisma, tx, {
         organizationId,
         connectionId: connection?.id ?? existing.id,
         action: SOURCE_CONNECTION_AUDIT_ACTIONS.content_revoked,
         provider,
         actor: request.actor,
-        metadata: { subjectUserId: userId },
+        metadata: { subjectUserId: userId, withdrawn: { closed: withdrawn.closed, minimized: withdrawn.minimized } },
       });
       return { outcome: 'REVOKED' as const, authorizationId: row.id };
     });

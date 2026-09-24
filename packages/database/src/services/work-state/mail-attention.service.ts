@@ -112,7 +112,7 @@ export class MailAttentionService {
         reopened += 1;
       }
 
-      await this.deps.items.detect(principal, {
+      const written = await this.deps.items.detect(principal, {
         recurrenceKey: state.recurrenceKey,
         class: state.class,
         subjectKind: 'THREAD',
@@ -124,6 +124,10 @@ export class MailAttentionService {
         evidence: state.evidence as unknown as Record<string, unknown>,
         detectedAt: now,
       });
+      // A RULE detection on a mail thread is never refused: detect re-checks a content authorization
+      // only for a MODEL item on a derived subject. The null is still honoured rather than assumed
+      // away -- a refusal is not a raise.
+      if (written === null) continue;
       if (known) widened += 1;
       else raised += 1;
     }

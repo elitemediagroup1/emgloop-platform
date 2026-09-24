@@ -102,6 +102,13 @@ export default async function LoginPage({
             </p>
             <RequestAccessModal />
           </section>
+
+          <footer className="loop-auth__footer" aria-label="Legal">
+            <Link href="/terms">Terms of Service</Link>
+            <span aria-hidden="true">·</span>
+            <Link href="/privacy">Privacy Policy</Link>
+            <span className="loop-auth__footer-operator">EMG Loop is operated by Elite Media Group.</span>
+          </footer>
         </div>
       </main>
     </div>

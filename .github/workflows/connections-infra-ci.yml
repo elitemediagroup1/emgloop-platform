@@ -4,6 +4,8 @@
 #   - the worker (apps/connections-worker): typecheck + tests (provider bindings run only when
 #     deployed; the tests use fakes)
 #   - the infrastructure project (infra/connections): typecheck + template tests, then `cdk synth`
+#     for BOTH stages offline (production with a dummy 12-digit account and a dummy address, so a
+#     production synth regression is caught here, not on the first production deploy)
 # Nothing here deploys. Deployment is connections-infra-deploy.yml, manual and approved.
 
 name: connections-infra-ci
@@ -66,6 +68,10 @@ jobs:
         working-directory: infra/connections
         run: npm test
 
-      - name: Synthesize (creates nothing)
+      - name: Synthesize staging (creates nothing)
         working-directory: infra/connections
         run: npm run synth
+
+      - name: Synthesize production offline (dummy account and address; creates nothing)
+        working-directory: infra/connections
+        run: npm run synth:production

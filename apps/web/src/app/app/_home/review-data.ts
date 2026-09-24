@@ -30,6 +30,7 @@ import {
   type ReviewPeriod,
   type ReviewUpdate,
   type TimeView,
+  type HeadlineView,
 } from '@emgloop/shared';
 import { WorkGraphRepository, prisma, type WorkPrincipal } from '@emgloop/database';
 
@@ -229,10 +230,16 @@ function workContribution(data: DashboardData): ReviewContribution {
   return { source: 'WORK', state: 'OK', facts, attention, attentionCount: w.attentionTotal, updates };
 }
 
-async function headlinesContribution(session: AuthSession, organizationId: string): Promise<ReviewContribution | null> {
+/** The Headlines Home read: only the ones nobody dismissed, so a dismissed Headline never reappears here. */
+async function headlinesContribution(
+  session: AuthSession,
+  organizationId: string,
+  sink: { headlines: readonly HeadlineView[] | null },
+): Promise<ReviewContribution | null> {
   if (!(await canOpenHeadlines(session))) return null;
-  const result = await loadAttention(organizationId);
+  const result = await loadAttention(organizationId, new Date(), { dismissed: false });
   if (!result.ok) return { source: 'HEADLINES', state: 'UNAVAILABLE', note: 'Loop could not read Headlines just now.' };
+  sink.headlines = result.value.headlines;
   const a = result.value.attention;
   if (a.state !== 'NEEDS_ATTENTION') return { source: 'HEADLINES', state: 'OK', attention: [] };
   return {
@@ -260,6 +267,11 @@ async function headlinesContribution(session: AuthSession, organizationId: strin
 export interface ExecutiveReviewData {
   readonly review: ExecutiveReview;
   readonly period: ReviewPeriod;
+  /**
+   * The non-dismissed Headlines the review read (one read, shared with Home's "What changed");
+   * null when this seat cannot open Headlines or the read failed.
+   */
+  readonly headlines: readonly HeadlineView[] | null;
 }
 
 export async function loadExecutiveReview(input: {
@@ -272,12 +284,13 @@ export async function loadExecutiveReview(input: {
   readonly dashboard: DashboardData | null;
 }): Promise<ExecutiveReviewData> {
   const period = reviewPeriod(input.time.now, input.timeZone);
+  const sink: { headlines: readonly HeadlineView[] | null } = { headlines: null };
   const contributions = await Promise.all([
     isolated('MAIL', () => mailContribution(input.principal, input.mail, period, input.time)),
     isolated('CALENDAR', async () => calendarContribution(input.day, input.time)),
     isolated('CALLGRID', async () => (input.dashboard ? callgridContribution(input.dashboard) : { source: 'CALLGRID', state: 'UNAVAILABLE', note: 'Loop could not read CallGrid just now.' })),
     isolated('WORK', async () => (input.dashboard ? workContribution(input.dashboard) : { source: 'WORK', state: 'UNAVAILABLE', note: 'Loop could not read work just now.' })),
-    isolated('HEADLINES', () => headlinesContribution(input.session, input.principal.organizationId)),
+    isolated('HEADLINES', () => headlinesContribution(input.session, input.principal.organizationId, sink)),
   ]);
-  return { review: composeReview(contributions.filter((c): c is ReviewContribution => c !== null)), period };
+  return { review: composeReview(contributions.filter((c): c is ReviewContribution => c !== null)), period, headlines: sink.headlines };
 }

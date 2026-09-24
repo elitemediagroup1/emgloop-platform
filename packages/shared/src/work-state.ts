@@ -5,7 +5,8 @@
 // belong in this file too; DL-1 defines only what the words are.
 //
 // EVERY VOCABULARY IS CLOSED, AND THE DATABASE AGREES. Each list below is mirrored by a
-// CHECK constraint in the DL-1 migration, so a value this file does not know cannot be
+// CHECK constraint in the DL-1 migration (and, for item outcomes, restated in full by the
+// 2026-10-01 migration that added REVOKED), so a value this file does not know cannot be
 // stored even by a caller that bypassed the contract -- the discipline google_connections
 // already uses for its scopes.
 //
@@ -82,9 +83,34 @@ export const WORK_ITEM_CLOSED_STATES: readonly WorkItemState[] = Object.freeze([
  * How an item ended. Deliberately the shape the Decision Engine already uses: keeping
  * "Loop should not have raised it" separate from "real, and I dealt with it" is the only
  * feedback the rules ever get about their own accuracy (ENGINEERING_PRINCIPLES Rule 4).
+ *
+ * REVOKED is SYSTEM-ONLY (2026-09-24): the authorization that produced the item was withdrawn
+ * (§21.2), so Loop closed it and minimized it to provenance. It says NOTHING about accuracy --
+ * it is never "Loop was wrong" and never "handled" -- and it must never enter an accuracy signal.
+ * A person cannot record it (`WorkItemRepository.record` refuses it); only the withdrawal
+ * repository writes it.
  */
-export const WORK_ITEM_OUTCOMES = ['HANDLED', 'NOT_MINE', 'NO_ACTION_NEEDED', 'FALSE_POSITIVE', 'SUPERSEDED', 'EXPIRED'] as const;
+export const WORK_ITEM_OUTCOMES = ['HANDLED', 'NOT_MINE', 'NO_ACTION_NEEDED', 'FALSE_POSITIVE', 'SUPERSEDED', 'EXPIRED', 'REVOKED'] as const;
 export type WorkItemOutcome = (typeof WORK_ITEM_OUTCOMES)[number];
+
+/** The outcomes only the system may write. A human `record()` of one of these fails closed. */
+export const WORK_SYSTEM_ONLY_OUTCOMES: readonly WorkItemOutcome[] = Object.freeze(['REVOKED']);
+
+/**
+ * The reason a withdrawal observation carries, as a prefix on the caller's own words
+ * ("withdrawn: content authorization revoked"). A closed marker, so a reader of the log can tell
+ * an authorization being withdrawn from a person closing the item -- the observation row has no
+ * outcome column, and an accuracy signal must skip a withdrawal without guessing.
+ */
+export const WORK_WITHDRAWAL_REASON_PREFIX = 'withdrawn:';
+
+export function workWithdrawalReason(reason: string): string {
+  return `${WORK_WITHDRAWAL_REASON_PREFIX} ${reason.trim()}`;
+}
+
+export function isWorkWithdrawalReason(reason: string | null | undefined): boolean {
+  return typeof reason === 'string' && reason.startsWith(WORK_WITHDRAWAL_REASON_PREFIX);
+}
 
 /** The append-only log of what happened to an item. */
 export const WORK_OBSERVATION_TYPES = ['DETECTED', 'REDETECTED', 'SNOOZED', 'UNSNOOZED', 'RESOLVED', 'DISMISSED', 'REOPENED'] as const;
@@ -290,6 +316,79 @@ export const WORK_RETENTION_CATEGORIES: readonly WorkRetentionCategory[] = Objec
 /** Deletion at the two ends of a connection, which are different facts (§21.2). */
 export const WORK_DISCONNECT_GRACE_DAYS = 30;
 export const WORK_TERMINATION_GRACE_DAYS = 0;
+
+// --- Derived (MODEL-produced) items from a background source (§21.2, 2026-09-24) ------------------
+//
+// A model reads a source's content under an explicit, revocable authorization and writes items
+// whose title and evidence are its paraphrases of that content. When the authorization is withdrawn
+// those paraphrases are no longer authorized to exist, but the PROVENANCE of the conclusion is
+// (ENGINEERING_PRINCIPLES Rule 3): so an item is minimized to the keys below, never edited in place
+// to something that still reads as intelligence. The subject prefix is how a withdrawal finds every
+// item one provider produced -- the producers and the withdrawal share it here so they cannot drift.
+
+/** The `subjectRef` prefix each provider's MODEL-derived items carry. One entry per provider that produces derived work. */
+export const DERIVED_WORK_SUBJECT_PREFIXES = Object.freeze({
+  TELEGRAM: 'telegram_conversation:',
+} as const);
+
+/** The prefix a provider's derived items carry, or null for a provider that produces none. */
+export function derivedWorkSubjectPrefix(provider: string): string | null {
+  return (DERIVED_WORK_SUBJECT_PREFIXES as Readonly<Record<string, string>>)[provider] ?? null;
+}
+
+/**
+ * The reverse lookup: the provider whose derived-subject prefix `subjectRef` carries, or null for any
+ * other subject (a Gmail thread id, a calendar event, an empty string). This is how a writer holding
+ * only a detection tells an item produced under a revocable content authorization from one that was
+ * not -- `WorkItemRepository.detect` re-checks that authorization only when this returns a provider.
+ * Matches exactly what a withdrawal's `startsWith` matches, so the two cannot disagree.
+ */
+export function derivedWorkProviderOf(subjectRef: string): string | null {
+  for (const [provider, prefix] of Object.entries(DERIVED_WORK_SUBJECT_PREFIXES)) {
+    if (subjectRef.startsWith(prefix)) return provider;
+  }
+  return null;
+}
+
+/** The one `subjectRef` for a Telegram conversation: the keyed conversation, never a raw chat id. */
+export function telegramConversationSubjectRef(conversationKey: string): string {
+  return `${DERIVED_WORK_SUBJECT_PREFIXES.TELEGRAM}${conversationKey}`;
+}
+
+/**
+ * The evidence keys that are PROVENANCE, not content: which provider, which keyed message and
+ * conversation, which invocation and task version produced the conclusion, whether it was a group,
+ * whether the context was truncated. Everything else on a derived item's evidence -- the topic, the
+ * next step, the deadline, the category, the counterparty label, anything unknown -- is a paraphrase
+ * or a name and is dropped by `minimizeDerivedEvidence`. An ALLOWLIST: a key added to the producer
+ * later does not survive a withdrawal unless it is added here on purpose.
+ */
+export const DERIVED_EVIDENCE_PROVENANCE_KEYS = Object.freeze([
+  'provider',
+  'providerEventId',
+  'conversationKey',
+  'aiInvocationId',
+  'aiTaskVersion',
+  'conversationKind',
+  'contextTruncated',
+] as const);
+
+/**
+ * Reduce a derived item's evidence to provenance plus the fact of the minimization. PURE: the
+ * instant is passed in. A value that is not an object yields only the two minimization markers.
+ */
+export function minimizeDerivedEvidence(evidence: unknown, minimized: { readonly at: Date; readonly reason: string }): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (evidence && typeof evidence === 'object' && !Array.isArray(evidence)) {
+    const source = evidence as Record<string, unknown>;
+    for (const key of DERIVED_EVIDENCE_PROVENANCE_KEYS) {
+      if (key in source) out[key] = source[key];
+    }
+  }
+  out.minimizedAt = minimized.at.toISOString();
+  out.minimizedReason = minimized.reason;
+  return out;
+}
 
 export function workRetentionCategory(category: string): WorkRetentionCategory | null {
   return WORK_RETENTION_CATEGORIES.find((c) => c.category === category) ?? null;

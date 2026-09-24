@@ -1,4 +1,5 @@
-// A read that may run against a database the Creator Hub migration has not reached yet.
+// A read that may run against a database a migration has not reached yet (first the Creator Hub's;
+// since 2026-09-24 also the source-connection tables, probed by IamRepository before offboarding).
 //
 // WHY THIS EXISTS. Netlify deploys `main` to production on every merge, but a migration reaches
 // production only when a human dispatches the migration workflow — so there is always a window in

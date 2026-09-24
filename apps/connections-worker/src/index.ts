@@ -2,8 +2,11 @@
 //   1. runs a live observation sweep on an interval (OBSERVE -> NORMALIZE -> sink),
 //   2. runs a GOVERNED HISTORICAL BASELINE sweep on its own interval -- walking each connection's
 //      past BACKWARD to an employee-chosen floor, landing the SAME content-free observations on an
-//      INDEPENDENT checkpoint (it never advances the live observation cursor), and
-//   3. serves the signed control endpoints the Loop web tier calls to drive an interactive
+//      INDEPENDENT checkpoint (it never advances the live observation cursor),
+//   3. runs the retention sweeps every six hours -- content-free observations past the horizon, and
+//      the derived (model-produced) work of a connection disconnected past the §21.2 grace window --
+//      and
+//   4. serves the signed control endpoints the Loop web tier calls to drive an interactive
 //      Telegram login and to disconnect.
 //
 // It wires the tested pieces to the live teleproto seam and the database. It is NOT a chat client:
@@ -23,22 +26,25 @@ import {
   type DueBaseline,
   type DueContent,
   type DueHistoricalContent,
+  type WorkItemDetection,
+  type WorkPrincipal,
 } from '@emgloop/database';
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
-import { readWorkerConfig } from './config';
+import { fatalLogFields, readWorkerConfig } from './config';
 import { createDbObservationSink } from './observation-sink';
 import { runObservationSweep, type SweepPorts } from './orchestrator';
 import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
 import { runContentSweep, type ContentSweepPorts } from './content-orchestrator';
 import { runHistoricalContentSweep, type HistoricalContentSweepPorts } from './historical-content-orchestrator';
+import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-retention';
 import { createWorkerAiRuntime } from './ai-runtime';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
 import { createControlServer, type ControlHandlers } from './server';
 
-const RETENTION_SWEEP_MS = 6 * 60 * 60 * 1000; // purge the observation store every 6 hours
+const RETENTION_SWEEP_MS = 6 * 60 * 60 * 1000; // the retention sweeps (observations, derived work) run every 6 hours
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
   // Structured, secret-free logging: only ids, counts and states are ever passed in here.
@@ -204,6 +210,26 @@ async function main(): Promise<void> {
     await workItems.resolveObligationsNotIn(principal, subjectRef, keptAnchorProviderEventIds, evaluatedFloorProviderEventId, occurredAt);
   }
 
+  // Persist one obligation (WorkItemRepository.detect). Detect re-checks the employee's content
+  // authorization inside its own transaction and REFUSES -- writing nothing -- when it ended after this
+  // sweep snapshotted the principal (a revoke or an offboarding mid-sweep). Refusals are counted per
+  // sweep and logged as a count: never an id, never content. One counter per sweep, because the forward
+  // and historical sweeps run independently and may overlap.
+  function consentedRaise(sweep: 'content' | 'historical_content') {
+    let refused = 0;
+    return {
+      async raiseWorkItem(principal: WorkPrincipal, detection: WorkItemDetection): Promise<void> {
+        if ((await workItems.detect(principal, detection)) === null) refused += 1;
+      },
+      flush(): void {
+        if (refused > 0) log('detect_refused', { sweep, refused });
+        refused = 0;
+      },
+    };
+  }
+  const contentRaise = consentedRaise('content');
+  const historicalRaise = consentedRaise('historical_content');
+
   // --- The FORWARD CONTENT-triage sweep ports (INDEPENDENT of the live and baseline sweeps) ------
   // These share the credential opener but have NO port that could write the live observation cursor or
   // the baseline checkpoint -- they advance ONLY the content cursor. Bodies are read transiently, judged
@@ -214,9 +240,7 @@ async function main(): Promise<void> {
     openCredential: (due: DueContent) => openContentCredential(due),
     conversationSecret: config.conversationSecret,
     triage: (principal, input) => aiRuntime.service.triage(principal, input),
-    async raiseWorkItem(principal, detection) {
-      await workItems.detect(principal, detection);
-    },
+    raiseWorkItem: contentRaise.raiseWorkItem,
     resolveObligations,
     async recordContentProgress(due, progress) {
       await contentAuthorizations.recordContentProgress(due.organizationId, due.userId, due.provider, {
@@ -241,6 +265,7 @@ async function main(): Promise<void> {
     } catch (err) {
       log('content_error', { name: (err as Error)?.name ?? 'error' });
     } finally {
+      contentRaise.flush();
       contentSweeping = false;
     }
   }
@@ -255,9 +280,7 @@ async function main(): Promise<void> {
     openCredential: (due: DueHistoricalContent) => openContentCredential(due),
     conversationSecret: config.conversationSecret,
     triage: (principal, input) => aiRuntime.service.triage(principal, input),
-    async raiseWorkItem(principal, detection) {
-      await workItems.detect(principal, detection);
-    },
+    raiseWorkItem: historicalRaise.raiseWorkItem,
     resolveObligations,
     async recordHistoricalProgress(due, progress) {
       await contentAuthorizations.recordHistoricalProgress(due.organizationId, due.userId, due.provider, {
@@ -284,9 +307,22 @@ async function main(): Promise<void> {
     } catch (err) {
       log('historical_content_error', { name: (err as Error)?.name ?? 'error' });
     } finally {
+      historicalRaise.flush();
       historicalContentSweeping = false;
     }
   }
+
+  // --- Retention: two independent steps, one cadence -------------------------------------------
+  // 1. Content-free observations past the deployment's horizon.
+  // 2. DERIVED work (the model's obligations) for a connection disconnected past the §21.2 grace
+  //    window: discovery is platform-wide and routing-only; the delete is per principal, scoped and
+  //    audited inside the repository, which also refuses a connection that is live again. Counts
+  //    only are logged.
+  const derivedRetentionPorts: DerivedRetentionPorts = {
+    dueForDerivedExpiry: (now) => connections.dueForDerivedExpiry(now, 500),
+    expireDerivedWork: (due, now) => connections.expireDerivedWork(due.organizationId, due.userId, due.provider, { now }),
+    now: () => new Date(),
+  };
 
   async function purge(): Promise<void> {
     const cutoff = new Date(Date.now() - config.observationRetentionDays * 24 * 60 * 60 * 1000);
@@ -296,6 +332,12 @@ async function main(): Promise<void> {
       if (purged > 0) log('retention_purge', { purged });
     } catch (err) {
       log('purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    try {
+      const summary = await runDerivedRetentionSweep(derivedRetentionPorts);
+      if (summary.due > 0) log('derived_purge', { ...summary });
+    } catch (err) {
+      log('derived_purge_error', { name: (err as Error)?.name ?? 'error' });
     }
   }
 
@@ -363,7 +405,8 @@ async function main(): Promise<void> {
 // Only run when executed directly (not when imported by a test).
 if (process.env.LOOP_CONNECTIONS_WORKER_RUN === '1') {
   main().catch((err) => {
-    log('worker_fatal', { name: (err as Error)?.name ?? 'error' });
+    // A configuration refusal names the setting (never a value); anything else, its name only.
+    log('worker_fatal', fatalLogFields(err));
     process.exitCode = 1;
   });
 }

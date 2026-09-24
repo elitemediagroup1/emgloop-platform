@@ -5,7 +5,11 @@
 // THE LOG IS THE TRUTH; THE COLUMNS ARE ITS PROJECTION. Every state change appends an
 // observation and writes the projection in the SAME transaction, so the two cannot disagree
 // -- and a projection that ever did can be rebuilt from the log (ENGINEERING_PRINCIPLES
-// Rule 2). Nothing here edits a recorded observation, and there is no delete.
+// Rule 2). Nothing here edits a recorded observation, and there is no delete in this file:
+// deletion belongs to the two repositories that own a retention decision -- work-erasure
+// (a membership ended) and work-withdrawal (an authorization withdrawn, or a disconnect past
+// its grace window) -- and both append through `appendWorkObservation` below, so a close they
+// write reads like any other in the log.
 //
 // THE SAME SITUATION TOMORROW IS THE SAME ROW. `recurrenceKey` is the producer's rule plus
 // its subject, never a timestamp: a thread that is still unanswered tomorrow moves
@@ -13,19 +17,38 @@
 //
 // PRODUCER-AGNOSTIC. A rule writes items today; a Stage 3 task writes the same row with
 // `producerKind = 'MODEL'`. Intelligence arriving later is not a second queue.
+//
+// SYSTEM-ONLY OUTCOMES. `record` is the person's own act, so it refuses an outcome only the
+// system may write (REVOKED): a human cannot make an item read as "the authorization was
+// withdrawn", whatever the caller passes as actorType.
+//
+// THE WRITE RE-CHECKS CONSENT (2026-09-24). A MODEL item on a derived subject (§21.2: a
+// `subjectRef` carrying a provider's `DERIVED_WORK_SUBJECT_PREFIXES` entry) is a paraphrase of
+// content read under a revocable authorization. `detect` reads that authorization INSIDE its own
+// transaction, before any write, and returns null -- no create, no update, no observation -- when
+// it is no longer in force. It lives here and not in the worker because the race is between the
+// sweep that snapshotted the principal and the revoke (or offboarding) that committed while it was
+// triaging: a worker-side pre-check would re-open exactly that window, and a revoke's withdrawal
+// (close + minimize) must not be followed by a fresh paraphrase or a refreshed title from a
+// detection already in hand. Every other detection -- a RULE producer, a Gmail or Calendar
+// subject -- makes NO authorization query: those rules run in production web cycles where the
+// query is a needless cost and, before the source-connection migration lands, a missing table.
 
-import type { PrismaClient } from '@prisma/client';
-import type {
-  WorkActorType,
-  WorkClass,
-  WorkFeedbackKind,
-  WorkItemOutcome,
-  WorkItemState,
-  WorkObservationType,
-  WorkProducerKind,
-  WorkSubjectKind,
+import type { Prisma, PrismaClient } from '@prisma/client';
+import {
+  WORK_SYSTEM_ONLY_OUTCOMES,
+  derivedWorkProviderOf,
+  type WorkActorType,
+  type WorkClass,
+  type WorkFeedbackKind,
+  type WorkItemOutcome,
+  type WorkItemState,
+  type WorkObservationType,
+  type WorkProducerKind,
+  type WorkSubjectKind,
 } from '@emgloop/shared';
 
+import { contentAuthorizedInTx } from '../source-content-consent';
 import { workScope, type WorkPrincipal } from './work-principal';
 
 export interface WorkItemDetection {
@@ -110,10 +133,21 @@ export class WorkItemRepository {
    * A producer saw something. New: one item and its opening observation. Seen before: the
    * detection window widens and the count rises -- no second row, and no state change, because
    * a re-sighting is not a reopening.
+   *
+   * REFUSED, returning null and writing nothing, when the detection is a MODEL item on a derived
+   * subject and this person's content authorization for that provider is not in force at the
+   * moment of the write (header: THE WRITE RE-CHECKS CONSENT). A refusal records nothing -- no
+   * observation, no audit -- because nothing happened.
    */
-  async detect(principal: WorkPrincipal, detection: WorkItemDetection): Promise<WorkItemRecord> {
+  async detect(principal: WorkPrincipal, detection: WorkItemDetection): Promise<WorkItemRecord | null> {
     const scope = workScope(principal);
+    // Only a MODEL item on a derived subject was produced under a revocable content authorization.
+    // For anything else this is null and the transaction below makes no authorization query at all.
+    const consentProvider = detection.producerKind === 'MODEL' ? derivedWorkProviderOf(detection.subjectRef) : null;
     return this.prisma.$transaction(async (tx: any) => {
+      if (consentProvider !== null && !(await contentAuthorizedInTx(tx, scope.organizationId, scope.userId, consentProvider))) {
+        return null; // the authorization ended after the sweep that produced this began
+      }
       const existing = await tx.workItem.findFirst({ where: { ...scope, recurrenceKey: detection.recurrenceKey } });
       if (existing) {
         const updated = await tx.workItem.update({
@@ -237,6 +271,10 @@ export class WorkItemRepository {
     if (closing && !act.outcome) throw new Error('a closed work item requires an outcome');
     if (!closing && act.outcome) throw new Error('an open work item has no outcome');
     if (act.state === 'SNOOZED' && !act.snoozedUntil) throw new Error('a snoozed work item requires a time to wake');
+    // Fail closed for every actor: only WorkWithdrawalRepository writes a system-only outcome.
+    if (act.outcome && WORK_SYSTEM_ONLY_OUTCOMES.includes(act.outcome)) {
+      throw new Error(`${act.outcome} is a system-only outcome: it records a withdrawn authorization, not a person's act`);
+    }
 
     return this.prisma.$transaction(async (tx: any) => {
       const existing = await tx.workItem.findFirst({ where: { ...scope, id: itemId } });
@@ -319,35 +357,53 @@ export class WorkItemRepository {
 
   // -- internals ------------------------------------------------------------------------
 
-  private async append(
-    tx: any,
+  private append(
+    tx: Prisma.TransactionClient,
     scope: { organizationId: string; userId: string },
     itemId: string,
-    observation: {
-      readonly observationType: WorkObservationType;
-      readonly occurredAt: Date;
-      readonly actorType: WorkActorType;
-      readonly actorUserId?: string | null;
-      readonly reason?: string | null;
-      readonly previousState?: WorkItemState | null;
-      readonly newState?: WorkItemState | null;
-    },
+    observation: WorkObservationToAppend,
   ): Promise<void> {
-    const prior = await tx.workItemObservation.findMany({ where: { ...scope, itemId }, orderBy: { sequence: 'desc' }, take: 1 });
-    const sequence = (prior[0]?.sequence ?? 0) + 1;
-    await tx.workItemObservation.create({
-      data: {
-        ...scope,
-        itemId,
-        sequence,
-        observationType: observation.observationType,
-        occurredAt: observation.occurredAt,
-        actorType: observation.actorType,
-        actorUserId: observation.actorUserId ?? null,
-        reason: observation.reason ?? null,
-        previousState: observation.previousState ?? null,
-        newState: observation.newState ?? null,
-      },
-    });
+    return appendWorkObservation(tx, scope, itemId, observation);
   }
+}
+
+/** One observation to append to an item's log. */
+export interface WorkObservationToAppend {
+  readonly observationType: WorkObservationType;
+  readonly occurredAt: Date;
+  readonly actorType: WorkActorType;
+  readonly actorUserId?: string | null;
+  readonly reason?: string | null;
+  readonly previousState?: WorkItemState | null;
+  readonly newState?: WorkItemState | null;
+}
+
+/**
+ * Append one observation to an item's log, with the next sequence number for that item. THE ONE
+ * PLACE the sequence is computed: every repository that writes a state change -- this one, and
+ * the sibling that withdraws derived items -- appends through here, inside the caller's
+ * transaction, so no writer can invent a second numbering.
+ */
+export async function appendWorkObservation(
+  db: PrismaClient | Prisma.TransactionClient,
+  scope: { organizationId: string; userId: string },
+  itemId: string,
+  observation: WorkObservationToAppend,
+): Promise<void> {
+  const prior = await db.workItemObservation.findMany({ where: { ...scope, itemId }, orderBy: { sequence: 'desc' }, take: 1 });
+  const sequence = (prior[0]?.sequence ?? 0) + 1;
+  await db.workItemObservation.create({
+    data: {
+      ...scope,
+      itemId,
+      sequence,
+      observationType: observation.observationType,
+      occurredAt: observation.occurredAt,
+      actorType: observation.actorType,
+      actorUserId: observation.actorUserId ?? null,
+      reason: observation.reason ?? null,
+      previousState: observation.previousState ?? null,
+      newState: observation.newState ?? null,
+    },
+  });
 }

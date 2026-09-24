@@ -1,59 +1,100 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Loop connections worker staging - the GitHub Actions MIGRATIONS identity. Only the
-  connections-staging environment of elitemediagroup1/emgloop-platform may use it, and it may read
-  ONLY the staging connections database URL secret. Deployed once by a human administrator in
-  065148797865 / us-east-1 (checked before deploying); never by the pipeline it authorizes.
+  Loop connections worker - the GitHub Actions MIGRATIONS identity for ONE stage. Only the
+  connections-<stage> environment of elitemediagroup1/emgloop-platform may use it, and it may read
+  ONLY that stage's connections database URL secret. Deployed once per stage by a human
+  administrator, in that stage's account, us-east-1 (checked before deploying); never by the
+  pipeline it authorizes.
 
-# Stack: LoopConnections-staging-migrate-access, termination protection on.
-# Procedure: docs/runbooks/connections-aws-staging.md. Checks: infra/connections/test/migrate-access.test.ts.
+# Stacks: LoopConnections-staging-migrate-access (Stage=staging, the default, in 065148797865) and
+# LoopConnections-production-migrate-access (Stage=production, in the dedicated production account).
+# Termination protection on. Procedures: docs/runbooks/connections-aws-staging.md and
+# docs/runbooks/connections-aws-production.md. Checks: infra/connections/test/migrate-access.test.ts.
 #
-# SEPARATE from the deploy identity on purpose: applying staging migrations needs to read one secret,
-# not deploy infrastructure. This role can do neither the deploy role's job nor touch production. It
-# references the existing GitHub OIDC provider (created by the deploy identity; one per issuer).
+# ONE parameter, Stage, and everything stage-specific is looked up in StageMap: the GitHub
+# environment the trust admits, the one secret the role may read, and the role name. They cannot be
+# combined across stages -- the production environment can never be paired with the staging secret.
+# The account is AWS::AccountId, the account the template is deployed in. With the default, the
+# rendered template is exactly the staging identity that was deployed before Stage existed.
 #
-# LEAST PRIVILEGE: exactly secretsmanager:GetSecretValue + DescribeSecret, on exactly the staging
-# database URL secret (loop/connections/staging/database-url). It cannot read the production database
-# secret, cannot read any other secret, and can do nothing else in the account.
+# SEPARATE from the deploy identity on purpose: applying migrations needs to read one secret, not
+# deploy infrastructure. This role can do neither the deploy role's job nor touch another stage. It
+# references the existing GitHub OIDC provider (one per issuer per account).
+#
+# LEAST PRIVILEGE: exactly secretsmanager:GetSecretValue + DescribeSecret, on exactly the stage's
+# database URL secret (loop/connections/<stage>/database-url). It cannot read any other secret, and
+# can do nothing else in the account.
+#
+# NOTE: two workflows dispatch these identities: connections-migrate-staging.yml (Stage=staging)
+# and deploy-prisma-migrations.yml, "Deploy Prisma Migrations" (Stage=production, since #330). The
+# repository secret DIRECT_DATABASE_URL is no longer a migration path.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: staging
+    AllowedValues: [staging, production]
+    Description: Which stage's migrations identity this is. It selects the GitHub environment the role trusts, the one secret it may read, and the role's name.
+
+Mappings:
+  StageMap:
+    staging:
+      RoleName: loop-connections-migrate-github
+      TrustSid: ConnectionsStagingEnvironmentOnly
+      Subject: repo:elitemediagroup1/emgloop-platform:environment:connections-staging
+      RoleDescription: GitHub Actions (connections-staging environment) reads ONLY the staging connections DB URL secret to run prisma migrate deploy.
+      PolicyName: read-staging-connections-db-url-only
+      PolicySid: ReadStagingConnectionsDatabaseUrlOnly
+      SecretName: loop/connections/staging/database-url
+    production:
+      RoleName: loop-connections-migrate-github-production
+      TrustSid: ConnectionsProductionEnvironmentOnly
+      Subject: repo:elitemediagroup1/emgloop-platform:environment:connections-production
+      RoleDescription: GitHub Actions (connections-production environment) reads ONLY the production connections DB URL secret to run prisma migrate deploy.
+      PolicyName: read-production-connections-db-url-only
+      PolicySid: ReadProductionConnectionsDatabaseUrlOnly
+      SecretName: loop/connections/production/database-url
 
 Resources:
   GitHubMigrateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: loop-connections-migrate-github
-      Description: GitHub Actions (connections-staging environment) reads ONLY the staging connections DB URL secret to run prisma migrate deploy.
+      RoleName: !FindInMap [StageMap, !Ref Stage, RoleName]
+      Description: !FindInMap [StageMap, !Ref Stage, RoleDescription]
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: ConnectionsStagingEnvironmentOnly
+          - Sid: !FindInMap [StageMap, !Ref Stage, TrustSid]
             Effect: Allow
             Principal:
-              Federated: arn:aws:iam::065148797865:oidc-provider/token.actions.githubusercontent.com
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: repo:elitemediagroup1/emgloop-platform:environment:connections-staging
+                token.actions.githubusercontent.com:sub: !FindInMap [StageMap, !Ref Stage, Subject]
       Policies:
-        - PolicyName: read-staging-connections-db-url-only
+        - PolicyName: !FindInMap [StageMap, !Ref Stage, PolicyName]
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: ReadStagingConnectionsDatabaseUrlOnly
+              - Sid: !FindInMap [StageMap, !Ref Stage, PolicySid]
                 Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
                   - secretsmanager:DescribeSecret
-                # Exactly the staging connections DB URL secret. The trailing 6-char suffix is what
+                # Exactly the stage's connections DB URL secret. The trailing 6-char suffix is what
                 # Secrets Manager appends to the ARN; it is NOT a broad wildcard over other secrets.
-                Resource: arn:aws:secretsmanager:us-east-1:065148797865:secret:loop/connections/staging/database-url-??????
+                Resource: !Sub
+                  - 'arn:aws:secretsmanager:us-east-1:${AWS::AccountId}:secret:${SecretName}-??????'
+                  - SecretName: !FindInMap [StageMap, !Ref Stage, SecretName]
       Tags:
         - { Key: app, Value: loop }
         - { Key: component, Value: connections-migrate-access }
-        - { Key: env, Value: staging }
+        - { Key: env, Value: !Ref Stage }
 
 Outputs:
   MigrateRoleArn:
-    Description: The value of the connections-staging environment variable CONNECTIONS_STAGING_MIGRATE_ROLE_ARN.
+    Description: The migrations role ARN, which becomes the GitHub environment variable CONNECTIONS_STAGING_MIGRATE_ROLE_ARN (staging) or CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN (production).
     Value: !GetAtt GitHubMigrateRole.Arn

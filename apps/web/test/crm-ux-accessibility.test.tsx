@@ -61,9 +61,10 @@ describe('Shell and navigation', () => {
     assert.ok(intake, '/crm/pipeline is in the CRM nav');
     assert.equal(intake!.label, 'Intake Board');
     assert.equal(navItems().some((i) => /pipeline/i.test(i.label)), false);
-    const opportunities = navItems().find((i) => i.label === 'Opportunities');
-    assert.ok(opportunities?.soon, 'Opportunities is an unbuilt Phase 2 domain');
-    assert.notEqual(opportunities!.href, '/crm/pipeline');
+    // Opportunities is an unbuilt Phase 2 domain. Since 2026-09-24 nothing unbuilt is in the
+    // rail, so it has no CRM nav entry at all; the Command Center names it under Upcoming.
+    assert.equal(navItems().some((i) => i.label === 'Opportunities' || i.href === '/crm/opportunities'), false);
+    assert.match(COMMAND, /<UpcomingItem label="Opportunities"/);
   });
 
   it('every enabled CRM nav item resolves to a real route; unbuilt ones are marked soon', () => {

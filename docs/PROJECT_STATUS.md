@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-23 (Creator Hub built and locally acceptance-tested, draft PR in review, staging deployment pending Matt — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-24 (Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -25,60 +25,158 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Creator Hub — MERGED (#323, #324 on main) · STAGING: infra deployed + migration applied (2026-09-23) · SEED BLOCKED on the confirmation-gate fix PR · NOT YET COMMISSIONED
+## Loop Home as a daily briefing — BUILT, IN REVIEW (draft PR on `feat/loop-home-briefing`) · design approved 2026-09-24
 
-**What it is.** The approved design (Mockup #1 locked, Mockup #2 reviewed) built as one system with two
-experiences: a managed creator's own login (`SystemRole.CREATOR`, same organization, one `LOOP_NAV`
-filtered to `/app/creator/*`) and the EMG side at Operations → Creators (`/app/admin/creator-hub`).
-No `CreatorHub*` tables: CRM owns `CrmOpportunity`/`CrmCampaign`/`CampaignDeliverable` (append-only
-transitions), Work OS owns every Production (a `WorkInstance` of work type `creator-production`, with
-`WorkInstruction` sets and `WorkComment.visibility`), the creator domain owns `CreatorProfile` /
-`CreatorContent` / immutable `ContentVersion` lineage / approvals / publications, evidence rows carry
-`source` (SEEDED_DEMO is labelled everywhere it shows), and the Brain composes "What Loop noticed"
-(`creatorContentNotice`, pure; Fact / Observation / Interpretation / Proposed / Not yet). Media bytes
-live in a private S3 bucket behind a presigning Lambda in the connections stack (browser → presigned
-PUT/GET; the web tier holds no AWS credential); `LOOP_MEDIA_STORAGE=local` is dev-only and refused on a
-production runtime.
+**What it is.** Home answers three questions in order — what changed that matters, what needs you, what
+to do next — then shows movement, not dashboards: What changed (≤5 rows: what · source · why Loop
+surfaced it · next action or the way back to the source; "Headlines history" opens the existing
+Headlines page) → Needs your attention (one ranked list: the viewer's own Telegram obligations and
+the executive review's attention rows, ranked by grounded deadline → kind → how long it has waited)
+→ Today (calendar events, work expected back today, mail as counts; a source that is not connected
+is one line with its connect link) → Business pulse (movement only; unchanged figures are one
+sentence; untracked ones are omitted, never a zero). The module Home (employees) is the same
+briefing over the viewer's own sources plus the areas they can open. The creator Home is untouched.
 
-**Migration:** `20260930000000_creator_hub_foundation` (additive: `CREATOR` enum value, 2 Work OS
-columns + `work_comments.visibility`, 14 tables). Applied to the local Postgres only.
+**How.** `apps/web/src/app/app/_home/briefing.ts` is a pure composer over the existing loaders'
+outputs (executive review, dashboard, Headlines, `loadNeedsYou`, your day, mail); `briefing-view.tsx`
+draws it. No new loader, table, provider or permission; no change to Telegram triage, observations,
+WorkItem state, Brain rules, CRM or Work OS authority. The one read-side fix: the Home read of
+Headlines passes `dismissed: false` (`CaseWorkspaceService.attention` gained the option; the Headlines
+page still reads them all), so a dismissed Headline never reappears on Home. `MyWorkItem` carries the
+Work OS rows' `expectedReturnAt`/`dueAt` so "due today" is a date the row already had; the employee seat's Home
+reads its own queue through `loadMyQueueForHome` (the queue page's EMPLOYEE guard and
+`WorkRepository.listMyWork`, nothing more) and projects "due today" with the pure `dueTodayFromQueue`
+(only a current stage the person owns; links into the employee tree). Retired with
+their panels: `admin-home`'s review card, metric cards, CallGrid table and quick actions;
+`your-day.tsx`, `day-calendar.tsx`, `your-mail.tsx`, `needs-you.tsx` and their CSS.
 
-**Validated (2026-09-23, local):** typecheck clean for shared/providers/brain/database/web/infra/ops;
-web build passes; tests: web 707, database 1651 (Postgres opt-in included), shared 1380, providers 248,
-brain 8, infra 41, operations 630 — all passing. The full 52-step acceptance path was driven in a real
-browser (Playwright) against `next dev` + local Postgres + local disk media: creator video upload →
-request edit → EMG finds it in Requests → real Work OS work assigned, expected return set → editor
-uploads Edit v1 and returns it → creator reviews (same-playhead compare, Change + Keep notes, drafts
-survive reload) → request changes continues the SAME Production (round 2) → Edit v2 addresses the notes
-→ creator approves v2 → Production completes, EMG sees the approval on v2 and the immutable lineage →
-photo uploaded and manually marked published, persisting across reload → a creator cannot open EMG
-pages, another creator gets 404 on the record and the media, anonymous gets 401.
+**Rail.** `LOOP_NAV` stays one registry; `NavGroup.fold` / `NavItem.folded` mark what sits behind a
+disclosure. Primary: Home · Mail · Connections | People · Relationships · Command Center (+ Intake
+tools ▸7) | My Work (+ Team work & types ▸2); Intelligence ▸, Operations ▸, Administration ▸ fold
+entirely. A fold opens itself when the page shown is inside it; a person's choice is remembered per
+browser (`loop.nav.folds`). Opportunities, Campaigns and Workflows (`soon`) left the rail; the Command
+Center's Upcoming list names them. Mobile five-area bar and the creator rail unchanged.
 
-**Done by Matt 2026-09-23 (`gh run list`):** #323 merged 00:19Z; `connections-infra-deploy` diff + deploy
-succeeded (00:24Z, 00:26Z); `connections-migrate-staging` succeeded (00:45Z). The first
-`creator-demo-seed-staging` dispatch (run 35803956508) failed workflow validation before any step ran:
-`runner.temp` in a job-level `env:` block, where the `runner` context does not exist. Fixed on
-`fix/creator-seed-workflow-runner-context` (the variable moved to the two steps that use it; actionlint
-clean; the step scripts executed locally in dry-run and real mode; a test now pins context availability).
+**Validated (2026-09-24, local):** web 715 tests (new `home-briefing`, `shell-nav-folds`; rewritten
+`home-needs-you-owner`, `one-loop-shell`; retired `home-executive`, `needs-you`, `your-day` with their
+intents ported), database 1651 (Postgres suite included), both web tsconfigs clean, build passes.
+Browser verification against `next dev` + local Postgres for OWNER, EMPLOYEE and CREATOR seats:
+section order; Telegram change and decision rows (seeded triage rows) with no link; the employee
+sees none of the owner's items; no Business pulse for the employee; creator Home and rail untouched;
+folds closed by default, open on click, persist across reload, close and stay closed, auto-open
+inside Headlines and Inbox; phone bar unchanged, no horizontal scroll; composing Home for three seats
+changed no work item, stage, headline or instance row (only `auth.login` audit rows from signing in);
+the employee seat shows its own step expected back today under Due today, linked into its tree,
+while the owner's and a read-only seat's Homes do not (fixture created through the repository).
 
-**Second seed failure (2026-09-23 13:02–13:08Z, runs 35864380064…35864984789, after #324):** the
-Confirm step refused the exact phrase five times. The job's own env dump shows the dispatch inputs
-arriving padded — the organization slug with 4, then 8, leading spaces — while the `if:` expression
-compared bytes. Fixed on `fix/creator-seed-confirm-normalization`: the gate is a shell step that trims
-(including NBSP/zero-width), collapses whitespace and compares case-insensitively to the exact phrase,
-printing what arrived on refusal; every string input is trimmed the same way and validated; the three
-addresses are read from the event payload (never a step env the runner would print), masked first, and
-never written to the summary. Executed-shell tests cover it; the dispatched path was simulated locally.
+**Next:** Matt reviews the draft PR. Staging deploy follows the usual path (merge → `staging` FF).
 
-**Next (Matt, in order):** merge the confirmation-gate fix PR → confirm Netlify staging env
-`LOOP_MEDIA_STORAGE=aws` → re-dispatch `creator-demo-seed-staging` from `main` → then I fast-forward
-`staging`, verify the branch deploy, run the acceptance drive on staging and write the handoff.
-Production is untouched by all of it.
+## Creator Hub — COMMISSIONED ON STAGING (2026-09-23) · #323 #324 #325 on main · staging = main `c4bd264` · production schema untouched
 
-**Known limits:** payouts are not a rail (the transfer control is inert and says so); notification
-preferences are saved but nothing sends; the Work OS reassign dropdown lists every ACTIVE member
-including creators; brand approval is EMG-relayed (no brand login); analytics/earnings are seeded
-evidence until a platform connection exists.
+**Where to test:** `https://staging--emgloop2.netlify.app`. EMG side: Operations → **Creators**
+(`/app/admin/creator-hub`) with existing staging logins. Creator side: the one-time accept link in the
+job summary of `creator-demo-seed-staging` run 35901812933 (valid 14 days; whoever plays the creator
+opens it, sets a password, signs in at `/crm/login`, lands on Loop Home, starts at Content). The seed
+recorded the default editor (`EDITOR=true`), so an edit request lands on that person's My Work.
+
+**Verified on staging (2026-09-23, read-only, Playwright + curl):** Netlify branch deploy serves
+`c4bd264` (creator API 401 where the old build gave 404); anonymous access to every creator/hub route
+redirects to login and the three creator API routes answer 401; the dev-only local media route is
+absent; media storage is configured (`LOOP_MEDIA_STORAGE=aws`: an EMG begin-upload probe answers
+NOT_FOUND, not NOT_CONFIGURED); the deployed signer refuses unsigned requests (401) and the bucket
+refuses anonymous reads (403); the roster lists the seeded creator; Requests is honestly empty; the
+creator overview shows Kona (Confirmed) and Sculpey (Pitching, brand hidden from the creator), the
+active campaign with Reel 1 of 2 / Reel 2 of 2 and their requirement sets, compensation and
+analytics labelled seeded demo data, the Person link both ways; an EMG login cannot open the creator
+tree. **Not driven on staging:** the creator-seat path (upload → edit → review → approve → publish),
+because it needs the persona's login, which only Matt/Charlie hold; that path was driven end to end
+locally (see below) and is the recommended first test.
+
+**Seed history:** first dispatch failed validation (`runner.temp` in job env → #324); the next five
+stopped at Confirm because pasted inputs arrive padded (→ #325: normalize in a shell step, read inputs
+from the event payload, mask addresses, honest summary); then dry run and real seed succeeded (runs
+35901154308, 35901812933): party, relationship, invited CREATOR login, profile, Kona/Sculpey, campaign,
+two deliverables, 12+12 evidence rows, 5 compensation entries, the work type.
+
+**Production:** Netlify builds `main`, so the Creator Hub *code* is on app.emgloop.com; the production
+migration has NOT been dispatched (last `Deploy Prisma Migrations` run 2026-09-19), so no table exists
+there: the hub pages render "not available on this deployment yet" and the pre-existing pages read
+creator rows as absent (`absentUntilMigrated`). No production data or schema was touched. Applying the
+migration to production is a separate human decision.
+
+**Note for Matt:** the bootstrap demo owner login on staging (`admin@emgloop.com`, named "Matt Dunn"
+there) still accepts the repository's default demo password; the read-only EMG checks above used it.
+Rotate it if that account is yours. On the creator overview, the "Bind to an active Creator login"
+control shows "No login (unbind)" while the persona's invitation is pending — do not press *Save
+login* there, or the persona is unbound; once the invitation is accepted the binding already exists.
+
+**What it is** (unchanged from the build): one system, two experiences over shared objects — CRM
+(`CrmOpportunity`/`CrmCampaign`/`CampaignDeliverable`, append-only transitions), Work OS (a Production
+is a `WorkInstance` of type `creator-production`, `WorkInstruction`, `WorkComment.visibility`,
+requested vs expected return), the creator domain (`CreatorProfile`, `CreatorContent`, immutable
+`ContentVersion` lineage, approvals, publications), Brain `creatorContentNotice` (pure), private S3
+behind the `media-signer` Lambda (browser ↔ bucket; no AWS credential in the web tier).
+
+**Validated locally before merge:** build; web 713, database 1651 (Postgres suite included), shared
+1380, providers 248, brain 8, infra 41, operations 636 tests; the full 52-step acceptance path driven
+in a browser (upload → request edit → EMG assigns + expected return → Edit v1 → same-playhead review,
+Change/Keep notes, drafts survive reload → request changes continues the SAME production → Edit v2
+addresses notes → approve v2 → completion + lineage → photo published manually → tenancy: creator
+blocked from EMG pages, other creator 404 on record and media, anonymous 401).
+
+**Known limits:** payouts are not a rail (inert control says so); notification preferences save but
+nothing sends; the Work OS reassign dropdown lists every ACTIVE member, creators included; brand
+approval is EMG-relayed (no brand login); analytics/earnings are seeded evidence until a platform
+connection exists; a presigned PUT that expires orphans a PENDING version (choose the file again).
+
+**Next:** Matt and Charlie run the first test path; anything found becomes a `fix/…` PR.
+
+## TikTok Login Kit (Creator Hub) — BUILT, IN REVIEW (draft PR #329 on `feat/tiktok-login-kit`, off main `771ca58`) · NOT deployed · migration 49 not dispatched anywhere
+
+**What it is:** a managed creator connects their OWN TikTok account (Login Kit for Web; scopes
+`user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`) from Profile → Social
+accounts, and the public Terms of Service (`/terms`) and Privacy Policy (`/privacy`) the TikTok app
+registration requires. The TikTok sibling of the Google Workspace connection, same pattern: pure
+contract in `@emgloop/shared` (`tiktok.ts`), protocol in `@emgloop/providers` (`tiktok/`), two tables
+with CHECKs + org-first repository + creator-seat service + sealer in `@emgloop/database`
+(`tiktok-connection.repository.ts`, `services/tiktok/`), one fenced environment reader in the web
+tier (`apps/web/src/tiktok/`), routes `/api/integrations/tiktok/{connect,callback}`. Authority is the
+`CreatorProfile` bound to the login (CREATOR holds no organization permission), never IAM.
+
+**What it does, exactly (the privacy policy says the same):** reads the account's facts once at
+connect and again on a Profile visit when the last read is >15 min old — never in the background;
+stores counts and up to ten recent public videos (as listed) merged into the profile's TikTok
+`socialAccounts` entry; records follower counts as `creator_audience_snapshots` with
+`source: 'PLATFORM'` (on change, or once a day); seals both tokens (AES-256-GCM, key
+`LOOP_TIKTOK_TOKEN_KEY`, header `LTT`), refreshes server-side keeping the ROTATED refresh token;
+disconnect deletes both tokens, withdraws what was read, asks TikTok to revoke (best effort,
+`REVOKE_UNCONFIRMED` / `REVOKE_SKIPPED_SHARED_GRANT` recorded like Google's).
+
+**To register on the TikTok app:** redirect URI `https://app.emgloop.com/api/integrations/tiktok/callback`
+(exact, static); Terms `https://app.emgloop.com/terms`; Privacy `https://app.emgloop.com/privacy`.
+Contact address on both documents: `hello@elitemediagroup.io` (the access-request inbox). Last updated
+2026-09-24. No governing-law clause (jurisdiction unknown — Matt to add if wanted).
+
+**Validated (worktree, final code):** shared 1386, providers 256, database 1662 (1599 + 63 opt-in
+skipped) and 1671/1671 with `LOOP_TEST_POSTGRES_URL` against a disposable `tiktok_dev` on Postgres 18
+(all 49 migrations applied; CHECKs, FKs and the same-account race proven), web 743; turbo typecheck 5/5;
+web build passes (`/terms`, `/privacy` static). Lint: the documented pre-existing baseline (exit 1).
+No live TikTok call: no client key exists anywhere and none was requested.
+
+**Before it works anywhere:** Netlify env `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`,
+`LOOP_TIKTOK_TOKEN_KEY` (`openssl rand -base64 32`); `Deploy Prisma Migrations` after merge
+(migration `20261002000000_tiktok_login_kit`, the 49th; production last verified at 41); then a live
+connect on staging with a creator seat. Until the migration is applied the Profile page renders
+"Loop could not check your TikTok connection just now" (the read is settled), never a crash.
+
+**Known limits / deliberately excluded:** no offboarding hook (disable/remove member does not revoke
+TikTok; every read re-derives the creator seat, so a disabled member's connection is never used, and
+the sealed tokens go with the membership row's FK cascade) — recommended follow-up before the first
+real offboarding; no background reads; no EMG-side surface beyond audience snapshots now saying
+"from the platform"; the other platforms on the Profile stay labelled inert.
+
+**Next:** Matt reviews #329 and the legal text, registers the URLs on the TikTok app, merges,
+dispatches the migration, sets the three env values, then the first live connect on staging.
 
 ## Production migration state — AT 41 · `main` IS AT 41 (verified 2026-09-19)
 
@@ -2254,51 +2352,80 @@ it; a broader Headlines route/access policy is a separate future decision.
     start until Stage 1 merges and real objectives exist; a signal layer built against an empty
     referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.
 
-## Microsoft Teams + Telegram Connections — STAGING PHASE BUILT (draft #308); DEPLOY + LOGIN PENDING
+## Telegram Connections — STAGING COMMISSIONED (full triage on main `88d1a9c`+) · PRODUCTION COMMISSIONING PR 1 IN REVIEW (draft #328)
 
-**Draft PR #308** on `feat/connections-teams-telegram` (off `main` @ `1cfce8b`). Surface + durable
-Telegram worker + staging infra, on the Google-connection discipline. Matt merges/deploys.
+**Where it stands (2026-09-24).** Everything Telegram is on `main` and running on staging: connection
+and sign-in, the durable Fargate worker, the governed 90-day baseline, content-free observations, AI
+content triage (forward + historical backfill), Needs You, conversation-aware reconciliation,
+employee-private isolation, disconnect/reconnect, cursor/budget/provenance protections. Staging stack
+`LoopConnections-staging` in 065148797865; staging Neon at migration 48; Netlify staging carries the
+three worker vars. **Production has none of it:** Neon at migration 42 (43–48 pending, all additive),
+no Connections stack, no worker vars on Netlify, no production secrets, no Telegram session.
 
-**LOCKED PRINCIPLE (in code):** Teams/Telegram are INTELLIGENCE SOURCES, not clients Loop
-reimplements. OBSERVE → NORMALIZE → cross-source intelligence (no silo). No composer/reply/inbox.
-Observation ≠ retention (governed, content-minimized store; never a mirror). Provenance returns to
-source. Privacy unchanged. **Security:** web tier holds NO session key (only the worker seals/opens);
-phone/code/password never stored/logged; message text read only as `hadText`; signed web↔worker
-channel; no send/reply/react/history-import; teleproto in the worker pkg only (never the web bundle).
+**Matt's decision (2026-09-24):** commission FULL staging parity on production in one rollout — no
+metadata-only launch followed by an AI phase. The counterparty consent / Telegram terms question stays
+an **unresolved, documented governance/legal item** (runbook Part 10, §21 of the daily-loop record);
+it is not represented as cleared and does not reshape the rollout because no technical or provider
+restriction prevents deployment.
 
-**Built & tested (643 web + 64 connection + 6 infra synth; typecheck clean except the marketplace
-baseline; web build passes):** state/sealing; content-free `ConversationEvent`; `SourceConnection` +
-repo + `sourceConnections` IAM + `SourceConnectionService`; `/app/connections` tiles + interactive
-Telegram sign-in widget; worker (`apps/connections-worker`): content-free mapping, `TelegramAdapter`,
-`runObservationSweep` (sink-before-cursor), login coordinator, teleproto seam, signed control server,
-entrypoint; `SourceObservation` governed store; `infra/connections` (Fargate + internal ALB + HTTPS
-HTTP API/VPC Link + Secrets Manager wiring).
+**AWS account decision (from the repo, not guessed):** 670682108352 is the Organization's management
+account, governance only. Production is the **dedicated workload account `080891698678`** (created
+2026-09-24; Parts 1–5 of the runbook done). The id is pinned in the migrations workflow and set as
+`CONNECTIONS_PRODUCTION_ACCOUNT_ID`; the CDK app and both workflows refuse the management and staging
+ids by name.
 
-**Migrations (NOT dispatched):** `20260925000000_source_connections`, `20260926000000_source_observations`.
-Apply to the STAGING Neon DB before the worker/web use the tables.
+**Draft PR #328 (`feat/connections-production-path`, off main `771ca58`) — PR 1 of the commissioning:**
+- `infra/connections` production stage: `targetFor(stage, context)`, `loop/connections/<stage>/…`
+  secret names, production media origin `https://app.emgloop.com`, cost budget + worker-down alarm +
+  SNS (production fails synth without an alert address), `loop:stage` tags, access templates with one
+  `Stage` parameter (defaults render exactly the deployed staging identities), `connections-infra-deploy`
+  with a `stage` input, environment `connections-<stage>`, confirm `deploy loop-connections-<stage>`
+  as a normalized shell gate, resolve-by-stage guards. CI synthesizes both stages offline.
+- Read-only production probe `read-telegram-state` (workflow + `npm run read:telegram-state`): states,
+  HELD flags, failure classes, counts, 7-day AI ledger — never a label, key, cursor, id or address.
+- Retention/revocation fix: new system-only outcome `REVOKED`; revoke withdraws derived Telegram items
+  in the same transaction (close + minimize to provenance); worker purge deletes derived items for
+  connections disconnected ≥ 30 days; offboarding (`disableMember`/`removeMember`) now disconnects
+  Telegram and revokes content consent in the same transaction — it previously left a departed
+  member's sealed session READY. **Migration `20261001000000_work_item_outcome_revoked`** (additive
+  CHECK restatement) is required before the revoke path runs where derived items exist. **Staging:
+  dispatch `connections-migrate-staging` FIRST, then fast-forward `staging`** (the migration is
+  backward-compatible; code before migration makes a revoke by anyone holding an open derived item roll
+  back, so consent could not be withdrawn). Production's dispatch carries 43–49 in one run.
+- Runbook `docs/runbooks/connections-aws-production.md` (Parts 1–10).
+- Validated: infra 56/56 + synth both stages + actionlint; ops 649; shared 1383; database 1581
+  (+67 Postgres-only skipped) and 1657 with Postgres; worker 79; web 720; typecheck clean; web build
+  passes.
 
-**Secrets (Secrets Manager, staging 065148797865 us-east-1):** `loop/connections/staging/telegram`
-(api_id/api_hash) — created by Matt ✅. Created by the CDK deploy: `.../connection-key` (UNSET →
-`openssl rand -base64 32`), `.../database-url` (UNSET → Neon staging URL), `.../conversation-secret`
-(generated), `.../worker-control` (generated; read once for the web env).
+**Production first deploy (2026-09-24) ROLLED BACK:** migrations 43–49 applied and the CDK diff was clean,
+then `connections-infra-deploy` `deploy` failed — "Essential container in task exited", worker exit
+code 1, circuit breaker, `ROLLBACK_COMPLETE`, and no CloudWatch log (the log group was DESTROY-policy
+and went with the stack). Diagnosis (draft PR #332): the code boots on `main` with correctly shaped
+values (reproduced locally, sweeps run), so the exit is the worker's fail-closed `NotConfigured` on
+an operator-entered value shape — `connection-key` not 32 bytes of base64, or `telegram.api_id` not
+a positive integer. The PR retains both log groups and makes the fatal line name the setting; the
+runbook's Part 7 gained "If the first deploy rolls back": shape checks that print nothing secret,
+force-delete of the two retained generated secrets (or the retry fails on "already exists"),
+stack removal, retry.
 
-**Web env (Netlify) to set after deploy:** `LOOP_CONNECTION_PROVIDERS=TELEGRAM`,
-`LOOP_CONNECTIONS_WORKER_URL=<HttpApi WorkerUrl output>`, `LOOP_CONNECTIONS_WORKER_SECRET=<worker-control
-value>`. (The web no longer uses `LOOP_CONNECTION_SECRET_KEY`.)
+**Next (ordered; Matt, consoles):** #328 merged; (1)–(3) DONE 2026-09-24 (account, OIDC, access
+stacks, environment + variables, secrets `telegram`/`connection-key`/`database-url`; the `ai` secret
+waits for Part 9) → merge draft **#330** (`Deploy Prisma Migrations` gated by `connections-production`,
+OIDC migrate role, only the production secret, `confirm: migrate loop-connections-production`, account
+pinned `080891698678`) → (4) dispatch `Deploy Prisma Migrations` (43–49) → (5) `connections-infra-deploy` `stage: production`, `diff`
+then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production: `LOOP_CONNECTION_PROVIDERS`,
+`LOOP_CONNECTIONS_WORKER_URL`, `LOOP_CONNECTIONS_WORKER_SECRET` → (7) fresh Telegram authorization on
+production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,
+run the probe and report; fixes as `fix/…` PRs.
 
-**Deployment model: GitHub Actions + OIDC + workflow_dispatch (no local AWS creds/CDK)**, mirroring
-Brain. Workflows: `connections-infra-ci` (PR) and `connections-infra-deploy` (manual, environment
-`connections-staging`, account/region guards, synth-before-deploy, confirm text). Deploy identity:
-`infra/connections/access/github-deploy-access.yaml` (own role, trusts connections-staging, assumes
-the CDK bootstrap roles incl. image-publishing). Runbook: docs/runbooks/connections-aws-staging.md.
-
-**Next human actions (ordered):** (1) ONE-TIME bootstrap (admin): deploy the access CFN in staging
-+ create the `connections-staging` GitHub environment (required reviewer, main only) with var
-`CONNECTIONS_STAGING_DEPLOY_ROLE_ARN`; (2) run `connections-infra-deploy` (action `diff`, then
-`deploy` + confirm `deploy loop-connections-staging`) — approve the environment gate; (3) populate the
-two UNSET secrets (connection-key, database-url) + read worker-control; (4) apply the two migrations
-to staging Neon; (5) set the three Netlify vars + redeploy web; (6) force a new Fargate deployment;
-(7) Connections → Telegram → Connect → phone/code/2FA → Ready. No production changes.
+**Follow-ups recorded in #328.** DONE on `fix/detect-consent-recheck` (draft PR #331; the runbook's
+Part 9 gate, must merge before step 8): `WorkItemRepository.detect` re-checks content consent inside its
+own transaction, so an in-flight sweep can no longer write a derived item after a revoke or offboarding.
+**Not done:** Telegram-side logout on offboarding (documented, not faked); `source_baseline_checkpoints`
+not revoked at offboarding; a REVOKED item re-detected after fresh consent does not reopen (detect
+refreshes its title/evidence and appends REDETECTED without reopening — pinned by
+`work-item-detect-consent.postgres.test.ts`); `/app/connections` shows only `contentAuthorized` (stuck
+cursors visible only via the probe and worker logs).
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged

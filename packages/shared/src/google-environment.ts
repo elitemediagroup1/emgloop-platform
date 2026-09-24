@@ -18,6 +18,9 @@
 // source it is entitled to read, and gets back a value or a refusal. A partial or malformed
 // configuration is INVALID and is never treated as "nearly configured".
 
+import { oauthRedirectUri } from './oauth-redirect';
+import { parseSealingKey } from './sealing-key';
+
 /** Every variable the Google connection reads, by name. */
 export const GOOGLE_ENVIRONMENT = Object.freeze({
   clientId: 'GOOGLE_OAUTH_CLIENT_ID',
@@ -42,45 +45,20 @@ export type GoogleEnvironment =
 
 const CLIENT_ID = /^[A-Za-z0-9._-]{8,200}\.apps\.googleusercontent\.com$/;
 const SECRET = /^[\x21-\x7e]{8,512}$/;
-const BASE64 = /^[A-Za-z0-9+/]+={0,2}$|^[A-Za-z0-9_-]+$/;
 
 function present(value: string | undefined): value is string {
   return typeof value === 'string' && value.trim() !== '';
 }
 
-/** Exactly 32 bytes, base64 or base64url. Any other length is a different key, not a shorter one. */
-function tokenKey(raw: string): Uint8Array | null {
-  const text = raw.trim();
-  if (!BASE64.test(text)) return null;
-  const normalized = text.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  let binary: string;
-  try {
-    binary = atob(padded);
-  } catch {
-    return null;
-  }
-  if (binary.length !== 32) return null;
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
+/** Exactly 32 bytes, base64 or base64url (the one parser every sealer shares). */
+const tokenKey = parseSealingKey;
 
 /**
  * The redirect URI Google must send the person back to. Only an https origin, or plain
  * http on localhost for a separate development client (§11.3), is accepted.
  */
 export function googleRedirectUri(origin: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(origin);
-  } catch {
-    return null;
-  }
-  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) return null;
-  if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) return null;
-  return `${url.origin}${GOOGLE_CALLBACK_PATH}`;
+  return oauthRedirectUri(origin, GOOGLE_CALLBACK_PATH);
 }
 
 /** Read a configuration out of a source the caller is entitled to read. Values never leave it. */
