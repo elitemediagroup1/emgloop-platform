@@ -37,6 +37,7 @@ import {
   WORK_WITHDRAWAL_REASON_PREFIX,
   DERIVED_EVIDENCE_PROVENANCE_KEYS,
   DERIVED_WORK_SUBJECT_PREFIXES,
+  derivedWorkProviderOf,
   derivedWorkSubjectPrefix,
   isWorkSource,
   isWorkWithdrawalReason,
@@ -252,6 +253,22 @@ test('the derived-subject prefix is one constant the producers and the withdrawa
   assert.ok(telegramConversationSubjectRef('ck_abc').startsWith(derivedWorkSubjectPrefix('TELEGRAM')!));
   assert.equal(derivedWorkSubjectPrefix('MICROSOFT_TEAMS'), null, 'a provider that produces no derived work has no prefix');
   assert.equal(derivedWorkSubjectPrefix('GOOGLE'), null);
+});
+
+test('derivedWorkProviderOf is the reverse lookup: a derived subject names its provider, every other subject is null', () => {
+  assert.equal(derivedWorkProviderOf(telegramConversationSubjectRef('ck_abc')), 'TELEGRAM');
+  assert.equal(derivedWorkProviderOf('telegram_conversation:'), 'TELEGRAM', "exactly what a withdrawal's startsWith matches");
+  assert.equal(derivedWorkProviderOf('thread-1'), null, 'a Gmail thread id');
+  assert.equal(derivedWorkProviderOf('18f2c0a9b3d4e5f6'), null, 'a Gmail thread id as Google issues them');
+  assert.equal(derivedWorkProviderOf('event-1'), null, 'a calendar event');
+  assert.equal(derivedWorkProviderOf('teams_conversation:ck_abc'), null, 'a provider that produces no derived work');
+  assert.equal(derivedWorkProviderOf('xtelegram_conversation:ck_abc'), null, 'a prefix, not a substring');
+  assert.equal(derivedWorkProviderOf(''), null);
+  // Every prefix round-trips, so a provider added to the table is found by the lookup without a second edit.
+  for (const [provider, prefix] of Object.entries(DERIVED_WORK_SUBJECT_PREFIXES)) {
+    assert.equal(derivedWorkProviderOf(`${prefix}anything`), provider);
+    assert.equal(derivedWorkSubjectPrefix(provider), prefix);
+  }
 });
 
 test('a withdrawal observation is recognisable from its reason, so an accuracy signal can skip it', () => {
