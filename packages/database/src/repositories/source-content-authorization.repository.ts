@@ -20,6 +20,11 @@
 // transaction, withdraws what that processing already derived: every MODEL-produced WorkItem for the
 // provider is closed (REVOKED) and minimized to provenance (WorkWithdrawalRepository, §21.2). The
 // content cursor is kept, so a later re-authorization does not re-triage what was already judged.
+//
+// THE WRITE RE-CHECKS IT (2026-09-24). `contentAuthorizedInTx` is the one read of that derived fact
+// for a writer: WorkItemRepository.detect calls it inside its own transaction before writing a MODEL
+// item on a derived subject, so a content sweep that was already in flight when the revoke committed
+// cannot land a fresh paraphrase, or refresh a just-minimized row, afterwards.
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emgloop/shared';
@@ -60,6 +65,29 @@ export async function revokeContentAuthorizationsInTx(
     });
   }
   return live.length;
+}
+
+/**
+ * Is this person's content authorization for `provider` in force, read INSIDE the caller's
+ * transaction? True iff a row exists with `revokedAt` null -- consent is derived, not a state column
+ * (see the header). Scoped by organization, user and provider and by nothing else: not the
+ * connection, not the backoff, not the cursor. Those decide whether a sweep RUNS; this decides
+ * whether what a sweep concluded may still be WRITTEN, which is why `WorkItemRepository.detect`
+ * reads it in the transaction that would write a MODEL item on a derived subject, and refuses when
+ * the authorization ended after the sweep began. Fails closed: an empty scope is never authorized.
+ */
+export async function contentAuthorizedInTx(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  userId: string,
+  provider: string,
+): Promise<boolean> {
+  if (!organizationId || !userId || !provider) return false;
+  const live = await tx.sourceContentAuthorization.findFirst({
+    where: { organizationId, userId, provider, revokedAt: null },
+    select: { id: true },
+  });
+  return live !== null;
 }
 
 /** The historical-backfill lifecycle. A revoke stops it via revokedAt; there is no REVOKED state column. */

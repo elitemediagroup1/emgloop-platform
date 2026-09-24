@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
+import { telegramConversationSubjectRef } from '@emgloop/shared';
 
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 import { EMPLOYEE_INTELLIGENCE_GRANTS, IamRepository, matrixAllows } from '../src/repositories/iam.repository';
@@ -58,7 +59,9 @@ const WORK_STATE_DELEGATES = [
 ];
 
 function world() {
-  const fake: any = makeCognitivePrisma({ also: ['organization', 'invitation', 'organizationMembership', ...WORK_STATE_DELEGATES] });
+  // `sourceContentAuthorization` is the consent table `detect` re-checks for a derived MODEL item; it is
+  // NOT a work-state table (it is not erased with them), so it is named here and not in the list above.
+  const fake: any = makeCognitivePrisma({ also: ['organization', 'invitation', 'organizationMembership', 'sourceContentAuthorization', ...WORK_STATE_DELEGATES] });
   const prisma = fake as PrismaClient;
   return {
     fake,
@@ -385,6 +388,111 @@ test('the same situation tomorrow is the same row, and the log is written with t
   assert.equal(log[0]!.actorUserId, null, 'a system act claims no person');
   assert.equal(log[2]!.previousState, 'OPEN');
   assert.equal(log[2]!.newState, 'RESOLVED');
+});
+
+// --- The write re-checks consent (§21.2, 2026-09-24) ---------------------------------------------
+//
+// A MODEL item on a derived subject is a paraphrase of content read under a revocable authorization.
+// `detect` reads that authorization inside its own transaction and refuses -- writing nothing -- when
+// it is not in force. Every other detection asks nothing: the Gmail rules run in production web cycles
+// where the consent table may not even exist yet.
+
+/** Count every read of the consent table, so a test can prove a detection never asked. */
+function consentReads(w: World): () => number {
+  const delegate = w.fake.sourceContentAuthorization;
+  let reads = 0;
+  for (const method of ['findFirst', 'findMany', 'count']) {
+    const original = delegate[method].bind(delegate);
+    delegate[method] = (...args: unknown[]) => {
+      reads += 1;
+      return original(...args);
+    };
+  }
+  return () => reads;
+}
+
+/** What the Telegram triage producer writes: provenance keys plus the model's paraphrases. */
+const TELEGRAM_DERIVED = {
+  recurrenceKey: 'telegram.content.triage:ck_1:ck_1:42',
+  class: 'NEEDS_YOU' as const,
+  subjectKind: 'THREAD' as const,
+  subjectRef: telegramConversationSubjectRef('ck_1'),
+  title: 'Send the invoice',
+  producerKind: 'MODEL' as const,
+  producerId: 'telegram.content.triage',
+  producerVersion: '2.1.0',
+  evidence: { provider: 'TELEGRAM', providerEventId: 'ck_1:42', conversationKey: 'ck_1', topic: 'Invoice' },
+  detectedAt: T0,
+};
+
+test('a RULE detection, and a MODEL detection on a subject that is not derived, make NO content-authorization query', async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  const reads = consentReads(w);
+  const rule = await w.items.detect(alice, {
+    recurrenceKey: 'unanswered-inbound.v1:thread-1',
+    class: 'NEEDS_YOU',
+    subjectKind: 'THREAD',
+    subjectRef: 'thread-1',
+    title: 'Ben is waiting on you',
+    producerKind: 'RULE',
+    producerId: 'unanswered-inbound',
+    producerVersion: 'v1',
+    evidence: { threadId: 'thread-1' },
+    detectedAt: T0,
+  });
+  assert.ok(rule, 'a Gmail rule writes with no consent row in existence -- there is none for Gmail');
+  assert.equal(rule.state, 'OPEN');
+  // A MODEL item whose subject carries no derived-subject prefix was not produced under a content
+  // authorization either, so it is not governed by one.
+  const model = await w.items.detect(alice, { ...TELEGRAM_DERIVED, recurrenceKey: 'some-model:thread-1', subjectRef: 'thread-1' });
+  assert.ok(model);
+  assert.equal(model.state, 'OPEN');
+  assert.equal(reads(), 0, 'the consent table was never read');
+});
+
+test("a MODEL Telegram detection is refused -- nothing written, nothing logged -- unless THIS person's authorization for THAT provider is in force", async () => {
+  const w = world();
+  const alice = await person(w, ORG_A);
+  const bob = await person(w, ORG_A);
+  const reads = consentReads(w);
+  const nothingWritten = async () => {
+    assert.deepEqual(await w.items.items(alice), []);
+    assert.equal(await w.fake.workItem.count({ where: workScope(alice) }), 0);
+    assert.equal(await w.fake.workItemObservation.count({ where: workScope(alice) }), 0);
+  };
+
+  // No authorization row at all: refused by exactly one scoped read, inside the transaction.
+  assert.equal(await w.items.detect(alice, TELEGRAM_DERIVED), null);
+  assert.equal(reads(), 1);
+  await nothingWritten();
+
+  // Bob's authorization is not Alice's; a Teams authorization is not a Telegram one; a revoked one is
+  // not in force. None of them lets the write through.
+  await w.fake.sourceContentAuthorization.create({ data: { organizationId: ORG_A, userId: bob.userId, provider: 'TELEGRAM', authorizedAt: T0 } });
+  await w.fake.sourceContentAuthorization.create({ data: { organizationId: ORG_A, userId: alice.userId, provider: 'MICROSOFT_TEAMS', authorizedAt: T0 } });
+  const own = await w.fake.sourceContentAuthorization.create({ data: { organizationId: ORG_A, userId: alice.userId, provider: 'TELEGRAM', authorizedAt: T0, revokedAt: T0 } });
+  assert.equal(await w.items.detect(alice, TELEGRAM_DERIVED), null);
+  await nothingWritten();
+
+  // In force: written, with its opening observation, exactly as before.
+  await w.fake.sourceContentAuthorization.update({ where: { id: own.id }, data: { revokedAt: null } });
+  const written = await w.items.detect(alice, TELEGRAM_DERIVED);
+  assert.ok(written);
+  assert.equal(written.state, 'OPEN');
+  assert.equal(written.title, 'Send the invoice');
+  assert.deepEqual((await w.items.observations(alice, written.id)).map((o: any) => o.observationType), ['DETECTED']);
+
+  // Revoked again mid-sweep: the SAME detection is refused, and the row it would have refreshed is
+  // untouched -- no new title, no wider window, no REDETECTED.
+  await w.fake.sourceContentAuthorization.update({ where: { id: own.id }, data: { revokedAt: T0 } });
+  const later = new Date(T0.getTime() + 60_000);
+  assert.equal(await w.items.detect(alice, { ...TELEGRAM_DERIVED, title: 'a fresh paraphrase', detectedAt: later }), null);
+  const after = await w.items.item(alice, written.id);
+  assert.equal(after?.title, 'Send the invoice');
+  assert.equal(after?.detectionCount, 1);
+  assert.equal(after?.lastDetectedAt.getTime(), T0.getTime());
+  assert.deepEqual((await w.items.observations(alice, written.id)).map((o: any) => o.observationType), ['DETECTED']);
 });
 
 test('a closed item carries an outcome, an open one cannot, and a snooze needs a time to wake', async () => {
