@@ -2305,51 +2305,63 @@ it; a broader Headlines route/access policy is a separate future decision.
     start until Stage 1 merges and real objectives exist; a signal layer built against an empty
     referent is a fabricated concept. Adds a table, so open thread 6 gates it going live.
 
-## Microsoft Teams + Telegram Connections — STAGING PHASE BUILT (draft #308); DEPLOY + LOGIN PENDING
+## Telegram Connections — STAGING COMMISSIONED (full triage on main `88d1a9c`+) · PRODUCTION COMMISSIONING PR 1 IN REVIEW (draft #328)
 
-**Draft PR #308** on `feat/connections-teams-telegram` (off `main` @ `1cfce8b`). Surface + durable
-Telegram worker + staging infra, on the Google-connection discipline. Matt merges/deploys.
+**Where it stands (2026-09-24).** Everything Telegram is on `main` and running on staging: connection
+and sign-in, the durable Fargate worker, the governed 90-day baseline, content-free observations, AI
+content triage (forward + historical backfill), Needs You, conversation-aware reconciliation,
+employee-private isolation, disconnect/reconnect, cursor/budget/provenance protections. Staging stack
+`LoopConnections-staging` in 065148797865; staging Neon at migration 48; Netlify staging carries the
+three worker vars. **Production has none of it:** Neon at migration 42 (43–48 pending, all additive),
+no Connections stack, no worker vars on Netlify, no production secrets, no Telegram session.
 
-**LOCKED PRINCIPLE (in code):** Teams/Telegram are INTELLIGENCE SOURCES, not clients Loop
-reimplements. OBSERVE → NORMALIZE → cross-source intelligence (no silo). No composer/reply/inbox.
-Observation ≠ retention (governed, content-minimized store; never a mirror). Provenance returns to
-source. Privacy unchanged. **Security:** web tier holds NO session key (only the worker seals/opens);
-phone/code/password never stored/logged; message text read only as `hadText`; signed web↔worker
-channel; no send/reply/react/history-import; teleproto in the worker pkg only (never the web bundle).
+**Matt's decision (2026-09-24):** commission FULL staging parity on production in one rollout — no
+metadata-only launch followed by an AI phase. The counterparty consent / Telegram terms question stays
+an **unresolved, documented governance/legal item** (runbook Part 10, §21 of the daily-loop record);
+it is not represented as cleared and does not reshape the rollout because no technical or provider
+restriction prevents deployment.
 
-**Built & tested (643 web + 64 connection + 6 infra synth; typecheck clean except the marketplace
-baseline; web build passes):** state/sealing; content-free `ConversationEvent`; `SourceConnection` +
-repo + `sourceConnections` IAM + `SourceConnectionService`; `/app/connections` tiles + interactive
-Telegram sign-in widget; worker (`apps/connections-worker`): content-free mapping, `TelegramAdapter`,
-`runObservationSweep` (sink-before-cursor), login coordinator, teleproto seam, signed control server,
-entrypoint; `SourceObservation` governed store; `infra/connections` (Fargate + internal ALB + HTTPS
-HTTP API/VPC Link + Secrets Manager wiring).
+**AWS account decision (from the repo, not guessed):** 670682108352 is the Organization's management
+account, governance only. Production gets a **dedicated workload account** that does not exist yet;
+its id lives only in the GitHub environment variable `CONNECTIONS_PRODUCTION_ACCOUNT_ID`, and the CDK
+app and the workflow both refuse the management and staging ids by name.
 
-**Migrations (NOT dispatched):** `20260925000000_source_connections`, `20260926000000_source_observations`.
-Apply to the STAGING Neon DB before the worker/web use the tables.
+**Draft PR #328 (`feat/connections-production-path`, off main `771ca58`) — PR 1 of the commissioning:**
+- `infra/connections` production stage: `targetFor(stage, context)`, `loop/connections/<stage>/…`
+  secret names, production media origin `https://app.emgloop.com`, cost budget + worker-down alarm +
+  SNS (production fails synth without an alert address), `loop:stage` tags, access templates with one
+  `Stage` parameter (defaults render exactly the deployed staging identities), `connections-infra-deploy`
+  with a `stage` input, environment `connections-<stage>`, confirm `deploy loop-connections-<stage>`
+  as a normalized shell gate, resolve-by-stage guards. CI synthesizes both stages offline.
+- Read-only production probe `read-telegram-state` (workflow + `npm run read:telegram-state`): states,
+  HELD flags, failure classes, counts, 7-day AI ledger — never a label, key, cursor, id or address.
+- Retention/revocation fix: new system-only outcome `REVOKED`; revoke withdraws derived Telegram items
+  in the same transaction (close + minimize to provenance); worker purge deletes derived items for
+  connections disconnected ≥ 30 days; offboarding (`disableMember`/`removeMember`) now disconnects
+  Telegram and revokes content consent in the same transaction — it previously left a departed
+  member's sealed session READY. **Migration `20261001000000_work_item_outcome_revoked`** (additive
+  CHECK restatement) is required before the revoke path runs where derived items exist: staging needs
+  `connections-migrate-staging` after the next fast-forward; production's dispatch carries 43–49.
+- Runbook `docs/runbooks/connections-aws-production.md` (Parts 1–10).
+- Validated: infra 56/56 + synth both stages + actionlint; ops 649; shared 1383; database 1581
+  (+67 Postgres-only skipped) and 1657 with Postgres; worker 79; web 720; typecheck clean; web build
+  passes.
 
-**Secrets (Secrets Manager, staging 065148797865 us-east-1):** `loop/connections/staging/telegram`
-(api_id/api_hash) — created by Matt ✅. Created by the CDK deploy: `.../connection-key` (UNSET →
-`openssl rand -base64 32`), `.../database-url` (UNSET → Neon staging URL), `.../conversation-secret`
-(generated), `.../worker-control` (generated; read once for the web env).
+**Next (ordered; Matt, consoles):** merge #328 → (1) create the production workload account under the
+Workloads OU + Identity Center + CDK bootstrap + OIDC provider + both access stacks with
+`Stage=production` (runbook Parts 1–4) → (2) `connections-production` GitHub environment (Matt as
+required reviewer, `main` only) with the four `CONNECTIONS_PRODUCTION_*` variables (Part 6) → (3) the
+four operator secrets `loop/connections/production/{telegram,connection-key,database-url,ai}` (Part 5)
+→ (4) `Deploy Prisma Migrations` (43–49) → (5) `connections-infra-deploy` `stage: production`, `diff`
+then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production: `LOOP_CONNECTION_PROVIDERS`,
+`LOOP_CONNECTIONS_WORKER_URL`, `LOOP_CONNECTIONS_WORKER_SECRET` → (7) fresh Telegram authorization on
+production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,
+run the probe and report; fixes as `fix/…` PRs.
 
-**Web env (Netlify) to set after deploy:** `LOOP_CONNECTION_PROVIDERS=TELEGRAM`,
-`LOOP_CONNECTIONS_WORKER_URL=<HttpApi WorkerUrl output>`, `LOOP_CONNECTIONS_WORKER_SECRET=<worker-control
-value>`. (The web no longer uses `LOOP_CONNECTION_SECRET_KEY`.)
-
-**Deployment model: GitHub Actions + OIDC + workflow_dispatch (no local AWS creds/CDK)**, mirroring
-Brain. Workflows: `connections-infra-ci` (PR) and `connections-infra-deploy` (manual, environment
-`connections-staging`, account/region guards, synth-before-deploy, confirm text). Deploy identity:
-`infra/connections/access/github-deploy-access.yaml` (own role, trusts connections-staging, assumes
-the CDK bootstrap roles incl. image-publishing). Runbook: docs/runbooks/connections-aws-staging.md.
-
-**Next human actions (ordered):** (1) ONE-TIME bootstrap (admin): deploy the access CFN in staging
-+ create the `connections-staging` GitHub environment (required reviewer, main only) with var
-`CONNECTIONS_STAGING_DEPLOY_ROLE_ARN`; (2) run `connections-infra-deploy` (action `diff`, then
-`deploy` + confirm `deploy loop-connections-staging`) — approve the environment gate; (3) populate the
-two UNSET secrets (connection-key, database-url) + read worker-control; (4) apply the two migrations
-to staging Neon; (5) set the three Netlify vars + redeploy web; (6) force a new Fargate deployment;
-(7) Connections → Telegram → Connect → phone/code/2FA → Ready. No production changes.
+**Follow-ups recorded in #328, not done:** Telegram-side logout on offboarding (documented, not faked);
+`source_baseline_checkpoints` not revoked at offboarding; a REVOKED item re-detected after fresh consent
+does not reopen; `/app/connections` shows only `contentAuthorized` (stuck cursors visible only via the
+probe and worker logs).
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
