@@ -36,6 +36,7 @@ import {
   AI_TRIAGE_LIMITS,
   aiTermsInText,
   estimateAiInputTokens,
+  telegramConversationSubjectRef,
   type AiContextItem,
   type AiContextPackage,
   type AiSupportedEvidence,
@@ -112,7 +113,7 @@ function messageSourceRef(providerEventId: string): string {
 
 /** The one keyed source ref for conversation-level blocks (the label header, the truncation note). */
 function conversationSourceRef(conversationKey: string): string {
-  return `telegram_conversation:${conversationKey}`;
+  return telegramConversationSubjectRef(conversationKey);
 }
 
 function capLabel(label: string): string {

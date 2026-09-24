@@ -25,3 +25,4 @@ export { WorkPreferencesRepository, type WorkPreferences, type EffectiveRetentio
 export { WorkDraftRepository, type DraftContent, type SendAttempt } from './work-draft.repository';
 export { WorkFootprintRepository, type WorkFootprint } from './work-footprint.repository';
 export { WorkErasureRepository, ERASED_WORK_TABLES, type ErasedWorkTable, type WorkErasure } from './work-erasure.repository';
+export { WorkWithdrawalRepository, type WorkWithdrawal, type WorkDerivedDeletion } from './work-withdrawal.repository';

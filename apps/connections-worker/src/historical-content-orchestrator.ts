@@ -23,7 +23,7 @@
 // model's minimized paraphrase, never the message; the label is Telegram's, never the model's.
 
 import type { AdapterSession, DueHistoricalContent, HistoricalContentState, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
-import { AI_TRIAGE_LIMITS, type ConnectionProvider } from '@emgloop/shared';
+import { AI_TRIAGE_LIMITS, telegramConversationSubjectRef, type ConnectionProvider } from '@emgloop/shared';
 
 import type { TelegramConversationTriageInput, TelegramConversationTriageResult } from '@emgloop/database';
 import type { TelegramConversationWindow } from './telegram/telegram-content';
@@ -266,7 +266,7 @@ async function processHistoricalPage(
     }
 
     // TRIAGED: raise obligations, then reconcile (close what a later message answered, within the window).
-    const subjectRef = `telegram_conversation:${window.conversationKey}`;
+    const subjectRef = telegramConversationSubjectRef(window.conversationKey);
     for (const obligation of result.items) {
       await ports.raiseWorkItem(principal, buildObligationDetection(window, obligation, result.provenance, truncated, now));
       raised += 1;

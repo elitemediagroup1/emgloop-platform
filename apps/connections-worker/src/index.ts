@@ -2,8 +2,11 @@
 //   1. runs a live observation sweep on an interval (OBSERVE -> NORMALIZE -> sink),
 //   2. runs a GOVERNED HISTORICAL BASELINE sweep on its own interval -- walking each connection's
 //      past BACKWARD to an employee-chosen floor, landing the SAME content-free observations on an
-//      INDEPENDENT checkpoint (it never advances the live observation cursor), and
-//   3. serves the signed control endpoints the Loop web tier calls to drive an interactive
+//      INDEPENDENT checkpoint (it never advances the live observation cursor),
+//   3. runs the retention sweeps every six hours -- content-free observations past the horizon, and
+//      the derived (model-produced) work of a connection disconnected past the §21.2 grace window --
+//      and
+//   4. serves the signed control endpoints the Loop web tier calls to drive an interactive
 //      Telegram login and to disconnect.
 //
 // It wires the tested pieces to the live teleproto seam and the database. It is NOT a chat client:
@@ -32,13 +35,14 @@ import { runObservationSweep, type SweepPorts } from './orchestrator';
 import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
 import { runContentSweep, type ContentSweepPorts } from './content-orchestrator';
 import { runHistoricalContentSweep, type HistoricalContentSweepPorts } from './historical-content-orchestrator';
+import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-retention';
 import { createWorkerAiRuntime } from './ai-runtime';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
 import { createControlServer, type ControlHandlers } from './server';
 
-const RETENTION_SWEEP_MS = 6 * 60 * 60 * 1000; // purge the observation store every 6 hours
+const RETENTION_SWEEP_MS = 6 * 60 * 60 * 1000; // the retention sweeps (observations, derived work) run every 6 hours
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
   // Structured, secret-free logging: only ids, counts and states are ever passed in here.
@@ -288,6 +292,18 @@ async function main(): Promise<void> {
     }
   }
 
+  // --- Retention: two independent steps, one cadence -------------------------------------------
+  // 1. Content-free observations past the deployment's horizon.
+  // 2. DERIVED work (the model's obligations) for a connection disconnected past the §21.2 grace
+  //    window: discovery is platform-wide and routing-only; the delete is per principal, scoped and
+  //    audited inside the repository, which also refuses a connection that is live again. Counts
+  //    only are logged.
+  const derivedRetentionPorts: DerivedRetentionPorts = {
+    dueForDerivedExpiry: (now) => connections.dueForDerivedExpiry(now, 500),
+    expireDerivedWork: (due, now) => connections.expireDerivedWork(due.organizationId, due.userId, due.provider, { now }),
+    now: () => new Date(),
+  };
+
   async function purge(): Promise<void> {
     const cutoff = new Date(Date.now() - config.observationRetentionDays * 24 * 60 * 60 * 1000);
     try {
@@ -296,6 +312,12 @@ async function main(): Promise<void> {
       if (purged > 0) log('retention_purge', { purged });
     } catch (err) {
       log('purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    try {
+      const summary = await runDerivedRetentionSweep(derivedRetentionPorts);
+      if (summary.due > 0) log('derived_purge', { ...summary });
+    } catch (err) {
+      log('derived_purge_error', { name: (err as Error)?.name ?? 'error' });
     }
   }
 

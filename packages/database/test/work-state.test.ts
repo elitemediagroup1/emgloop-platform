@@ -404,6 +404,18 @@ test('a closed item carries an outcome, an open one cannot, and a snooze needs a
     () => w.items.record(alice, item.id, { state: 'SNOOZED', observationType: 'SNOOZED', occurredAt: T0 }),
     /time to wake/,
   );
+  // REVOKED is system-only (a withdrawn authorization, §21.2): a person cannot record it, and
+  // neither can a caller that merely claims to be the system through `record`.
+  await assert.rejects(
+    () => w.items.record(alice, item.id, { state: 'RESOLVED', observationType: 'RESOLVED', occurredAt: T0, outcome: 'REVOKED' }),
+    /system-only outcome/,
+  );
+  await assert.rejects(
+    () => w.items.record(alice, item.id, { state: 'RESOLVED', observationType: 'RESOLVED', occurredAt: T0, outcome: 'REVOKED', actorType: 'SYSTEM' }),
+    /system-only outcome/,
+  );
+  assert.equal((await w.items.item(alice, item.id))?.state, 'OPEN', 'and the refusal wrote nothing');
+  assert.equal((await w.items.observations(alice, item.id)).length, 1, 'no observation appended for a refused act');
 
   // Another person's item is not found rather than refused.
   const bob = await person(w, ORG_A);

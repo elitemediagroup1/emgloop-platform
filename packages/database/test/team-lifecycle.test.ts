@@ -12,7 +12,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { IamRepository } from '../src/repositories/iam.repository';
 
 // --- in-memory Prisma double ------------------------------------------------
@@ -100,7 +100,7 @@ function makeTable(name: 'users' | 'invitations' | 'organization_memberships') {
   };
 }
 
-function makeIam() {
+function makeIam(options: { readonly sourceTables?: 'PRESENT' | 'NOT_MIGRATED' | 'UNREACHABLE' } = {}) {
   const user = makeTable('users');
   const invitation = makeTable('invitations');
   // CRM P0.2b: every lifecycle write now also recomputes the user's membership
@@ -112,6 +112,30 @@ function makeIam() {
   // (google-connection.test.ts drives that path with a connection present.)
   const googleConnection = { async findFirst() { return null; } };
   const googleOAuthState = { async deleteMany() { return { count: 0 }; } };
+  // And their Teams/Telegram connections and content consent (2026-09-24). Nobody here has any:
+  // the lookups find nothing and nothing is written (the source-connection Postgres tests and
+  // work-withdrawal.postgres.test.ts drive that path with rows present).
+  // Before the source-connection migration reaches a database, the tables do not exist: a count
+  // throws Prisma's P2021, and offboarding must decide -- outside the transaction -- to end nothing.
+  const notMigrated = () => {
+    throw new Prisma.PrismaClientKnownRequestError('The table `public.source_connections` does not exist in the current database.', { code: 'P2021', clientVersion: 'test' });
+  };
+  // A database that cannot be reached is a different fact: every other error must still throw.
+  const unreachable = () => {
+    throw new Prisma.PrismaClientKnownRequestError('Server has closed the connection.', { code: 'P1017', clientVersion: 'test' });
+  };
+  const inTx = { findMany: 0 };
+  const probe = () => (options.sourceTables === 'NOT_MIGRATED' ? notMigrated() : options.sourceTables === 'UNREACHABLE' ? unreachable() : null);
+  const present = options.sourceTables === undefined || options.sourceTables === 'PRESENT';
+  const sourceConnection = {
+    async count() { probe(); return 0; },
+    async findMany() { inTx.findMany += 1; return present ? [] : notMigrated(); },
+    async findFirst() { return present ? null : notMigrated(); },
+  };
+  const sourceContentAuthorization = {
+    // The probe selects the newest column the transaction reads; the double answers as an empty table does.
+    async findMany() { inTx.findMany += 1; probe(); return []; },
+  };
   // It also deletes their work state, and the identity suggestions resting on their private
   // evidence, in the same transaction. Nobody here has any, so every delete removes nothing
   // (work-erasure.postgres.test.ts drives that path with rows present).
@@ -120,9 +144,9 @@ function makeIam() {
     ['workItemObservation', 'workItem', 'workFeedback', 'workBrief', 'workDraft', 'workMessage', 'workThread', 'workCorrespondent', 'workEvent', 'workDocument', 'workSyncRun', 'workSourceCursor', 'employeeWorkPreferences', 'intelligenceHypothesis']
       .map((t) => [t, emptyWorkTable]),
   );
-  const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState, ...workTables };
+  const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState, sourceConnection, sourceContentAuthorization, ...workTables };
   prisma['$transaction'] = async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(prisma);
-  return { iam: new IamRepository(prisma as unknown as PrismaClient), user, invitation, organizationMembership };
+  return { iam: new IamRepository(prisma as unknown as PrismaClient), user, invitation, organizationMembership, inTx };
 }
 
 const ORG = 'org_a';
@@ -249,6 +273,38 @@ test('disable keeps the member visible (reactivatable); remove hides them but ke
   roster = await iam.listUsers(ORG);
   assert.equal(roster.find((u) => u.email === 'd@x.io'), undefined, 'removed members drop off the roster');
   assert.equal(user._rows.filter((r) => r['email'] === 'd@x.io').length, 1, 'the row is preserved for history/reinstatement');
+});
+
+test('disable and remove still complete before the source-connection migration has reached the database', async () => {
+  // Netlify deploys main before a human dispatches the migration. In that window the Telegram
+  // tables do not exist: the presence check (outside the transaction) reads P2021 as "nothing to
+  // end", the transaction never queries the missing tables, and the member is still ended.
+  for (const end of ['disable', 'remove'] as const) {
+    const { iam, user, organizationMembership, inTx } = makeIam({ sourceTables: 'NOT_MIGRATED' });
+    const created = await user.create({ data: { organizationId: ORG, email: `${end}@x.io`, name: 'N', status: 'ACTIVE', metadata: { systemRole: 'EMPLOYEE', passwordHash: 'h' } } });
+    await organizationMembership.create({ data: { organizationId: ORG, userId: created.id, status: 'ACTIVE', role: 'EMPLOYEE' } });
+    const result = end === 'disable' ? await iam.disableMember(ORG, created.id) : await iam.removeMember(ORG, created.id);
+    assert.equal(result.changed, true, `${end} completed`);
+    const after = await user.findFirst({ where: { id: created.id } });
+    assert.equal(after?.status, 'DISABLED');
+    assert.equal(inTx.findMany, 1, 'only the pre-transaction probe touched the tables; the transaction never did');
+  }
+  // A database error that is NOT a missing table or column still fails the offboarding: the
+  // member stays ACTIVE and nothing is skipped.
+  {
+    const { iam, user, organizationMembership } = makeIam({ sourceTables: 'UNREACHABLE' });
+    const created = await user.create({ data: { organizationId: ORG, email: 'down@x.io', name: 'N', status: 'ACTIVE', metadata: { systemRole: 'EMPLOYEE', passwordHash: 'h' } } });
+    await organizationMembership.create({ data: { organizationId: ORG, userId: created.id, status: 'ACTIVE', role: 'EMPLOYEE' } });
+    await assert.rejects(() => iam.disableMember(ORG, created.id), (e: unknown) => (e as { code?: string }).code === 'P1017');
+    await assert.rejects(() => iam.removeMember(ORG, created.id), (e: unknown) => (e as { code?: string }).code === 'P1017');
+    assert.equal((await user.findFirst({ where: { id: created.id } }))?.status, 'ACTIVE', 'nothing was ended');
+  }
+  // With the tables present, the same path queries them (and finds nothing to end here).
+  const { iam, user, organizationMembership, inTx } = makeIam();
+  const created = await user.create({ data: { organizationId: ORG, email: 'present@x.io', name: 'N', status: 'ACTIVE', metadata: { systemRole: 'EMPLOYEE', passwordHash: 'h' } } });
+  await organizationMembership.create({ data: { organizationId: ORG, userId: created.id, status: 'ACTIVE', role: 'EMPLOYEE' } });
+  assert.equal((await iam.disableMember(ORG, created.id)).changed, true);
+  assert.ok(inTx.findMany >= 2, 'with the tables present, the transaction ends whatever is live');
 });
 
 test('reinvite a REMOVED member reinstates the same row, clears the removed marker + stale password', async () => {

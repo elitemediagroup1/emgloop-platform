@@ -1,44 +1,74 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Loop connections worker staging - the GitHub Actions deploy identity. Only the
-  connections-staging environment of elitemediagroup1/emgloop-platform may use it, and it may only
-  assume the CDK bootstrap roles. Deployed once by a human administrator in 065148797865 / us-east-1
-  (checked before deploying); never by the pipeline it authorizes.
+  Loop connections worker - the GitHub Actions deploy identity for ONE stage. Only the
+  connections-<stage> environment of elitemediagroup1/emgloop-platform may use it, and it may only
+  assume the CDK bootstrap roles of the account it is deployed in. Deployed once per stage by a
+  human administrator, in that stage's account, us-east-1 (checked before deploying); never by the
+  pipeline it authorizes.
 
-# Stack: LoopConnections-staging-github-access, termination protection on.
-# Procedure: docs/runbooks/connections-aws-staging.md. Checks: infra/connections/test/access.test.ts.
+# Stacks: LoopConnections-staging-github-access (Stage=staging, the default, in 065148797865) and
+# LoopConnections-production-github-access (Stage=production, in the dedicated production account).
+# Termination protection on. Procedures: docs/runbooks/connections-aws-staging.md and
+# docs/runbooks/connections-aws-production.md. Checks: infra/connections/test/access.test.ts.
+#
+# ONE parameter, Stage, and everything stage-specific is looked up in StageMap: the GitHub
+# environment the trust admits, and the role name. They cannot be combined across stages. The
+# account is AWS::AccountId -- the account the template is deployed in -- so the role can only ever
+# name the OIDC provider and bootstrap roles that sit next to it. With the default, the rendered
+# template is exactly the staging identity that was deployed before Stage existed.
 #
 # Kept outside the connections CDK app on purpose: the pipeline this role authorizes must not manage
-# the role. It creates ONLY the role -- the GitHub OIDC provider already exists in this account (the
-# Brain deploy identity created it), and IAM allows one provider per issuer, so this references it by
-# ARN rather than creating a second.
+# the role. It creates ONLY the role -- the GitHub OIDC provider must already exist in the account
+# (in staging the Brain deploy identity created it; the production runbook says what to create), and
+# IAM allows one provider per issuer, so this references it by ARN rather than creating a second.
 #
 # It CAN assume the CDK image-publishing role, which the Brain identity deliberately cannot: the
 # connections worker ships a container image (Fargate), so its deployment publishes an image asset.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: staging
+    AllowedValues: [staging, production]
+    Description: Which stage's deploy identity this is. It selects the GitHub environment the role trusts and the role's name.
+
+Mappings:
+  StageMap:
+    staging:
+      RoleName: loop-connections-github-deploy
+      TrustSid: ConnectionsStagingEnvironmentOnly
+      Subject: repo:elitemediagroup1/emgloop-platform:environment:connections-staging
+      RoleDescription: GitHub Actions (connections-staging environment) deploys LoopConnections-staging through the CDK bootstrap roles.
+    production:
+      RoleName: loop-connections-github-deploy-production
+      TrustSid: ConnectionsProductionEnvironmentOnly
+      Subject: repo:elitemediagroup1/emgloop-platform:environment:connections-production
+      RoleDescription: GitHub Actions (connections-production environment) deploys LoopConnections-production through the CDK bootstrap roles.
 
 Resources:
   GitHubDeployRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: loop-connections-github-deploy
-      Description: GitHub Actions (connections-staging environment) deploys LoopConnections-staging through the CDK bootstrap roles.
+      RoleName: !FindInMap [StageMap, !Ref Stage, RoleName]
+      Description: !FindInMap [StageMap, !Ref Stage, RoleDescription]
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           # Exactly one repository and one environment. The environment admits only main, with a
           # required reviewer. OIDC sessions carry no session tags, so sts:TagSession is not needed.
-          - Sid: ConnectionsStagingEnvironmentOnly
+          - Sid: !FindInMap [StageMap, !Ref Stage, TrustSid]
             Effect: Allow
             Principal:
-              Federated: arn:aws:iam::065148797865:oidc-provider/token.actions.githubusercontent.com
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: repo:elitemediagroup1/emgloop-platform:environment:connections-staging
+                token.actions.githubusercontent.com:sub: !FindInMap [StageMap, !Ref Stage, Subject]
       Policies:
-        # CDK deploys by assuming its bootstrap roles (qualifier hnb659fds). The role can do nothing
+        # CDK deploys by assuming its bootstrap roles (qualifier hnb659fds, region us-east-1 -- the
+        # region both stacks are pinned to, deliberately not AWS::Region). The role can do nothing
         # else. Image publishing IS listed here (unlike Brain): the worker stack has an image asset.
         - PolicyName: assume-cdk-bootstrap-roles
           PolicyDocument:
@@ -48,16 +78,16 @@ Resources:
                 Effect: Allow
                 Action: sts:AssumeRole
                 Resource:
-                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-deploy-role-065148797865-us-east-1
-                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-file-publishing-role-065148797865-us-east-1
-                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-image-publishing-role-065148797865-us-east-1
-                  - arn:aws:iam::065148797865:role/cdk-hnb659fds-lookup-role-065148797865-us-east-1
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-deploy-role-${AWS::AccountId}-us-east-1'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-us-east-1'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-image-publishing-role-${AWS::AccountId}-us-east-1'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-hnb659fds-lookup-role-${AWS::AccountId}-us-east-1'
       Tags:
         - { Key: app, Value: loop }
         - { Key: component, Value: connections-deploy-access }
-        - { Key: env, Value: staging }
+        - { Key: env, Value: !Ref Stage }
 
 Outputs:
   DeployRoleArn:
-    Description: The value of the connections-staging environment variable CONNECTIONS_STAGING_DEPLOY_ROLE_ARN.
+    Description: The deploy role ARN, which becomes the GitHub environment variable CONNECTIONS_STAGING_DEPLOY_ROLE_ARN (staging) or CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN (production).
     Value: !GetAtt GitHubDeployRole.Arn

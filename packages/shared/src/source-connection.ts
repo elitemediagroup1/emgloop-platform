@@ -188,6 +188,9 @@ export const SOURCE_CONNECTION_AUDIT_ACTIONS = Object.freeze({
   // its withdrawal. Distinct from connecting and from the content-free history baseline.
   content_authorized: 'source_connection.content.authorized',
   content_revoked: 'source_connection.content.revoked',
+  // Retention (§21.2, 2026-09-24): the worker's sweep deleted this person's derived (MODEL) items
+  // for a connection that has been disconnected past the grace window. Counts only.
+  derived_expired: 'source_connection.derived.expired',
 } as const);
 export type SourceConnectionAuditAction =
   (typeof SOURCE_CONNECTION_AUDIT_ACTIONS)[keyof typeof SOURCE_CONNECTION_AUDIT_ACTIONS];

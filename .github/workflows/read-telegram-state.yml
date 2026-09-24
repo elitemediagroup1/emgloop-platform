@@ -1,0 +1,128 @@
+# Read Telegram state.
+#
+# READ-ONLY. For one organization, prints what the database says about Telegram: every Telegram
+# connection (state, background capability, whether a credential and a cursor are held, failure
+# class, lifecycle dates); the content-free observations as counts and edge times; each baseline
+# checkpoint and each content authorization (state, window, failure class, backoff, whether a
+# cursor is held); the AI-derived work items as counts by state and outcome; and the AI ledger
+# for the Telegram triage task over the last seven days, as counts and summed usage. It writes
+# nothing: the reader runs on a client that can only read.
+#
+# It prints no message body, conversation label or key, provider event id, cursor value, sealed
+# secret, user id, email, name, phone number, or any organization id or name other than the slug
+# typed into this form. A connection is `#n`, its position by createdAt.
+#
+# WHY IT EXISTS. Production Telegram is commissioned in steps, and before and after each one an
+# operator needs to see the state from the rows alone -- connected or not, credential held or not,
+# baseline walking or stuck, content consent given or revoked, items derived or none, AI spend --
+# without anyone opening a conversation.
+#
+# WHAT IT CANNOT ANSWER. Whether the worker is running, whether Telegram is reachable, or why a
+# failure class was recorded. Those are in the worker's logs and at the provider.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is still touching
+# production, and a human should be the one asking.
+
+name: Read Telegram State
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-telegram-state
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read Telegram state
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Name only. The value is never echoed, printed or written to the summary.
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        id: input
+        env:
+          # Through the environment, never interpolated into the script body.
+          ORG_SLUG: ${{ inputs.organization_slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Surrounding whitespace is trimmed first, as in Read Employee Sources (#303): a slug
+          # typed or pasted with spaces around it is still that slug. Whitespace INSIDE a value is
+          # not repaired -- that is a different string, and it is refused.
+          slug="${ORG_SLUG#"${ORG_SLUG%%[![:space:]]*}"}"
+          slug="${slug%"${slug##*[![:space:]]}"}"
+          # The WHOLE value is checked, not line by line, so an embedded newline cannot hide a
+          # second value behind a valid first line.
+          if [[ ! "${slug}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          # Only the validated slug travels on; later steps never read the raw input.
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+          echo "Validated organization ${slug}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner cannot write anything
+        # RUN BEFORE THE DATABASE CREDENTIAL IS USED, and deliberately blocking.
+        run: |
+          set -euo pipefail
+          npm run test:operations
+          npm test --workspace=@emgloop/database
+
+      - name: Read
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ steps.input.outputs.slug }}
+        run: |
+          set -euo pipefail
+          npm run read:telegram-state -- --organization "${ORG_SLUG}"
+
+      - name: How to read the output
+        if: always()
+        run: |
+          echo "### Telegram state" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** This job prints states, classes, times and counts of rows that already exist. A connection is \`#n\`, its position by createdAt; no id, label, key, cursor or secret is printed." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`CONNECTION\` - one Telegram connection: \`state\` and \`background\` are what the Connections page shows; \`credential=true\` means a sealed session is held; \`cursor=true\` means the live sweep has a resume point; \`observations\` is that connection's content-free row count." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`OBSERVATIONS\` - the organization's content-free who/when rows: total, oldest and newest \`observedAt\`, and how many landed in the last day and week." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`BASELINE\` - the historical walk per connection: \`state\`, the chosen \`windowDays\`, how far back it has reached, \`lastFailure\` and \`backoffUntil\` (FLOOD_WAIT holds until then). \`checkpoint=true\` means it has a resume point." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`CONTENT_AUTHORIZATION\` - the employee's content consent per connection: \`authorized=false\` means revoked. The forward sweep and the historical backfill report their own failure class, backoff and cursor separately." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`WORK_ITEMS_BY_STATE\` / \`WORK_ITEMS_BY_OUTCOME\` / \`WORK_ITEMS\` - AI-derived Telegram items, counts only. \`none\` is open items with no outcome yet." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`AI_LEDGER_OUTCOME\` / \`AI_LEDGER_FAILURE\` / \`AI_LEDGER\` - triage invocations in the last seven days by outcome and failure class, with summed provider-reported tokens. \`reserveCostMicros\` is Loop's reserve estimate, never a cost of record. \`answeredWithoutUsage\` counts answers the provider never reported usage for." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`UNRECOGNIZED\` - a stored value that is not a code token; it is not printed as itself. \`UNMATCHED\` - a baseline or authorization with no listed connection. \`bounded=true\` - the connection list is incomplete." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This does not show whether the worker is running or whether Telegram is reachable; that needs the worker's logs." >> "$GITHUB_STEP_SUMMARY"

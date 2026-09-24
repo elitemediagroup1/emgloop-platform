@@ -2,10 +2,11 @@
   "name": "@emgloop/infra-connections",
   "version": "0.1.0",
   "private": true,
-  "description": "The connections worker environment on AWS (Teams/Telegram durable worker) plus the creator-media signer. A separate deployable, not an npm workspace, so the web build never installs it. Staging only.",
+  "description": "The connections worker environment on AWS (Teams/Telegram durable worker) plus the creator-media signer. A separate deployable, not an npm workspace, so the web build never installs it. Two stages, staging and production, deployed only through connections-infra-deploy.yml.",
   "scripts": {
     "bundle": "tsx scripts/bundle.ts",
     "synth": "tsx scripts/bundle.ts && CONNECTIONS_SYNTH_OFFLINE=1 cdk synth --quiet --no-notices",
+    "synth:production": "tsx scripts/bundle.ts && CONNECTIONS_SYNTH_OFFLINE=1 cdk synth --quiet --no-notices -c stage=production -c productionAccount=123456789012 -c alertEmail=alerts@example.invalid",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
