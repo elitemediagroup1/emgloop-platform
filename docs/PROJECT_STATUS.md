@@ -2350,6 +2350,17 @@ ids by name.
   (+67 Postgres-only skipped) and 1657 with Postgres; worker 79; web 720; typecheck clean; web build
   passes.
 
+**Production first deploy (2026-09-24) ROLLED BACK:** migrations 43–49 applied and the CDK diff was clean,
+then `connections-infra-deploy` `deploy` failed — "Essential container in task exited", worker exit
+code 1, circuit breaker, `ROLLBACK_COMPLETE`, and no CloudWatch log (the log group was DESTROY-policy
+and went with the stack). Diagnosis (draft PR #332): the code boots on `main` with correctly shaped
+values (reproduced locally, sweeps run), so the exit is the worker's fail-closed `NotConfigured` on
+an operator-entered value shape — `connection-key` not 32 bytes of base64, or `telegram.api_id` not
+a positive integer. The PR retains both log groups and makes the fatal line name the setting; the
+runbook's Part 7 gained "If the first deploy rolls back": shape checks that print nothing secret,
+force-delete of the two retained generated secrets (or the retry fails on "already exists"),
+stack removal, retry.
+
 **Next (ordered; Matt, consoles):** #328 merged; (1)–(3) DONE 2026-09-24 (account, OIDC, access
 stacks, environment + variables, secrets `telegram`/`connection-key`/`database-url`; the `ai` secret
 waits for Part 9) → merge draft **#330** (`Deploy Prisma Migrations` gated by `connections-production`,

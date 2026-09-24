@@ -171,7 +171,11 @@ export class ConnectionsStack extends Stack {
 
     // --- Compute: one small always-on Fargate task -------------------------------------------
     const cluster = new ecs.Cluster(this, 'Cluster', { vpc, containerInsightsV2: ecs.ContainerInsights.DISABLED });
-    const logGroup = new logs.LogGroup(this, 'WorkerLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.DESTROY });
+    // RETAINED, not destroyed with the stack: the first production deploy (2026-09-24) rolled back
+    // because the worker exited at boot, and the rollback deleted this log group with the one
+    // `worker_fatal` line that named the cause. A log group that outlives a failed stack costs a
+    // month of retention and nothing else; the evidence it holds is the only kind a rollback leaves.
+    const logGroup = new logs.LogGroup(this, 'WorkerLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.RETAIN });
 
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'TaskDef', { cpu: 256, memoryLimitMiB: 512 });
     taskDefinition.addContainer('worker', {
@@ -269,7 +273,7 @@ export class ConnectionsStack extends Stack {
     // The signer's role is built by hand (no managed policy) so it holds exactly: its own log
     // group, the three object actions under `media/`, and a read of the worker-control secret.
     // No ListBucket, nothing on the bucket root, no other secret.
-    const mediaSignerLogs = new logs.LogGroup(this, 'MediaSignerLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.DESTROY });
+    const mediaSignerLogs = new logs.LogGroup(this, 'MediaSignerLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.RETAIN });
     const mediaSignerRole = new iam.Role(this, 'MediaSignerRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       description: 'Loop connections media signer: presigned URLs under media/ only',

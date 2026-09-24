@@ -29,7 +29,7 @@ import {
 } from '@emgloop/database';
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
-import { readWorkerConfig } from './config';
+import { fatalLogFields, readWorkerConfig } from './config';
 import { createDbObservationSink } from './observation-sink';
 import { runObservationSweep, type SweepPorts } from './orchestrator';
 import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
@@ -385,7 +385,8 @@ async function main(): Promise<void> {
 // Only run when executed directly (not when imported by a test).
 if (process.env.LOOP_CONNECTIONS_WORKER_RUN === '1') {
   main().catch((err) => {
-    log('worker_fatal', { name: (err as Error)?.name ?? 'error' });
+    // A configuration refusal names the setting (never a value); anything else, its name only.
+    log('worker_fatal', fatalLogFields(err));
     process.exitCode = 1;
   });
 }
