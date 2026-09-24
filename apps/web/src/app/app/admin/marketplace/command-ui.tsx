@@ -298,6 +298,8 @@ const KPI_TONE: Record<CallGridKpi['key'], 'good' | 'accent' | 'crit' | 'neutral
   netProfit: 'good',
   revenue: 'accent',
   billableCalls: 'accent',
+  // Not in the Command Center's row (Loop Home asks for it); neither good nor bad on its own.
+  totalCalls: 'neutral',
   margin: 'good',
   telcoCost: 'neutral',
 };

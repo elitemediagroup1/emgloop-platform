@@ -132,6 +132,23 @@ export interface ListPrioritiesOptions {
   take?: number;
 }
 
+/**
+ * The lifecycle columns of one priority, and nothing else.
+ *
+ * FOR A SURFACE THAT HOLDS MANY REFERENCES AND NEEDS TO KNOW WHERE EACH STANDS.
+ * A projection of the observation log (state, outcome, resolvedAt) plus the
+ * identity it was asked by, selected explicitly so a column drifting from the
+ * deployed schema cannot 500 a list page that never needed it.
+ */
+export interface PriorityLifecycleRow {
+  id: string;
+  recurrenceKey: string;
+  state: OperationalPriorityState;
+  outcome: OperationalOutcome | null;
+  resolvedAt: Date | null;
+  updatedAt: Date;
+}
+
 /** Minimal shape of an observation row for projection. Keeps the mapper honest. */
 function toLifecycle(o: OperationalObservation): LifecycleObservation {
   return {
@@ -171,6 +188,36 @@ export class OperationalPriorityRepository {
   ): Promise<OperationalPriority | null> {
     return this.prisma.operationalPriority.findFirst({
       where: { organizationId, sourceSystem, recurrenceKey },
+    });
+  }
+
+  /**
+   * Where each of several priorities stands, by recurrence key, in ONE query.
+   *
+   * THE BATCH FORM OF `findByRecurrenceKey`, for a surface that has a list of
+   * producer identities and must not issue one query per row. Organization-
+   * scoped like every read here: a key belonging to another tenant's thread
+   * simply matches nothing. Keys with no thread are absent from the result
+   * rather than present as null, so a caller cannot mistake "never opened" for
+   * a row. An empty key list issues no query at all.
+   */
+  findLifecycleByRecurrenceKeys(
+    organizationId: string,
+    sourceSystem: string,
+    recurrenceKeys: readonly string[],
+  ): Promise<PriorityLifecycleRow[]> {
+    const keys = [...new Set(recurrenceKeys.filter((k) => k.length > 0))];
+    if (keys.length === 0) return Promise.resolve([]);
+    return this.prisma.operationalPriority.findMany({
+      where: { organizationId, sourceSystem, recurrenceKey: { in: keys } },
+      select: {
+        id: true,
+        recurrenceKey: true,
+        state: true,
+        outcome: true,
+        resolvedAt: true,
+        updatedAt: true,
+      },
     });
   }
 

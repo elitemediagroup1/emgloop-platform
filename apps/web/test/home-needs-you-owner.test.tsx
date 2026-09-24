@@ -117,7 +117,7 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
   it('the rows an OWNER receives render their items, source-labelled, minimized and without a fabricated link', () => {
     const item: NeedsYouItem = { id: 'w1', provider: 'TELEGRAM', sourceLabel: 'Telegram', title: 'Client asks to move the Thursday call', category: 'REQUEST', counterparty: null, topic: null, nextStep: null, deadline: null, at: new Date('2026-09-22T04:01:00Z'), detectionCount: 1 };
     const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-22T12:00:00Z'));
-    const briefing = composeBriefing({ now: time.now, review: null, period: null, headlines: null, needsYou: [item], day: null, dayFailed: false, mail: null, mailFailed: false, dashboard: null, workDue: [], connectionsHref: '/app/connections', headlinesHref: '/app/admin/headlines' });
+    const briefing = composeBriefing({ now: time.now, review: null, period: null, headlines: null, needsYou: [item], day: null, dayFailed: false, mail: null, mailFailed: false, callgrid: null, workDue: [], connectionsHref: '/app/connections', headlinesHref: '/app/admin/headlines' });
     const html = renderToStaticMarkup(<NeedsAttention briefing={briefing} time={time} />);
     assert.match(html, /Needs your attention/);
     assert.match(html, /data-briefing-provider="TELEGRAM"/);

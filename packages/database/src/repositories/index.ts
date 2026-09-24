@@ -241,7 +241,7 @@ export { MarketplaceCallRepository, aggregateRows, windowFactsOf, callDimensionK
 export { OperationalPriorityRepository } from './operational-priority.repository';
 export type {
   DetectSituationInput, DetectResult, RecordObservationInput,
-  ListPrioritiesOptions, PriorityWithLog,
+  ListPrioritiesOptions, PriorityWithLog, PriorityLifecycleRow,
 } from './operational-priority.repository';
 export type { CallWindowAggregate, CallDimensionAggregate, BackfillResult, PopulationCandidateRow, CallBucket, CallDimensionName, CallEntitySelector, CallSeriesPoint, CallOutcomeCounts, CallWindowFacts, RecentCallView } from './marketplace-call.repository';
 export {

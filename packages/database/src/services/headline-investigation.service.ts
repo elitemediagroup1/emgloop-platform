@@ -41,11 +41,16 @@ import {
   isInvestigationAuthorization,
   severityForHeadline,
   type HeadlineView,
+  type OperationalOutcome,
+  type PriorityState,
   type PromotionOutcome,
 } from '@emgloop/shared';
 
 import { HeadlineRepository } from '../repositories/headline.repository';
-import { OperationalPriorityRepository } from '../repositories/operational-priority.repository';
+import {
+  OperationalPriorityRepository,
+  type PriorityLifecycleRow,
+} from '../repositories/operational-priority.repository';
 import { DecisionEngine } from './decision/decision-engine';
 
 /** The Headline read this service needs. Narrow on purpose: it cannot write one. */
@@ -70,10 +75,44 @@ export interface InvestigationFinder {
   ): Promise<{ id: string } | null>;
 }
 
+/**
+ * The batch lineage read: where several investigations stand, in one query.
+ *
+ * SEPARATE FROM `InvestigationFinder` rather than widened into it, so the
+ * single-row seam the promotion depends on keeps exactly the shape its suite
+ * drives, and a caller that only ever needs one thread is never handed a batch
+ * method to misuse. Both are implemented by the same repository.
+ */
+export interface InvestigationLifecycleReader {
+  findLifecycleByRecurrenceKeys(
+    organizationId: string,
+    sourceSystem: string,
+    recurrenceKeys: readonly string[],
+  ): Promise<readonly PriorityLifecycleRow[]>;
+}
+
 export interface HeadlineInvestigationDeps {
   headlines?: HeadlineReader;
   decisions?: InvestigationOpener;
   finder?: InvestigationFinder;
+  lifecycle?: InvestigationLifecycleReader;
+}
+
+/**
+ * Where the investigation opened from one Headline stands.
+ *
+ * THE CASE'S OWN PROJECTION COLUMNS, READ AND CARRIED. `state`, `outcome` and
+ * `resolvedAt` are what the Decision Center derives from its append-only log;
+ * nothing here re-derives them, and nothing here is a Headline state. Dates are
+ * ISO strings, matching every other view this package hands to a surface.
+ */
+export interface HeadlineCaseLifecycle {
+  caseId: string;
+  state: PriorityState;
+  outcome: OperationalOutcome | null;
+  resolvedAt: string | null;
+  /** When the Case's row last changed. Null only if the column was not read. */
+  updatedAt: string | null;
 }
 
 export interface PromoteHeadlineInput {
@@ -123,11 +162,13 @@ export class HeadlineInvestigationService {
   private readonly headlines: HeadlineReader;
   private readonly decisions: InvestigationOpener;
   private readonly finder: InvestigationFinder;
+  private readonly lifecycle: InvestigationLifecycleReader;
 
   constructor(prisma: PrismaClient, deps: HeadlineInvestigationDeps = {}) {
     this.headlines = deps.headlines ?? new HeadlineRepository(prisma);
     this.decisions = deps.decisions ?? new DecisionEngine(prisma);
     this.finder = deps.finder ?? new OperationalPriorityRepository(prisma);
+    this.lifecycle = deps.lifecycle ?? new OperationalPriorityRepository(prisma);
   }
 
   /**
@@ -272,6 +313,64 @@ export class HeadlineInvestigationService {
       caseId: found.id,
       humanAuthorizationRecorded: await this.hasHumanAuthorization(organizationId, found.id),
     };
+  }
+
+  /**
+   * Where the investigations behind MANY Headlines stand, in one query.
+   *
+   * THE WORKSPACE READ. A list of Headlines needs, for each one, whether a Case
+   * exists and what its lane, outcome and close time are -- and it must not ask
+   * that one row at a time. The identities are derived exactly as
+   * `findCaseForHeadline` derives them, so the two can never disagree about which
+   * thread a Headline opened; this only asks for all of them at once.
+   *
+   * ONE ROW PER HEADLINE, NOTHING FOR THE REST. A Headline that never opened an
+   * investigation is absent from the map, not present as null, and a Headline id
+   * belonging to another organization -- or to nobody -- resolves to nothing,
+   * because the repository scopes the query to the organization it was given.
+   *
+   * IT DOES NOT SAY WHO AUTHORIZED THEM. That is a per-thread walk of the
+   * observation log, which is exactly what a list read must not do; a surface
+   * that needs it for one Headline uses `findCaseForHeadline`.
+   *
+   * THIS READ CREATES NOTHING.
+   */
+  async findCasesForHeadlines(
+    organizationId: string,
+    headlineIds: readonly string[],
+  ): Promise<Map<string, HeadlineCaseLifecycle>> {
+    const out = new Map<string, HeadlineCaseLifecycle>();
+    // The reverse index: the key each Headline would have opened its thread
+    // under, back to the Headline. Built from the SAME function the promotion
+    // uses, so nothing here parses a key.
+    const byKey = new Map<string, string>();
+    for (const raw of headlineIds) {
+      const id = raw?.trim() ?? '';
+      if (!id || byKey.has(investigationRecurrenceKey(id))) continue;
+      byKey.set(investigationRecurrenceKey(id), id);
+    }
+    if (byKey.size === 0) return out;
+
+    const rows = await this.lifecycle.findLifecycleByRecurrenceKeys(
+      organizationId,
+      INVESTIGATION_PRODUCER,
+      [...byKey.keys()],
+    );
+    for (const row of rows) {
+      const headlineId = byKey.get(row.recurrenceKey);
+      // A row the repository returned for a key this call did not ask for would
+      // be a repository defect; it is dropped rather than attributed to a
+      // Headline it does not belong to.
+      if (!headlineId) continue;
+      out.set(headlineId, {
+        caseId: row.id,
+        state: row.state,
+        outcome: row.outcome,
+        resolvedAt: row.resolvedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+      });
+    }
+    return out;
   }
 
   /** Whether the log carries an attributed human observation for this thread. */

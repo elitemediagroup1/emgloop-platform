@@ -1,6 +1,7 @@
 // The Home briefing: ONE pure composition over what the existing loaders already return
-// (approved design pass, 2026-09-24). Home answers three questions in order -- what changed that
-// matters, what needs you, what to do next -- and then shows movement, not dashboards.
+// (approved design pass, 2026-09-24; the front door, 2026-09-24). Home answers three questions in
+// order -- what changed that matters, what needs you, what to do next. The figures themselves live
+// on the KPI row (kpis.ts) and the tiles (tiles.ts); the briefing is the synthesis, not a dashboard.
 //
 // PURE, AND ONLY A PROJECTION. This module imports no loader, no repository, no clock and no
 // randomness: the page loads each source on its own (as before) and hands the results in; the
@@ -8,6 +9,11 @@
 // and never invents: a row exists only where a source produced the fact, a deadline is only ever
 // the words a conversation wrote, a Telegram row has no link because a private chat has none, and
 // a "why" for a source that carries no rule is a fixed phrase that says which source moved.
+//
+// CALLGRID IS THE COMMAND CENTER'S OWN COMPARISON. The CallGrid row reads the projected command
+// context (kpis.ts): today so far against yesterday cut at the same time, withheld when Loop's
+// record does not cover it. The retired "pulse" compared today-so-far with yesterday COMPLETE,
+// which read as a decline every morning; nothing here compares a partial day with a whole one.
 //
 // ORDERING IS PRESENTATION. The Telegram loader still returns its items by recency, the executive
 // review still ranks its own; interleaving them here for display changes neither producer.
@@ -28,16 +34,13 @@ import {
   type TimeView,
   type WorkSourceFreshness,
   REVIEW_SOURCE_LABELS,
-  trend,
-  metricValue,
-  type TrendResult,
 } from '@emgloop/shared';
 import type { DayEvent } from '@emgloop/shared';
 import type { NeedsYouItem } from '../../../daily-loop/needs-you';
 import type { YourDayView } from '../../../daily-loop/your-day';
 import type { MailDashboard } from '../../../daily-loop/mail-dashboard';
-import type { DashboardData } from '../admin/dashboard-data';
 import type { MyWorkItem } from '../admin/workspace-home-data';
+import type { HomeKpiStrip } from './kpis';
 
 // --- Limits and vocabulary -------------------------------------------------------------------------
 
@@ -98,8 +101,8 @@ const DEADLINE_BOOST = 100;
 /** Where a Telegram row points back to: the conversation, in the app it lives in. No URL exists. */
 const TELEGRAM_PLACE = 'In Telegram';
 
-/** The three destinations Home links to for every seat. */
-export const HOME_PATHS = Object.freeze({ headlines: '/app/admin/headlines', mail: '/app/mail', brain: '/app/admin/brain' });
+/** The two destinations the briefing links to for every seat. (The Executive Brain link went with the pulse panel.) */
+export const HOME_PATHS = Object.freeze({ headlines: '/app/admin/headlines', mail: '/app/mail' });
 
 // --- The plan the views render --------------------------------------------------------------------
 
@@ -179,25 +182,6 @@ export interface BriefingToday {
   readonly mailCounts: { readonly needsReply: number; readonly followUps: number; readonly waiting: number; readonly current: boolean } | null;
 }
 
-export interface BriefingKpi {
-  readonly key: string;
-  readonly label: string;
-  readonly value: string;
-  readonly delta: { readonly kind: 'up' | 'down' | 'new'; readonly text: string } | null;
-  readonly sub: string | null;
-  readonly href: string | null;
-  /** What was counted, in the source's own words. */
-  readonly scope: string;
-}
-
-export interface BriefingPulse {
-  readonly kpis: readonly BriefingKpi[];
-  /** Figures that did not move, named once in one sentence. */
-  readonly unchanged: readonly string[];
-  /** Figures Loop does not track or could not read, with the reason, never drawn as a zero. */
-  readonly omitted: readonly { readonly label: string; readonly reason: string }[];
-}
-
 export interface BriefingSentence {
   readonly since: Date | null;
   readonly changes: number;
@@ -223,7 +207,6 @@ export interface Briefing {
   /** Which kind of empty "needs you" is: nothing, or nothing readable. */
   readonly attentionReadable: boolean;
   readonly today: BriefingToday;
-  readonly pulse: BriefingPulse | null;
 }
 
 // --- Input: the loaders' outputs, as the page settled them ------------------------------------------
@@ -241,11 +224,20 @@ export interface BriefingInput {
   readonly dayFailed: boolean;
   readonly mail: MailDashboard | null;
   readonly mailFailed: boolean;
-  readonly dashboard: DashboardData | null;
+  /**
+   * The CallGrid command context, projected (kpis.ts): the Command Center's own figures and its own
+   * comparison. Null for a seat that is not offered CallGrid, or when the read failed.
+   */
+  readonly callgrid: HomeKpiStrip | null;
   /** Work expected back or due today, from the Work OS read the seat already has. */
   readonly workDue: readonly BriefingDue[];
   readonly connectionsHref: string;
   readonly headlinesHref: string;
+  /**
+   * True when Home draws the Headlines panel of its own: the review's single aggregate Headlines
+   * row ("N things need your attention") is then not repeated under Needs you.
+   */
+  readonly headlinesPanel?: boolean;
 }
 
 // --- Helpers ---------------------------------------------------------------------------------------
@@ -265,12 +257,6 @@ function about(item: NeedsYouItem): string | null {
   const parts = [item.counterparty, item.topic].filter((s): s is string => Boolean(s));
   return parts.length > 0 ? parts.join(' · ') : null;
 }
-
-function money(cents: number): string {
-  return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-const pct = (r: TrendResult): string => (r.kind === 'up' ? `▲ ${r.pct.toFixed(1)}%` : r.kind === 'down' ? `▼ ${r.pct.toFixed(1)}%` : r.kind === 'new' ? 'new today' : '');
 
 // --- What changed ------------------------------------------------------------------------------------
 
@@ -352,26 +338,23 @@ function reviewChanges(input: BriefingInput, since: Date, attentionKeys: Readonl
     }));
 }
 
-/** One CallGrid row, only when today so far has moved against yesterday. Loop reports, it does not judge. */
+/**
+ * One CallGrid row, only when a figure moved against the Command Center's OWN comparison -- the
+ * window's comparison label is carried verbatim, so the row can never say "yesterday" of a partial
+ * day measured against a whole one. Loop reports the move; it does not judge it.
+ */
 function callgridChange(input: BriefingInput): BriefingChange | null {
-  const cg = input.dashboard?.callgrid;
-  if (!cg || cg.total === 0) return null;
-  const y = cg.yesterday;
-  const t = cg.today;
-  const billable = trend(metricValue(y.billableCalls, y.available), metricValue(t.billableCalls, t.available));
-  const revenue = trend(metricValue(y.revenueCents, y.available), metricValue(t.revenueCents, t.available));
-  const moved = [billable, revenue].some((r) => r.kind === 'up' || r.kind === 'down' || r.kind === 'new');
-  if (!moved) return null;
-  const parts: string[] = [];
-  if (t.billableCalls !== null && y.billableCalls !== null) parts.push(`${counted(t.billableCalls, 'billable call', 'billable calls')} so far today, ${y.billableCalls} yesterday${pct(billable) ? ` (${pct(billable)})` : ''}`);
-  if (t.revenueCents !== null && y.revenueCents !== null) parts.push(`revenue ${money(t.revenueCents)} against ${money(y.revenueCents)}${pct(revenue) ? ` (${pct(revenue)})` : ''}`);
-  if (parts.length === 0) return null;
+  const strip = input.callgrid;
+  if (!strip || strip.state !== 'OK' || !strip.comparisonLabel) return null;
+  const moved = strip.kpis.filter((k) => k.state === 'VALUE' && k.change !== null && k.change.direction !== 'flat');
+  if (moved.length === 0) return null;
+  const parts = moved.map((k) => `${k.label} ${k.value} (${k.change!.direction === 'up' ? '▲' : '▼'} ${k.change!.text})`);
   return {
-    key: 'callgrid:today-vs-yesterday',
+    key: 'callgrid:period-vs-comparison',
     source: 'CALLGRID',
-    where: null,
+    where: strip.periodLabel,
     what: `CallGrid: ${parts.join(' · ')}`,
-    why: 'today so far against yesterday complete; a move, not a verdict',
+    why: `against ${strip.comparisonLabel.charAt(0).toLowerCase()}${strip.comparisonLabel.slice(1)}; a move, not a verdict`,
     next: null,
     at: input.now,
     tone: 'neutral',
@@ -411,9 +394,14 @@ function telegramAttention(input: BriefingInput): BriefingAttention[] {
     });
 }
 
-function reviewAttention(input: BriefingInput): BriefingAttention[] {
+/** The review's aggregate Headlines row is omitted when Home draws the Headlines panel itself. */
+function reviewAttentionRows(input: BriefingInput): readonly ReviewAttention[] {
   if (!input.review) return [];
-  return input.review.attention.map((a): BriefingAttention => ({
+  return input.headlinesPanel ? input.review.attention.filter((a) => a.source !== 'HEADLINES') : input.review.attention;
+}
+
+function reviewAttention(input: BriefingInput): BriefingAttention[] {
+  return reviewAttentionRows(input).map((a): BriefingAttention => ({
     key: `review:${a.key}`,
     source: a.source,
     where: a.who,
@@ -509,85 +497,6 @@ function today(input: BriefingInput): BriefingToday {
   };
 }
 
-// --- Business pulse ---------------------------------------------------------------------------------
-
-function pulse(input: BriefingInput): BriefingPulse | null {
-  if (!input.review && !input.dashboard) return null;
-  const kpis: BriefingKpi[] = [];
-  const unchanged: string[] = [];
-  const omitted: { label: string; reason: string }[] = [];
-
-  const cg = input.dashboard?.callgrid;
-  if (cg && cg.total > 0) {
-    const y = cg.yesterday;
-    const t = cg.today;
-    const rows: { key: string; label: string; yv: number | null; tv: number | null; fmt: (n: number) => string }[] = [
-      { key: 'billable', label: 'Billable calls', yv: y.billableCalls, tv: t.billableCalls, fmt: (n) => n.toLocaleString('en-US') },
-      { key: 'revenue', label: 'CallGrid revenue', yv: y.revenueCents, tv: t.revenueCents, fmt: money },
-      { key: 'profit', label: 'Net profit', yv: y.profitCents, tv: t.profitCents, fmt: money },
-      { key: 'calls', label: 'Total calls', yv: y.totalCalls, tv: t.totalCalls, fmt: (n) => n.toLocaleString('en-US') },
-    ];
-    for (const row of rows) {
-      const r = trend(metricValue(row.yv, y.available), metricValue(row.tv, t.available));
-      if (r.kind === 'unavailable') omitted.push({ label: row.label, reason: 'CallGrid could not be read' });
-      else if (r.kind === 'unknown') omitted.push({ label: row.label, reason: 'CallGrid did not state it' });
-      else if (r.kind === 'no_change' || r.kind === 'flat') unchanged.push(row.label.toLowerCase());
-      else
-        kpis.push({
-          key: `callgrid:${row.key}`,
-          label: `${row.label} · today so far`,
-          value: row.fmt(row.tv!),
-          delta: { kind: r.kind, text: pct(r) },
-          sub: `yesterday ${row.fmt(row.yv!)}`,
-          href: '/app/admin/marketplace',
-          scope: 'CallGrid, today so far against yesterday complete',
-        });
-    }
-  } else if (cg) {
-    omitted.push({ label: 'CallGrid', reason: 'no calls yet' });
-  }
-
-  const m = input.review?.metrics;
-  if (m) {
-    const withPrior = (key: 'relevantEmails' | 'outreachSent', label: string) => {
-      const metric = m[key];
-      if (metric.state !== 'VALUE') {
-        omitted.push({ label, reason: metric.reason });
-        return;
-      }
-      if (metric.prior === null) {
-        kpis.push({ key: `review:${key}`, label, value: metric.value.toLocaleString('en-US'), delta: null, sub: null, href: metric.href, scope: metric.scope });
-        return;
-      }
-      const diff = metric.value - metric.prior;
-      if (diff === 0) unchanged.push(label.toLowerCase());
-      else
-        kpis.push({
-          key: `review:${key}`,
-          label,
-          value: metric.value.toLocaleString('en-US'),
-          delta: metric.prior === 0 ? { kind: 'new', text: 'new this period' } : { kind: diff > 0 ? 'up' : 'down', text: `${diff > 0 ? '▲' : '▼'} ${Math.abs(diff)} vs the period before` },
-          sub: null,
-          href: metric.href,
-          scope: metric.scope,
-        });
-    };
-    withPrior('relevantEmails', 'Relevant mail');
-    withPrior('outreachSent', 'Outreach sent');
-    const opp = m.newOpportunities;
-    if (opp.state === 'NOT_TRACKED' || opp.state === 'UNAVAILABLE') omitted.push({ label: 'Opportunities', reason: opp.reason });
-    else if (opp.value > 0) kpis.push({ key: 'review:newOpportunities', label: 'Opportunity signals', value: opp.value.toLocaleString('en-US'), delta: null, sub: null, href: opp.href, scope: opp.scope });
-  }
-
-  const w = input.dashboard?.home.workspace.workSummary;
-  if (w && (w.assignedToMe > 0 || w.waitingBlocked > 0 || w.completedToday > 0)) {
-    const bits = [w.waitingBlocked > 0 ? `${w.waitingBlocked} blocked` : null, w.completedToday > 0 ? `${w.completedToday} completed today` : null].filter(Boolean);
-    kpis.push({ key: 'work:mine', label: 'Your work', value: String(w.assignedToMe), delta: null, sub: bits.length ? bits.join(' · ') : null, href: null, scope: 'work assigned to you' });
-  }
-
-  return { kpis, unchanged, omitted };
-}
-
 // --- The sentence ---------------------------------------------------------------------------------
 
 function sentence(input: BriefingInput, changes: number, attention: readonly BriefingAttention[], attentionTotal: number, todayPlan: BriefingToday): BriefingSentence {
@@ -640,8 +549,11 @@ export function composeBriefing(input: BriefingInput): Briefing {
 
   const todayPlan = today(input);
   const telegramCount = attentionRows.filter((r) => r.provider === 'TELEGRAM').length;
-  // With no review (the module Home) the total is the viewer's own items; nothing is defaulted.
-  const attentionTotal = input.review ? input.review.attentionTotal + telegramCount : telegramCount;
+  // The review counts its aggregate Headlines row as one; when Home draws Headlines itself that row
+  // is withheld here, and the total says so. With no review (the module Home) the total is the
+  // viewer's own items; nothing is defaulted.
+  const withheld = input.review ? input.review.attention.length - reviewAttentionRows(input).length : 0;
+  const attentionTotal = input.review ? input.review.attentionTotal - withheld + telegramCount : telegramCount;
 
   return {
     sentence: sentence(input, changeRows.length, attentionRows, attentionTotal, todayPlan),
@@ -653,7 +565,6 @@ export function composeBriefing(input: BriefingInput): Briefing {
     attentionElsewhere: input.review?.attentionElsewhere ?? [],
     attentionReadable: input.review ? input.review.metrics.needAttention.state === 'VALUE' : true,
     today: todayPlan,
-    pulse: pulse(input),
   };
 }
 

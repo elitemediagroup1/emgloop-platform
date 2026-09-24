@@ -13,6 +13,10 @@
 // MAIL AND CALENDAR ARE THE VIEWER'S OWN. Everything organization-level (CallGrid, work,
 // Headlines) is read under the ADMIN workspace this Home already requires, and nothing here
 // widens who sees whose mail.
+//
+// CALLGRID IS THE COMMAND CENTER'S OWN READ. The CallGrid contribution takes the projected command
+// context (kpis.ts) and the Executive Brain's signals; it no longer states a "yesterday" fact of
+// its own from a scorecard that compared a partial day with a complete one (retired 2026-09-24).
 
 import 'server-only';
 
@@ -31,6 +35,7 @@ import {
   type ReviewUpdate,
   type TimeView,
   type HeadlineView,
+  type AttentionAssessment,
 } from '@emgloop/shared';
 import { WorkGraphRepository, prisma, type WorkPrincipal } from '@emgloop/database';
 
@@ -39,8 +44,9 @@ import { canOpenHeadlines } from '../../../crm/headlines-access';
 import type { MailDashboard } from '../../../daily-loop/mail-dashboard';
 import type { YourDayView } from '../../../daily-loop/your-day';
 import { counterpartName, laneLine, opportunityLine, rowPill } from '../mail/_mail/dashboard';
-import type { DashboardData } from '../admin/dashboard-data';
+import type { HomeData } from '../admin/home-data';
 import { loadAttention } from '../admin/headlines/headlines-data';
+import type { HomeKpiStrip } from './kpis';
 import { settle } from './settle';
 
 /** A contribution, or UNAVAILABLE when building it threw. Never a thrown Home. */
@@ -48,8 +54,6 @@ async function isolated(source: ReviewContribution['source'], build: () => Promi
   const result = await settle(build);
   return result.ok ? result.value : { source, state: 'UNAVAILABLE', note: 'Loop could not read this just now.' };
 }
-
-const money = (cents: number) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // --- Mail -------------------------------------------------------------------------------------------
 
@@ -177,19 +181,15 @@ function calendarContribution(day: YourDayView | null, time: TimeView): ReviewCo
 
 // --- CallGrid and Loop work ---------------------------------------------------------------------------
 
-function callgridContribution(data: DashboardData): ReviewContribution {
-  const { callgrid, home } = data;
-  if (callgrid.total === 0) return { source: 'CALLGRID', state: 'NOT_CONNECTED', note: 'CallGrid has not sent any calls yet.' };
-  const y = callgrid.yesterday;
-  const facts: ReviewFact[] = [];
-  if (y.available && y.totalCalls !== null) {
-    // A billable count CallGrid did not state is left unsaid, never counted as none.
-    const parts = [y.billableCalls !== null ? `${counted(y.billableCalls, 'billable call', 'billable calls')} of ${counted(y.totalCalls, 'call', 'calls')}` : counted(y.totalCalls, 'call', 'calls')];
-    if (y.revenueCents !== null) parts.push(`${money(y.revenueCents)} revenue`);
-    if (y.profitCents !== null) parts.push(`${money(y.profitCents)} net profit`);
-    facts.push({ rank: 20, sentence: `CallGrid yesterday: ${parts.join(', ')}.` });
-  }
-  const attention = home.brain.signals.map((s): ReviewAttention => ({
+/**
+ * CallGrid, as the Command Center reads it. The state is the projected context's own (read, could
+ * not be read, or nothing ever delivered); the attention rows are the Executive Brain's signals over
+ * the same organization. No figure is stated here: the KPI row states them, with their comparison.
+ */
+function callgridContribution(home: HomeData | null, callgrid: HomeKpiStrip | null): ReviewContribution {
+  if (!callgrid || callgrid.state === 'UNAVAILABLE') return { source: 'CALLGRID', state: 'UNAVAILABLE', note: 'Loop could not read CallGrid just now.' };
+  if (callgrid.state === 'NO_DATA') return { source: 'CALLGRID', state: 'NOT_CONNECTED', note: 'CallGrid has not sent any calls yet.' };
+  const attention = (home?.brain.signals ?? []).map((s): ReviewAttention => ({
     key: `callgrid:${s.id}`,
     source: 'CALLGRID',
     rank: s.tone === 'crit' ? 0 : 2,
@@ -200,11 +200,11 @@ function callgridContribution(data: DashboardData): ReviewContribution {
     tone: s.tone === 'crit' ? 'critical' : 'attention',
     href: s.href,
   }));
-  return { source: 'CALLGRID', state: 'OK', facts, attention };
+  return { source: 'CALLGRID', state: 'OK', attention };
 }
 
-function workContribution(data: DashboardData): ReviewContribution {
-  const w = data.home.workspace;
+function workContribution(home: HomeData): ReviewContribution {
+  const w = home.workspace;
   const attention = w.attention.map((a): ReviewAttention => ({
     key: `work:${a.key}`,
     source: 'WORK',
@@ -230,16 +230,22 @@ function workContribution(data: DashboardData): ReviewContribution {
   return { source: 'WORK', state: 'OK', facts, attention, attentionCount: w.attentionTotal, updates };
 }
 
+/** What the Headlines read established, kept beside the contribution for Home's own Headlines panel. */
+interface HeadlinesSink {
+  /** Whether this seat may open Headlines at all (ADMIN + commercialIntelligence:view). */
+  offered: boolean;
+  headlines: readonly HeadlineView[] | null;
+  attention: AttentionAssessment | null;
+}
+
 /** The Headlines Home read: only the ones nobody dismissed, so a dismissed Headline never reappears here. */
-async function headlinesContribution(
-  session: AuthSession,
-  organizationId: string,
-  sink: { headlines: readonly HeadlineView[] | null },
-): Promise<ReviewContribution | null> {
+async function headlinesContribution(session: AuthSession, organizationId: string, sink: HeadlinesSink): Promise<ReviewContribution | null> {
   if (!(await canOpenHeadlines(session))) return null;
+  sink.offered = true;
   const result = await loadAttention(organizationId, new Date(), { dismissed: false });
   if (!result.ok) return { source: 'HEADLINES', state: 'UNAVAILABLE', note: 'Loop could not read Headlines just now.' };
   sink.headlines = result.value.headlines;
+  sink.attention = result.value.attention;
   const a = result.value.attention;
   if (a.state !== 'NEEDS_ATTENTION') return { source: 'HEADLINES', state: 'OK', attention: [] };
   return {
@@ -267,11 +273,15 @@ async function headlinesContribution(
 export interface ExecutiveReviewData {
   readonly review: ExecutiveReview;
   readonly period: ReviewPeriod;
+  /** Whether this seat may open Headlines (ADMIN + commercialIntelligence:view); Home draws its Headlines panel only then. */
+  readonly headlinesOffered: boolean;
   /**
-   * The non-dismissed Headlines the review read (one read, shared with Home's "What changed");
-   * null when this seat cannot open Headlines or the read failed.
+   * The non-dismissed Headlines the review read (one read, shared with Home's Headlines panel and
+   * "What changed"); null when this seat cannot open Headlines or the read failed.
    */
   readonly headlines: readonly HeadlineView[] | null;
+  /** The governed attention state the same read produced; null on the same conditions. */
+  readonly attention: AttentionAssessment | null;
 }
 
 export async function loadExecutiveReview(input: {
@@ -281,16 +291,25 @@ export async function loadExecutiveReview(input: {
   readonly timeZone: string;
   readonly mail: MailDashboard | null;
   readonly day: YourDayView | null;
-  readonly dashboard: DashboardData | null;
+  /** The operational home (work, attention, activity, the Brain); null when its read failed. */
+  readonly home: HomeData | null;
+  /** The projected command context: `offered` false when this seat is not shown CallGrid at all. */
+  readonly callgrid: { readonly offered: boolean; readonly strip: HomeKpiStrip | null };
 }): Promise<ExecutiveReviewData> {
   const period = reviewPeriod(input.time.now, input.timeZone);
-  const sink: { headlines: readonly HeadlineView[] | null } = { headlines: null };
+  const sink: HeadlinesSink = { offered: false, headlines: null, attention: null };
   const contributions = await Promise.all([
     isolated('MAIL', () => mailContribution(input.principal, input.mail, period, input.time)),
     isolated('CALENDAR', async () => calendarContribution(input.day, input.time)),
-    isolated('CALLGRID', async () => (input.dashboard ? callgridContribution(input.dashboard) : { source: 'CALLGRID', state: 'UNAVAILABLE', note: 'Loop could not read CallGrid just now.' })),
-    isolated('WORK', async () => (input.dashboard ? workContribution(input.dashboard) : { source: 'WORK', state: 'UNAVAILABLE', note: 'Loop could not read work just now.' })),
+    isolated('CALLGRID', async () => (input.callgrid.offered ? callgridContribution(input.home, input.callgrid.strip) : null)),
+    isolated('WORK', async () => (input.home ? workContribution(input.home) : { source: 'WORK', state: 'UNAVAILABLE', note: 'Loop could not read work just now.' })),
     isolated('HEADLINES', () => headlinesContribution(input.session, input.principal.organizationId, sink)),
   ]);
-  return { review: composeReview(contributions.filter((c): c is ReviewContribution => c !== null)), period, headlines: sink.headlines };
+  return {
+    review: composeReview(contributions.filter((c): c is ReviewContribution => c !== null)),
+    period,
+    headlinesOffered: sink.offered,
+    headlines: sink.headlines,
+    attention: sink.attention,
+  };
 }

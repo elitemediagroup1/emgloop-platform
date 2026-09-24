@@ -13,6 +13,7 @@ import { loadMyQueueForHome } from './employee/work/work-data';
 import { readerTimeZone } from '../../daily-loop/reader-zone';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 import { settle } from './_home/settle';
+import { loadFrontDoor } from './_home/front-door-data';
 import { creatorSeatOf } from '../../creator/creator-runtime';
 import { CreatorHome } from '../../creator/creator-home';
 
@@ -30,6 +31,10 @@ import { CreatorHome } from '../../creator/creator-home';
 // EVERY SOURCE LOADS ON ITS OWN. A calendar or mailbox that cannot be read makes its
 // own line say so; it never takes Home down with it. (A Home that read one missing
 // table directly was a production outage on 2026-09-18.)
+//
+// THE FRONT DOOR'S ADDITIVE READS (a person's own Telegram connection, the intake counts) are
+// gated by the navigation the person was offered and made here for the module Home; the
+// executive Home makes its own, with the organization-wide ones, after stating its authority.
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +68,9 @@ export default async function LoopHome() {
   const queue = queueResult?.ok ? queueResult.value.rows : [];
   const groups = await navFor(session);
   const time = createTimeView(zone, new Date());
+  // Never the executive reads for this seat: the module Home is a person's own sources and the
+  // areas they can open; loadFrontDoor settles each read on its own and never throws.
+  const front = !creatorSeat && role !== 'ADMIN' ? await loadFrontDoor({ session, principal, groups, time, executive: false }) : null;
 
   return (
     <WorkspaceShell session={session}>
@@ -71,7 +79,7 @@ export default async function LoopHome() {
       ) : role === 'ADMIN' ? (
         <AdminHome session={session} principal={principal} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} groups={groups} />
       ) : (
-        <ModuleHome name={session.name} userId={session.userId} groups={groups} time={time} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} queue={queue} />
+        <ModuleHome name={session.name} userId={session.userId} groups={groups} time={time} day={day} dayFailed={!dayResult.ok} mail={mail} mailFailed={!mailResult.ok} needsYou={needsYou} queue={queue} front={front} />
       )}
     </WorkspaceShell>
   );

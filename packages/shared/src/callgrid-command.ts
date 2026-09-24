@@ -143,8 +143,11 @@ export interface CommandSeriesPoint {
   readonly callsWithCost: number;
 }
 
-export const CALLGRID_KPIS = ['netProfit', 'revenue', 'billableCalls', 'margin', 'telcoCost'] as const;
+export const CALLGRID_KPIS = ['netProfit', 'revenue', 'billableCalls', 'margin', 'telcoCost', 'totalCalls'] as const;
 export type CallGridKpiKey = (typeof CALLGRID_KPIS)[number];
+
+/** The Command Center's own row, in its order. `callGridKpis` builds exactly these unless asked otherwise. */
+export const CALLGRID_COMMAND_KPIS: readonly CallGridKpiKey[] = Object.freeze(['netProfit', 'revenue', 'billableCalls', 'margin', 'telcoCost']);
 
 export const CALLGRID_KPI_LABELS: Readonly<Record<CallGridKpiKey, string>> = Object.freeze({
   netProfit: 'Net Profit',
@@ -152,6 +155,7 @@ export const CALLGRID_KPI_LABELS: Readonly<Record<CallGridKpiKey, string>> = Obj
   billableCalls: 'Billable Calls',
   margin: 'Margin',
   telcoCost: 'Telco Cost',
+  totalCalls: 'Total Calls',
 });
 
 export interface CallGridKpi {
@@ -192,6 +196,12 @@ export function callGridKpis(input: {
   readonly series: readonly CommandSeriesPoint[];
   /** Set when the period has a comparison but Loop's record does not cover it (see `assessCallGridCoverage`). */
   readonly comparisonWithheld?: boolean;
+  /**
+   * Which figures to build, in order. The Command Center takes the default; Loop Home asks for its own
+   * executive row (which includes Total Calls, a declared metric the Command Center shows as the billable
+   * subline and the volume chart). Every figure is built by the same rule, whoever asks.
+   */
+  readonly keys?: readonly CallGridKpiKey[];
 }): CallGridKpi[] {
   const { metrics: m, comparison: c, series } = input;
   const unavailable = !m.available;
@@ -250,13 +260,18 @@ export function callGridKpis(input: {
     };
   };
 
-  return [
-    build('netProfit', 'money', m.profitCents, c?.profitCents ?? null, sparkProfit, true, partial(m.profitCoverage, 'revenue, payout and cost')),
-    build('revenue', 'money', m.revenueCents, c?.revenueCents ?? null, sparkRevenue, true, partial(m.revenueCoverage, 'revenue')),
-    build('billableCalls', 'count', m.billableCalls, c?.billableCalls ?? null, sparkBillable, true, null),
-    build('margin', 'percent', marginOf(m.profitCents, m.revenueCents), c ? marginOf(c.profitCents, c.revenueCents) : null, sparkMargin, true, partial(m.profitCoverage, 'revenue, payout and cost')),
-    build('telcoCost', 'money', m.costCents, c?.costCents ?? null, sparkCost, false, null),
-  ];
+  const sparkCalls = series.map((p) => p.calls);
+
+  const rows: Record<CallGridKpiKey, () => CallGridKpi> = {
+    netProfit: () => build('netProfit', 'money', m.profitCents, c?.profitCents ?? null, sparkProfit, true, partial(m.profitCoverage, 'revenue, payout and cost')),
+    revenue: () => build('revenue', 'money', m.revenueCents, c?.revenueCents ?? null, sparkRevenue, true, partial(m.revenueCoverage, 'revenue')),
+    billableCalls: () => build('billableCalls', 'count', m.billableCalls, c?.billableCalls ?? null, sparkBillable, true, null),
+    margin: () => build('margin', 'percent', marginOf(m.profitCents, m.revenueCents), c ? marginOf(c.profitCents, c.revenueCents) : null, sparkMargin, true, partial(m.profitCoverage, 'revenue, payout and cost')),
+    telcoCost: () => build('telcoCost', 'money', m.costCents, c?.costCents ?? null, sparkCost, false, null),
+    // More calls is neither good nor bad on its own (they may not be billable), so no direction is favorable.
+    totalCalls: () => build('totalCalls', 'count', m.totalCalls, c?.totalCalls ?? null, sparkCalls, null, null),
+  };
+  return (input.keys ?? CALLGRID_COMMAND_KPIS).map((key) => rows[key]());
 }
 
 // --- Freshness --------------------------------------------------------------------------------

@@ -85,6 +85,26 @@ export function StateBadge(props: {
       </span>
     );
   }
+  return <LabelBadge label={label} technical={props.technical} className={props.className} />;
+}
+
+/**
+ * A label the caller already resolved, dressed exactly as `StateBadge` dresses
+ * one it resolves itself.
+ *
+ * FOR THE DICTIONARIES KEPT OUT OF THE FLAT LOOKUP. `headlineSituationLabel`
+ * and `brainWorkLabel` hold words whose keys collide with other authorities'
+ * states (a Headline's RESOLVED is not a Case's), so `productLabel` cannot
+ * answer for them and a surface resolves them through the owning function. This
+ * renders the result; it still decides nothing, and it accepts only a
+ * `ProductLabel` -- so the words can only have come from `@emgloop/shared`.
+ */
+export function LabelBadge(props: {
+  label: ProductLabel;
+  technical?: boolean;
+  className?: string;
+}) {
+  const { label } = props;
   const style = TONE_STYLE[label.tone];
   return (
     <span

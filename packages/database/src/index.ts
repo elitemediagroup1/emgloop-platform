@@ -206,9 +206,11 @@ export type {
 } from './services/case-finding.service';
 export { HeadlineInvestigationService } from './services/headline-investigation.service';
 export type {
+  HeadlineCaseLifecycle,
   HeadlineInvestigationDeps,
   HeadlineReader,
   InvestigationFinder,
+  InvestigationLifecycleReader,
   InvestigationOpener,
   PromoteHeadlineInput,
   PromotionResult,

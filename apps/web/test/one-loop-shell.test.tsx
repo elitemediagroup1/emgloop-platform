@@ -600,22 +600,24 @@ describe('Loop Home', () => {
     assert.equal(existsSync(join(APP, 'app', '_home', 'workspace-home.tsx')), false, 'the role-branded placeholder home is gone');
   });
 
-  it('greets the person and links only to what they can open', () => {
+  it('greets the person and offers tiles only for what they can open and Loop has read', () => {
     const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-24T14:00:00Z'));
     const html = render(<ModuleHome name="Charlie Reyes" userId="user_charlie" groups={navForRole('EMPLOYEE')} time={time} day={null} dayFailed={false} mail={null} mailFailed={false} needsYou={[]} queue={[]} />);
-    // The module Home is the daily briefing too (2026-09-24): it greets by the reader's clock.
+    // The module Home is the front door too (2026-09-24): it greets by the reader's clock.
     assert.match(html, /<h1 class="loop-title">Good morning, Charlie Reyes<\/h1>/);
-    // Relationships and Parties are built and an employee can open both, so Home
-    // links to them. It was in the absent list only while they were `soon`.
-    for (const href of ['/crm', '/crm/customers', '/app/crm/people', '/app/crm/relationships', '/crm/parties', '/crm/intelligence', '/app/employee/work', '/crm/ai-employees']) {
-      assert.ok(html.includes(`href="${href}"`), href);
-    }
-    for (const absent of ['/app/admin', '/crm/opportunities', '/app/work/workflows', 'href="/app"', 'Workspace']) {
+    // A tile exists only where its destination is in this person's rail AND its domain was read:
+    // the employee's own queue is offered and read (empty), so My Work is the one tile here. With
+    // no calendar, mail or connection read there is no tile for them -- nothing is faked.
+    assert.match(html, /<section class="loop-front__tools" aria-label="Your tools &amp; spaces"/);
+    assert.match(html, /data-home-tile="work"[^>]*data-home-tile-state="EMPTY"/);
+    assert.ok(html.includes('href="/app/employee/work"'), 'My Work leads to the employee tree');
+    for (const absent of ['/app/admin', '/crm/opportunities', '/app/work/workflows', 'href="/app"', 'Workspace', 'data-home-tile="callgrid"', 'data-home-tile="campaigns"', 'data-home-tile="creators"', 'data-home-tile="intake"', 'data-home-tile="chats"', 'loop-launchers', 'id="executive-kpis"', 'id="headlines"', 'id="recent-activity"']) {
       assert.equal(html.includes(absent), false, absent);
     }
-    // Drawn with the shared primitives of the Loop design system.
-    assert.match(html, /<section class="loop-panel" aria-label="CRM"><h2 class="loop-panel__title">CRM<\/h2>/);
+    // Drawn with the shared primitives of the Loop design system, in the front door's two columns.
     assert.match(html, /<div class="loop-page" aria-label="Loop Home">/);
+    assert.match(html, /<section class="loop-front__briefing" aria-label="Your briefing"/);
+    assert.match(html, /<aside class="loop-front__side" aria-label="Your day and what needs you">/);
   });
 });
 
