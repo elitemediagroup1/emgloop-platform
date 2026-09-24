@@ -4,7 +4,7 @@
 --
 -- WHY. When an employee withdraws the content authorization a model read under, the items that
 -- model derived are closed "because the authorization was withdrawn" and minimized to provenance
--- (docs/architecture/daily-loop-employee-intelligence.md §21.2). That is a distinct fact from every
+-- (docs/architecture/daily-loop-employee-intelligence.md section 21.2). That is a distinct fact from every
 -- outcome the DL-1 migration knew: it is not "handled", not "Loop was wrong", not "expired" -- and
 -- recording it as any of those would poison the accuracy signal the outcomes exist to feed. The
 -- DL-1 migration pins the outcome vocabulary in a CHECK, so the word needs this migration; the
@@ -23,7 +23,7 @@ ALTER TABLE "work_items" ADD CONSTRAINT "work_items_shape_check" CHECK (
   AND length("producerId") BETWEEN 1 AND 128
   AND length("producerVersion") BETWEEN 1 AND 64
   AND "state" IN ('OPEN', 'SNOOZED', 'RESOLVED', 'DISMISSED')
-  -- REVOKED: system-only; the authorization that produced the item was withdrawn (§21.2).
+  -- REVOKED: system-only; the authorization that produced the item was withdrawn (section 21.2).
   AND ("outcome" IS NULL OR "outcome" IN ('HANDLED', 'NOT_MINE', 'NO_ACTION_NEEDED', 'FALSE_POSITIVE', 'SUPERSEDED', 'EXPIRED', 'REVOKED'))
   -- Closed means closed: resolvedAt and outcome exist exactly for RESOLVED and DISMISSED.
   AND (("state" IN ('RESOLVED', 'DISMISSED')) = ("resolvedAt" IS NOT NULL))

@@ -2340,8 +2340,10 @@ app and the workflow both refuse the management and staging ids by name.
   connections disconnected ≥ 30 days; offboarding (`disableMember`/`removeMember`) now disconnects
   Telegram and revokes content consent in the same transaction — it previously left a departed
   member's sealed session READY. **Migration `20261001000000_work_item_outcome_revoked`** (additive
-  CHECK restatement) is required before the revoke path runs where derived items exist: staging needs
-  `connections-migrate-staging` after the next fast-forward; production's dispatch carries 43–49.
+  CHECK restatement) is required before the revoke path runs where derived items exist. **Staging:
+  dispatch `connections-migrate-staging` FIRST, then fast-forward `staging`** (the migration is
+  backward-compatible; code before migration makes a revoke by anyone holding an open derived item roll
+  back, so consent could not be withdrawn). Production's dispatch carries 43–49 in one run.
 - Runbook `docs/runbooks/connections-aws-production.md` (Parts 1–10).
 - Validated: infra 56/56 + synth both stages + actionlint; ops 649; shared 1383; database 1581
   (+67 Postgres-only skipped) and 1657 with Postgres; worker 79; web 720; typecheck clean; web build

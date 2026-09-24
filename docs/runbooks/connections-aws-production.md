@@ -273,8 +273,18 @@ Same mechanism as staging (`connections-aws-staging.md`, "Enable AI content tria
 production names: create `loop/connections/production/ai` (step 9), set
 `CONNECTIONS_PRODUCTION_AI_ORG_ID` on the `connections-production` environment to the real
 production organization id (looked up in production data; never committed), and re-run
-`connections-infra-deploy` with `stage: production`. Fail-closed as in staging: with either the
-secret or the variable missing, AI stays off. To turn it off, clear the variable and re-deploy.
+`connections-infra-deploy` with `stage: production`. **Create the secret before setting the
+variable.** With the variable unset, no `LOOP_AI_*` reaches the worker and AI stays off. With the
+variable set and the secret missing, AI also stays off -- but the task definition references a
+secret that does not exist, tasks cannot start, and the deployment circuit breaker rolls the deploy
+back: a loud failure, not a quiet one. To turn AI off, clear the variable and re-deploy.
+
+**Before this step, land the consent re-check inside `WorkItemRepository.detect`** (follow-up
+recorded in #328): today a content sweep already in flight when an employee revokes, or is
+offboarded, can still write one more derived item after the revoke committed. The window is one
+sweep iteration and the item is employee-private, but the guarantee "no derived item after the
+authorization ended" is only as strong as that re-check, so it belongs in production before AI is
+turned on there.
 
 ## Part 10 — Open governance items (recorded here so they are not mistaken for cleared)
 

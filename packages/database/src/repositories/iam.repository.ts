@@ -936,33 +936,37 @@ export class IamRepository {
 
 
 /**
+ * Whether this deployment's database holds the source-connection tables, at the shape the
+ * transaction below needs. Netlify deploys `main` to production on every merge, but a migration
+ * reaches production only when a human dispatches the migration workflow, so there is a window
+ * in which the code knows tables the database does not have. In that window there is nothing to
+ * end -- no table, no connection -- and an offboarding must still complete. Decided OUTSIDE the
+ * transaction, because a failed statement aborts the whole Postgres transaction and could not be
+ * caught inside it. The authorization probe names the newest column the transaction reads
+ * (`historicalState`, added by the historical-backfill migration), so a migration run that
+ * stopped between the table and that column reads as absent here rather than failing inside the
+ * transaction. Any error other than a missing table or column (P2021 / P2022) is still thrown:
+ * a database that cannot be reached fails the offboarding rather than skipping a live credential.
+ */
+async function sourceConnectionTablesPresent(prisma: PrismaClient, organizationId: string, userId: string): Promise<boolean> {
+  const probed = await absentUntilMigrated(
+    Promise.all([
+      prisma.sourceConnection.count({ where: { organizationId, userId } }),
+      prisma.sourceContentAuthorization.findMany({ where: { organizationId, userId }, select: { id: true, historicalState: true }, take: 1 }),
+    ]),
+  );
+  return probed !== null;
+}
+
+/**
  * End a person's Teams/Telegram connections and revoke their content consent inside the
- * transaction that ends their membership (§21.2). The sealed credential is cleared and the row
- * marked DISCONNECTED, so the worker's cross-tenant discovery (`dueForObservation`,
+ * transaction that ends their membership (section 21.2). The sealed credential is cleared and
+ * the row marked DISCONNECTED, so the worker's cross-tenant discovery (`dueForObservation`,
  * `dueForContent`) stops returning them and the credential opener finds nothing to open; the
  * content authorization is stamped revoked, so consent never outlives the membership. Each
  * repository writes its own audit row per provider, and none for a row that was not live. The
  * derived items are left to `eraseWorkStateInTx`, which follows in the same transaction.
  */
-/**
- * Whether this deployment's database holds the source-connection tables yet. Netlify deploys
- * `main` to production on every merge, but a migration reaches production only when a human
- * dispatches the migration workflow, so there is a window in which the code knows tables the
- * database does not have. In that window there is nothing to end -- no table, no connection --
- * and an offboarding must still complete. Decided OUTSIDE the transaction, because a failed
- * statement aborts the whole Postgres transaction and could not be caught inside it. Any error
- * other than a missing table or column (P2021 / P2022) is still thrown.
- */
-async function sourceConnectionTablesPresent(prisma: PrismaClient, organizationId: string, userId: string): Promise<boolean> {
-  const counted = await absentUntilMigrated(
-    Promise.all([
-      prisma.sourceConnection.count({ where: { organizationId, userId } }),
-      prisma.sourceContentAuthorization.count({ where: { organizationId, userId } }),
-    ]),
-  );
-  return counted !== null;
-}
-
 async function endSourceConnectionsInTx(
   prisma: PrismaClient,
   tx: Prisma.TransactionClient,

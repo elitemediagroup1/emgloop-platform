@@ -100,7 +100,7 @@ function makeTable(name: 'users' | 'invitations' | 'organization_memberships') {
   };
 }
 
-function makeIam(options: { readonly sourceTables?: 'PRESENT' | 'NOT_MIGRATED' } = {}) {
+function makeIam(options: { readonly sourceTables?: 'PRESENT' | 'NOT_MIGRATED' | 'UNREACHABLE' } = {}) {
   const user = makeTable('users');
   const invitation = makeTable('invitations');
   // CRM P0.2b: every lifecycle write now also recomputes the user's membership
@@ -120,16 +120,21 @@ function makeIam(options: { readonly sourceTables?: 'PRESENT' | 'NOT_MIGRATED' }
   const notMigrated = () => {
     throw new Prisma.PrismaClientKnownRequestError('The table `public.source_connections` does not exist in the current database.', { code: 'P2021', clientVersion: 'test' });
   };
+  // A database that cannot be reached is a different fact: every other error must still throw.
+  const unreachable = () => {
+    throw new Prisma.PrismaClientKnownRequestError('Server has closed the connection.', { code: 'P1017', clientVersion: 'test' });
+  };
   const inTx = { findMany: 0 };
-  const present = options.sourceTables !== 'NOT_MIGRATED';
+  const probe = () => (options.sourceTables === 'NOT_MIGRATED' ? notMigrated() : options.sourceTables === 'UNREACHABLE' ? unreachable() : null);
+  const present = options.sourceTables === undefined || options.sourceTables === 'PRESENT';
   const sourceConnection = {
-    async count() { return present ? 0 : notMigrated(); },
+    async count() { probe(); return 0; },
     async findMany() { inTx.findMany += 1; return present ? [] : notMigrated(); },
     async findFirst() { return present ? null : notMigrated(); },
   };
   const sourceContentAuthorization = {
-    async count() { return present ? 0 : notMigrated(); },
-    async findMany() { inTx.findMany += 1; return present ? [] : notMigrated(); },
+    // The probe selects the newest column the transaction reads; the double answers as an empty table does.
+    async findMany() { inTx.findMany += 1; probe(); return []; },
   };
   // It also deletes their work state, and the identity suggestions resting on their private
   // evidence, in the same transaction. Nobody here has any, so every delete removes nothing
@@ -282,14 +287,24 @@ test('disable and remove still complete before the source-connection migration h
     assert.equal(result.changed, true, `${end} completed`);
     const after = await user.findFirst({ where: { id: created.id } });
     assert.equal(after?.status, 'DISABLED');
-    assert.equal(inTx.findMany, 0, 'the missing tables were never queried inside the transaction');
+    assert.equal(inTx.findMany, 1, 'only the pre-transaction probe touched the tables; the transaction never did');
+  }
+  // A database error that is NOT a missing table or column still fails the offboarding: the
+  // member stays ACTIVE and nothing is skipped.
+  {
+    const { iam, user, organizationMembership } = makeIam({ sourceTables: 'UNREACHABLE' });
+    const created = await user.create({ data: { organizationId: ORG, email: 'down@x.io', name: 'N', status: 'ACTIVE', metadata: { systemRole: 'EMPLOYEE', passwordHash: 'h' } } });
+    await organizationMembership.create({ data: { organizationId: ORG, userId: created.id, status: 'ACTIVE', role: 'EMPLOYEE' } });
+    await assert.rejects(() => iam.disableMember(ORG, created.id), (e: unknown) => (e as { code?: string }).code === 'P1017');
+    await assert.rejects(() => iam.removeMember(ORG, created.id), (e: unknown) => (e as { code?: string }).code === 'P1017');
+    assert.equal((await user.findFirst({ where: { id: created.id } }))?.status, 'ACTIVE', 'nothing was ended');
   }
   // With the tables present, the same path queries them (and finds nothing to end here).
   const { iam, user, organizationMembership, inTx } = makeIam();
   const created = await user.create({ data: { organizationId: ORG, email: 'present@x.io', name: 'N', status: 'ACTIVE', metadata: { systemRole: 'EMPLOYEE', passwordHash: 'h' } } });
   await organizationMembership.create({ data: { organizationId: ORG, userId: created.id, status: 'ACTIVE', role: 'EMPLOYEE' } });
   assert.equal((await iam.disableMember(ORG, created.id)).changed, true);
-  assert.ok(inTx.findMany >= 1, 'with the tables present, the transaction ends whatever is live');
+  assert.ok(inTx.findMany >= 2, 'with the tables present, the transaction ends whatever is live');
 });
 
 test('reinvite a REMOVED member reinstates the same row, clears the removed marker + stale password', async () => {

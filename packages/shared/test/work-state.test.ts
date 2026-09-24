@@ -57,6 +57,11 @@ const OUTCOME_MIGRATION = readFileSync(
   'utf8',
 );
 
+test('the REVOKED migration is ASCII-only, like every migration this suite pins', () => {
+  // eslint-disable-next-line no-control-regex
+  assert.doesNotMatch(OUTCOME_MIGRATION, /[^\x00-\x7f]/, 'a migration file carries no non-ASCII byte');
+});
+
 test('the vocabularies are closed, and say only what metadata can establish', () => {
   assert.deepEqual([...WORK_SOURCES], ['GMAIL', 'CALENDAR', 'DRIVE']);
   assert.deepEqual([...WORK_PROVIDERS], ['GOOGLE']);
