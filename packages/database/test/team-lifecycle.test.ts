@@ -112,6 +112,11 @@ function makeIam() {
   // (google-connection.test.ts drives that path with a connection present.)
   const googleConnection = { async findFirst() { return null; } };
   const googleOAuthState = { async deleteMany() { return { count: 0 }; } };
+  // And their Teams/Telegram connections and content consent (2026-09-24). Nobody here has any:
+  // the lookups find nothing and nothing is written (the source-connection Postgres tests and
+  // work-withdrawal.postgres.test.ts drive that path with rows present).
+  const sourceConnection = { async findMany() { return []; }, async findFirst() { return null; } };
+  const sourceContentAuthorization = { async findMany() { return []; } };
   // It also deletes their work state, and the identity suggestions resting on their private
   // evidence, in the same transaction. Nobody here has any, so every delete removes nothing
   // (work-erasure.postgres.test.ts drives that path with rows present).
@@ -120,7 +125,7 @@ function makeIam() {
     ['workItemObservation', 'workItem', 'workFeedback', 'workBrief', 'workDraft', 'workMessage', 'workThread', 'workCorrespondent', 'workEvent', 'workDocument', 'workSyncRun', 'workSourceCursor', 'employeeWorkPreferences', 'intelligenceHypothesis']
       .map((t) => [t, emptyWorkTable]),
   );
-  const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState, ...workTables };
+  const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState, sourceConnection, sourceContentAuthorization, ...workTables };
   prisma['$transaction'] = async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(prisma);
   return { iam: new IamRepository(prisma as unknown as PrismaClient), user, invitation, organizationMembership };
 }

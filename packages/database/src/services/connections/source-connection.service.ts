@@ -322,9 +322,10 @@ export class SourceConnectionService {
   }
 
   /**
-   * Revoke CONTENT processing: stop all further content processing immediately. Already-derived
-   * WorkItems are the employee's own to resolve; nothing is selectively purged here. NOT_CONFIGURED
-   * never blocks a revoke, mirroring disconnect and revokeBaseline.
+   * Revoke CONTENT processing: stop all further content processing immediately AND withdraw what it
+   * already derived -- the repository closes every open MODEL-produced item for the provider with
+   * outcome REVOKED and minimizes every one of them to provenance, in the same transaction as the
+   * revoke (§21.2). NOT_CONFIGURED never blocks a revoke, mirroring disconnect and revokeBaseline.
    */
   async revokeContent(principal: SourceConnectionPrincipal, provider: string): Promise<SourceContentActionOutcome> {
     if (!isConnectionProvider(provider)) return 'INVALID';

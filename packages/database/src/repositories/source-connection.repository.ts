@@ -16,12 +16,16 @@
 //
 // AUDIT ROWS RECORD IDS, THE PROVIDER AND A CLASS. Never a secret, an account handle, a message,
 // or a provider's own text. Worker observation cycles are not audited -- only the acts a person or
-// offboarding takes, and the moments a credential is created or destroyed.
+// offboarding takes, the moments a credential is created or destroyed, and (since 2026-09-24) the
+// retention sweep deleting a disconnected person's derived work past the grace window, counts only.
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
   CONNECTION_PROVIDERS,
+  CONNECTION_STATES,
   SOURCE_CONNECTION_AUDIT_ACTIONS,
+  WORK_DISCONNECT_GRACE_DAYS,
+  WORK_RETENTION_POLICY_VERSION,
   connectionIsLive,
   isConnectionProvider,
   type CapabilityStatus,
@@ -34,8 +38,19 @@ import {
 import type { SealedConnectionSecret } from '../services/connections/connection-secret-sealer';
 import { AuditRepository } from './audit.repository';
 import { membershipAuthority } from './membership.repository';
+import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repository';
 
 type Tx = Prisma.TransactionClient;
+
+/** The states `connectionIsLive` accepts, as a list the database can be asked about. Derived, never restated. */
+const LIVE_CONNECTION_STATES: readonly ConnectionState[] = CONNECTION_STATES.filter(connectionIsLive);
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The instant before which a disconnect is past its grace window (§21.2: `WORK_DISCONNECT_GRACE_DAYS`). */
+function disconnectGraceCutoff(now: Date): Date {
+  return new Date(now.getTime() - WORK_DISCONNECT_GRACE_DAYS * DAY_MS);
+}
 
 export interface SourceConnectionActor {
   readonly userId: string | null;
@@ -85,6 +100,17 @@ export interface DueConnection {
   readonly cursor: string | null;
 }
 
+/** One connection disconnected past its grace window: routing fields only, never a credential or content. */
+export interface DueDerivedExpiry {
+  readonly organizationId: string;
+  readonly userId: string;
+  readonly provider: ConnectionProvider;
+}
+
+export type DerivedExpiryOutcome =
+  | { readonly outcome: 'EXPIRED'; readonly items: number; readonly observations: number }
+  | { readonly outcome: 'NOTHING_TO_DO' };
+
 function sealedOf(row: Record<string, any>): SealedConnectionSecret | null {
   if (!row.secretSealed || !row.sealVersion || !row.keyRef) return null;
   return { sealVersion: row.sealVersion, keyRef: row.keyRef, sealed: new Uint8Array(row.secretSealed) };
@@ -133,9 +159,16 @@ export async function writeAudit(
 
 /**
  * End a person's source connections INSIDE the caller's transaction: clear every sealed
- * credential and mark the row DISCONNECTED, with an audit row per provider. Used by offboarding
- * so disabling or removing a member ends their Teams/Telegram connections in the same transaction
+ * credential and mark the row DISCONNECTED, with an audit row per provider. Used by
+ * `IamRepository.disableMember` / `removeMember` (since 2026-09-24; it existed unused before
+ * that, and a departed member's Telegram session stayed live for the worker's discovery), so
+ * disabling or removing a member ends their Teams/Telegram connections in the same transaction
  * as the membership change -- the credential does not outlive the membership.
+ *
+ * A row is ended when it holds a credential OR is in a live state (a CONNECTING attempt with no
+ * credential yet is ended too, so it cannot read as in progress for someone who is gone). Nothing
+ * here reaches the provider: the Telegram-side session is NOT logged out by this path, and the
+ * record says so plainly (§21.2).
  *
  * (The membership relation also cascades on delete; this exists so a DISABLE, which keeps the
  * membership row, still tears the credential down and leaves a trail.)
@@ -147,8 +180,11 @@ export async function disconnectSourceConnectionsInTx(
   userId: string,
   request: { readonly actor: SourceConnectionActor; readonly now: Date },
 ): Promise<number> {
-  const live = await tx.sourceConnection.findMany({ where: { organizationId, userId, secretSealed: { not: null } } });
+  const live = await tx.sourceConnection.findMany({
+    where: { organizationId, userId, OR: [{ secretSealed: { not: null } }, { state: { in: [...LIVE_CONNECTION_STATES] } }] },
+  });
   for (const row of live) {
+    const hadCredential = sealedOf(row) !== null;
     await tx.sourceConnection.update({
       where: { id: row.id },
       data: {
@@ -169,7 +205,7 @@ export async function disconnectSourceConnectionsInTx(
       action: SOURCE_CONNECTION_AUDIT_ACTIONS.offboarded,
       provider: row.provider as ConnectionProvider,
       actor: request.actor,
-      metadata: { subjectUserId: userId, credentialDeleted: true },
+      metadata: { subjectUserId: userId, credentialDeleted: hadCredential },
     });
   }
   return live.length;
@@ -340,9 +376,74 @@ export class SourceConnectionRepository {
   }
 
   /**
+   * PLATFORM-WORKER DISCOVERY, ACROSS ALL TENANTS. Mirrors dueForObservation exactly: the durable
+   * worker is ONE process serving every organization, so this returns the connections whose derived
+   * work has outlived the disconnect grace window regardless of org -- routing fields only (org, user,
+   * provider), never a credential and never content. The delete itself is per principal, re-resolves
+   * the row in scope, and refuses a connection that is live again (`expireDerivedWork`).
+   *
+   * PAST GRACE = not in a live state AND `disconnectedAt` older than `WORK_DISCONNECT_GRACE_DAYS`
+   * before `now` (§21.2: "voluntary disconnect: frozen, deleted at 30 days"). `disconnectedAt` is the
+   * only honest anchor: it is stamped by a disconnect or an offboarding and cleared by a reconnect. A
+   * row with no `disconnectedAt` -- FAILED, NOT_CONNECTED, or RECONNECT_REQUIRED (which is live and
+   * still holds its credential) -- was never disconnected, so nothing here counts a window for it.
+   */
+  async dueForDerivedExpiry(now: Date, limit = 500): Promise<DueDerivedExpiry[]> {
+    const rows = await this.prisma.sourceConnection.findMany({
+      where: { state: { notIn: [...LIVE_CONNECTION_STATES] }, disconnectedAt: { lt: disconnectGraceCutoff(now) } },
+      orderBy: [{ disconnectedAt: 'asc' }, { id: 'asc' }],
+      take: Math.max(1, Math.min(limit, 2000)),
+      select: { organizationId: true, userId: true, provider: true },
+    });
+    return rows.map((r) => ({ organizationId: r.organizationId, userId: r.userId, provider: r.provider as ConnectionProvider }));
+  }
+
+  /**
+   * Delete this person's derived (MODEL-produced) items for a provider whose connection has been
+   * disconnected past the grace window -- the §21.2 "deleted at 30 days" row -- and record the act
+   * with counts only. The row is re-resolved in scope inside the transaction: a connection that is
+   * live again, or whose disconnect is still inside the window, is NOTHING_TO_DO (that is what makes
+   * a reconnect inside the month restore the frozen queue). No audit row when nothing was deleted.
+   * The grace window is applied HERE from the shared constant, so no caller can shorten it.
+   */
+  async expireDerivedWork(
+    organizationId: string,
+    userId: string,
+    provider: ConnectionProvider,
+    request: { readonly now: Date },
+  ): Promise<DerivedExpiryOutcome> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.sourceConnection.findFirst({ where: { organizationId, userId, provider } });
+      if (!current || connectionIsLive(current.state as ConnectionState)) return { outcome: 'NOTHING_TO_DO' as const };
+      if (!current.disconnectedAt || current.disconnectedAt >= disconnectGraceCutoff(request.now)) return { outcome: 'NOTHING_TO_DO' as const };
+      const deleted = await new WorkWithdrawalRepository(tx).deleteDerived({ organizationId, userId }, { provider });
+      if (deleted.items === 0) return { outcome: 'NOTHING_TO_DO' as const };
+      await writeAudit(this.prisma, tx, {
+        organizationId,
+        connectionId: current.id,
+        action: SOURCE_CONNECTION_AUDIT_ACTIONS.derived_expired,
+        provider,
+        actor: { userId: null, name: 'System' },
+        metadata: {
+          subjectUserId: userId,
+          deleted: { items: deleted.items, observations: deleted.observations },
+          graceDays: WORK_DISCONNECT_GRACE_DAYS,
+          retentionPolicy: WORK_RETENTION_POLICY_VERSION,
+        },
+      });
+      return { outcome: 'EXPIRED' as const, items: deleted.items, observations: deleted.observations };
+    });
+  }
+
+  /**
    * Disconnect this person's provider connection at their request: delete the sealed credential,
    * mark it DISCONNECTED and record who and when. Returns NOTHING_TO_DO when there was no live
    * connection -- and no audit row is written for a disconnect that did not happen.
+   *
+   * The derived items are NOT touched here: a voluntary disconnect freezes the queue, and the
+   * worker's retention sweep deletes the derived items once the disconnect is `WORK_DISCONNECT_GRACE_DAYS`
+   * old (`dueForDerivedExpiry` / `expireDerivedWork`, §21.2). Reconnecting inside the window clears
+   * `disconnectedAt` and the queue is simply still there.
    */
   async disconnect(
     organizationId: string,

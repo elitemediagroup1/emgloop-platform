@@ -30,6 +30,10 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   workBrief: ['organizationId', 'userId', 'localDate', 'version'],
   employeeWorkPreferences: ['organizationId', 'userId'],
   workRetentionOverride: ['organizationId', 'category'],
+  // Teams/Telegram connections and the content consent over them: one row per person per
+  // provider, user-first like every work-state key.
+  sourceConnection: ['organizationId', 'userId', 'provider'],
+  sourceContentAuthorization: ['organizationId', 'userId', 'provider'],
   cognitiveIdentity: ['organizationId', 'entityType', 'canonicalKey'],
   memoryEvent: ['organizationId', 'sourceSystem', 'sourceEventId'],
   activeStateRecord: ['organizationId', 'identityId', 'domain', 'stateKey'],
@@ -156,6 +160,20 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
     revocationConfirmedAt: null,
   },
   googleOAuthState: { consumedAt: null },
+  // Teams/Telegram connection: born NOT_CONNECTED with no credential (offboarding filters on
+  // `secretSealed: { not: null }` and on the state), and the content consent born unrevoked
+  // (`revokedAt: null` is what "still authorized" means).
+  sourceConnection: {
+    state: 'NOT_CONNECTED', secretSealed: null, sealVersion: null, keyRef: null, cursor: null, adapter: null,
+    credentialKind: null, accountLabel: null, backgroundObservation: 'UNAVAILABLE', lastFailureClass: null,
+    connectingStartedAt: null, connectedAt: null, lastObservedAt: null, reconnectRequiredAt: null,
+    disconnectedAt: null, disconnectedByUserId: null,
+  },
+  sourceContentAuthorization: {
+    revokedAt: null, contentCursor: null, lastRunAt: null, lastFailureClass: null, backoffUntil: null,
+    historicalState: 'NOT_STARTED', historicalCursor: null, historicalWindowFloorAt: null, historicalOldestReachedAt: null,
+    historicalLastRunAt: null, historicalLastFailureClass: null, historicalBackoffUntil: null, historicalFailedItems: 0,
+  },
   // A performance objective is ACTIVE and open-ended unless stated otherwise,
   // matching @default(ACTIVE) — a row created without one must still match
   // `where status: 'ACTIVE'`, or the list query would be correct in production
@@ -456,6 +474,10 @@ const DELEGATES = [
   // revokes the member's connection in the same transaction.
   'googleConnection',
   'googleOAuthState',
+  // Teams/Telegram connections and content consent. Always present for the same reason:
+  // offboarding ends them and revokes the consent in the same transaction (2026-09-24).
+  'sourceConnection',
+  'sourceContentAuthorization',
   // A person's work state. Always present for the same reason: ending a membership
   // deletes the person's work rows in the same transaction (WorkErasureRepository).
   'workSourceCursor',

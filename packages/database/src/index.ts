@@ -716,6 +716,8 @@ export type {
   SourceConnectionCredentialToStore,
   SourceConnectionStoreOutcome,
   DueConnection,
+  DueDerivedExpiry,
+  DerivedExpiryOutcome,
 } from './repositories/source-connection.repository';
 // Content-free observations from background sources (Teams, Telegram): persistence + governed
 // retention (the worker's observation sink lands here).
@@ -725,7 +727,7 @@ export type { SourceObservationRow } from './repositories/source-observation.rep
 // observation cursor -- the baseline path never writes source_connections.
 export { SourceBaselineCheckpointRepository } from './repositories/source-baseline.repository';
 export type { BaselineCheckpointRecord, DueBaseline, BaselineProgress, BaselineWriteOutcome } from './repositories/source-baseline.repository';
-export { SourceContentAuthorizationRepository } from './repositories/source-content-authorization.repository';
+export { SourceContentAuthorizationRepository, revokeContentAuthorizationsInTx } from './repositories/source-content-authorization.repository';
 export type {
   ContentAuthorizationRecord,
   DueContent,

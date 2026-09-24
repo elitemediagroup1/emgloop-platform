@@ -35,6 +35,7 @@ import type { AdapterSession, DueContent, WorkItemDetection, WorkPrincipal } fro
 import {
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
+  telegramConversationSubjectRef,
   type ConnectionProvider,
 } from '@emgloop/shared';
 
@@ -283,7 +284,7 @@ async function processConversations(
     }
 
     if (result.outcome === 'TRIAGED') {
-      const subjectRef = `telegram_conversation:${window.conversationKey}`;
+      const subjectRef = telegramConversationSubjectRef(window.conversationKey);
       raised += await raiseObligations(ports, principal, window, result, truncated, now);
       // Reconcile ALWAYS (even with no items: a conversation that resolved everything closes prior items).
       await ports.resolveObligations(principal, subjectRef, result.items.map((o) => o.anchorProviderEventId), result.evaluatedFloorProviderEventId, now);
@@ -324,7 +325,10 @@ export function buildObligationDetection(
     recurrenceKey: `${PRODUCER_ID}:${conversationKey}:${obligation.anchorProviderEventId}`,
     class: 'NEEDS_YOU',
     subjectKind: 'THREAD',
-    subjectRef: `telegram_conversation:${conversationKey}`,
+    // The shared prefix is what a withdrawal (a revoked content authorization, a disconnect past its
+    // grace window) uses to find every item this producer wrote -- so it is built here from the same
+    // constant, never spelled out (DERIVED_WORK_SUBJECT_PREFIXES in @emgloop/shared).
+    subjectRef: telegramConversationSubjectRef(conversationKey),
     title: obligation.oneLineMeaning,
     producerKind: 'MODEL',
     producerId: PRODUCER_ID,

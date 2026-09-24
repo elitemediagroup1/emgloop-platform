@@ -32,6 +32,7 @@ import type { PrismaClient, OperationalPriority, OperationalObservation } from '
 import {
   CALLGRID_DECISION_PRODUCER,
   crmCanonicalPartyId,
+  isWorkWithdrawalReason,
   learnFromHistory,
   zonedCalendarDay,
   type IntelligenceEvidenceRef,
@@ -230,10 +231,16 @@ export async function personalIntelligence(prisma: PrismaClient, principal: Work
   return out;
 }
 
+/**
+ * The person's own earlier closures of this item. A close the system wrote because the
+ * authorization behind the item was withdrawn (`WORK_WITHDRAWAL_REASON_PREFIX`) is NOT one of
+ * them: it says nothing about whether Loop was right, and must never read as "handled".
+ */
 async function priorWorkOutcomes(items: WorkItemRepository, principal: WorkPrincipal, item: WorkItemRecord): Promise<PriorOutcome[]> {
   const log = await items.observations(principal, item.id);
   return log
     .filter((o) => o.observationType === 'RESOLVED' || o.observationType === 'DISMISSED')
+    .filter((o) => !isWorkWithdrawalReason(o.reason))
     .map((o) => ({
       at: o.occurredAt,
       outcome: o.observationType === 'RESOLVED' ? 'HANDLED' : 'DISMISSED',
