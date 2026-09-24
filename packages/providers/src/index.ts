@@ -355,6 +355,37 @@ export {
 } from './google-workspace/gmail';
 export type { GmailCallOptions, GmailWindowRequest, GmailChangesRequest } from './google-workspace/gmail';
 
+// TikTok Login Kit connection (Creator Hub): the OAuth 2.0 web flow (authorize, code exchange,
+// rotating refresh, revoke) and the two Display API reads Loop makes (user info, public video
+// list). Protocol only -- no environment, no key, no storage; the network is injected.
+export {
+  TIKTOK_OAUTH_ENDPOINTS,
+  TIKTOK_OAUTH_TIMEOUT_MS,
+  tiktokAuthorizationUrl,
+  exchangeTikTokAuthorizationCode,
+  refreshTikTokAccessToken,
+  revokeTikTokToken,
+} from './tiktok/oauth';
+export type {
+  TikTokFetch,
+  TikTokAuthorizationRequest,
+  TikTokOAuthFailure,
+  TikTokTokenGrant,
+  TikTokTokenResult,
+  TikTokClientCredentials,
+  TikTokRevokeResult,
+} from './tiktok/oauth';
+export {
+  TIKTOK_API_ENDPOINTS,
+  TIKTOK_USER_INFO_FIELDS,
+  TIKTOK_VIDEO_FIELDS,
+  TIKTOK_VIDEO_LIST_MAX_COUNT,
+  tiktokUserInfoFields,
+  readTikTokUserInfo,
+  readTikTokVideoList,
+} from './tiktok/api';
+export type { TikTokReadFailure, TikTokReadOptions, TikTokVideoListResult } from './tiktok/api';
+
 // Creator media object storage: file bytes only, behind one contract with two adapters
 // (the staging media signer over the existing HMAC control channel, and a dev-only disk adapter).
 export {

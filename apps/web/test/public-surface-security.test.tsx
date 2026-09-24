@@ -111,7 +111,10 @@ describe('No unscoped customer-data read remains for a route to reach', () => {
 describe('Every page reachable without a session reads no tenant data', () => {
   // /crm is cookie-gated at the edge and every /crm page guards itself; /app
   // guards in its layouts. Everything else in src/app is public.
-  const PUBLIC_PAGES = new Set(['page.tsx', 'login/page.tsx', 'status/page.tsx', 'dashboard/page.tsx']);
+  // /terms and /privacy are the public legal documents (Terms of Service, Privacy Policy):
+  // static server components in the (legal) route group, whose layout only loads the design
+  // system's stylesheet. They must stay reachable without a session and must read nothing.
+  const PUBLIC_PAGES = new Set(['page.tsx', 'login/page.tsx', 'status/page.tsx', 'dashboard/page.tsx', '(legal)/terms/page.tsx', '(legal)/privacy/page.tsx']);
   const DATA = /@emgloop\/database|crm\/crm-data|repositories|prisma|crmRepos/;
 
   const pages = walk(join(SRC, 'app'))

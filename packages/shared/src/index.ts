@@ -509,6 +509,13 @@ export * from './your-day';
 // shared because the Next.js server and the scheduled Calendar cycle must agree exactly on what
 // "configured" means -- a laxer second reader is how a wrong token key reaches the sealer.
 export * from './google-environment';
+// The two rules every provider connection's configuration shares: a 32-byte sealing key read
+// from text, and the redirect URI as canonical origin plus one static callback path.
+export * from './sealing-key';
+export * from './oauth-redirect';
+// TikTok Login Kit connection (Creator Hub): the four scopes, the granted-scope allowlist, the
+// connection states and outcomes, and the merge of the creator profile's TikTok entry. Pure.
+export * from './tiktok';
 // The Gmail sensor contract (GM-1): Loop-owned mailbox facts, provider-neutral by design. The
 // sync read is metadata only and is the only Gmail read that is persisted; a thread read
 // carries bodies, happens when an employee opens a conversation, and is never stored.

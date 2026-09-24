@@ -131,6 +131,53 @@ connection exists; a presigned PUT that expires orphans a PENDING version (choos
 
 **Next:** Matt and Charlie run the first test path; anything found becomes a `fix/…` PR.
 
+## TikTok Login Kit (Creator Hub) — BUILT, IN REVIEW (draft PR #329 on `feat/tiktok-login-kit`, off main `771ca58`) · NOT deployed · migration 49 not dispatched anywhere
+
+**What it is:** a managed creator connects their OWN TikTok account (Login Kit for Web; scopes
+`user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`) from Profile → Social
+accounts, and the public Terms of Service (`/terms`) and Privacy Policy (`/privacy`) the TikTok app
+registration requires. The TikTok sibling of the Google Workspace connection, same pattern: pure
+contract in `@emgloop/shared` (`tiktok.ts`), protocol in `@emgloop/providers` (`tiktok/`), two tables
+with CHECKs + org-first repository + creator-seat service + sealer in `@emgloop/database`
+(`tiktok-connection.repository.ts`, `services/tiktok/`), one fenced environment reader in the web
+tier (`apps/web/src/tiktok/`), routes `/api/integrations/tiktok/{connect,callback}`. Authority is the
+`CreatorProfile` bound to the login (CREATOR holds no organization permission), never IAM.
+
+**What it does, exactly (the privacy policy says the same):** reads the account's facts once at
+connect and again on a Profile visit when the last read is >15 min old — never in the background;
+stores counts and up to ten recent public videos (as listed) merged into the profile's TikTok
+`socialAccounts` entry; records follower counts as `creator_audience_snapshots` with
+`source: 'PLATFORM'` (on change, or once a day); seals both tokens (AES-256-GCM, key
+`LOOP_TIKTOK_TOKEN_KEY`, header `LTT`), refreshes server-side keeping the ROTATED refresh token;
+disconnect deletes both tokens, withdraws what was read, asks TikTok to revoke (best effort,
+`REVOKE_UNCONFIRMED` / `REVOKE_SKIPPED_SHARED_GRANT` recorded like Google's).
+
+**To register on the TikTok app:** redirect URI `https://app.emgloop.com/api/integrations/tiktok/callback`
+(exact, static); Terms `https://app.emgloop.com/terms`; Privacy `https://app.emgloop.com/privacy`.
+Contact address on both documents: `hello@elitemediagroup.io` (the access-request inbox). Last updated
+2026-09-24. No governing-law clause (jurisdiction unknown — Matt to add if wanted).
+
+**Validated (worktree, final code):** shared 1386, providers 256, database 1662 (1599 + 63 opt-in
+skipped) and 1671/1671 with `LOOP_TEST_POSTGRES_URL` against a disposable `tiktok_dev` on Postgres 18
+(all 49 migrations applied; CHECKs, FKs and the same-account race proven), web 743; turbo typecheck 5/5;
+web build passes (`/terms`, `/privacy` static). Lint: the documented pre-existing baseline (exit 1).
+No live TikTok call: no client key exists anywhere and none was requested.
+
+**Before it works anywhere:** Netlify env `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`,
+`LOOP_TIKTOK_TOKEN_KEY` (`openssl rand -base64 32`); `Deploy Prisma Migrations` after merge
+(migration `20261002000000_tiktok_login_kit`, the 49th; production last verified at 41); then a live
+connect on staging with a creator seat. Until the migration is applied the Profile page renders
+"Loop could not check your TikTok connection just now" (the read is settled), never a crash.
+
+**Known limits / deliberately excluded:** no offboarding hook (disable/remove member does not revoke
+TikTok; every read re-derives the creator seat, so a disabled member's connection is never used, and
+the sealed tokens go with the membership row's FK cascade) — recommended follow-up before the first
+real offboarding; no background reads; no EMG-side surface beyond audience snapshots now saying
+"from the platform"; the other platforms on the Profile stay labelled inert.
+
+**Next:** Matt reviews #329 and the legal text, registers the URLs on the TikTok app, merges,
+dispatches the migration, sets the three env values, then the first live connect on staging.
+
 ## Production migration state — AT 41 · `main` IS AT 41 (verified 2026-09-19)
 
 **Production matches `main`.** Migrations **40** (`20260922000000_gmail_read_and_send_scopes`) and

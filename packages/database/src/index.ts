@@ -577,6 +577,51 @@ export {
 } from './services/google/google-token-sealer';
 export type { GoogleTokenBinding, SealedGoogleToken } from './services/google/google-token-sealer';
 
+// --- TikTok Login Kit connection (Creator Hub) ---
+// One TikTok connection per Loop user per organization, authorized by the CreatorProfile bound
+// to the login. The repository stores sealed bytes only; the service runs the lifecycle with
+// TikTok, the sealer and the creator seat injected. The TikTok sibling of the Google block above.
+export {
+  TikTokConnectionRepository,
+  revokeTikTokConnectionInTx,
+  TIKTOK_OAUTH_STATE_LIFETIME_MS,
+  TIKTOK_OAUTH_MAX_OPEN_STATES,
+} from './repositories/tiktok-connection.repository';
+export type {
+  TikTokActor,
+  TikTokConnectionRecord,
+  TikTokSealedCredential,
+  TikTokGrantToStore,
+  TikTokStoreOutcome,
+  TikTokRevocation,
+} from './repositories/tiktok-connection.repository';
+export { TikTokService, sha256Hex as tiktokStateHash } from './services/tiktok/tiktok.service';
+export type {
+  TikTokPrincipal,
+  TikTokSessionPrincipal,
+  TikTokOAuthPort,
+  TikTokCreatorPort,
+  TikTokSocialAccountPatch,
+  TikTokServiceDeps,
+  TikTokStatus,
+  TikTokBeginResult,
+  TikTokCallbackQuery,
+  TikTokRefusal,
+  TikTokAccessTokenResult,
+  TikTokReadResult,
+} from './services/tiktok/tiktok.service';
+export {
+  TikTokTokenSealer,
+  TikTokTokenUnopenable,
+  tiktokTokenKeyRef,
+  TIKTOK_TOKEN_SEAL_VERSION,
+  TIKTOK_TOKEN_PURPOSES,
+} from './services/tiktok/tiktok-token-sealer';
+export type { TikTokTokenBinding, TikTokTokenPurpose, SealedTikTokToken } from './services/tiktok/tiktok-token-sealer';
+export { createTikTokOAuthPort, tiktokFetch } from './services/tiktok/tiktok-oauth-port';
+export type { TikTokClientConfig } from './services/tiktok/tiktok-oauth-port';
+export { tiktokCreatorPort, TIKTOK_AUDIENCE_REPEAT_INTERVAL_MS } from './services/tiktok/tiktok-creator-port';
+
 // Daily Loop calendar ingestion (DL-3): one employee's calendar, into their own work state.
 // The Google connection, the sensor and the clock are injected; the principal is the whole
 // authorization.

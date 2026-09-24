@@ -1,17 +1,24 @@
-import { SOCIAL_PLATFORM_LABELS } from '@emgloop/shared';
+import { SOCIAL_PLATFORM_LABELS, tiktokSocialAccountOf } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { loadAnalytics, refusedFrom } from '../../../../creator/creator-data';
 import { updatePreferencesAction, updateProfileAction } from '../../../../creator/creator-actions';
+import { tiktok } from '../../../../tiktok/tiktok-runtime';
 import { viewerTime } from '../../../../time/viewer-time';
 import { settle } from '../../_home/settle';
 import { ActionButton, Facts, LoopPage, PageHead, Panel, StateBlock } from '../../_loop-os/record';
 import { Pill, compactNumber, param, refusalText } from '../_parts/vocabulary';
+import { TikTokConnectionRow, readTikTokEntry, tiktokOutcomeParam, type TikTokReadProblem } from '../_parts/tiktok-connection';
 
 // Profile (Creator Hub): what the creator maintains about themselves, and the honest state of
-// everything Loop cannot do yet. Platform connections and payouts are not built: their controls
-// are labelled and inert, never a button that pretends. Rate information appears only when EMG
-// designated it visible to the creator.
+// everything Loop cannot do yet. TikTok is the one platform a creator can connect (Login Kit);
+// the other platforms' controls are labelled and inert, never a button that pretends. Payouts
+// are not built. Rate information appears only when EMG designated it visible to the creator.
+//
+// THE TIKTOK READ HAPPENS ON VISIT, BOUNDED. Before the profile is loaded, Loop asks the TikTok
+// service to read the account's facts if the last read is old enough (TIKTOK_READ_MIN_INTERVAL_MS);
+// the page then renders what the profile holds, with the read's own verdict beside it. A read
+// that fails never hides the page and never presents old counts as new.
 
 export const dynamic = 'force-dynamic';
 
@@ -52,11 +59,23 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
   const seat = await requireCreator();
   const time = viewerTime();
   const domain = creatorDomain();
+  const principal = { organizationId: seat.actor.organizationId, userId: seat.actor.userId, name: seat.session.name };
+
+  // The TikTok read first, so the profile loaded below already holds what it returned.
+  const tiktokRead = await settle(() => tiktok().readOnVisit(principal));
+  const tiktokStatus = await settle(() => tiktok().status(principal));
+  const readProblem: TikTokReadProblem = !tiktokRead.ok
+    ? 'READ_FAILED'
+    : !tiktokRead.value.ok && (tiktokRead.value.state === 'UNAVAILABLE' || tiktokRead.value.state === 'INSUFFICIENT_SCOPE')
+      ? tiktokRead.value.state
+      : null;
+
   const profile = await domain.creator.profileById(seat.actor.organizationId, seat.profileId);
   const analytics = await settle(() => loadAnalytics(seat));
   const saved = param(searchParams.saved);
   const refused = refusedFrom(searchParams);
-  const social = readSocial(profile?.socialAccounts);
+  const social = readSocial(profile?.socialAccounts).filter((s) => s.platform !== 'TIKTOK');
+  const tiktokEntry = readTikTokEntry(tiktokSocialAccountOf(profile?.socialAccounts));
   const rate = readObject(profile?.rateInfo);
   const rateVisible = rate.visibleToCreator === true;
   const preferences = readObject(profile?.preferences);
@@ -97,10 +116,13 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
       </Panel>
 
       <Panel title="Social accounts">
-        {social.length === 0 ? (
-          <StateBlock kind="empty" compact title="No accounts listed." body="EMG lists your accounts here. Connecting one is not available yet." />
+        {tiktokStatus.ok ? (
+          <TikTokConnectionRow status={tiktokStatus.value} entry={tiktokEntry} outcome={tiktokOutcomeParam(searchParams.tiktok)} readProblem={readProblem} time={time} />
         ) : (
-          <ul className="ch-list" aria-label="Social accounts">
+          <StateBlock kind="error" compact title="Loop could not check your TikTok connection just now." body="This is a failure to read, not a finding that there is none." />
+        )}
+        {social.length === 0 ? null : (
+          <ul className="ch-list" aria-label="Other social accounts" style={{ marginTop: 12 }}>
             {social.map((s) => (
               <li key={`${s.platform}:${s.handle ?? ''}`} className="ch-row ch-row--static" data-social-state={s.state}>
                 <span className="ch-row__main">
@@ -116,7 +138,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
                       Demo data
                     </Pill>
                   ) : s.state === 'NOT_CONNECTED' ? (
-                    <ActionButton action={{ label: 'Connect', href: null, reason: 'Platform connections are not available yet' }} />
+                    <ActionButton action={{ label: 'Connect', href: null, reason: 'Connecting this platform is not available yet' }} />
                   ) : (
                     <Pill tone="good" small>
                       {s.state.charAt(0) + s.state.slice(1).toLowerCase().replace(/_/g, ' ')}
@@ -133,12 +155,12 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
         {!analytics.ok ? (
           <StateBlock kind="error" compact title="Loop could not read your audience just now." body="This is a failure to read, not a finding that there is none." />
         ) : audience.length === 0 ? (
-          <StateBlock kind="empty" compact title="No audience observed." body="Follower counts appear here once a platform reports them or EMG records them." />
+          <StateBlock kind="empty" compact title="No audience observed." body="Follower counts appear here once a connected platform reports them or EMG records them." />
         ) : (
           <Facts
             rows={audience.map((a) => ({
               label: (SOCIAL_PLATFORM_LABELS as Record<string, string>)[a.platform] ?? a.platform,
-              value: `${a.followers.toLocaleString('en-US')} followers${a.growth30dPct !== null ? ` · ${a.growth30dPct > 0 ? '+' : ''}${a.growth30dPct}% in 30 days` : ''} · ${time.date(a.observedAt)}${a.source === 'SEEDED_DEMO' ? ' · seeded demo data' : ''}`,
+              value: `${a.followers.toLocaleString('en-US')} followers${a.growth30dPct !== null ? ` · ${a.growth30dPct > 0 ? '+' : ''}${a.growth30dPct}% in 30 days` : ''} · ${time.date(a.observedAt)}${a.source === 'SEEDED_DEMO' ? ' · seeded demo data' : a.source === 'PLATFORM' ? ' · from the platform' : ''}`,
             }))}
           />
         )}

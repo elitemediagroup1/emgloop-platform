@@ -452,6 +452,11 @@ export class CreatorRepository {
     return this.prisma.creatorAudienceSnapshot.findMany({ where: { organizationId, creatorProfileId }, orderBy: { observedAt: 'asc' } });
   }
 
+  /** The most recent audience observation of one platform from one source, or null. */
+  async latestAudience(organizationId: string, creatorProfileId: string, platform: string, source: string): Promise<CreatorAudienceSnapshot | null> {
+    return this.prisma.creatorAudienceSnapshot.findFirst({ where: { organizationId, creatorProfileId, platform, source }, orderBy: { observedAt: 'desc' } });
+  }
+
   async listCompensation(organizationId: string, creatorProfileId: string): Promise<CreatorCompensationEntry[]> {
     return this.prisma.creatorCompensationEntry.findMany({ where: { organizationId, creatorProfileId }, orderBy: { occurredAt: 'desc' } });
   }
