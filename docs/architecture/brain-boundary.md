@@ -343,8 +343,9 @@ forged, replayed or duplicated ring can only make it look again at work already 
 
 **Where controls apply:**
 - **At submission** (§2, step 3), with the web floor from `readAiControlFloor`. That floor reads
-  `LOOP_AI_*` and **no provider credential**: Brain executes elsewhere. A provider counts only when it
-  is listed **and** its terms are confirmed.
+  `LOOP_AI_*` and **no provider credential**: Brain executes elsewhere. A provider counts when it is
+  listed. (Provider data-terms approval -- G2 -- is a recorded `PROVIDER_POLICY` control enforced by
+  the AI gateway's admission since 2026-09-24; `LOOP_AI_PROVIDER_TERMS_CONFIRMED` is no longer read.)
 - **In the executor** (`BrainExecutorStore.controlsFor(job, floor)`), with the executor's own floor, at
   every boundary.
 

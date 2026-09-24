@@ -273,6 +273,11 @@ function world(opts: {
       now: () => NOW,
       newInvocationId: () => `inv_eval_${++n}`,
       schedule: opts.schedule,
+      // G2: both providers approved for the task's own ceiling (OPERATIONAL), and no wider.
+      providerPolicies: async () => [
+        { providerId: 'anthropic', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 },
+        { providerId: 'openai', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 },
+      ],
     },
   );
   const service = new CaseExplanationService(prisma, { runtime: gateway, authorize, cases, now: () => NOW });

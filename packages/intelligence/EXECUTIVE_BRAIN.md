@@ -17,10 +17,13 @@ providers → database → Evidence Engine → Executive Brain → UI
                              confidence)      reasoning)
 ```
 
-The Executive Brain reasons over **sensors**. Marketplace is the first and today
-the only instrumented one; CRM, Calendar, Email, Analytics and Website are
-declared *uninstrumented* so the UI states they are not yet wired rather than
-omitting them. Adding a sensor is writing an Evidence Engine contributor and an
+The Executive Brain reasons over **sensors**, reads **organization-scoped sources
+only**, and **calls no model**: every conclusion is a deterministic rule over
+evidence that cleared the Evidence Engine. Seven sensors are instrumented (below).
+Sources that exist but are deliberately not read (an employee's own Gmail and
+Calendar; the AI runtime's outputs) are declared *excluded*, and domains with no
+organization-level read yet are declared *uninstrumented*, so the UI states each
+rather than omitting it. Adding a sensor is writing an Evidence Engine contributor and an
 adapter — the Brain does not change. That neutrality is asserted in
 `executive/verification.ts`, which drives the same `runExecutiveBrain` with two
 unrelated synthetic domains and the real Marketplace adapter.
@@ -30,7 +33,8 @@ unrelated synthetic domains and the real Marketplace adapter.
 | File | Owns |
 |---|---|
 | `observation.ts` | The canonical `ExecutiveObservation` model + `buildObservation` (the ONLY constructor) + `deriveObservationConfidence`. Kinds: `observation` · `change` · `correlation` · `risk` · `opportunity`. |
-| `sensor.ts` | The `ExecutiveSensor` contract — `instrumented` (report + findings) or `uninstrumented` (reason + unblockedBy). |
+| `sensor.ts` | The `ExecutiveSensor` contract — `instrumented` (report + findings), `uninstrumented` (reason + unblockedBy), or `excluded` (what exists + why it is not read). |
+| `source-declarations.ts` | The excluded and uninstrumented declarations the loader hands the Brain, as data. |
 | `domain-sensor.ts` | `buildDomainSensor(spec)` — the reusable builder that turns windowed counts into an EvidenceReport plus auto-generated coverage-gap and What-Changed findings. Every non-marketplace sensor is a few dozen lines on top of this. |
 | `correlation.ts` | `runCorrelations(observations, ts)` + `CORRELATION_RULES` — cross-sensor conclusions, each fired only when the observations it joins already exist, and citing them. |
 | `brain.ts` | `runExecutiveBrain(sensors, now)` → `ExecutiveBrainReport`. Pure, deterministic. |
@@ -40,13 +44,15 @@ The Marketplace adapter lives at `src/marketplace/executive-sensor.ts` —
 `marketplaceExecutiveSensor(engineResult)`. It is the only place marketplace
 vocabulary crosses into the Brain; the Brain imports nothing from marketplace.
 
-## Sensors — instrumented vs honestly missing
+## Sensors — instrumented, excluded by design, or honestly missing
 
 A sensor is instrumented only when a real, org-scoped, windowed read exists. The
 data loader (`apps/web/.../_executive/executive-brain-data.ts`) is where the
 boundary is drawn, and it is drawn honestly — a domain with no rows is declared
 `uninstrumented`, never faked, so the Evidence Coverage board shows it as
-**missing** with what would connect it.
+**missing** with what would connect it. A source that exists but is not the
+Brain's to read is declared `excluded` and shown as **not read by design**, with
+what exists and why — never as missing, and never counted as a gap.
 
 | Sensor | State | Source |
 |---|---|---|
@@ -57,19 +63,19 @@ boundary is drawn, and it is drawn honestly — a domain with no rows is declare
 | Loop Activity | instrumented | `DomainEventRepository.windowActivity` (org event spine) |
 | Users | instrumented | `IamRepository.userCounts` (roster) |
 | Marketplace Auction | instrumented | `MarketplaceAuctionRepository.latestRuns` (presence + freshness) |
-| Gmail | **missing** | no inbound email ingestion exists (only outbound Resend) |
-| Google Calendar | **missing** | only a mock calendar provider; bookings unpopulated |
-| AI Conversations | **missing** | no LLM in the platform — AI Employees are config, not reasoning |
+| Gmail | **excluded** | each employee's own mailbox, synced for that person only; employee-private, never rolled up |
+| Google Calendar | **excluded** | each employee's own calendar, synced for that person only; employee-private, never rolled up |
+| AI runtime | **excluded** | a governed runtime exists (Telegram triage in the connections worker under per-employee consent; mail drafts and Case explanations on request); its outputs are not the Brain's evidence |
 | Tasks | **missing** | no Task model (Work OS is a different domain) |
-| Opportunities | **missing** | no Opportunity model (only an `UPSELL_OPPORTUNITY` signal type) |
-| Creator Pipeline | **missing** | shell-stub workspace, no data |
+| Opportunities | **missing** | CRM Opportunities are recorded; no org-level opportunity sensor yet |
+| Creator Pipeline | **missing** | the Creator Hub keeps records; no org-level creator sensor yet |
 | Client Pipeline | **missing** | shell-stub workspace, no data |
 
 Three capabilities were deliberately **not** restored because they have no data
-to back them: **Predictive** (needs a historical store — the planned Executive
-Memory), **Transcript** (no transcript content exists anywhere), and any
-**AI-conversation** intelligence (no LLM). Filling those panels would fabricate
-the evidence the Brain exists to refuse.
+to back them: **Predictive** (needs a historical store), **Transcript** (no
+transcript content exists anywhere), and any model-authored intelligence (the
+Executive Brain calls no model). Filling those panels would fabricate the
+evidence the Brain exists to refuse.
 
 ## The Observation model
 
@@ -120,8 +126,8 @@ authored, mirroring the discipline in `coverage.ts` and `marketplace/score.ts`.
   it fires only when every observation it joins already exists, cites them all,
   and takes its confidence as their weakest link. It cannot invent a signal.
 - **`evidenceCoverage.statusCounts`** and a per-sensor **`status`** —
-  `healthy` / `stale` / `connected` / `missing`, each DERIVED from data presence
-  and freshness. This is the first-class coverage board: an executive sees which
+  `healthy` / `stale` / `connected` / `missing` / `excluded`, each DERIVED from
+  data presence and freshness (or declared excluded by design). This is the first-class coverage board: an executive sees which
   systems are connected, healthy, going stale, or absent, at a glance.
 - Every observation carries an **`affectedArea`** for the Details panel.
 
@@ -131,9 +137,9 @@ authored, mirroring the discipline in `coverage.ts` and `marketplace/score.ts`.
 npx tsx packages/intelligence/src/executive/verification.ts
 ```
 
-Eleven checks: the six mission invariants, provider-neutrality, and the Sprint 26
+Thirteen checks: the six mission invariants, provider-neutrality, and the Sprint 26
 additions (What Changed, its suppression when unevidenced, evidence-gated
-correlation, and the derived coverage status). Pure, framework-free, deterministic
+correlation, the derived coverage status, and excluded-by-design sources). Pure, framework-free, deterministic
 — the package's established convention (see `evidence/verification.ts`). No clock,
 no I/O; `now` is injected.
 

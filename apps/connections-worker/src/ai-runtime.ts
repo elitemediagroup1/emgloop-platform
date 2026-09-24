@@ -9,9 +9,17 @@
 //
 // OFF IS THE DEFAULT, AND CREDENTIALS ARE NOT A SWITCH. With LOOP_AI_ENABLED anything but exactly
 // "true", no provider client is constructed and the activation is OFF, so the gateway refuses every
-// invocation as NOT_ACTIVATED before a byte leaves the process. A provider is enabled only when it is
-// listed (LOOP_AI_PROVIDERS), its data terms are confirmed (LOOP_AI_PROVIDER_TERMS_CONFIRMED), and its
-// credential produced a usable client. A kill switch fails closed.
+// invocation as NOT_ACTIVATED before a byte leaves the process. A provider client is constructed only
+// when it is listed (LOOP_AI_PROVIDERS -- the credential floor) and its credential produced a usable
+// client. A kill switch fails closed.
+//
+// G2 IS RECORDED, NOT CONFIGURED (2026-09-24). Whether Loop may SEND a provider this task's class of
+// data is a stored control (`ai_controls`, scope PROVIDER_POLICY), read by the gateway through
+// `aiProviderPolicyReader` (cached in-process for 30 s, never more than 60). Without a current ACTIVE
+// policy whose ceiling reaches COMMUNICATION_CONTENT (the triage task's ceiling), every triage call is
+// refused as POLICY_DENIED + PROVIDER_POLICY_* and the content sweep HOLDS its frontier (nothing is
+// dropped). LOOP_AI_PROVIDER_TERMS_CONFIRMED is no longer read: listing a provider in the environment
+// never implies its terms were confirmed.
 //
 // NO CREDENTIAL VALUE IS RETURNED, LOGGED OR ECHOED. It goes straight into the provider factory and
 // nowhere else. The message body the triage judges never reaches this module -- it is assembled into a
@@ -23,6 +31,7 @@ import {
   AiRuntimeGateway,
   DurableAiUsageLedger,
   TelegramContentTriageService,
+  aiProviderPolicyReader,
   iamAiAuthorizer,
   type TelegramContentTriageRuntime,
 } from '@emgloop/database';
@@ -65,6 +74,14 @@ function parseKillSwitches(raw: string | undefined): AiKillSwitch[] {
   return out;
 }
 
+/**
+ * The providers this deployment may construct a client for: LOOP_AI_PROVIDERS, and nothing else.
+ * The credential floor only -- whether a provider may be SENT anything is its recorded policy (G2).
+ */
+export function workerListedProviders(env: Record<string, string | undefined>): string[] {
+  return parseList(env.LOOP_AI_PROVIDERS);
+}
+
 function present(v: string | undefined): boolean {
   return typeof v === 'string' && v.trim() !== '';
 }
@@ -97,8 +114,7 @@ export function createWorkerAiRuntime(
     return { service: new TelegramContentTriageService({ runtime: options.runtime }), enabled: true };
   }
 
-  const listed = parseList(env.LOOP_AI_PROVIDERS);
-  const confirmed = parseList(env.LOOP_AI_PROVIDER_TERMS_CONFIRMED);
+  const listed = workerListedProviders(env);
   const killSwitches = parseKillSwitches(env.LOOP_AI_KILL_SWITCHES);
 
   // Exactly "true". A switch that spends money is turned on deliberately or not at all.
@@ -116,10 +132,10 @@ export function createWorkerAiRuntime(
   };
 
   const clients: AiProviderClient[] = [];
-  if (listed.includes('anthropic') && confirmed.includes('anthropic')) {
+  if (listed.includes('anthropic')) {
     clients.push(build('anthropic', createAnthropicProvider, present(env.ANTHROPIC_API_KEY) ? env.ANTHROPIC_API_KEY : undefined));
   }
-  if (listed.includes('openai') && confirmed.includes('openai')) {
+  if (listed.includes('openai')) {
     clients.push(build('openai', createOpenAiProvider, present(env.OPENAI_API_KEY) ? env.OPENAI_API_KEY : undefined));
   }
   const usable = clients.filter((c) => c.state === 'CONFIGURED').map((c) => c.providerId);
@@ -156,6 +172,8 @@ function assemble(
       authorize,
       now,
       newInvocationId: newInvocationId ?? (() => randomUUID()),
+      // G2: the recorded provider policies, from this worker's own database. Never the environment.
+      providerPolicies: aiProviderPolicyReader(prisma),
     },
   );
   const enabled = activation.enabled && providers.length > 0 && Boolean(AI_ROUTING_POLICY.tasks['telegram.content.triage']);

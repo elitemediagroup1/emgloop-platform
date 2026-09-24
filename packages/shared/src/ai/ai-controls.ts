@@ -21,12 +21,26 @@
 // organization (an organization may switch off a task the platform enabled, never
 // switch on one it did not). `aiEffectiveControls` is the one place this is decided.
 //
+// ONE MORE KIND, KEPT APART (G2, 2026-09-24). A PROVIDER_POLICY control is not an
+// activation switch: it records the highest sensitivity class Loop may send to one provider
+// (`ceiling`), with a reason. It lives in the same log -- versioned, append-only, KILLED the
+// same way -- under its own key namespace (`PROVIDER_POLICY|-|<provider>`), so it can never be
+// read as, or collide with, a PROVIDER activation control. `aiEffectiveControls` ignores it;
+// the gateway's admission reads it (provider-policy.ts).
+//
 // PURE.
 
 import { AI_KILL_SWITCH_SCOPES, type AiActivation, type AiKillSwitch, type AiKillSwitchScope } from './runtime';
+import { AI_SENSITIVITY_CLASSES, type AiSensitivityClass } from './context';
+import { AI_PROVIDER_POLICY_SCOPE, type AiProviderPolicy } from './provider-policy';
 
+/** The scopes that switch AI work on or off: the same five the kill switches use. */
 export const AI_CONTROL_SCOPES = AI_KILL_SWITCH_SCOPES;
 export type AiControlScope = AiKillSwitchScope;
+
+/** Every scope the control log stores: the five switches, and the provider policy (G2). */
+export const AI_STORED_CONTROL_SCOPES = [...AI_CONTROL_SCOPES, AI_PROVIDER_POLICY_SCOPE] as const;
+export type AiStoredControlScope = (typeof AI_STORED_CONTROL_SCOPES)[number];
 
 /** ACTIVE: recorded authority enables the target. KILLED: it is stopped. */
 export const AI_CONTROL_STATES = ['ACTIVE', 'KILLED'] as const;
@@ -39,9 +53,10 @@ export type AiControlState = (typeof AI_CONTROL_STATES)[number];
  *   MODEL         one model, platform-wide. No organization.
  *   TASK          one task, platform-wide (no organization) or within one organization.
  *   ORGANIZATION  one organization. Its value IS that organization.
+ *   PROVIDER_POLICY  one provider's data-class approval, platform-wide. No organization.
  */
 export interface AiControlTarget {
-  readonly scope: AiControlScope;
+  readonly scope: AiStoredControlScope;
   readonly organizationId: string | null;
   readonly value: string | null;
 }
@@ -59,6 +74,11 @@ export interface AiControlEntry {
   readonly reason: string;
   readonly actor: AiControlActor;
   readonly recordedAtMs: number;
+  /**
+   * PROVIDER_POLICY only: the highest sensitivity class the provider may receive. Required
+   * when ACTIVE; optional when KILLED; never present on any other scope.
+   */
+  readonly ceiling?: AiSensitivityClass | null;
 }
 
 export const AI_CONTROL_REFUSALS = [
@@ -71,18 +91,21 @@ export const AI_CONTROL_REFUSALS = [
   'ORGANIZATION_VALUE_MISMATCH',
   'REASON_REQUIRED',
   'ACTOR_INCOMPLETE',
+  'CEILING_REQUIRED',
+  'CEILING_NOT_ALLOWED_FOR_SCOPE',
+  'UNKNOWN_CEILING',
 ] as const;
 export type AiControlRefusal = (typeof AI_CONTROL_REFUSALS)[number];
 
 const VALUE = /^[A-Za-z0-9][A-Za-z0-9._:\/-]{0,199}$/;
 
 /** Everything wrong with a control about to be recorded. Empty means it may be appended. */
-export function aiControlRefusals(entry: Pick<AiControlEntry, 'target' | 'state' | 'reason' | 'actor'>): AiControlRefusal[] {
+export function aiControlRefusals(entry: Pick<AiControlEntry, 'target' | 'state' | 'reason' | 'actor' | 'ceiling'>): AiControlRefusal[] {
   const out: AiControlRefusal[] = [];
   const { scope, organizationId, value } = entry.target;
-  if (!(AI_CONTROL_SCOPES as readonly string[]).includes(scope)) out.push('UNKNOWN_SCOPE');
+  if (!(AI_STORED_CONTROL_SCOPES as readonly string[]).includes(scope)) out.push('UNKNOWN_SCOPE');
   if (!(AI_CONTROL_STATES as readonly string[]).includes(entry.state)) out.push('UNKNOWN_STATE');
-  const platformOnly = scope === 'GLOBAL' || scope === 'PROVIDER' || scope === 'MODEL';
+  const platformOnly = scope === 'GLOBAL' || scope === 'PROVIDER' || scope === 'MODEL' || scope === AI_PROVIDER_POLICY_SCOPE;
   if (platformOnly && organizationId !== null) out.push('ORGANIZATION_NOT_ALLOWED_FOR_SCOPE');
   if (scope === 'ORGANIZATION' && organizationId === null) out.push('ORGANIZATION_REQUIRED');
   if (scope === 'GLOBAL' && value !== null) out.push('VALUE_NOT_ALLOWED_FOR_SCOPE');
@@ -91,6 +114,15 @@ export function aiControlRefusals(entry: Pick<AiControlEntry, 'target' | 'state'
   if (typeof entry.reason !== 'string' || entry.reason.trim() === '') out.push('REASON_REQUIRED');
   const a = entry.actor;
   if (a.kind === 'HUMAN' ? !nonBlank(a.userId) : a.kind === 'OPERATIONS' ? !nonBlank(a.reference) : true) out.push('ACTOR_INCOMPLETE');
+  // The ceiling belongs to a provider policy and nothing else. An ACTIVE policy must name one; a
+  // KILLED one may keep the ceiling it had, or name none.
+  const ceiling = entry.ceiling ?? null;
+  if (ceiling !== null && !(AI_SENSITIVITY_CLASSES as readonly string[]).includes(ceiling)) out.push('UNKNOWN_CEILING');
+  if (scope === AI_PROVIDER_POLICY_SCOPE) {
+    if (entry.state === 'ACTIVE' && ceiling === null) out.push('CEILING_REQUIRED');
+  } else if (ceiling !== null) {
+    out.push('CEILING_NOT_ALLOWED_FOR_SCOPE');
+  }
   return [...new Set(out)];
 }
 
@@ -117,12 +149,13 @@ export type AiControlAppendDecision =
  * else's decision. Recording the state a control already has appends nothing.
  */
 export function aiControlAppendDecision(
-  current: { readonly version: number; readonly state: AiControlState } | null,
-  request: { readonly expectedVersion: number; readonly state: AiControlState },
+  current: { readonly version: number; readonly state: AiControlState; readonly ceiling?: string | null } | null,
+  request: { readonly expectedVersion: number; readonly state: AiControlState; readonly ceiling?: string | null },
 ): AiControlAppendDecision {
   const version = current?.version ?? 0;
   if (request.expectedVersion !== version) return { action: 'STALE', currentVersion: version };
-  if (current && current.state === request.state) return { action: 'UNCHANGED' };
+  // A provider policy that moves its ceiling is a change even when its state does not.
+  if (current && current.state === request.state && (current.ceiling ?? null) === (request.ceiling ?? null)) return { action: 'UNCHANGED' };
   return { action: 'APPEND', version: version + 1 };
 }
 
@@ -157,7 +190,8 @@ export function aiEffectiveControls(
   stored: readonly AiControlEntry[],
   organizationId: string,
 ): AiEffectiveControls {
-  const applying = aiControlsApplyingTo(organizationId, stored);
+  // Provider policies are not switches: G2 is decided at admission, never here.
+  const applying = aiControlsApplyingTo(organizationId, stored).filter((e) => e.target.scope !== AI_PROVIDER_POLICY_SCOPE);
   const has = (state: AiControlState, scope: AiControlScope, value: string | null, org: string | null) =>
     applying.some((e) => e.state === state && e.target.scope === scope && e.target.value === value && e.target.organizationId === org);
 
@@ -187,4 +221,18 @@ export function aiEffectiveControls(
     activation: { enabled, organizations, tasks, providers },
     killSwitches,
   };
+}
+
+/**
+ * The current provider policies among a set of current controls, in the shape admission reads.
+ * A policy row that cannot be understood is dropped here and so reads as MISSING, never as a
+ * wider approval; the repository refuses to return such a row at all.
+ */
+export function aiProviderPoliciesOf(entries: readonly AiControlEntry[]): AiProviderPolicy[] {
+  const out: AiProviderPolicy[] = [];
+  for (const e of entries) {
+    if (e.target.scope !== AI_PROVIDER_POLICY_SCOPE || e.target.organizationId !== null || !e.target.value) continue;
+    out.push({ providerId: e.target.value, state: e.state, ceiling: e.ceiling ?? null, version: e.version, recordedAtMs: e.recordedAtMs });
+  }
+  return out;
 }

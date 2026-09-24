@@ -17,9 +17,14 @@
 // A DEPLOYMENT HOLDING VALID KEYS MAKES NO CALL UNTIL ACTIVATED. With LOOP_AI_ENABLED
 // anything but exactly "true", no provider client is even constructed.
 //
-// A PROVIDER IS ENABLED ONLY WHEN THREE THINGS AGREE: it is listed in
-// LOOP_AI_PROVIDERS, its data terms are confirmed in LOOP_AI_PROVIDER_TERMS_CONFIRMED
-// (activation gate G2), and its credential produced a usable client.
+// A PROVIDER CLIENT IS BUILT ONLY WHEN TWO THINGS AGREE: it is listed in
+// LOOP_AI_PROVIDERS (the credential floor), and its credential produced a usable client.
+//
+// G2 IS NOT HERE ANY MORE (2026-09-24). Whether Loop may SEND a provider a class of data
+// is a RECORDED provider policy (`ai_controls`, scope PROVIDER_POLICY), which the gateway
+// reads through `aiProviderPolicyReader` and refuses without (POLICY_DENIED). The old
+// LOOP_AI_PROVIDER_TERMS_CONFIRMED variable is not read: an environment can list a
+// provider, never approve one.
 //
 // KILL SWITCHES FAIL CLOSED. An entry nobody can parse stops everything.
 //
@@ -55,7 +60,6 @@ export const AI_ENVIRONMENT = Object.freeze({
   organizations: 'LOOP_AI_ORGANIZATIONS',
   tasks: 'LOOP_AI_TASKS',
   providers: 'LOOP_AI_PROVIDERS',
-  termsConfirmed: 'LOOP_AI_PROVIDER_TERMS_CONFIRMED',
   killSwitches: 'LOOP_AI_KILL_SWITCHES',
 } as const);
 
@@ -66,7 +70,6 @@ export interface AiProviderConfiguration {
   readonly providerId: string;
   readonly credential: 'PRESENT' | 'ABSENT';
   readonly listed: boolean;
-  readonly termsConfirmed: boolean;
 }
 
 export interface AiEnvironment {
@@ -126,12 +129,11 @@ function present(value: string | undefined): boolean {
  */
 export function readAiEnvironment(source: AiEnvironmentSource = process.env, deps: AiEnvironmentDeps = {}): AiEnvironment {
   const listed = parseAiList(source[AI_ENVIRONMENT.providers]);
-  const confirmed = parseAiList(source[AI_ENVIRONMENT.termsConfirmed]);
   const killSwitches = parseAiKillSwitches(source[AI_ENVIRONMENT.killSwitches]);
 
   const configuration: AiProviderConfiguration[] = [
-    { providerId: 'anthropic', credential: present(source[AI_ENVIRONMENT.anthropicKey]) ? 'PRESENT' : 'ABSENT', listed: listed.includes('anthropic'), termsConfirmed: confirmed.includes('anthropic') },
-    { providerId: 'openai', credential: present(source[AI_ENVIRONMENT.openAiKey]) ? 'PRESENT' : 'ABSENT', listed: listed.includes('openai'), termsConfirmed: confirmed.includes('openai') },
+    { providerId: 'anthropic', credential: present(source[AI_ENVIRONMENT.anthropicKey]) ? 'PRESENT' : 'ABSENT', listed: listed.includes('anthropic') },
+    { providerId: 'openai', credential: present(source[AI_ENVIRONMENT.openAiKey]) ? 'PRESENT' : 'ABSENT', listed: listed.includes('openai') },
   ];
 
   // Exactly "true". Not "TRUE", not "1", not "yes": a switch that spends money is
@@ -152,8 +154,9 @@ export function readAiEnvironment(source: AiEnvironmentSource = process.env, dep
   const capabilitiesFor = (providerId: string) =>
     deps.capabilities ? (modelId: string) => deps.capabilities!(providerId, modelId) : undefined;
   const providers: AiProviderClient[] = [];
-  // Only providers an operator listed AND confirmed terms for are even constructed.
-  if (listed.includes('anthropic') && confirmed.includes('anthropic')) {
+  // Only providers an operator listed are even constructed. Whether one may be SENT anything is
+  // its recorded policy, decided by the gateway at admission (G2).
+  if (listed.includes('anthropic')) {
     providers.push(
       build('anthropic', deps.createAnthropicProvider ?? createAnthropicProvider, {
         apiKey: source[AI_ENVIRONMENT.anthropicKey],
@@ -161,7 +164,7 @@ export function readAiEnvironment(source: AiEnvironmentSource = process.env, dep
       }),
     );
   }
-  if (listed.includes('openai') && confirmed.includes('openai')) {
+  if (listed.includes('openai')) {
     providers.push(
       build('openai', deps.createOpenAiProvider ?? createOpenAiProvider, {
         apiKey: source[AI_ENVIRONMENT.openAiKey],
@@ -184,20 +187,19 @@ export function readAiEnvironment(source: AiEnvironmentSource = process.env, dep
  * This deployment's FLOOR for Brain work (B5): whether it allows AI at all, for which
  * organizations, tasks and providers, and what it kills. It reads no credential and builds
  * no client -- Brain work executes elsewhere, with its own credentials, so this web tier
- * needs none to accept it. A provider counts when it is listed AND its data terms are
- * confirmed. The recorded controls in Neon are combined with this by
- * `aiEffectiveControls`; neither is ever copied into the other.
+ * needs none to accept it. A provider counts when it is listed. The recorded controls in
+ * Neon are combined with this by `aiEffectiveControls`; neither is ever copied into the
+ * other. Provider approval (G2) is a recorded provider policy, enforced at admission.
  */
 export function readAiControlFloor(source: AiEnvironmentSource = process.env): AiControlFloor {
   const killSwitches = parseAiKillSwitches(source[AI_ENVIRONMENT.killSwitches]);
   if (source[AI_ENVIRONMENT.enabled] !== 'true') return { activation: AI_ACTIVATION_OFF, killSwitches };
-  const confirmed = parseAiList(source[AI_ENVIRONMENT.termsConfirmed]);
   return {
     activation: Object.freeze({
       enabled: true,
       organizations: Object.freeze(parseAiList(source[AI_ENVIRONMENT.organizations])),
       tasks: Object.freeze(parseAiList(source[AI_ENVIRONMENT.tasks])),
-      providers: Object.freeze(parseAiList(source[AI_ENVIRONMENT.providers]).filter((p) => confirmed.includes(p))),
+      providers: Object.freeze(parseAiList(source[AI_ENVIRONMENT.providers])),
     }),
     killSwitches,
   };

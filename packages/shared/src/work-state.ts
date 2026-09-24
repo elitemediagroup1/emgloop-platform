@@ -267,7 +267,8 @@ export const WORK_EVIDENCE_QUOTE_MAX_CHARS = 240;
 
 // --- Retention (§21.3, approved 2026-09-17 as initial product policy) --------------------------
 
-export const WORK_RETENTION_POLICY_VERSION = 'work-retention.2026-09-17.1';
+// .2026-09-24.1: adds INTELLIGENCE_DIGESTS (Loop Intelligence PR A). Every earlier window is unchanged.
+export const WORK_RETENTION_POLICY_VERSION = 'work-retention.2026-09-24.1';
 
 /**
  * How long each category is kept, and why.
@@ -309,6 +310,10 @@ export const WORK_RETENTION_CATEGORIES: readonly WorkRetentionCategory[] = Objec
   Object.freeze({ category: 'PROVENANCE_REFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the conclusion it supports', tables: Object.freeze([]), why: 'Evidence outliving its conclusion is the rule; the reverse is uninterpretable.' }),
   Object.freeze({ category: 'PROCESSING_CACHE', rule: 'DAYS', days: 1, anchor: 'successful processing, whichever is sooner', tables: Object.freeze([]), why: 'Stage 2 only: deleted on success, with a 24-hour ceiling as a backstop.' }),
   Object.freeze({ category: 'OPERATIONAL_SYNC_STATE', rule: 'DAYS', days: 30, anchor: 'the run starting; cursors live while connected', tables: Object.freeze(['work_sync_runs', 'work_source_cursors']), why: 'Operational only: enough to see a stalled pipeline.' }),
+  // Loop Intelligence PR A (approved 2026-09-24): one person's minimized domain intelligence. The
+  // window is stamped on each row as `expiresAt` when it is written (intelligence-digest.ts), so an
+  // organization override cannot move it; `setRetentionOverride` refuses this category for that reason.
+  Object.freeze({ category: 'INTELLIGENCE_DIGESTS', rule: 'DAYS', days: 30, anchor: 'a conversation or thread digest: its newest evidence; a domain rollup: its generation', tables: Object.freeze(['intelligence_digests']), why: 'A reading of a conversation nobody has touched for a month is not current intelligence, and keeping it would be an archive.' }),
   Object.freeze({ category: 'EMPLOYEE_PREFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the membership', tables: Object.freeze(['employee_work_preferences', 'work_retention_overrides']), why: "A person's own settings last as long as they are a member." }),
   Object.freeze({ category: 'SECURITY_AUDIT', rule: 'GOVERNED_ELSEWHERE', days: null, anchor: 'not applicable', tables: Object.freeze([]), why: 'Audit records acts, never correspondence, and has its own policy.' }),
 ]);
@@ -394,7 +399,11 @@ export function workRetentionCategory(category: string): WorkRetentionCategory |
   return WORK_RETENTION_CATEGORIES.find((c) => c.category === category) ?? null;
 }
 
-/** Every table this slice creates. The coverage test walks it against the categories. */
+/**
+ * Every per-person table this retention policy governs. The coverage test walks it against the
+ * categories, and the erasure test against what offboarding deletes -- so a table listed here
+ * cannot be added without a retention window AND a deletion when the membership ends.
+ */
 export const WORK_STATE_TABLES: readonly string[] = Object.freeze([
   'work_source_cursors',
   'work_sync_runs',
@@ -411,4 +420,9 @@ export const WORK_STATE_TABLES: readonly string[] = Object.freeze([
   'work_drafts',
   'employee_work_preferences',
   'work_retention_overrides',
+  // Loop Intelligence PR A (2026-09-24): principal-private domain intelligence digests.
+  'intelligence_digests',
 ]);
+
+/** Categories whose window is stamped on the row at write time, so an organization override cannot apply. */
+export const WORK_RETENTION_NOT_OVERRIDABLE: readonly string[] = Object.freeze(['INTELLIGENCE_DIGESTS']);

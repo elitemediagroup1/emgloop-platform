@@ -5,7 +5,7 @@
 // uniformly and knows nothing about what any of them measures — that is the
 // whole point of this file. Marketplace is one sensor, not a special case.
 //
-// A sensor is in exactly one of two states, and BOTH are first-class:
+// A sensor is in exactly one of three states, and ALL are first-class:
 //
 //   instrumented   — it has an Evidence Engine contributor, so it produced an
 //                    EvidenceReport and a set of findings that reason over it.
@@ -14,6 +14,12 @@
 //                    not yet wired" instead of silently omitting it, and it is
 //                    why a sensor can never contribute a confidence that no
 //                    Evidence Engine computed.
+//   excluded       — the source EXISTS in Loop, and the Executive Brain
+//                    deliberately does not read it (an employee's own mailbox,
+//                    calendar or chats; a model's output). It says what exists
+//                    and why it is not read, so "not read by design" is never
+//                    confused with "not built", and nothing implies the Brain
+//                    sees a source it does not.
 //
 // The strict boundary: an observation may only originate from an instrumented
 // sensor's findings, and only when those findings cite metrics that CLEARED the
@@ -79,7 +85,24 @@ export interface UninstrumentedSensor {
   uninstrumented: { reason: string; unblockedBy: string | null };
 }
 
-export type ExecutiveSensor = InstrumentedSensor | UninstrumentedSensor;
+/**
+ * A source that exists and that the Executive Brain deliberately does not read. It is
+ * never instrumented: no finding, metric or confidence can come from it.
+ */
+export interface ExcludedSensor {
+  id: string;
+  label: string;
+  instrumented: false;
+  /** What exists in Loop today, and why the Executive Brain does not read it. */
+  excluded: { exists: string; reason: string };
+}
+
+export type ExecutiveSensor = InstrumentedSensor | UninstrumentedSensor | ExcludedSensor;
+
+/** Whether a sensor is a source the Executive Brain deliberately does not read. */
+export function isExcludedSensor(sensor: ExecutiveSensor): sensor is ExcludedSensor {
+  return !sensor.instrumented && 'excluded' in sensor;
+}
 
 /** Declare a sensor that is not yet instrumented. A convenience so callers state
  * the gap in one line rather than assembling the discriminated shape by hand. */
@@ -90,4 +113,9 @@ export function uninstrumentedSensor(
   unblockedBy: string | null = null,
 ): UninstrumentedSensor {
   return { id, label, instrumented: false, uninstrumented: { reason, unblockedBy } };
+}
+
+/** Declare a source that exists and that the Executive Brain deliberately does not read. */
+export function excludedSensor(id: string, label: string, exists: string, reason: string): ExcludedSensor {
+  return { id, label, instrumented: false, excluded: { exists, reason } };
 }

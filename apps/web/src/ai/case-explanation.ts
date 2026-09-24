@@ -12,13 +12,16 @@
 // WITH THE DEFAULT ENVIRONMENT THIS MAKES NO PROVIDER CALL. The runtime is off until
 // LOOP_AI_ENABLED is exactly "true" and the organization, task and provider are all
 // listed; until then an explanation request is refused before any reservation, and
-// availability says NOT_ENABLED without calling anything.
+// availability says NOT_ENABLED without calling anything. Even then, a provider receives
+// nothing until a RECORDED provider policy admits the task's data class (G2): without one the
+// request is refused as POLICY_DENIED. Availability does not check G2; the gateway does.
 
 import 'server-only';
 
 import { randomUUID } from 'crypto';
 import {
   AiRuntimeGateway,
+  aiProviderPolicyReader,
   CaseExplanationService,
   DurableAiUsageLedger,
   iamAiAuthorizer,
@@ -34,6 +37,10 @@ export interface AiSessionPrincipal {
   readonly organizationId: string;
   readonly userId: string;
 }
+
+// One cached reader per server instance (30 s, never more than 60): a policy recorded or KILLED
+// reaches every instance within a minute, without a deploy.
+const providerPolicies = aiProviderPolicyReader(prisma);
 
 function assemble() {
   const env = aiEnvironment({ capabilities: aiCatalogCapabilities });
@@ -53,6 +60,8 @@ function assemble() {
       authorize,
       now: () => new Date(),
       newInvocationId: () => randomUUID(),
+      // G2: the recorded provider policies, shared by every request this instance serves.
+      providerPolicies,
     },
   );
   return { env, authorize, service: new CaseExplanationService(prisma, { runtime: gateway, authorize }) };

@@ -5,8 +5,9 @@
 // call volume rising while attribution coverage drops is a measurement gap. This
 // layer reasons across sensors.
 //
-// HONEST ABOUT WHAT IT IS. There is no LLM in this platform, so these are not
-// emergent conclusions — they are deterministic, transparent rules. What makes
+// HONEST ABOUT WHAT IT IS. The Executive Brain calls no model (Loop's governed AI
+// runtime serves other, on-demand tasks; none of them feeds this layer), so these
+// are not emergent conclusions — they are deterministic, transparent rules. What makes
 // them trustworthy rather than hardcoded assertions is that each rule fires ONLY
 // when the observations it correlates ALREADY EXIST, and each already cleared the
 // Evidence Engine. A correlation therefore cannot invent a signal; it can only

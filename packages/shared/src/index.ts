@@ -195,6 +195,10 @@ export * from './recovery-chunking';
 // endpoint so an external watcher can see a poller that STOPPED, not only one
 // that failed.
 export * from './coverage-health';
+// Loop Intelligence (PR A, 2026-09-24): the coverage contract every piece of domain intelligence
+// carries, and the contract of `intelligence_digests` (principal-private, minimized, bounded).
+export * from './intelligence-coverage';
+export * from './intelligence-digest';
 // Representative product states for building and reviewing surfaces. Typed as the
 // real contracts, so a contract change breaks the fixtures rather than the design.
 export * from './product-states.fixture';

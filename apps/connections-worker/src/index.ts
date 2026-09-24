@@ -312,12 +312,14 @@ async function main(): Promise<void> {
     }
   }
 
-  // --- Retention: two independent steps, one cadence -------------------------------------------
+  // --- Retention: three independent steps, one cadence -----------------------------------------
   // 1. Content-free observations past the deployment's horizon.
-  // 2. DERIVED work (the model's obligations) for a connection disconnected past the §21.2 grace
-  //    window: discovery is platform-wide and routing-only; the delete is per principal, scoped and
-  //    audited inside the repository, which also refuses a connection that is live again. Counts
-  //    only are logged.
+  // 2. DERIVED work (the model's obligations) and the principal's domain-intelligence digests for a
+  //    connection disconnected past the §21.2 grace window: discovery is platform-wide and
+  //    routing-only; the delete is per principal, scoped and audited inside the repository, which
+  //    also refuses a connection that is live again. Counts only are logged.
+  // 3. Domain-intelligence digests past their own `expiresAt` (§21.3 INTELLIGENCE_DIGESTS, 30 days),
+  //    platform-wide by time. Counts only.
   const derivedRetentionPorts: DerivedRetentionPorts = {
     dueForDerivedExpiry: (now) => connections.dueForDerivedExpiry(now, 500),
     expireDerivedWork: (due, now) => connections.expireDerivedWork(due.organizationId, due.userId, due.provider, { now }),
@@ -338,6 +340,13 @@ async function main(): Promise<void> {
       if (summary.due > 0) log('derived_purge', { ...summary });
     } catch (err) {
       log('derived_purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    try {
+      const { IntelligenceDigestRepository } = await import('@emgloop/database');
+      const { purged } = await new IntelligenceDigestRepository(prisma).purgeExpired(new Date());
+      if (purged > 0) log('digest_purge', { purged });
+    } catch (err) {
+      log('digest_purge_error', { name: (err as Error)?.name ?? 'error' });
     }
   }
 

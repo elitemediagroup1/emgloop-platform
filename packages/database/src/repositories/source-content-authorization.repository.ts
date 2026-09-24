@@ -18,8 +18,11 @@
 // CONSENT IS DERIVED, NOT A STATE COLUMN. Authorized means authorizedAt set and revokedAt null; revoked
 // means revokedAt set. A revoke stops all further content processing immediately -- AND, in the same
 // transaction, withdraws what that processing already derived: every MODEL-produced WorkItem for the
-// provider is closed (REVOKED) and minimized to provenance (WorkWithdrawalRepository, §21.2). The
-// content cursor is kept, so a later re-authorization does not re-triage what was already judged.
+// provider is closed (REVOKED) and minimized to provenance (WorkWithdrawalRepository, §21.2), and
+// every domain-intelligence digest drawn from that provider is DELETED (IntelligenceDigestRepository
+// .withdrawForProvider; approved 2026-09-24: "removed immediately" -- a digest is a projection, so
+// unlike an item there is no provenance-only remainder worth keeping). The content cursor is kept,
+// so a later re-authorization does not re-triage what was already judged.
 //
 // THE WRITE RE-CHECKS IT (2026-09-24). `contentAuthorizedInTx` is the one read of that derived fact
 // for a writer: WorkItemRepository.detect calls it inside its own transaction before writing a MODEL
@@ -30,6 +33,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emgloop/shared';
 
 import { membershipAuthority } from './membership.repository';
+import { IntelligenceDigestRepository, intelligenceDigestsPresent } from './intelligence/intelligence-digest.repository';
 import { writeAudit, type SourceConnectionActor } from './source-connection.repository';
 import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repository';
 
@@ -46,7 +50,8 @@ const CONTENT_REVOKED_REASON = 'content authorization revoked';
  * an audit row per provider. Used by offboarding: disabling or removing a member withdraws their
  * content consent in the same transaction as the membership change, so a consent never outlives
  * the membership it was given under. The derived items are not withdrawn here -- offboarding
- * erases every work row outright (WorkErasureRepository) in the same transaction. Returns how many
+ * erases every work row outright (WorkErasureRepository) in the same transaction. Each provider's
+ * domain-intelligence digests ARE deleted here, so a consent never ends with its digests standing. Returns how many
  * authorizations were revoked; nothing is written, and no audit row, for one already revoked.
  */
 export async function revokeContentAuthorizationsInTx(
@@ -54,11 +59,20 @@ export async function revokeContentAuthorizationsInTx(
   tx: Prisma.TransactionClient,
   organizationId: string,
   userId: string,
-  request: { readonly actor: SourceConnectionActor; readonly now: Date; readonly reason: 'MEMBER_DISABLED' | 'MEMBER_REMOVED' },
+  request: {
+    readonly actor: SourceConnectionActor;
+    readonly now: Date;
+    readonly reason: 'MEMBER_DISABLED' | 'MEMBER_REMOVED';
+    /** False only when the caller probed (`intelligenceDigestsPresent`) and the table is not migrated yet. */
+    readonly digests?: boolean;
+  },
 ): Promise<number> {
   const live = await tx.sourceContentAuthorization.findMany({ where: { organizationId, userId, revokedAt: null } });
   for (const row of live) {
     await tx.sourceContentAuthorization.update({ where: { id: row.id }, data: { revokedAt: request.now, backoffUntil: null, historicalBackoffUntil: null } });
+    // The digests drawn under this consent go with it, in the same transaction. (Offboarding also
+    // erases every digest via WorkErasureRepository; this keeps the revoke self-sufficient.)
+    const digests = request.digests === false ? { deleted: 0 } : await new IntelligenceDigestRepository(tx).withdrawForProvider({ organizationId, userId }, row.provider);
     const connection = await tx.sourceConnection.findFirst({ where: { organizationId, userId, provider: row.provider } });
     await writeAudit(prisma, tx, {
       organizationId,
@@ -66,7 +80,7 @@ export async function revokeContentAuthorizationsInTx(
       action: SOURCE_CONNECTION_AUDIT_ACTIONS.content_revoked,
       provider: row.provider as ConnectionProvider,
       actor: request.actor,
-      metadata: { subjectUserId: userId, reason: request.reason },
+      metadata: { subjectUserId: userId, reason: request.reason, digestsDeleted: digests.deleted },
     });
   }
   return live.length;
@@ -220,6 +234,8 @@ export class SourceContentAuthorizationRepository {
     provider: ConnectionProvider,
     request: { readonly now: Date; readonly actor: SourceConnectionActor },
   ): Promise<ContentWriteOutcome> {
+    // Known before the transaction: a missing table cannot be caught inside one (see the helper).
+    const digestsPresent = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider } });
       if (!existing || existing.revokedAt != null) return { outcome: 'NOTHING_TO_DO' as const };
@@ -232,13 +248,15 @@ export class SourceContentAuthorizationRepository {
         { organizationId, userId },
         { provider, occurredAt: request.now, reason: CONTENT_REVOKED_REASON },
       );
+      // Domain intelligence drawn under this consent is deleted outright, in this transaction.
+      const digests = digestsPresent ? await new IntelligenceDigestRepository(tx).withdrawForProvider({ organizationId, userId }, provider) : { deleted: 0 };
       await writeAudit(this.prisma, tx, {
         organizationId,
         connectionId: connection?.id ?? existing.id,
         action: SOURCE_CONNECTION_AUDIT_ACTIONS.content_revoked,
         provider,
         actor: request.actor,
-        metadata: { subjectUserId: userId, withdrawn: { closed: withdrawn.closed, minimized: withdrawn.minimized } },
+        metadata: { subjectUserId: userId, withdrawn: { closed: withdrawn.closed, minimized: withdrawn.minimized }, digestsDeleted: digests.deleted },
       });
       return { outcome: 'REVOKED' as const, authorizationId: row.id };
     });

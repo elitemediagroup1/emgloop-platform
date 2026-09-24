@@ -24,11 +24,10 @@ import { composeBriefing, type BriefingInput, type BriefingToday, type QueueInst
 import { NeedsAttention } from '../src/app/app/_home/briefing-view';
 import { kpiWords, HOME_KPI_KEYS, projectHomeKpis, type HomeKpiInput, type HomeKpiStrip } from '../src/app/app/_home/kpis';
 import { projectTiles, TILE_PATHS, type TilesInput } from '../src/app/app/_home/tiles';
-import { ACTIVITY_ON_HOME, HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid, HEADLINES_ON_HOME } from '../src/app/app/_home/front-door-view';
+import { HeadlinesPanel, KpiStrip, ToolsGrid, HEADLINES_ON_HOME } from '../src/app/app/_home/front-door-view';
 import type { HeadlineStanding } from '../src/app/app/_home/front-door-data';
 import { chatsIntelligence, type ChatsIntelligenceInput, type ChatsItem } from '../src/daily-loop/chats-intelligence';
 import { HEALTH_BAND_LABEL, type CallGridBrief } from '@emgloop/shared';
-import type { ActivityItem } from '../src/app/app/admin/workspace-home-data';
 
 const NY = 'America/New_York';
 const NOW = new Date('2026-09-24T15:30:00Z');
@@ -123,9 +122,6 @@ function attention(state: AttentionAssessment['state'], over: Partial<AttentionA
 }
 const standings = (entries: [string, HeadlineStanding][]): ReadonlyMap<string, HeadlineStanding> => new Map(entries);
 
-function activity(over: Partial<ActivityItem> = {}): ActivityItem {
-  return { id: 'a1', label: 'Completed Edit on “Kona unboxing — cut A”', actorName: 'Dana Rivera', category: 'work', createdAtIso: '2026-09-24T14:02:00Z', ...over };
-}
 
 const READ_DAY: BriefingToday['calendar'] = { state: 'READ', current: true, readAt: new Date(NOW.getTime() - 4 * 60_000), failed: false };
 function today(over: Partial<BriefingToday> = {}): BriefingToday {
@@ -356,32 +352,8 @@ describe('Headlines on Home are the Headline authority’s own rows, drawn as ca
 });
 
 // --- Recent activity -------------------------------------------------------------------------------
-
-describe('Recent activity is the audit log’s business events, distinct from Headlines', () => {
-  it('each row is an audit truth carrying its audit category, never a Headline; at most six; View all only where the rail leads', () => {
-    const rows = [activity(), activity({ id: 'a2', label: 'Added intake record', actorName: 'Sun & Soil', category: 'customer', createdAtIso: '2026-09-24T13:00:00Z' })];
-    const out = html(<RecentActivityPanel rows={rows} time={time} auditHref="/crm/audit" />);
-    assert.match(out, /id="recent-activity"/);
-    assert.equal((out.match(/data-truth="AUDIT"/g) ?? []).length, 2);
-    assert.match(out, /data-home-activity-categories="work,customer"/);
-    assert.match(out, /Completed Edit on “Kona unboxing — cut A” · Dana Rivera/);
-    assert.match(out, /<dt>Area<\/dt><dd>Work<\/dd>/);
-    assert.match(out, /<dt>Area<\/dt><dd>CRM<\/dd>/);
-    assert.match(out, /<dt>Recorded by<\/dt><dd>the audit log<\/dd>/);
-    assert.match(out, /datetime="2026-09-24T14:02:00Z"/i);
-    assert.match(out, /href="\/crm\/audit"[^>]*>View all →/);
-    for (const absent of ['data-home-headline', 'headline:', 'Roofing']) assert.equal(out.includes(absent), false, absent);
-    const eight = html(<RecentActivityPanel rows={Array.from({ length: 8 }, (_, i) => activity({ id: `a${i}` }))} time={time} auditHref="/crm/audit" />);
-    assert.equal(ACTIVITY_ON_HOME, 6);
-    assert.equal((eight.match(/data-truth="AUDIT"/g) ?? []).length, ACTIVITY_ON_HOME, 'compact: capped at six');
-    assert.equal(html(<RecentActivityPanel rows={rows} time={time} auditHref={null} />).includes('View all'), false, 'no link the rail would not offer');
-    assert.match(html(<RecentActivityPanel rows={[]} time={time} auditHref={null} />), /No business activity recorded yet\./);
-    assert.match(html(<RecentActivityPanel rows={null} time={time} auditHref={null} />), /Loop could not read recent activity just now/);
-    // The rows are the operational home's own: audit-derived, business events only, capped at six.
-    const workspace = code(read('app/app/admin/workspace-home-data.ts'));
-    assert.match(workspace, /\.filter\(\(a\) => a\.category !== 'auth' && a\.category !== 'system'\)\s*\.slice\(0, 6\)/);
-  });
-});
+// Recent activity now reads the organization's Universal Activity feed; its tests live in
+// home-org-activity.test.tsx (adapters, gates, the false "none", a failed read).
 
 // --- tools & spaces ----------------------------------------------------------------------------------
 

@@ -146,8 +146,12 @@ export class ConnectionsStack extends Stack {
 
     // --- AI content triage: operator-activated, fail-closed, credential via Secrets Manager --------
     // apps/connections-worker/src/ai-runtime.ts is OFF unless LOOP_AI_ENABLED === 'true' AND a provider
-    // is listed, terms-confirmed, and its key present. We feed exactly that env, and ONLY when the
-    // operator supplied an organization id (CDK context aiOrganizationId -> app.ts -> props.aiActivation).
+    // is listed and its key present. We feed exactly that env, and ONLY when the operator supplied an
+    // organization id (CDK context aiOrganizationId -> app.ts -> props.aiActivation).
+    // THIS STACK NEVER APPROVES A PROVIDER (G2, 2026-09-24). It used to set
+    // LOOP_AI_PROVIDER_TERMS_CONFIRMED to whatever it listed, so listing implied approval. Approval is
+    // now a RECORDED provider policy in the database (record-ai-provider-policy workflow); without one
+    // the worker's gateway refuses every call as POLICY_DENIED and the content sweep holds.
     // When absent: no ai secret reference, no LOOP_AI_* env, no key -- the stack is unchanged and the
     // worker refuses every invocation. The credential is injected from Secrets Manager JSON fields, never
     // as plaintext env; OpenAI is opt-in, so a default activation never requires an OpenAI key.
@@ -164,7 +168,6 @@ export class ConnectionsStack extends Stack {
       }
       aiEnvironment.LOOP_AI_ENABLED = 'true';
       aiEnvironment.LOOP_AI_PROVIDERS = providers;
-      aiEnvironment.LOOP_AI_PROVIDER_TERMS_CONFIRMED = providers;
       aiEnvironment.LOOP_AI_ORGANIZATIONS = props.aiActivation.organizationId;
       aiEnvironment.LOOP_AI_TASKS = 'telegram.content.triage';
     }

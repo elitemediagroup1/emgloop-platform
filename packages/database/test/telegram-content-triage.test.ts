@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { RecordedModelProvider, aiCatalogCapabilities, AI_ROUTING_POLICY, AI_BUDGET_POLICY, AI_MAX_ATTEMPTS_PER_TARGET } from '@emgloop/providers';
-import { AI_ACTIVATION_OFF, AI_TRIAGE_LIMITS, type AiActivation, type AiModelResult } from '@emgloop/shared';
+import { AI_ACTIVATION_OFF, AI_TRIAGE_LIMITS, type AiActivation, type AiModelResult, type AiProviderPolicy } from '@emgloop/shared';
 
 import { AiRuntimeGateway, InMemoryAiUsageLedger } from '../src/services/ai-runtime/gateway';
 import { TelegramContentTriageService, type TelegramConversationTriageInput } from '../src/services/ai-runtime/telegram-content-triage.service';
@@ -64,7 +64,10 @@ function answer(items: unknown[], over: Record<string, unknown> = {}): AiModelRe
   };
 }
 
-function service(opts: { activation?: AiActivation; authorize?: () => Promise<boolean>; result?: AiModelResult; providers?: 'anthropic'[] } = {}) {
+/** G2: the staging record triage needs -- anthropic, ACTIVE, ceiling COMMUNICATION_CONTENT. */
+const TRIAGE_POLICY: readonly AiProviderPolicy[] = [{ providerId: 'anthropic', state: 'ACTIVE', ceiling: 'COMMUNICATION_CONTENT', version: 1, recordedAtMs: 0 }];
+
+function service(opts: { activation?: AiActivation; authorize?: () => Promise<boolean>; result?: AiModelResult; providers?: 'anthropic'[]; providerPolicies?: readonly AiProviderPolicy[] } = {}) {
   const provider = new RecordedModelProvider('anthropic', [{ modelId: 'claude-opus-5', result: opts.result ?? answer([OBLIGATION]) }], (m) => aiCatalogCapabilities('anthropic', m));
   const gateway = new AiRuntimeGateway(
     {
@@ -80,6 +83,7 @@ function service(opts: { activation?: AiActivation; authorize?: () => Promise<bo
       authorize: opts.authorize ?? (async () => true),
       now: () => new Date('2026-09-21T10:00:00Z'),
       newInvocationId: () => 'inv_ct_1',
+      providerPolicies: async () => opts.providerPolicies ?? TRIAGE_POLICY,
     },
   );
   return new TelegramContentTriageService({ runtime: gateway });
@@ -317,4 +321,33 @@ test('the v3 triage schema uses only structured-output-supported keywords (no ma
   assert.ok(!serialized.includes('"maxLength"'), 'schema must not contain maxLength');
   assert.ok(!serialized.includes('"maxItems"'), 'schema must not contain maxItems');
   assert.ok(serialized.includes('"schemaId":{"const":"telegram-content-triage.v3"}'), 'the v3 schema id is pinned');
+});
+
+// --- G2: the recorded provider policy (2026-09-24) ---------------------------------------------
+// Triage sends COMMUNICATION_CONTENT. The exact record staging needs for it to run: provider
+// `anthropic`, state ACTIVE, ceiling COMMUNICATION_CONTENT (TRIAGE_POLICY above, which every other
+// test in this file runs under). Anything less and the call is refused before a byte is sent. (The
+// openai fallback is not activated here, so its PROVIDER_NOT_ENABLED skip is reported alongside.)
+
+const policyRefusals = (res: Awaited<ReturnType<ReturnType<typeof service>['triage']>>) =>
+  res.outcome === 'NOT_AVAILABLE' ? [...res.refusals].filter((r) => r === 'POLICY_DENIED' || r.startsWith('PROVIDER_POLICY_')) : [];
+
+test('G2: with the staging policy (anthropic, ACTIVE, COMMUNICATION_CONTENT) triage runs', async () => {
+  const res = await service({ providerPolicies: TRIAGE_POLICY }).triage(principal, input(DANA_ASKS));
+  assert.equal(res.outcome, 'TRIAGED');
+});
+
+test('G2: no policy recorded -> NOT_AVAILABLE, POLICY_DENIED + PROVIDER_POLICY_MISSING, nothing sent', async () => {
+  const res = await service({ providerPolicies: [] }).triage(principal, input(DANA_ASKS));
+  assert.equal(res.outcome, 'NOT_AVAILABLE');
+  assert.deepEqual(policyRefusals(res), ['POLICY_DENIED', 'PROVIDER_POLICY_MISSING']);
+});
+
+test('G2: a KILLED policy, or one approved only below COMMUNICATION_CONTENT, refuses triage', async () => {
+  const killed = await service({ providerPolicies: [{ ...TRIAGE_POLICY[0]!, state: 'KILLED', version: 2 }] }).triage(principal, input(DANA_ASKS));
+  assert.deepEqual(policyRefusals(killed), ['POLICY_DENIED', 'PROVIDER_POLICY_KILLED']);
+  for (const ceiling of ['OPERATIONAL', 'CONTACT_IDENTIFIER'] as const) {
+    const low = await service({ providerPolicies: [{ ...TRIAGE_POLICY[0]!, ceiling }] }).triage(principal, input(DANA_ASKS));
+    assert.deepEqual(policyRefusals(low), ['POLICY_DENIED', 'PROVIDER_POLICY_BELOW_TASK'], ceiling);
+  }
 });

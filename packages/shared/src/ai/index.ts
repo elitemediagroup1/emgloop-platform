@@ -23,6 +23,8 @@ export * from './brain-dispatch';
 // B4: how a person answers a waiting job, and the stored control log's contract.
 export * from './brain-wait';
 export * from './ai-controls';
+// G2 (2026-09-24): the recorded approval to send a class of data to one provider.
+export * from './provider-policy';
 // B5: the structured question a durable job may ask, and its reply.
 export * from './brain-question';
 

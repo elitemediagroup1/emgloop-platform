@@ -11,13 +11,16 @@
 // WITH THE DEFAULT ENVIRONMENT THIS MAKES NO PROVIDER CALL. The runtime is off until
 // LOOP_AI_ENABLED is exactly "true" and the organization, task and provider are all listed; until
 // then a draft request is refused before any reservation, and availability says NOT_ENABLED
-// without calling anything. The Inbox and the manual reply do not depend on any of it.
+// without calling anything. Even then, a provider receives nothing until a RECORDED provider
+// policy admits COMMUNICATION_CONTENT (G2): without one the request is refused as POLICY_DENIED.
+// The Inbox and the manual reply do not depend on any of it.
 
 import 'server-only';
 
 import { randomUUID } from 'crypto';
 import {
   AiRuntimeGateway,
+  aiProviderPolicyReader,
   DurableAiUsageLedger,
   MailReplyDraftService,
   WorkDraftRepository,
@@ -31,6 +34,10 @@ import { AI_TASK_MAIL_REPLY_DRAFT, aiTaskAvailability, type AiTaskAvailability }
 
 import { aiEnvironment } from './ai-environment';
 import { loadThread } from '../daily-loop/mail';
+
+// One cached reader per server instance (30 s, never more than 60): a policy recorded or KILLED
+// reaches every instance within a minute, without a deploy.
+const providerPolicies = aiProviderPolicyReader(prisma);
 
 function assemble() {
   const env = aiEnvironment({ capabilities: aiCatalogCapabilities });
@@ -50,6 +57,8 @@ function assemble() {
       authorize,
       now: () => new Date(),
       newInvocationId: () => randomUUID(),
+      // G2: the recorded provider policies, shared by every request this instance serves.
+      providerPolicies,
     },
   );
   const service = new MailReplyDraftService({
