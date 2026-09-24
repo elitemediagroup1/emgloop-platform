@@ -25,66 +25,41 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Loop Home — THE FRONT DOOR (built 2026-09-24, PR open on `feat/loop-home-front-door`) · supersedes the briefing-only Home (#327)
+## Loop Home — COMPOSITION CORRECTED (2026-09-24, PR open on `fix/loop-home-composition`) · over merged #335
 
-**What it is.** Home is the personalized front door to the operating system and composes existing
-authorities, never becoming one. Top to bottom, for the executive seat (Owner/Admin/Manager):
-**Executive KPIs** (Revenue · Net profit · Billable calls · Total calls · Active campaigns) → **Your
-briefing** (the pure `composeBriefing` lead + What changed) → **Headlines** (real open Headlines) →
-**Your day | Needs you | Recent activity** → **Your tools & spaces** (domain tiles). The employee
-seat gets the same shape over its own sources: no KPI row, no Headlines, no Recent activity. The
-creator Home is untouched.
+**Why.** Matt's review of merged #335: the data and governance were right, the rendered Home was an admin
+dashboard — a giant What-changed list, an uncapped Needs-you side rail whose height left a dead band
+before Tools & Spaces, buried Headlines, tiles that were counts, and Chats/Calendar routed to Connections.
 
-**Where each section's numbers come from (and its gate).**
-- KPIs: the CallGrid Command Center's own context (`loadCommandContextFor`, `admin/marketplace/command-data.ts`)
-  with the `today` selection — comparison **"Yesterday to the same time"** (`elapsed_matched`), withheld
-  with its reason when Loop's record does not cover it; figures built by the contract's `callGridKpis`
-  (`keys: HOME_KPI_KEYS`; Total Calls is a declared metric the Command Center shows only as a subline).
-  UNKNOWN/UNAVAILABLE are words, never 0. Gate: executive Home + `/app/admin/marketplace` in the viewer's
-  nav. **Retired: the today-so-far-vs-yesterday-complete scorecard** (`admin/dashboard-data.ts`, the
-  `pulse()`/`PulsePanel`) — the comparison the spec forbids.
-- Briefing: `_home/briefing.ts` (pure) over the executive review, Headlines, Telegram business changes,
-  the CallGrid strip; no LLM; "Headlines history" → `/app/admin/headlines`. There is no full-Briefing
-  page in the repo (WorkBrief/brain-briefing are unwired), so no link pretends there is.
-- Headlines: `loadAttention(org, now, { dismissed: false })` (the `Headline` authority) + one batched
-  `loadCasesForHeadlines` for the ≤4 shown; rows link `/app/admin/headlines/<id>`; the empty state is
-  the governed attention statement (ALL_CLEAR reads "No qualifying Headlines right now."). Gate:
-  `canOpenHeadlines`. The review's aggregate Headlines attention row is withheld from Needs you when
-  the panel is shown.
-- Your day / Needs you: the page's own `loadYourDay` / `loadNeedsYou` with the session principal
-  (employee-private; no join link, no location, nothing invented).
-- Recent activity: `home.workspace.recentActivity` (audit-derived business events, 6 rows) → "View all"
-  `/crm/audit` only when offered. Executive Home only.
-- Tiles (only when the href is in the viewer's nav AND a domain read exists) — each says what is
-  HAPPENING in its domain from that domain's own read, with connection state as supporting status:
-  Mail (needs-reply count; what arrived since yesterday from `MailSummary.inflow`; follow-ups due),
-  Chats = the viewer's OWN Telegram obligations as Needs you lists them (conversations that need them,
-  the latest change a conversation named, a tally of requests/decisions/commitments/follow-ups, deadlines)
-  plus content-free activity counts from their own observation store (`SourceObservationRepository.activitySince`,
-  last 24h) and the status "Telegram · <state> · Triage on/off" → `/app/connections`; with triage off the
-  quiet state says why nothing is flagged. Calendar → `/app/connections` (no calendar page exists), Intake Board
-  (`crmRepos.crm.statusCounts`) → `/crm/pipeline`, Creator Hub (roster, `absentUntilMigrated`), My Work
-  (ADMIN `workSummary` / EMPLOYEE queue), CallGrid Intelligence (billable calls; what moved against
-  "Yesterday to the same time" in the contract's words; freshness), Campaigns (observed-active count and
-  the report's own revenue leader, `/app/admin/marketplace/campaigns`). **No Files tile** (no Files surface) and
-  **no CRM Opportunities/Campaigns tile** (no org-wide authority) — honest gaps, not fake tiles.
+**Now, top to bottom (sequential sections, no side rail):** header → Executive KPIs (unchanged authority:
+the CallGrid Command Center context, elapsed-matched, missing ≠ 0) → **Your briefing** (a pure
+deterministic narrative, `_home/narrative.ts` `briefingNarrative`, ≤4 sentences with source chips: business
+from the KPI strip, intelligence from Headlines, the viewer's own mail and chats, the day and work; the
+old change rows sit behind a closed "What Loop read" disclosure) → **Headlines** (wide cards from the
+unchanged Headline authority + Case situation; honest knowledge-state card when none) → **Your day |
+Recent activity** (compact peers; Needs you capped at 3 with "Show all" in a native disclosure) → **Your
+tools & spaces**. Measured locally: section order correct at 1440/834/390, 22px between the Day|Activity
+row and the tools (was 120/411/669px), no horizontal overflow.
 
-**Headlines workspace** (`/app/admin/headlines`, same PR): the canonical list now shows Current /
-Under investigation / History, derived on render from the two existing authorities (`Headline` open vs
-set aside; the Case keyed `headline:<id>` with its state and outcome) by the pure
-`headlineSituation()` in `@emgloop/shared` — a PROJECTION, not a Headline state (Headlines have no
-lifecycle by design). `?show=` and `?objective=` map to the repository's existing options. Defect
-fixed: a set-aside Headline no longer offers Investigate/Not this. The detail page gains the situation,
-"Since it was identified" (sightings, Case state/outcome, read-only Work line via the Case) and Set
-aside. Resolved is never deleted. **Not supported (no path exists):** creating work from a Headline.
+**Domain surfaces (new, read-only compositions):** `/app/chats` — the viewer's own Telegram triage
+obligations grouped by conversation label + content-free 24h/7d activity + connection status
+(`googleWorkspace:view`, same gate as Connections; `daily-loop/chats-intelligence.ts` pure +
+`chats.ts` loader); `/app/calendar` — the viewer's own day (`employeeIntelligence:view`, Mail's gate).
+Both in `LOOP_NAV` after Mail. Mail's interpretation is `mailDomainIntelligence` in
+`@emgloop/shared` mail-intelligence, shown on `/app/mail` and the Home tile. **Connections is
+configuration only**: a tile routes there only when its source is not connected.
 
-**Validated (2026-09-24, worktree):** web 779, shared 1402, database 1610 (+72 Postgres-gated), all
-typechecks clean, web build passes. Not run: `next dev`/browser; lint (never configured).
+**Tiles:** Mail → `/app/mail`; Chats → `/app/chats`; Calendar → `/app/calendar`; My Work (overdue / due
+today from the rows' own dates); Intake Board; CallGrid Intelligence = the Overview's own `executiveBrief`
+band/reason/sentence over `loadExecutiveReading` (reads only — Home never records a detection); Campaigns;
+Creator Hub. Each only when the rail offers its href.
 
-**Known gaps the design cannot yet fill honestly:** connective (cross-source) Headlines — today a
-Headline is one CallGrid measured move, and detection runs only from the admin action; no Files
-surface; no Calendar page; no Chats app (Telegram lives in Connections); CRM opportunities/campaigns
-have no org-wide read; `LoopPage` keeps its 1280px max width.
+**Validated:** web 821, shared 1410, database 1610 (+73 Postgres-gated), typechecks clean, web build
+passes; local browser run of /app, /app/chats, /app/calendar, /app/mail at three widths (metrics above).
+
+**Gaps:** connective (cross-source) Headlines still do not exist; Intake has no "new since" read; calendar
+events carry no join link, location or attendee names; no Files surface; Chats says nothing about
+conversations triage has not flagged beyond content-free counts, by design.
 
 ## Creator Hub — COMMISSIONED ON STAGING (2026-09-23) · #323 #324 #325 on main · staging = main `c4bd264` · production schema untouched
 
