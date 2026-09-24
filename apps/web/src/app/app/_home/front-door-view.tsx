@@ -2,10 +2,10 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { counted, headlineSituationLabel, type AttentionAssessment, type HeadlineView, type TimeView } from '@emgloop/shared';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
-import { ActivityList, type ActivityEntry } from '../_loop-os/activity-item';
+import { ActivityList } from '../_loop-os/activity-item';
 import { LabelBadge, StateBadge } from '../_loop-os/product-state';
 import { StateBlock } from '../_loop-os/record';
-import type { ActivityItem } from '../admin/workspace-home-data';
+import { activityEntries, readSourceNames, type OrgActivity } from './org-activity';
 import type { HeadlineStanding } from './front-door-data';
 import type { HomeKpiStrip } from './kpis';
 import type { HomeTile } from './tiles';
@@ -202,44 +202,38 @@ export function HeadlinesPanel({
 
 // --- Recent activity -------------------------------------------------------------------------------
 
-/** The audit category's area, in the words the operational Home already uses for it. */
-const AUDIT_AREA: Readonly<Record<string, string>> = Object.freeze({ work: 'Work', customer: 'CRM', invitation: 'Team' });
-
-/** Recent activity is compact on Home: the latest few events, with the audit log one link away. */
+/** Recent activity is compact on Home: the latest few organization events, with the audit log one link away. */
 export const ACTIVITY_ON_HOME = 6;
 
-export function RecentActivityPanel({ rows, time, auditHref }: { rows: readonly ActivityItem[] | null; time: TimeView; auditHref: string | null }) {
-  const entries: ActivityEntry[] = (rows ?? []).slice(0, ACTIVITY_ON_HOME).map((a) => ({
-    key: `audit:${a.id}`,
-    // Every row is a recorded act from the organization's audit log: that is the truth it is.
-    category: 'AUDIT',
-    story: a.actorName ? `${a.label} · ${a.actorName}` : a.label,
-    when: time.relative(a.createdAtIso),
-    whenIso: a.createdAtIso,
-    evidence: [
-      { label: 'Area', value: AUDIT_AREA[a.category] ?? a.category },
-      { label: 'Recorded by', value: 'the audit log' },
-      { label: 'When', value: time.dateTime(a.createdAtIso) },
-    ],
-  }));
+/**
+ * The organization's Universal Activity feed (org-activity-data.ts), drawn with the shared activity
+ * primitive: each row states its truth category -- these are recorded events, not intelligence. A
+ * read that failed says so; a viewer with no readable source is told that, not "nothing happened";
+ * only a read that ran and returned nothing is empty.
+ */
+export function RecentActivityPanel({ activity, time, auditHref }: { activity: OrgActivity; time: TimeView; auditHref: string | null }) {
+  const entries = activityEntries(activity, time, ACTIVITY_ON_HOME);
+  const sources = readSourceNames(activity);
   return (
-    <section className="loop-panel loop-brief__panel loop-front__activity" aria-label="Recent activity" id="recent-activity">
+    <section className="loop-panel loop-brief__panel loop-front__activity" aria-label="Recent activity" id="recent-activity" data-home-activity={activity.state}>
       <div className="loop-brief__head">
         <h2 className="loop-panel__title">Recent activity</h2>
-        {rows && rows.length > 0 ? <span className="loop-brief__sub">Business events from the audit log</span> : null}
+        {sources.length > 0 ? <span className="loop-brief__sub">Organization events from {sources.join(', ')}</span> : null}
         {auditHref ? (
           <Link className="loop-link loop-brief__more" href={auditHref}>
-            View all →
+            Audit log →
           </Link>
         ) : null}
       </div>
-      {rows === null ? (
+      {activity.state === 'UNAVAILABLE' ? (
         <SourceUnavailable what="recent activity" />
+      ) : activity.state === 'NOT_AUTHORIZED' ? (
+        <p className="loop-brief__quiet">No organization activity source is open to your role.</p>
       ) : entries.length === 0 ? (
-        <p className="loop-brief__quiet">No business activity recorded yet.</p>
+        <p className="loop-brief__quiet">No organization activity recorded yet.</p>
       ) : (
-        <div className="loop-front__activity-list" data-home-activity-categories={[...new Set(rows.map((r) => r.category))].join(',')}>
-          <ActivityList entries={entries} label="Recent business activity" />
+        <div className="loop-front__activity-list" data-home-activity-categories={[...new Set(entries.map((e) => e.category))].join(',')}>
+          <ActivityList entries={entries} label="Recent organization activity" />
         </div>
       )}
     </section>

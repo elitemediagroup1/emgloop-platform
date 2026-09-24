@@ -305,6 +305,9 @@ export const LOOP_NAV: ShellConfig = {
         // questions, so they are different destinations.
         { href: '/app/admin/queue', label: 'Your queue', icon: 'check', requires: CI_VIEW, workspace: 'ADMIN', folded: true },
         { href: '/app/admin/brain', label: 'Executive Brain', icon: 'brain', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN', folded: true },
+        // Read-only execution status (AI ledger aggregates, provider policies, digest metadata). Its
+        // page enforces the Executive Brain's gate: ADMIN authority and intelligence:view.
+        { href: '/app/admin/intelligence-status', label: 'Intelligence status', icon: 'activity', requires: INTELLIGENCE_VIEW, workspace: 'ADMIN', folded: true },
         { href: '/crm/intelligence', label: 'Intelligence Flow', icon: 'brain', requires: INTELLIGENCE_VIEW, folded: true },
         // Its pages enforce ADMIN authority and the intelligence read grant, the same
         // as the item states, so an explicit DENY on intelligence hides it.

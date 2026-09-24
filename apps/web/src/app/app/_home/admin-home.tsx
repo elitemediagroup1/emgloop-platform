@@ -17,6 +17,7 @@ import { loadFrontDoor, loadHeadlineStandings, navOffers, type HeadlineStanding 
 import { HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid } from './front-door-view';
 import { briefingNarrative } from './narrative';
 import { RefreshCalendar } from './refresh-calendar';
+import { loadOrganizationActivity } from './org-activity-data';
 import { loadExecutiveReview } from './review-data';
 import { settle } from './settle';
 import { TILE_PATHS, projectTiles } from './tiles';
@@ -27,11 +28,14 @@ import { TILE_PATHS, projectTiles } from './tiles';
 // and its own comparison); YOUR BRIEFING, the synthesis in prose (narrative.ts), with what Loop read
 // folded beneath it; HEADLINES, the Headline authority's open records as cards; then two compact
 // peers -- YOUR DAY (the viewer's own calendar, work due today, and a constrained "needs you") and
-// RECENT ACTIVITY (audit events); and last the tools & spaces this person can open, each tile its
-// domain's own interpretation. Three intelligence levels, kept distinct: the briefing is
+// RECENT ACTIVITY (the organization's Universal Activity feed: channel facts, CallGrid calls, the
+// audit log and Brain work, each only as the service authorizes this viewer; never an employee's
+// private source); and last the tools & spaces this person can open, each tile its domain's own
+// interpretation. Three intelligence levels, kept distinct: the briefing is
 // company-wide synthesis, Headlines are connective records, a tile is one domain's reading.
 //
-// THE READS. The operational home (work, attention, activity) and the executive review (mail,
+// THE READS. The operational home (work, attention), the organization activity feed (read once,
+// shared by its card and the review's work changes) and the executive review (mail,
 // calendar, CallGrid, work, Headlines) are loaded here as before; the front door's additive reads
 // (front-door-data.ts) are gated by the navigation this person was offered. The viewer's own day,
 // mail and "needs you" items arrive from the page, which loaded each once with the session principal.
@@ -76,11 +80,15 @@ export async function AdminHome({
   // The Owner/Admin/Manager home renders at /app, so it states its authority itself.
   await requireWorkspace('ADMIN');
   const time = viewerTime();
-  const [homeResult, front] = await Promise.all([settle(() => loadHome('assigned')), loadFrontDoor({ session, principal, groups, time, needsYou, executive: true })]);
+  const [homeResult, front, activity] = await Promise.all([
+    settle(() => loadHome('assigned')),
+    loadFrontDoor({ session, principal, groups, time, needsYou, executive: true }),
+    loadOrganizationActivity(session),
+  ]);
   const home = homeResult.ok ? homeResult.value : null;
   const callgrid = front.callgrid?.ok ? front.callgrid.value : null;
   const reviewResult = await settle(() =>
-    loadExecutiveReview({ session, principal, time, timeZone: time.timeZone, mail, day, home, callgrid: { offered: front.callgrid !== null, strip: callgrid } }),
+    loadExecutiveReview({ session, principal, time, timeZone: time.timeZone, mail, day, home, activity, callgrid: { offered: front.callgrid !== null, strip: callgrid } }),
   );
   const review = reviewResult.ok ? reviewResult.value : null;
   // Headlines get their own section exactly when this seat may open them; the review's aggregate row
@@ -172,7 +180,7 @@ export async function AdminHome({
             organization's recent business events. Each card's height is its own content's. */}
         <div className="loop-front__pair">
           <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} />
-          <RecentActivityPanel rows={home?.workspace.recentActivity ?? null} time={time} auditHref={auditHref} />
+          <RecentActivityPanel activity={activity} time={time} auditHref={auditHref} />
         </div>
 
         <ToolsGrid tiles={tiles} />

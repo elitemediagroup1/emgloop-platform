@@ -3,7 +3,8 @@
 // Renders what the Brain concluded, narrative-first: System Health, Cross-Sensor
 // Insights, Executive Summary, What Changed, Top Risks, Top Opportunities,
 // Recommended Actions, and a first-class Evidence Coverage board that shows which
-// systems are connected / healthy / stale / missing.
+// systems are connected / healthy / stale / missing, and which sources exist but are
+// deliberately not read (employee-private sources; model output).
 //
 // It is NOT a dashboard — no raw percentages or tables on the surface. Every raw
 // number lives behind an "Evidence" toggle, expanded only on demand (the
@@ -164,12 +165,14 @@ const STATUS_LABEL: Record<SensorStatus, string> = {
   stale: 'Stale',
   connected: 'Connected',
   missing: 'Missing',
+  excluded: 'Not read by design',
 };
 const STATUS_COV: Record<SensorStatus, string> = {
   healthy: 'available',
   stale: 'partial',
   connected: 'undetermined',
   missing: 'unavailable',
+  excluded: 'undetermined',
 };
 
 function SensorCoverageRow({ s }: { s: SensorCoverage }) {
@@ -201,6 +204,15 @@ function SensorCoverageRow({ s }: { s: SensorCoverage }) {
             </ul>
           ) : null}
         </>
+      ) : s.excluded ? (
+        <>
+          <p className="mkt-cov__reason">
+            <span className="mkt-cov__key">What exists</span> {s.excluded.exists}
+          </p>
+          <p className="mkt-cov__reason">
+            <span className="mkt-cov__key">Why the Brain does not read it</span> {s.excluded.reason}
+          </p>
+        </>
       ) : (
         <>
           <p className="mkt-cov__reason">
@@ -222,7 +234,7 @@ export function ExecutiveBrainView({ report }: { report: ExecutiveBrainReport })
   const sc = evidenceCoverage.statusCounts;
 
   // Read the board most-trustworthy first, then the gaps.
-  const order: SensorStatus[] = ['healthy', 'stale', 'connected', 'missing'];
+  const order: SensorStatus[] = ['healthy', 'stale', 'connected', 'missing', 'excluded'];
   const sensorRows = [...evidenceCoverage.sensors].sort(
     (a, b) => order.indexOf(a.status) - order.indexOf(b.status),
   );
@@ -305,11 +317,12 @@ export function ExecutiveBrainView({ report }: { report: ExecutiveBrainReport })
         <div className="loop-card__head">
           <h2 className="loop-card__title">Evidence Coverage</h2>
           <span className="mkt-cov__window">
-            {evidenceCoverage.instrumentedSensors} of {evidenceCoverage.totalSensors} sensors instrumented
+            {evidenceCoverage.instrumentedSensors} of {evidenceCoverage.totalSensors - evidenceCoverage.excludedSensors} sensors instrumented
           </span>
         </div>
         <p className="mkt-cov__lead">
-          Which systems feed the Brain, and how well.{' '}
+          Which systems feed the Brain, and how well. The Executive Brain reads organization-scoped
+          sources only and calls no AI model: every conclusion here is a rule over the evidence below.{' '}
           {evidenceCoverage.overallConfidence === null
             ? 'No metric is currently measured, so there is no overall confidence to state — this is unknown, not zero.'
             : `Overall evidence confidence is ${confPct(evidenceCoverage.overallConfidence)} across every available metric.`}
@@ -319,6 +332,7 @@ export function ExecutiveBrainView({ report }: { report: ExecutiveBrainReport })
           <span className="mkt-cov__total mkt-cov__total--undetermined">{sc.connected} connected</span>
           <span className="mkt-cov__total mkt-cov__total--partial">{sc.stale} stale</span>
           <span className="mkt-cov__total mkt-cov__total--unavailable">{sc.missing} missing</span>
+          <span className="mkt-cov__total mkt-cov__total--undetermined">{sc.excluded} not read by design</span>
         </div>
         <ul className="mkt-cov__list">
           {sensorRows.map((s) => (

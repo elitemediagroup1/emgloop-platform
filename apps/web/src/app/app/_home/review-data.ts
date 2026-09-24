@@ -47,6 +47,7 @@ import { counterpartName, laneLine, opportunityLine, rowPill } from '../mail/_ma
 import type { HomeData } from '../admin/home-data';
 import { loadAttention } from '../admin/headlines/headlines-data';
 import type { HomeKpiStrip } from './kpis';
+import { auditUpdates, type OrgActivity } from './org-activity';
 import { settle } from './settle';
 
 /** A contribution, or UNAVAILABLE when building it threw. Never a thrown Home. */
@@ -203,7 +204,7 @@ function callgridContribution(home: HomeData | null, callgrid: HomeKpiStrip | nu
   return { source: 'CALLGRID', state: 'OK', attention };
 }
 
-function workContribution(home: HomeData): ReviewContribution {
+function workContribution(home: HomeData, activity: OrgActivity | null): ReviewContribution {
   const w = home.workspace;
   const attention = w.attention.map((a): ReviewAttention => ({
     key: `work:${a.key}`,
@@ -216,13 +217,15 @@ function workContribution(home: HomeData): ReviewContribution {
     tone: 'attention',
     href: a.href,
   }));
-  const updates = w.recentActivity.map((a): ReviewUpdate => ({
+  // The business acts the audit log recorded, as the Universal Activity audit adapter returned
+  // them -- under `audit:view`, which the direct audit read this replaced never required.
+  const updates = auditUpdates(activity).map((a): ReviewUpdate => ({
     key: `activity:${a.id}`,
     source: 'WORK',
-    at: new Date(a.createdAtIso),
-    who: a.actorName || 'Loop',
-    what: a.label,
-    status: a.category === 'work' ? 'Work' : a.category === 'customer' ? 'CRM' : a.category === 'invitation' ? 'Team' : 'Loop',
+    at: a.at,
+    who: a.who,
+    what: a.what,
+    status: a.area,
     tone: 'neutral',
     href: null,
   }));
@@ -291,8 +294,10 @@ export async function loadExecutiveReview(input: {
   readonly timeZone: string;
   readonly mail: MailDashboard | null;
   readonly day: YourDayView | null;
-  /** The operational home (work, attention, activity, the Brain); null when its read failed. */
+  /** The operational home (work, attention, the Brain); null when its read failed. */
   readonly home: HomeData | null;
+  /** The organization's activity feed Home read once (org-activity-data.ts); its audit acts are the work changes. */
+  readonly activity: OrgActivity | null;
   /** The projected command context: `offered` false when this seat is not shown CallGrid at all. */
   readonly callgrid: { readonly offered: boolean; readonly strip: HomeKpiStrip | null };
 }): Promise<ExecutiveReviewData> {
@@ -302,7 +307,7 @@ export async function loadExecutiveReview(input: {
     isolated('MAIL', () => mailContribution(input.principal, input.mail, period, input.time)),
     isolated('CALENDAR', async () => calendarContribution(input.day, input.time)),
     isolated('CALLGRID', async () => (input.callgrid.offered ? callgridContribution(input.home, input.callgrid.strip) : null)),
-    isolated('WORK', async () => (input.home ? workContribution(input.home) : { source: 'WORK', state: 'UNAVAILABLE', note: 'Loop could not read work just now.' })),
+    isolated('WORK', async () => (input.home ? workContribution(input.home, input.activity) : { source: 'WORK', state: 'UNAVAILABLE', note: 'Loop could not read work just now.' })),
     isolated('HEADLINES', () => headlinesContribution(input.session, input.principal.organizationId, sink)),
   ]);
   return {

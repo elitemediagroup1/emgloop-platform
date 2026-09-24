@@ -6,15 +6,23 @@ import 'server-only';
 // business system that has REAL org-scoped rows, turns it into an ExecutiveSensor
 // via the Evidence Engine, and hands the whole set to the provider-neutral Brain.
 //
-// The honest boundary is enforced HERE, not hidden:
-//   - Instrumented (real windowed rows): Marketplace, CRM, Website Analytics,
-//     Website Forms, Loop Activity, Users, and Marketplace Auction.
-//   - Uninstrumented (no model, no real ingestion, or a shell stub): Gmail,
-//     Google Calendar, AI Conversations, Tasks, Opportunities, Creator Pipeline,
-//     Client Pipeline. Each is declared with WHY and what would wire it, so the
-//     Evidence Coverage board shows them as "missing" rather than omitting them.
-//     None is faked — instrumenting a domain with no rows would fabricate the
-//     exact evidence the Brain exists to refuse.
+// The honest boundary is enforced HERE, not hidden. The Executive Brain reads
+// ORGANIZATION-SCOPED sources only, and it calls no model:
+//   - Instrumented (real org-scoped windowed rows): Marketplace, CRM, Website
+//     Analytics, Website Forms, Loop Activity, Users, and Marketplace Auction.
+//   - Excluded (the source exists; the Brain deliberately does not read it):
+//     Gmail and Google Calendar (each employee's own connection, synced for that
+//     person only -- employee-private, never rolled up into an organization
+//     view), and the AI runtime's outputs (Telegram triage and mail reply drafts
+//     are employee-private; a Case explanation belongs to its Case). Each is
+//     declared with what exists and why it is not read, so the board says "not
+//     read by design" rather than "missing". (Declarations: @emgloop/intelligence
+//     executive/source-declarations.ts.)
+//   - Uninstrumented (no org-level read feeds the Brain yet): Tasks,
+//     Opportunities, Creator Pipeline, Client Pipeline. Each is declared with WHY
+//     and what would wire it, so the Evidence Coverage board shows them as
+//     "missing" rather than omitting them. None is faked — instrumenting a domain
+//     with no read would fabricate the exact evidence the Brain exists to refuse.
 //
 // Every windowed sensor is read for the current AND the prior window, so What
 // Changed is a real two-window comparison. `measure()` turns a thrown read into
@@ -27,10 +35,10 @@ import {
   marketplaceExecutiveSensor,
   buildDomainSensor,
   runExecutiveBrain,
-  uninstrumentedSensor,
+  EXECUTIVE_EXCLUDED_SENSORS,
+  EXECUTIVE_UNINSTRUMENTED_SENSORS,
   type DomainMetricInput,
   type ExecutiveBrainReport,
-  type ExecutiveSensor,
 } from '@emgloop/intelligence';
 import { measure, success, type Truth, type TruthMeta } from '@emgloop/shared';
 import { crmRepos } from '../../../../crm/crm-data';
@@ -44,53 +52,6 @@ const AUCTION_PROVIDER = 'callgrid';
 function prov(sourceLabel: string, derivation: string) {
   return [{ sourceId: sourceLabel, sourceLabel, derivation, citation: null }];
 }
-
-/** The sensors that have no real evidence source yet. Declared, never omitted,
- * so the coverage board states each gap and what would close it. */
-const UNINSTRUMENTED: readonly ExecutiveSensor[] = [
-  uninstrumentedSensor(
-    'gmail',
-    'Gmail',
-    'No inbound email ingestion exists — only outbound send (Resend). There is no message history to observe.',
-    'An inbound email (Gmail/IMAP) ingestion adapter that persists messages, plus a windowed read.',
-  ),
-  uninstrumentedSensor(
-    'calendar',
-    'Google Calendar',
-    'Only a mock calendar provider exists; bookings are not populated by any real sync.',
-    'A real Google Calendar adapter, populated Booking rows, and a windowed read.',
-  ),
-  uninstrumentedSensor(
-    'ai-conversations',
-    'AI Conversations',
-    'There is no LLM in the platform; AI Employees are configuration, not reasoning, and no AI conversation content is produced.',
-    'A real AI provider behind ai.provider.ts and persisted AI conversations to observe.',
-  ),
-  uninstrumentedSensor(
-    'tasks',
-    'Tasks',
-    'There is no Task model. The Work OS runtime is a separate domain (blueprint work), not a task list.',
-    'A Task model with real task rows, or wiring the Work OS as its own sensor.',
-  ),
-  uninstrumentedSensor(
-    'opportunities',
-    'Opportunities',
-    'There is no Opportunity model; only an UPSELL_OPPORTUNITY signal type exists.',
-    'An Opportunity/deal model with a pipeline, or a Signal-derived opportunity sensor.',
-  ),
-  uninstrumentedSensor(
-    'creator-pipeline',
-    'Creator Pipeline',
-    'The Creator workspace is a shell stub with no persisted data.',
-    'A creator pipeline model with real creator rows.',
-  ),
-  uninstrumentedSensor(
-    'client-pipeline',
-    'Client Pipeline',
-    'The Client workspace is a shell stub with no persisted data.',
-    'A client pipeline model with real client rows.',
-  ),
-];
 
 export interface ExecutiveBrainResult {
   /** ERROR when the read failed — never an empty (healthy-looking) report. */
@@ -228,7 +189,7 @@ export async function loadExecutiveBrain(
       });
 
       return runExecutiveBrain(
-        [marketplace, crm, website, websiteForms, activity, users, auction, ...UNINSTRUMENTED],
+        [marketplace, crm, website, websiteForms, activity, users, auction, ...EXECUTIVE_EXCLUDED_SENSORS, ...EXECUTIVE_UNINSTRUMENTED_SENSORS],
         now,
       );
     },

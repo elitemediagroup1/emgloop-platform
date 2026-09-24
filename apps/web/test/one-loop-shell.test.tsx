@@ -696,3 +696,22 @@ describe('Every page in a role-guarded tree states its authority itself', () => 
     }
   });
 });
+
+describe('Intelligence status is one folded Intelligence item behind the Executive Brain’s gate', () => {
+  it('states ADMIN authority and intelligence:view, folds, and its page enforces both before any read', () => {
+    const item = find('Intelligence status', '/app/admin/intelligence-status');
+    assert.equal(item.group, 'Intelligence');
+    assert.deepEqual(item.requires, { resource: 'intelligence', action: 'view' });
+    assert.equal(item.workspace, 'ADMIN');
+    assert.equal(item.folded, true);
+    const brain = find('Executive Brain', '/app/admin/brain');
+    assert.deepEqual(item.requires, brain.requires, 'the same gate as the Executive Brain');
+    const page = code(read('app/app/admin/intelligence-status/page.tsx'));
+    const guard = page.indexOf("await requireWorkspace('ADMIN')");
+    const perm = page.indexOf("await requirePermission('intelligence', 'view')");
+    assert.ok(guard > -1 && perm > guard && page.indexOf('loadIntelligenceStatus(') > perm, 'authority, then the grant, then the read');
+    for (const role of ['EMPLOYEE', 'READ_ONLY', 'AI_EMPLOYEE', 'CREATOR'] as const) {
+      assert.equal(navForRole(role).flatMap((g) => g.items).some((i) => i.href === '/app/admin/intelligence-status'), false, role);
+    }
+  });
+});

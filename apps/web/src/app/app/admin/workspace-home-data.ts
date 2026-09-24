@@ -5,7 +5,10 @@ import 'server-only';
 // The owner's home answers three questions, in this order:
 //   1. What needs attention today?   -> attention[]  (decisions, oldest first)
 //   2. What should happen next?      -> nextAction + work buckets
-//   3. What happened recently?       -> recentActivity + completedToday
+//   3. What happened recently?       -> completedToday. The organization's recent activity is
+//      NOT read here: Home reads it through the governed Universal Activity service
+//      (_home/org-activity-data.ts), which requires `audit:view` for audit rows. The direct,
+//      ungated audit read this loader used to make is retired.
 //
 // Non-negotiables carried forward from Sprint 25 and unchanged: identity is
 // ALWAYS derived from the authenticated session (never URL/client input); every
@@ -36,7 +39,6 @@ import type {
   WorkInstance,
   WorkStage,
   WorkNotification,
-  AuditView,
 } from '@emgloop/database';
 
 
@@ -127,14 +129,6 @@ export interface AttentionItem {
   cta: string;
 }
 
-export interface ActivityItem {
-  id: string;
-  label: string;
-  actorName: string;
-  category: string;      // work | customer | invitation | auth | system
-  createdAtIso: string;
-}
-
 export interface WorkspaceHomeData {
   isAdmin: boolean;
   /** Session organization. Exposed so the composed Home can load the Brain for the same org. */
@@ -148,7 +142,6 @@ export interface WorkspaceHomeData {
   activeFilter: WorkFilter;
   myWork: MyWorkItem[];        // already filtered to activeFilter
   notifications: { unreadCount: number; items: NotificationView[] };
-  recentActivity: ActivityItem[];
   completedTodayCount: number;
   canCreateWork: boolean;
   /** users:create — gates the "Invite team member" quick action. */
@@ -202,39 +195,6 @@ function stageVerb(status: string): string {
   return 'Open';
 }
 
-// Map an audit action to a color category (for the activity icon only). Purely
-// presentational grouping of the real action string; no invented events.
-function activityCategory(action: string): string {
-  if (action.startsWith('work.')) return 'work';
-  if (action.startsWith('customer.')) return 'customer';
-  if (action.startsWith('invitation.') || action.startsWith('user.')) return 'invitation';
-  if (action.startsWith('login') || action.startsWith('logout') || action.startsWith('auth')) return 'auth';
-  return 'system';
-}
-
-const ACTIVITY_LABELS: Record<string, string> = {
-  'organization.setup.completed': 'Owner setup completed',
-  'organization.updated': 'Organization updated',
-  'user.created': 'Team member added',
-  'user.invited': 'Employee invited',
-  'user.updated': 'Team member updated',
-  'user.disabled': 'Team member disabled',
-  'invitation.created': 'Invitation sent',
-  'invitation.accepted': 'Invitation accepted',
-  'customer.created': 'Customer created',
-  'customer.updated': 'Customer updated',
-  'work.created': 'Work created',
-  'work.completed': 'Work completed',
-  'work.assigned': 'Work assigned',
-  'login.succeeded': 'Signed in',
-};
-
-export function activityLabel(action: string): string {
-  if (ACTIVITY_LABELS[action]) return ACTIVITY_LABELS[action];
-  const seg = action.split('.').pop() ?? action;
-  return seg.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 // ---------------------------------------------------------------------------
 // The single loader. Guards + scopes, then loads every section in parallel.
 // activeFilter selects which pre-computed work bucket the page renders.
@@ -270,7 +230,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     newServiceRequests,
     newServiceRequestsCount,
     completedTodayCount,
-    auditRows,
     canCreateWork,
     canInvite,
   ] = await Promise.all([
@@ -362,7 +321,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     prisma.workInstance.count({
       where: { organizationId, status: 'completed', completedAt: { gte: startOfDay } },
     }),
-    repos.audit.list(organizationId, { take: 20 }),
     hasPermission('workflows', 'create'),
     hasPermission('users', 'create'),
   ]);
@@ -609,21 +567,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     );
   }
 
-  // ----- Recent BUSINESS activity -----
-  // Business events only. Sign-ins ('auth') and technical/config events
-  // ('system' — org settings, integration config) are excluded: the dashboard
-  // shows what happened in the BUSINESS, not platform housekeeping.
-  const recentActivity: ActivityItem[] = auditRows
-    .map((r: AuditView) => ({
-      id: r.id,
-      label: activityLabel(r.action),
-      actorName: r.actorName,
-      category: activityCategory(r.action),
-      createdAtIso: r.createdAt,
-    }))
-    .filter((a) => a.category !== 'auth' && a.category !== 'system')
-    .slice(0, 6);
-
   return {
     isAdmin: true,
     organizationId,
@@ -636,7 +579,6 @@ export async function loadWorkspaceHome(activeFilter: WorkFilter): Promise<Works
     activeFilter,
     myWork,
     notifications: { unreadCount: unread.length, items: notificationItems },
-    recentActivity,
     completedTodayCount,
     canCreateWork,
     canInvite,
