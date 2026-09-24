@@ -1,4 +1,5 @@
-// What the connections worker stack creates -- and what it does not. Staging.
+// What the connections worker stack creates -- and what it does not. The STAGING stage (the
+// cdk.json default); test/production.test.ts covers the production stage on the same shape.
 //
 // Synth-only: a registry image is injected so no Docker build is needed, and the function bundle
 // is stubbed. Proves the smallest appropriate shape (one Fargate service, private, behind an
@@ -9,18 +10,24 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Template, Match } from 'aws-cdk-lib/assertions';
+import { Annotations, Template, Match } from 'aws-cdk-lib/assertions';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 
 import { buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, mediaOriginsFromContext } from '../lib/app';
-import { CONNECTION_SECRET_NAMES, MEDIA_KEY_PREFIX, MEDIA_SIGN_PATH } from '../lib/connections-stack';
-import { assertStagingCredentials, WrongTargetError } from '../lib/target';
+import { connectionSecretNames, MEDIA_KEY_PREFIX, MEDIA_SIGN_PATH } from '../lib/connections-stack';
+import { assertTargetCredentials, CONNECTIONS_STAGING_TARGET, WrongTargetError } from '../lib/target';
 import { stubAssets } from './assets';
 
+/** The Secrets Manager names the staging stack references or creates. */
+const CONNECTION_SECRET_NAMES = connectionSecretNames('staging');
+
 function synth(): Template {
+  return Template.fromStack(synthStack().stack);
+}
+
+function synthStack(context: Record<string, unknown> = {}) {
   const image = ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:22-slim');
-  const { stack } = buildConnectionsApp({ image, assetsDir: stubAssets() });
-  return Template.fromStack(stack);
+  return buildConnectionsApp({ image, assetsDir: stubAssets(), context });
 }
 
 // Synthesize with extra CDK context, exactly as `cdk synth -c key=value` does -- used to prove the
@@ -35,7 +42,8 @@ function synthWith(context: Record<string, unknown>): Template {
 // lives only in the CONNECTIONS_STAGING_AI_ORG_ID GitHub environment variable, never in source.
 const PLACEHOLDER_ORG_ID = 'org_staging_placeholder_test';
 
-const AI_SECRET_NAME = 'loop/connections/staging/ai';
+const AI_SECRET_NAME = CONNECTION_SECRET_NAMES.ai;
+assert.equal(AI_SECRET_NAME, 'loop/connections/staging/ai');
 
 /** The single worker container definition from a synthesized template. */
 function workerContainer(t: Template): { Environment?: Array<{ Name: string; Value: unknown }>; Secrets?: Array<{ Name: string; ValueFrom: unknown }> } {
@@ -206,10 +214,10 @@ test('media bucket: exactly one, private in every dimension, encrypted, TLS-only
 test('media bucket: CORS admits PUT/GET/HEAD from the staging web origin only, exposing ETag', () => {
   template.hasResourceProperties('AWS::S3::Bucket', {
     CorsConfiguration: {
-      CorsRules: [{ AllowedMethods: ['PUT', 'GET', 'HEAD'], AllowedOrigins: [...DEFAULT_MEDIA_ORIGINS], AllowedHeaders: ['*'], ExposedHeaders: ['ETag'], MaxAge: 3600 }],
+      CorsRules: [{ AllowedMethods: ['PUT', 'GET', 'HEAD'], AllowedOrigins: [...DEFAULT_MEDIA_ORIGINS.staging], AllowedHeaders: ['*'], ExposedHeaders: ['ETag'], MaxAge: 3600 }],
     },
   });
-  assert.deepEqual([...DEFAULT_MEDIA_ORIGINS], ['https://staging--emgloop2.netlify.app']);
+  assert.deepEqual([...DEFAULT_MEDIA_ORIGINS.staging], ['https://staging--emgloop2.netlify.app']);
 });
 
 test('mediaOrigins context: a comma-separated list replaces the default exactly; junk fails synth', () => {
@@ -217,13 +225,14 @@ test('mediaOrigins context: a comma-separated list replaces the default exactly;
   t.hasResourceProperties('AWS::S3::Bucket', {
     CorsConfiguration: { CorsRules: [Match.objectLike({ AllowedOrigins: ['https://a.example', 'https://b.example'] })] },
   });
-  assert.deepEqual(mediaOriginsFromContext(' https://a.example , https://b.example:8443 '), ['https://a.example', 'https://b.example:8443']);
-  assert.deepEqual(mediaOriginsFromContext(undefined), DEFAULT_MEDIA_ORIGINS);
-  assert.deepEqual(mediaOriginsFromContext('  '), DEFAULT_MEDIA_ORIGINS);
-  assert.throws(() => mediaOriginsFromContext('https://a.example/path'), /bare http\(s\) origin/);
-  assert.throws(() => mediaOriginsFromContext('https://a.example/'), /bare http\(s\) origin/);
-  assert.throws(() => mediaOriginsFromContext('*'), /not a URL/);
-  assert.throws(() => mediaOriginsFromContext('ftp://a.example'), /bare http\(s\) origin/);
+  const defaults = DEFAULT_MEDIA_ORIGINS.staging;
+  assert.deepEqual(mediaOriginsFromContext(' https://a.example , https://b.example:8443 ', defaults), ['https://a.example', 'https://b.example:8443']);
+  assert.deepEqual(mediaOriginsFromContext(undefined, defaults), defaults);
+  assert.deepEqual(mediaOriginsFromContext('  ', defaults), defaults);
+  assert.throws(() => mediaOriginsFromContext('https://a.example/path', defaults), /bare http\(s\) origin/);
+  assert.throws(() => mediaOriginsFromContext('https://a.example/', defaults), /bare http\(s\) origin/);
+  assert.throws(() => mediaOriginsFromContext('*', defaults), /not a URL/);
+  assert.throws(() => mediaOriginsFromContext('ftp://a.example', defaults), /bare http\(s\) origin/);
 });
 
 test('media signer: one Node 24 function, small and short-lived, fed the bucket, the prefix and the worker-control secret ARN', () => {
@@ -330,9 +339,108 @@ test('media: the stack still creates exactly the two HMAC secrets and exposes th
 });
 
 test('the target guard refuses non-staging credentials, allows credential-free synth', () => {
-  assert.doesNotThrow(() => assertStagingCredentials(undefined));
-  assert.doesNotThrow(() => assertStagingCredentials('065148797865'));
-  assert.throws(() => assertStagingCredentials('670682108352'), WrongTargetError); // management account
+  assert.doesNotThrow(() => assertTargetCredentials(CONNECTIONS_STAGING_TARGET, undefined));
+  assert.doesNotThrow(() => assertTargetCredentials(CONNECTIONS_STAGING_TARGET, ''));
+  assert.doesNotThrow(() => assertTargetCredentials(CONNECTIONS_STAGING_TARGET, '065148797865'));
+  assert.throws(() => assertTargetCredentials(CONNECTIONS_STAGING_TARGET, '670682108352'), WrongTargetError); // management account
+  assert.throws(() => assertTargetCredentials(CONNECTIONS_STAGING_TARGET, '123456789012'), WrongTargetError);
+  // The app runs the same guard: staging credentials build; management credentials are refused.
+  assert.doesNotThrow(() => buildConnectionsApp({ image: ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:22-slim'), assetsDir: stubAssets(), credentialAccount: '065148797865' }));
+  assert.throws(() => buildConnectionsApp({ image: ecs.ContainerImage.fromRegistry('public.ecr.aws/docker/library/node:22-slim'), assetsDir: stubAssets(), credentialAccount: '670682108352' }), WrongTargetError);
+});
+
+test('the staging target is pinned exactly as authorized; the stack lands there under its name', () => {
+  assert.deepEqual({ ...CONNECTIONS_STAGING_TARGET }, {
+    accountName: 'Loop Brain Staging',
+    account: '065148797865',
+    region: 'us-east-1',
+    stackName: 'LoopConnections-staging',
+    stage: 'staging',
+    bootstrapQualifier: 'hnb659fds',
+  });
+  const { stack } = synthStack();
+  assert.equal(stack.stackName, 'LoopConnections-staging');
+  assert.equal(stack.account, '065148797865');
+  assert.equal(stack.region, 'us-east-1');
+  assert.equal(stack.terminationProtection, true);
+  assert.equal(stack.templateOptions.description, 'Loop connections worker (staging): Teams/Telegram durable observation worker');
+  template.hasResourceProperties('AWS::ApiGatewayV2::Api', { Description: 'Loop connections worker control API (staging).' });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Protection: absent by default in staging (no alertEmail context) -- and loudly so. With an
+// address, exactly one topic, one budget and one alarm appear. test/production.test.ts proves the
+// production stage REQUIRES the address. Every resource carries loop:stage.
+// ---------------------------------------------------------------------------------------------
+
+/** Whether a resource's Tags (list or map form) carry loop:stage=<stage>. */
+function hasStageTag(tags: unknown, stage: string): boolean {
+  if (Array.isArray(tags)) return tags.some((t) => t && t.Key === 'loop:stage' && t.Value === stage);
+  if (tags && typeof tags === 'object') return (tags as Record<string, unknown>)['loop:stage'] === stage;
+  return false;
+}
+
+test('DEFAULT staging (no alertEmail): no topic, no budget, no alarm -- and synth warns about it', () => {
+  for (const type of ['AWS::SNS::Topic', 'AWS::SNS::Subscription', 'AWS::Budgets::Budget', 'AWS::CloudWatch::Alarm']) {
+    assert.equal(count(type), 0, `unexpected ${type} without an alert address`);
+  }
+  const { stack } = synthStack();
+  Annotations.fromStack(stack).hasWarning('/LoopConnections-staging', Match.stringLikeRegexp('No alertEmail context: the staging stack has NO cost budget and NO availability alarm'));
+});
+
+test('staging with alertEmail: one topic subscribed to it, a $60 monthly budget at 80%/100%, one worker-down alarm wired to the topic', () => {
+  const { stack } = synthStack({ alertEmail: 'ops@example.invalid' });
+  const t = Template.fromStack(stack);
+  Annotations.fromStack(stack).hasNoWarning('/LoopConnections-staging', Match.stringLikeRegexp('No alertEmail'));
+  t.resourceCountIs('AWS::SNS::Topic', 1);
+  t.resourceCountIs('AWS::SNS::Subscription', 1);
+  t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'ops@example.invalid' });
+  t.resourceCountIs('AWS::Budgets::Budget', 1);
+  t.hasResourceProperties('AWS::Budgets::Budget', {
+    Budget: { BudgetName: 'loop-connections-staging-monthly', BudgetType: 'COST', TimeUnit: 'MONTHLY', BudgetLimit: { Amount: 60, Unit: 'USD' }, CostFilters: Match.absent() },
+    NotificationsWithSubscribers: [80, 100].map((threshold) => ({
+      Notification: { NotificationType: 'ACTUAL', ComparisonOperator: 'GREATER_THAN', Threshold: threshold, ThresholdType: 'PERCENTAGE' },
+      Subscribers: [{ SubscriptionType: 'EMAIL', Address: 'ops@example.invalid' }],
+    })),
+  });
+  t.resourceCountIs('AWS::CloudWatch::Alarm', 1);
+  t.hasResourceProperties('AWS::CloudWatch::Alarm', {
+    AlarmName: 'loop-connections-staging-worker-down',
+    Namespace: 'AWS/ApplicationELB',
+    MetricName: 'HealthyHostCount',
+    Statistic: 'Minimum',
+    Period: 60,
+    EvaluationPeriods: 5,
+    Threshold: 1,
+    ComparisonOperator: 'LessThanThreshold',
+    TreatMissingData: 'breaching',
+    AlarmActions: [Match.anyValue()],
+    OKActions: [Match.anyValue()],
+  });
+  // A budget override is honoured; junk is refused.
+  Template.fromStack(synthStack({ alertEmail: 'ops@example.invalid', monthlyBudgetUsd: '75' }).stack).hasResourceProperties('AWS::Budgets::Budget', { Budget: Match.objectLike({ BudgetLimit: { Amount: 75, Unit: 'USD' } }) });
+  assert.throws(() => synthStack({ alertEmail: 'ops@example.invalid', monthlyBudgetUsd: '0' }), /positive whole number/);
+  assert.throws(() => synthStack({ alertEmail: 'ops@example.invalid', monthlyBudgetUsd: '12.5' }), /positive whole number/);
+  assert.throws(() => synthStack({ alertEmail: 'not-an-address' }), /not an email address/);
+  // Nothing else changed: the worker, its secrets and the signer are the same shape.
+  const res = t.toJSON().Resources as Record<string, { Type: string }>;
+  const added = ['AWS::SNS::Topic', 'AWS::SNS::Subscription', 'AWS::Budgets::Budget', 'AWS::CloudWatch::Alarm'];
+  const types = (r: Record<string, { Type: string }>) => Object.values(r).map((x) => x.Type).filter((x) => !added.includes(x)).sort();
+  assert.deepEqual(types(res), types(resources));
+});
+
+test('every resource carries loop:stage=staging: per resource where CDK can, and as a stack tag for the rest', () => {
+  const tagged = Object.entries(resources).filter(([, r]) => r.Properties?.Tags !== undefined);
+  assert.ok(tagged.length >= 10, 'expected the VPC, service, task, ALB, bucket, functions, secrets, log groups and roles to be tagged');
+  for (const [id, r] of tagged) assert.ok(hasStageTag(r.Properties.Tags, 'staging'), `${id} lacks loop:stage=staging`);
+  // The one role the tag aspect cannot reach is CDK's own custom-resource provider (a raw
+  // CfnResource); the stack-level tag below reaches it at deploy time.
+  const isCdkProvider = (id: string) => /^CustomVpcRestrictDefaultSG/.test(id);
+  for (const type of ['AWS::EC2::VPC', 'AWS::ECS::Cluster', 'AWS::ECS::Service', 'AWS::ECS::TaskDefinition', 'AWS::ElasticLoadBalancingV2::LoadBalancer', 'AWS::S3::Bucket', 'AWS::SecretsManager::Secret', 'AWS::Logs::LogGroup', 'AWS::IAM::Role']) {
+    const of = Object.entries(resources).filter(([id, r]) => r.Type === type && !isCdkProvider(id));
+    assert.ok(of.length > 0 && of.every(([, r]) => hasStageTag(r.Properties?.Tags, 'staging')), `${type} must carry loop:stage`);
+  }
+  assert.deepEqual(synthStack().stack.tags.tagValues(), { 'loop:stage': 'staging' });
 });
 
 // ---------------------------------------------------------------------------------------------

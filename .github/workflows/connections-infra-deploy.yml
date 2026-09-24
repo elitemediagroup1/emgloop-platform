@@ -1,16 +1,26 @@
-# Connections worker environment -- DEPLOY. Manual, approved, staging only.
+# Connections worker environment -- DEPLOY. Manual, approved, ONE stage per run.
 #
-# Deploys infra/connections into Loop Brain Staging (065148797865, us-east-1) with short-lived
-# credentials from GitHub's OIDC provider. There are no AWS access keys anywhere, and no local
-# deploy. The account is checked before anything is compared or applied: the role ARN must be in
-# 065148797865, and so must the credentials it yields (allowed-account-ids, then an explicit check);
-# the CDK app refuses any other account as well.
+# Deploys infra/connections into the chosen stage's account with short-lived credentials from
+# GitHub's OIDC provider. There are no AWS access keys anywhere, and no local deploy.
+#   - staging:    Loop Brain Staging (065148797865, us-east-1), the literal below.
+#   - production: the dedicated production workload account. Its id is NOT in source: it is the
+#                 connections-production environment variable CONNECTIONS_PRODUCTION_ACCOUNT_ID.
+#                 The management account (670682108352) and the staging account are refused.
+# Everything stage-specific comes from the stage: the GitHub environment (connections-<stage>), the
+# confirmation text (deploy loop-connections-<stage>), the account, the deploy role, the alert
+# address, the AI organization id and the stack name (LoopConnections-<stage>). The account is
+# checked before anything is compared or applied: it must be 12 digits, the role ARN must be in it,
+# and so must the credentials it yields (allowed-account-ids, then an explicit check); the CDK app
+# refuses any other account as well.
 #
-# It cannot run until an administrator has (docs/runbooks/connections-aws-staging.md):
-#   1. deployed the deploy identity, infra/connections/access/github-deploy-access.yaml (once, by
-#      hand, never by this pipeline);
-#   2. created the `connections-staging` GitHub environment: Matt as required reviewer, `main` only,
-#      and the variable CONNECTIONS_STAGING_DEPLOY_ROLE_ARN.
+# It cannot run for a stage until an administrator has (docs/runbooks/connections-aws-<stage>.md):
+#   1. deployed that stage's deploy identity, infra/connections/access/github-deploy-access.yaml
+#      (once, by hand, in that account, never by this pipeline);
+#   2. created the `connections-<stage>` GitHub environment: Matt as required reviewer, `main` only,
+#      and its variables (staging: CONNECTIONS_STAGING_DEPLOY_ROLE_ARN, optionally
+#      CONNECTIONS_STAGING_ALERT_EMAIL and CONNECTIONS_STAGING_AI_ORG_ID; production:
+#      CONNECTIONS_PRODUCTION_ACCOUNT_ID, CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN,
+#      CONNECTIONS_PRODUCTION_ALERT_EMAIL (required), optionally CONNECTIONS_PRODUCTION_AI_ORG_ID).
 # Choosing `diff` shows the change and creates nothing.
 
 name: connections-infra-deploy
@@ -18,13 +28,19 @@ name: connections-infra-deploy
 on:
   workflow_dispatch:
     inputs:
+      stage:
+        description: 'Which stage to deploy'
+        required: true
+        type: choice
+        options: [staging, production]
+        default: staging
       action:
         description: 'diff (show the change) or deploy (apply it)'
         required: true
         type: choice
         options: [diff, deploy]
       confirm:
-        description: 'For deploy, type exactly: deploy loop-connections-staging'
+        description: 'For deploy, type exactly: deploy loop-connections-<stage>'
         required: false
         type: string
 
@@ -33,20 +49,63 @@ permissions:
   id-token: write
 
 jobs:
-  staging:
+  connections:
     runs-on: ubuntu-latest
-    environment: connections-staging
+    # The environment name is part of the OIDC trust: a stage can only ever reach its own role.
+    environment: connections-${{ inputs.stage }}
     env:
       # Only for `prisma generate` at install; nothing connects.
       DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
-      CONNECTIONS_ACCOUNT: '065148797865'
-      DEPLOY_ROLE_ARN: ${{ vars.CONNECTIONS_STAGING_DEPLOY_ROLE_ARN }}
+      STAGE: ${{ inputs.stage }}
+      STACK_NAME: LoopConnections-${{ inputs.stage }}
+      STAGING_ACCOUNT: '065148797865'
+      MANAGEMENT_ACCOUNT: '670682108352'
+      # Environment-scoped variables: each is defined only in its own GitHub environment, so the
+      # other stage's set is empty here. The resolve step picks by STAGE, never by which is set.
+      STAGING_DEPLOY_ROLE_ARN: ${{ vars.CONNECTIONS_STAGING_DEPLOY_ROLE_ARN }}
+      STAGING_ALERT_EMAIL: ${{ vars.CONNECTIONS_STAGING_ALERT_EMAIL }}
+      STAGING_AI_ORG_ID: ${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}
+      PRODUCTION_ACCOUNT_ID: ${{ vars.CONNECTIONS_PRODUCTION_ACCOUNT_ID }}
+      PRODUCTION_DEPLOY_ROLE_ARN: ${{ vars.CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN }}
+      PRODUCTION_ALERT_EMAIL: ${{ vars.CONNECTIONS_PRODUCTION_ALERT_EMAIL }}
+      PRODUCTION_AI_ORG_ID: ${{ vars.CONNECTIONS_PRODUCTION_AI_ORG_ID }}
     steps:
       - name: Confirm
-        if: ${{ inputs.action == 'deploy' && inputs.confirm != 'deploy loop-connections-staging' }}
+        # Only a deploy needs the phrase; `action` is a dropdown choice, never typed text.
+        if: ${{ inputs.action == 'deploy' }}
+        # The gate is a shell comparison, not an `if:` expression, for the reason learned on the
+        # seed workflow on 2026-09-23 (runs 35864380064..35864984789): text pasted into the
+        # dispatch form arrives padded, and an expression gate compares bytes and explains nothing.
+        # The phrase itself is still required exactly; only surrounding/invisible whitespace,
+        # repeated inner whitespace and letter case are forgiven.
+        shell: bash
         run: |
-          echo "Deploy requires the confirmation text: deploy loop-connections-staging"
-          exit 1
+          set -euo pipefail
+          REQUIRED="deploy loop-connections-${STAGE}"
+          # The input is read from the event payload file, not declared as step env and never
+          # interpolated into this script: a declared env value is printed in the step header
+          # before the script runs, and an interpolated one is script injection.
+          CONFIRM="$(jq -r '.inputs.confirm // ""' "${GITHUB_EVENT_PATH}")"
+          # Strip leading/trailing whitespace, including the invisible kinds a copy-paste carries:
+          # NBSP (U+00A0), zero-width space/joiners (U+200B..U+200D), BOM (U+FEFF), CR.
+          trim() {
+            local v="$1"
+            v="${v//$'\xc2\xa0'/ }"
+            v="${v//$'\xe2\x80\x8b'/}"; v="${v//$'\xe2\x80\x8c'/}"; v="${v//$'\xe2\x80\x8d'/}"; v="${v//$'\xef\xbb\xbf'/}"
+            v="${v//$'\r'/}"
+            v="${v#"${v%%[![:space:]]*}"}"
+            v="${v%"${v##*[![:space:]]}"}"
+            printf '%s' "$v"
+          }
+          normalized="$(trim "${CONFIRM}" | tr -s '[:space:]' ' ')"
+          normalized="${normalized,,}"
+          if [ "${normalized}" != "${REQUIRED}" ]; then
+            echo "::error::This deploys the ${STAGE} stack. Confirmation text required: ${REQUIRED}"
+            # The phrase is not a secret; show exactly what arrived so the next attempt can be fixed.
+            echo "Received $(printf '%s' "${CONFIRM}" | wc -c | tr -d ' ') bytes; with whitespace made visible: $(printf '%q' "${CONFIRM}")"
+            exit 1
+          fi
+          echo "Confirmed."
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,11 +125,67 @@ jobs:
           npm run -w @emgloop/connections-worker test
           npm --prefix infra/connections test
 
-      - name: The deploy role belongs to Loop Brain Staging
+      # Fail closed: an unset or malformed account id stops here, before any credential is
+      # requested. The account values are literals or GitHub variables (never inputs), so a trim is
+      # a courtesy, not a normalization of untrusted text.
+      - name: Resolve the stage (account, deploy role, alert address, AI organization)
+        id: resolve
+        run: |
+          set -euo pipefail
+          trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+          case "$STAGE" in
+            staging)
+              account="$STAGING_ACCOUNT"
+              role="$(trim "$STAGING_DEPLOY_ROLE_ARN")"
+              alert_email="$(trim "$STAGING_ALERT_EMAIL")"
+              ai_org_id="$(trim "$STAGING_AI_ORG_ID")"
+              production_account=""
+              ;;
+            production)
+              account="$(trim "$PRODUCTION_ACCOUNT_ID")"
+              role="$(trim "$PRODUCTION_DEPLOY_ROLE_ARN")"
+              alert_email="$(trim "$PRODUCTION_ALERT_EMAIL")"
+              ai_org_id="$(trim "$PRODUCTION_AI_ORG_ID")"
+              production_account="$account"
+              ;;
+            *) echo "Refusing: unknown stage '${STAGE}'"; exit 1 ;;
+          esac
+          if ! [[ "$account" =~ ^[0-9]{12}$ ]]; then
+            echo "Refusing: the ${STAGE} account id is unset or not 12 digits (production: set CONNECTIONS_PRODUCTION_ACCOUNT_ID on the connections-production environment)"
+            exit 1
+          fi
+          if [ "$STAGE" = production ]; then
+            if [ "$account" = "$STAGING_ACCOUNT" ] || [ "$account" = "$MANAGEMENT_ACCOUNT" ]; then
+              echo "Refusing: ${account} is not the production workload account (staging is ${STAGING_ACCOUNT}; the management account ${MANAGEMENT_ACCOUNT} is governance only)"
+              exit 1
+            fi
+            if [ -z "$alert_email" ]; then
+              echo "Refusing: CONNECTIONS_PRODUCTION_ALERT_EMAIL is unset; a production stack without a budget and an alarm is not deployed"
+              exit 1
+            fi
+          fi
+          for v in "$role" "$alert_email" "$ai_org_id"; do
+            if [[ "$v" =~ [[:space:]] ]]; then echo "Refusing: a ${STAGE} variable contains whitespace"; exit 1; fi
+          done
+          {
+            echo "CONNECTIONS_ACCOUNT=${account}"
+            echo "DEPLOY_ROLE_ARN=${role}"
+            echo "PRODUCTION_ACCOUNT=${production_account}"
+            echo "ALERT_EMAIL=${alert_email}"
+            echo "AI_ORG_ID=${ai_org_id}"
+          } >> "$GITHUB_ENV"
+          # The same two values as step outputs, for the credentials action's inputs.
+          {
+            echo "account=${account}"
+            echo "deploy_role_arn=${role}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Stage ${STAGE}: account ${account}, stack ${STACK_NAME}, alerts $([ -n "$alert_email" ] && echo on || echo off), AI $([ -n "$ai_org_id" ] && echo on || echo off)"
+
+      - name: The deploy role belongs to the stage's account
         run: |
           case "$DEPLOY_ROLE_ARN" in
             "arn:aws:iam::${CONNECTIONS_ACCOUNT}:role/"?*) ;;
-            *) echo "CONNECTIONS_STAGING_DEPLOY_ROLE_ARN is not a role in ${CONNECTIONS_ACCOUNT}"; exit 1 ;;
+            *) echo "The ${STAGE} deploy role ARN is not a role in ${CONNECTIONS_ACCOUNT}"; exit 1 ;;
           esac
 
       # Pinned to the v6.3.0 commit. With OIDC it sends no session tags; allowed-account-ids is
@@ -78,12 +193,12 @@ jobs:
       - name: AWS credentials (OIDC, short-lived)
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.CONNECTIONS_STAGING_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ steps.resolve.outputs.deploy_role_arn }}
           aws-region: us-east-1
           role-session-name: connections-infra-${{ github.run_id }}
-          allowed-account-ids: '065148797865'
+          allowed-account-ids: ${{ steps.resolve.outputs.account }}
 
-      - name: The credentials are for Loop Brain Staging
+      - name: The credentials are for the stage's account
         run: |
           account="$(aws sts get-caller-identity --query Account --output text)"
           if [ "$account" != "$CONNECTIONS_ACCOUNT" ]; then
@@ -95,15 +210,17 @@ jobs:
       - name: Bundle the media signer
         run: npm --prefix infra/connections run bundle
 
+      # The same context on synth, diff and deploy. productionAccount is empty for staging (the app
+      # reads it only for production); an empty alertEmail leaves staging without a budget/alarm.
       - name: Synthesize (creates nothing)
         working-directory: infra/connections
-        run: npx cdk synth --no-notices LoopConnections-staging -c aiOrganizationId=${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}
+        run: npx cdk synth --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID"
 
       - name: Diff
         working-directory: infra/connections
-        run: npx cdk diff --no-notices LoopConnections-staging -c aiOrganizationId=${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}
+        run: npx cdk diff --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID"
 
       - name: Deploy
         if: ${{ inputs.action == 'deploy' }}
         working-directory: infra/connections
-        run: npx cdk deploy --no-notices --require-approval never LoopConnections-staging -c aiOrganizationId=${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}
+        run: npx cdk deploy --no-notices --require-approval never "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID"

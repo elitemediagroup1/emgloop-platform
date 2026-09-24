@@ -1,13 +1,14 @@
 // The connections worker on AWS: a single always-on Fargate service that holds the persistent
 // Telegram (MTProto) sessions, runs the observation sweep, and serves the signed control endpoints
-// the Loop web tier calls to drive an interactive login. Staging only.
+// the Loop web tier calls to drive an interactive login. One stack shape for both stages; the stage
+// (lib/target.ts) decides only the account, the stack name, the secret names and the defaults.
 //
 // SMALLEST APPROPRIATE SHAPE. One small Fargate task in private subnets; one NAT for its outbound
 // (Telegram, Neon); an INTERNAL ALB in front of it; and an HTTP API with a VPC Link so the web tier
 // reaches it over HTTPS (the execute-api domain) WITHOUT a custom domain or certificate. Nothing is
 // internet-facing except the HTTP API, and only signed requests are honoured by the worker itself.
 //
-// SECRETS. api_id/api_hash come from the pre-created `loop/connections/staging/telegram`. The
+// SECRETS. api_id/api_hash come from the pre-created `loop/connections/<stage>/telegram`. The
 // session-sealing key and the Neon URL are operator-provided and referenced, not created; the
 // conversation-key secret and the web<->worker control secret are generated here and never leave
 // AWS (the control secret is also read once by the operator to set the web env var). Every secret
@@ -19,9 +20,19 @@
 // uploads and plays creator media directly against S3 while the web tier holds no AWS credential.
 // The signer honours only calls signed with the SAME worker-control secret, and its role can touch
 // only objects under `media/`. Nothing about the worker's shape changes for it.
+//
+// PROTECTION. With `protection` set (CDK context `alertEmail`, required for production), the stack
+// adds exactly three boring things: an SNS topic subscribed to that address, a monthly cost budget
+// for the account with notifications at 80% and 100% of actual spend, and one CloudWatch alarm that
+// fires when the worker has had no healthy target for five minutes. Without it (staging may omit
+// the email) none of the three exists and synth warns. Every resource carries the tag
+// `loop:stage=<stage>`.
 
 import { join } from 'node:path';
-import { Stack, StackProps, CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { Annotations, Stack, StackProps, CfnOutput, Duration, RemovalPolicy, Tags } from 'aws-cdk-lib';
+import * as budgets from 'aws-cdk-lib/aws-budgets';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
@@ -30,12 +41,23 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { HttpApi, HttpMethod, VpcLink } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpAlbIntegration, HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import type { Construct } from 'constructs';
 
+import { CONNECTIONS_REGION, type ConnectionsStage } from './target';
+
+/** The cost budget and availability alarm, both notifying one address. See protectionFromContext (app.ts). */
+export interface StackProtection {
+  readonly alertEmail: string;
+  /** The monthly cost ceiling for the ACCOUNT (not just this stack), in whole US dollars. */
+  readonly monthlyBudgetUsd: number;
+}
+
 export interface ConnectionsStackProps extends StackProps {
-  readonly stage: 'staging';
+  readonly stage: ConnectionsStage;
   /** The worker container image. bin/ builds it from the Dockerfile; tests inject a registry image. */
   readonly image: ecs.ContainerImage;
   /** Where `npm run bundle` wrote the function bundles (dist/<function>/index.js). */
@@ -45,23 +67,28 @@ export interface ConnectionsStackProps extends StackProps {
   /** Retention horizon (days) for the content-free observation store. */
   readonly observationRetentionDays?: number;
   /**
-   * Operator-activated AI content triage (staging). Set ONLY when the operator supplies a real
-   * organization id (via CDK context `aiOrganizationId`, wired in app.ts). When undefined, no AI
-   * secret is referenced and no LOOP_AI_* env is set: the worker stays fail-closed (NOT_ACTIVATED)
-   * and the synthesized stack is byte-for-byte identical to the AI-off shape.
+   * Operator-activated AI content triage. Set ONLY when the operator supplies a real organization
+   * id (via CDK context `aiOrganizationId`, wired in app.ts). When undefined, no AI secret is
+   * referenced and no LOOP_AI_* env is set: the worker stays fail-closed (NOT_ACTIVATED) and the
+   * synthesized stack is byte-for-byte identical to the AI-off shape.
    */
   readonly aiActivation?: { readonly organizationId: string; readonly openAiFallback: boolean };
+  /** The cost budget and availability alarm. Absent: neither exists, and synth warns. */
+  readonly protection?: StackProtection;
 }
 
-/** The Secrets Manager names this stack references or creates. */
-export const CONNECTION_SECRET_NAMES = Object.freeze({
-  telegram: 'loop/connections/staging/telegram',
-  connectionKey: 'loop/connections/staging/connection-key',
-  conversationSecret: 'loop/connections/staging/conversation-secret',
-  workerControl: 'loop/connections/staging/worker-control',
-  databaseUrl: 'loop/connections/staging/database-url',
-  ai: 'loop/connections/staging/ai',
-} as const);
+/** The Secrets Manager names a stage's stack references or creates: `loop/connections/<stage>/…`. */
+export function connectionSecretNames(stage: ConnectionsStage) {
+  const prefix = `loop/connections/${stage}`;
+  return Object.freeze({
+    telegram: `${prefix}/telegram`,
+    connectionKey: `${prefix}/connection-key`,
+    conversationSecret: `${prefix}/conversation-secret`,
+    workerControl: `${prefix}/worker-control`,
+    databaseUrl: `${prefix}/database-url`,
+    ai: `${prefix}/ai`,
+  } as const);
+}
 
 const CONTAINER_PORT = 8080;
 
@@ -74,13 +101,16 @@ export const MEDIA_SIGN_PATH = '/media/sign';
 export class ConnectionsStack extends Stack {
   // Pin the AZs so `cdk synth` is deterministic and needs NO AWS credentials or context lookup: a
   // VPC with a concrete env otherwise asks AWS for the account's availability zones at synth time.
-  // The stack is pinned to us-east-1 (lib/target.ts), where these two AZ names always exist.
+  // Both stages are pinned to us-east-1 (lib/target.ts), where these two AZ names always exist.
   override get availabilityZones(): string[] {
     return ['us-east-1a', 'us-east-1b'];
   }
 
   constructor(scope: Construct, id: string, props: ConnectionsStackProps) {
     super(scope, id, props);
+    if (this.region !== CONNECTIONS_REGION) throw new Error(`the availability-zone pin holds for ${CONNECTIONS_REGION} only, not ${this.region}`);
+    const names = connectionSecretNames(props.stage);
+    Tags.of(this).add('loop:stage', props.stage);
 
     // --- Network: private tasks, one NAT for outbound, nothing else public --------------------
     const vpc = new ec2.Vpc(this, 'Vpc', {
@@ -94,7 +124,7 @@ export class ConnectionsStack extends Stack {
     });
 
     // --- Secrets ------------------------------------------------------------------------------
-    const telegram = secretsmanager.Secret.fromSecretNameV2(this, 'TelegramSecret', CONNECTION_SECRET_NAMES.telegram);
+    const telegram = secretsmanager.Secret.fromSecretNameV2(this, 'TelegramSecret', names.telegram);
 
     const generated = (id2: string, secretName: string, description: string) =>
       new secretsmanager.Secret(this, id2, {
@@ -108,13 +138,13 @@ export class ConnectionsStack extends Stack {
     // exist with real values BEFORE deploy, so the worker -- which fails closed on a missing sealing
     // key at boot -- starts healthy and the Fargate service reaches steady state. Creating them here
     // as empty placeholders would crash the first task and roll the deployment back. See the runbook.
-    const connectionKey = secretsmanager.Secret.fromSecretNameV2(this, 'ConnectionKeySecret', CONNECTION_SECRET_NAMES.connectionKey);
-    const databaseUrl = secretsmanager.Secret.fromSecretNameV2(this, 'DatabaseUrlSecret', CONNECTION_SECRET_NAMES.databaseUrl);
+    const connectionKey = secretsmanager.Secret.fromSecretNameV2(this, 'ConnectionKeySecret', names.connectionKey);
+    const databaseUrl = secretsmanager.Secret.fromSecretNameV2(this, 'DatabaseUrlSecret', names.databaseUrl);
     // Generated here; never leave AWS. The control secret is also read once to set the web env var.
-    const conversationSecret = generated('ConversationSecret', CONNECTION_SECRET_NAMES.conversationSecret, 'HMAC key for one-way conversation keys (generated).');
-    const workerControl = generated('WorkerControlSecret', CONNECTION_SECRET_NAMES.workerControl, 'Web<->worker control channel shared secret (generated).');
+    const conversationSecret = generated('ConversationSecret', names.conversationSecret, 'HMAC key for one-way conversation keys (generated).');
+    const workerControl = generated('WorkerControlSecret', names.workerControl, 'Web<->worker control channel shared secret (generated).');
 
-    // --- AI content triage (staging): operator-activated, fail-closed, credential via Secrets Manager
+    // --- AI content triage: operator-activated, fail-closed, credential via Secrets Manager --------
     // apps/connections-worker/src/ai-runtime.ts is OFF unless LOOP_AI_ENABLED === 'true' AND a provider
     // is listed, terms-confirmed, and its key present. We feed exactly that env, and ONLY when the
     // operator supplied an organization id (CDK context aiOrganizationId -> app.ts -> props.aiActivation).
@@ -126,8 +156,8 @@ export class ConnectionsStack extends Stack {
     if (props.aiActivation) {
       const providers = props.aiActivation.openAiFallback ? 'anthropic,openai' : 'anthropic';
       // Referenced, not created (like telegram/connection-key/database-url): the operator pre-creates
-      // `loop/connections/staging/ai` with the real key(s) before deploy. See the runbook.
-      const aiSecret = secretsmanager.Secret.fromSecretNameV2(this, 'AiSecret', CONNECTION_SECRET_NAMES.ai);
+      // `loop/connections/<stage>/ai` with the real key(s) before deploy. See the runbooks.
+      const aiSecret = secretsmanager.Secret.fromSecretNameV2(this, 'AiSecret', names.ai);
       aiSecrets.ANTHROPIC_API_KEY = ecs.Secret.fromSecretsManager(aiSecret, 'anthropic_api_key');
       if (props.aiActivation.openAiFallback) {
         aiSecrets.OPENAI_API_KEY = ecs.Secret.fromSecretsManager(aiSecret, 'openai_api_key');
@@ -182,7 +212,7 @@ export class ConnectionsStack extends Stack {
     // --- Ingress: internal ALB, reached only through an HTTPS HTTP API via a VPC Link ---------
     const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', { vpc, internetFacing: false });
     const listener = alb.addListener('Listener', { port: 80, protocol: elbv2.ApplicationProtocol.HTTP, open: false });
-    listener.addTargets('Worker', {
+    const workerTargets = listener.addTargets('Worker', {
       port: CONTAINER_PORT,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [service],
@@ -203,7 +233,7 @@ export class ConnectionsStack extends Stack {
     // this is the only ingress. allowFrom also wires the VPC Link SG's egress to the ALB.
     alb.connections.allowFrom(vpcLinkSg, ec2.Port.tcp(80), 'API Gateway VPC Link only');
     const httpApi = new HttpApi(this, 'ControlApi', {
-      description: 'Loop connections worker control API (staging).',
+      description: `Loop connections worker control API (${props.stage}).`,
       defaultIntegration: new HttpAlbIntegration('AlbIntegration', listener, { vpcLink }),
     });
     // The control endpoints and the health check, all through the same private integration.
@@ -272,6 +302,45 @@ export class ConnectionsStack extends Stack {
     });
     // The one route on the existing API that is NOT the worker: everything else still goes to the ALB.
     httpApi.addRoutes({ path: MEDIA_SIGN_PATH, methods: [HttpMethod.POST], integration: new HttpLambdaIntegration('MediaSignIntegration', mediaSigner) });
+
+    // --- Protection: one topic, one budget, one alarm -- or nothing, loudly ----------------------
+    if (props.protection) {
+      const { alertEmail, monthlyBudgetUsd } = props.protection;
+      const alerts = new sns.Topic(this, 'Alerts', { displayName: `Loop connections (${props.stage}) alerts` });
+      alerts.addSubscription(new subscriptions.EmailSubscription(alertEmail));
+
+      // An ACCOUNT-level cost budget (no filter): in a member account it measures that account. In
+      // production the account is dedicated to this workload, so the number is exact; in staging the
+      // account is shared with the Brain, so the ceiling covers both (see the runbooks).
+      new budgets.CfnBudget(this, 'MonthlyBudget', {
+        budget: { budgetName: `loop-connections-${props.stage}-monthly`, budgetType: 'COST', timeUnit: 'MONTHLY', budgetLimit: { amount: monthlyBudgetUsd, unit: 'USD' } },
+        notificationsWithSubscribers: [80, 100].map((threshold) => ({
+          notification: { notificationType: 'ACTUAL', comparisonOperator: 'GREATER_THAN', threshold, thresholdType: 'PERCENTAGE' },
+          subscribers: [{ subscriptionType: 'EMAIL', address: alertEmail }],
+        })),
+      });
+
+      // "Is the worker up?" as the load balancer sees it: no healthy target for five consecutive
+      // minutes. This is the ALB's own metric, emitted without Container Insights (which the
+      // cluster leaves off); the ECS RunningTaskCount metric would need Insights. Missing data is
+      // BREACHING: a target group with nothing registered is exactly the outage this reports.
+      const down = new cloudwatch.Alarm(this, 'WorkerDownAlarm', {
+        alarmName: `loop-connections-${props.stage}-worker-down`,
+        alarmDescription: `The connections worker (${props.stage}) has had no healthy target for 5 minutes.`,
+        metric: workerTargets.metrics.healthyHostCount({ period: Duration.minutes(1), statistic: 'Minimum' }),
+        threshold: 1,
+        evaluationPeriods: 5,
+        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+      });
+      down.addAlarmAction(new actions.SnsAction(alerts));
+      down.addOkAction(new actions.SnsAction(alerts));
+    } else {
+      Annotations.of(this).addWarningV2(
+        '@emgloop/infra-connections:noAlertEmail',
+        `No alertEmail context: the ${props.stage} stack has NO cost budget and NO availability alarm.`,
+      );
+    }
 
     // The worker URL the web tier uses (set LOOP_CONNECTIONS_WORKER_URL to this).
     new CfnOutput(this, 'WorkerUrl', { value: httpApi.apiEndpoint, description: 'LOOP_CONNECTIONS_WORKER_URL for the web tier' });
