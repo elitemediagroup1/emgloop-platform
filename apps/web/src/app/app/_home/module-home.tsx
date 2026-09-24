@@ -72,7 +72,8 @@ export function ModuleHome({
   const tiles = projectTiles({
     groups,
     today: briefing.today,
-    needsYouCount: needsYou.length,
+    needsYou,
+    mailInflow: mail?.summary?.inflow ? { needsReply: mail.summary.inflow.needsReply, followUps: mail.summary.inflow.followUps, waiting: mail.summary.inflow.waiting } : null,
     telegram: front?.telegram ?? null,
     work: { kind: 'EMPLOYEE', queue, userId },
     intake: front?.intake ?? null,

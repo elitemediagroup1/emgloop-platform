@@ -191,7 +191,7 @@ function callgrid(over: { current?: Partial<Metrics>; comparison?: Partial<Metri
     window: { label: 'Sep 24, 2026', includesLiveData: true, comparisonLabel: c ? 'Yesterday to the same time' : null },
     coverage: { note: over.withheld ? 'Not compared: Loop’s call record starts Sep 24, after the comparison period began.' : null },
     freshness: { state: over.freshnessState ?? 'LIVE', word: 'Live', detail: 'CallGrid delivered data 3 min ago.' },
-    report: { ok: over.ok ?? true, metrics: over.ok === false ? { ...m, available: false } : m, dimensions: { campaigns: [{ monetized: 3, revenueCents: 50_000 }, { monetized: 0, revenueCents: null }, { monetized: 0, revenueCents: 1_000 }] } },
+    report: { ok: over.ok ?? true, metrics: over.ok === false ? { ...m, available: false } : m, dimensions: { campaigns: [{ label: 'Campaign 1', monetized: 3, revenueCents: 50_000 }, { label: 'Campaign 2', monetized: 0, revenueCents: null }, { label: 'Campaign 3', monetized: 0, revenueCents: 1_000 }] } },
     query: 'period=day',
   });
 }

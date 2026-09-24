@@ -276,6 +276,7 @@ export function ToolsGrid({ tiles }: { tiles: readonly HomeTile[] }) {
                 {line}
               </span>
             ))}
+            {t.status ? <span className="loop-front__tile-status">{t.status}</span> : null}
             <span className="loop-front__tile-go">{t.linkLabel} →</span>
           </Link>
         ))}

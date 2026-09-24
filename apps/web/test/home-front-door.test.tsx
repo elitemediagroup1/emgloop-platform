@@ -22,7 +22,7 @@ import { resolveWorkspaceRole } from '../src/workspaces/role-router';
 import { composeBriefing, type BriefingInput, type BriefingToday, type QueueInstance } from '../src/app/app/_home/briefing';
 import { NeedsAttention } from '../src/app/app/_home/briefing-view';
 import { kpiWords, HOME_KPI_KEYS, projectHomeKpis, type HomeKpiInput, type HomeKpiStrip } from '../src/app/app/_home/kpis';
-import { projectTiles, TILE_PATHS, type TilesInput } from '../src/app/app/_home/tiles';
+import { projectTiles, type NeedsYouTileItem, type TelegramTileInput, TILE_PATHS, type TilesInput } from '../src/app/app/_home/tiles';
 import { HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid, HEADLINES_ON_HOME } from '../src/app/app/_home/front-door-view';
 import type { HeadlineCaseState } from '../src/app/app/_home/front-door-data';
 import type { ActivityItem } from '../src/app/app/admin/workspace-home-data';
@@ -58,7 +58,7 @@ function kpiInput(over: { current?: Partial<Metrics>; comparison?: Partial<Metri
     window: { label: 'Sep 24, 2026', includesLiveData: true, comparisonLabel: c ? 'Yesterday to the same time' : null },
     coverage: { note: over.withheld ? 'Not compared: Loop’s call record starts Sep 24, after the comparison period began.' : null },
     freshness: over.freshness ?? { state: 'LIVE', word: 'Live', detail: 'CallGrid delivered data 3 min ago.' },
-    report: { ok: over.ok ?? true, metrics: m, dimensions: { campaigns: over.campaigns ?? [{ monetized: 3, revenueCents: 50_000 }, { monetized: 0, revenueCents: null }, { monetized: 0, revenueCents: 1_000 }, { monetized: 0, revenueCents: 0 }] } },
+    report: { ok: over.ok ?? true, metrics: m, dimensions: { campaigns: over.campaigns ?? [{ label: 'Campaign 1', monetized: 3, revenueCents: 50_000 }, { label: 'Campaign 2', monetized: 0, revenueCents: null }, { label: 'Campaign 3', monetized: 0, revenueCents: 1_000 }, { label: 'Campaign 4', monetized: 0, revenueCents: 0 }] } },
     query: 'period=day',
   };
 }
@@ -141,12 +141,29 @@ function today(over: Partial<BriefingToday> = {}): BriefingToday {
     ...over,
   };
 }
+/** The viewer's OWN Telegram obligations, as Needs you lists them: minimized topics, the source's labels, never a message. */
+const NEEDS_YOU: NeedsYouTileItem[] = [
+  { provider: 'TELEGRAM', category: 'REQUEST', counterparty: 'Ana R.', topic: 'creative assets for the new landing page', title: 'Ana asked for the creative assets', deadline: null, at: new Date(NOW.getTime() - 3 * 3600_000) },
+  { provider: 'TELEGRAM', category: 'DECISION_NEEDED', counterparty: 'Ana R.', topic: 'budget for October', title: 'Ana needs a decision on the October budget', deadline: 'by Friday', at: new Date(NOW.getTime() - 2 * 3600_000) },
+  { provider: 'TELEGRAM', category: 'BUSINESS_CHANGE', counterparty: 'Ops group', topic: 'adding another pest-control traffic source', title: 'The ops group discussed adding another pest-control traffic source', deadline: null, at: new Date(NOW.getTime() - 3600_000) },
+  { provider: 'TELEGRAM', category: 'FOLLOW_UP', counterparty: null, topic: null, title: 'Someone is waiting on the contract', deadline: null, at: new Date(NOW.getTime() - 6 * 3600_000) },
+];
+const TELEGRAM: TelegramTileInput = {
+  permitted: true,
+  configured: true,
+  state: 'READY',
+  words: { label: 'Ready', tone: 'good', detail: 'Observing. Last checked 5 minutes ago.' },
+  lastObservedAt: new Date(NOW.getTime() - 5 * 60_000),
+  contentAuthorized: true,
+  activity: { since: new Date(NOW.getTime() - 24 * 3600_000), messages: 14, conversations: 5 },
+};
 function tilesInput(over: Partial<TilesInput> = {}): TilesInput {
   return {
     groups: OWNER_NAV,
     today: today(),
-    needsYouCount: 2,
-    telegram: { ok: true, value: { permitted: true, configured: true, state: 'READY', words: { label: 'Ready', tone: 'good', detail: 'Observing. Last checked 5 minutes ago.' }, lastObservedAt: new Date(NOW.getTime() - 5 * 60_000) } },
+    needsYou: NEEDS_YOU,
+    mailInflow: { needsReply: 2, followUps: 1, waiting: 0 },
+    telegram: { ok: true, value: TELEGRAM },
     work: { kind: 'ADMIN', summary: { ok: true, value: { assignedToMe: 4, readyNow: 2, waitingBlocked: 1, completedToday: 2 } } },
     intake: { ok: true, value: { New: 12, Contacted: 5, Quoted: 2, Booked: 1, Completed: 40, Archived: 9 } },
     creators: { ok: true, value: [{ needsEmg: 2, needsCreator: 1, inProduction: 3, dueSoon: 1 }, { needsEmg: 0, needsCreator: 0, inProduction: 0, dueSoon: 0 }] },
@@ -368,17 +385,26 @@ describe('Your tools & spaces: a tile only where the rail leads and the domain w
     assert.equal(tiles.some((t) => /pipeline|opportunit/i.test(t.label)), false, 'the intake board is never Pipeline or Opportunities');
     // Domain-local summaries, from each domain's own read.
     assert.deepEqual(tileByKey(tilesInput(), 'mail')!.metric, { value: '3', label: 'need a reply' });
-    assert.deepEqual(tileByKey(tilesInput(), 'mail')!.lines, ['1 follow-up due', '2 waiting on others']);
-    assert.deepEqual(tileByKey(tilesInput(), 'chats')!.metric, { value: '2', label: 'chats need you' });
-    assert.deepEqual(tileByKey(tilesInput(), 'chats')!.lines, ['Telegram · Ready', 'Observing. Last checked 5 minutes ago.']);
+    assert.deepEqual(tileByKey(tilesInput(), 'mail')!.lines, [
+      'Since yesterday: 2 new messages that need a reply, 1 follow-up came due',
+      '1 follow-up due',
+    ]);
+    // Chats: what is happening in the viewer's OWN conversations -- covered in depth below.
+    assert.deepEqual(tileByKey(tilesInput(), 'chats')!.metric, { value: '3', label: 'conversations need you' });
     assert.deepEqual(tileByKey(tilesInput(), 'work')!.metric, { value: '4', label: 'assigned to you' });
     assert.deepEqual(tileByKey(tilesInput(), 'work')!.lines, ['2 ready now', '1 waiting or blocked', '2 completed today']);
     assert.deepEqual(tileByKey(tilesInput(), 'intake')!.metric, { value: '69', label: 'intake records' });
     assert.deepEqual(tileByKey(tilesInput(), 'intake')!.lines, ['New 12 · Contacted 5 · Quoted 2 · Booked 1']);
     assert.deepEqual(tileByKey(tilesInput(), 'callgrid')!.metric, { value: '14', label: 'billable calls today so far' });
-    assert.deepEqual(tileByKey(tilesInput(), 'callgrid')!.lines, ['Live · CallGrid delivered data 3 min ago.']);
+    // CallGrid says what MOVED, in the contract's words, against the window's own comparison -- then freshness.
+    assert.deepEqual(tileByKey(tilesInput(), 'callgrid')!.lines, [
+      'Revenue ▲ 32% · Net Profit ▲ 53% · Billable Calls ▲ 56% against Yesterday to the same time',
+      'Live · CallGrid delivered data 3 min ago.',
+    ]);
     assert.deepEqual(tileByKey(tilesInput(), 'campaigns')!.metric, { value: '2', label: 'active today so far' });
-    assert.match(tileByKey(tilesInput(), 'campaigns')!.lines.join(' '), /Observed in calls, not a roster\./);
+    // Campaigns names the report's own leader (its rows are ordered by revenue); the roster caveat is status.
+    assert.equal(tileByKey(tilesInput(), 'campaigns')!.lines[0], 'Most revenue today so far: Campaign 1');
+    assert.equal(tileByKey(tilesInput(), 'campaigns')!.status, 'Observed in calls, not a roster');
     assert.deepEqual(tileByKey(tilesInput(), 'creators')!.metric, { value: '2', label: 'managed creators' });
     assert.deepEqual(tileByKey(tilesInput(), 'creators')!.lines, ['2 need your team', '3 in production', '1 due soon']);
   });
@@ -407,11 +433,11 @@ describe('Your tools & spaces: a tile only where the rail leads and the domain w
     assert.deepEqual([notConnected.state, notConnected.stateLine, notConnected.href, notConnected.metric], ['NOT_CONNECTED', 'Not connected', '/app/connections', null]);
     const unreadMail = tileByKey(tilesInput({ today: today({ mail: { state: 'NOT_READ', line: 'Loop has not read your mail yet.' }, mailCounts: null }) }), 'mail')!;
     assert.deepEqual([unreadMail.state, unreadMail.stateLine], ['NOT_READ', 'Loop has not read your mail yet.']);
-    const telegramOff = tileByKey(tilesInput({ telegram: { ok: true, value: { permitted: true, configured: true, state: 'NOT_CONNECTED', words: { label: 'Not connected', tone: 'neutral', detail: null }, lastObservedAt: null } } }), 'chats')!;
+    const telegramOff = tileByKey(tilesInput({ telegram: { ok: true, value: { permitted: true, configured: true, state: 'NOT_CONNECTED', words: { label: 'Not connected', tone: 'neutral', detail: null }, lastObservedAt: null , contentAuthorized: false, activity: null} } }), 'chats')!;
     assert.deepEqual([telegramOff.state, telegramOff.stateLine, telegramOff.metric, telegramOff.linkLabel], ['NOT_CONNECTED', 'Not connected', null, 'Connect in Connections']);
     assert.equal(tileByKey(tilesInput({ telegram: { ok: true, value: null } }), 'chats'), null, 'no tile for a person who may not view connections');
     assert.deepEqual([tileByKey(tilesInput({ telegram: { ok: false } }), 'chats')!.state, tileByKey(tilesInput({ telegram: { ok: false } }), 'chats')!.stateLine], ['UNAVAILABLE', 'Could not be read']);
-    assert.equal(tileByKey(tilesInput({ telegram: { ok: true, value: { permitted: true, configured: false, state: 'NOT_CONNECTED', words: { label: 'Not connected', tone: 'neutral', detail: null }, lastObservedAt: null } } }), 'chats')!.state, 'NOT_AVAILABLE');
+    assert.equal(tileByKey(tilesInput({ telegram: { ok: true, value: { permitted: true, configured: false, state: 'NOT_CONNECTED', words: { label: 'Not connected', tone: 'neutral', detail: null }, lastObservedAt: null , contentAuthorized: false, activity: null} } }), 'chats')!.state, 'NOT_AVAILABLE');
     const calendarOff = tileByKey(tilesInput({ today: today({ calendar: { state: 'NOT_CONNECTED', line: 'Calendar isn’t connected.', href: '/app/connections', action: 'Connect Calendar' } }) }), 'calendar')!;
     assert.deepEqual([calendarOff.state, calendarOff.stateLine, calendarOff.metric], ['NOT_CONNECTED', 'Not connected', null]);
     assert.equal(tileByKey(tilesInput({ today: today({ calendar: { state: 'NOT_CONFIGURED' } }) }), 'calendar'), null, 'not set up at all: nothing is said');
@@ -496,5 +522,76 @@ describe('the front door’s reads are gated by the rail and scoped by the sessi
     const front = css.slice(css.indexOf('LOOP HOME FRONT DOOR'));
     assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(/i.test(front), false, 'no colour outside the :root palette');
     for (const retired of ['.loop-brief__pulse', '.loop-brief__kpis', '.loop-brief__kpi ', '.loop-home {', '.loop-home .loop-launchers', '.loop-day__sections']) assert.equal(css.includes(retired), false, retired);
+  });
+});
+
+// --- the Chats tile says what is happening, from the viewer's own governed data ------------------
+
+describe('the Chats tile answers "what is happening in my chats?", from the viewer’s own governed data', () => {
+  const chats = (over: Partial<TilesInput> = {}) => tileByKey(tilesInput(over), 'chats')!;
+
+  it('surfaces the viewer’s authorized needs-you obligations: conversations, the latest change, the tally, deadlines -- and content-free activity', () => {
+    const t = chats();
+    assert.equal(t.state, 'OK');
+    // Three conversations: Ana (two items), the Ops group, and one item the source gave no label for.
+    assert.deepEqual(t.metric, { value: '3', label: 'conversations need you' });
+    assert.deepEqual(t.lines, [
+      'New discussion: adding another pest-control traffic source (with Ops group) · 1 decision needed, 1 request and 1 follow-up unresolved · 1 with a deadline',
+      '14 messages observed across 5 conversations since yesterday.',
+    ]);
+    // The connector's state is supporting status, never the summary.
+    assert.equal(t.status, 'Telegram · Ready · Triage on');
+    assert.equal(t.lines.some((l) => /Ready|Observing/.test(l)), false);
+    assert.equal(t.href, '/app/connections');
+  });
+
+  it('distinguishes "connected" from domain activity: connected with nothing owed and nothing observed is a quiet state, not a status readout', () => {
+    const t = chats({ needsYou: [], telegram: { ok: true, value: { ...TELEGRAM, activity: { since: TELEGRAM.activity!.since, messages: 0, conversations: 0 } } } });
+    assert.equal(t.state, 'EMPTY');
+    assert.equal(t.stateLine, 'No conversations currently need your attention.');
+    assert.deepEqual(t.lines, ['No new messages observed since yesterday.']);
+    assert.equal(t.metric, null, 'no figure is drawn for nothing');
+    assert.equal(t.status, 'Telegram · Ready · Triage on');
+  });
+
+  it('quiet with activity: the messages observed become the figure; with triage off the reason nothing is flagged is said', () => {
+    const on = chats({ needsYou: [] });
+    assert.deepEqual([on.state, on.stateLine, on.metric], ['EMPTY', 'No conversations currently need your attention.', { value: '14', label: 'messages since yesterday' }]);
+    const off = chats({ needsYou: [], telegram: { ok: true, value: { ...TELEGRAM, contentAuthorized: false } } });
+    assert.equal(off.stateLine, 'Triage is off, so Loop observes activity but flags nothing.');
+    assert.equal(off.status, 'Telegram · Ready · Triage off');
+    assert.deepEqual(off.metric, { value: '14', label: 'messages since yesterday' });
+  });
+
+  it('never reads or widens: the tile projects only the items the page loaded for the session principal, and the activity count is the viewer’s own', () => {
+    // Another person's item cannot reach the tile except through `needsYou`, which the page loads once with the
+    // session principal (home-needs-you-owner pins that). The projection itself imports no loader or repository.
+    const tiles = code(read('app/app/_home/tiles.ts'));
+    assert.doesNotMatch(tiles, /@emgloop\/database|prisma|loadNeedsYou|Repository/);
+    const data = code(read('app/app/_home/front-door-data.ts'));
+    assert.match(data, /activitySince\(organizationId, principal\.userId, 'TELEGRAM', since\)/, 'the observation count is scoped to the viewer');
+    assert.match(data, /sourceConnections\(\)\.status\(\{ organizationId, userId: principal\.userId, name: session\.name \}\)/);
+    // Items from another provider are not Telegram's.
+    const t = chats({ needsYou: [{ ...NEEDS_YOU[0]!, provider: 'TEAMS' }] });
+    assert.equal(t.state, 'EMPTY');
+  });
+
+  it('a Telegram obligation is Chats intelligence, never a Headline: the tile links to Connections, and nothing here reaches the Headline authority', () => {
+    const t = chats();
+    assert.equal(t.href, '/app/connections');
+    assert.equal(projectTiles(tilesInput()).some((x) => x.href.startsWith('/app/admin/headlines')), false);
+    assert.doesNotMatch(code(read('app/app/_home/tiles.ts')), /[Hh]eadline/);
+  });
+
+  it('unavailable, disconnected and unreadable activity are said honestly, never as zero', () => {
+    const noActivity = chats({ telegram: { ok: true, value: { ...TELEGRAM, activity: null } } });
+    assert.equal(noActivity.lines[1], 'Activity could not be read.');
+    assert.equal(noActivity.state, 'OK', 'the obligations still stand');
+    const quietNoActivity = chats({ needsYou: [], telegram: { ok: true, value: { ...TELEGRAM, activity: null } } });
+    assert.deepEqual([quietNoActivity.metric, quietNoActivity.lines], [null, ['Activity could not be read.']]);
+    const off = chats({ telegram: { ok: true, value: { ...TELEGRAM, state: 'DISCONNECTED', contentAuthorized: false } } });
+    assert.deepEqual([off.state, off.metric, off.lines, off.status], ['NOT_CONNECTED', null, [], null]);
+    const failed = chats({ telegram: { ok: false } });
+    assert.deepEqual([failed.state, failed.stateLine, failed.metric], ['UNAVAILABLE', 'Could not be read', null]);
   });
 });

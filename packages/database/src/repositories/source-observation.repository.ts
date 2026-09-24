@@ -76,6 +76,25 @@ export class SourceObservationRepository {
   }
 
   /**
+   * This person's activity in one provider since a moment, as content-free COUNTS: how many messages
+   * Loop observed, across how many conversations. The one read a personal domain summary needs. It
+   * selects nothing but the conversation key it groups by; no event id, no sender, no text.
+   */
+  async activitySince(
+    organizationId: string,
+    userId: string,
+    provider: ConnectionProvider,
+    since: Date,
+  ): Promise<{ readonly messages: number; readonly conversations: number }> {
+    const where = { organizationId, userId, provider, occurredAt: { gte: since } };
+    const [messages, grouped] = await Promise.all([
+      this.prisma.sourceObservation.count({ where }),
+      this.prisma.sourceObservation.groupBy({ by: ['conversationKey'], where }),
+    ]);
+    return { messages, conversations: grouped.length };
+  }
+
+  /**
    * RETENTION MINIMIZATION, ACROSS ALL TENANTS. Delete observations Loop observed before `cutoff`.
    * The worker runs this on a horizon so the store stays a recent-signal window, not an archive.
    * Cross-tenant by time on purpose -- it is a minimization sweep, not a tenant read.

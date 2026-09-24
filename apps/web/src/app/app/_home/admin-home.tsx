@@ -102,7 +102,8 @@ export async function AdminHome({
   const tiles = projectTiles({
     groups,
     today: briefing.today,
-    needsYouCount: needsYou.length,
+    needsYou,
+    mailInflow: mail?.summary?.inflow ? { needsReply: mail.summary.inflow.needsReply, followUps: mail.summary.inflow.followUps, waiting: mail.summary.inflow.waiting } : null,
     telegram: front.telegram,
     work: { kind: 'ADMIN', summary: home ? { ok: true, value: home.workspace.workSummary } : { ok: false } },
     intake: front.intake,

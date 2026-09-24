@@ -54,6 +54,31 @@ test('append is idempotent; reads are employee-private; nothing raw is stored', 
   }
 });
 
+test('activitySince counts one person\'s messages and conversations since a moment -- content-free, employee-private', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const repo = new SourceObservationRepository(prisma);
+  try {
+    const { organizationId, userId } = await tenant(prisma, 'activity');
+    const at = (iso: string, key: string, id: string): ConversationEvent => ({ ...evt(id, iso), conversationKey: key, providerEventId: `${key}:${id}`, occurredAt: iso });
+    await repo.append(organizationId, userId, 'TELEGRAM', [
+      at('2026-09-24T09:00:00Z', 'ck-a', '1'),
+      at('2026-09-24T10:00:00Z', 'ck-a', '2'),
+      at('2026-09-24T11:00:00Z', 'ck-b', '3'),
+      at('2026-09-22T11:00:00Z', 'ck-c', '4'), // before the window
+    ]);
+    // A colleague's activity in the same organization is never counted into this person's summary.
+    const other = await tenant(prisma, 'activity');
+    await repo.append(other.organizationId, other.userId, 'TELEGRAM', [at('2026-09-24T10:30:00Z', 'ck-z', '9')]);
+
+    const since = new Date('2026-09-23T12:00:00Z');
+    assert.deepEqual(await repo.activitySince(organizationId, userId, 'TELEGRAM', since), { messages: 3, conversations: 2 });
+    assert.deepEqual(await repo.activitySince(organizationId, userId, 'TELEGRAM', new Date('2026-09-25T00:00:00Z')), { messages: 0, conversations: 0 });
+    assert.deepEqual(await repo.activitySince(organizationId, userId, 'TEAMS', since), { messages: 0, conversations: 0 });
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
 test('purgeOlderThan enforces a retention horizon across tenants', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   const repo = new SourceObservationRepository(prisma);

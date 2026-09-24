@@ -27,6 +27,7 @@ import type { NavGroup } from '../../../workspaces/config';
 import { connectionPresentation } from '../_connections/source-connections-panel';
 import { loadCasesForHeadlines } from '../admin/headlines/headlines-data';
 import { callGridKpis } from '@emgloop/shared';
+import { SourceObservationRepository, prisma } from '@emgloop/database';
 import { loadCommandContextFor } from '../admin/marketplace/command-data';
 import { HOME_KPI_KEYS, projectHomeKpis, type HomeKpiStrip } from './kpis';
 import { settle, type Settled } from './settle';
@@ -82,12 +83,21 @@ export async function loadFrontDoor(input: {
           const view = status.providers.find((p) => p.profile.provider === 'TELEGRAM');
           if (!view) return null;
           const words = connectionPresentation(view, time);
+          // The viewer's OWN activity, as content-free counts from the governed observation store, for the
+          // last day. A failed count is null -- said on the tile, never drawn as a zero.
+          const since = new Date(time.now.getTime() - 24 * 60 * 60 * 1000);
+          const activity = await new SourceObservationRepository(prisma)
+            .activitySince(organizationId, principal.userId, 'TELEGRAM', since)
+            .then((a) => ({ since, ...a }))
+            .catch(() => null);
           return {
             permitted: true,
             configured: view.configured,
             state: view.state,
             words: { label: words.pill.label, tone: words.pill.tone, detail: words.detail },
             lastObservedAt: view.lastObservedAt,
+            contentAuthorized: view.contentAuthorized,
+            activity,
           };
         })
       : Promise.resolve(null),

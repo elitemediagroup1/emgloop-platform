@@ -27,7 +27,8 @@ export interface HomeKpiInput {
   readonly report: {
     readonly ok: boolean;
     readonly metrics: { readonly available: boolean; readonly totalCalls: number | null; readonly billableCalls: number | null };
-    readonly dimensions: { readonly campaigns: readonly { readonly monetized: number; readonly revenueCents: number | null }[] };
+    /** The report's own dimension rows, in its own order (by revenue). Only the fields Home reads are named. */
+    readonly dimensions: { readonly campaigns: readonly { readonly label: string; readonly monetized: number; readonly revenueCents: number | null }[] };
   };
   /** The selection's query, carried on every CallGrid link so the drill-down opens the same period. */
   readonly query: string;
@@ -67,6 +68,8 @@ export interface HomeKpiStrip {
   readonly totalCalls: number | null;
   /** Campaigns OBSERVED with a billable call or revenue in the window; null when the report could not be read. */
   readonly activeCampaigns: number | null;
+  /** The campaign the report ranks first by revenue in the window, when one earned any; never computed here. */
+  readonly leadingCampaign: { readonly label: string; readonly revenueCents: number } | null;
 }
 
 export const HOME_KPI_PATHS = Object.freeze({
@@ -158,5 +161,13 @@ export function projectHomeKpis(input: HomeKpiInput): HomeKpiStrip {
     billableCalls: ok ? input.report.metrics.billableCalls : null,
     totalCalls: ok ? input.report.metrics.totalCalls : null,
     activeCampaigns: active,
+    leadingCampaign: leadingCampaignOf(input, ok),
   };
+}
+
+/** The report's first campaign row with revenue: its ordering is the authority's, so this only reads the head. */
+function leadingCampaignOf(input: HomeKpiInput, ok: boolean): HomeKpiStrip['leadingCampaign'] {
+  if (!ok) return null;
+  const first = input.report.dimensions.campaigns.find((r) => r.revenueCents !== null && r.revenueCents > 0);
+  return first ? { label: first.label, revenueCents: first.revenueCents! } : null;
 }
