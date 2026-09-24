@@ -32,11 +32,18 @@ import { CreatorHome } from '../../creator/creator-home';
 // own line say so; it never takes Home down with it. (A Home that read one missing
 // table directly was a production outage on 2026-09-18.)
 //
-// THE FRONT DOOR'S ADDITIVE READS (a person's own Telegram connection, the intake counts) are
+// THE FRONT DOOR'S ADDITIVE READS (a person's own chats, the intake counts) are
 // gated by the navigation the person was offered and made here for the module Home; the
 // executive Home makes its own, with the organization-wide ones, after stating its authority.
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * How many of the viewer's own open "needs you" items Home reads: all of them the loader will hold
+ * (it scans at most 200), so the Chats figure and the briefing count conversations, not a cut-off
+ * page. Home still SHOWS three and folds the rest.
+ */
+const HOME_NEEDS_YOU_LIMIT = 200;
 
 export default async function LoopHome() {
   const session = await getSession();
@@ -57,7 +64,7 @@ export default async function LoopHome() {
   const [dayResult, mailResult, needsYouResult, queueResult] = await Promise.all([
     settle(() => loadYourDay(principal)),
     settle(() => loadMailDashboard(principal, { timeZone: zone.timeZone })),
-    settle(() => loadNeedsYou(principal)),
+    settle(() => loadNeedsYou(principal, HOME_NEEDS_YOU_LIMIT)),
     role === 'EMPLOYEE' ? settle(() => loadMyQueueForHome()) : Promise.resolve(null),
   ]);
   const day = dayResult.ok ? dayResult.value : null;
@@ -70,7 +77,7 @@ export default async function LoopHome() {
   const time = createTimeView(zone, new Date());
   // Never the executive reads for this seat: the module Home is a person's own sources and the
   // areas they can open; loadFrontDoor settles each read on its own and never throws.
-  const front = !creatorSeat && role !== 'ADMIN' ? await loadFrontDoor({ session, principal, groups, time, executive: false }) : null;
+  const front = !creatorSeat && role !== 'ADMIN' ? await loadFrontDoor({ session, principal, groups, time, needsYou, executive: false }) : null;
 
   return (
     <WorkspaceShell session={session}>

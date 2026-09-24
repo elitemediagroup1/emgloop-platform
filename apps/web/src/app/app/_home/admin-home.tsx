@@ -1,6 +1,8 @@
 import type { WorkPrincipal } from '@emgloop/database';
+import { mailDomainIntelligence } from '@emgloop/shared';
 import type { AuthSession } from '../../../auth/auth';
 import { CONNECTIONS_PATH } from '../../../auth/landing';
+import { chatsIntelligence } from '../../../daily-loop/chats-intelligence';
 import type { MailDashboard } from '../../../daily-loop/mail-dashboard';
 import type { NeedsYouItem } from '../../../daily-loop/needs-you';
 import type { YourDayView } from '../../../daily-loop/your-day';
@@ -9,27 +11,32 @@ import { requireWorkspace } from '../../../workspaces/guard';
 import type { NavGroup } from '../../../workspaces/config';
 import { loadHome } from '../admin/home-data';
 import { LoopPage, PageHead } from '../_loop-os/record';
-import { HOME_PATHS, composeBriefing, dueTodayFromWork } from './briefing';
-import { BriefingLead, NeedsAttention, SourceUnavailable, TodayPanel, WhatChanged } from './briefing-view';
-import { loadFrontDoor, loadHeadlineCases, navOffers } from './front-door-data';
-import { HEADLINES_ON_HOME, HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid } from './front-door-view';
+import { HOME_PATHS, composeBriefing, dueTodayFromWork, workPostureFromSummary } from './briefing';
+import { BriefingCard, SourceUnavailable, YourDayCard } from './briefing-view';
+import { loadFrontDoor, loadHeadlineStandings, navOffers, type HeadlineStanding } from './front-door-data';
+import { HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid } from './front-door-view';
+import { briefingNarrative } from './narrative';
 import { RefreshCalendar } from './refresh-calendar';
 import { loadExecutiveReview } from './review-data';
 import { settle } from './settle';
-import { projectTiles } from './tiles';
+import { TILE_PATHS, projectTiles } from './tiles';
 
-// The executive Home, as the front door to the operating system (Matt, 2026-09-24). It COMPOSES
-// existing authorities and never becomes one. Top to bottom: the executive KPI row (the Command
-// Center's own figures and its own comparison), the briefing (what changed), Headlines (the
-// Headline authority, non-dismissed, with each one's investigation state), then the viewer's own day
-// and what needs them beside recent business activity, and last the tools & spaces this person can
-// open. Different information products, kept apart; nothing here computes a fact of its own.
+// The executive Home, as the front door to the operating system (Matt, 2026-09-24; the composition
+// correction, the same day). It COMPOSES existing authorities and never becomes one. Top to bottom,
+// in full-width sections with no side rail: the executive KPI row (the Command Center's own figures
+// and its own comparison); YOUR BRIEFING, the synthesis in prose (narrative.ts), with what Loop read
+// folded beneath it; HEADLINES, the Headline authority's open records as cards; then two compact
+// peers -- YOUR DAY (the viewer's own calendar, work due today, and a constrained "needs you") and
+// RECENT ACTIVITY (audit events); and last the tools & spaces this person can open, each tile its
+// domain's own interpretation. Three intelligence levels, kept distinct: the briefing is
+// company-wide synthesis, Headlines are connective records, a tile is one domain's reading.
 //
-// THE READS. The operational home (work, attention, activity, the Brain) and the executive review
-// (mail, calendar, CallGrid, work, Headlines) are loaded here as before; the front door's additive
-// reads (front-door-data.ts) are gated by the navigation this person was offered. The viewer's own
-// day, mail and "needs you" items arrive from the page, which loaded each once with the session
-// principal. `composeBriefing` and the tile/KPI projections are pure.
+// THE READS. The operational home (work, attention, activity) and the executive review (mail,
+// calendar, CallGrid, work, Headlines) are loaded here as before; the front door's additive reads
+// (front-door-data.ts) are gated by the navigation this person was offered. The viewer's own day,
+// mail and "needs you" items arrive from the page, which loaded each once with the session principal.
+// Every projection below (`composeBriefing`, `briefingNarrative`, the tiles, the KPIs, the domains'
+// own `mailDomainIntelligence` and `chatsIntelligence`) is pure.
 //
 // NEEDS YOU STAYS THE VIEWER'S OWN. The employee-private items are handed in as data, ranked for
 // display beside the executive attention rows, and rendered with their source on every row. They
@@ -69,17 +76,17 @@ export async function AdminHome({
   // The Owner/Admin/Manager home renders at /app, so it states its authority itself.
   await requireWorkspace('ADMIN');
   const time = viewerTime();
-  const [homeResult, front] = await Promise.all([settle(() => loadHome('assigned')), loadFrontDoor({ session, principal, groups, time, executive: true })]);
+  const [homeResult, front] = await Promise.all([settle(() => loadHome('assigned')), loadFrontDoor({ session, principal, groups, time, needsYou, executive: true })]);
   const home = homeResult.ok ? homeResult.value : null;
   const callgrid = front.callgrid?.ok ? front.callgrid.value : null;
   const reviewResult = await settle(() =>
     loadExecutiveReview({ session, principal, time, timeZone: time.timeZone, mail, day, home, callgrid: { offered: front.callgrid !== null, strip: callgrid } }),
   );
   const review = reviewResult.ok ? reviewResult.value : null;
-  // Headlines get their own panel exactly when this seat may open them; the review's aggregate row
+  // Headlines get their own section exactly when this seat may open them; the review's aggregate row
   // is then withheld from Needs you rather than said twice.
   const showHeadlines = review?.headlinesOffered === true;
-  const cases = showHeadlines && review?.headlines ? await loadHeadlineCases(principal.organizationId, review.headlines.slice(0, HEADLINES_ON_HOME).map((h) => h.id)) : new Map();
+  const standings: ReadonlyMap<string, HeadlineStanding> = showHeadlines && review?.headlines ? await loadHeadlineStandings(principal.organizationId, review.headlines) : new Map();
 
   const dayStart = time.startOfDay();
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
@@ -99,16 +106,40 @@ export async function AdminHome({
     headlinesHref: HOME_PATHS.headlines,
     headlinesPanel: showHeadlines,
   });
+
+  // The domains' own readings, each computed once and shared by the briefing and its tile.
+  const mailReading = briefing.today.mail.state === 'READ' && mail ? mailDomainIntelligence(mail.rows.map((r) => r.insight), mail.summary, mail.now) : null;
+  const chats = front.chats === null ? null : front.chats.ok ? { ok: true as const, value: chatsIntelligence(front.chats.value) } : { ok: false as const };
+  const work = home ? { ok: true as const, value: workPostureFromSummary(home.workspace.workSummary, home.workspace.myWork, time.now, dayEnd) } : { ok: false as const };
+  const offer = (href: string) => (navOffers(groups, href) ? href : null);
+
+  const narrative = briefingNarrative({
+    time,
+    business: front.callgrid,
+    headlines: showHeadlines ? { rows: review?.headlines ?? null, attention: review?.attention ?? null, standings } : null,
+    today: briefing.today,
+    mail: mailReading,
+    chats,
+    work,
+    hrefs: {
+      callgrid: offer(TILE_PATHS.marketplace),
+      headlines: HOME_PATHS.headlines,
+      mail: offer(TILE_PATHS.mail),
+      chats: offer(TILE_PATHS.chats),
+      calendar: offer(TILE_PATHS.calendar),
+      work: offer(TILE_PATHS.adminWork),
+    },
+  });
   const tiles = projectTiles({
     groups,
     today: briefing.today,
-    needsYou,
-    mailInflow: mail?.summary?.inflow ? { needsReply: mail.summary.inflow.needsReply, followUps: mail.summary.inflow.followUps, waiting: mail.summary.inflow.waiting } : null,
-    telegram: front.telegram,
-    work: { kind: 'ADMIN', summary: home ? { ok: true, value: home.workspace.workSummary } : { ok: false } },
+    mail: mailReading,
+    chats,
+    work: { kind: 'ADMIN', posture: work },
     intake: front.intake,
     creators: front.creators,
     callgrid: front.callgrid,
+    callgridBrief: front.callgridBrief,
     time,
   });
   const auditHref = navOffers(groups, AUDIT_PATH) ? AUDIT_PATH : null;
@@ -134,21 +165,14 @@ export async function AdminHome({
         {!reviewResult.ok ? <SourceUnavailable what="today’s review" /> : null}
         {!homeResult.ok ? <SourceUnavailable what="Loop work" /> : null}
 
-        <div className="loop-front__cols">
-          <div className="loop-front__main">
-            <section className="loop-front__briefing" aria-label="Your briefing" id="your-briefing">
-              <BriefingLead briefing={briefing} time={time} />
-              <WhatChanged briefing={briefing} time={time} />
-            </section>
-            {showHeadlines ? <HeadlinesPanel headlines={review?.headlines ?? null} attention={review?.attention ?? null} cases={cases} time={time} href={HOME_PATHS.headlines} /> : null}
-            <RecentActivityPanel rows={home?.workspace.recentActivity ?? null} time={time} auditHref={auditHref} />
-          </div>
-          {/* THE SIDE: the signed-in person's own calendar, their work due today, their own mailbox, and
-              what needs them -- and nobody else's. */}
-          <aside className="loop-front__side" aria-label="Your day and what needs you">
-            <TodayPanel today={briefing.today} time={time} refresh={<RefreshCalendar />} mailHref={HOME_PATHS.mail} />
-            <NeedsAttention briefing={briefing} time={time} />
-          </aside>
+        <BriefingCard narrative={narrative} briefing={briefing} time={time} />
+        {showHeadlines ? <HeadlinesPanel headlines={review?.headlines ?? null} attention={review?.attention ?? null} standings={standings} time={time} href={HOME_PATHS.headlines} /> : null}
+
+        {/* Two compact peers: the signed-in person's own day and what needs them, beside the
+            organization's recent business events. Each card's height is its own content's. */}
+        <div className="loop-front__pair">
+          <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} />
+          <RecentActivityPanel rows={home?.workspace.recentActivity ?? null} time={time} auditHref={auditHref} />
         </div>
 
         <ToolsGrid tiles={tiles} />

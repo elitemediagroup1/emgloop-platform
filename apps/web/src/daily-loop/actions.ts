@@ -16,4 +16,6 @@ export async function refreshCalendarAction(): Promise<void> {
   const session = await requirePermission('employeeIntelligence', 'update');
   await refreshYourDay({ organizationId: session.organizationId, userId: session.userId });
   revalidatePath(LOOP_HOME);
+  // The Calendar page draws the same day; it offers the same control.
+  revalidatePath('/app/calendar');
 }

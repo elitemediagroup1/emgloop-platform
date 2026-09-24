@@ -1,19 +1,19 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { counted, type AttentionAssessment, type HeadlineView, type TimeView } from '@emgloop/shared';
+import { counted, headlineSituationLabel, type AttentionAssessment, type HeadlineView, type TimeView } from '@emgloop/shared';
 import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
 import { ActivityList, type ActivityEntry } from '../_loop-os/activity-item';
-import { StateBadge } from '../_loop-os/product-state';
+import { LabelBadge, StateBadge } from '../_loop-os/product-state';
 import { StateBlock } from '../_loop-os/record';
 import type { ActivityItem } from '../admin/workspace-home-data';
-import type { HeadlineCaseState } from './front-door-data';
+import type { HeadlineStanding } from './front-door-data';
 import type { HomeKpiStrip } from './kpis';
 import type { HomeTile } from './tiles';
 import type { Settled } from './settle';
 import { SourceUnavailable } from './briefing-view';
 
-// Loop Home's front door, drawn (2026-09-24): the executive KPI row, the Headlines panel, recent
-// activity, and the tools & spaces grid. Server components over the pure projections (kpis.ts,
+// Loop Home's front door, drawn (2026-09-24; the composition correction, 2026-09-24): the executive
+// KPI row, the Headlines section, recent activity, and the tools & spaces grid. Server components over the pure projections (kpis.ts,
 // tiles.ts) and the authorities' own read models. Presentation only -- nothing here loads, decides
 // or widens anything. A figure Loop does not have is a word; a domain that is not connected or could
 // not be read says so; a link exists only where a page does.
@@ -96,48 +96,48 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
 
 export const HEADLINES_ON_HOME = 4;
 
-const CASE_WORDS: Readonly<Record<HeadlineCaseState['state'], { label: string; tone: string }>> = Object.freeze({
-  UNDER_INVESTIGATION: { label: 'Under investigation', tone: 'loop-pill--info' },
-  NEW: { label: 'Not yet investigated', tone: 'loop-pill--attention' },
-  UNKNOWN: { label: 'Investigation not read', tone: 'loop-pill--neutral' },
-});
-
+/**
+ * Headlines as cards: what Loop identified, why it matters (the rule and the objective it moved
+ * against), the evidence behind it (coverage and sightings), and where it stands -- the situation word
+ * `headlineSituation` derives from the Headline and its Case, in the Headline workspace's own
+ * vocabulary. Rows are the Headline authority's and nothing else's.
+ */
 export function HeadlinesPanel({
   headlines,
   attention,
-  cases,
+  standings,
   time,
   href,
 }: {
   /** The non-dismissed Headlines the review read; null when that read failed. */
   headlines: readonly HeadlineView[] | null;
   attention: AttentionAssessment | null;
-  cases: ReadonlyMap<string, HeadlineCaseState>;
+  standings: ReadonlyMap<string, HeadlineStanding>;
   time: TimeView;
   href: string;
 }) {
   const shown = (headlines ?? []).slice(0, HEADLINES_ON_HOME);
   const more = (headlines?.length ?? 0) - shown.length;
   return (
-    <section className="loop-panel loop-brief__panel loop-front__headlines" aria-label="Headlines" id="headlines">
+    <section className="loop-front__headlines" aria-label="Headlines" id="headlines">
       <div className="loop-brief__head">
         <h2 className="loop-panel__title">Headlines</h2>
         {headlines && headlines.length > 0 ? <span className="loop-brief__sub">{counted(headlines.length, 'open Headline', 'open Headlines')}</span> : null}
         <Link className="loop-link loop-brief__more" href={href}>
-          View all headlines →
+          View all Headlines →
         </Link>
       </div>
       {headlines === null ? (
         <SourceUnavailable what="Headlines" />
       ) : shown.length === 0 ? (
-        <div className="loop-brief__quiet loop-front__attention" data-home-headlines-empty={attention?.state ?? 'UNKNOWN'}>
+        <div className="loop-front__knowledge" data-home-headlines-empty={attention?.state ?? 'UNKNOWN'}>
           {attention ? (
             <>
               <StateBadge state={attention.state} />
-              <span>
+              <p className="loop-front__knowledge-text">
                 {attention.state === 'ALL_CLEAR' ? 'No qualifying Headlines right now. ' : ''}
                 {attention.statement}
-              </span>
+              </p>
               {attention.notKnown.length > 0 ? (
                 <ul className="loop-front__notknown">
                   {attention.notKnown.map((line) => (
@@ -147,42 +147,43 @@ export function HeadlinesPanel({
               ) : null}
             </>
           ) : (
-            <span>No open Headlines.</span>
+            <p className="loop-front__knowledge-text">No open Headlines.</p>
           )}
         </div>
       ) : (
-        <ul className="loop-brief__rows">
+        <ul className="loop-front__hlgrid">
           {shown.map((h) => {
-            const investigation = cases.get(h.id) ?? { state: 'UNKNOWN' as const };
-            const words = CASE_WORDS[investigation.state];
+            const standing = standings.get(h.id) ?? { situation: null, caseId: null };
+            const detail = `${href}/${encodeURIComponent(h.id)}`;
+            const coverage = h.measurement.currentCoverage !== null ? `coverage ${Math.round(h.measurement.currentCoverage * 100)}%` : null;
             return (
-              <li className="loop-brief__row" key={h.id} data-home-headline={h.id} data-home-headline-case={investigation.state}>
-                <span className={`loop-brief__dot is-${h.measurement.againstObjective ? 'critical' : 'attention'}`} aria-hidden="true" />
-                <div className="loop-brief__body">
-                  <p className="loop-brief__what">
-                    <Link href={`${href}/${encodeURIComponent(h.id)}`}>{h.statement}</Link>
-                  </p>
-                  <p className="loop-brief__meta">
-                    <span className={`loop-pill ${words.tone}`}>{words.label}</span>
-                    {h.objectiveTitle ? <span className="loop-brief__where">{h.objectiveTitle}</span> : null}
-                    <span className="loop-brief__why" data-home-headline-why>
-                      Why: {h.ruleDescription}
-                    </span>
-                    <span>
-                      first seen <time dateTime={h.firstDetectedAt}>{time.relative(h.firstDetectedAt)}</time>
-                      {h.detectionCount > 1 ? (
-                        <>
-                          {' · '}last seen <time dateTime={h.lastDetectedAt}>{time.relative(h.lastDetectedAt)}</time>
-                        </>
-                      ) : null}
-                    </span>
-                  </p>
+              <li className="loop-front__hl" key={h.id} data-home-headline={h.id} data-home-headline-situation={standing.situation ?? 'UNKNOWN'}>
+                <div className="loop-front__hl-top">
+                  {standing.situation ? <LabelBadge label={headlineSituationLabel(standing.situation)} /> : <span className="loop-pill loop-pill--neutral">Standing not read</span>}
+                  <span className={`loop-brief__dot is-${h.measurement.againstObjective ? 'critical' : 'attention'}`} aria-hidden="true" />
                 </div>
-                <div className="loop-brief__ways">
-                  <Link className="loop-btn loop-btn--quiet loop-brief__act" href={`${href}/${encodeURIComponent(h.id)}`}>
-                    {investigation.state === 'UNDER_INVESTIGATION' ? 'Open investigation' : 'Look into it'}
-                  </Link>
-                </div>
+                <p className="loop-front__hl-what">
+                  <Link href={detail}>{h.statement}</Link>
+                </p>
+                <p className="loop-front__hl-why" data-home-headline-why>
+                  Why it matters: {h.ruleDescription}
+                  {h.objectiveTitle ? <span className="loop-brief__where"> · {h.objectiveTitle}</span> : null}
+                </p>
+                <p className="loop-front__hl-evidence" data-home-headline-evidence>
+                  {coverage ? <span>{coverage}</span> : null}
+                  <span>{counted(h.detectionCount, 'sighting', 'sightings')}</span>
+                  <span>
+                    first seen <time dateTime={h.firstDetectedAt}>{time.relative(h.firstDetectedAt)}</time>
+                    {h.detectionCount > 1 ? (
+                      <>
+                        {' · '}last seen <time dateTime={h.lastDetectedAt}>{time.relative(h.lastDetectedAt)}</time>
+                      </>
+                    ) : null}
+                  </span>
+                </p>
+                <Link className="loop-link loop-front__hl-go" href={detail}>
+                  {standing.situation === 'UNDER_INVESTIGATION' ? 'Open investigation →' : 'Look into it →'}
+                </Link>
               </li>
             );
           })}
@@ -204,8 +205,11 @@ export function HeadlinesPanel({
 /** The audit category's area, in the words the operational Home already uses for it. */
 const AUDIT_AREA: Readonly<Record<string, string>> = Object.freeze({ work: 'Work', customer: 'CRM', invitation: 'Team' });
 
+/** Recent activity is compact on Home: the latest few events, with the audit log one link away. */
+export const ACTIVITY_ON_HOME = 6;
+
 export function RecentActivityPanel({ rows, time, auditHref }: { rows: readonly ActivityItem[] | null; time: TimeView; auditHref: string | null }) {
-  const entries: ActivityEntry[] = (rows ?? []).map((a) => ({
+  const entries: ActivityEntry[] = (rows ?? []).slice(0, ACTIVITY_ON_HOME).map((a) => ({
     key: `audit:${a.id}`,
     // Every row is a recorded act from the organization's audit log: that is the truth it is.
     category: 'AUDIT',

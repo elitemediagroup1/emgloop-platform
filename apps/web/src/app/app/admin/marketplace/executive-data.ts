@@ -44,14 +44,14 @@ export interface ExecutiveAnalysis {
   readonly members: QueueMember[];
 }
 
-export async function loadExecutiveAnalysis(ctx: CommandContext): Promise<ExecutiveAnalysis> {
-  const { organizationId: org, window, report, now, desc } = ctx;
-  const [bid, history, roster] = await Promise.all([
-    loadBidReport(org),
-    loadCallGridHistory(org, window, ctx.coverage),
-    repositories.iam.listUsers(org).catch(() => []),
-  ]);
-  const bidMatches = bidSnapshotMatches(bid.meta, window);
+/**
+ * The engine's READING of the period -- health, findings -- from reads only. Nothing is recorded:
+ * the operational queue (which records what the engine detected) is not touched. Loop Home's CallGrid
+ * tile uses this, so rendering Home never writes; the Overview builds on it and then records.
+ */
+export async function loadExecutiveReading(ctx: CommandContext): Promise<{ readonly intel: ExecutiveAnalysis['intel']; readonly bid: BidReport }> {
+  const { organizationId: org, window, report, now } = ctx;
+  const [bid, history] = await Promise.all([loadBidReport(org), loadCallGridHistory(org, window, ctx.coverage)]);
   const intel = callGridIntelligence(report, now, {
     history,
     // Null when the provider did not report them, which makes the risk model
@@ -59,6 +59,13 @@ export async function loadExecutiveAnalysis(ctx: CommandContext): Promise<Execut
     bidRejectRate: overallRejectRate(bid.sources),
     rateLimitedShare: destinationRateLimitedShare(bid.destinations),
   });
+  return { intel, bid };
+}
+
+export async function loadExecutiveAnalysis(ctx: CommandContext): Promise<ExecutiveAnalysis> {
+  const { organizationId: org, window, now, desc } = ctx;
+  const [{ intel, bid }, roster] = await Promise.all([loadExecutiveReading(ctx), repositories.iam.listUsers(org).catch(() => [])]);
+  const bidMatches = bidSnapshotMatches(bid.meta, window);
   const ops = await loadOperationalQueue(org, intel.queue, { window, now });
   const members: QueueMember[] = roster
     .filter((m) => m.status === 'ACTIVE')
@@ -151,7 +158,7 @@ export function priorityOf(s: Situation, href: string): TopPriority {
  * (the report's comparison is null otherwise), and the attention sentence points at
  * the first of the priorities shown beneath it -- the same list, never a second ranking.
  */
-export function executiveBrief(ctx: CommandContext, analysis: ExecutiveAnalysis, first: TopPriority | null): CallGridBrief {
+export function executiveBrief(ctx: CommandContext, analysis: Pick<ExecutiveAnalysis, 'intel'>, first: TopPriority | null): CallGridBrief {
   const health = analysis.intel.health;
   const overall = health.overall;
   const comparison = ctx.report.comparison;

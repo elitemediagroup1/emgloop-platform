@@ -205,7 +205,7 @@ describe('Surfaces present time through the authority', () => {
     // boundaries on Home is gone, and nothing under _home does day arithmetic on the server clock.
     assert.match(code(read('app/app/_home/front-door-data.ts')), /loadCommandContextFor\(organizationId, undefined,/, 'Home reads CallGrid through the command context');
     assert.equal(existsSync(join(SRC, 'app/app/admin/dashboard-data.ts')), false, 'the today-so-far vs yesterday-complete scorecard is retired');
-    for (const file of ['app/app/_home/kpis.ts', 'app/app/_home/tiles.ts', 'app/app/_home/front-door-data.ts']) {
+    for (const file of ['app/app/_home/kpis.ts', 'app/app/_home/tiles.ts', 'app/app/_home/front-door-data.ts', 'app/app/_home/narrative.ts', 'app/app/_home/briefing.ts']) {
       assert.equal(/easternYesterdayWindow|easternTodayWindow|toLocaleDateString|getHours\(/.test(code(read(file))), false, file);
     }
   });

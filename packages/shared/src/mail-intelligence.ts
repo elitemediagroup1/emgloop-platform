@@ -449,3 +449,100 @@ export function recentImportant(insights: readonly MailInsight[], now: Date, lim
     .sort(newestFirst((i) => i.lastMessageAt))
     .slice(0, limit);
 }
+
+// --- The domain's interpretation ------------------------------------------------------------------
+
+/**
+ * What the mailbox means right now, in at most two sentences: the Mail domain's own reading of its
+ * lanes, which the Mail page leads with and Home repeats. One interpretation, two surfaces.
+ *
+ * COUNTS AND BUSINESS AREAS ONLY. A subject is private mail content and a counterpart is a person:
+ * neither is ever put into a line, so a line can be shown anywhere the counts could be. Every figure
+ * is a count of conversations the lanes already hold (notification mail excluded, as the lanes
+ * exclude it), and every breakdown is a signal or area the classification already recorded.
+ *
+ * NOTHING IS SAID ABOUT WHAT IS NOT THERE. An empty lane contributes no words rather than a zero;
+ * a mailbox with nothing in any lane has no lines at all, and the surface decides what an empty
+ * reading means (a current read, or one Loop could not make).
+ */
+export interface MailDomainIntelligence {
+  readonly needsReply: number;
+  readonly waiting: number;
+  readonly followUps: number;
+  /** At most two sentences, the most useful first. */
+  readonly lines: readonly string[];
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** A waited-for span in the largest whole unit: "40 minutes", "5 hours", "3 days". Never rounded up. */
+export function mailWaitWords(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  if (minutes < 60) return plural(Math.max(1, minutes), 'minute', 'minutes');
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return plural(hours, 'hour', 'hours');
+  return plural(Math.floor(hours / 24), 'day', 'days');
+}
+
+/** "a", "a and b", "a, b and c". */
+function listWords(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
+}
+
+const AREA_WORDS_FOR_LINES: Readonly<Record<MailArea, string>> = Object.freeze({
+  TALENT: 'talent',
+  PERFORMANCE: 'performance',
+  OPERATIONS: 'operations',
+});
+
+export function mailDomainIntelligence(
+  insights: readonly MailInsight[],
+  summary: MailSummary,
+  now: Date,
+  policy: MailIntelligencePolicy = MAIL_INTELLIGENCE_POLICY,
+): MailDomainIntelligence {
+  const people = insights.filter((i) => i.notification === null);
+  const needsReply = people.filter((i) => i.lane === 'NEEDS_REPLY');
+  const waiting = people.filter((i) => i.lane === 'WAITING');
+  const lines: string[] = [];
+
+  // 1. What is waiting on the person: how many, what they are about, how long, how many are new.
+  if (summary.needsReply > 0) {
+    const kinds: string[] = [];
+    const opportunities = needsReply.filter((i) => i.opportunity !== null).length;
+    if (opportunities > 0) kinds.push(plural(opportunities, 'opportunity', 'opportunities'));
+    for (const area of MAIL_AREAS) {
+      const n = needsReply.filter((i) => i.areas.some((a) => a.area === area)).length;
+      if (n > 0) kinds.push(`${n} about ${AREA_WORDS_FOR_LINES[area]}`);
+    }
+    const oldest = needsReply
+      .map((i) => i.laneAt)
+      .filter((at): at is Date => at !== null && at.getTime() <= now.getTime())
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    const clauses: string[] = [];
+    if (oldest) clauses.push(`the oldest has waited ${mailWaitWords(now.getTime() - oldest.getTime())} on you`);
+    if (summary.inflow.needsReply > 0) clauses.push(`${summary.inflow.needsReply} arrived in the last day`);
+    const head = `${plural(summary.needsReply, 'conversation needs', 'conversations need')} your reply`;
+    const including = kinds.length > 0 ? `, including ${listWords(kinds)}` : '';
+    lines.push(`${head}${including}${clauses.length > 0 ? `; ${listWords(clauses)}` : ''}.`);
+  }
+
+  // 2. What the person is waiting on: follow-ups due, and conversations gone quiet.
+  const quiet = waiting.filter((i) => i.laneAt !== null && now.getTime() - i.laneAt.getTime() >= policy.followUpAfterMs).length;
+  const waitingParts: string[] = [];
+  if (summary.followUps > 0) waitingParts.push(`${plural(summary.followUps, 'follow-up is', 'follow-ups are')} due`);
+  if (summary.waiting > 0) {
+    waitingParts.push(
+      quiet > 0
+        ? `${quiet === summary.waiting ? plural(quiet, 'conversation', 'conversations') : `${quiet} of the ${summary.waiting} conversations`} waiting on others ${quiet === 1 ? 'has' : 'have'} gone quiet for over ${mailWaitWords(policy.followUpAfterMs)}`
+        : `${plural(summary.waiting, 'conversation is', 'conversations are')} waiting on others`,
+    );
+  }
+  if (waitingParts.length > 0) {
+    const sentence = listWords(waitingParts);
+    lines.push(`${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`);
+  }
+
+  return { needsReply: summary.needsReply, waiting: summary.waiting, followUps: summary.followUps, lines: lines.slice(0, 2) };
+}
