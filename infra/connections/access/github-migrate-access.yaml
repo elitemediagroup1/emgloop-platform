@@ -25,9 +25,9 @@ Description: >-
 # database URL secret (loop/connections/<stage>/database-url). It cannot read any other secret, and
 # can do nothing else in the account.
 #
-# NOTE: today only the staging migrations workflow (connections-migrate-staging.yml) exists.
-# Production migrations go through `Deploy Prisma Migrations` with the repository secret
-# DIRECT_DATABASE_URL, so the production identity is available but nothing dispatches it yet.
+# NOTE: two workflows dispatch these identities: connections-migrate-staging.yml (Stage=staging)
+# and deploy-prisma-migrations.yml, "Deploy Prisma Migrations" (Stage=production, since #330). The
+# repository secret DIRECT_DATABASE_URL is no longer a migration path.
 
 Parameters:
   Stage:

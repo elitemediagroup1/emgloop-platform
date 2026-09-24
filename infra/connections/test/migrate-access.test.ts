@@ -1,8 +1,11 @@
-// The GitHub MIGRATIONS identity + the staging workflow: apply STAGING migrations, never production,
-// never exposing the DB URL. These checks read the committed access template, render it for each
-// stage the way CloudFormation would, prove the default renders EXACTLY the staging identity that
-// is already deployed, prove the production render reads exactly the production secret and nothing
-// of staging's, and prove the staging workflow targets only staging.
+// The GitHub MIGRATIONS identity + the two migration workflows: the staging one applies STAGING
+// migrations, never production; the production one (Deploy Prisma Migrations) applies PRODUCTION
+// migrations through the connections-production gate, the production migrate role and the production
+// secret only. Neither exposes the DB URL. These checks read the committed access template, render
+// it for each stage the way CloudFormation would, prove the default renders EXACTLY the staging
+// identity that is already deployed, prove the production render reads exactly the production secret
+// and nothing of staging's, prove the staging workflow targets only staging, and execute the
+// production workflow's Confirm and guard steps.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +22,7 @@ const PROD_WORKFLOW = resolve(__dirname, '..', '..', '..', '.github', 'workflows
 
 const REPOSITORY = 'elitemediagroup1/emgloop-platform';
 const STAGING_ACCOUNT = '065148797865';
-const PRODUCTION_ACCOUNT = '123456789012'; // a dummy: the real one is not created yet and never in source
+const PRODUCTION_ACCOUNT = '123456789012'; // a dummy for rendering; the real one (080891698678) is pinned in the production workflow and asserted below
 const secretArn = (account: string, stage: string) => `arn:aws:secretsmanager:us-east-1:${account}:secret:loop/connections/${stage}/database-url-??????`;
 
 const template = includeTemplate(ACCESS_TEMPLATE);
@@ -196,6 +199,14 @@ test('the production migrations workflow is manual, environment-gated, OIDC-only
   assert.doesNotMatch(code, /echo\s+"?\$\{?DATABASE_URL/, 'must not echo DATABASE_URL');
   assert.doesNotMatch(code, /echo\s+"?\$url"?\s*$/m, 'must not echo the raw URL');
   assert.doesNotMatch(code, /\$\{\{[^}]*inputs\.confirm/, 'the typed phrase is never read through the expression context');
+  assert.doesNotMatch(code, /if:.*inputs\.confirm/, 'nor through a brace-less if: expression');
+
+  // `migrate status` exits 1 when the database is behind -- the state every dispatch exists to fix --
+  // so the informational status before deploy must not gate the run, and the one after must.
+  assert.match(code, /- name: Migration status before\n\s+continue-on-error: true\n\s+run: npx --yes prisma@5\.22\.0 migrate status/);
+  assert.match(code, /- name: Migration status after\n\s+run: npx --yes prisma@5\.22\.0 migrate status/);
+  assert.doesNotMatch(code, /migrate deploy[^\n]*\|\|/, 'deploy is never softened');
+  assert.doesNotMatch(code, /- name: Deploy pending migrations \(production\)\n\s+continue-on-error/, 'deploy is the gate');
 
   // Order: confirm, guard, credentials, STS check, secret, validate, status, deploy, status.
   const order = ['- name: Confirm', 'The environment names the production account', 'AWS credentials (OIDC, short-lived)', 'The credentials are for the production account', 'Read the production DATABASE_URL', 'prisma@5.22.0 validate', 'Migration status before', 'prisma@5.22.0 migrate deploy', 'Migration status after'];

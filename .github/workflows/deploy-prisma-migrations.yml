@@ -1,6 +1,6 @@
 # Deploy Prisma Migrations -- PRODUCTION. Manual, approved, production only.
 #
-# Applies pending Prisma migrations to the PRODUCTION database. Since 2026-09-25 it reaches that
+# Applies pending Prisma migrations to the PRODUCTION database. Since #330 it reaches that
 # database the way the connections deploy reaches production: through the `connections-production`
 # GitHub environment (Matt as required reviewer, `main` only), a short-lived OIDC credential for the
 # dedicated migrations role, and the one secret that role may read,
@@ -17,8 +17,8 @@
 #
 # The confirmation is a shell comparison over the event payload, not an `if:` expression: text
 # pasted into the dispatch form arrives padded, and an expression gate compares bytes. The phrase
-# is still required exactly; only padding and letter case are forgiven, and a refusal prints what
-# arrived.
+# is still required exactly; only surrounding and invisible whitespace, repeated inner whitespace
+# and letter case are forgiven, and a refusal prints what arrived.
 #
 # Staging migrations are a different workflow (connections-migrate-staging.yml, the staging account,
 # the staging secret); this one never references a staging name.
@@ -167,7 +167,11 @@ jobs:
       - name: Validate schema
         run: npx --yes prisma@5.22.0 validate --schema packages/database/prisma/schema.prisma
 
+      # Informational: `migrate status` exits 1 whenever the database is BEHIND, which is exactly the
+      # state a dispatch exists to fix, so this step must not gate the run. `migrate deploy` remains
+      # the gate -- it still refuses on a failed or diverged migration.
       - name: Migration status before
+        continue-on-error: true
         run: npx --yes prisma@5.22.0 migrate status --schema packages/database/prisma/schema.prisma
 
       - name: Deploy pending migrations (production)
