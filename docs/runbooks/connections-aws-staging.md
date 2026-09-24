@@ -136,9 +136,37 @@ lives ONLY in the GitHub variable; it is never committed to source.
 3. **Re-run the connections-infra-deploy workflow** (Actions → connections-infra-deploy → Run
    workflow → `action: deploy` + `confirm: deploy loop-connections-staging`). The deploy reads the
    variable into `-c aiOrganizationId=…`, references the `loop/connections/staging/ai` secret, and the
-   task definition gains the five `LOOP_AI_*` env vars plus `ANTHROPIC_API_KEY` (and `OPENAI_API_KEY`
+   task definition gains the four `LOOP_AI_*` env vars (`ENABLED`, `PROVIDERS`, `ORGANIZATIONS`,
+   `TASKS`) plus `ANTHROPIC_API_KEY` (and `OPENAI_API_KEY`
    only if the fallback field and context are set) injected from Secrets Manager.
 
+4. **Record the provider policy (activation gate G2).** Since 2026-09-24 listing a provider in the
+   environment approves nothing: the stack no longer sets `LOOP_AI_PROVIDER_TERMS_CONFIRMED`, and nothing
+   reads it. The worker's gateway refuses every triage call (`POLICY_DENIED` +
+   `PROVIDER_POLICY_MISSING`, recorded as the content authorization's failure class; the sweep holds, it
+   drops nothing) until the provider has a **recorded** policy that admits `COMMUNICATION_CONTENT`. Run
+   Actions → **Record AI Provider Policy** with:
+
+   | Input | Value |
+   |---|---|
+   | stage | `staging` |
+   | provider | `anthropic` |
+   | ceiling | `COMMUNICATION_CONTENT` |
+   | state | `ACTIVE` |
+   | reason | which data terms were reviewed (training, retention, region), by whom, and when |
+   | confirm | `record ai-provider-policy staging` |
+
+   The job prints `event=TASK_POLICY task=telegram.content.triage needs=COMMUNICATION_CONTENT
+   admittedBy=anthropic` when it is in place. With the OpenAI fallback on, record `openai` the same way
+   or it is skipped (`PROVIDER_POLICY_MISSING`) while the primary serves. A running worker picks the
+   policy up within 60 seconds; no redeploy is needed. To stop sending to a provider, run the same
+   workflow with `state: KILLED`.
+
+   **Order when upgrading a worker that already runs triage:** (1) apply the migration
+   (`connections-migrate-staging`), (2) record the policy, (3) then deploy the worker. The new worker
+   refuses triage until the policy exists.
+
 **Fail-closed:** with the secret missing, the deploy's ECS task cannot resolve the credential; with the
-variable missing/empty, no `LOOP_AI_*` env is set at all. Either way the worker refuses AI work. To
-turn AI back off, clear `CONNECTIONS_STAGING_AI_ORG_ID` and re-deploy.
+variable missing/empty, no `LOOP_AI_*` env is set at all; with no recorded provider policy, the gateway
+refuses every call. Any one of them keeps the worker from sending anything. To turn AI back off, clear
+`CONNECTIONS_STAGING_AI_ORG_ID` and re-deploy -- or, within a minute, record the policy `KILLED`.

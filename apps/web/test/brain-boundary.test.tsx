@@ -155,10 +155,11 @@ describe('The Brain environment is off until it is completely and correctly conf
       LOOP_AI_ORGANIZATIONS: 'org_a',
       LOOP_AI_TASKS: 'case.explanation',
       LOOP_AI_PROVIDERS: 'anthropic,openai',
+      // No longer read (G2 is a recorded provider policy since 2026-09-24): it narrows nothing.
       LOOP_AI_PROVIDER_TERMS_CONFIRMED: 'anthropic',
       LOOP_AI_KILL_SWITCHES: 'MODEL:m-1',
     });
-    assert.deepEqual(floor.activation, { enabled: true, organizations: ['org_a'], tasks: ['case.explanation'], providers: ['anthropic'] }, 'listed AND terms confirmed; no key needed');
+    assert.deepEqual(floor.activation, { enabled: true, organizations: ['org_a'], tasks: ['case.explanation'], providers: ['anthropic', 'openai'] }, 'listed; no key needed (G2 is a recorded provider policy, not this floor)');
     assert.deepEqual(floor.killSwitches, [{ scope: 'MODEL', value: 'm-1' }]);
     assert.equal(readAiControlFloor({ LOOP_AI_ENABLED: 'TRUE' }).activation.enabled, false, 'exactly "true"');
     assert.deepEqual(readAiControlFloor({ LOOP_AI_KILL_SWITCHES: 'garbage entry' }).killSwitches, [{ scope: 'GLOBAL' }]);

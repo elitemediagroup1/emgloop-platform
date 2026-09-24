@@ -34,6 +34,7 @@ import type { EvidenceClass } from './evidence-class';
 import type { EvidenceRelation } from './evidence-context';
 import type { OperationalOutcome } from './operational-lifecycle';
 import type { HeadlineSituation } from './headline-situation';
+import type { IntelligenceCoverage } from './intelligence-coverage';
 
 export const PRODUCT_LANGUAGE_VERSION = 'product-language.v1';
 
@@ -719,6 +720,61 @@ export const BRAIN_END_REASON_LANGUAGE: Readonly<Record<string, string>> = {
 
 export function brainWorkLabel(state: BrainWorkDisplayState): ProductLabel {
   return BRAIN_WORK_LANGUAGE[state];
+}
+
+/**
+ * Intelligence coverage (2026-09-24): the words every surface shows next to domain intelligence,
+ * keyed by the governed coverage contract (`INTELLIGENCE_COVERAGE`, intelligence-coverage.ts; a
+ * test keeps the keys complete).
+ *
+ * EVERY DETAIL SAYS WHAT THE STATE DOES NOT MEAN when a reader would otherwise assume it: not
+ * enough evidence is not "nothing happened", not connected is not zero, an error is not "there is
+ * nothing". Provider-neutral: no source, provider or model is named.
+ *
+ * NOT IN THE FLAT LOOKUP BELOW. `STALE` and `ERROR` are generic names other authorities may use;
+ * `intelligenceCoverageLabel` keeps these words from answering for anyone else's state.
+ */
+export const INTELLIGENCE_COVERAGE_LANGUAGE: Record<IntelligenceCoverage, ProductLabel> = {
+  CONNECTED_SUFFICIENT: {
+    tone: 'VERIFIED',
+    label: 'Up to date',
+    detail: 'Loop read enough of this, recently, to stand behind this reading. It is still a reading, not a fact.',
+    from: 'CONNECTED_SUFFICIENT',
+  },
+  CONNECTED_INSUFFICIENT: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Not enough to go on',
+    detail: 'Connected, but there is too little here to conclude anything. That is not the same as nothing happening.',
+    from: 'CONNECTED_INSUFFICIENT',
+  },
+  CONNECTED_PARTIAL: {
+    tone: 'INCOMPLETE',
+    label: 'Partly read',
+    detail: 'Loop read part of this. What is shown is true of what was read, not of everything.',
+    from: 'CONNECTED_PARTIAL',
+  },
+  DISCONNECTED: {
+    tone: 'NEEDS_SETUP',
+    label: 'Not connected',
+    detail: 'Loop is not reading this, so it cannot say what is happening here now. This is not a zero.',
+    from: 'DISCONNECTED',
+  },
+  STALE: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Out of date',
+    detail: 'This reading is older than the latest activity. It shows how things stood when it was made, not now.',
+    from: 'STALE',
+  },
+  ERROR: {
+    tone: 'NEEDS_SETUP',
+    label: 'Could not be read',
+    detail: 'Loop could not produce or read this. It does not mean there is nothing here.',
+    from: 'ERROR',
+  },
+};
+
+export function intelligenceCoverageLabel(coverage: IntelligenceCoverage): ProductLabel {
+  return INTELLIGENCE_COVERAGE_LANGUAGE[coverage];
 }
 
 /**

@@ -144,7 +144,10 @@ function makeIam(options: { readonly sourceTables?: 'PRESENT' | 'NOT_MIGRATED' |
     ['workItemObservation', 'workItem', 'workFeedback', 'workBrief', 'workDraft', 'workMessage', 'workThread', 'workCorrespondent', 'workEvent', 'workDocument', 'workSyncRun', 'workSourceCursor', 'employeeWorkPreferences', 'intelligenceHypothesis']
       .map((t) => [t, emptyWorkTable]),
   );
-  const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState, sourceConnection, sourceContentAuthorization, ...workTables };
+  // Loop Intelligence PR A: the person's digests go with their work state. Probed (count) before the
+  // transaction, like the source tables, and empty here.
+  const intelligenceDigest = { async count() { return 0; }, async deleteMany() { return { count: 0 }; } };
+  const prisma: Record<string, unknown> = { user, invitation, organizationMembership, googleConnection, googleOAuthState, sourceConnection, sourceContentAuthorization, intelligenceDigest, ...workTables };
   prisma['$transaction'] = async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(prisma);
   return { iam: new IamRepository(prisma as unknown as PrismaClient), user, invitation, organizationMembership, inTx };
 }

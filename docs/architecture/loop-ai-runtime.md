@@ -657,19 +657,48 @@ and primary/fallback capability. Case Explanation is the first use case.
 
 **Activation gates.** A live call to a provider happens only when **every** gate holds. Until then the
 task reports an honest "not configured" or "not enabled" state and makes no call. As built (AI-1, AI-2),
-the gates are read by exactly one server-only module, `apps/web/src/ai/ai-environment.ts`, and enforced by
-the pure `admitAiInvocation` and the durable reservation.
+the environment gates are read by exactly one server-only module per deployable
+(`apps/web/src/ai/ai-environment.ts`, and `apps/connections-worker/src/ai-runtime.ts` for the worker), G2
+is read from the recorded controls (below), and all of them are enforced by the pure `admitAiInvocation`
+and the durable reservation.
 
 | Gate | What must be true | Where it lives |
 |---|---|---|
 | G0 Runtime enabled | `LOOP_AI_ENABLED` is exactly `true`. Anything else is OFF, and no provider client is even constructed. | Deployment environment (Netlify) |
 | G1 Credentials | `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` present. **Presence means CONFIGURED, never ON.** Read only by the environment module, handed only to the SDK factory, never `NEXT_PUBLIC`, never logged, never echoed. | Deployment environment |
-| G2 Provider terms | The provider is listed in **both** `LOOP_AI_PROVIDERS` and `LOOP_AI_PROVIDER_TERMS_CONFIRMED` — the second is the operator's record that its data terms (training, retention, region) were confirmed. | Deployment environment |
+| G2 Provider policy | The provider holds a **recorded, current ACTIVE provider policy** whose sensitivity ceiling is at or above the task's own (`context.ts` ordering: OPERATIONAL < CONTACT_IDENTIFIER < COMMUNICATION_CONTENT < WORKFORCE_PII). It is the operator's record, with a reason, that the provider's data terms (training, retention, region) were reviewed for that class of data. Missing, KILLED, lower or unreadable → the gateway refuses that provider as `POLICY_DENIED` + `PROVIDER_POLICY_MISSING` / `_KILLED` / `_BELOW_TASK` / `_UNREADABLE`, per route target, before any reservation. **No environment variable can imply it** (since 2026-09-24; see below). | Stored control in `ai_controls` (scope `PROVIDER_POLICY`), recorded by the `record-ai-provider-policy` workflow |
 | G3 Models and routing | The task version has an entry in the reviewed, versioned routing policy: exact primary and fallback model ids, effort, deadline, output ceiling, price list. A task version the policy was not reviewed against is refused. | Routing policy file (code review) |
 | G4 Budgets | A budget policy with per-call limits, a per-task daily cap, a per-organization daily cap and a global cap. Absent, unknown or zero means refused. Enforced in a serializable reservation. | Budget policy file (code review) + `ai_invocations` |
 | G5 Kill switches | None of `LOOP_AI_KILL_SWITCHES` names this task, organization, provider or model, and none is `GLOBAL`. An unreadable entry is `GLOBAL`. | Deployment environment |
 | G6 Organization and task | The organization is in `LOOP_AI_ORGANIZATIONS` and the task in `LOOP_AI_TASKS`. | Deployment environment |
 | G7 Invoker | The person is an active OWNER or ADMIN member holding every required permission through `can()`; never AI_EMPLOYEE. | `iamAiAuthorizer` |
+
+**G2 is recorded, not configured (2026-09-24).** It used to be `LOOP_AI_PROVIDER_TERMS_CONFIRMED`, and
+the connections stack set that variable to whatever it listed in `LOOP_AI_PROVIDERS` — so listing a
+provider silently implied its terms had been confirmed. Now:
+- `LOOP_AI_PROVIDERS` is only the **credential floor**: which provider clients a deployment may construct.
+- The approval is a **stored control** (`ai_controls`, scope `PROVIDER_POLICY`, value = the provider id,
+  column `ceiling`, migration `20261003000001_ai_provider_policy_controls`): versioned and append-only
+  like every control, with a required reason and a named actor (`OPERATIONS` for the workflow run,
+  `HUMAN` for a person), KILLED the same way. Its key namespace (`PROVIDER_POLICY|-|<provider>`) can
+  never collide with the `PROVIDER` activation switch, and `aiEffectiveControls` ignores it.
+- The gateway (`AiRuntimeGateway`, both on Netlify and in the connections worker) reads every
+  provider's current policy through `aiProviderPolicyReader` — an in-process cache of **30 seconds,
+  never more than 60** — and `admitAiInvocation` refuses per target. A read that fails refuses
+  (`PROVIDER_POLICY_UNREADABLE`); there is no default that approves and no staging bypass.
+- `LOOP_AI_PROVIDER_TERMS_CONFIRMED` is **not read by anything**; the connections stack no longer sets it.
+- **Procedure:** Actions → *Record AI Provider Policy* → stage, provider, ceiling, state, reason,
+  confirm `record ai-provider-policy <stage>`. It runs in the `connections-<stage>` environment through
+  that stage's migrations role, prints the current policies, dry-runs, records, and prints them again.
+  `npm run read:ai-provider-policy` (read-only) prints each provider's policy and, per task, which
+  providers G2 admits.
+- **Telegram triage** (`telegram.content.triage`) sends `COMMUNICATION_CONTENT`; its primary is
+  `anthropic`. The record it needs: `provider=anthropic, ceiling=COMMUNICATION_CONTENT, state=ACTIVE`.
+  Case Explanation (`OPERATIONAL`) and Draft with Loop (`COMMUNICATION_CONTENT`) need their own
+  providers' records the same way.
+- **Deployment order:** apply the migration, record the policy, *then* deploy the code that reads it.
+  Deployed first, the code refuses every AI call as `POLICY_DENIED` until the policy exists (the
+  Telegram content sweep holds its frontier; nothing is dropped).
 
 Environment changes reach a Netlify deployment on its **next deploy**, so these switches act in minutes,
 not instantly. The approved Brain execution direction makes activation and kill switches **stored controls in

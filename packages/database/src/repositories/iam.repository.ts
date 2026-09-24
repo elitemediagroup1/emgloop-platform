@@ -34,6 +34,7 @@ import { revokeContentAuthorizationsInTx } from './source-content-authorization.
 import { absentUntilMigrated } from '../creator/until-migrated';
 import { AuditRepository } from './audit.repository';
 import { WorkErasureRepository, type WorkErasure } from './work-state/work-erasure.repository';
+import { intelligenceDigestsPresent } from './intelligence/intelligence-digest.repository';
 import { IdentitySuggestionRepository } from './cognitive/identity-suggestion.repository';
 import { WORK_RETENTION_POLICY_VERSION } from '@emgloop/shared';
 
@@ -768,6 +769,7 @@ export class IamRepository {
   async disableMember(organizationId: string, userId: string, actor: GoogleActor = { userId: null }): Promise<MemberEndResult> {
     let googleRevocation: GoogleRevocation | null = null;
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
+    const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const changed = await this.setStatus(organizationId, userId, 'DISABLED', async (tx) => {
       const now = new Date();
       googleRevocation = await revokeGoogleConnectionInTx(this.prisma, tx, organizationId, userId, {
@@ -775,8 +777,8 @@ export class IamRepository {
         actor,
         now,
       });
-      if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, now);
-      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor);
+      if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, now, digests);
+      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, digests);
     });
     return { changed, googleRevocation: changed ? googleRevocation : null };
   }
@@ -824,6 +826,7 @@ export class IamRepository {
     if (!user) return { changed: false, googleRevocation: null };
     const m = meta(user);
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
+    const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const googleRevocation = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
@@ -839,8 +842,8 @@ export class IamRepository {
         actor,
         now,
       });
-      if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, now);
-      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor);
+      if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, now, digests);
+      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, digests);
       return revocation;
     });
     return { changed: true, googleRevocation };
@@ -975,10 +978,11 @@ async function endSourceConnectionsInTx(
   reason: 'MEMBER_DISABLED' | 'MEMBER_REMOVED',
   actor: GoogleActor,
   now: Date,
+  digests: boolean,
 ): Promise<void> {
   const connectionActor = { userId: actor.userId, name: actor.name ?? null };
   await disconnectSourceConnectionsInTx(prisma, tx, organizationId, userId, { actor: connectionActor, now });
-  await revokeContentAuthorizationsInTx(prisma, tx, organizationId, userId, { actor: connectionActor, now, reason });
+  await revokeContentAuthorizationsInTx(prisma, tx, organizationId, userId, { actor: connectionActor, now, reason, digests });
 }
 
 /**
@@ -997,8 +1001,10 @@ async function eraseWorkStateInTx(
   userId: string,
   reason: 'MEMBER_DISABLED' | 'MEMBER_REMOVED',
   actor: GoogleActor,
+  // Probed before the transaction (`intelligenceDigestsPresent`); false only before the migration.
+  digests: boolean,
 ): Promise<WorkErasure> {
-  const erased = await new WorkErasureRepository(tx).eraseAll({ organizationId, userId });
+  const erased = await new WorkErasureRepository(tx).eraseAll({ organizationId, userId }, { intelligenceDigests: digests });
   const { suggestions: privateSuggestions } = await new IdentitySuggestionRepository(tx).erasePrivate({ organizationId, userId });
   const total = Object.values(erased).reduce((sum, n) => sum + n, 0) + privateSuggestions;
   if (total > 0) {

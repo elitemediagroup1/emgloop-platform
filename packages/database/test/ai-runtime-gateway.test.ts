@@ -37,6 +37,7 @@ import {
   type AiModelRequest,
   type AiModelResult,
   type AiRoutingPolicy,
+  type AiProviderPolicy,
 } from '@emgloop/shared';
 
 import {
@@ -169,7 +170,14 @@ interface WorldOptions {
   authorize?: (principal: AiPrincipal) => Promise<boolean>;
   ids?: string[];
   schedule?: (fn: () => void, ms: number) => () => void;
+  providerPolicies?: () => Promise<readonly AiProviderPolicy[]>;
 }
+
+/** G2: both test providers hold a recorded ACTIVE policy reaching the task's ceiling (OPERATIONAL). */
+const APPROVED_POLICIES: readonly AiProviderPolicy[] = [
+  { providerId: 'p1', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 },
+  { providerId: 'p2', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 },
+];
 
 function world(providers: AiProviderPort[], options: WorldOptions = {}) {
   const ledger = (options.ledger ?? new InMemoryAiUsageLedger()) as InMemoryAiUsageLedger;
@@ -191,6 +199,7 @@ function world(providers: AiProviderPort[], options: WorldOptions = {}) {
       now: () => NOW,
       newInvocationId: () => ids.shift() ?? `inv_${++minted}`,
       schedule: options.schedule,
+      providerPolicies: options.providerPolicies ?? (async () => APPROVED_POLICIES),
     },
   );
   return { runtime, ledger };
@@ -775,4 +784,50 @@ test('fence: the gateway mints no time and no ids of its own', () => {
   assert.doesNotMatch(src, /Date\.now\(\)|new Date\(\)|randomUUID|Math\.random/);
   assert.match(src, /this\.deps\.now\(\)/);
   assert.match(src, /this\.deps\.newInvocationId\(\)/);
+});
+
+// --- G2: the recorded provider policy (2026-09-24) ---------------------------------------------
+// Admission reads every provider's current recorded policy. Missing, KILLED, too low, or a read
+// that fails: the call is refused before a reservation, and no provider is asked anything.
+
+test('G2: no recorded policy, a KILLED one, one below the task, or an unreadable read -- refused before any reservation', async () => {
+  const cases: [string, () => Promise<readonly AiProviderPolicy[]>, string][] = [
+    ['missing', async () => [], 'PROVIDER_POLICY_MISSING'],
+    ['killed', async () => [{ providerId: 'p1', state: 'KILLED', ceiling: 'OPERATIONAL', version: 2, recordedAtMs: 0 }, { providerId: 'p2', state: 'KILLED', ceiling: null, version: 1, recordedAtMs: 0 }], 'PROVIDER_POLICY_KILLED'],
+    ['unreadable', async () => { throw new Error('database down'); }, 'PROVIDER_POLICY_UNREADABLE'],
+  ];
+  for (const [label, providerPolicies, reason] of cases) {
+    const p1 = fixture('p1', answer());
+    const p2 = fixture('p2', answer());
+    const { runtime, ledger } = world([p1, p2], { providerPolicies });
+    const result = await runtime.run(PRINCIPAL, request());
+    assert.equal(result.outcome, 'REFUSED_BY_LOOP', label);
+    assert.deepEqual(result.outcome === 'REFUSED_BY_LOOP' && [...result.refusals], ['POLICY_DENIED', reason], label);
+    assert.equal(p1.calls + p2.calls, 0, `${label}: no provider was asked anything`);
+    assert.equal(ledger.calls.length, 0, `${label}: nothing was reserved`);
+  }
+  // A ceiling below the task's: the task here sends OPERATIONAL, so only an unclassified request
+  // could be below it -- prove the rule with a task ceiling above the recorded one instead.
+  const p1 = fixture('p1', answer());
+  const { runtime } = world([p1], {
+    providerPolicies: async () => [{ providerId: 'p1', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 }],
+  });
+  const higher = await runtime.run(PRINCIPAL, request({ task: { ...AI_TASK_CASE_EXPLANATION, sensitivityCeiling: 'COMMUNICATION_CONTENT' }, context: context({ sensitivityCeiling: 'COMMUNICATION_CONTENT' }) }));
+  assert.equal(higher.outcome, 'REFUSED_BY_LOOP');
+  assert.ok(higher.outcome === 'REFUSED_BY_LOOP' && higher.refusals.includes('PROVIDER_POLICY_BELOW_TASK'));
+  assert.equal(p1.calls, 0);
+});
+
+test('G2: the policy is per provider -- an approved fallback serves when the primary has none, and says so', async () => {
+  const p1 = fixture('p1', answer());
+  const p2 = fixture('p2', answer());
+  const { runtime, ledger } = world([p1, p2], {
+    providerPolicies: async () => [{ providerId: 'p2', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 }],
+  });
+  const result = await runtime.run(PRINCIPAL, request());
+  assert.equal(result.outcome, 'ANSWERED');
+  assert.equal(p1.calls, 0, 'the unapproved primary was never asked');
+  assert.equal(p2.calls, 1);
+  assert.equal(ledger.calls[0]!.target.providerId, 'p2');
+  assert.equal(ledger.calls[0]!.fellBackFrom, `p1/${POLICY.tasks['case.explanation']!.primary.modelId}`, 'the stand-in is recorded');
 });

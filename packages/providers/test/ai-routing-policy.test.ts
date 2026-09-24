@@ -131,6 +131,9 @@ test('the budget bounds the worst case, and the policy admits a real request', (
     registeredProviders: ['anthropic', 'openai'],
     contextRefusals: [],
     tools: [],
+    // G2: a recorded ACTIVE provider policy reaching the task's own ceiling.
+    providerPolicies: [{ providerId: 'anthropic', state: 'ACTIVE', ceiling: AI_TASK_CASE_EXPLANATION.sensitivityCeiling, version: 1, recordedAtMs: 0 }],
+    sensitivityCeiling: AI_TASK_CASE_EXPLANATION.sensitivityCeiling,
   });
   assert.equal(admitted.ok, true, 'a policy that could never admit anything would be a quiet way to switch AI off');
 });

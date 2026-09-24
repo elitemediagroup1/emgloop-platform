@@ -118,7 +118,7 @@ test('grace-window expiry: discovery finds only past-grace non-live connections;
 
     // EXPIRY: the past-grace principal loses exactly the derived items and their observations.
     const expired = await connections.expireDerivedWork(organizationId, pastGrace, 'TELEGRAM', { now: NOW });
-    assert.deepEqual(expired, { outcome: 'EXPIRED', items: 2, observations: 3 });
+    assert.deepEqual(expired, { outcome: 'EXPIRED', items: 2, observations: 3, digests: 0 });
     assert.deepEqual(await countsFor(pastGrace), { items: 1, observations: 1 }, 'the RULE item and its log remain');
     assert.equal((await items.items({ organizationId, userId: pastGrace }))[0]!.producerKind, 'RULE');
 
@@ -131,7 +131,7 @@ test('grace-window expiry: discovery finds only past-grace non-live connections;
     assert.deepEqual(await connections.expireDerivedWork(organizationId, nothingLeft, 'TELEGRAM', { now: NOW }), { outcome: 'NOTHING_TO_DO' });
     assert.deepEqual(await connections.expireDerivedWork(organizationId, teams, 'MICROSOFT_TEAMS', { now: NOW }), { outcome: 'NOTHING_TO_DO' });
     // The grace window is the repository's, from the shared constant: a "now" one day earlier keeps the row.
-    assert.deepEqual(await connections.expireDerivedWork(organizationId, withinGrace, 'TELEGRAM', { now: daysAgo(-2) }), { outcome: 'EXPIRED', items: 2, observations: 3 }, 'two days later it is past grace');
+    assert.deepEqual(await connections.expireDerivedWork(organizationId, withinGrace, 'TELEGRAM', { now: daysAgo(-2) }), { outcome: 'EXPIRED', items: 2, observations: 3, digests: 0 }, 'two days later it is past grace');
 
     // ONE audit row per principal that lost rows, counts only, never an item.
     const audit = await prisma.auditLog.findMany({ where: { organizationId, action: SOURCE_CONNECTION_AUDIT_ACTIONS.derived_expired } });

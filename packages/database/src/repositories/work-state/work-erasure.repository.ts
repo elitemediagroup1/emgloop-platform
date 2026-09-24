@@ -11,7 +11,10 @@
 // person's mailbox and calendar stayed in the database. This is the delete the policy
 // promised, performed explicitly, in the caller's transaction.
 //
-// WHAT IT TOUCHES. Every per-person work table, scoped by the principal and nothing else.
+// WHAT IT TOUCHES. Every per-person work table, scoped by the principal and nothing else -- and,
+// since Loop Intelligence PR A (2026-09-24), the person's domain-intelligence digests
+// (`intelligence_digests`), which are governed by the same retention policy (§21.3,
+// INTELLIGENCE_DIGESTS) and go when the membership ends like everything else they derived.
 // The organization's retention overrides are policy, not a person's data, and stay. Audit
 // rows are governed separately and are untouched.
 
@@ -34,6 +37,7 @@ export const ERASED_WORK_TABLES = Object.freeze([
   'work_sync_runs',
   'work_source_cursors',
   'employee_work_preferences',
+  'intelligence_digests',
 ] as const);
 export type ErasedWorkTable = (typeof ERASED_WORK_TABLES)[number];
 
@@ -48,7 +52,12 @@ export class WorkErasureRepository {
    * need (an item's observations before the item). Run it inside the transaction that ends the
    * membership, so there is no moment where the person is gone and their work state is not.
    */
-  async eraseAll(principal: WorkPrincipal): Promise<WorkErasure> {
+  async eraseAll(
+    principal: WorkPrincipal,
+    // False ONLY when `intelligenceDigestsPresent` said the table is not migrated yet (there is then
+    // nothing to delete). Defaults to deleting, so a caller that forgets fails loudly, never leaks.
+    options: { readonly intelligenceDigests?: boolean } = {},
+  ): Promise<WorkErasure> {
     const where = workScope(principal);
     const db = this.db;
     const counts = {} as Record<ErasedWorkTable, number>;
@@ -65,6 +74,7 @@ export class WorkErasureRepository {
     counts.work_sync_runs = (await db.workSyncRun.deleteMany({ where })).count;
     counts.work_source_cursors = (await db.workSourceCursor.deleteMany({ where })).count;
     counts.employee_work_preferences = (await db.employeeWorkPreferences.deleteMany({ where })).count;
+    counts.intelligence_digests = options.intelligenceDigests === false ? 0 : (await db.intelligenceDigest.deleteMany({ where })).count;
     return Object.freeze(counts);
   }
 }

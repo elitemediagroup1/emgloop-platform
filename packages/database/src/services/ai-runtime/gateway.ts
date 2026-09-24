@@ -11,8 +11,10 @@
 //    4    the principal may invoke this task (their grants, their role, and never an
 //         AI_EMPLOYEE -- an invocation always traces to a person);
 //    5    the context package is valid and within the task's sensitivity ceiling;
-//    6-9  activation, kill switches, routing and a cheap budget check -- all pure,
-//         all decided before a byte leaves the process;
+//    6-9  activation, kill switches, routing, the provider POLICY (G2: a recorded ACTIVE
+//         policy whose sensitivity ceiling reaches the task's, per target, read from
+//         `ai_controls` -- missing, KILLED, lower or unreadable is POLICY_DENIED) and a
+//         cheap budget check -- all decided before a byte leaves the process;
 //    10   the call is estimated, pessimistically;
 //    11   the estimate is RESERVED in the durable ledger, which re-checks the budget
 //         inside a serializable transaction. Two serverless instances cannot both
@@ -63,6 +65,7 @@ import {
   type AiModelRequest,
   type AiModelResult,
   type AiOutputRejection,
+  type AiProviderPolicy,
   type AiRouteTargetPolicy,
   type AiRoutingPolicy,
   type AiSpendSnapshot,
@@ -170,6 +173,12 @@ export interface AiRuntimeDeps {
   readonly newInvocationId: () => string;
   /** Injected so a deadline can be tested without waiting for one. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
+  /**
+   * G2. Every provider's CURRENT recorded policy. Production: `aiProviderPolicyReader(prisma)`
+   * (a short in-process cache over `ai_controls`). REQUIRED, and a read that throws refuses every
+   * provider as PROVIDER_POLICY_UNREADABLE: there is no default that approves.
+   */
+  readonly providerPolicies: () => Promise<readonly AiProviderPolicy[]>;
 }
 
 export type AiRunResult =
@@ -290,6 +299,13 @@ export class AiRuntimeGateway {
     } catch {
       return { outcome: 'REFUSED_BY_LOOP', refusals: ['LEDGER_UNAVAILABLE'] };
     }
+    // G2. Read, never assumed: a failed read is null, and null refuses every provider.
+    let providerPolicies: readonly AiProviderPolicy[] | null;
+    try {
+      providerPolicies = await this.deps.providerPolicies();
+    } catch {
+      providerPolicies = null;
+    }
     const admission = admitAiInvocation({
       taskId: task.taskId,
       taskVersion: task.version,
@@ -304,6 +320,8 @@ export class AiRuntimeGateway {
       registeredProviders: this.deps.providers.map((p) => p.providerId),
       contextRefusals: validateAiContextPackage(context),
       tools: [],
+      providerPolicies,
+      sensitivityCeiling: task.sensitivityCeiling,
     });
     if (!admission.ok) return { outcome: 'REFUSED_BY_LOOP', refusals: admission.refusals };
     const budget = this.config.budget;

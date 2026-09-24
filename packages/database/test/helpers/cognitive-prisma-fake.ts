@@ -30,6 +30,8 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   workBrief: ['organizationId', 'userId', 'localDate', 'version'],
   employeeWorkPreferences: ['organizationId', 'userId'],
   workRetentionOverride: ['organizationId', 'category'],
+  // Loop Intelligence PR A: one current digest per person per subject, user-first like work state.
+  intelligenceDigest: ['organizationId', 'userId', 'domain', 'subjectKind', 'subjectRef'],
   // Teams/Telegram connections and the content consent over them: one row per person per
   // provider, user-first like every work-state key.
   sourceConnection: ['organizationId', 'userId', 'provider'],
@@ -523,6 +525,9 @@ const DELEGATES = [
   'workBrief',
   'workFeedback',
   'employeeWorkPreferences',
+  // Loop Intelligence PR A. Always present for the same reason: ending a membership, and revoking
+  // a content consent, delete the person's digests in the same transaction.
+  'intelligenceDigest',
   'cognitiveIdentity',
   'identityRole',
   'identityEvidence',
