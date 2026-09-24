@@ -5,7 +5,11 @@ deploys to staging: the `connections-infra-deploy` workflow, GitHub OIDC, no loc
 no local CDK. Same stack shape, same guards, a different account. Read
 `connections-aws-staging.md` first; this runbook says only what differs.
 
-**Status (2026-09-24): the production workload account does NOT exist. Nothing below has been done.**
+**Status (2026-09-24): Parts 1–5 are done** — the production workload account `080891698678` exists
+with the OIDC provider, both access stacks (termination protection on), the organization trail verified,
+the three operator secrets, and the `connections-production` environment with its four variables.
+**Parts 6 (step 11, production migrations) onward have not been done.** Read the workflow run
+histories, not this line, for what has actually run.
 - **Who does it:** Matt, in the AWS, GitHub, Netlify and Neon consoles. Claude has no AWS access.
 - **Where AWS commands run:** AWS CloudShell, signed in to the account each step names, console in
   **us-east-1**. Before every step that creates something, check the account:
@@ -19,9 +23,12 @@ no local CDK. Same stack shape, same guards, a different account. Read
   The CDK app refuses it by name (`infra/connections/lib/target.ts`), the workflow refuses it by
   name, and no step below creates anything in it except the account itself and the Identity Center
   assignment.
-- **The production account id is not in source.** It lives in one place: the GitHub environment
-  variable `CONNECTIONS_PRODUCTION_ACCOUNT_ID` (step 8). The CDK app takes it as context
-  `productionAccount`, requires 12 digits, and refuses the management and staging ids.
+- **The production account id is `080891698678`** (the dedicated production workload account,
+  created 2026-09-24). It is pinned in the production migrations workflow
+  (`deploy-prisma-migrations.yml`) and set as the GitHub environment variable
+  `CONNECTIONS_PRODUCTION_ACCOUNT_ID` (step 10); the migrations workflow refuses to run unless the
+  two agree. The CDK deploy reads the variable as context `productionAccount`, requires 12 digits,
+  and refuses the management and staging ids.
 
 **Rules that hold throughout** (the staging and Brain runbooks' rules, plus one):
 - Never create an IAM user or an access key. People use Identity Center; GitHub uses OIDC.
@@ -39,7 +46,7 @@ no local CDK. Same stack shape, same guards, a different account. Read
    - **Account name:** a name that says what it is, e.g. `Loop Production`.
    - **Email:** a dedicated address Matt controls (it becomes the root user, which is never used).
    - **IAM role name:** leave the default (`OrganizationAccountAccessRole`).
-   Note the new 12-digit account id. It is the value of `CONNECTIONS_PRODUCTION_ACCOUNT_ID` (step 8).
+   Note the new 12-digit account id. It is the value of `CONNECTIONS_PRODUCTION_ACCOUNT_ID` (step 10).
 
 2. **Move it into the `Workloads` OU** (`brain-aws-staging.md` Part 1, steps 2–3). The service
    control policy `loop-workloads-guardrails` attached to that OU then binds this account too:
@@ -146,10 +153,8 @@ no local CDK. Same stack shape, same guards, a different account. Read
      `sts:AssumeRole` on this account's four CDK bootstrap roles (deploy, file-publishing,
      image-publishing, lookup). Copy the `DeployRoleArn` output.
    - `loop-connections-migrate-github-production` — same trust; allowed only to read the secret
-     `loop/connections/production/database-url`. Copy the `MigrateRoleArn` output. **Nothing
-     dispatches this role yet:** production migrations go through `Deploy Prisma Migrations`
-     (Part 6). It is deployed now so the identity is reviewed and ready, not because a workflow
-     needs it today.
+     `loop/connections/production/database-url`. Copy the `MigrateRoleArn` output. The
+     **Deploy Prisma Migrations** workflow assumes it (step 11).
 
    `infra/connections/test/access.test.ts` and `test/migrate-access.test.ts` prove that
    `Stage=staging` (the default) renders exactly the identities already deployed in staging, and
@@ -200,12 +205,14 @@ no local CDK. Same stack shape, same guards, a different account. Read
     | Variable `CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN` | the `DeployRoleArn` output (step 8) |
     | Variable `CONNECTIONS_PRODUCTION_ALERT_EMAIL` | **required:** the address the cost budget and the worker-down alarm notify |
     | Variable `CONNECTIONS_PRODUCTION_AI_ORG_ID` | leave unset until Part 9 |
-    | Variable `CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN` | the `MigrateRoleArn` output (step 8); nothing reads it yet |
+    | Variable `CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN` | the `MigrateRoleArn` output (step 8); read by **Deploy Prisma Migrations** (step 11) |
     | Environment secrets | **none** |
 
-    These are variables, not secrets: an account id, two role ARNs, an address and an organization
-    id. The workflow reads exactly these seven `CONNECTIONS_*` variables across both stages and no
-    GitHub secret at all (`test/access.test.ts` checks the list).
+    These are variables, not secrets: an account id, two role ARNs, an address and an
+    organization id. `connections-infra-deploy` reads exactly seven `CONNECTIONS_*` variables across
+    both stages and `Deploy Prisma Migrations` exactly two (`…_ACCOUNT_ID`, `…_MIGRATE_ROLE_ARN`);
+    neither reads a GitHub secret at all (`test/access.test.ts` and `test/migrate-access.test.ts`
+    check the lists).
 
     The workflow refuses to proceed for production when `CONNECTIONS_PRODUCTION_ACCOUNT_ID` is
     unset, not 12 digits, equal to the staging account or equal to the management account, or when
@@ -213,10 +220,24 @@ no local CDK. Same stack shape, same guards, a different account. Read
 
 11. **Production migrations.** The connections tables (`SourceConnection`, `SourceObservation` and
     later ones) reach production only through the **Deploy Prisma Migrations** workflow
-    (`workflow_dispatch`, repository secret `DIRECT_DATABASE_URL`, human-typed confirmation).
-    `connections-migrate-staging` never touches production. Check the migration state in that
-    workflow's run history, not in a document. Until the tables exist, the production worker is
-    healthy but each observation sweep fails gracefully.
+    (`.github/workflows/deploy-prisma-migrations.yml`). Since #330 it is production-aware the
+    same way the deploy is: **Actions → Deploy Prisma Migrations → Run workflow**, branch `main`,
+    `confirm: migrate loop-connections-production` (exact phrase; surrounding whitespace, repeated
+    inner whitespace and letter case forgiven), then approve the `connections-production`
+    environment gate — the gate comes first, so a mistyped phrase is found after approval and the
+    retry needs a fresh approval. It checks that
+    `CONNECTIONS_PRODUCTION_ACCOUNT_ID` equals the pinned `080891698678` and that
+    `CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN` is a role in that account, takes OIDC credentials for
+    that role bounded to that account, checks them again with STS, reads only
+    `loop/connections/production/database-url` (masked, never printed), validates the schema, prints
+    `migrate status` (informational: that command exits non-zero while migrations are pending, so
+    the step is allowed to fail), runs `prisma migrate deploy` (the gate), and prints
+    `migrate status` again (must pass). The log names the database and host, never the
+    credentials. It reads no GitHub secret:
+    the repository secret `DIRECT_DATABASE_URL` is no longer a migration path (the read-only
+    `read-*` probes still use it). `connections-migrate-staging` never touches production. Check the
+    migration state in that workflow's run history, not in a document. Until the tables exist, the
+    production worker is healthy but each observation sweep fails gracefully.
 
 ## Part 7 — Deploy
 

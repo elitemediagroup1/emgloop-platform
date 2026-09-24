@@ -1,40 +1,181 @@
-name: Deploy Prisma Migrations
+# Deploy Prisma Migrations -- PRODUCTION. Manual, approved, production only.
+#
+# Applies pending Prisma migrations to the PRODUCTION database. Since #330 it reaches that
+# database the way the connections deploy reaches production: through the `connections-production`
+# GitHub environment (Matt as required reviewer, `main` only), a short-lived OIDC credential for the
+# dedicated migrations role, and the one secret that role may read,
+# loop/connections/production/database-url in the production account's Secrets Manager. It no
+# longer reads the repository secret DIRECT_DATABASE_URL, so nothing outside the environment gate
+# can apply a production migration.
+#
+# The production account is pinned below (080891698678, the dedicated production workload account)
+# and the environment's CONNECTIONS_PRODUCTION_ACCOUNT_ID must agree with it; the migrations role
+# must live in that account; the credentials are bounded to it (allowed-account-ids) and checked
+# again with STS -- all before the secret is read. The DATABASE_URL is masked and passed through
+# the job environment; it is never printed (`prisma migrate deploy` / `migrate status` do not print
+# the connection string).
+#
+# The confirmation is a shell comparison over the event payload, not an `if:` expression: text
+# pasted into the dispatch form arrives padded, and an expression gate compares bytes. The phrase
+# is still required exactly; only surrounding and invisible whitespace, repeated inner whitespace
+# and letter case are forgiven, and a refusal prints what arrived.
+#
+# Staging migrations are a different workflow (connections-migrate-staging.yml, the staging account,
+# the staging secret); this one never references a staging name.
+#
+# It cannot run until an administrator has (docs/runbooks/connections-aws-production.md, Parts 4-6):
+#   1. deployed the migrations identity, infra/connections/access/github-migrate-access.yaml with
+#      Stage=production, in the production account;
+#   2. created the `connections-production` environment with the variables
+#      CONNECTIONS_PRODUCTION_ACCOUNT_ID and CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. A production migration is a human act.
 
-# Permanent production migration workflow.
-# Runs `prisma migrate deploy` to apply any pending migrations to production.
-# Intended to be run AFTER the one-time baseline recovery bootstrap.
-# Manual trigger only — never runs automatically on push, PR, or schedule.
+name: Deploy Prisma Migrations
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type exactly: migrate loop-connections-production'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+  id-token: write
 
 concurrency:
   group: deploy-prisma-migrations
   cancel-in-progress: false
 
 jobs:
-  deploy-migrations:
-    name: Deploy pending Prisma migrations
+  migrate:
+    name: Deploy pending Prisma migrations (production)
     runs-on: ubuntu-latest
+    # The environment name is part of the OIDC trust: only this environment can reach the role.
+    environment: connections-production
     env:
-      DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+      # The dedicated production workload account. A literal on purpose: the variable below must
+      # agree with it, so neither a mistyped variable nor an edited literal can move the target.
+      PRODUCTION_ACCOUNT: '080891698678'
+      PRODUCTION_ACCOUNT_ID_VAR: ${{ vars.CONNECTIONS_PRODUCTION_ACCOUNT_ID }}
+      MIGRATE_ROLE_ARN: ${{ vars.CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN }}
+      # The ONLY secret this workflow reads. Read through the role above, in that account.
+      PRODUCTION_DB_SECRET: 'loop/connections/production/database-url'
     steps:
-      - name: Checkout repository
+      - name: Confirm
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUIRED="migrate loop-connections-production"
+          # The input is read from the event payload file, not declared as step env and never
+          # interpolated into this script: a declared env value is printed in the step header
+          # before the script runs, and an interpolated one is script injection.
+          CONFIRM="$(jq -r '.inputs.confirm // ""' "${GITHUB_EVENT_PATH}")"
+          # Strip leading/trailing whitespace, including the invisible kinds a copy-paste carries:
+          # NBSP (U+00A0), zero-width space/joiners (U+200B..U+200D), BOM (U+FEFF), CR.
+          trim() {
+            local v="$1"
+            v="${v//$'\xc2\xa0'/ }"
+            v="${v//$'\xe2\x80\x8b'/}"; v="${v//$'\xe2\x80\x8c'/}"; v="${v//$'\xe2\x80\x8d'/}"; v="${v//$'\xef\xbb\xbf'/}"
+            v="${v//$'\r'/}"
+            v="${v#"${v%%[![:space:]]*}"}"
+            v="${v%"${v##*[![:space:]]}"}"
+            printf '%s' "$v"
+          }
+          normalized="$(trim "${CONFIRM}" | tr -s '[:space:]' ' ')"
+          normalized="${normalized,,}"
+          if [ "${normalized}" != "${REQUIRED}" ]; then
+            echo "::error::This applies PRODUCTION migrations. Confirmation text required: ${REQUIRED}"
+            # The phrase is not a secret; show exactly what arrived so the next attempt can be fixed.
+            echo "Received $(printf '%s' "${CONFIRM}" | wc -c | tr -d ' ') bytes; with whitespace made visible: $(printf '%q' "${CONFIRM}")"
+            exit 1
+          fi
+          echo "Confirmed."
+
+      # Fail closed before any credential is requested: the environment must name the pinned
+      # production account, and the migrations role must be a role in that account.
+      - name: The environment names the production account, and the migrate role lives in it
+        shell: bash
+        run: |
+          set -euo pipefail
+          trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+          account_var="$(trim "${PRODUCTION_ACCOUNT_ID_VAR}")"
+          role="$(trim "${MIGRATE_ROLE_ARN}")"
+          if [ "${account_var}" != "${PRODUCTION_ACCOUNT}" ]; then
+            echo "Refusing: CONNECTIONS_PRODUCTION_ACCOUNT_ID is not the production workload account ${PRODUCTION_ACCOUNT}"
+            exit 1
+          fi
+          case "${role}" in
+            "arn:aws:iam::${PRODUCTION_ACCOUNT}:role/"?*) ;;
+            *) echo "Refusing: CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN is not a role in ${PRODUCTION_ACCOUNT}"; exit 1 ;;
+          esac
+          if [[ "${role}" =~ [[:space:]] ]]; then echo "Refusing: the role ARN contains whitespace"; exit 1; fi
+          echo "MIGRATE_ROLE_ARN=${role}" >> "$GITHUB_ENV"
+          echo "role_arn=${role}" >> "$GITHUB_OUTPUT"
+        id: guard
+
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: '.nvmrc'
 
       - name: Install dependencies
+        # A dummy URL is enough for `prisma generate` at install; it never connects.
+        env:
+          DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
         run: npm install --no-audit --no-fund
 
-      - name: Validate Prisma schema
+      # Pinned to the v6.3.0 commit. With OIDC it sends no session tags; allowed-account-ids
+      # refuses a credential for any other account before a single call is made with it.
+      - name: AWS credentials (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.guard.outputs.role_arn }}
+          aws-region: us-east-1
+          role-session-name: deploy-prisma-migrations-${{ github.run_id }}
+          allowed-account-ids: '080891698678'
+
+      - name: The credentials are for the production account
+        shell: bash
+        run: |
+          set -euo pipefail
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$account" != "$PRODUCTION_ACCOUNT" ]; then
+            echo "Refusing: credentials are for $account, not $PRODUCTION_ACCOUNT"
+            exit 1
+          fi
+
+      - name: Read the production DATABASE_URL (masked, never printed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(aws secretsmanager get-secret-value --region us-east-1 --secret-id "$PRODUCTION_DB_SECRET" --query SecretString --output text)"
+          if [ -z "$url" ] || [ "$url" = "None" ]; then
+            echo "Production DATABASE_URL is empty or unset"; exit 1
+          fi
+          echo "::add-mask::$url"
+          printf 'DATABASE_URL=%s\n' "$url" >> "$GITHUB_ENV"
+          echo "Loaded production DATABASE_URL into the job environment (value hidden)."
+
+      - name: Validate schema
         run: npx --yes prisma@5.22.0 validate --schema packages/database/prisma/schema.prisma
 
-      - name: Deploy pending migrations
+      # Informational: `migrate status` exits 1 whenever the database is BEHIND, which is exactly the
+      # state a dispatch exists to fix, so this step must not gate the run. `migrate deploy` remains
+      # the gate -- it still refuses on a failed or diverged migration.
+      - name: Migration status before
+        continue-on-error: true
+        run: npx --yes prisma@5.22.0 migrate status --schema packages/database/prisma/schema.prisma
+
+      - name: Deploy pending migrations (production)
         run: npx --yes prisma@5.22.0 migrate deploy --schema packages/database/prisma/schema.prisma
 
-      - name: Print migration status
+      - name: Migration status after
         run: npx --yes prisma@5.22.0 migrate status --schema packages/database/prisma/schema.prisma

@@ -2322,9 +2322,10 @@ it is not represented as cleared and does not reshape the rollout because no tec
 restriction prevents deployment.
 
 **AWS account decision (from the repo, not guessed):** 670682108352 is the Organization's management
-account, governance only. Production gets a **dedicated workload account** that does not exist yet;
-its id lives only in the GitHub environment variable `CONNECTIONS_PRODUCTION_ACCOUNT_ID`, and the CDK
-app and the workflow both refuse the management and staging ids by name.
+account, governance only. Production is the **dedicated workload account `080891698678`** (created
+2026-09-24; Parts 1–5 of the runbook done). The id is pinned in the migrations workflow and set as
+`CONNECTIONS_PRODUCTION_ACCOUNT_ID`; the CDK app and both workflows refuse the management and staging
+ids by name.
 
 **Draft PR #328 (`feat/connections-production-path`, off main `771ca58`) — PR 1 of the commissioning:**
 - `infra/connections` production stage: `targetFor(stage, context)`, `loop/connections/<stage>/…`
@@ -2349,12 +2350,11 @@ app and the workflow both refuse the management and staging ids by name.
   (+67 Postgres-only skipped) and 1657 with Postgres; worker 79; web 720; typecheck clean; web build
   passes.
 
-**Next (ordered; Matt, consoles):** merge #328 → (1) create the production workload account under the
-Workloads OU + Identity Center + CDK bootstrap + OIDC provider + both access stacks with
-`Stage=production` (runbook Parts 1–4) → (2) `connections-production` GitHub environment (Matt as
-required reviewer, `main` only) with the four `CONNECTIONS_PRODUCTION_*` variables (Part 6) → (3) the
-four operator secrets `loop/connections/production/{telegram,connection-key,database-url,ai}` (Part 5)
-→ (4) `Deploy Prisma Migrations` (43–49) → (5) `connections-infra-deploy` `stage: production`, `diff`
+**Next (ordered; Matt, consoles):** #328 merged; (1)–(3) DONE 2026-09-24 (account, OIDC, access
+stacks, environment + variables, secrets `telegram`/`connection-key`/`database-url`; the `ai` secret
+waits for Part 9) → merge draft **#330** (`Deploy Prisma Migrations` gated by `connections-production`,
+OIDC migrate role, only the production secret, `confirm: migrate loop-connections-production`, account
+pinned `080891698678`) → (4) dispatch `Deploy Prisma Migrations` (43–49) → (5) `connections-infra-deploy` `stage: production`, `diff`
 then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production: `LOOP_CONNECTION_PROVIDERS`,
 `LOOP_CONNECTIONS_WORKER_URL`, `LOOP_CONNECTIONS_WORKER_SECRET` → (7) fresh Telegram authorization on
 production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,
