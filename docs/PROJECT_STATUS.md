@@ -2354,7 +2354,7 @@ Workloads OU + Identity Center + CDK bootstrap + OIDC provider + both access sta
 `Stage=production` (runbook Parts 1–4) → (2) `connections-production` GitHub environment (Matt as
 required reviewer, `main` only) with the four `CONNECTIONS_PRODUCTION_*` variables (Part 6) → (3) the
 four operator secrets `loop/connections/production/{telegram,connection-key,database-url,ai}` (Part 5)
-→ (4) `Deploy Prisma Migrations` (43–49) → (5) `connections-infra-deploy` `stage: production`, `diff`
+→ (4) `Deploy Prisma Migrations` (43–49; now gated by `connections-production`, OIDC migrate role, `confirm: migrate loop-connections-production`, account pinned `080891698678` — PR pending) → (5) `connections-infra-deploy` `stage: production`, `diff`
 then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production: `LOOP_CONNECTION_PROVIDERS`,
 `LOOP_CONNECTIONS_WORKER_URL`, `LOOP_CONNECTIONS_WORKER_SECRET` → (7) fresh Telegram authorization on
 production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,

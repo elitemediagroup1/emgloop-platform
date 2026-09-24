@@ -6,8 +6,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { join, resolve } from 'node:path';
 
 import { assertStageIsTheOnlyInput, includeTemplate, render, strings } from './access-render';
 
@@ -150,7 +152,116 @@ test('the staging migrations workflow is manual, staging-scoped, OIDC-only, and 
   assert.match(code, /prisma@5\.22\.0 migrate deploy/);
   assert.match(code, /inputs\.confirm != 'migrate loop-connections-staging'/);
 
-  // Production migration workflow is untouched (still its own secret, still production).
-  const prod = readFileSync(PROD_WORKFLOW, 'utf8');
-  assert.match(prod, /DATABASE_URL: \$\{\{ secrets\.DIRECT_DATABASE_URL \}\}/, 'production workflow unchanged');
+});
+
+// --- The PRODUCTION migrations workflow (Deploy Prisma Migrations) -----------------------------
+
+const PRODUCTION_ACCOUNT_PIN = '080891698678';
+
+test('the production migrations workflow is manual, environment-gated, OIDC-only through the production migrate role, and reads exactly the production DB secret', () => {
+  const workflow = readFileSync(PROD_WORKFLOW, 'utf8');
+  const code = workflow.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
+
+  assert.match(code, /^name: Deploy Prisma Migrations$/m, 'the name every runbook and the constitution cite');
+  assert.match(code, /^on:\n  workflow_dispatch:\n/m, 'manual only');
+  assert.doesNotMatch(code, /^\s+(push|pull_request|pull_request_target|schedule|workflow_run|workflow_call):/m);
+  assert.match(code, /^    environment: connections-production$/m, 'the environment is part of the OIDC trust');
+  assert.match(code, /^  id-token: write$/m);
+  assert.match(code, /^  contents: read$/m);
+
+  // The production account is pinned, the environment variable must agree, and the role must live there.
+  assert.match(code, new RegExp(`^      PRODUCTION_ACCOUNT: '${PRODUCTION_ACCOUNT_PIN}'$`, 'm'));
+  assert.match(code, /^      PRODUCTION_ACCOUNT_ID_VAR: \$\{\{ vars\.CONNECTIONS_PRODUCTION_ACCOUNT_ID \}\}$/m);
+  assert.match(code, /^      MIGRATE_ROLE_ARN: \$\{\{ vars\.CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN \}\}$/m);
+  assert.deepEqual([...new Set([...code.matchAll(/vars\.([A-Z_]+)/g)].map((m) => m[1]))].sort(), ['CONNECTIONS_PRODUCTION_ACCOUNT_ID', 'CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN']);
+  assert.match(code, /if \[ "\$\{account_var\}" != "\$\{PRODUCTION_ACCOUNT\}" \]; then/);
+  assert.match(code, /"arn:aws:iam::\$\{PRODUCTION_ACCOUNT\}:role\/"\?\*\) ;;/);
+
+  // OIDC, pinned action, bounded to the pinned account, then STS-checked against it.
+  const actions = [...code.matchAll(/uses:\s*(aws-actions\/\S+)/g)].map((m) => m[1]);
+  assert.deepEqual(actions, ['aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd'], 'pinned v6.3.0');
+  assert.match(code, /role-to-assume: \$\{\{ steps\.guard\.outputs\.role_arn \}\}/, 'the role the guard step validated');
+  assert.match(code, new RegExp(`allowed-account-ids: '${PRODUCTION_ACCOUNT_PIN}'`));
+  assert.match(code, /aws-region: us-east-1/);
+  assert.match(code, /account="\$\(aws sts get-caller-identity --query Account --output text\)"\n\s+if \[ "\$account" != "\$PRODUCTION_ACCOUNT" \]; then/);
+
+  // Reads ONLY the production secret, through the role; never a GitHub secret; never a staging name.
+  assert.match(code, /PRODUCTION_DB_SECRET: 'loop\/connections\/production\/database-url'/);
+  assert.doesNotMatch(code, /secrets\./, 'no GitHub secret at all -- DIRECT_DATABASE_URL is no longer a migration path');
+  assert.doesNotMatch(code, /DIRECT_DATABASE_URL/);
+  assert.doesNotMatch(code, /staging|065148797865/, 'never a staging name or account');
+
+  // The URL is masked and never echoed.
+  assert.match(code, /::add-mask::\$url/);
+  assert.doesNotMatch(code, /echo\s+"?\$\{?DATABASE_URL/, 'must not echo DATABASE_URL');
+  assert.doesNotMatch(code, /echo\s+"?\$url"?\s*$/m, 'must not echo the raw URL');
+  assert.doesNotMatch(code, /\$\{\{[^}]*inputs\.confirm/, 'the typed phrase is never read through the expression context');
+
+  // Order: confirm, guard, credentials, STS check, secret, validate, status, deploy, status.
+  const order = ['- name: Confirm', 'The environment names the production account', 'AWS credentials (OIDC, short-lived)', 'The credentials are for the production account', 'Read the production DATABASE_URL', 'prisma@5.22.0 validate', 'Migration status before', 'prisma@5.22.0 migrate deploy', 'Migration status after'];
+  const positions = order.map((needle) => code.indexOf(needle));
+  assert.ok(positions.every((p) => p >= 0), `every step present: ${positions.join(',')}`);
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b), 'steps run in this order');
+});
+
+/** The `run: |` body of the named step of a workflow, dedented. */
+function stepScript(workflow: string, name: string): string {
+  const lines = workflow.split('\n');
+  const at = lines.findIndex((l) => l.trim() === `- name: ${name}`);
+  assert.ok(at >= 0, `the workflow has a step named ${name}`);
+  const run = lines.findIndex((l, i) => i > at && l.trim() === 'run: |');
+  const indent = lines[run]!.search(/\S/) + 2;
+  const body: string[] = [];
+  for (const line of lines.slice(run + 1)) {
+    if (line.trim() !== '' && line.search(/\S/) < indent) break;
+    body.push(line.slice(indent));
+  }
+  return body.join('\n');
+}
+
+test('the production Confirm step, executed, requires the production phrase and forgives only padding and case', () => {
+  const script = stepScript(readFileSync(PROD_WORKFLOW, 'utf8'), 'Confirm');
+  const dir = mkdtempSync(join(tmpdir(), 'prisma-migrations-confirm-'));
+  const attempt = (confirm: string) => {
+    const event = join(dir, 'event.json');
+    writeFileSync(event, JSON.stringify({ inputs: { confirm } }));
+    return spawnSync('bash', ['-c', script], { env: { PATH: process.env.PATH ?? '', GITHUB_EVENT_PATH: event }, encoding: 'utf8' });
+  };
+  assert.equal(attempt('migrate loop-connections-production').status, 0, 'the exact phrase');
+  assert.equal(attempt('   migrate loop-connections-production\u00a0\r\n').status, 0, 'padding, NBSP and CR are forgiven');
+  assert.equal(attempt('Migrate  Loop-Connections-Production').status, 0, 'case and repeated inner whitespace are forgiven');
+  const staging = attempt('migrate loop-connections-staging');
+  assert.equal(staging.status, 1, 'the staging phrase never migrates production');
+  assert.match(staging.stdout, /Confirmation text required: migrate loop-connections-production/);
+  assert.match(staging.stdout, /Received \d+ bytes; with whitespace made visible:/);
+  assert.equal(attempt('').status, 1, 'an empty phrase refuses');
+  assert.equal(attempt('deploy loop-connections-production').status, 1, 'the deploy phrase is not the migrate phrase');
+  assert.equal(attempt('migrate loop-connections-productionx').status, 1, 'a superstring refuses');
+});
+
+test('the production guard step, executed, refuses a wrong account variable or a role outside the pinned account before any credential', () => {
+  const script = stepScript(readFileSync(PROD_WORKFLOW, 'utf8'), 'The environment names the production account, and the migrate role lives in it');
+  const dir = mkdtempSync(join(tmpdir(), 'prisma-migrations-guard-'));
+  const attempt = (accountVar: string, role: string) => {
+    const envFile = join(dir, 'env');
+    const outFile = join(dir, 'out');
+    writeFileSync(envFile, '');
+    writeFileSync(outFile, '');
+    const r = spawnSync('bash', ['-c', script], {
+      env: { PATH: process.env.PATH ?? '', PRODUCTION_ACCOUNT: PRODUCTION_ACCOUNT_PIN, PRODUCTION_ACCOUNT_ID_VAR: accountVar, MIGRATE_ROLE_ARN: role, GITHUB_ENV: envFile, GITHUB_OUTPUT: outFile },
+      encoding: 'utf8',
+    });
+    return { status: r.status, stdout: r.stdout, out: readFileSync(outFile, 'utf8') };
+  };
+  const good = `arn:aws:iam::${PRODUCTION_ACCOUNT_PIN}:role/loop-connections-migrate-github-production`;
+  const ok = attempt(PRODUCTION_ACCOUNT_PIN, good);
+  assert.equal(ok.status, 0);
+  assert.equal(ok.out.trim(), `role_arn=${good}`, 'the validated role is what the credential step assumes');
+  assert.equal(attempt(` ${PRODUCTION_ACCOUNT_PIN} `, ` ${good} `).status, 0, 'surrounding whitespace on a variable is trimmed');
+  assert.equal(attempt('', good).status, 1, 'an unset account variable refuses');
+  assert.equal(attempt('065148797865', good).status, 1, 'the staging account refuses');
+  assert.equal(attempt('670682108352', good).status, 1, 'the management account refuses');
+  assert.equal(attempt(PRODUCTION_ACCOUNT_PIN, 'arn:aws:iam::065148797865:role/loop-connections-migrate-github').status, 1, 'a role in another account refuses');
+  assert.equal(attempt(PRODUCTION_ACCOUNT_PIN, '').status, 1, 'an unset role refuses');
+  assert.equal(attempt(PRODUCTION_ACCOUNT_PIN, `arn:aws:iam::${PRODUCTION_ACCOUNT_PIN}:role/`).status, 1, 'an empty role name refuses');
 });
