@@ -118,7 +118,12 @@ describe('Navigation', () => {
   const items = LOOP_NAV.nav.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label })));
 
   it('no item claims a Calendar that does not exist; the inbox is named as the page names itself', () => {
-    assert.equal(items.some((i) => i.label === 'Calendar'), false);
+    // The one Calendar item (2026-09-24) is the person's own day, and its page exists and says so.
+    // Nothing else -- the CRM's activity inbox above all -- is named Calendar.
+    const calendars = items.filter((i) => /calendar/i.test(i.label));
+    assert.deepEqual(calendars.map((i) => [i.label, i.href, i.group]), [['Calendar', '/app/calendar', '']]);
+    assert.match(read('../src/app/app/calendar/page.tsx'), /title="Calendar"/);
+    assert.match(read('../src/app/app/calendar/page.tsx'), /loadYourDay\(principal\)/);
     const inbox = items.find((i) => i.href === '/crm/inbox');
     assert.equal(inbox?.label, 'Inbox');
     assert.match(read('../src/app/crm/inbox/page.tsx'), /<h1 className="crm-h1">Inbox<\/h1>/);

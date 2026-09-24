@@ -157,7 +157,10 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 //
 // Primary and folded (2026-09-24, approved). The rail leads with what a person
 // opens every day and folds the rest behind one disclosure row per group:
-//   - Home: Home, Mail, Connections — all primary.
+//   - Home: Home, Mail, Chats, Calendar, Connections — all primary. Chats and Calendar
+//     are domain pages (2026-09-24): read-only compositions of the viewer's own Telegram
+//     obligations and activity, and of their own calendar. Connections is configuration
+//     only, the place a source is connected or managed; the domains link to it for that.
 //   - CRM: People, Relationships and the Command Center are primary; the intake
 //     tools fold behind "Intake tools".
 //   - Work: My Work is primary (final: it stays in the primary rail for ADMIN and
@@ -235,10 +238,17 @@ export const LOOP_NAV: ShellConfig = {
       short: 'Home',
       items: [
         { href: '/app', label: 'Home', icon: 'grid' },
-        // Personal, not administration: the signed-in person's own connected accounts.
-        // The employee's own mail, inside Loop (GM-2). Personal, like Connections: what it
-        // opens is their own mailbox, and no role widens it.
+        // Personal, not administration: each opens the signed-in person's OWN mailbox, chats,
+        // day or connected accounts, and no role widens any of them.
+        // The employee's own mail, inside Loop (GM-2).
         { href: '/app/mail', label: 'Mail', icon: 'mail', requires: EMPLOYEE_INTELLIGENCE_VIEW },
+        // The employee's own chats (2026-09-24): what their own Telegram triage flagged and content-free
+        // activity. Gated as the Connections page gates the Telegram tile, so exactly the people who
+        // can see their Telegram connection see Chats.
+        { href: '/app/chats', label: 'Chats', icon: 'chat', requires: GOOGLE_WORKSPACE_VIEW },
+        // The employee's own day (2026-09-24), over the same read as Home and Mail, under Mail's gate.
+        { href: '/app/calendar', label: 'Calendar', icon: 'calendar', requires: EMPLOYEE_INTELLIGENCE_VIEW },
+        // Configuration only: where a source is connected and managed, never a domain surface.
         { href: '/app/connections', label: 'Connections', icon: 'plug', requires: GOOGLE_WORKSPACE_VIEW },
       ],
     },
@@ -261,7 +271,7 @@ export const LOOP_NAV: ShellConfig = {
         // Establishing and reviewing identity: the governed workflow on the temporary
         // operator screen, which also lists Companies until their redesign.
         { href: '/crm/parties', label: 'Identity Review', icon: 'check', requires: IDENTITY_VIEW, folded: true },
-        // An activity inbox, not a calendar: no calendar surface exists.
+        // An activity inbox, not a calendar: the person's own day is Calendar, under Home.
         { href: '/crm/inbox', label: 'Inbox', icon: 'activity', requires: INTAKE_RECORDS_VIEW, folded: true },
         { href: '/crm/search', label: 'Search', icon: 'search', requires: INTAKE_RECORDS_VIEW, folded: true },
         { href: '/crm/workflows', label: 'Automations', icon: 'flow', requires: AUTOMATIONS_VIEW, folded: true },

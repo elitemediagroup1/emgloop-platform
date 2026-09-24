@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createTimeView, mailViewRows, resolveDisplayTimeZone } from '@emgloop/shared';
+import { createTimeView, mailDomainIntelligence, mailViewRows, resolveDisplayTimeZone } from '@emgloop/shared';
 import { getSession } from '../../../auth/auth';
 import { loginPathFor } from '../../../auth/landing';
 import { requirePermission } from '../../../auth/guard';
@@ -33,6 +33,10 @@ import {
 // stored (`classifyMailThread`), each row saying why it is there. Every row opens the existing
 // conversation, where the reply, Draft with Loop and Send are unchanged. Gmail itself is one link
 // away for everything Loop deliberately does not do.
+//
+// IT LEADS WITH WHAT THE MAILBOX MEANS. `mailDomainIntelligence` -- the Mail domain's own reading of
+// its lanes, counts and business areas only, never a subject or a person -- opens the page, above
+// the lanes. Home repeats the same lines, so the two surfaces never read the mailbox differently.
 //
 // AN EMPTY LANE AND AN UNREADABLE MAILBOX NEVER LOOK ALIKE. Lanes are only concluded from a read
 // Loop made; "nothing needs your reply" is only said about a current one.
@@ -119,6 +123,7 @@ function MailBody({ dashboard, state, time }: { dashboard: MailDashboard; state:
         <MailEmpty freshness={mail.freshness} knows={mail.knows} refresh={mail.canRefresh ? <RefreshMail /> : undefined} />
       ) : (
         <>
+          <MailMeaning dashboard={dashboard} />
           <SummaryCards summary={summary} state={state} />
           <FilterBar summary={summary} state={state} />
           {state.view === 'dashboard' && state.query.trim() === '' && !state.unreadOnly && !state.includeNotifications ? (
@@ -129,6 +134,25 @@ function MailBody({ dashboard, state, time }: { dashboard: MailDashboard; state:
         </>
       )}
     </div>
+  );
+}
+
+/** The domain's interpretation, at most two sentences. Nothing when the lanes hold nothing: never a zero. */
+function MailMeaning({ dashboard }: { dashboard: MailDashboard }) {
+  const { lines } = mailDomainIntelligence(
+    dashboard.rows.map((r) => r.insight),
+    dashboard.summary,
+    dashboard.now,
+  );
+  if (lines.length === 0) return null;
+  return (
+    <section className="loop-stack" aria-label="What your mail means" data-mail-intelligence>
+      {lines.map((line) => (
+        <p key={line} className="loop-panel__lead">
+          {line}
+        </p>
+      ))}
+    </section>
   );
 }
 
