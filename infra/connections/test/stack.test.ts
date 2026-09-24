@@ -250,6 +250,12 @@ test('media signer: one Node 24 function, small and short-lived, fed the bucket,
   // Its own log group, one month, destroyable; the worker's log group is untouched.
   assert.equal(count('AWS::Logs::LogGroup'), 2);
   for (const r of Object.values(resources).filter((r) => r.Type === 'AWS::Logs::LogGroup')) assert.equal(r.Properties.RetentionInDays, 30);
+  // A rolled-back first deploy must leave its logs behind: the only `worker_fatal` line a boot failure
+  // writes lives here, and a DESTROY policy deleted it with the stack on 2026-09-24.
+  for (const r of Object.values(resources).filter((r) => r.Type === 'AWS::Logs::LogGroup') as any[]) {
+    assert.equal(r.DeletionPolicy, 'Retain', 'log groups outlive a failed stack');
+    assert.equal(r.UpdateReplacePolicy, 'Retain');
+  }
   assert.equal(logicalId(fn.LoggingConfig?.LogGroup), Object.entries(resources).find(([id, r]) => r.Type === 'AWS::Logs::LogGroup' && /MediaSigner/.test(id))?.[0]);
 });
 

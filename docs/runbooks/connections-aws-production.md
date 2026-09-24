@@ -267,6 +267,58 @@ histories, not this line, for what has actually run.
     - Note the stack **Outputs**: `WorkerUrl`, `WorkerControlSecretArn`, `MediaBucketName`,
       `MediaSignerUrl`.
 
+
+    **If the first deploy rolls back** (`ECS Deployment Circuit Breaker was triggered`, "Essential
+    container in task exited", `ROLLBACK_COMPLETE`) — this happened on 2026-09-24:
+
+    - **Read the cause first.** The worker writes exactly one line before it exits with code 1:
+      CloudWatch Logs → log group `LoopConnections-production-WorkerLogs…` → stream
+      `connections-worker/worker/<task id>` → `{"event":"worker_fatal","name":"NotConfigured",
+      "message":"connections worker not configured: <SETTING> (…)"}`. The setting is named, the
+      value never is. (The 2026-09-24 rollback left no log at all: the log group was created with
+      a DESTROY policy and went down with the stack. Since #332 both log groups are retained.)
+      A `name` other than `NotConfigured` carries no message; its meaning is in the worker source.
+    - **The worker refuses to boot when** (`apps/connections-worker/src/config.ts`): `TELEGRAM_API_ID`
+      is not a positive integer; `LOOP_CONNECTION_SECRET_KEY` does not decode from base64 to exactly
+      32 bytes (a hex string, a short key, or the console's default *key/value* JSON all fail); or any
+      of the six injected settings is blank. Of these, the operator-provided values are the
+      `telegram` secret (JSON with `api_id` and `api_hash`) and `connection-key` (a plain base64
+      string, stored as **plaintext**, not key/value). Check their shape without printing them:
+
+      ```sh
+      aws secretsmanager get-secret-value --region us-east-1 --secret-id loop/connections/production/connection-key --query SecretString --output text \
+        | tr -d '\n' | base64 -d 2>/dev/null | wc -c        # must print 32
+      aws secretsmanager get-secret-value --region us-east-1 --secret-id loop/connections/production/telegram --query SecretString --output text \
+        | jq -c '[keys, (.api_id|type), (.api_id|tostring|test("^[1-9][0-9]*$")), (.api_hash|type), (.api_hash|tostring|length)]'
+        # expect [["api_hash","api_id"],"string",true,"string",32]
+      ```
+
+      A wrong `connection-key` is replaced, not repaired — nothing has been sealed under it yet:
+      `aws secretsmanager put-secret-value --region us-east-1 --secret-id loop/connections/production/connection-key --secret-string "$(openssl rand -base64 32)"`.
+      A wrong `telegram` value is re-entered the same way with the JSON document from step 9.
+    - **Delete the two generated secrets before the retry.** They are created with a RETAIN policy
+      (CloudFormation reported them `DELETE_SKIPPED`), so they still exist with their fixed names,
+      and the retry's `Create` of the same names fails with "already exists". Safe **only** while no
+      Telegram session has been authorized and no observation written in production — both are
+      true after a failed first deploy — and never afterwards:
+
+      ```sh
+      aws secretsmanager delete-secret --region us-east-1 --secret-id loop/connections/production/conversation-secret --force-delete-without-recovery
+      aws secretsmanager delete-secret --region us-east-1 --secret-id loop/connections/production/worker-control --force-delete-without-recovery
+      ```
+    - **Remove the failed stack** so the retry can create it again. The stack was created with
+      termination protection, which also blocks CDK's own delete-and-recreate of a
+      `ROLLBACK_COMPLETE` stack:
+
+      ```sh
+      aws cloudformation update-termination-protection --region us-east-1 --stack-name LoopConnections-production --no-enable-termination-protection
+      aws cloudformation delete-stack --region us-east-1 --stack-name LoopConnections-production
+      aws cloudformation wait stack-delete-complete --region us-east-1 --stack-name LoopConnections-production
+      ```
+    - Then dispatch `connections-infra-deploy` again: `diff`, then `deploy` with the phrase.
+      A retained log group from the failed attempt stays behind (empty after its month of
+      retention); delete it from the console when convenient.
+
 13. **Set the web (Netlify production) environment** — production context only:
     `LOOP_CONNECTION_PROVIDERS=TELEGRAM`, `LOOP_CONNECTIONS_WORKER_URL=<WorkerUrl output>`,
     `LOOP_CONNECTIONS_WORKER_SECRET=<the generated worker-control value, read once from Secrets

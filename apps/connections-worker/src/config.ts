@@ -12,6 +12,20 @@ export class NotConfigured extends Error {
   }
 }
 
+/**
+ * What the worker's fatal log line may carry about a boot error. For a configuration refusal the
+ * message names the SETTING (`connections worker not configured: LOOP_CONNECTION_SECRET_KEY (must
+ * be 32 bytes base64)`) and never its value, so it is safe to log and is exactly what an operator
+ * needs after a rolled-back first deploy. Any other error contributes its name only: an error's
+ * text is where a credential or a database host could leak.
+ */
+export function fatalLogFields(err: unknown): { readonly name: string; readonly message?: string } {
+  const name = (err as { name?: unknown } | null)?.name;
+  const safeName = typeof name === 'string' && name !== '' ? name : 'error';
+  if (err instanceof NotConfigured) return { name: safeName, message: err.message };
+  return { name: safeName };
+}
+
 function required(name: string): string {
   const v = process.env[name];
   if (!v || v.trim() === '') throw new NotConfigured(name);
