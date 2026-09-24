@@ -54,11 +54,29 @@ const PATH = '/app/admin/administration/objectives';
 const SURFACES: Record<string, string> = {
   objectives: PATH,
   headlines: '/app/admin/headlines',
+  /**
+   * One Headline's own page. The base is the list; `backTo` appends the row id
+   * ONLY when the action resolved that row inside the session's organization
+   * (see `subjectId` there), so the segment is never a value the form chose.
+   */
+  headline: '/app/admin/headlines',
 };
 
-function backTo(message: string, kind: 'notice' | 'error', surface?: string): string {
+function backTo(
+  message: string,
+  kind: 'notice' | 'error',
+  surface?: string,
+  subjectId?: string,
+): string {
   const base = (surface && SURFACES[surface]) || PATH;
-  return base + '?' + kind + '=' + encodeURIComponent(message);
+  // THE RESOLVED ROW, NEVER THE FORM. `subjectId` is passed only from a write
+  // that already succeeded on a row the repository resolved within this
+  // organization. A refusal before that point lands on the list, which is what
+  // keeps this a constant plus a known row rather than a redirect target a
+  // caller could choose.
+  const path =
+    surface === 'headline' && subjectId ? base + '/' + encodeURIComponent(subjectId) : base;
+  return path + '?' + kind + '=' + encodeURIComponent(message);
 }
 
 function text(formData: FormData, key: string): string {
@@ -581,6 +599,9 @@ export async function dismissHeadlineAction(formData: FormData): Promise<void> {
       `Recorded: ${HEADLINE_DISMISSAL_BASIS_LABELS[basisRaw].toLowerCase()}. Loop keeps watching whether it persists.`,
       'notice',
       surface,
+      // The id the repository resolved and wrote, so the person lands back on
+      // the Headline they set aside -- and only then.
+      dismissed.id,
     ),
   );
 }

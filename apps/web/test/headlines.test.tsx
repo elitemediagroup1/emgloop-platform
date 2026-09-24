@@ -28,12 +28,17 @@ import {
   MORNING_CANT_TELL,
   MORNING_NEEDS_ATTENTION,
   MORNING_NOTHING_TO_CHECK,
+  createTimeView,
+  resolveDisplayTimeZone,
   type HeadlineView,
 } from '@emgloop/shared';
 
 import { AttentionBanner, HeadlineCard } from '../src/app/app/admin/headlines/headline-ui';
 
 const render = (el: unknown) => renderToStaticMarkup(el as never);
+// The reader's clock, pinned. The card formats a set-aside or close time
+// through it rather than through the server clock.
+const TIME = createTimeView(resolveDisplayTimeZone({}), new Date('2026-08-23T12:00:00.000Z'));
 const strip = (s: string) =>
   s
     .replace(/<[^>]+>/g, ' ')
@@ -149,7 +154,7 @@ test('1f. the coverage gap names the objectives and their governed reasons', () 
 // --- 2. The Headline itself ------------------------------------------------------------
 
 test('2. a Headline answers the claim, why it matters, and the receipts', () => {
-  const out = strip(render(<HeadlineCard headline={headline()} caseId={null} investigate={null} />));
+  const out = strip(render(<HeadlineCard headline={headline()} kase={null} time={TIME} investigate={null} />));
   assert.ok(out.includes("Buyer CEM's monetized rate fell"), 'the claim');
   assert.ok(out.includes("Why you're seeing it"));
   assert.ok(out.includes('Grow Medicare answer rate'), 'the objective it was measured against');
@@ -163,14 +168,14 @@ test('2. a Headline answers the claim, why it matters, and the receipts', () => 
 test('2b. what the measurement does not establish is IN the card', () => {
   // Not behind a link and not on a second screen. A person deciding whether to
   // open an investigation needs the caveats at the moment they decide.
-  const out = strip(render(<HeadlineCard headline={headline()} caseId={null} investigate={null} />));
+  const out = strip(render(<HeadlineCard headline={headline()} kase={null} time={TIME} investigate={null} />));
   assert.ok(out.includes("What this measurement doesn't establish"));
   assert.ok(out.includes('may still move'), 'the limitation');
   assert.ok(out.includes('CEM-wide or specific to one source'), 'the unknown');
 });
 
 test('2c. no confidence percentage, no cause, no invented relevance', () => {
-  const out = strip(render(<HeadlineCard headline={headline()} caseId={null} investigate={null} />));
+  const out = strip(render(<HeadlineCard headline={headline()} kase={null} time={TIME} investigate={null} />));
   for (const forbidden of ['confidence', 'certainty', 'likelihood', '% sure', 'caused', 'because of']) {
     assert.equal(out.toLowerCase().includes(forbidden), false, `must not say "${forbidden}"`);
   }
@@ -186,7 +191,7 @@ test('2d. an unknown number renders as an em dash, never as zero', () => {
       headline={headline({
         measurement: { ...headline().measurement, priorValue: null, percentageChange: null, currentCoverage: null },
       })}
-      caseId={null}
+      kase={null} time={TIME}
       investigate={null}
     />,
   ));
@@ -195,7 +200,7 @@ test('2d. an unknown number renders as an em dash, never as zero', () => {
 });
 
 test('2e. the technical detail is present and not on the first read', () => {
-  const out = render(<HeadlineCard headline={headline()} caseId={null} investigate={null} />);
+  const out = render(<HeadlineCard headline={headline()} kase={null} time={TIME} investigate={null} />);
   // Behind a disclosure the reader opens, not dumped on the morning screen.
   assert.ok(out.includes('<details'), 'progressive disclosure');
   assert.ok(out.includes('How Loop measured this'));
@@ -221,7 +226,7 @@ test('3. rendering a Headline creates nothing', () => {
 
 test('3b. when an investigation exists the card offers a way in, not a second button', () => {
   const withCase = strip(render(
-    <HeadlineCard headline={headline()} caseId="case_1" investigate={<button>Investigate</button>} />,
+    <HeadlineCard headline={headline()} kase={{ caseId: 'case_1', state: 'NEEDS_REVIEW', outcome: null, resolvedAt: null }} time={TIME} investigate={<button>Investigate</button>} />,
   ));
   assert.ok(withCase.includes('Already under investigation'));
   assert.ok(withCase.includes('Open investigation'));
@@ -233,12 +238,12 @@ test('3b. when an investigation exists the card offers a way in, not a second bu
 test('3c. the Investigate control is supplied by the page, never built by the card', () => {
   // The card cannot invent an authorization control: it renders whatever the
   // guarded page passes, and a page that passes nothing shows nothing.
-  const none = strip(render(<HeadlineCard headline={headline()} caseId={null} investigate={null} />));
+  const none = strip(render(<HeadlineCard headline={headline()} kase={null} time={TIME} investigate={null} />));
   assert.equal(none.includes('Investigate'), false);
   assert.ok(none.includes('Look into it'), 'reading is always available');
 
   const given = strip(render(
-    <HeadlineCard headline={headline()} caseId={null} investigate={<button>Investigate</button>} />,
+    <HeadlineCard headline={headline()} kase={null} time={TIME} investigate={<button>Investigate</button>} />,
   ));
   assert.ok(given.includes('Investigate'));
 });
@@ -310,7 +315,7 @@ test('5b. the surfaces use real landmarks, headings and controls', () => {
   assert.ok(banner.includes('aria-labelledby'), 'labelled');
   assert.ok(banner.includes('<h2'), 'a real heading');
 
-  const card = render(<HeadlineCard headline={headline()} caseId={null} investigate={null} />);
+  const card = render(<HeadlineCard headline={headline()} kase={null} time={TIME} investigate={null} />);
   assert.ok(card.includes('<article'), 'each Headline is an article');
   assert.ok(card.includes('aria-labelledby="hl-hl_cem"'), 'labelled by its own claim');
   assert.ok(card.includes('<h3'), 'with a real heading');
@@ -325,7 +330,7 @@ test('5c. state is announced, not only coloured', () => {
   // The state word is present as text.
   assert.ok(strip(out).includes("Can't tell"));
   // And the direction glyph is decorative, with the meaning carried in words.
-  const card = render(<HeadlineCard headline={headline()} caseId={null} investigate={null} />);
+  const card = render(<HeadlineCard headline={headline()} kase={null} time={TIME} investigate={null} />);
   assert.ok(card.includes('aria-hidden="true"'), 'glyphs are decorative');
   assert.ok(strip(card).includes('against the direction'), 'the meaning is in the text');
 });
