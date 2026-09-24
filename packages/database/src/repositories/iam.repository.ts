@@ -31,6 +31,7 @@ import { hasRemovalMarker, membershipAuthority, syncMembershipFromUser } from '.
 import { revokeGoogleConnectionInTx, type GoogleActor, type GoogleRevocation } from './google-connection.repository';
 import { disconnectSourceConnectionsInTx } from './source-connection.repository';
 import { revokeContentAuthorizationsInTx } from './source-content-authorization.repository';
+import { absentUntilMigrated } from '../creator/until-migrated';
 import { AuditRepository } from './audit.repository';
 import { WorkErasureRepository, type WorkErasure } from './work-state/work-erasure.repository';
 import { IdentitySuggestionRepository } from './cognitive/identity-suggestion.repository';
@@ -766,6 +767,7 @@ export class IamRepository {
    */
   async disableMember(organizationId: string, userId: string, actor: GoogleActor = { userId: null }): Promise<MemberEndResult> {
     let googleRevocation: GoogleRevocation | null = null;
+    const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const changed = await this.setStatus(organizationId, userId, 'DISABLED', async (tx) => {
       const now = new Date();
       googleRevocation = await revokeGoogleConnectionInTx(this.prisma, tx, organizationId, userId, {
@@ -773,7 +775,7 @@ export class IamRepository {
         actor,
         now,
       });
-      await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, now);
+      if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, now);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor);
     });
     return { changed, googleRevocation: changed ? googleRevocation : null };
@@ -821,6 +823,7 @@ export class IamRepository {
     const user = await this.prisma.user.findFirst({ where: { id: userId, organizationId } });
     if (!user) return { changed: false, googleRevocation: null };
     const m = meta(user);
+    const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const googleRevocation = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
@@ -836,7 +839,7 @@ export class IamRepository {
         actor,
         now,
       });
-      await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, now);
+      if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, now);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor);
       return revocation;
     });
@@ -941,6 +944,25 @@ export class IamRepository {
  * repository writes its own audit row per provider, and none for a row that was not live. The
  * derived items are left to `eraseWorkStateInTx`, which follows in the same transaction.
  */
+/**
+ * Whether this deployment's database holds the source-connection tables yet. Netlify deploys
+ * `main` to production on every merge, but a migration reaches production only when a human
+ * dispatches the migration workflow, so there is a window in which the code knows tables the
+ * database does not have. In that window there is nothing to end -- no table, no connection --
+ * and an offboarding must still complete. Decided OUTSIDE the transaction, because a failed
+ * statement aborts the whole Postgres transaction and could not be caught inside it. Any error
+ * other than a missing table or column (P2021 / P2022) is still thrown.
+ */
+async function sourceConnectionTablesPresent(prisma: PrismaClient, organizationId: string, userId: string): Promise<boolean> {
+  const counted = await absentUntilMigrated(
+    Promise.all([
+      prisma.sourceConnection.count({ where: { organizationId, userId } }),
+      prisma.sourceContentAuthorization.count({ where: { organizationId, userId } }),
+    ]),
+  );
+  return counted !== null;
+}
+
 async function endSourceConnectionsInTx(
   prisma: PrismaClient,
   tx: Prisma.TransactionClient,
