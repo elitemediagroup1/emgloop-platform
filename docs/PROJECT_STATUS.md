@@ -55,12 +55,18 @@ creator Home is untouched.
   (employee-private; no join link, no location, nothing invented).
 - Recent activity: `home.workspace.recentActivity` (audit-derived business events, 6 rows) → "View all"
   `/crm/audit` only when offered. Executive Home only.
-- Tiles (only when the href is in the viewer's nav AND a domain read exists): Mail (mail summary),
-  Chats = the viewer's own Telegram connection (`sourceConnections().status`) + own needs-you count →
-  `/app/connections`, Calendar → `/app/connections` (no calendar page exists), Intake Board
+- Tiles (only when the href is in the viewer's nav AND a domain read exists) — each says what is
+  HAPPENING in its domain from that domain's own read, with connection state as supporting status:
+  Mail (needs-reply count; what arrived since yesterday from `MailSummary.inflow`; follow-ups due),
+  Chats = the viewer's OWN Telegram obligations as Needs you lists them (conversations that need them,
+  the latest change a conversation named, a tally of requests/decisions/commitments/follow-ups, deadlines)
+  plus content-free activity counts from their own observation store (`SourceObservationRepository.activitySince`,
+  last 24h) and the status "Telegram · <state> · Triage on/off" → `/app/connections`; with triage off the
+  quiet state says why nothing is flagged. Calendar → `/app/connections` (no calendar page exists), Intake Board
   (`crmRepos.crm.statusCounts`) → `/crm/pipeline`, Creator Hub (roster, `absentUntilMigrated`), My Work
-  (ADMIN `workSummary` / EMPLOYEE queue), CallGrid Intelligence (freshness + billable calls), Campaigns
-  (observed-active count, `/app/admin/marketplace/campaigns`). **No Files tile** (no Files surface) and
+  (ADMIN `workSummary` / EMPLOYEE queue), CallGrid Intelligence (billable calls; what moved against
+  "Yesterday to the same time" in the contract's words; freshness), Campaigns (observed-active count and
+  the report's own revenue leader, `/app/admin/marketplace/campaigns`). **No Files tile** (no Files surface) and
   **no CRM Opportunities/Campaigns tile** (no org-wide authority) — honest gaps, not fake tiles.
 
 **Headlines workspace** (`/app/admin/headlines`, same PR): the canonical list now shows Current /
