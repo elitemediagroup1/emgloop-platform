@@ -51,7 +51,8 @@ export default function PrivacyPage() {
         Connecting your TikTok account is optional and happens only when you choose Connect TikTok on your Profile page and
         approve the request on TikTok’s own consent screen. Loop asks TikTok for four permissions and uses each as follows.
         You may untick any of them on TikTok’s screen; Loop then reads only what you allowed and tells you which permission is
-        missing.
+        missing. Basic account info is needed to connect at all: if you decline it, nothing is stored and no account is
+        connected.
       </p>
       <ul>
         <li>
@@ -94,7 +95,11 @@ export default function PrivacyPage() {
       <h2>4. How we use this information</h2>
       <ul>
         <li>to run Loop for you: sign you in, show you your work, and show you your connected account and what it reported;</li>
-        <li>to let the EMG team members who manage your creator profile see, inside Loop, the counts and audience history your connected account reported;</li>
+        <li>
+          to let the EMG team members who manage your creator profile see, inside Loop, that your TikTok account is connected
+          and the follower counts recorded as your audience history (they do not see your video list or your other counts
+          from Loop);
+        </li>
         <li>to keep Loop secure and to keep an audit trail of account and connection changes;</li>
         <li>to send you transactional email about your Loop account (for example an invitation or a password reset).</li>
       </ul>
@@ -108,7 +113,9 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>Infrastructure providers</strong> that process data on our behalf under contract: the application is hosted on
-          Netlify, the database is hosted on Neon (PostgreSQL), and transactional email is sent through Resend.
+          Netlify, the database is hosted on Neon (PostgreSQL), transactional email is sent through Resend, and content you
+          upload in the Creator Hub is stored in private object storage on Amazon Web Services. None of them receives your
+          TikTok tokens in a readable form.
         </li>
         <li>
           <strong>Legal requirements.</strong> We may disclose information when the law requires it or to protect the rights and
@@ -119,15 +126,16 @@ export default function PrivacyPage() {
       <h2>6. How long we keep it</h2>
       <ul>
         <li>
-          <strong>TikTok tokens</strong> are deleted from Loop’s database immediately when you disconnect, when TikTok refuses
-          the stored access (the connection then reads “reconnect required”), or when your membership record in Loop is
-          deleted. Every read also requires an active Loop login bound to your creator profile, so a connection is never used
+          <strong>TikTok tokens</strong> are deleted from Loop’s database immediately when you disconnect, when TikTok refuses to
+          renew the stored access or the stored tokens can no longer be opened (the connection then reads “reconnect
+          required”), or when your membership record in Loop is deleted. Every read also requires an active Loop login bound to your creator profile, so a connection is never used
           after your access to Loop ends.
         </li>
         <li>
           <strong>Counts and video details</strong> read from TikTok are kept on your creator profile only as the last read and
-          are removed when you disconnect. Follower counts recorded as audience observations are kept as part of your creator
-          profile’s history for as long as the profile exists; you can ask us to delete them.
+          are removed when you disconnect. Your TikTok username stays recorded on your profile as the account you last
+          connected until you reconnect or ask us to remove it. Follower counts recorded as audience observations are kept as
+          part of your creator profile’s history for as long as the profile exists; you can ask us to delete them.
         </li>
         <li>
           <strong>Account, work and audit records</strong> are kept for as long as you have access to Loop and afterwards for
@@ -147,8 +155,10 @@ export default function PrivacyPage() {
       <ul>
         <li>
           <strong>Disconnect TikTok</strong> at any time from your Profile page (Profile → Social accounts → Disconnect
-          TikTok). You can also revoke Loop’s access from within TikTok, under Security and permissions → Apps and services;
-          Loop then reads nothing further and shows the connection as needing reconnection.
+          TikTok). You can also revoke Loop’s access from within TikTok, under Security and permissions → Apps and services.
+          Loop then cannot read anything further: your Profile page shows that the last read failed and, once the stored
+          access lapses (within 24 hours), that the connection needs reconnecting. Loop’s copy of the tokens is deleted at
+          that point; disconnecting in Loop deletes it immediately.
         </li>
         <li>
           <strong>Access, correction and deletion.</strong> You can see and edit your profile details in Loop. To ask for a copy
