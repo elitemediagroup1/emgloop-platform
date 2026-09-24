@@ -2360,10 +2360,14 @@ then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production:
 production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,
 run the probe and report; fixes as `fix/…` PRs.
 
-**Follow-ups recorded in #328, not done:** Telegram-side logout on offboarding (documented, not faked);
-`source_baseline_checkpoints` not revoked at offboarding; a REVOKED item re-detected after fresh consent
-does not reopen; `/app/connections` shows only `contentAuthorized` (stuck cursors visible only via the
-probe and worker logs).
+**Follow-ups recorded in #328.** DONE on `fix/detect-consent-recheck` (draft PR pending; the runbook's
+Part 9 gate, must merge before step 8): `WorkItemRepository.detect` re-checks content consent inside its
+own transaction, so an in-flight sweep can no longer write a derived item after a revoke or offboarding.
+**Not done:** Telegram-side logout on offboarding (documented, not faked); `source_baseline_checkpoints`
+not revoked at offboarding; a REVOKED item re-detected after fresh consent does not reopen (detect
+refreshes its title/evidence and appends REDETECTED without reopening — pinned by
+`work-item-detect-consent.postgres.test.ts`); `/app/connections` shows only `contentAuthorized` (stuck
+cursors visible only via the probe and worker logs).
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
