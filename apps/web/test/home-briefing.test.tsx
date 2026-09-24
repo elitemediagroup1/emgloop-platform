@@ -6,6 +6,9 @@
 // wording, and -- carried over from the retired Needs You, Your Day and Your Mail panels -- that a
 // Telegram row is minimized, source-labelled and never given a link, that a calendar row shows only
 // stored columns in the reader's zone, and that mail is a line of counts, not a second inbox.
+//
+// Since the front door (2026-09-24) the composer has no "pulse": CallGrid reaches it as the projected
+// command context (kpis.ts) and the one CallGrid row carries the window's own comparison label.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  callGridKpis,
   composeReview,
   createTimeView,
   positionInDay,
@@ -29,11 +33,11 @@ import {
   type ReviewUpdate,
 } from '@emgloop/shared';
 import { BRIEFING_LIMITS, briefingWords, composeBriefing, dueTodayFromQueue, dueTodayFromWork, rankAttention, type Briefing, type BriefingInput, type QueueInstance } from '../src/app/app/_home/briefing';
-import { BriefingLead, NeedsAttention, PulsePanel, TodayPanel, WhatChanged } from '../src/app/app/_home/briefing-view';
+import { BriefingLead, NeedsAttention, TodayPanel, WhatChanged } from '../src/app/app/_home/briefing-view';
+import { HOME_KPI_KEYS, projectHomeKpis, type HomeKpiStrip } from '../src/app/app/_home/kpis';
 import type { NeedsYouItem } from '../src/daily-loop/needs-you';
 import type { YourDayView } from '../src/daily-loop/your-day';
 import type { MailDashboard } from '../src/daily-loop/mail-dashboard';
-import type { DashboardData } from '../src/app/app/admin/dashboard-data';
 import type { MyWorkItem } from '../src/app/app/admin/workspace-home-data';
 
 const NY = 'America/New_York';
@@ -176,16 +180,24 @@ function mailDashboard(freshness: string, summary?: Partial<MailDashboard['summa
 function myWork(over: Partial<MyWorkItem> = {}): MyWorkItem {
   return { workInstanceId: 'w1', title: 'Production 1 · Kona unboxing — cut A', stageName: 'Edit', status: 'in_progress', verb: 'Resume', assignedLabel: 'Waiting 2 hours', href: '/app/admin/work/w1', expectedReturnAtIso: '2026-09-24T16:00:00Z', dueAtIso: null, ...over };
 }
-function dashboard(over: { yesterday?: Partial<DashboardData['callgrid']['yesterday']>; today?: Partial<DashboardData['callgrid']['today']>; total?: number; work?: MyWorkItem[] } = {}): DashboardData {
-  const score = (o: Partial<DashboardData['callgrid']['yesterday']>) => ({ available: true, totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000, ...o });
-  return {
-    home: { workspace: { myWork: over.work ?? [myWork()], workSummary: { assignedToMe: 4, readyNow: 2, waitingBlocked: 1, completedToday: 2 }, header: { greeting: 'Good morning', displayName: 'Matt', organizationName: 'Elite Media Group', roleLabel: 'Super Admin' } }, brain: { present: true } },
-    callgrid: { total: over.total ?? 400, recent: 40, yesterday: score(over.yesterday ?? {}), today: score(over.today ?? { totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000 }) },
-  } as unknown as DashboardData;
+type Metrics = Parameters<typeof callGridKpis>[0]['metrics'];
+const metrics = (over: Partial<Metrics> = {}): Metrics => ({ available: true, totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000, costCents: 400, revenueCoverage: 1, profitCoverage: 1, ...over });
+/** The Command Center's context, projected exactly as Home projects it: the contract's KPIs over today so far and yesterday to the same time. */
+function callgrid(over: { current?: Partial<Metrics>; comparison?: Partial<Metrics> | null; withheld?: boolean; ok?: boolean; freshnessState?: string } = {}): HomeKpiStrip {
+  const m = metrics(over.current);
+  const c = over.comparison === null ? null : metrics({ totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000, ...(over.comparison ?? {}) });
+  return projectHomeKpis({
+    kpis: callGridKpis({ keys: HOME_KPI_KEYS, metrics: m, comparison: c, series: [], comparisonWithheld: over.withheld }),
+    window: { label: 'Sep 24, 2026', includesLiveData: true, comparisonLabel: c ? 'Yesterday to the same time' : null },
+    coverage: { note: over.withheld ? 'Not compared: Loop’s call record starts Sep 24, after the comparison period began.' : null },
+    freshness: { state: over.freshnessState ?? 'LIVE', word: 'Live', detail: 'CallGrid delivered data 3 min ago.' },
+    report: { ok: over.ok ?? true, metrics: over.ok === false ? { ...m, available: false } : m, dimensions: { campaigns: [{ monetized: 3, revenueCents: 50_000 }, { monetized: 0, revenueCents: null }, { monetized: 0, revenueCents: 1_000 }] } },
+    query: 'period=day',
+  });
 }
 function input(over: Partial<BriefingInput> = {}): BriefingInput {
   return {
-    now: NOW, review: review(), period, headlines: [headline()], needsYou: [needsYou()], day: day({ events: DAY }), dayFailed: false, mail: mailDashboard('CURRENT'), mailFailed: false, dashboard: dashboard(),
+    now: NOW, review: review(), period, headlines: [headline()], needsYou: [needsYou()], day: day({ events: DAY }), dayFailed: false, mail: mailDashboard('CURRENT'), mailFailed: false, callgrid: callgrid(),
     workDue: [], connectionsHref: '/app/connections', headlinesHref: '/app/admin/headlines', ...over,
   };
 }
@@ -263,11 +275,16 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(b.changes.some((c) => c.key === 'update:mail:t1'), false);
     assert.ok(b.changes.some((c) => c.key === 'update:activity:a1' && c.why === 'work you can see moved a step (Work)'));
     const moved = brief().changes.find((c) => c.source === 'CALLGRID')!;
-    assert.match(moved.what, /14 billable calls so far today, 9 yesterday \(▲ 55\.6%\)/);
-    assert.match(moved.why, /a move, not a verdict/);
-    const still = brief({ dashboard: dashboard({ today: { totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000 } }) });
+    // The contract's own figures and percentages (14 against 9 is +56%), the window's own comparison words.
+    // Total calls did not move (20 against 20), so it is not part of the change row: only moved figures are.
+    assert.match(moved.what, /^CallGrid: Revenue \$1,120 \(▲ 32%\) · Net Profit \$610 \(▲ 53%\) · Billable Calls 14 \(▲ 56%\)$/);
+    assert.equal(moved.where, 'Today so far');
+    assert.equal(moved.why, 'against yesterday to the same time; a move, not a verdict');
+    const still = brief({ callgrid: callgrid({ comparison: { totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000 } }) });
     assert.equal(still.changes.some((c) => c.source === 'CALLGRID'), false, 'no movement, no row');
-    assert.equal(brief({ dashboard: dashboard({ total: 0 }) }).changes.some((c) => c.source === 'CALLGRID'), false, 'no calls ever, no row');
+    assert.equal(brief({ callgrid: callgrid({ ok: false }) }).changes.some((c) => c.source === 'CALLGRID'), false, 'could not be read, no row');
+    assert.equal(brief({ callgrid: callgrid({ freshnessState: 'UNAVAILABLE' }) }).changes.some((c) => c.source === 'CALLGRID'), false, 'nothing ever delivered, no row');
+    assert.equal(brief({ callgrid: null }).changes.some((c) => c.source === 'CALLGRID'), false, 'not offered, no row');
   });
 
   it('needs you: ranked by a named deadline, then the kind, then how long it has waited -- ordering only, the producers unchanged', () => {
@@ -347,7 +364,7 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
       ['Production 1 · Kona unboxing — cut A', 'expected back · Edit', '/app/employee/work/w1', '12:00 PM'],
       ['Step due today', 'Edit due', '/app/employee/work/w2', '2:00 PM'],
     ]);
-    const b = brief({ review: null, dashboard: null, headlines: null, period: null, workDue: rows });
+    const b = brief({ review: null, callgrid: null, headlines: null, period: null, workDue: rows });
     assert.equal(b.today.due.length, 2);
     assert.match(html(<TodayPanel today={b.today} time={time} mailHref="/app/mail" />), /Due today[\s\S]*href="\/app\/employee\/work\/w1"[\s\S]*expected back · Edit/);
   });
@@ -377,18 +394,26 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(brief({ mail: mailDashboard('STALE', {}, { current: false }) }).today.mailCounts?.current, false);
   });
 
-  it('pulse: movement only -- unchanged figures are named once, untracked ones are omitted with their reason, never drawn as a zero', () => {
-    const p = brief().pulse!;
-    assert.deepEqual(p.kpis.map((k) => k.key), ['callgrid:billable', 'callgrid:revenue', 'callgrid:profit', 'review:relevantEmails', 'work:mine']);
-    assert.deepEqual(p.kpis.find((k) => k.key === 'callgrid:billable')!.delta, { kind: 'up', text: '▲ 55.6%' });
-    assert.deepEqual(p.kpis.find((k) => k.key === 'review:relevantEmails')!.delta, { kind: 'up', text: '▲ 4 vs the period before' });
-    assert.deepEqual(p.unchanged, ['total calls', 'outreach sent']);
-    const dropped = brief({ review: review([{ ...mailContribution, metrics: { ...mailContribution.metrics, relevantEmails: { state: 'VALUE', value: 0, prior: 5, href: '/app/mail', scope: 'your mail' } } }]) }).pulse!;
-    assert.deepEqual(dropped.kpis.find((k) => k.key === 'review:relevantEmails')!.delta, { kind: 'down', text: '▼ 5 vs the period before' }, 'a drop to zero is a move, never "unchanged"');
-    assert.deepEqual(p.omitted, [{ label: 'Opportunities', reason: 'Loop does not track opportunities yet.' }]);
-    assert.equal(brief({ review: null, dashboard: null }).pulse, null, 'a seat with no organization figures has no pulse');
-    const quiet = brief({ dashboard: dashboard({ today: { totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000 } }) }).pulse!;
-    assert.deepEqual(quiet.unchanged, ['billable calls', 'callgrid revenue', 'net profit', 'total calls', 'outreach sent']);
+  it('there is no pulse: figures live on the KPI row, and CallGrid is compared only the way the Command Center compares it', () => {
+    assert.equal('pulse' in brief(), false, 'the plan carries no figures of its own');
+    const src = code(read('../src/app/app/_home/briefing.ts'));
+    for (const forbidden of ['easternYesterdayWindow', 'easternTodayWindow', 'trend(', 'metricValue(', 'yesterday complete', 'DashboardData', 'dashboard-data']) assert.equal(src.includes(forbidden), false, forbidden);
+    // The row's why is the window's own comparison label, verbatim: never "yesterday" alone against a partial day.
+    const row = brief().changes.find((c) => c.source === 'CALLGRID')!;
+    assert.match(row.why, /yesterday to the same time/);
+    assert.equal(/\byesterday\b(?! to the same time)/.test(row.why), false);
+    // A comparison Loop's record does not cover is withheld by the context, and then there is no row at all.
+    const withheld = callgrid({ comparison: null, withheld: true });
+    assert.equal(withheld.comparisonLabel, null);
+    assert.equal(brief({ callgrid: withheld }).changes.some((c) => c.source === 'CALLGRID'), false);
+    // The aggregate Headlines row leaves Needs you when Home draws the Headlines panel, and the total says so.
+    const headlinesRow = { ...mailContribution, source: 'HEADLINES' as const, attention: [attention({ key: 'headlines', source: 'HEADLINES', who: 'Headlines', happened: 'One thing needs your attention.', next: 'Review', tone: 'attention', href: '/app/admin/headlines' })], attentionCount: undefined, updates: [], metrics: undefined };
+    const withRow = brief({ review: review([mailContribution, workContribution, headlinesRow]) });
+    const withPanel = brief({ review: review([mailContribution, workContribution, headlinesRow]), headlinesPanel: true });
+    assert.ok(withRow.attention.some((a) => a.source === 'HEADLINES'));
+    assert.equal(withPanel.attention.some((a) => a.source === 'HEADLINES'), false);
+    assert.equal(withPanel.attentionTotal, withRow.attentionTotal - 1);
+    assert.equal(withPanel.sentence.attention, withPanel.attentionTotal);
   });
 
   it('the sentence is the facts in words, and names the sources it read and the ones it could not', () => {
@@ -397,13 +422,13 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(brief().sentence.attention, brief().attentionTotal, 'the sentence counts what the list counts');
     assert.match(words.sources!, /From your mail, Loop work, Telegram\./);
     assert.match(words.sources!, /Not read: your calendar — Loop has not read your calendar yet; CallGrid — Loop could not read CallGrid just now; Headlines — Loop could not read Headlines just now\./);
-    const quiet = briefingWords(brief({ review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), headlines: [], needsYou: [], dashboard: null, day: null, mail: null }).sentence, time);
+    const quiet = briefingWords(brief({ review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), headlines: [], needsYou: [], callgrid: null, day: null, mail: null }).sentence, time);
     assert.match(quiet.lead, /nothing changed in what Loop can read, nothing needs you\./i);
     for (const forbidden of ['accelerat', 'major', 'urgent', 'momentum', 'strong week', 'probably']) assert.equal(words.lead.toLowerCase().includes(forbidden), false, forbidden);
     // The module Home, with nothing but the viewer's own sources, still says what it read.
-    const own = briefingWords(brief({ review: null, dashboard: null, headlines: null, period: null }).sentence, time);
+    const own = briefingWords(brief({ review: null, callgrid: null, headlines: null, period: null }).sentence, time);
     assert.match(own.sources!, /From your calendar, your mail, Telegram\./);
-    const unread = briefingWords(brief({ review: null, dashboard: null, headlines: null, period: null, day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }), mail: mailDashboard('NEVER_SYNCED') }).sentence, time);
+    const unread = briefingWords(brief({ review: null, callgrid: null, headlines: null, period: null, day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }), mail: mailDashboard('NEVER_SYNCED') }).sentence, time);
     assert.match(unread.sources!, /Not read: your calendar — not read yet; your mail — not read yet\./);
   });
 });
@@ -424,7 +449,7 @@ describe('the briefing, drawn', () => {
     const telegramRow = out.slice(out.indexOf('data-briefing-change="TELEGRAM"'), out.indexOf('</li>', out.indexOf('data-briefing-change="TELEGRAM"')));
     assert.equal(telegramRow.includes('href='), false, 'no fabricated deep link for a private chat');
     assert.match(out, /datetime="2026-09-24T06:10:00\.000Z"/i);
-    assert.match(html(<WhatChanged briefing={brief({ headlines: [], needsYou: [], review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), dashboard: null })} time={time} />), /Nothing changed in what Loop can read since yesterday\./);
+    assert.match(html(<WhatChanged briefing={brief({ headlines: [], needsYou: [], review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), callgrid: null })} time={time} />), /Nothing changed in what Loop can read since yesterday\./);
   });
 
   it('needs you: ranked rows with who, what, kind, the grounded deadline, next and source; minimized, no forms, no invented fields', () => {
@@ -512,19 +537,6 @@ describe('the briefing, drawn', () => {
     assert.match(html(<TodayPanel today={brief({ day: null, dayFailed: true, mail: null }).today} time={time} mailHref="/app/mail" />), /could not open your calendar/);
   });
 
-  it('pulse: a value opens where it came from; a review figure compares only with a period it can count; unchanged and untracked are sentences', () => {
-    const out = html(<PulsePanel pulse={brief().pulse!} brainHref="/app/admin/brain" />);
-    assert.match(out, /id="business-pulse"/);
-    assert.match(out, /href="\/app\/admin\/marketplace"[^>]*>14</);
-    assert.match(out, /yesterday 9/);
-    assert.match(out, /href="\/app\/mail"[^>]*>12<[\s\S]*?▲ 4 vs the period before/);
-    assert.match(out, /No movement: total calls, outreach sent\./);
-    assert.match(out, /Opportunities: Loop does not track opportunities yet\./);
-    assert.match(out, /href="\/app\/admin\/brain"[^>]*>Executive Brain →/);
-    assert.equal(/loop-brief__kpi-v">0</.test(out), false, 'never a zero dressed as data');
-    assert.match(html(<PulsePanel pulse={{ kpis: [], unchanged: [], omitted: [] }} brainHref={null} />), /No movement in the figures Loop can read\./);
-  });
-
   it('the lead sentence is on the page as text, with the sources beside it', () => {
     const out = html(<BriefingLead briefing={brief()} time={time} />);
     assert.match(out, /data-briefing-lead[^>]*>Since .*4 things changed, 6 need you, one by Thursday\./);
@@ -562,11 +574,14 @@ describe('both Homes compose the same briefing from the page’s reads, and load
   it('the executive Home states its authority first, loads only the organization reads, and composes -- it never reads the viewer’s items or a second time', () => {
     const home = code(read('../src/app/app/_home/admin-home.tsx'));
     const body = home.slice(home.indexOf('export async function AdminHome'));
-    assert.ok(body.indexOf("await requireWorkspace('ADMIN')") < body.indexOf('loadDashboard('), 'authority before any read');
-    for (const forbidden of ['loadNeedsYou', 'loadYourDay', 'loadMailDashboard', 'prisma', 'repositories']) assert.equal(home.includes(forbidden), false, forbidden);
+    assert.ok(body.indexOf("await requireWorkspace('ADMIN')") < body.indexOf('loadHome('), 'authority before any read');
+    assert.ok(body.indexOf("await requireWorkspace('ADMIN')") < body.indexOf('loadFrontDoor('), 'authority before the front door reads too');
+    for (const forbidden of ['loadNeedsYou', 'loadYourDay', 'loadMailDashboard', 'prisma', 'repositories', 'loadDashboard', 'PulsePanel']) assert.equal(home.includes(forbidden), false, forbidden);
     assert.match(body, /composeBriefing\(\{[\s\S]*?headlines: review\?\.headlines \?\? null,[\s\S]*?needsYou,/);
-    assert.match(body, /<WhatChanged[\s\S]*<NeedsAttention[\s\S]*<TodayPanel[\s\S]*<PulsePanel/, 'the approved order');
-    assert.match(body, /const brainHref = groups\.some\(\(g\) => g\.items\.some\(\(i\) => i\.href === HOME_PATHS\.brain\)\) \? HOME_PATHS\.brain : null;/, 'Home links to the Brain only where the rail would');
+    assert.match(body, /callgrid,[\s\S]*?headlinesPanel: showHeadlines,/, 'the projected command context in, the aggregate Headlines row out');
+    // The front door's order: KPIs, the briefing, Headlines, recent activity; beside them the day and needs you; then the tools.
+    assert.match(body, /<KpiStrip[\s\S]*<BriefingLead[\s\S]*<WhatChanged[\s\S]*<HeadlinesPanel[\s\S]*<RecentActivityPanel[\s\S]*<TodayPanel[\s\S]*<NeedsAttention[\s\S]*<ToolsGrid/, 'the approved order');
+    assert.match(body, /const auditHref = navOffers\(groups, AUDIT_PATH\) \? AUDIT_PATH : null;/, 'Home links to the audit log only where the rail would');
     const review = code(read('../src/app/app/_home/review-data.ts'));
     assert.match(review, /loadAttention\(organizationId, new Date\(\), \{ dismissed: false \}\)/, 'the Home read excludes dismissed Headlines');
     assert.equal(review.includes('loadNeedsYou'), false, 'the review never reads the employee-private items');
@@ -575,7 +590,8 @@ describe('both Homes compose the same briefing from the page’s reads, and load
   it('the module Home composes from the viewer’s own sources only and keeps the areas they can open', () => {
     const home = code(read('../src/app/app/_home/module-home.tsx'));
     for (const forbidden of ['loadNeedsYou', 'loadDashboard', 'loadExecutiveReview', 'loadMyQueueForHome', 'loadEmployeeWork', 'prisma', 'repositories']) assert.equal(home.includes(forbidden), false, forbidden);
-    assert.match(home, /review: null,[\s\S]*?dashboard: null,/);
+    assert.match(home, /review: null,[\s\S]*?callgrid: null,/);
+    for (const absent of ['KpiStrip', 'HeadlinesPanel', 'RecentActivityPanel', 'loadFrontDoor']) assert.equal(home.includes(absent), false, `${absent}: not this seat's to read`);
     assert.match(home, /workDue: dueTodayFromQueue\(queue, userId, dayStart, dayEnd, \(id\) => `\/app\/employee\/work\/\$\{encodeURIComponent\(id\)\}`\),/);
     // The narrow loader: the queue page's guard and read, nothing more.
     const loader = code(read('../src/app/app/employee/work/work-data.ts'));
@@ -583,6 +599,6 @@ describe('both Homes compose the same briefing from the page’s reads, and load
     assert.match(narrow, /const actor = await requireEmployeeActor\(\);/);
     assert.match(narrow, /workRepo\(\)\.listMyWork\(actor\.userId, actor\.organizationId\)/);
     for (const extra of ['getMyNextAction', 'listMyCompletedToday', 'listNotifications', 'prisma.']) assert.equal(narrow.includes(extra), false, extra);
-    assert.match(home, /<NeedsAttention[\s\S]*<TodayPanel[\s\S]*loop-launchers/);
+    assert.match(home, /<BriefingLead[\s\S]*<TodayPanel[\s\S]*<NeedsAttention[\s\S]*<ToolsGrid/);
   });
 });

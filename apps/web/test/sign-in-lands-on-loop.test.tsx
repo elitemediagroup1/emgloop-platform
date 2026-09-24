@@ -164,7 +164,7 @@ describe('/app renders Loop Home for every role', () => {
     const home = code(read('app/app/_home/admin-home.tsx'));
     const body = home.slice(home.indexOf('export async function AdminHome'));
     assert.ok(body.indexOf("await requireWorkspace('ADMIN');") > -1);
-    assert.ok(body.indexOf("await requireWorkspace('ADMIN');") < body.indexOf('loadDashboard('), 'authority before any read');
+    assert.ok(body.indexOf("await requireWorkspace('ADMIN');") < body.indexOf('loadHome('), 'authority before any read');
   });
 
   it('roles resolve as before: nothing is broadened', () => {

@@ -10,13 +10,14 @@ import {
   type BriefingChange,
   type BriefingSourceState,
   type BriefingToday,
-  type BriefingPulse,
   type BriefingTone,
 } from './briefing';
 
-// The Home briefing, drawn (approved design pass, 2026-09-24). Server components over the plan the
-// pure composer returned: what changed, what needs you, today, and movement. Presentation only --
-// nothing here loads, decides or widens anything. Every row names its source; a row from a private
+// The Home briefing, drawn (approved design pass, 2026-09-24; the front door, 2026-09-24). Server
+// components over the plan the pure composer returned: what changed, what needs you, and today.
+// The figures live on the KPI row and the tiles (front-door-view.tsx); the "Business pulse" panel
+// that compared today-so-far with yesterday complete is retired. Presentation only -- nothing here
+// loads, decides or widens anything. Every row names its source; a row from a private
 // chat says where it is instead of inventing a link; an empty section is one sentence, never a
 // card of zeros; a source that is not connected is one line with its way in.
 
@@ -334,51 +335,6 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
         </p>
       ) : null}
       {refresh ? <div className="loop-brief__refresh">{refresh}</div> : null}
-    </section>
-  );
-}
-
-// --- Business pulse -------------------------------------------------------------------------------
-
-export function PulsePanel({ pulse, brainHref }: { pulse: BriefingPulse; brainHref: string | null }) {
-  const nothingMoved = pulse.kpis.length === 0;
-  return (
-    <section className="loop-panel loop-brief__panel" aria-label="Business pulse" id="business-pulse">
-      <div className="loop-brief__head">
-        <h2 className="loop-panel__title">Business pulse</h2>
-        <span className="loop-brief__sub">Movement only</span>
-      </div>
-      {nothingMoved ? (
-        <p className="loop-brief__quiet">No movement in the figures Loop can read.</p>
-      ) : (
-        <div className="loop-brief__kpis">
-          {pulse.kpis.map((k) => (
-            <div className="loop-brief__kpi" key={k.key} title={`Counted from ${k.scope}`} data-briefing-kpi={k.key}>
-              <span className="loop-brief__kpi-l">{k.label}</span>
-              <span className="loop-brief__kpi-v">
-                {k.href ? <Link href={k.href}>{k.value}</Link> : k.value}
-                {k.delta ? <span className={`loop-brief__kpi-d is-${k.delta.kind}`}>{k.delta.text}</span> : null}
-              </span>
-              {k.sub ? <span className="loop-brief__kpi-s">{k.sub}</span> : null}
-            </div>
-          ))}
-        </div>
-      )}
-      {pulse.unchanged.length > 0 || pulse.omitted.length > 0 || brainHref ? (
-        <p className="loop-brief__foot">
-          {pulse.unchanged.length > 0 ? <span>No movement: {pulse.unchanged.join(', ')}. </span> : null}
-          {pulse.omitted.map((o) => (
-            <span key={o.label}>
-              {o.label}: {o.reason.replace(/\.$/, '')}.{' '}
-            </span>
-          ))}
-          {brainHref ? (
-            <Link className="loop-link" href={brainHref}>
-              Executive Brain →
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
     </section>
   );
 }
