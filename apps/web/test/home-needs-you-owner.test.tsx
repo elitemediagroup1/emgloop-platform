@@ -90,7 +90,7 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
 
   it('the page reads the items ONCE, from ONE loader, with the session principal, and hands the same items to BOTH Homes', () => {
     const page = code(read('../src/app/app/page.tsx'));
-    assert.match(page, /settle\(\(\) => loadNeedsYou\(principal\)\)/);
+    assert.match(page, /settle\(\(\) => loadNeedsYou\(principal, HOME_NEEDS_YOU_LIMIT\)\)/);
     assert.match(page, /const principal = \{ organizationId: session\.organizationId, userId: session\.userId \};/);
     assert.equal((page.match(/loadNeedsYou\(/g) ?? []).length, 1, 'read exactly once');
     assert.match(page, /const needsYou = needsYouResult\.ok \? needsYouResult\.value : \[\];/);
@@ -112,6 +112,11 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
     // Interleaved for display only: each row keeps its provider, and the review's own totals are untouched.
     assert.match(composer, /provider: 'TELEGRAM',/);
     assert.match(composer, /attentionElsewhere: input\.review\?\.attentionElsewhere \?\? \[\],/);
+    // The Chats reading is built from the SAME items the page read, handed down as data: no second read.
+    const front = code(read('../src/app/app/_home/front-door-data.ts'));
+    assert.match(front, /loadChatsInput\(\{ session, principal, now: time\.now, needsYou \}\)/);
+    assert.equal(front.includes('loadNeedsYou'), false);
+    assert.match(home, /loadFrontDoor\(\{ session, principal, groups, time, needsYou, executive: true \}\)/);
   });
 
   it('the rows an OWNER receives render their items, source-labelled, minimized and without a fabricated link', () => {
