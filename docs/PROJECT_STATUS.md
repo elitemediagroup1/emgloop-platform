@@ -165,7 +165,7 @@ No live TikTok call: no client key exists anywhere and none was requested.
 
 **Before it works anywhere:** Netlify env `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`,
 `LOOP_TIKTOK_TOKEN_KEY` (`openssl rand -base64 32`); `Deploy Prisma Migrations` after merge
-(migration `20261001000000_tiktok_login_kit`, the 49th; production last verified at 41); then a live
+(migration `20261002000000_tiktok_login_kit`, the 49th; production last verified at 41); then a live
 connect on staging with a creator seat. Until the migration is applied the Profile page renders
 "Loop could not check your TikTok connection just now" (the read is settled), never a crash.
 
