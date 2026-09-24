@@ -456,6 +456,10 @@ export * from './objective-measure-binding';
 export * from './provider-observation';
 export * from './commercial-measurement';
 export * from './headline';
+// Where a Headline stands: a PURE PROJECTION over the Headline record and its
+// Case. Derived on every read, stored nowhere -- see the file header for why a
+// Headline never gains a lifecycle of its own.
+export * from './headline-situation';
 
 // --- Commercial Intelligence: completeness and source authority (contracts) ---
 // The three questions provider observation does NOT answer, established as pure
