@@ -80,6 +80,24 @@ test('Net Profit, Margin and Telco Cost are the report’s own figures, never re
   assert.deepEqual(by.netProfit!.spark, [9_000, 0]);
 });
 
+test('the Command Center row is unchanged by default; a caller may ask for Total Calls, built by the same rule', () => {
+  const byDefault = callGridKpis({ metrics: metrics(), comparison: metrics({ totalCalls: 470 }), series: [] });
+  assert.deepEqual(byDefault.map((k) => k.key), ['netProfit', 'revenue', 'billableCalls', 'margin', 'telcoCost']);
+  const asked = callGridKpis({ metrics: metrics(), comparison: metrics({ totalCalls: 470 }), series: [point()], keys: ['totalCalls', 'revenue'] });
+  assert.deepEqual(asked.map((k) => k.key), ['totalCalls', 'revenue'], 'in the order asked');
+  const total = asked[0]!;
+  assert.equal(total.label, 'Total Calls');
+  assert.equal(total.kind, 'count');
+  assert.equal(total.value, metrics().totalCalls);
+  assert.equal(total.state, 'VALUE');
+  assert.ok(total.change !== null, 'compared against the comparison period like every other figure');
+  assert.equal(total.change!.favorable, null, 'more calls is neither good nor bad on its own');
+  assert.deepEqual(total.spark, [point().calls]);
+  const unavailable = callGridKpis({ metrics: metrics({ available: false }), comparison: null, series: [], keys: ['totalCalls'] })[0]!;
+  assert.equal(unavailable.state, 'UNAVAILABLE');
+  assert.equal(unavailable.value, null, 'never a zero for a figure Loop does not have');
+});
+
 test('no honest comparison, no change line — and unknown is never zero', () => {
   const noCompare = callGridKpis({ metrics: metrics(), comparison: null, series: [] });
   assert.ok(noCompare.every((k) => k.change === null && k.noChangeReason === 'No comparison period for this selection.'));
