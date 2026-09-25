@@ -31,10 +31,19 @@
 //
 // TENANCY. Every method takes the organization explicitly and scopes at the data
 // layer, so the unsafe call is unwriteable rather than merely discouraged.
+//
+// COST AND LANES (PR 1, 2026-09-26). A row records the capacity LANE it ran in and, once reconciled, its
+// COST at the route's price (`costMicros`), and the spend read sums cost per lane, per organization day
+// and over the trailing 24 hours (capacity.ts). Both columns arrived in migration 20261005000000; the
+// repository probes for them (`capacityColumnsPresent`) and, on a database without them, neither writes
+// nor reads them -- the cost it then reports is the reserve of every call that reported usage, which
+// over-counts (the safe direction) and applies only to the always-on emergency ceiling.
 
 import { createHash } from 'crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
-import type { AiBudgetDate, AiSpendSnapshot, AiSpendToday } from '@emgloop/shared';
+import { AI_LANES, isAiLane, type AiBudgetDate, type AiCostSnapshot, type AiLane, type AiSpendSnapshot, type AiSpendToday } from '@emgloop/shared';
+
+import { absentUntilMigrated } from '../creator/until-migrated';
 
 /**
  * A business date as the UTC-midnight `Date` Postgres `DATE` round-trips through
@@ -83,6 +92,8 @@ export interface AiInvocationReserveInput {
   readonly brainStepKey?: string | null;
   /** B4. The provider-specialization policy version the call's routing conformed to. */
   readonly specializationPolicyVersion?: string | null;
+  /** PR 1. The capacity lane. Written only on a database that has the column. */
+  readonly lane?: AiLane | null;
 }
 
 export interface AiInvocationReconcileInput {
@@ -101,6 +112,16 @@ export interface AiInvocationReconcileInput {
   readonly attemptCount?: number;
   readonly completedAt: Date;
   readonly latencyMs?: number | null;
+  /** PR 1. The call's cost at its route's price, from the reported usage. Written only where the column exists. */
+  readonly costMicros?: number | null;
+}
+
+/** PR 1. What the capacity read needs besides the windows the invocation budget reads. */
+export interface AiCapacityReadOptions {
+  /** Whether migration 20261005000000's columns exist (`capacityColumnsPresent`). */
+  readonly capacity: boolean;
+  /** The circuit breaker's trailing window start, or null when no breaker is configured. */
+  readonly breakerSince: Date | null;
 }
 
 export type AiLedgerDb = PrismaClient | Prisma.TransactionClient;
@@ -126,17 +147,35 @@ const UNIQUE_VIOLATION = 'P2002';
 /** In flight: reserved, dispatched, not yet reconciled. Never a final outcome. */
 export const AI_INVOCATION_IN_FLIGHT = 'IN_FLIGHT';
 
+/** How long a "not migrated yet" probe is trusted before it is asked again. A "migrated" answer is final. */
+const CAPACITY_PROBE_RETRY_MS = 5 * 60 * 1000;
+
 export class AiUsageLedgerRepository {
+  private capacityProbe: { readonly present: boolean; readonly atMs: number } | null = null;
+
   constructor(private readonly prisma: PrismaClient) {}
+
+  /**
+   * PR 1. Whether `lane` and `costMicros` exist. Never inside a transaction: on a database without them the
+   * probe fails, and a failed statement would abort the transaction it ran in.
+   */
+  async capacityColumnsPresent(nowMs: number = Date.now()): Promise<boolean> {
+    if (this.capacityProbe && (this.capacityProbe.present || nowMs - this.capacityProbe.atMs < CAPACITY_PROBE_RETRY_MS)) {
+      return this.capacityProbe.present;
+    }
+    const probed = await absentUntilMigrated(this.prisma.aiInvocation.findMany({ select: { id: true, lane: true, costMicros: true }, take: 1 }));
+    this.capacityProbe = { present: probed !== null, atMs: nowMs };
+    return this.capacityProbe.present;
+  }
 
   /**
    * Claim the budget BEFORE the call. Returns true when this call created the row and
    * false when the attempt was already reserved -- a retry, or a concurrent duplicate
    * the unique index resolved. Either way the reservation exists exactly once.
    */
-  async reserve(organizationId: string, input: AiInvocationReserveInput, db: AiLedgerDb = this.prisma): Promise<boolean> {
+  async reserve(organizationId: string, input: AiInvocationReserveInput, db: AiLedgerDb = this.prisma, capacity = false): Promise<boolean> {
     try {
-      await this.insertReservation(organizationId, input, db);
+      await this.insertReservation(organizationId, input, db, capacity);
       return true;
     } catch (err) {
       if ((err as { code?: string })?.code === UNIQUE_VIOLATION) return false;
@@ -149,7 +188,7 @@ export class AiUsageLedgerRepository {
    * violation aborts the transaction, so it must reach the transaction's owner
    * rather than be caught and followed by a COMMIT that silently rolls back.
    */
-  async insertReservation(organizationId: string, input: AiInvocationReserveInput, db: AiLedgerDb = this.prisma): Promise<void> {
+  async insertReservation(organizationId: string, input: AiInvocationReserveInput, db: AiLedgerDb = this.prisma, capacity = false): Promise<void> {
     await db.aiInvocation.create({
       data: {
         organizationId,
@@ -180,6 +219,8 @@ export class AiUsageLedgerRepository {
         brainJobId: input.brainJobId ?? null,
         brainStepKey: input.brainStepKey ?? null,
         specializationPolicyVersion: input.specializationPolicyVersion ?? null,
+        // PR 1: named only where the column exists, so an unmigrated database gets the same insert as before.
+        ...(capacity ? { lane: input.lane ?? null } : {}),
       },
       // Only the id comes back. Returning every column would make this insert depend on
       // columns a database migration adds, so code deployed ahead of its migration
@@ -204,6 +245,7 @@ export class AiUsageLedgerRepository {
     organizationId: string,
     input: AiInvocationReconcileInput,
     db: AiLedgerDb = this.prisma,
+    capacity = false,
   ): Promise<boolean> {
     const result = await db.aiInvocation.updateMany({
       where: { organizationId, invocationId: input.invocationId },
@@ -224,6 +266,7 @@ export class AiUsageLedgerRepository {
         ...(input.attemptCount === undefined ? {} : { attemptCount: input.attemptCount }),
         completedAt: input.completedAt,
         latencyMs: input.latencyMs ?? null,
+        ...(capacity && input.costMicros !== undefined ? { costMicros: input.costMicros } : {}),
       },
     });
     return result.count > 0;
@@ -265,25 +308,93 @@ export class AiUsageLedgerRepository {
     activeOrganizations: readonly string[],
     globalSince: Date,
     db: AiLedgerDb = this.prisma,
+    options: AiCapacityReadOptions = { capacity: false, breakerSince: null },
   ): Promise<AiSpendSnapshot> {
-    const day = await db.aiInvocation.findMany({
+    const columns = options.capacity ? CAPACITY_SPEND_COLUMNS : SPEND_COLUMNS;
+    const day = (await db.aiInvocation.findMany({
       where: { organizationId, businessDate: aiBudgetDateAsUtcDate(businessDate) },
-      select: { ...SPEND_COLUMNS, taskId: true },
-    });
+      select: { ...columns, taskId: true },
+    })) as (SpendRow & { taskId: string })[];
     const organizations = [...new Set([organizationId, ...activeOrganizations])];
-    const recent = await db.aiInvocation.findMany({
+    const recent = (await db.aiInvocation.findMany({
       where: { organizationId: { in: organizations }, requestedAt: { gte: globalSince } },
-      select: SPEND_COLUMNS,
-    });
+      select: columns,
+    })) as SpendRow[];
+    // The breaker counts this task's FAILED and REJECTED calls in this organization over its own window.
+    const taskRecentFailures = options.breakerSince
+      ? await db.aiInvocation.count({
+          where: { organizationId, taskId, requestedAt: { gte: options.breakerSince }, outcome: { in: [...BREAKER_OUTCOMES] } },
+        })
+      : 0;
+    const cost: AiCostSnapshot = {
+      organizationMicros: sumCost(day),
+      laneMicros: laneRecord((lane) => sumCost(day.filter((r) => laneOf(r) === lane))),
+      laneInvocations: laneRecord((lane) => day.filter((r) => laneOf(r) === lane).length),
+      globalMicros: sumCost(recent),
+      taskRecentFailures,
+    };
     return {
       organization: sumSpend(day),
       task: sumSpend(day.filter((r) => r.taskId === taskId)),
       global: sumSpend(recent),
+      cost,
     };
   }
 }
 
-const SPEND_COLUMNS = { outcome: true, inputTokens: true, outputTokens: true, estimatedInputTokens: true, estimatedOutputTokens: true } as const;
+const SPEND_COLUMNS = {
+  outcome: true,
+  inputTokens: true,
+  outputTokens: true,
+  estimatedInputTokens: true,
+  estimatedOutputTokens: true,
+  estimatedCostMicros: true,
+} as const;
+/** PR 1: the same, plus the two columns migration 20261005000000 adds. Read only where they exist. */
+const CAPACITY_SPEND_COLUMNS = { ...SPEND_COLUMNS, lane: true, costMicros: true } as const;
+
+/** The outcomes the circuit breaker counts: a call that failed, or whose answer Loop refused. */
+const BREAKER_OUTCOMES = ['FAILED', 'REJECTED_BY_LOOP'] as const;
+
+interface SpendRow {
+  readonly outcome: string;
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly estimatedInputTokens: number | null;
+  readonly estimatedOutputTokens: number | null;
+  readonly estimatedCostMicros: number | null;
+  readonly lane?: string | null;
+  readonly costMicros?: number | null;
+}
+
+function laneRecord(value: (lane: AiLane) => number): Record<AiLane, number> {
+  return Object.fromEntries(AI_LANES.map((lane) => [lane, value(lane)])) as Record<AiLane, number>;
+}
+
+/**
+ * A row's lane. A row written before the lane column (or before a lane was named) counts as FORWARD, the
+ * lane with the largest share: attributing it anywhere smaller could hold live work back for spend that
+ * was never live.
+ */
+function laneOf(row: SpendRow): AiLane {
+  return isAiLane(row.lane) ? row.lane : 'FORWARD';
+}
+
+/**
+ * Cost, by the same switch as tokens. Outstanding: the reserve (its ceiling cost). Reconciled: the cost
+ * recorded at reconcile -- and a reconciled call that reported no usage cost NOTHING, never its reserve
+ * (the phantom-spend rule below). A reconciled row from before `costMicros` existed, that did report
+ * usage, counts its reserve: an over-count that only ever errs toward refusing.
+ */
+function sumCost(rows: readonly SpendRow[]): number {
+  let micros = 0;
+  for (const row of rows) {
+    if (row.outcome === AI_INVOCATION_IN_FLIGHT) micros += row.estimatedCostMicros ?? 0;
+    else if (typeof row.costMicros === 'number') micros += row.costMicros;
+    else if (row.inputTokens !== null || row.outputTokens !== null) micros += row.estimatedCostMicros ?? 0;
+  }
+  return micros;
+}
 
 /**
  * Report over estimate, and RECONCILIATION is the switch between them.

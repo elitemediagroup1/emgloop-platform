@@ -78,6 +78,12 @@ export interface TelegramConversationTriageInput {
    * from this same value, never from anything the model writes. Absent or null: no label was available.
    */
   readonly conversation?: TelegramTriageConversation | null;
+  /**
+   * PR 1. BACKGROUND for the history and hydration sweeps: their calls are reserved and recorded in the
+   * BACKGROUND capacity lane, so they can never spend live triage's share. Absent: the route's own lane
+   * (FORWARD). The call itself -- context, instructions, schema -- is identical either way.
+   */
+  readonly lane?: 'BACKGROUND';
 }
 
 /**
@@ -170,6 +176,7 @@ export class TelegramContentTriageService {
       templateVersion: TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION,
       schema: TELEGRAM_CONTENT_TRIAGE_SCHEMA,
       evidence: built.evidence,
+      ...(input.lane ? { lane: input.lane } : {}),
     });
 
     if (result.outcome === 'REFUSED_BY_LOOP') return { outcome: 'NOT_AVAILABLE', refusals: result.refusals };

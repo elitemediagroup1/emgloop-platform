@@ -5349,6 +5349,13 @@ model AiInvocation {
   /// B4. The provider-specialization policy version this call's routing conformed to.
   /// NULL for calls recorded before B4 and for callers that do not report it yet.
   specializationPolicyVersion String?
+  /// PR 1 (migration 20261005000000): the capacity lane the call ran in -- FORWARD, SYNTHESIS,
+  /// INTERACTIVE or BACKGROUND (capacity.ts). NULL on rows written before it.
+  lane                        String?
+  /// PR 1: the call's cost in micro-dollars at its route's price list, from the reported usage, written
+  /// at reconcile. The daily cost caps sum it; raw usage + unitCostBasis stay the cost of record. NULL
+  /// while in flight or when the provider reported no usage.
+  costMicros                  Int?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   principal    User?        @relation("AiInvocationPrincipal", fields: [principalUserId], references: [id], onDelete: SetNull)
@@ -5640,6 +5647,9 @@ model AiControl {
   /// G2 (migration 20261003000001): PROVIDER_POLICY only -- the highest sensitivity class the
   /// provider may receive. Required when ACTIVE, NULL on every other scope (checked).
   ceiling        String?
+  /// PR 1 (migration 20261005000000): BUDGET only -- the operating budget's figures (capacity.ts),
+  /// a JSON object. Required on a BUDGET row, NULL on every other scope (checked).
+  settings       Json?
   recordedAt     DateTime
   createdAt      DateTime @default(now())
 

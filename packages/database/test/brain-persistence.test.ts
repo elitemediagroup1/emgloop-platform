@@ -1075,17 +1075,21 @@ test('fence: the four declarations are four sets of columns, and no Brain table 
 });
 
 /** Columns later migrations added to the tables this one created. Each is added nullable, and only there. */
-const ADDED_LATER: Record<string, readonly { column: string; migration: string }[]> = {
-  // G2 (2026-09-24): a provider policy's sensitivity ceiling.
-  AiControl: [{ column: 'ceiling', migration: '20261003000001_ai_provider_policy_controls' }],
+const ADDED_LATER: Record<string, readonly { column: string; type: 'TEXT' | 'JSONB'; migration: string }[]> = {
+  AiControl: [
+    // G2 (2026-09-24): a provider policy's sensitivity ceiling.
+    { column: 'ceiling', type: 'TEXT', migration: '20261003000001_ai_provider_policy_controls' },
+    // PR 1 (2026-09-26): the operating budget's figures.
+    { column: 'settings', type: 'JSONB', migration: '20261005000000_ai_runtime_capacity' },
+  ],
 };
 
 test('fence: the columns added to these tables later are added by their own migration, nullable', () => {
   for (const [model, columns] of Object.entries(ADDED_LATER)) {
     const map = /@@map\("(\w+)"\)/.exec(modelBody(model))![1]!;
-    for (const { column, migration } of columns) {
+    for (const { column, type, migration } of columns) {
       const later = readFileSync(join(__dirname, '..', 'prisma', 'migrations', migration, 'migration.sql'), 'utf8');
-      assert.match(later, new RegExp(`ALTER TABLE "${map}" ADD COLUMN "${column}" TEXT;`), `${map}.${column} is added nullable by ${migration}`);
+      assert.match(later, new RegExp(`ALTER TABLE "${map}" ADD COLUMN "${column}" ${type};`), `${map}.${column} is added nullable by ${migration}`);
       assert.doesNotMatch(MIGRATION, new RegExp(`"${column}"`), `${column} is not this migration's`);
     }
   }
