@@ -299,14 +299,14 @@ test('OTHER_THAN_SUBJECT: a verification is served by a provider other than its 
 
 test('every task has a registered output contract; the pre-registry contracts use exactly the rules the gateway used before', () => {
   for (const task of AI_TASKS) assert.ok(aiOutputContract(task.outputSchemaId), `${task.taskId} has a contract`);
-  assert.deepEqual(Object.keys(AI_OUTPUT_CONTRACTS).sort(), ['case-explanation.v2', 'domain-reading.v1', 'mail-reply-draft.v2', 'telegram-content-triage.v5']);
+  assert.deepEqual(Object.keys(AI_OUTPUT_CONTRACTS).sort(), [...new Set([...AI_TASKS.map((t) => t.outputSchemaId), 'domain-reading.v1'])].sort(), 'exactly one contract per schema a task sends');
   for (const id of ['case-explanation.v2', 'mail-reply-draft.v2']) {
     const contract = AI_OUTPUT_CONTRACTS[id]!;
     assert.equal(contract.parse, parseAiTaskOutput, `${contract.schemaId} parses with the existing parser`);
     assert.equal(contract.validate, validateAiTaskOutput, `${contract.schemaId} validates with the existing rules`);
   }
   // PR 2's generic domain reading and Chats v5's triage have their OWN parsers and rules.
-  for (const id of ['domain-reading.v1', 'telegram-content-triage.v5']) {
+  for (const id of ['domain-reading.v1', 'telegram-content-triage.v5', 'mail-content-triage.v1']) {
     assert.notEqual(AI_OUTPUT_CONTRACTS[id]!.parse, parseAiTaskOutput, id);
     assert.notEqual(AI_OUTPUT_CONTRACTS[id]!.validate, validateAiTaskOutput, id);
   }

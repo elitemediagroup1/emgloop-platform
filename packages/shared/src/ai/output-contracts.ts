@@ -14,7 +14,7 @@
 // PURE.
 
 import { DOMAIN_READING_SCHEMA_ID, parseDomainReadingOutput, validateDomainReadingOutput } from './domain-reading';
-import { TELEGRAM_TRIAGE_V5_SCHEMA_ID, parseTriageV5Output, validateTriageV5Output } from './telegram-triage-v5';
+import { MAIL_CONTENT_TRIAGE_SCHEMA_ID, TELEGRAM_TRIAGE_V5_SCHEMA_ID, parseConversationTriageOutput, parseTriageV5Output, validateTriageV5Output } from './telegram-triage-v5';
 import { parseAiTaskOutput, validateAiTaskOutput, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
 
 export interface AiOutputContract {
@@ -37,6 +37,12 @@ export const AI_OUTPUT_CONTRACTS: Readonly<Record<string, AiOutputContract>> = O
   [DOMAIN_READING_SCHEMA_ID]: Object.freeze({ schemaId: DOMAIN_READING_SCHEMA_ID, parse: parseDomainReadingOutput, validate: validateDomainReadingOutput }),
   // Chats v5 (Loop Intelligence Phase B): owedBy, typed signals, grounded parties. Its own rules.
   [TELEGRAM_TRIAGE_V5_SCHEMA_ID]: Object.freeze({ schemaId: TELEGRAM_TRIAGE_V5_SCHEMA_ID, parse: parseTriageV5Output, validate: validateTriageV5Output }),
+  // Mail content triage (Phase D): the SAME conversation-triage rules, its own schema id.
+  [MAIL_CONTENT_TRIAGE_SCHEMA_ID]: Object.freeze({
+    schemaId: MAIL_CONTENT_TRIAGE_SCHEMA_ID,
+    parse: (value: unknown) => parseConversationTriageOutput(value, MAIL_CONTENT_TRIAGE_SCHEMA_ID),
+    validate: validateTriageV5Output,
+  }),
 });
 
 /** The contract an answer to this schema is judged by, or null when none is registered. */

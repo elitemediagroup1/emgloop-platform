@@ -44,11 +44,19 @@ export interface IntelligenceProducer<C = unknown> {
   readonly domain: IntelligenceDomain;
   readonly scope: 'PRINCIPAL' | 'ORGANIZATION';
   readonly subjectKinds: readonly IntelligenceSubjectKind[];
-  /** RULE: deterministic only. MODEL: calls a governed AI task in `read`. */
-  readonly kind: 'RULE' | 'MODEL';
+  /**
+   * RULE: deterministic only. MODEL: calls a governed AI task in `read`. RULE_AND_MODEL: a rule reading
+   * always, merged with the task's reading when that task is activated (the domain kit).
+   */
+  readonly kind: 'RULE' | 'MODEL' | 'RULE_AND_MODEL';
   /** For a MODEL producer, the task it calls (it must also be activated in the AI runtime). */
   readonly taskId: string | null;
   gather(target: IntelligenceRefreshTarget, now: Date): Promise<IntelligenceGatherResult<C>>;
+  /**
+   * Optional: the targets this producer should refresh now (a scheduled pass enqueues them; the loop's
+   * fingerprint check keeps an unchanged target from costing anything). Loop's own records only.
+   */
+  discover?(now: Date): Promise<readonly IntelligenceRefreshTarget[]>;
   read(target: IntelligenceRefreshTarget, context: C, fingerprint: string, now: Date): Promise<IntelligenceReadResult>;
 }
 
@@ -70,7 +78,7 @@ export class IntelligenceProducerRegistry {
     for (const p of producers) {
       if (!PRODUCER_ID.test(p.id)) throw new Error(`intelligence producer id is not well formed: ${p.id}`);
       if (this.known.has(p.id)) throw new Error(`intelligence producer id is registered twice: ${p.id}`);
-      if (p.kind === 'MODEL' && !p.taskId) throw new Error(`a MODEL producer names its task: ${p.id}`);
+      if ((p.kind === 'MODEL' || p.kind === 'RULE_AND_MODEL') && !p.taskId) throw new Error(`a MODEL producer names its task: ${p.id}`);
       if (p.kind === 'RULE' && p.taskId) throw new Error(`a RULE producer calls no task: ${p.id}`);
       this.known.set(p.id, p);
     }

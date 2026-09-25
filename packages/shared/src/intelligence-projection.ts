@@ -115,7 +115,8 @@ export function projectDomainDigest(
 ): DomainProjection {
   if (!digest) return NONE;
   const producerKind = (digest.provenance as { producerKind?: unknown } | undefined)?.producerKind;
-  if (digestContentRefusals(digest.content, { scope: digest.scope, producerKind: producerKind === 'RULE' || producerKind === 'MODEL' ? producerKind : null }).length > 0) {
+  const kind = producerKind === 'RULE' || producerKind === 'MODEL' || producerKind === 'RULE_AND_MODEL' ? producerKind : null;
+  if (digestContentRefusals(digest.content, { scope: digest.scope, producerKind: kind }).length > 0) {
     return { ...NONE, state: 'NOT_CURRENT', coverage: 'ERROR', generatedAt: digest.generatedAt, version: digest.version };
   }
   const coverage = digestFreshness(digest, context);
@@ -133,7 +134,7 @@ export function projectDomainDigest(
     topSignal: top
       ? { key: top.key, kind: top.kind, statement: top.statement, knowledge: top.knowledge, severity: top.severity ?? null, dueAt: top.dueAt ?? null, owedBy: top.owedBy ?? null }
       : null,
-    metric: measured?.metric && producerKind === 'RULE' ? { ...measured.metric, signalKey: measured.key } : null,
+    metric: measured?.metric && (kind === 'RULE' || kind === 'RULE_AND_MODEL') ? { ...measured.metric, signalKey: measured.key } : null,
     signalCount: signals.length,
     generatedAt: digest.generatedAt,
     version: digest.version,

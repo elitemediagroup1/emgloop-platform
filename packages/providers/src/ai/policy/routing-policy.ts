@@ -103,7 +103,27 @@ function target(
 // Its targets, efforts, deadlines, output ceiling, lane and budget class are UNCHANGED; its OpenAI
 // fallback becomes schema-eligible, and stays uncommissioned until a policy, a key and an activation
 // list name it.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-26.10';
+// .11 (2026-09-26, Loop Intelligence Phases D-E): routes for the intelligence tasks -- Mail content triage
+// (FORWARD, the triage targets) and one domain reading per domain (BACKGROUND, a small output ceiling).
+// ROUTED IS NOT ACTIVATED: none of them runs until a deployment lists it, a provider policy admits its data
+// class, and the producer that calls it is activated. Existing entries are UNCHANGED.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-26.11';
+
+/** One domain reading's route: small, background, Anthropic first; GPT-6 Astra the availability fallback. */
+function domainReadingRoute(taskId: string, lane: 'BACKGROUND' | 'SYNTHESIS' = 'BACKGROUND') {
+  return Object.freeze({
+    taskId,
+    taskVersion: '1.0.0',
+    primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 25_000, maxOutputTokens: 2_000 }),
+    fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
+    fallbackPermitted: true,
+    budgetClass: 'domain-reading',
+    lane,
+    providerChoiceReason:
+      'A bounded domain reading over Loop-assembled context. Claude Opus 5 is the reviewed primary; GPT-6 Astra is the ' +
+      'availability fallback on the same portable domain-reading.v1 contract, never a second opinion.',
+  });
+}
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
@@ -150,6 +170,30 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
         'GENERAL_REASONING has no default provider. Claude Opus 5 is the reviewed primary for a ' +
         'conservative conversation-review actionability judgment; GPT-6 Astra is the availability fallback.',
     }),
+    // Loop Intelligence Phase D. The SAME conversation contract as Telegram triage, over one mail thread.
+    'mail.content.triage': Object.freeze({
+      taskId: 'mail.content.triage',
+      taskVersion: '1.0.0',
+      primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
+      fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 2_000 }),
+      fallbackPermitted: true,
+      budgetClass: 'mail-content-triage',
+      lane: 'FORWARD',
+      providerChoiceReason:
+        'GENERAL_REASONING has no default provider. Claude Opus 5 is the reviewed primary for the same ' +
+        'conversation-review judgment Telegram triage makes; GPT-6 Astra is the availability fallback.',
+    }),
+    // Loop Intelligence Phases D-E: one reading per domain. A person's own (Mail, Calendar) and the
+    // organization's (the rest).
+    'mail.domain.reading': domainReadingRoute('mail.domain.reading'),
+    'calendar.domain.reading': domainReadingRoute('calendar.domain.reading'),
+    'callgrid.domain.reading': domainReadingRoute('callgrid.domain.reading'),
+    'campaigns.domain.reading': domainReadingRoute('campaigns.domain.reading'),
+    'pipeline.domain.reading': domainReadingRoute('pipeline.domain.reading'),
+    'crm.domain.reading': domainReadingRoute('crm.domain.reading'),
+    'creators.domain.reading': domainReadingRoute('creators.domain.reading'),
+    'work.domain.reading': domainReadingRoute('work.domain.reading'),
+    'website.domain.reading': domainReadingRoute('website.domain.reading'),
   }),
 });
 
@@ -166,7 +210,11 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // organization and global ceilings are UNCHANGED -- they still bind first. Approved by Matt on 2026-09-25
 // with PR #338; the "-proposed" suffix is dropped in PR 1 (the figures are unchanged, and no ledger row
 // records this label).
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-25.4';
+// .5 (2026-09-26, Loop Intelligence Phases D-E): adds the mail-content-triage and domain-reading classes
+// WITHOUT raising the organization or global ceilings, exactly as .3 did for triage. The RECORDED operating
+// budget (operating.initial.1: $20/day, lanes FORWARD $8, SYNTHESIS $6, INTERACTIVE $2.50, BACKGROUND $2 /
+// 60 calls) binds first and is not touched; these classes only bound one task's day inside it.
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-26.5';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
@@ -195,6 +243,19 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
       // guardrail keeps under $50/day across every organization): the shared caps bind first, and
       // that is the point -- adding a per-message task must not raise the platform's daily ceiling.
       taskDaily: Object.freeze({ maxInvocations: 50, maxInputTokens: 400_000, maxOutputTokens: 100_000 }),
+    }),
+    // Phase D: one mail thread in, the same small reading out as Telegram triage.
+    'mail-content-triage': Object.freeze({
+      maxInputTokensPerCall: 8_000,
+      maxOutputTokensPerCall: 2_000,
+      taskDaily: Object.freeze({ maxInvocations: 50, maxInputTokens: 400_000, maxOutputTokens: 100_000 }),
+    }),
+    // Phases D-E: a domain reading over Loop-assembled context. It runs only when the input CHANGED (the
+    // producer loop skips an unchanged fingerprint before any call), so a day is a handful of calls.
+    'domain-reading': Object.freeze({
+      maxInputTokensPerCall: 12_000,
+      maxOutputTokensPerCall: 2_000,
+      taskDaily: Object.freeze({ maxInvocations: 24, maxInputTokens: 288_000, maxOutputTokens: 48_000 }),
     }),
   }),
   // The ceilings still bound the WORST case, which is every call being the dearest class at its

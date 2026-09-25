@@ -107,6 +107,7 @@ export function ModuleHome({
     callgrid: null,
     callgridBrief: null,
     time,
+    readings: front?.readings ?? {},
   });
 
   return (

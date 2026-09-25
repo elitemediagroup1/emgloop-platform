@@ -71,6 +71,10 @@ export const BRAIN_RESULT_OWNERS = [
   // into an organization-level surface. It owns what Loop concludes or proposes about that
   // person's own mail and calendar, and nothing about anybody else's.
   'EMPLOYEE_INTELLIGENCE',
+  // Loop Intelligence (2026-09-26): the organization's own domain readings and the business situations
+  // connected across domains. Its results are never one person's: a PRINCIPAL reading is always
+  // EMPLOYEE_INTELLIGENCE's, whatever domain it is about.
+  'LOOP_INTELLIGENCE',
 ] as const;
 export type BrainResultOwnerAuthority = (typeof BRAIN_RESULT_OWNERS)[number];
 
@@ -100,6 +104,14 @@ export const BRAIN_RESULT_SUBJECT_TYPES = [
   // EMPLOYEE_MAIL_THREAD (that is mail) and not CUSTOMER_CONVERSATION (that is the CRM's shared
   // record): this is somebody's private messaging, employee-private and never promoted.
   'EMPLOYEE_CONVERSATION',
+  // Loop Intelligence (2026-09-26). A person's own domain reading (Mail, Calendar ...), the
+  // organization's domain reading (CallGrid, Intake ...), a connected business situation, the check of
+  // a situation's claims by an independent provider, and a person's own Briefing.
+  'EMPLOYEE_DOMAIN',
+  'ORGANIZATION_DOMAIN',
+  'SITUATION',
+  'SITUATION_CLAIMS',
+  'EMPLOYEE_BRIEFING',
 ] as const;
 export type BrainResultSubjectType = (typeof BRAIN_RESULT_SUBJECT_TYPES)[number];
 
@@ -141,6 +153,13 @@ export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freez
   // conversation, held privately to that employee -- never published into an organization surface,
   // and sent nowhere (the task publishes no tool and its result acts on nothing).
   rule('TRIAGE', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_CONVERSATION', 'a triage verdict held privately for the employee whose conversation it is'),
+  // Loop Intelligence (2026-09-26). Each lands in exactly one governed store and proposes nothing.
+  rule('TRIAGE', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_MAIL_THREAD', 'a mail thread reading held privately as the employee\'s own MAIL digest'),
+  rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_DOMAIN', 'a person\'s own domain reading, stored as their PRINCIPAL digest'),
+  rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'ORGANIZATION_DOMAIN', 'an organization domain reading over Loop records, stored as an ORGANIZATION digest'),
+  rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'SITUATION', 'a connected situation, stored as a Case with the evidence it cites'),
+  rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'SITUATION_CLAIMS', 'an independent check of a situation\'s claims, recorded on that Case'),
+  rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_BRIEFING', 'a person\'s own Briefing, stored in their work_briefs'),
 ]);
 
 function rule(

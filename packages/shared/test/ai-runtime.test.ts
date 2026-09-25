@@ -175,7 +175,8 @@ function output(patch: Partial<AiTaskOutput> = {}): AiTaskOutput {
 
 test('the first task is read-only, operational, structured, and tool-free', () => {
   assert.equal(AI_CONTRACT_VERSION, 'loop-ai.v1');
-  assert.deepEqual(AI_TASKS.map((t) => t.taskId), ['case.explanation', 'mail.reply.draft', 'telegram.content.triage']);
+  // The first three are the pre-intelligence tasks; Loop Intelligence tasks follow them (defined, not activated).
+  assert.deepEqual(AI_TASKS.slice(0, 3).map((t) => t.taskId), ['case.explanation', 'mail.reply.draft', 'telegram.content.triage']);
   const task = aiTask('case.explanation')!;
   assert.equal(task, AI_TASK_CASE_EXPLANATION);
   assert.equal(task.consequence, 'READ_ONLY');

@@ -111,10 +111,24 @@ const ITEM_KEYS = ['anchorOrdinal', 'category', 'oneLineMeaning', 'topic', 'next
 const SIGNAL_KEYS = ['kind', 'anchorOrdinal', 'statement', 'severity', 'owedBy', 'who'];
 const READING_KEYS = ['relevance', 'summary', 'topics', 'stateChange', 'signals', 'attention', 'confidence'];
 
+/**
+ * Mail content triage (Loop Intelligence Phase D) reads one mail THREAD with exactly the same contract:
+ * obligations with who owes them, and a typed reading of the conversation. One contract, two schema ids,
+ * so each task is versioned and activated on its own.
+ */
+export const MAIL_CONTENT_TRIAGE_SCHEMA_ID = 'mail-content-triage.v1';
+/** Every schema id judged by this conversation-triage contract. */
+export const CONVERSATION_TRIAGE_SCHEMA_IDS: readonly string[] = Object.freeze([TELEGRAM_TRIAGE_V5_SCHEMA_ID, MAIL_CONTENT_TRIAGE_SCHEMA_ID]);
+
 /** Shape only, by EXACT keys: one extra key anywhere refuses the whole answer. */
 export function parseTriageV5Output(value: unknown): AiTaskOutput | null {
+  return parseConversationTriageOutput(value, TELEGRAM_TRIAGE_V5_SCHEMA_ID);
+}
+
+export function parseConversationTriageOutput(value: unknown, schemaId: string): AiTaskOutput | null {
+  if (!CONVERSATION_TRIAGE_SCHEMA_IDS.includes(schemaId)) return null;
   if (!isObject(value) || !exactKeys(value, ['schemaId', 'items', 'conversation', 'limitations'])) return null;
-  if (value.schemaId !== TELEGRAM_TRIAGE_V5_SCHEMA_ID) return null;
+  if (value.schemaId !== schemaId) return null;
   if (!Array.isArray(value.items) || !Array.isArray(value.limitations) || !value.limitations.every((l) => typeof l === 'string')) return null;
   const items: AiChatsObligation[] = [];
   for (const raw of value.items) {
@@ -166,7 +180,7 @@ export function parseTriageV5Output(value: unknown): AiTaskOutput | null {
     };
   }
   return {
-    schemaId: TELEGRAM_TRIAGE_V5_SCHEMA_ID,
+    schemaId,
     summary: '',
     claims: [],
     limitations: value.limitations as string[],
@@ -201,7 +215,7 @@ export function validateTriageV5Output(
 ): AiOutputRejection[] {
   const L = AI_TRIAGE_LIMITS;
   const out: AiOutputRejection[] = [];
-  if (output.schemaId !== task.outputSchemaId || output.schemaId !== TELEGRAM_TRIAGE_V5_SCHEMA_ID) out.push('WRONG_SCHEMA');
+  if (output.schemaId !== task.outputSchemaId || !CONVERSATION_TRIAGE_SCHEMA_IDS.includes(output.schemaId)) out.push('WRONG_SCHEMA');
   const t = output.chatsTriage;
   if (!t) return [...new Set([...out, 'EMPTY_ANSWER' as const])];
   if (output.claims.length > 0 || output.draft !== undefined || output.domainReading !== undefined) out.push('WRONG_SCHEMA');

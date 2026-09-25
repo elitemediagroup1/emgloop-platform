@@ -59,6 +59,8 @@ import {
   renderCaseExplanationInstructions,
 } from '../src/services/ai-runtime/templates/case-explanation';
 import { MAIL_REPLY_DRAFT_SCHEMA, MAIL_REPLY_DRAFT_SCHEMA_ID } from '../src/services/ai-runtime/templates/mail-reply-draft';
+import { MAIL_CONTENT_TRIAGE_SCHEMA, MAIL_CONTENT_TRIAGE_SCHEMA_ID } from '../src/services/ai-runtime/templates/mail-content-triage';
+import { INTELLIGENCE_TASK_SCHEMAS as EXTRA_TASK_SCHEMAS } from '../src/services/ai-runtime/templates/intelligence-schemas';
 import {
   TELEGRAM_CONTENT_TRIAGE_SCHEMA,
   TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
@@ -187,7 +189,7 @@ test('the recorded controls and the BACKGROUND lane change what is RECORDED, nev
   assert.deepEqual(forward.ledger.calls.map((c) => c.lane), ['FORWARD', 'FORWARD', 'FORWARD'], 'live triage runs in FORWARD');
   for (const call of forward.ledger.calls) {
     assert.equal(call.specializationPolicyVersion, AI_ROUTING_POLICY.specializationPolicyVersion, 'every call records the specialization version');
-    assert.equal(call.routingPolicyVersion, 'routing.2026-09-26.10');
+    assert.equal(call.routingPolicyVersion, 'routing.2026-09-26.11');
   }
 });
 
@@ -198,8 +200,11 @@ test('every task schema is one both providers accept -- with no exemption since 
     [AI_TASK_CASE_EXPLANATION.outputSchemaId]: CASE_EXPLANATION_SCHEMA,
     [MAIL_REPLY_DRAFT_SCHEMA_ID]: MAIL_REPLY_DRAFT_SCHEMA,
     [TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID]: TELEGRAM_CONTENT_TRIAGE_SCHEMA,
+    [MAIL_CONTENT_TRIAGE_SCHEMA_ID]: MAIL_CONTENT_TRIAGE_SCHEMA,
+    'domain-reading.v1': DOMAIN_READING_SCHEMA as unknown as Record<string, unknown>,
+    ...EXTRA_TASK_SCHEMAS,
   };
-  assert.deepEqual(Object.keys(schemas).sort(), AI_TASKS.map((t) => t.outputSchemaId).sort(), 'every task schema is checked');
+  assert.deepEqual(Object.keys(schemas).sort(), [...new Set(AI_TASKS.map((t) => t.outputSchemaId))].sort(), 'every task schema is checked');
   for (const [id, schema] of Object.entries(schemas)) {
     assert.deepEqual(aiUnexemptedSchemaViolations(id, schema).map(aiPortableSchemaViolationKey), [], `${id} is portable`);
     assert.deepEqual(aiPortableSchemaViolations(schema).map(aiPortableSchemaViolationKey), [], `${id} needs no exemption`);

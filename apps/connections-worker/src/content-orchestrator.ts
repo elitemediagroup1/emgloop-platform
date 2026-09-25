@@ -46,6 +46,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  conversationDigestContent,
   TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
   type AdapterSession,
   type DueContent,
@@ -56,17 +57,10 @@ import {
 import {
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
-  DIGEST_LABEL_MAX_CHARS,
-  DIGEST_LIST_MAX_ITEMS,
   entityRefRefusal,
   telegramConversationSubjectRef,
   type ConnectionProvider,
-  type DigestContent,
   type IntelligenceGeneratedCoverage,
-  type IntelligenceOwedBy,
-  type IntelligenceReadingStatus,
-  type IntelligenceSignal,
-  type IntelligenceSignalKind,
 } from '@emgloop/shared';
 
 import type { TelegramConversationTriageInput, TelegramConversationTriageResult } from '@emgloop/database';
@@ -510,35 +504,6 @@ export function conversationDigestCoverage(
   return truncated ? 'CONNECTED_PARTIAL' : 'CONNECTED_SUFFICIENT';
 }
 
-/** The contract kind each Chats signal is stored as. DECIDED is a change that settled something. */
-const CHATS_SIGNAL_KIND: Readonly<Record<string, IntelligenceSignalKind>> = Object.freeze({
-  CHANGE: 'CHANGE',
-  DECIDED: 'CHANGE',
-  DECISION_PENDING: 'DECISION_PENDING',
-  OBLIGATION: 'OBLIGATION',
-  UNRESOLVED: 'UNRESOLVED',
-  STALLED: 'STALLED',
-  OPPORTUNITY: 'OPPORTUNITY',
-  RISK: 'RISK',
-  OPERATIONAL: 'OPERATIONAL',
-  UPCOMING: 'UPCOMING',
-});
-/** What a message itself states is OBSERVED; a reading of the back-and-forth is INFERRED. */
-const OBSERVED_CHATS_KINDS: readonly string[] = Object.freeze(['CHANGE', 'DECIDED', 'OBLIGATION']);
-
-/**
- * Who owes an obligation, as the participation contract says it. OTHER is "someone else in this
- * conversation": the counterparty of a PRIVATE chat; in a group, UNKNOWN -- Loop never decides that a
- * participant is a coworker. The label the conversation showed travels as `party`.
- */
-function contractOwedBy(owedBy: 'VIEWER' | 'OTHER' | 'UNKNOWN', kind: string | null): IntelligenceOwedBy {
-  if (owedBy === 'VIEWER') return 'VIEWER';
-  if (owedBy === 'OTHER' && kind === 'PRIVATE') return 'COUNTERPARTY';
-  return 'UNKNOWN';
-}
-
-const isoOf = (d: Date) => d.toISOString();
-
 /**
  * The MINIMIZED, principal-private CHATS digest of one conversation, from the SAME triage result that
  * produced its obligations. Shared by the forward, historical and hydration sweeps so all write
@@ -567,67 +532,24 @@ export function buildConversationDigest(
   const instants = window.messages.map((m) => m.occurredAt.getTime());
   const windowStart = new Date(Math.min(...instants));
   const newest = new Date(Math.max(...instants));
-  const limitations = result.limitations.map((l) => l.trim()).filter((l) => l !== '').slice(0, DIGEST_LIST_MAX_ITEMS);
   const reading = result.conversation;
   const subjectRef = telegramConversationSubjectRef(window.conversationKey);
-  const conversationRef = subjectRef;
-  const entityRefs = entityRefRefusal(conversationRef, 'PRINCIPAL') === null ? [conversationRef] : [];
-  const rawLabel = window.conversation?.label?.trim() ?? '';
-  const label = rawLabel === '' ? null : [...rawLabel].slice(0, DIGEST_LABEL_MAX_CHARS).join('');
-  const kind = window.conversation?.kind ?? null;
+  const entityRefs = entityRefRefusal(subjectRef, 'PRINCIPAL') === null ? [subjectRef] : [];
   const coverage = conversationDigestCoverage(reading, truncated);
-  let content: DigestContent;
-  const anchors: string[] = [];
-  if (reading === null) {
-    content = { ...(label ? { label } : {}), limitations };
-  } else {
-    const occurred = new Map(window.messages.map((m) => [m.providerEventId, m.occurredAt] as const));
-    const anchor = (id: string) => {
-      if (!anchors.includes(id)) anchors.push(id);
-      return id;
-    };
-    const of = (...kinds: string[]) => reading.signals.filter((s) => kinds.includes(s.kind));
-    const texts = (list: readonly { readonly anchorProviderEventId: string; readonly statement: string }[], prefix = '') =>
-      list.map((s) => `${prefix}${s.statement}`);
-    const signals: IntelligenceSignal[] = reading.signals.map((s, i) => {
-      const at = occurred.get(anchor(s.anchorProviderEventId));
-      const key = `${s.kind.toLowerCase().replace(/_/g, '-')}.${createHash('sha256').update(s.anchorProviderEventId).digest('hex').slice(0, 10)}.${i}`;
-      const owed = s.kind === 'OBLIGATION' && s.owedBy ? contractOwedBy(s.owedBy, kind) : null;
-      return {
-        key,
-        kind: CHATS_SIGNAL_KIND[s.kind] ?? 'CHANGE',
-        knowledge: OBSERVED_CHATS_KINDS.includes(s.kind) ? 'OBSERVED' : 'INFERRED',
-        statement: s.kind === 'DECIDED' ? `Decided: ${s.statement}`.slice(0, 280) : s.statement,
-        ...(entityRefs.length > 0 ? { entities: [...entityRefs] } : {}),
-        evidenceRefs: [`telegram_message:${s.anchorProviderEventId}`],
-        ...(at ? { occurredAt: isoOf(at) } : {}),
-        severity: s.severity,
-        confidence: reading.confidence,
-        ...(owed ? { owedBy: owed } : {}),
-        ...(owed && s.who ? { party: s.who } : {}),
-      };
-    });
-    const pressing = reading.signals.some((s) => s.severity === 'HIGH' || s.kind === 'DECISION_PENDING' || s.kind === 'STALLED' || s.kind === 'RISK' || (s.kind === 'OBLIGATION' && s.owedBy === 'VIEWER'));
-    const status: IntelligenceReadingStatus = reading.attention.needed ? 'ATTENTION' : pressing ? 'WATCH' : 'CALM';
-    content = {
-      ...(label ? { label } : {}),
-      relevance: reading.relevance,
-      synthesis: reading.summary,
-      topics: [...reading.topics],
-      developments: [...texts(of('CHANGE')), ...texts(of('DECIDED'), 'Decided: ')].slice(0, DIGEST_LIST_MAX_ITEMS),
-      commitments: texts(of('OBLIGATION')).slice(0, DIGEST_LIST_MAX_ITEMS),
-      opportunities: texts(of('OPPORTUNITY')).slice(0, DIGEST_LIST_MAX_ITEMS),
-      concerns: texts(of('RISK')).slice(0, DIGEST_LIST_MAX_ITEMS),
-      operational: texts(of('OPERATIONAL')).slice(0, DIGEST_LIST_MAX_ITEMS),
-      unresolved: texts(of('UNRESOLVED', 'DECISION_PENDING', 'STALLED')).slice(0, DIGEST_LIST_MAX_ITEMS),
-      ...(reading.stateChange ? { stateChange: reading.stateChange } : {}),
-      ...(reading.attention.needed && reading.attention.reason ? { attention: reading.attention.reason } : {}),
-      confidence: reading.confidence,
-      limitations,
-      reading: { statement: reading.summary, status, confidence: reading.confidence },
-      signals,
-    };
-  }
+  const occurred = new Map(window.messages.map((m) => [m.providerEventId, m.occurredAt] as const));
+  const { content, anchors } = conversationDigestContent(
+    reading === null
+      ? null
+      : { ...reading, signals: reading.signals.map((s) => ({ kind: s.kind, anchorRef: s.anchorProviderEventId, statement: s.statement, severity: s.severity, owedBy: s.owedBy, who: s.who })) },
+    result.limitations,
+    {
+      evidenceRef: (id) => `telegram_message:${id}`,
+      occurredAt: (id) => occurred.get(id) ?? null,
+      label: window.conversation?.label ?? null,
+      kind: window.conversation?.kind ?? null,
+      entityRefs,
+    },
+  );
   return {
     domain: 'CHATS',
     subjectKind: 'CONVERSATION',
@@ -642,14 +564,14 @@ export function buildConversationDigest(
     lastEvidenceAt: newest,
     provenance: {
       sourceRefs: [subjectRef],
-      anchorEventIds: anchors,
+      anchorEventIds: [...anchors],
       aiInvocationId: result.provenance.invocationId,
       taskId: result.provenance.taskId,
       taskVersion: result.provenance.taskVersion,
       schemaId: TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
       producerVersion: digestProducerVersion(result.provenance.taskVersion),
       producerKind: 'MODEL',
-      sources: [{ sourceId: 'TELEGRAM', asOf: isoOf(newest), coverage }],
+      sources: [{ sourceId: 'TELEGRAM', asOf: newest.toISOString(), coverage }],
     },
     aiInvocationId: result.provenance.invocationId,
     entityRefs,

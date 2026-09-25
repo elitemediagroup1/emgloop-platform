@@ -99,7 +99,9 @@ export type IntelligencePrincipal = WorkPrincipal;
  * (`source_content_authorizations`). A digest from one of these is written only while that
  * authorization is in force, re-checked inside the write.
  */
-export const INTELLIGENCE_CONTENT_CONSENT_PROVIDERS: readonly string[] = Object.freeze(['TELEGRAM']);
+// GMAIL since Loop Intelligence Phase D: a MAIL digest drawn from mail CONTENT rests on the person's MAIL
+// content authorization (and the governance gate that must be open for one to exist), re-checked here.
+export const INTELLIGENCE_CONTENT_CONSENT_PROVIDERS: readonly string[] = Object.freeze(['TELEGRAM', 'GMAIL']);
 
 /**
  * Why a digest may be written at all.
@@ -370,7 +372,7 @@ function recordOf(row: DigestRow): IntelligenceDigestRecord {
   const scope: IntelligenceDigestScope = row.scope === 'ORGANIZATION' ? 'ORGANIZATION' : 'PRINCIPAL';
   const producerKind = (row.provenance as { producerKind?: unknown } | null)?.producerKind;
   const readable =
-    digestContentRefusals(content, { scope, producerKind: producerKind === 'RULE' || producerKind === 'MODEL' ? producerKind : null }).length === 0 &&
+    digestContentRefusals(content, { scope, producerKind: producerKind === 'RULE' || producerKind === 'MODEL' || producerKind === 'RULE_AND_MODEL' ? producerKind : null }).length === 0 &&
     isIntelligenceCoverage(row.coverage);
   return {
     id: row.id,

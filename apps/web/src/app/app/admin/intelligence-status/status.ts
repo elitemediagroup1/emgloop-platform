@@ -371,7 +371,7 @@ export interface FabricProducer {
   readonly id: string;
   readonly domain: string;
   readonly scope: 'PRINCIPAL' | 'ORGANIZATION';
-  readonly kind: 'RULE' | 'MODEL';
+  readonly kind: 'RULE' | 'MODEL' | 'RULE_AND_MODEL';
   readonly taskId: string | null;
 }
 

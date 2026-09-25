@@ -444,12 +444,16 @@ describe('the Chats page and its loader', () => {
     const digestCalls = [...LOADER.matchAll(/IntelligenceDigestRepository\(prisma\)\.(\w+)\(/g)].map((m) => m[1]);
     assert.deepEqual(digestCalls, ['forDomain']);
     for (const src of [LOADER, PAGE, FRONT, code(PURE), VIEW]) {
-      for (const forbidden of ['organizationCounts', 'metadataFor', 'purgeExpired', 'markStale', 'upsert(', 'systemRole', 'isAdmin', "scope: 'ORGANIZATION'"]) assert.equal(src.includes(forbidden), false, forbidden);
+      // The front door names ORGANIZATION only in its tile-reading table, read through the authority-checked
+      // `loadOrganizationReading` (Loop Intelligence); nothing Chats reads is ever an organization row.
+      const forbidden = ['organizationCounts', 'metadataFor', 'purgeExpired', 'markStale', 'upsert(', 'systemRole', 'isAdmin', ...(src === FRONT ? [] : ["scope: 'ORGANIZATION'"])];
+      for (const word of forbidden) assert.equal(src.includes(word), false, word);
       for (const call of src.matchAll(/\.(forDomain|current)\(([^)]*)\)/g)) assert.match(call[2]!, /^principal,/, 'every digest read names the session principal first');
     }
     // Home reads Chats through the same loader, gated by the rail and settled on its own.
     assert.match(FRONT, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now \}\)\)/);
     assert.equal(FRONT.includes('IntelligenceDigestRepository'), false);
+    assert.equal(FRONT.includes("domain: 'CHATS'"), false, 'Chats is never an organization reading');
   });
 
   it('the loader reads activity for the principal\'s own user, and never throws for it', () => {

@@ -102,34 +102,42 @@ const CONVERSATION_SCHEMA: Record<string, unknown> = {
  * NO `description` FIELDS: the meaning of each field is written once, in the instructions, so the
  * 8000-token input cap still holds a 40-message window.
  */
-export const TELEGRAM_CONTENT_TRIAGE_SCHEMA: Record<string, unknown> = Object.freeze({
-  type: 'object',
-  additionalProperties: false,
-  required: ['schemaId', 'items', 'conversation', 'limitations'],
-  properties: {
-    schemaId: { type: 'string', enum: [TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID] },
-    items: {
-      type: 'array',
+export const TELEGRAM_CONTENT_TRIAGE_SCHEMA: Record<string, unknown> = Object.freeze(conversationTriageSchema(TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID));
+
+/**
+ * The conversation-triage schema for a given schema id. Telegram triage v5 and Mail content triage v1
+ * (Loop Intelligence Phase D) send the SAME shape under their own ids; one builder, so they cannot drift.
+ */
+export function conversationTriageSchema(schemaId: string): Record<string, unknown> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['schemaId', 'items', 'conversation', 'limitations'],
+    properties: {
+      schemaId: { type: 'string', enum: [schemaId] },
       items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['anchorOrdinal', 'category', 'oneLineMeaning', 'topic', 'nextStep', 'deadline', 'owedBy', 'who'],
-        properties: {
-          anchorOrdinal: { type: 'integer' },
-          category: { type: 'string', enum: [...OBLIGATION_CATEGORIES] },
-          oneLineMeaning: { type: 'string' },
-          topic: { type: 'string' },
-          nextStep: { type: 'string' },
-          deadline: NULLABLE_STRING,
-          owedBy: OWED_BY,
-          who: NULLABLE_STRING,
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['anchorOrdinal', 'category', 'oneLineMeaning', 'topic', 'nextStep', 'deadline', 'owedBy', 'who'],
+          properties: {
+            anchorOrdinal: { type: 'integer' },
+            category: { type: 'string', enum: [...OBLIGATION_CATEGORIES] },
+            oneLineMeaning: { type: 'string' },
+            topic: { type: 'string' },
+            nextStep: { type: 'string' },
+            deadline: NULLABLE_STRING,
+            owedBy: OWED_BY,
+            who: NULLABLE_STRING,
+          },
         },
       },
+      conversation: { anyOf: [CONVERSATION_SCHEMA, { type: 'null' }] },
+      limitations: { type: 'array', items: { type: 'string' } },
     },
-    conversation: { anyOf: [CONVERSATION_SCHEMA, { type: 'null' }] },
-    limitations: { type: 'array', items: { type: 'string' } },
-  },
-});
+  };
+}
 
 /**
  * The system instruction.

@@ -257,7 +257,7 @@ function FabricView({ f, time }: { f: FabricStatus; time: TimeView }) {
                 <span className="loop-table__muted">{d.homeTile ? 'Home tile' : 'No Home tile'}</span>
               </td>
               <td>{d.readingTask ? taskLabel(d.readingTask) : <span className="loop-table__muted">No reading task</span>}</td>
-              <td>{d.producers.length === 0 ? <span className="loop-table__muted">None built</span> : d.producers.map((p) => `${p.id} (${p.kind === 'RULE' ? 'rule' : 'model'})`).join(', ')}</td>
+              <td>{d.producers.length === 0 ? <span className="loop-table__muted">None built</span> : d.producers.map((p) => `${p.id} (${p.kind === 'RULE' ? 'rule' : p.kind === 'MODEL' ? 'model' : 'rule, and model when activated'})`).join(', ')}</td>
               <td>
                 {d.digests ? (
                   <>

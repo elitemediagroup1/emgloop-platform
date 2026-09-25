@@ -36,7 +36,7 @@
 // cannot land a fresh paraphrase, or refresh a just-minimized row, afterwards.
 
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emgloop/shared';
+import { CONNECTION_PROVIDERS, SOURCE_CONNECTION_AUDIT_ACTIONS, mailContentGovernance, type ConnectionProvider, type ContentAuthorizationProvider } from '@emgloop/shared';
 
 import { absentUntilMigrated } from '../creator/until-migrated';
 import { membershipAuthority } from './membership.repository';
@@ -48,6 +48,9 @@ import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repositor
 // module (source-content-consent.ts) so that repository need not import this one, which imports
 // the withdrawal repository, which imports it back.
 export { contentAuthorizedInTx } from './source-content-consent';
+
+/** The Gmail scope that lets Loop read a message body (the Mail page's read-through already requires it). */
+const GMAIL_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 
 /**
  * MERGE-SAFE COLUMNS. Every read of a content authorization, and every row a write returns, outside the
@@ -371,8 +374,69 @@ export class SourceContentAuthorizationRepository {
     });
   }
 
+  /**
+   * MAIL CONTENT (Loop Intelligence Phase D). A person authorizes Loop to read their OWN mail content for
+   * intelligence. Refused unless the deployment names the recorded counterparty-consent decision
+   * (`governanceDecision`, from LOOP_MAIL_CONTENT_GOVERNANCE_DECISION -- UNRESOLVED today, so this refuses
+   * GOVERNANCE_UNDECIDED everywhere), the person is an active member, and their Google connection is
+   * CONNECTED with the Gmail read scope. The same table and the same revoke/offboarding as every other
+   * content authorization; audited against the Google connection.
+   */
+  async authorizeMailContent(
+    organizationId: string,
+    userId: string,
+    request: { readonly now: Date; readonly actor: SourceConnectionActor; readonly governanceDecision: string | null },
+  ): Promise<ContentWriteOutcome | { readonly outcome: 'GOVERNANCE_UNDECIDED' }> {
+    if (mailContentGovernance(request.governanceDecision).state !== 'DECIDED') return { outcome: 'GOVERNANCE_UNDECIDED' };
+    return this.prisma.$transaction(async (tx) => {
+      const standing = await membershipAuthority(tx, organizationId, userId, request.now);
+      if (!standing.granted) return { outcome: 'NOT_PERMITTED' as const };
+      const google = await tx.googleConnection.findFirst({ where: { organizationId, userId, status: 'CONNECTED' }, select: { id: true, grantedScopes: true } });
+      if (!google || !google.grantedScopes.includes(GMAIL_READ_SCOPE)) return { outcome: 'NO_CONNECTION' as const };
+      const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider: 'GMAIL' }, select: { id: true } });
+      const row = existing
+        ? await tx.sourceContentAuthorization.update({ where: { id: existing.id }, data: { authorizedAt: request.now, revokedAt: null, lastFailureClass: null, backoffUntil: null }, select: { id: true } })
+        : await tx.sourceContentAuthorization.create({ data: { organizationId, userId, provider: 'GMAIL', authorizedAt: request.now, contentCursor: null }, select: { id: true } });
+      await writeAudit(this.prisma, tx, {
+        organizationId,
+        connectionId: google.id,
+        action: SOURCE_CONNECTION_AUDIT_ACTIONS.content_authorized,
+        provider: 'GMAIL' as never,
+        actor: request.actor,
+        metadata: { subjectUserId: userId, governanceDecision: mailContentGovernance(request.governanceDecision).state === 'DECIDED' ? request.governanceDecision : null },
+      });
+      return { outcome: 'AUTHORIZED' as const, authorizationId: row.id };
+    });
+  }
+
+  /**
+   * Revoke MAIL content: stops every Mail content reading immediately and deletes the person's MAIL
+   * digests drawn under it, in the same transaction. Mail content triage raises no WorkItems (the
+   * deterministic lanes own those), so there is nothing else to withdraw. Allowed whatever the governance
+   * state: stopping is always possible.
+   */
+  async revokeMailContent(organizationId: string, userId: string, request: { readonly now: Date; readonly actor: SourceConnectionActor }): Promise<ContentWriteOutcome> {
+    const digestsPresent = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider: 'GMAIL' }, select: { id: true, revokedAt: true } });
+      if (!existing || existing.revokedAt != null) return { outcome: 'NOTHING_TO_DO' as const };
+      await tx.sourceContentAuthorization.update({ where: { id: existing.id }, data: { revokedAt: request.now, backoffUntil: null }, select: { id: true } });
+      const digests = digestsPresent ? await new IntelligenceDigestRepository(tx).withdrawForProvider({ organizationId, userId }, 'GMAIL') : { deleted: 0 };
+      const google = await tx.googleConnection.findFirst({ where: { organizationId, userId }, select: { id: true } });
+      await writeAudit(this.prisma, tx, {
+        organizationId,
+        connectionId: google?.id ?? existing.id,
+        action: SOURCE_CONNECTION_AUDIT_ACTIONS.content_revoked,
+        provider: 'GMAIL' as never,
+        actor: request.actor,
+        metadata: { subjectUserId: userId, digestsDeleted: digests.deleted },
+      });
+      return { outcome: 'REVOKED' as const, authorizationId: existing.id };
+    });
+  }
+
   /** This person's content authorization for one provider. Null when none. Never exposes cursor meaning. */
-  async get(organizationId: string, userId: string, provider: ConnectionProvider): Promise<ContentAuthorizationRecord | null> {
+  async get(organizationId: string, userId: string, provider: ContentAuthorizationProvider): Promise<ContentAuthorizationRecord | null> {
     const row = await this.prisma.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider }, select: CONTENT_AUTHORIZATION_COLUMNS });
     return row ? toRecord(row) : null;
   }
@@ -392,6 +456,8 @@ export class SourceContentAuthorizationRepository {
     const rows = await this.prisma.sourceContentAuthorization.findMany({
       where: {
         revokedAt: null,
+        // Background connections only: a GMAIL (mail content) authorization is not the worker's to sweep.
+        provider: { in: [...CONNECTION_PROVIDERS] },
         OR: [{ backoffUntil: null }, { backoffUntil: { lt: now } }],
       },
       orderBy: [{ lastRunAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
@@ -481,6 +547,8 @@ export class SourceContentAuthorizationRepository {
     const rows = await this.prisma.sourceContentAuthorization.findMany({
       where: {
         revokedAt: null,
+        // Background connections only: a GMAIL (mail content) authorization is not the worker's to sweep.
+        provider: { in: [...CONNECTION_PROVIDERS] },
         historicalState: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
         historicalWindowFloorAt: { not: null },
         OR: [{ historicalBackoffUntil: null }, { historicalBackoffUntil: { lt: now } }],
@@ -557,6 +625,8 @@ export class SourceContentAuthorizationRepository {
       this.prisma.sourceContentAuthorization.findMany({
         where: {
           revokedAt: null,
+        // Background connections only: a GMAIL (mail content) authorization is not the worker's to sweep.
+        provider: { in: [...CONNECTION_PROVIDERS] },
           intelligenceHydrationState: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
           historicalState: 'COMPLETE',
           historicalWindowFloorAt: { not: null },

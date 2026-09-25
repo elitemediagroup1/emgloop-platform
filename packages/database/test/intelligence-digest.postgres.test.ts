@@ -141,14 +141,14 @@ test('revoke, offboarding and a disconnect past grace each remove the digests th
       await prisma.sourceConnection.create({ data: { organizationId, userId: u, provider: 'TELEGRAM', state: 'READY', backgroundObservation: 'UNAVAILABLE', connectedAt: at(-90) } });
       await prisma.sourceContentAuthorization.create({ data: { organizationId, userId: u, provider: 'TELEGRAM', authorizedAt: at(-60) } });
       assert.equal((await repo.upsert({ organizationId, userId: u }, digest())).outcome, 'WRITTEN');
-      assert.equal((await repo.upsert({ organizationId, userId: u }, digest({ domain: 'MAIL', subjectKind: 'THREAD', subjectRef: 'mail_thread:k', provider: 'GMAIL', consentBasis: 'SOURCE_CONNECTION_GRANT' }))).outcome, 'WRITTEN');
+      assert.equal((await repo.upsert({ organizationId, userId: u }, digest({ domain: 'CALENDAR', subjectKind: 'EVENT', subjectRef: 'calendar_event:k', provider: 'GOOGLE_CALENDAR', consentBasis: 'SOURCE_CONNECTION_GRANT' }))).outcome, 'WRITTEN');
     }
     const count = (u: string, provider?: string) => prisma.intelligenceDigest.count({ where: { organizationId, userId: u, ...(provider ? { provider } : {}) } });
 
     // REVOKE: Alice's Telegram digest goes with the consent, in the same transaction; Gmail stays.
     assert.equal((await new SourceContentAuthorizationRepository(prisma).revoke(organizationId, alice!, 'TELEGRAM', { now: NOW, actor: { userId: alice! } })).outcome, 'REVOKED');
     assert.equal(await count(alice!, 'TELEGRAM'), 0);
-    assert.equal(await count(alice!, 'GMAIL'), 1);
+    assert.equal(await count(alice!, 'GOOGLE_CALENDAR'), 1);
     assert.equal(await count(bob!, 'TELEGRAM'), 1, 'a colleague is untouched');
     // A producer still in flight cannot land a digest after the revoke.
     assert.deepEqual(await repo.upsert({ organizationId, userId: alice! }, digest({ fingerprint: 'late' })), { outcome: 'REFUSED', refusal: 'CONSENT_NOT_IN_FORCE' });
@@ -157,14 +157,14 @@ test('revoke, offboarding and a disconnect past grace each remove the digests th
     assert.equal((await new IamRepository(prisma).removeMember(organizationId, bob!, { userId: owner! })).changed, true);
     assert.equal(await count(bob!), 0);
     const erased = await prisma.auditLog.findFirst({ where: { organizationId, action: 'work_state.erased' } });
-    assert.equal(((erased!.metadata as any).erased as Record<string, number>).intelligence_digests, 1, 'Telegram went with the consent revoke; Gmail with the erasure');
+    assert.equal(((erased!.metadata as any).erased as Record<string, number>).intelligence_digests, 1, 'Telegram went with the consent revoke; Calendar with the erasure');
 
     // DISCONNECT PAST GRACE: Carol's Telegram digest is deleted with her derived work; Gmail stays.
     await prisma.sourceConnection.updateMany({ where: { organizationId, userId: carol! }, data: { state: 'DISCONNECTED', disconnectedAt: at(-(WORK_DISCONNECT_GRACE_DAYS + 1)) } });
     const expired = await new SourceConnectionRepository(prisma).expireDerivedWork(organizationId, carol!, 'TELEGRAM', { now: NOW });
     assert.deepEqual(expired, { outcome: 'EXPIRED', items: 0, observations: 0, digests: 1 });
     assert.equal(await count(carol!, 'TELEGRAM'), 0);
-    assert.equal(await count(carol!, 'GMAIL'), 1);
+    assert.equal(await count(carol!, 'GOOGLE_CALENDAR'), 1);
   } finally {
     await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
     await prisma.$disconnect();

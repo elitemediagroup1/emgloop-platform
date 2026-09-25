@@ -13,7 +13,7 @@ export interface IntelligenceProducerDescriptor {
   readonly domain: IntelligenceDomain;
   readonly scope: 'PRINCIPAL' | 'ORGANIZATION';
   readonly subjectKinds: readonly IntelligenceSubjectKind[];
-  readonly kind: 'RULE' | 'MODEL';
+  readonly kind: 'RULE' | 'MODEL' | 'RULE_AND_MODEL';
   readonly taskId: string | null;
 }
 

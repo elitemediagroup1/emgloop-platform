@@ -59,8 +59,12 @@ export type IntelligenceOrdinal = (typeof INTELLIGENCE_ORDINAL)[number];
 export const INTELLIGENCE_READING_STATUS = ['CALM', 'WATCH', 'ATTENTION'] as const;
 export type IntelligenceReadingStatus = (typeof INTELLIGENCE_READING_STATUS)[number];
 
-/** How a digest was produced. RULE: deterministic code over Loop records. MODEL: a governed AI task. */
-export const INTELLIGENCE_PRODUCER_KINDS = ['RULE', 'MODEL'] as const;
+/**
+ * How a digest was produced. RULE: deterministic code over Loop records. MODEL: a governed AI task.
+ * RULE_AND_MODEL: a rule reading (which may MEASURE) merged with a model reading (which never may -- its
+ * output contract refuses MEASURED before the merge ever sees it).
+ */
+export const INTELLIGENCE_PRODUCER_KINDS = ['RULE', 'MODEL', 'RULE_AND_MODEL'] as const;
 export type IntelligenceProducerKind = (typeof INTELLIGENCE_PRODUCER_KINDS)[number];
 
 /** The units a MEASURED metric may be in. Money is integer minor units, never a float of dollars. */
@@ -231,7 +235,7 @@ export function intelligenceSignalRefusals(signal: unknown, context: Intelligenc
   }
   if (signal.knowledge === 'MEASURED') {
     if (signal.metric === undefined) out.push('MEASURED_WITHOUT_METRIC');
-    if (context.producerKind !== 'RULE') out.push('MEASURED_BY_MODEL');
+    if (context.producerKind !== 'RULE' && context.producerKind !== 'RULE_AND_MODEL') out.push('MEASURED_BY_MODEL');
   }
   if (signal.metric !== undefined) {
     metricRefusals(signal.metric, out);

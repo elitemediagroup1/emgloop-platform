@@ -431,6 +431,8 @@ export { IntelligenceProducerRegistry, parseProducerActivation } from './service
 export type { IntelligenceProducer, IntelligenceGatherResult, IntelligenceReadResult } from './services/intelligence-fabric/producer';
 export { runIntelligenceProducerCycle } from './services/intelligence-fabric/producer-loop';
 export { INTELLIGENCE_PRODUCER_CATALOG } from './services/intelligence-fabric/catalog';
+export { conversationDigestContent } from './services/intelligence-fabric/conversation-digest';
+export type { KeyedConversationReading, ConversationDigestOptions } from './services/intelligence-fabric/conversation-digest';
 export type { IntelligenceProducerDescriptor } from './services/intelligence-fabric/catalog';
 export type { ProducerLoopDeps, ProducerLoopOptions, ProducerLoopReport } from './services/intelligence-fabric/producer-loop';
 export { DomainReadingService } from './services/ai-runtime/domain-reading.service';

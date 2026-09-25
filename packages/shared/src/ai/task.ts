@@ -32,6 +32,7 @@ import type { BrainResultOwner, BrainResultType } from './brain-result';
 import { brainOwnershipRule } from './brain-result';
 import type { AiDomainReading } from './domain-reading';
 import type { AiChatsTriage } from './telegram-triage-v5';
+import { AI_INTELLIGENCE_TASKS } from './intelligence-tasks';
 
 export const AI_TASK_CONSEQUENCES = ['READ_ONLY', 'PROPOSES_FOR_APPROVAL'] as const;
 export type AiTaskConsequence = (typeof AI_TASK_CONSEQUENCES)[number];
@@ -234,6 +235,8 @@ export const AI_TASKS: readonly AiTaskDefinition[] = Object.freeze([
   AI_TASK_CASE_EXPLANATION,
   AI_TASK_MAIL_REPLY_DRAFT,
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+  // Loop Intelligence (Phases D-G, 2026-09-26). Defined, routed and budgeted; activated by nothing.
+  ...AI_INTELLIGENCE_TASKS,
 ]);
 
 export function aiTask(taskId: string): AiTaskDefinition | null {

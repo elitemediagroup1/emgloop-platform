@@ -75,7 +75,7 @@ test('the shipped routing policy conforms for every task, and Case Explanation n
   // entry's lane and the specialization version the policy conforms to; Chats v5 moved the triage task to
   // 4.0.0). Case Explanation's targets, efforts, deadlines and ceilings are untouched, which is what the
   // assertions around this one check.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.10');
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.11');
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.providerChoiceReason, undefined);
   // The fallback is another provider, and that is not a departure.
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.fallback!.providerId, 'openai');
@@ -230,7 +230,7 @@ test('telegram content triage: task 3.0.0 and its routing entry move in lockstep
   // PR 1 moved the POLICY version (lanes, the specialization version, Mail Reply Draft 1.1.0) and Chats v5
   // moved it again (task 4.0.0); this entry's targets, efforts, deadlines, ceilings and budget class did
   // not move, and its lane is FORWARD.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.10', 'the policy version after Chats v5');
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.11', 'the policy version after the intelligence routes');
   assert.equal(entry.lane, 'FORWARD', 'live triage runs in the FORWARD lane');
   assert.equal(entry.primary.providerId, 'anthropic');
   assert.equal(entry.primary.reasoningEffort, 'low');
@@ -249,7 +249,8 @@ test('telegram content triage: task 3.0.0 and its routing entry move in lockstep
   assert.equal(cls.maxOutputTokensPerCall, 2_000, 'the budget class follows the route ceiling');
   assert.equal(cls.taskDaily.maxInvocations, 50, 'the daily invocation cap was NOT raised');
   assert.equal(cls.taskDaily.maxOutputTokens, 100_000, 'daily output tokens keep 50 calls at the new ceiling');
-  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-09-25.4');
+  // .5 (Loop Intelligence) added two classes; the triage class and the shared ceilings did not move.
+  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-09-26.5');
 });
 
 test('telegram content triage: the whole-context input cap sits INSIDE the budget class per-call cap (the budget class was NOT raised)', () => {

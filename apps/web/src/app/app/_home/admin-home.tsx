@@ -149,6 +149,7 @@ export async function AdminHome({
     callgrid: front.callgrid,
     callgridBrief: front.callgridBrief,
     time,
+    readings: front.readings,
   });
   const auditHref = navOffers(groups, AUDIT_PATH) ? AUDIT_PATH : null;
 

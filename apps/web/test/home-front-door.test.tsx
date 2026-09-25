@@ -576,3 +576,39 @@ describe('the front door’s reads are gated by the rail and scoped by the sessi
     for (const retired of ['.loop-brief__pulse', '.loop-brief__kpis', '.loop-brief__kpi ', '.loop-home {', '.loop-home .loop-launchers', '.loop-day__sections']) assert.equal(css.includes(retired), false, retired);
   });
 });
+
+describe('Loop Intelligence: a domain reading leads its Home tile -- the same stored artifact its page shows', () => {
+  const reading = (over: Record<string, unknown> = {}) =>
+    ({
+      state: 'CURRENT',
+      statement: '3 threads need your reply, and 1 is waiting on others.',
+      status: 'ATTENTION',
+      coverage: 'CONNECTED_SUFFICIENT',
+      asCurrent: true,
+      disclose: false,
+      topSignal: { key: 'needs-reply', kind: 'ATTENTION', statement: 'Premier is waiting on the revised allocation.', knowledge: 'INFERRED', severity: 'HIGH', dueAt: null, owedBy: null },
+      metric: null,
+      signalCount: 4,
+      generatedAt: new Date(NOW.getTime() - 3600_000),
+      version: 3,
+      ...over,
+    }) as never;
+
+  it('the statement and the top signal lead; the domain\'s own figures stay as supporting context', () => {
+    const plain = tileByKey(tilesInput(), 'mail')!;
+    const led = tileByKey(tilesInput({ readings: { mail: reading() } }), 'mail')!;
+    assert.equal(led.lines[0], '3 threads need your reply, and 1 is waiting on others.');
+    assert.equal(led.lines[1], 'Premier is waiting on the revised allocation.');
+    assert.deepEqual(led.metric, plain.metric, 'the supporting metric is unchanged');
+    assert.ok(led.lines.length <= 3);
+  });
+
+  it('a reading that is not current says so; a tile that cannot read its domain keeps saying so; Chats keeps its own composition', () => {
+    const stale = tileByKey(tilesInput({ readings: { mail: reading({ state: 'NOT_CURRENT', asCurrent: false }) } }), 'mail')!;
+    assert.match(stale.lines[0]!, /\(not current\)$/);
+    const none = tileByKey(tilesInput({ readings: { mail: reading({ state: 'NONE', statement: null }) } }), 'mail')!;
+    assert.deepEqual(none.lines, tileByKey(tilesInput(), 'mail')!.lines, 'no reading: the tile is as it was');
+    const chatsTile = tileByKey(tilesInput({ readings: { chats: reading() } }), 'chats')!;
+    assert.deepEqual(chatsTile.lines, tileByKey(tilesInput(), 'chats')!.lines, 'Chats reads its own composition');
+  });
+});

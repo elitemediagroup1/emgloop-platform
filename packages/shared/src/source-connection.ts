@@ -10,6 +10,16 @@ export const CONNECTION_PROVIDERS = ['MICROSOFT_TEAMS', 'TELEGRAM'] as const;
 export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
 
 /**
+ * Loop Intelligence Phase D: whose CONTENT a person may authorize Loop to read. The background
+ * connections above, plus GMAIL -- whose connection is the person's Google Workspace connection, not a
+ * source connection -- gated additionally by the counterparty-consent governance decision
+ * (mail-content-governance.ts). Content authorizations for every provider live in one table
+ * (source_content_authorizations), revoke and offboard the same way, and are re-checked at every write.
+ */
+export const CONTENT_AUTHORIZATION_PROVIDERS = [...CONNECTION_PROVIDERS, 'GMAIL'] as const;
+export type ContentAuthorizationProvider = (typeof CONTENT_AUTHORIZATION_PROVIDERS)[number];
+
+/**
  * Truthful connection states. Ordered from unconfigured to terminal. `READY` means the
  * capabilities Loop claims are actually operational -- never merely "authenticated".
  * `CONNECTED_LIMITED` is authenticated but a claimed background capability is not available

@@ -115,7 +115,11 @@ const STATE_AFTER: Readonly<Record<string, string | null>> = {
  * existence of somebody's private work into a shared surface. Neither is a feed anybody asked for.
  */
 const EMPLOYEE_PRIVATE_AUTHORITY = 'EMPLOYEE_INTELLIGENCE';
-const isOrganizationTask = (task: (typeof AI_TASKS)[number]): boolean => task.resultOwner.authority !== EMPLOYEE_PRIVATE_AUTHORITY;
+// Loop Intelligence tasks (domain readings, situations) never run as Brain jobs -- they run through the
+// intelligence producer loop and record no Brain events -- so they add nothing to a Brain lane's authority.
+const INTELLIGENCE_AUTHORITY = 'LOOP_INTELLIGENCE';
+const isOrganizationTask = (task: (typeof AI_TASKS)[number]): boolean =>
+  task.resultOwner.authority !== EMPLOYEE_PRIVATE_AUTHORITY && task.resultOwner.authority !== INTELLIGENCE_AUTHORITY;
 
 /** The permissions each task's surface requires, from the task definitions themselves. */
 export function brainTaskRequirements(taskId: string): readonly ActivityRequirement[] | null {

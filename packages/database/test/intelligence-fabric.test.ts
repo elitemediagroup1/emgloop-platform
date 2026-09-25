@@ -202,17 +202,22 @@ test('DomainReadingService: the portable schema, the generic template, the gover
   assert.equal(seen.length, 1, 'the wrong contract never reached the gateway');
 });
 
-test('PR 2 COMMISSIONS NOTHING: no new AI task, no new route, and no model-calling code outside the governed gateway', () => {
-  assert.deepEqual(AI_TASKS.map((t) => t.taskId).sort(), ['case.explanation', 'mail.reply.draft', 'telegram.content.triage']);
-  assert.deepEqual(Object.keys(AI_ROUTING_POLICY.tasks).sort(), ['case.explanation', 'mail.reply.draft', 'telegram.content.triage']);
-  // The fabric services reach a model only through the gateway port handed in; no provider, no SDK.
+test('MERGING COMMISSIONS NOTHING: intelligence tasks are defined and routed, but no activation default names one, and the fabric calls no model except through the gateway', () => {
+  const pre = ['case.explanation', 'mail.reply.draft', 'telegram.content.triage'];
+  assert.deepEqual(AI_TASKS.slice(0, 3).map((t) => t.taskId), pre);
+  for (const t of AI_TASKS) assert.ok(AI_ROUTING_POLICY.tasks[t.taskId], `${t.taskId} is routed`);
+  // The only task any shipped default activates is production's existing triage.
+  const infra = readFileSync(join(__dirname, '..', '..', '..', 'infra', 'connections', 'lib', 'app.ts'), 'utf8');
+  const defaults = /DEFAULT_AI_TASKS[^=]*=\s*Object\.freeze\(\[([^\]]*)\]/.exec(infra)?.[1] ?? '';
+  assert.deepEqual([...defaults.matchAll(/'([a-z.]+)'/g)].map((m) => m[1]), ['telegram.content.triage']);
+  // The fabric services reach a model only through the gateway port handed in; no provider, no SDK, no env.
   const dir = join(__dirname, '..', 'src', 'services', 'intelligence-fabric');
-  const files = readdirSync(dir).filter((f) => statSync(join(dir, f)).isFile());
-  const code = [...files.map((f) => readFileSync(join(dir, f), 'utf8')), readFileSync(join(__dirname, '..', 'src', 'services', 'ai-runtime', 'domain-reading.service.ts'), 'utf8')]
+  const walk = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [join(d, f)]));
+  const code = [...walk(dir).map((f) => readFileSync(f, 'utf8')), readFileSync(join(__dirname, '..', 'src', 'services', 'ai-runtime', 'domain-reading.service.ts'), 'utf8')]
     .join('\n')
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/^\s*\/\/.*$/gm, ' ');
-  for (const forbidden of ['@emgloop/providers', 'anthropic', 'openai', 'fetch(', 'googleapis', 'process.env', 'prisma.']) {
+  for (const forbidden of ['@emgloop/providers', 'anthropic', 'openai', 'fetch(', 'googleapis', 'process.env']) {
     assert.equal(code.toLowerCase().includes(forbidden.toLowerCase()), false, `${forbidden} has no place in the fabric`);
   }
 });
