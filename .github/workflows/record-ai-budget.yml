@@ -1,0 +1,307 @@
+# Record AI Budget -- the OPERATING budget (PR 1, AI runtime). Manual, approved, one stage per run.
+#
+# Records the AI OPERATING BUDGET in the chosen stage's database: a stored control in `ai_controls`
+# (scope BUDGET, value `operating`) whose settings are the cost caps and invocation caps the gateway
+# admits against -- the organization's daily cost cap, the four lanes (FORWARD, SYNTHESIS, INTERACTIVE,
+# BACKGROUND) and the forward reserve, when BACKGROUND work defers, the per-class / organization /
+# global invocation caps (which REPLACE the reviewed policy's while recorded; its token caps stay in
+# force), the circuit breaker, and the emergency ceiling. Recorded as actor OPERATIONS with this run as
+# its reference and the operator's reason. These are the numbers an operator raises from observed
+# usage WITHOUT A DEPLOY -- bounded by the code MAXIMUMS in packages/shared/src/ai/capacity.ts
+# ($100 a day per organization, $125 emergency, and the invocation maximums). A value above a maximum,
+# an unknown key, lanes promising more than the organization's day, or a class the reviewed policy does
+# not have is refused and nothing is written. Raising a maximum is a reviewed pull request.
+#
+# WITH NO RECORDED BUDGET, admission is the reviewed budget policy (routing-policy.ts) plus the
+# always-on $25 emergency ceiling (every organization, trailing 24 hours) -- exactly today's behaviour.
+# Recording a budget is an explicit commissioning act; nothing records one on deploy.
+#
+# PRESETS. `initial` is AI_OPERATING_BUDGET_INITIAL, the approved initial budget: $20/day per
+# organization, $25 emergency; lanes FORWARD $8, SYNTHESIS $6, INTERACTIVE $2.50, BACKGROUND $2 (and
+# at most 60 calls); FORWARD reserve $1.50; BACKGROUND defers at $12 of organization spend or 75% of
+# FORWARD used; breaker 10 failures in 60 minutes. `custom` records `settings_json`: ONE LINE, a JSON
+# object in the same shape (integer micro-dollars, $1 = 1000000). It travels to the script through a
+# file in RUNNER_TEMP -- never interpolated into a shell, an expression or GITHUB_ENV -- and must parse
+# as a JSON object (jq) before the script validates every field again.
+#
+# PREREQUISITE: migration 20261005000000_ai_runtime_capacity must be applied to the stage first
+# (Deploy Prisma Migrations for production, connections-migrate-staging for staging). Without it the
+# write is refused as NOT_MIGRATED and nothing is written.
+#
+# HOW IT REACHES THE DATABASE. Exactly the way Record AI Provider Policy and the migration workflows do:
+# the connections-<stage> GitHub environment (part of the OIDC trust), a short-lived OIDC credential for
+# that stage's migrations role, and the one secret that role may read,
+# loop/connections/<stage>/database-url. The accounts are pinned below -- staging 065148797865,
+# production 080891698678 -- the credentials are bounded to the chosen one and checked again with STS
+# before the secret is read. The DATABASE_URL is masked and never printed.
+#
+# DRY RUN FIRST, THEN THE WRITE. The job prints the current controls (read:ai-provider-policy), then the
+# current and requested budget in dollars with the validation result, then records it, then prints the
+# controls again. The write names the version it read, so a budget somebody else moved in between is
+# refused (STALE) rather than overwritten.
+#
+# The stage and the confirmation are shell comparisons over the event payload, never `if:`
+# expressions: text pasted into the dispatch form arrives padded, and an expression gate compares
+# bytes. The phrase is `record ai-budget <stage>`; only surrounding and invisible whitespace, repeated
+# inner whitespace and letter case are forgiven, and a refusal prints what arrived.
+#
+# It cannot run until the stage's migrations identity exists and its role ARN is set on the
+# connections-<stage> environment -- the same prerequisites as Record AI Provider Policy.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Setting what AI may spend is a human act.
+
+name: Record AI Budget
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Stage: staging or production'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      preset:
+        description: 'initial = the approved initial budget ($20/day per organization); custom = settings_json'
+        required: true
+        type: choice
+        options:
+          - initial
+          - custom
+      settings_json:
+        description: 'Only with preset=custom: ONE LINE, a JSON object in the operating-budget shape (micro-dollars). Leave empty for initial.'
+        required: false
+        type: string
+      reason:
+        description: 'Why: what usage or decision these figures follow from, who decided, when. One line, at most 500 characters.'
+        required: true
+        type: string
+      confirm:
+        description: 'Type exactly: record ai-budget <stage>'
+        required: true
+        type: string
+
+# Do NOT add push:, pull_request:, schedule: or workflow_call: triggers here.
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: record-ai-budget
+  cancel-in-progress: false
+
+jobs:
+  confirm:
+    name: Confirm the stage and the phrase
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      stage: ${{ steps.confirm.outputs.stage }}
+    steps:
+      - name: Confirm
+        id: confirm
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Inputs are read from the event payload file, not declared as step env and never
+          # interpolated into this script: a declared env value is printed in the step header
+          # before the script runs, and an interpolated one is script injection.
+          STAGE_IN="$(jq -r '.inputs.stage // ""' "${GITHUB_EVENT_PATH}")"
+          CONFIRM="$(jq -r '.inputs.confirm // ""' "${GITHUB_EVENT_PATH}")"
+          # Strip leading/trailing whitespace, including the invisible kinds a copy-paste carries:
+          # NBSP (U+00A0), zero-width space/joiners (U+200B..U+200D), BOM (U+FEFF), CR.
+          trim() {
+            local v="$1"
+            v="${v//$'\xc2\xa0'/ }"
+            v="${v//$'\xe2\x80\x8b'/}"; v="${v//$'\xe2\x80\x8c'/}"; v="${v//$'\xe2\x80\x8d'/}"; v="${v//$'\xef\xbb\xbf'/}"
+            v="${v//$'\r'/}"
+            v="${v#"${v%%[![:space:]]*}"}"
+            v="${v%"${v##*[![:space:]]}"}"
+            printf '%s' "$v"
+          }
+          stage="$(trim "${STAGE_IN}")"
+          stage="${stage,,}"
+          case "${stage}" in
+            staging|production) ;;
+            *) echo "::error::stage must be staging or production (received $(printf '%q' "${STAGE_IN}"))."; exit 1 ;;
+          esac
+          REQUIRED="record ai-budget ${stage}"
+          normalized="$(trim "${CONFIRM}" | tr -s '[:space:]' ' ')"
+          normalized="${normalized,,}"
+          if [ "${normalized}" != "${REQUIRED}" ]; then
+            echo "::error::This records the AI operating budget in ${stage}. Confirmation text required: ${REQUIRED}"
+            # The phrase is not a secret; show exactly what arrived so the next attempt can be fixed.
+            echo "Received $(printf '%s' "${CONFIRM}" | wc -c | tr -d ' ') bytes; with whitespace made visible: $(printf '%q' "${CONFIRM}")"
+            exit 1
+          fi
+          echo "stage=${stage}" >> "$GITHUB_OUTPUT"
+          echo "Confirmed for ${stage}."
+
+  record:
+    name: Record the operating budget
+    needs: confirm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The environment name is part of the OIDC trust: only this environment can reach the stage's role.
+    environment: connections-${{ needs.confirm.outputs.stage }}
+    env:
+      STAGE: ${{ needs.confirm.outputs.stage }}
+      # The two workload accounts, as literals: the chosen stage selects one, the credentials are
+      # bounded to it, and STS must agree with it before any secret is read.
+      STAGING_ACCOUNT: '065148797865'
+      PRODUCTION_ACCOUNT: '080891698678'
+      STAGING_ROLE_VAR: ${{ vars.CONNECTIONS_STAGING_MIGRATE_ROLE_ARN }}
+      PRODUCTION_ROLE_VAR: ${{ vars.CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN }}
+      PRODUCTION_ACCOUNT_ID_VAR: ${{ vars.CONNECTIONS_PRODUCTION_ACCOUNT_ID }}
+    steps:
+      # Fail closed before any credential is requested: the stage names its pinned account, its
+      # migrations role must be a role in that account, and production's environment must agree.
+      - name: The stage names its account, and the migrate role lives in it
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+          case "${STAGE}" in
+            staging)
+              account="${STAGING_ACCOUNT}"
+              role="$(trim "${STAGING_ROLE_VAR}")"
+              ;;
+            production)
+              account="${PRODUCTION_ACCOUNT}"
+              role="$(trim "${PRODUCTION_ROLE_VAR}")"
+              if [ "$(trim "${PRODUCTION_ACCOUNT_ID_VAR}")" != "${PRODUCTION_ACCOUNT}" ]; then
+                echo "Refusing: CONNECTIONS_PRODUCTION_ACCOUNT_ID is not the production workload account ${PRODUCTION_ACCOUNT}"
+                exit 1
+              fi
+              ;;
+            *) echo "Refusing: unknown stage"; exit 1 ;;
+          esac
+          case "${role}" in
+            "arn:aws:iam::${account}:role/"?*) ;;
+            *) echo "Refusing: the ${STAGE} migrate role is not a role in ${account}"; exit 1 ;;
+          esac
+          if [[ "${role}" =~ [[:space:]] ]]; then echo "Refusing: the role ARN contains whitespace"; exit 1; fi
+          echo "account=${account}" >> "$GITHUB_OUTPUT"
+          echo "role_arn=${role}" >> "$GITHUB_OUTPUT"
+          echo "DB_SECRET=loop/connections/${STAGE}/database-url" >> "$GITHUB_ENV"
+          echo "EXPECTED_ACCOUNT=${account}" >> "$GITHUB_ENV"
+
+      - name: Validate the requested budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Read from the event payload file (see the Confirm step for why).
+          input() { jq -r --arg k "$1" '.inputs[$k] // ""' "${GITHUB_EVENT_PATH}"; }
+          trim() { local s="$1"; s="${s//$'\r'/}"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+          preset="$(trim "$(input preset)")"
+          settings="$(trim "$(input settings_json)")"
+          reason="$(trim "$(input reason)")"
+          case "${reason}" in *$'\n'*) echo "::error::reason must be one line."; exit 1 ;; esac
+          if [ -z "${reason}" ] || [ "${#reason}" -gt 500 ]; then echo "::error::reason is required, at most 500 characters."; exit 1; fi
+          case "${preset}" in
+            initial)
+              if [ -n "${settings}" ]; then echo "::error::settings_json is only used with preset=custom; leave it empty for initial."; exit 1; fi
+              ;;
+            custom)
+              if [ -z "${settings}" ]; then echo "::error::preset=custom needs settings_json: one line, a JSON object."; exit 1; fi
+              case "${settings}" in *$'\n'*) echo "::error::settings_json must be a single line."; exit 1 ;; esac
+              if [ "${#settings}" -gt 8000 ]; then echo "::error::settings_json is longer than 8000 characters."; exit 1; fi
+              # The figures travel to the script through a file: no quoting or delimiter in them can
+              # reach a shell, an expression or GITHUB_ENV. jq proves the file is one JSON object; the
+              # script validates every field against the code maximums.
+              printf '%s' "${settings}" > "${RUNNER_TEMP}/budget-settings.json"
+              if ! jq -e 'type == "object"' "${RUNNER_TEMP}/budget-settings.json" > /dev/null 2>&1; then
+                echo "::error::settings_json must be a valid JSON object."; exit 1
+              fi
+              ;;
+            *) echo "::error::preset must be initial or custom."; exit 1 ;;
+          esac
+          # The reason travels to the script through a file too (see above).
+          printf '%s' "${reason}" > "${RUNNER_TEMP}/budget-reason.txt"
+          echo "BUDGET_PRESET=${preset}" >> "$GITHUB_ENV"
+          echo "Recording the ${preset} operating budget in ${STAGE} (reason: ${#reason} characters)."
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install dependencies
+        # A dummy URL is enough for `prisma generate` at install; it never connects.
+        env:
+          DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
+        run: npm install --no-audit --no-fund
+
+      # Pinned to the v6.3.0 commit. With OIDC it sends no session tags; allowed-account-ids refuses a
+      # credential for any other account before a single call is made with it.
+      - name: AWS credentials (OIDC, short-lived)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.guard.outputs.role_arn }}
+          aws-region: us-east-1
+          role-session-name: record-ai-budget-${{ github.run_id }}
+          allowed-account-ids: ${{ steps.guard.outputs.account }}
+
+      - name: The credentials are for the stage's account
+        shell: bash
+        run: |
+          set -euo pipefail
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$account" != "$EXPECTED_ACCOUNT" ]; then
+            echo "Refusing: credentials are for $account, not $EXPECTED_ACCOUNT"
+            exit 1
+          fi
+
+      - name: Read the stage's DATABASE_URL (masked, never printed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(aws secretsmanager get-secret-value --region us-east-1 --secret-id "$DB_SECRET" --query SecretString --output text)"
+          if [ -z "$url" ] || [ "$url" = "None" ]; then
+            echo "The ${STAGE} DATABASE_URL is empty or unset"; exit 1
+          fi
+          echo "::add-mask::$url"
+          printf 'DATABASE_URL=%s\n' "$url" >> "$GITHUB_ENV"
+          echo "Loaded the ${STAGE} DATABASE_URL into the job environment (value hidden)."
+
+      - name: Controls before
+        run: npm run read:ai-provider-policy
+
+      - name: Dry run
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${BUDGET_PRESET}" = "custom" ]; then from=(--settings-file "${RUNNER_TEMP}/budget-settings.json"); else from=(--preset initial); fi
+          npm run record:ai-budget -- "${from[@]}" --reason "$(cat "${RUNNER_TEMP}/budget-reason.txt")"
+
+      - name: Record
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${BUDGET_PRESET}" = "custom" ]; then from=(--settings-file "${RUNNER_TEMP}/budget-settings.json"); else from=(--preset initial); fi
+          npm run record:ai-budget -- "${from[@]}" --reason "$(cat "${RUNNER_TEMP}/budget-reason.txt")" --reference "github:record-ai-budget:run-${GITHUB_RUN_ID}:${GITHUB_ACTOR}" --write
+
+      - name: Controls after
+        run: npm run read:ai-provider-policy
+
+      - name: How to read the output
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### AI operating budget (${STAGE})"
+            echo ""
+            echo "- \`OPERATING_BUDGET\` - the recorded budget. \`state=NONE\`: nothing recorded, admission is the reviewed budget policy plus the default emergency ceiling. \`state=RECORDED\`: the figures in dollars, with one \`OPERATING_BUDGET_LANE\` line per lane and one \`OPERATING_BUDGET_CLASS\` line per budget class (\`maxInvocations=reviewed\` keeps the reviewed policy's cap). \`state=UNREADABLE\`: a record exists that cannot be read or validated, and the gateway refuses every AI call until corrected figures are recorded -- with this workflow, which replaces the unreadable version (the dry run then prints \`RECOVERY\`)."
+            echo "- \`EMERGENCY_CEILING\` - the always-on cap across every organization over a trailing 24 hours: the recorded one, or the \$25 default."
+            echo "- \`STORED_KILL\` - every current KILLED platform control (GLOBAL, PROVIDER, MODEL, platform TASK) the gateway honours; \`STORED_KILL_SUMMARY killed=0\` means none."
+            echo "- \`CURRENT\` / \`REQUESTED\` / \`VALIDATION\` - the dry run: what is recorded, what this run asked for, and every refusal code if it is invalid (nothing is written then)."
+            echo "- \`RECORDED\` / \`UNCHANGED\` / \`REFUSED refusal=...\` - what the write did. STALE: somebody moved the budget between the read and the write; nothing was overwritten. NOT_MIGRATED: apply migration 20261005000000 first. SETTINGS_INVALID: the figures failed validation."
+            echo ""
+            echo "The worker and the web tier cache controls for at most 60 seconds, so a change reaches every instance within a minute, without a deploy."
+          } >> "$GITHUB_STEP_SUMMARY"
