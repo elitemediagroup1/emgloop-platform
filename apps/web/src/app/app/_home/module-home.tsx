@@ -1,6 +1,6 @@
 import type { NavGroup } from '../../../workspaces/config';
 import { CONNECTIONS_PATH } from '../../../auth/landing';
-import { chatsIntelligence } from '../../../daily-loop/chats-intelligence';
+import { composeChatsIntelligence } from '../../../daily-loop/chats-intelligence';
 import type { MailDashboard } from '../../../daily-loop/mail-dashboard';
 import type { NeedsYouItem } from '../../../daily-loop/needs-you';
 import type { YourDayView } from '../../../daily-loop/your-day';
@@ -74,7 +74,7 @@ export function ModuleHome({
   });
   const mailReading = briefing.today.mail.state === 'READ' && mail ? mailDomainIntelligence(mail.rows.map((r) => r.insight), mail.summary, mail.now) : null;
   const chatsRead = front?.chats ?? null;
-  const chats = chatsRead === null ? null : chatsRead.ok ? { ok: true as const, value: chatsIntelligence(chatsRead.value) } : { ok: false as const };
+  const chats = chatsRead === null ? null : chatsRead.ok ? { ok: true as const, value: composeChatsIntelligence(chatsRead.value) } : { ok: false as const };
   // The work posture only where the person's own queue is offered: a seat without My Work has no work read.
   const work = navOffers(groups, TILE_PATHS.employeeWork) ? { ok: true as const, value: workPostureFromQueue(queue, userId, time.now, dayEnd) } : null;
   const offer = (href: string) => (navOffers(groups, href) ? href : null);

@@ -166,6 +166,31 @@ lives ONLY in the GitHub variable; it is never committed to source.
    (`connections-migrate-staging`), (2) record the policy, (3) then deploy the worker. The new worker
    refuses triage until the policy exists.
 
+### Conversation digests (Chats Intelligence, triage task 3.0.0)
+
+With triage on, the SAME governed call that finds a conversation's obligations also returns a minimized
+reading of it, which the worker stores as that person's private CHATS digest (`intelligence_digests`).
+What an operator should know:
+
+- **One call.** The AI ledger still shows exactly one `telegram.content.triage` invocation per
+  conversation reviewed; there is no second task and no rollup call. The route's output ceiling is
+  2000 tokens (was 1000) and the task's daily output tokens 100k (was 50k); the daily invocation cap (50)
+  and the organization/global ceilings are unchanged.
+- **When digests appear.** Only when triage runs: a conversation with a new text message past the
+  forward cursor, or while an authorization's historical backfill is still armed. A conversation whose
+  backfill already COMPLETED gets no digest until its next new message. **There is no automatic replay
+  of already-read history**, and none should be added without a separate decision.
+- **Order.** Obligations are written and reconciled, then the digest, then the cursor advances. A
+  database failure on the digest write holds the cursor (the conversation is re-read next cycle). A
+  refusal never holds: `CONSENT_NOT_IN_FORCE` / `NOT_AN_ACTIVE_MEMBER` stop that person's run for the
+  cycle (no further body is read); `EXPIRED_AT_WRITE` (a backfilled conversation older than 30 days),
+  `CONTENDED` and the rest are counted and skipped.
+- **Logs** (counts only): the `content` / `historical_content` lines carry `digestsWritten`,
+  `digestsUnchanged`, `digestsRefused`; `digest_refused` gives counts per refusal kind.
+- **Order when deploying:** the `intelligence_digests` migration (PR A) before this worker. A worker
+  that runs ahead of it logs `NOT_MIGRATED` counts, writes no digest, and still raises obligations -- it
+  never holds the cursor for a table that is not there.
+
 **Fail-closed:** with the secret missing, the deploy's ECS task cannot resolve the credential; with the
 variable missing/empty, no `LOOP_AI_*` env is set at all; with no recorded provider policy, the gateway
 refuses every call. Any one of them keeps the worker from sending anything. To turn AI back off, clear

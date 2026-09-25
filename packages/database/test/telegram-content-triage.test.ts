@@ -11,7 +11,9 @@
 //   - the anchor bound, the category (never NONE), the count and the lengths are enforced -> REJECTED;
 //   - fail-closed: not authorized, not activated, or no registered provider -> NOT_AVAILABLE, no result;
 //   - a 40-message worst-case window WITH labels stays within the reviewed 8000-token input cap;
-//   - SourceObservation has NO content column, and the v3 schema uses only supported keywords.
+//   - SourceObservation has NO content column, and the v4 schema uses only supported keywords;
+//   - v4 (Chats Intelligence): the SAME one call returns the conversation reading, keyed, bounded,
+//     unquoted -- and a malformed or quoting reading rejects the whole answer (no items either).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,7 +35,7 @@ import {
 const ORG = 'org_ct';
 const USER = 'user_ct';
 const CONV = 'ck_abc';
-const SCHEMA_ID = 'telegram-content-triage.v3';
+const SCHEMA_ID = 'telegram-content-triage.v4';
 
 const ACTIVE: AiActivation = Object.freeze({
   enabled: true,
@@ -52,9 +54,23 @@ const OBLIGATION = Object.freeze({
   deadline: 'by Thursday',
 });
 
+/** A good v4 conversation reading of DANA_ASKS: paraphrased, anchored, no quote, no identity field. */
+const READING = Object.freeze({
+  relevance: 'BUSINESS',
+  summary: 'Dana is waiting on the countersigned roofing contract and asked about the cap.',
+  topics: ['Roofing contract'],
+  developments: [{ anchorOrdinal: 1, statement: 'Dana asked for the signed contract back before the end of the week' }],
+  decisions: [],
+  commitments: [{ anchorOrdinal: 2, statement: 'The person said they would look at the numbers' }],
+  signals: [{ kind: 'OPPORTUNITY', anchorOrdinal: 1, statement: 'Returning the contract closes the roofing job' }],
+  unresolved: 'The cap question has no answer yet',
+  attention: { needed: true, reason: 'Dana set a deadline for the contract' },
+  confidence: 'MEDIUM',
+});
+
 function answer(items: unknown[], over: Record<string, unknown> = {}): AiModelResult {
   return {
-    output: { json: { schemaId: SCHEMA_ID, items, limitations: [], ...over } },
+    output: { json: { schemaId: SCHEMA_ID, items, conversation: READING, limitations: [], ...over } },
     toolCalls: [],
     stopReason: 'END',
     usage: { inputTokens: 500, outputTokens: 60 },
@@ -124,7 +140,7 @@ test('USEFUL AND SPECIFIC: the verdict says what happened, what to do and when -
   // anchorOrdinal 1 -> the 1st message (messages[0]) -> its keyed providerEventId.
   assert.equal(item.anchorProviderEventId, `${CONV}:1`);
   assert.equal(res.provenance.invocationId, 'inv_ct_1');
-  assert.equal(res.provenance.taskVersion, '2.1.0');
+  assert.equal(res.provenance.taskVersion, '3.0.0');
   assert.equal(res.evaluatedFloorProviderEventId, `${CONV}:1`, 'the window boundary is echoed for reconcile');
   // The obligation carries ONLY the minimized fields -- no body, no raw id, and NO identity field: who it
   // is with is the conversation's label, which the worker records from Telegram, never from this answer.
@@ -295,7 +311,7 @@ test('SourceObservation has NO content column: the content path added none', () 
   assert.ok(block.includes('hadText'), 'SourceObservation still records only whether there was text');
 });
 
-test('the v3 triage schema uses only structured-output-supported keywords (no maxLength/maxItems/etc.)', () => {
+test('the v4 triage schema uses only structured-output-supported keywords (no maxLength/maxItems/etc.)', () => {
   const UNSUPPORTED = ['maxLength', 'minLength', 'pattern', 'maximum', 'minimum', 'multipleOf', 'maxItems'];
   function violations(node: unknown, path = '$'): string[] {
     const problems: string[] = [];
@@ -320,7 +336,79 @@ test('the v3 triage schema uses only structured-output-supported keywords (no ma
   const serialized = JSON.stringify(TELEGRAM_CONTENT_TRIAGE_SCHEMA);
   assert.ok(!serialized.includes('"maxLength"'), 'schema must not contain maxLength');
   assert.ok(!serialized.includes('"maxItems"'), 'schema must not contain maxItems');
-  assert.ok(serialized.includes('"schemaId":{"const":"telegram-content-triage.v3"}'), 'the v3 schema id is pinned');
+  assert.ok(serialized.includes('"schemaId":{"const":"telegram-content-triage.v4"}'), 'the v4 schema id is pinned');
+});
+
+// --- v4: the conversation reading, from the SAME one call (Chats Intelligence, 2026-09-25) -------
+
+/** A runtime double that counts calls and returns one recorded answer -- to prove ONE invocation. */
+function countingService(result: AiModelResult) {
+  const provider = new RecordedModelProvider('anthropic', [{ modelId: 'claude-opus-5', result }], (m) => aiCatalogCapabilities('anthropic', m));
+  const gateway = new AiRuntimeGateway(
+    { activation: ACTIVE, policy: AI_ROUTING_POLICY, budget: AI_BUDGET_POLICY, killSwitches: [], maxAttemptsPerTarget: AI_MAX_ATTEMPTS_PER_TARGET },
+    { providers: [provider], ledger: new InMemoryAiUsageLedger(), authorize: async () => true, now: () => new Date('2026-09-21T10:00:00Z'), newInvocationId: () => 'inv_ct_1', providerPolicies: async () => TRIAGE_POLICY },
+  );
+  let calls = 0;
+  const runtime = { run: (p: Parameters<typeof gateway.run>[0], r: Parameters<typeof gateway.run>[1]) => ((calls += 1), gateway.run(p, r)) };
+  return { service: new TelegramContentTriageService({ runtime }), calls: () => calls };
+}
+
+test('v4 ONE CALL: a single governed invocation returns BOTH the obligations and the conversation reading, anchors keyed', async () => {
+  const { service: svc, calls } = countingService(answer([OBLIGATION]));
+  const res = await svc.triage(principal, input(DANA_ASKS));
+  assert.equal(calls(), 1, 'exactly one invocation per conversation');
+  assert.equal(res.outcome, 'TRIAGED');
+  if (res.outcome !== 'TRIAGED') return;
+  assert.equal(res.items.length, 1, 'the obligations are unchanged');
+  const c = res.conversation!;
+  assert.equal(c.relevance, 'BUSINESS');
+  assert.equal(c.summary, READING.summary);
+  assert.deepEqual(c.developments, [{ anchorProviderEventId: `${CONV}:1`, statement: READING.developments[0]!.statement }], 'ordinal 1 -> the keyed anchor');
+  assert.deepEqual(c.commitments, [{ anchorProviderEventId: `${CONV}:2`, statement: READING.commitments[0]!.statement }]);
+  assert.deepEqual(c.signals, [{ kind: 'OPPORTUNITY', anchorProviderEventId: `${CONV}:1`, statement: READING.signals[0]!.statement }]);
+  assert.deepEqual(c.attention, { needed: true, reason: 'Dana set a deadline for the contract' });
+  assert.equal(c.confidence, 'MEDIUM');
+  // No body anywhere in the result: not the message, not a quote.
+  const flat = JSON.stringify(res);
+  for (const body of DANA_ASKS) assert.ok(!flat.includes(body), 'no message body in the result');
+});
+
+test('v4: conversation null is an honest TRIAGED answer (the worker stores it as INSUFFICIENT)', async () => {
+  const res = await service({ result: answer([OBLIGATION], { conversation: null, limitations: ['Too little context to tell what this is about'] }) }).triage(principal, input(DANA_ASKS));
+  assert.equal(res.outcome, 'TRIAGED');
+  if (res.outcome === 'TRIAGED') {
+    assert.equal(res.conversation, null);
+    assert.equal(res.items.length, 1);
+    assert.deepEqual([...res.limitations], ['Too little context to tell what this is about']);
+  }
+});
+
+test('v4 MALFORMED: a missing, quoting, copying, oversize or extra-keyed reading rejects the WHOLE answer -- no items, no reading', async () => {
+  const cases: [string, Record<string, unknown>][] = [
+    ['missing', { conversation: undefined }],
+    ['quote marks', { conversation: { ...READING, summary: 'Dana said "send it back by Thursday"' } }],
+    ['a copied sentence', { conversation: { ...READING, summary: 'Can you send the signed roofing contract back by Thursday? she asked' } }],
+    ['oversize', { conversation: { ...READING, summary: 'x '.repeat(150) } }],
+    ['an unknown key', { conversation: { ...READING, transcript: 'everything' } }],
+    ['an anchor outside the window', { conversation: { ...READING, developments: [{ anchorOrdinal: 9, statement: 'x y' }] } }],
+  ];
+  for (const [label, over] of cases) {
+    const json: Record<string, unknown> = { schemaId: SCHEMA_ID, items: [OBLIGATION], conversation: READING, limitations: [], ...over };
+    if (over.conversation === undefined) delete json.conversation;
+    const res = await service({ result: { ...answer([]), output: { json } } }).triage(principal, input(DANA_ASKS));
+    assert.equal(res.outcome, 'REJECTED_OUTPUT', label);
+  }
+});
+
+test('v4: the schema requires the reading, closes every object, and has no identity or body field', () => {
+  const schema = TELEGRAM_CONTENT_TRIAGE_SCHEMA as any;
+  assert.deepEqual([...schema.required].sort(), ['conversation', 'items', 'limitations', 'schemaId']);
+  const reading = schema.properties.conversation.anyOf[0];
+  assert.equal(schema.properties.conversation.anyOf[1].type, 'null', 'null is allowed: "could not read it"');
+  assert.equal(reading.additionalProperties, false);
+  assert.deepEqual([...reading.required].sort(), Object.keys(READING).sort(), 'every field is required');
+  const keys = JSON.stringify(reading);
+  for (const forbidden of ['"who"', '"name"', '"company"', '"body"', '"text"', '"quote"', '"message"', '"transcript"']) assert.ok(!keys.includes(forbidden), forbidden);
 });
 
 // --- G2: the recorded provider policy (2026-09-24) ---------------------------------------------

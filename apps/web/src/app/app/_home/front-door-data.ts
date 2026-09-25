@@ -3,11 +3,12 @@
 // Loop Home COMPOSES existing authorities and never becomes one. Every read below is a read some
 // page of Loop already makes, through the same repository or service, under the same organization:
 // the Command Center's context and the Overview's own analysis (admin/marketplace/command-data.ts,
-// executive-data.ts), the person's own chats as the Chats page reads them (daily-loop/chats.ts), the
-// CRM repository's intake counts, the creator roster the Creators page draws, and the investigation
-// behind a Headline. Home itself writes nothing. (The Overview's analysis records what the CallGrid
-// engine detected in the Decision Engine, idempotently per analysis period -- the same record the
-// Overview, Intelligence and the scheduled detection pass make; Home owns no table of its own.)
+// executive-data.ts), the person's own chats and their own Chats intelligence digests as the Chats
+// page reads them (daily-loop/chats.ts), the CRM repository's intake counts, the creator roster the
+// Creators page draws, and the investigation behind a Headline. Home itself writes nothing. (The
+// Overview's analysis records what the CallGrid engine detected in the Decision Engine, idempotently
+// per analysis period -- the same record the Overview, Intelligence and the scheduled detection pass
+// make; Home owns no table of its own.)
 //
 // GATED BY THE NAVIGATION THIS PERSON WAS OFFERED. A domain is read only when its destination is in
 // the resolved nav groups (permissions and role authority, fail closed) -- and the pages behind
@@ -56,7 +57,11 @@ export interface FrontDoorReads {
    * CallGrid is not offered or the context itself could not be read; `ok: false` when the analysis failed.
    */
   readonly callgridBrief: Settled<CallGridBrief> | null;
-  /** The viewer's own chats, as the Chats page reads them; null when Chats is not offered. */
+  /**
+   * The viewer's own chats, as the Chats page reads them -- the connection, their own current CHATS
+   * digests (`loadChatsDigests`, principal-scoped, settled on its own inside the read), activity and
+   * their obligations; null when Chats is not offered.
+   */
   readonly chats: Settled<ChatsIntelligenceInput> | null;
   /** Intake records per status; null when the Intake Board is not offered. */
   readonly intake: Settled<Readonly<Record<string, number>>> | null;

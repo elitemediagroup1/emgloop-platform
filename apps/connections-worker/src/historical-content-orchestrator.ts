@@ -21,13 +21,26 @@
 // a truncation flag, the model's MINIMIZED paraphrase fields (topic, next step, grounded deadline) and the
 // ONE label Telegram itself gives the conversation (see buildObligationDetection). Each title is the
 // model's minimized paraphrase, never the message; the label is Telegram's, never the model's.
+//
+// CHATS INTELLIGENCE (triage v4). Each TRIAGED conversation's reading is stored as the person's private
+// CHATS digest after its obligations, by the same rules as the forward sweep (see content-orchestrator.ts:
+// a write that throws holds the page; a refusal that says consent or membership ended stops this backfill's
+// page and holds it; any other refusal is counted). A conversation whose newest message is already older
+// than the 30-day digest retention is REFUSED (EXPIRED_AT_WRITE) and gets obligations but no digest.
 
 import type { AdapterSession, DueHistoricalContent, HistoricalContentState, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
 import { AI_TRIAGE_LIMITS, telegramConversationSubjectRef, type ConnectionProvider } from '@emgloop/shared';
 
 import type { TelegramConversationTriageInput, TelegramConversationTriageResult } from '@emgloop/database';
+import type { IntelligenceDigestInput } from '@emgloop/database';
 import type { TelegramConversationWindow } from './telegram/telegram-content';
-import { buildObligationDetection, refusalFailureClass } from './content-orchestrator';
+import {
+  buildObligationDetection,
+  recordConversationReading,
+  refusalFailureClass,
+  type ConversationIntelligenceWrite,
+  type DigestTally,
+} from './content-orchestrator';
 
 /** A bounded page of conversations for the historical backfill, each already gathered into its window. */
 export interface HistoricalConversationsResult {
@@ -83,6 +96,8 @@ export interface HistoricalContentSweepPorts {
     evaluatedFloorProviderEventId: string,
     occurredAt: Date,
   ): Promise<void>;
+  /** Store ONE conversation's reading as the person's CHATS digest. Throws on a database failure. */
+  recordConversationIntelligence(principal: WorkPrincipal, digest: IntelligenceDigestInput): Promise<ConversationIntelligenceWrite>;
   /** Advance (or hold) ONLY the historical* columns. MUST NOT touch the other three cursors. */
   recordHistoricalProgress(due: DueHistoricalContent, progress: HistoricalProgressToRecord): Promise<void>;
   /** How many conversations one historical sweep pages per backfill (bounded, never the whole history). */
@@ -100,6 +115,10 @@ export interface HistoricalContentSweepSummary {
   readonly reconciled: number;
   readonly failedItems: number;
   readonly floodWaits: number;
+  /** Conversation digests written, unchanged and refused. Counts only. */
+  readonly digestsWritten: number;
+  readonly digestsUnchanged: number;
+  readonly digestsRefused: number;
 }
 
 /** Run one historical content sweep over all due backfills. Never throws for a single backfill. */
@@ -114,6 +133,7 @@ export async function runHistoricalContentSweep(ports: HistoricalContentSweepPor
   let reconciled = 0;
   let failedItems = 0;
   let floodWaits = 0;
+  const tally: DigestTally = { written: 0, unchanged: 0, refused: 0 };
 
   for (const item of due) {
     try {
@@ -166,7 +186,7 @@ export async function runHistoricalContentSweep(ports: HistoricalContentSweepPor
         continue;
       }
 
-      const outcome = await processHistoricalPage(ports, item, page, now);
+      const outcome = await processHistoricalPage(ports, item, page, now, tally);
       raised += outcome.raised;
       reconciled += outcome.reconciled;
       failedItems += outcome.failedItemsDelta;
@@ -204,7 +224,20 @@ export async function runHistoricalContentSweep(ports: HistoricalContentSweepPor
     }
   }
 
-  return { due: due.length, advanced, completed, skipped, held, raised, reconciled, failedItems, floodWaits };
+  return {
+    due: due.length,
+    advanced,
+    completed,
+    skipped,
+    held,
+    raised,
+    reconciled,
+    failedItems,
+    floodWaits,
+    digestsWritten: tally.written,
+    digestsUnchanged: tally.unchanged,
+    digestsRefused: tally.refused,
+  };
 }
 
 interface HistoricalPageOutcome {
@@ -227,6 +260,7 @@ async function processHistoricalPage(
   item: DueHistoricalContent,
   page: HistoricalConversationsResult,
   now: Date,
+  tally: DigestTally,
 ): Promise<HistoricalPageOutcome> {
   const principal: WorkPrincipal = { organizationId: item.organizationId, userId: item.userId };
   let raised = 0;
@@ -273,6 +307,10 @@ async function processHistoricalPage(
     }
     await ports.resolveObligations(principal, subjectRef, result.items.map((o) => o.anchorProviderEventId), result.evaluatedFloorProviderEventId, now);
     reconciled += 1;
+    // THEN the conversation reading from the same call. A throw holds the page (sink before frontier); a
+    // refusal that says consent or membership ENDED stops the page -- no further body is read -- and holds.
+    const ended = await recordConversationReading((p, d) => ports.recordConversationIntelligence(p, d), principal, window, result, truncated, now, tally);
+    if (ended) return { raised, reconciled, failedItemsDelta, hold: true, failureClass: ended, oldestReachedAt: oldestReachedOf(oldestReachedMs) };
   }
 
   return { raised, reconciled, failedItemsDelta, hold: false, failureClass: null, oldestReachedAt: oldestReachedOf(oldestReachedMs) };

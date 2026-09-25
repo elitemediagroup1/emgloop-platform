@@ -2,7 +2,7 @@ import type { WorkPrincipal } from '@emgloop/database';
 import { mailDomainIntelligence } from '@emgloop/shared';
 import type { AuthSession } from '../../../auth/auth';
 import { CONNECTIONS_PATH } from '../../../auth/landing';
-import { chatsIntelligence } from '../../../daily-loop/chats-intelligence';
+import { composeChatsIntelligence } from '../../../daily-loop/chats-intelligence';
 import type { MailDashboard } from '../../../daily-loop/mail-dashboard';
 import type { NeedsYouItem } from '../../../daily-loop/needs-you';
 import type { YourDayView } from '../../../daily-loop/your-day';
@@ -40,7 +40,7 @@ import { TILE_PATHS, projectTiles } from './tiles';
 // (front-door-data.ts) are gated by the navigation this person was offered. The viewer's own day,
 // mail and "needs you" items arrive from the page, which loaded each once with the session principal.
 // Every projection below (`composeBriefing`, `briefingNarrative`, the tiles, the KPIs, the domains'
-// own `mailDomainIntelligence` and `chatsIntelligence`) is pure.
+// own `mailDomainIntelligence` and `composeChatsIntelligence`) is pure.
 //
 // NEEDS YOU STAYS THE VIEWER'S OWN. The employee-private items are handed in as data, ranked for
 // display beside the executive attention rows, and rendered with their source on every row. They
@@ -117,7 +117,7 @@ export async function AdminHome({
 
   // The domains' own readings, each computed once and shared by the briefing and its tile.
   const mailReading = briefing.today.mail.state === 'READ' && mail ? mailDomainIntelligence(mail.rows.map((r) => r.insight), mail.summary, mail.now) : null;
-  const chats = front.chats === null ? null : front.chats.ok ? { ok: true as const, value: chatsIntelligence(front.chats.value) } : { ok: false as const };
+  const chats = front.chats === null ? null : front.chats.ok ? { ok: true as const, value: composeChatsIntelligence(front.chats.value) } : { ok: false as const };
   const work = home ? { ok: true as const, value: workPostureFromSummary(home.workspace.workSummary, home.workspace.myWork, time.now, dayEnd) } : { ok: false as const };
   const offer = (href: string) => (navOffers(groups, href) ? href : null);
 

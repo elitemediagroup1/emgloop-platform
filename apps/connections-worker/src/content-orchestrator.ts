@@ -30,13 +30,35 @@
 // id, the task version, the category, a truncation flag, the model's MINIMIZED paraphrase fields (topic,
 // next step, grounded deadline) and the ONE label Telegram itself gives the conversation. Each title is the
 // model's minimized paraphrase, never the message; the label is Telegram's, never the model's.
+//
+// CHATS INTELLIGENCE (triage v4, 2026-09-25). The SAME one call also returns a minimized reading of the
+// conversation. After the obligations are written and reconciled, it is stored as the person's private
+// CHATS digest (`recordConversationIntelligence` -> IntelligenceDigestRepository.upsert, consent re-checked
+// inside the write). SINK BEFORE CURSOR: a digest write that THROWS (a database failure) holds the frontier
+// exactly as a failed WorkItem write does; a governed REFUSAL does not throw -- it is counted, and when it
+// says the person's consent or membership has ENDED (CONSENT_NOT_IN_FORCE, NOT_AN_ACTIVE_MEMBER) the rest
+// of this authorization's conversations are not read at all (no more bodies after the write layer said
+// no) and its cursor holds. Digests are produced ONLY when triage runs: a new text message past the
+// frontier, or a still-armed historical backfill -- there is no replay of already-read history.
 
-import type { AdapterSession, DueContent, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
+import { createHash } from 'node:crypto';
+
+import {
+  TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
+  type AdapterSession,
+  type DueContent,
+  type IntelligenceDigestInput,
+  type WorkItemDetection,
+  type WorkPrincipal,
+} from '@emgloop/database';
 import {
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
+  DIGEST_LIST_MAX_ITEMS,
   telegramConversationSubjectRef,
   type ConnectionProvider,
+  type DigestContent,
+  type IntelligenceGeneratedCoverage,
 } from '@emgloop/shared';
 
 import type { TelegramConversationTriageInput, TelegramConversationTriageResult } from '@emgloop/database';
@@ -101,6 +123,12 @@ export interface ContentSweepPorts {
     evaluatedFloorProviderEventId: string,
     occurredAt: Date,
   ): Promise<void>;
+  /**
+   * Store ONE conversation's minimized reading as the person's private CHATS digest
+   * (IntelligenceDigestRepository.upsert, basis CONTENT_AUTHORIZATION, consent re-checked in the write).
+   * THROWS on a database failure (the frontier holds); returns a governed refusal otherwise.
+   */
+  recordConversationIntelligence(principal: WorkPrincipal, digest: IntelligenceDigestInput): Promise<ConversationIntelligenceWrite>;
   /** Advance (or hold) the content cursor. MUST NOT touch source_connections or the baseline. */
   recordContentProgress(due: DueContent, progress: ContentProgressToRecord): Promise<void>;
   /** How many new messages one discovery page reads per authorization (bounded). */
@@ -119,6 +147,55 @@ export interface ContentSweepSummary {
   readonly reconciled: number;
   readonly refused: number;
   readonly floodWaits: number;
+  /** Conversation digests written (new or version + 1), unchanged (same evidence), and refused. Counts only. */
+  readonly digestsWritten: number;
+  readonly digestsUnchanged: number;
+  readonly digestsRefused: number;
+}
+
+/**
+ * What storing one conversation reading came to. WRITTEN / UNCHANGED are the repository's; REFUSED names
+ * its governed refusal (never content); NOT_MIGRATED means `intelligence_digests` does not exist in this
+ * database yet (a worker deployed ahead of its migration) -- nothing is written and nothing is held, so
+ * the obligations keep flowing and the AI spend is not repeated on every cycle.
+ */
+export type ConversationIntelligenceWrite =
+  | { readonly outcome: 'WRITTEN' | 'UNCHANGED' | 'NOT_MIGRATED' }
+  | { readonly outcome: 'REFUSED'; readonly refusal: string };
+
+/** Refusals that mean the person's consent or membership has ENDED: stop reading this authorization. */
+export const DIGEST_REFUSALS_THAT_END_THE_RUN: readonly string[] = Object.freeze(['CONSENT_NOT_IN_FORCE', 'NOT_AN_ACTIVE_MEMBER']);
+
+/** Per-sweep digest counters, shared by both content sweeps. */
+export interface DigestTally {
+  written: number;
+  unchanged: number;
+  refused: number;
+}
+
+/**
+ * Store one TRIAGED conversation's reading and count it. Returns the refusal that ENDS this
+ * authorization's run (consent or membership ended), or null to carry on. Throws what the port throws.
+ */
+export async function recordConversationReading(
+  record: (principal: WorkPrincipal, digest: IntelligenceDigestInput) => Promise<ConversationIntelligenceWrite>,
+  principal: WorkPrincipal,
+  window: Pick<TelegramConversationWindow, 'conversationKey' | 'messages'>,
+  result: Extract<TelegramConversationTriageResult, { outcome: 'TRIAGED' }>,
+  truncated: boolean,
+  now: Date,
+  tally: DigestTally,
+): Promise<string | null> {
+  const digest = buildConversationDigest(window, result, truncated, now);
+  if (!digest) return null;
+  const written = await record(principal, digest);
+  if (written.outcome === 'WRITTEN') tally.written += 1;
+  else if (written.outcome === 'UNCHANGED') tally.unchanged += 1;
+  else if (written.outcome === 'REFUSED') {
+    tally.refused += 1;
+    if (DIGEST_REFUSALS_THAT_END_THE_RUN.includes(written.refusal)) return written.refusal;
+  }
+  return null;
 }
 
 /** The producer identity for a content-triage WorkItem. MODEL, so it is the same row a rule would write. */
@@ -135,6 +212,7 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
   let reconciled = 0;
   let refused = 0;
   let floodWaits = 0;
+  const tally: DigestTally = { written: 0, unchanged: 0, refused: 0 };
 
   for (const item of due) {
     try {
@@ -180,7 +258,7 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
         continue;
       }
 
-      const outcome = await processConversations(ports, adapter, session, item, page.messages, now);
+      const outcome = await processConversations(ports, adapter, session, item, page.messages, now, tally);
       await adapter.disconnect(session).catch(() => undefined);
 
       raised += outcome.raised;
@@ -204,7 +282,19 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
     }
   }
 
-  return { due: due.length, swept, skipped, held, raised, reconciled, refused, floodWaits };
+  return {
+    due: due.length,
+    swept,
+    skipped,
+    held,
+    raised,
+    reconciled,
+    refused,
+    floodWaits,
+    digestsWritten: tally.written,
+    digestsUnchanged: tally.unchanged,
+    digestsRefused: tally.refused,
+  };
 }
 
 interface ConversationsOutcome {
@@ -231,6 +321,7 @@ async function processConversations(
   item: DueContent,
   messages: readonly TelegramContentMessage[],
   now: Date,
+  tally: DigestTally,
 ): Promise<ConversationsOutcome> {
   const principal: WorkPrincipal = { organizationId: item.organizationId, userId: item.userId };
   const floorAt = new Date(now.getTime() - Math.max(1, ports.contentWindowDays) * DAY_MS);
@@ -289,6 +380,10 @@ async function processConversations(
       // Reconcile ALWAYS (even with no items: a conversation that resolved everything closes prior items).
       await ports.resolveObligations(principal, subjectRef, result.items.map((o) => o.anchorProviderEventId), result.evaluatedFloorProviderEventId, now);
       reconciled += 1;
+      // THEN the conversation reading, from the same call. A throw holds the frontier (sink before cursor);
+      // a refusal that says consent or membership ENDED stops this authorization: no further body is read.
+      const ended = await recordConversationReading((p, d) => ports.recordConversationIntelligence(p, d), principal, window, result, truncated, now, tally);
+      if (ended) return { raised, reconciled, refused: false, floodWait: false, hold: true, failureClass: ended, backoffUntil: null };
     }
     // TRIAGED, REJECTED_OUTPUT and REFUSED_BY_MODEL all mean this conversation was judged (the latter two
     // are permanent for this content); carry on.
@@ -353,6 +448,127 @@ export function buildObligationDetection(
       deadline: obligation.deadline,
     },
     detectedAt,
+  };
+}
+
+/** The producer version a conversation digest records: the task and the version that read it. */
+function digestProducerVersion(taskVersion: string): string {
+  return `${PRODUCER_ID}@${taskVersion}`;
+}
+
+/**
+ * The digest's MEANING, as a fingerprint: the conversation, the exact ordered evidence the window held,
+ * and the output contract that read it. The same evidence re-read (a held page retried, a sweep re-run)
+ * fingerprints the same, so the repository answers UNCHANGED and the version does not move; a new
+ * message changes the window, so the digest is overwritten at version + 1. Keyed ids only -- no content.
+ */
+export function conversationDigestFingerprint(conversationKey: string, providerEventIds: readonly string[], schemaId: string): string {
+  const hash = createHash('sha256').update([schemaId, conversationKey, ...providerEventIds].join('\n')).digest('hex');
+  return `chats:${hash}`;
+}
+
+/**
+ * The coverage a conversation digest RECORDS (the rest are decided at read time):
+ *   INSUFFICIENT  the model said it could not read the conversation (a null reading), or its reading is
+ *                 empty of anything observed or inferred at LOW confidence and UNCLEAR relevance;
+ *   PARTIAL       the window was truncated -- older messages were not shown, so the reading is true of
+ *                 what was read and not of the whole conversation;
+ *   SUFFICIENT    otherwise.
+ */
+export function conversationDigestCoverage(
+  reading: Extract<TelegramConversationTriageResult, { outcome: 'TRIAGED' }>['conversation'],
+  truncated: boolean,
+): IntelligenceGeneratedCoverage {
+  if (reading === null) return 'CONNECTED_INSUFFICIENT';
+  const saysNothing =
+    reading.developments.length + reading.decisions.length + reading.commitments.length + reading.signals.length === 0 && reading.unresolved === null;
+  if (reading.relevance === 'UNCLEAR' && reading.confidence === 'LOW' && saysNothing) return 'CONNECTED_INSUFFICIENT';
+  return truncated ? 'CONNECTED_PARTIAL' : 'CONNECTED_SUFFICIENT';
+}
+
+/**
+ * The MINIMIZED, principal-private CHATS digest of one conversation, from the SAME triage result that
+ * produced its obligations. Shared by the forward and historical sweeps so both write byte-identical rows.
+ *
+ * MAPPING (triage v4 -> DigestContent): relevance -> relevance; summary -> synthesis; topics -> topics;
+ * developments, then decisions (as "Decided: ...") -> developments; commitments -> commitments; signals
+ * OPPORTUNITY -> opportunities, RISK / CONCERN -> concerns, OPERATIONAL -> operational; unresolved ->
+ * unresolved[0]; attention (when needed) -> attention; confidence -> confidence; the model's limitations
+ * -> limitations (no longer dropped). `stateChange` is not produced: this producer does not compare with
+ * the previous digest. NO body, NO quote (the gateway refused any), NO identity field.
+ *
+ * Window = the messages actually evaluated; evidenceCount = how many; lastEvidenceAt = the newest one's
+ * instant, which also anchors the 30-day expiry. Provenance: the keyed conversation ref, the keyed anchor
+ * of every statement, the invocation, the task version and the output schema. Null when the window is
+ * empty (nothing was evaluated, so there is nothing to record).
+ */
+export function buildConversationDigest(
+  window: Pick<TelegramConversationWindow, 'conversationKey' | 'messages'>,
+  result: Extract<TelegramConversationTriageResult, { outcome: 'TRIAGED' }>,
+  truncated: boolean,
+  now: Date,
+): IntelligenceDigestInput | null {
+  if (window.messages.length === 0) return null;
+  const instants = window.messages.map((m) => m.occurredAt.getTime());
+  const windowStart = new Date(Math.min(...instants));
+  const newest = new Date(Math.max(...instants));
+  const limitations = result.limitations.map((l) => l.trim()).filter((l) => l !== '').slice(0, DIGEST_LIST_MAX_ITEMS);
+  const reading = result.conversation;
+  let content: DigestContent;
+  const anchors: string[] = [];
+  if (reading === null) {
+    content = { limitations };
+  } else {
+    const statements = (list: readonly { readonly anchorProviderEventId: string; readonly statement: string }[], prefix = '') =>
+      list.map((s) => {
+        if (!anchors.includes(s.anchorProviderEventId)) anchors.push(s.anchorProviderEventId);
+        return `${prefix}${s.statement}`;
+      });
+    const signals = (kinds: readonly string[]) => statements(reading.signals.filter((s) => kinds.includes(s.kind)));
+    content = {
+      relevance: reading.relevance,
+      synthesis: reading.summary,
+      topics: [...reading.topics],
+      developments: [...statements(reading.developments), ...statements(reading.decisions, 'Decided: ')],
+      commitments: statements(reading.commitments),
+      opportunities: signals(['OPPORTUNITY']),
+      concerns: signals(['RISK', 'CONCERN']),
+      operational: signals(['OPERATIONAL']),
+      unresolved: reading.unresolved === null ? [] : [reading.unresolved],
+      ...(reading.attention.needed && reading.attention.reason ? { attention: reading.attention.reason } : {}),
+      confidence: reading.confidence,
+      limitations,
+    };
+  }
+  const subjectRef = telegramConversationSubjectRef(window.conversationKey);
+  return {
+    domain: 'CHATS',
+    subjectKind: 'CONVERSATION',
+    subjectRef,
+    provider: 'TELEGRAM',
+    consentBasis: 'CONTENT_AUTHORIZATION',
+    content,
+    coverage: conversationDigestCoverage(reading, truncated),
+    windowStart,
+    windowEnd: newest,
+    evidenceCount: window.messages.length,
+    lastEvidenceAt: newest,
+    provenance: {
+      sourceRefs: [subjectRef],
+      anchorEventIds: anchors,
+      aiInvocationId: result.provenance.invocationId,
+      taskId: result.provenance.taskId,
+      taskVersion: result.provenance.taskVersion,
+      schemaId: TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
+      producerVersion: digestProducerVersion(result.provenance.taskVersion),
+    },
+    aiInvocationId: result.provenance.invocationId,
+    fingerprint: conversationDigestFingerprint(
+      window.conversationKey,
+      window.messages.map((m) => m.providerEventId),
+      TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
+    ),
+    generatedAt: now,
   };
 }
 

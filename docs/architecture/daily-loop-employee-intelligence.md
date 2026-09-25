@@ -1989,6 +1989,19 @@ is a product conversation and not a guess. **Expiry is a delete, performed by th
 **Briefing** (PR C) will keep **90 days** -- decided, not built, and nothing in PR A writes one. The
 policy version moved to `work-retention.2026-09-24.1`; every earlier window is unchanged.
 
+**The first producer of row 12: Telegram conversation digests (Chats Intelligence, PR B, 2026-09-25).**
+The existing governed `telegram.content.triage` call (task 3.0.0, output schema v4) returns, in the
+SAME one invocation, the obligations (still WorkItems, rows 6/9) and a minimized reading of the whole
+conversation. The worker stores that reading as ONE current `intelligence_digests` row per
+(person, CHATS, CONVERSATION, `telegram_conversation:<conversationKey>`), basis `CONTENT_AUTHORIZATION`
+(consent and membership re-checked inside the write). It follows row 12 exactly, through PR A's paths
+and nothing new: **30 days after its newest evaluated message** (`expiresAt`; a backfilled conversation
+already older than that is refused at write, `EXPIRED_AT_WRITE`); **revoke** of Telegram content consent
+deletes it in the revoke's transaction; a **disconnect** past the 30-day grace deletes it with the
+derived items; **offboarding** erases it with the rest of the person's work state. It holds no body, no
+quote (quotation marks and any ten-word run copied from a message are refused before storage) and no
+identity field. It is intelligence, never work: nothing about it creates, closes or changes a WorkItem.
+
 **Status: approved as initial product policy (Matt, 2026-09-17, §29.1 D13).** These are the windows
 Daily Loop starts with — deliberately *policy*, not permanent universal constants. They live as named
 values in one place, are printed in the runbook and shown on the Connections page, and changing one is

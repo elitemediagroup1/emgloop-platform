@@ -15,14 +15,23 @@
 // The ledger receives ids, versions and counts through the gateway -- never a message and never the
 // paraphrase text (see gateway.ts).
 //
-// IT CAN ACT ON NOTHING. The task publishes no tool and produces only a JSON list. Turning an obligation
-// into an employee-private WorkItem, and reconciling answered obligations, are the worker's job
-// downstream of this service; this service concludes, it does not write work state.
+// ONE CALL, TWO READINGS (task 3.0.0, schema v4). The same invocation also returns a minimized reading
+// of the whole conversation (`conversation`), each anchored statement resolved here to its KEYED anchor.
+// The worker stores it as the person's private CHATS digest (intelligence_digests); it is intelligence,
+// never work, and nothing here makes it a WorkItem.
+//
+// IT CAN ACT ON NOTHING. The task publishes no tool and produces only JSON. Turning an obligation into an
+// employee-private WorkItem, reconciling answered obligations, and storing the conversation reading are
+// the worker's job downstream of this service; this service concludes, it does not write state.
 
 import {
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
   type AiAdmissionRefusal,
+  type AiConversationConfidence,
+  type AiConversationIntelligence,
+  type AiConversationRelevance,
+  type AiConversationSignalKind,
   type AiInvocationProvenance,
   type AiOutputRejection,
   type AiTriageCategory,
@@ -90,10 +99,38 @@ export interface TelegramTriageObligation {
   readonly deadline: string | null;
 }
 
+/** One paraphrased statement of the conversation reading, with its KEYED anchor. Never a quote. */
+export interface TelegramConversationStatement {
+  readonly anchorProviderEventId: string;
+  readonly statement: string;
+}
+
+/**
+ * The minimized reading of the whole conversation (triage v4), with every anchor resolved to its KEYED
+ * providerEventId. No body, no quote, no identity field. Stored by the worker as a CHATS digest.
+ */
+export interface TelegramConversationReading {
+  readonly relevance: AiConversationRelevance;
+  readonly summary: string;
+  readonly topics: readonly string[];
+  readonly developments: readonly TelegramConversationStatement[];
+  readonly decisions: readonly TelegramConversationStatement[];
+  readonly commitments: readonly TelegramConversationStatement[];
+  readonly signals: readonly (TelegramConversationStatement & { readonly kind: AiConversationSignalKind })[];
+  readonly unresolved: string | null;
+  readonly attention: { readonly needed: boolean; readonly reason: string | null };
+  readonly confidence: AiConversationConfidence;
+}
+
 export type TelegramConversationTriageResult =
   | {
       readonly outcome: 'TRIAGED';
       readonly items: readonly TelegramTriageObligation[];
+      /**
+       * The minimized reading of the conversation, or null when the model said it could not read it
+       * (the worker stores that as an INSUFFICIENT digest, with the limitations saying why).
+       */
+      readonly conversation: TelegramConversationReading | null;
       readonly limitations: readonly string[];
       readonly provenance: AiInvocationProvenance;
       /** The window's lower boundary, echoed for the worker's reconcile guard. */
@@ -165,12 +202,48 @@ export class TelegramContentTriageService {
       });
     }
 
+    // v4: the conversation reading is REQUIRED (the gateway rejects an answer without the key); null is
+    // an honest "could not read it". Anything else here is a half-parsed answer -- refuse it whole.
+    if (ct.conversation === undefined) return { outcome: 'REJECTED_OUTPUT', rejections: ['WRONG_SCHEMA'] };
+    const conversation = ct.conversation === null ? null : keyedReading(ct.conversation, built.ordinalToProviderEventId);
+
     return {
       outcome: 'TRIAGED',
       items,
+      conversation,
       limitations: result.output.limitations,
       provenance: result.provenance,
       evaluatedFloorProviderEventId: input.evaluatedFloorProviderEventId,
     };
   }
+}
+
+/**
+ * The conversation reading with each ordinal resolved to its KEYED anchor. The gateway already bounded
+ * every field, rejected any quote or copied run, and rejected an anchor outside the window; a statement
+ * whose ordinal has no mapping is dropped rather than guessed (defence in depth, never a substitute).
+ */
+function keyedReading(c: AiConversationIntelligence, ordinals: ReadonlyMap<number, string>): TelegramConversationReading {
+  const L = AI_TRIAGE_LIMITS;
+  const keyed = <T extends { readonly anchorOrdinal: number; readonly statement: string }>(list: readonly T[], max: number) =>
+    list.flatMap((s) => {
+      const anchorProviderEventId = ordinals.get(s.anchorOrdinal);
+      return anchorProviderEventId ? [{ source: s, anchorProviderEventId, statement: s.statement.trim().slice(0, L.maxStatementChars) }] : [];
+    }).slice(0, max);
+  const plain = (list: readonly { readonly anchorOrdinal: number; readonly statement: string }[], max: number): TelegramConversationStatement[] =>
+    keyed(list, max).map(({ anchorProviderEventId, statement }) => ({ anchorProviderEventId, statement }));
+  return {
+    relevance: c.relevance,
+    summary: c.summary.trim().slice(0, L.maxSummaryChars),
+    topics: c.topics.map((t) => t.trim().slice(0, L.maxConversationTopicChars)).filter((t) => t !== '').slice(0, L.maxConversationTopics),
+    developments: plain(c.developments, L.maxDevelopments),
+    decisions: plain(c.decisions, L.maxDecisions),
+    commitments: plain(c.commitments, L.maxCommitments),
+    signals: keyed(c.signals, L.maxSignals).map(({ source, anchorProviderEventId, statement }) => ({ kind: source.kind, anchorProviderEventId, statement })),
+    unresolved: c.unresolved === null ? null : c.unresolved.trim().slice(0, L.maxUnresolvedChars) || null,
+    attention: c.attention.needed
+      ? { needed: true, reason: (c.attention.reason ?? '').trim().slice(0, L.maxAttentionReasonChars) || null }
+      : { needed: false, reason: null },
+    confidence: c.confidence,
+  };
 }

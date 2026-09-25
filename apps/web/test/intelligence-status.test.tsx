@@ -238,6 +238,27 @@ describe('digests: the viewer’s own metadata, organization counts, never conte
     assert.match(html, /data-status-digest-count="CHATS"[\s\S]*?>4</);
   });
 
+  it('renders the viewer’s per-conversation CHATS digests the Chats producer writes, as metadata only', async () => {
+    const row = (subjectRef: string, coverage: string, status: string) => ({
+      domain: 'CHATS', subjectKind: 'CONVERSATION', coverage, status, generatedAt: hoursAgo(2), windowEnd: hoursAgo(2), evidenceCount: 7, version: 2, expiresAt: hoursAgo(-600),
+      content: { relevance: 'BUSINESS', synthesis: 'SECRET-SYNTHESIS' }, subjectRef, provider: 'TELEGRAM',
+    });
+    const reader: DigestReader = {
+      async metadataFor() {
+        return [row('telegram_conversation:SECRET-CK1', 'CONNECTED_SUFFICIENT', 'CURRENT'), row('telegram_conversation:SECRET-CK2', 'CONNECTED_PARTIAL', 'STALE')];
+      },
+      async organizationCounts() {
+        return [{ domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_SUFFICIENT', count: 2 }];
+      },
+    };
+    const status = await loadIntelligenceStatus(SESSION, NOW, deps({ digests: reader }).deps);
+    const html = renderToStaticMarkup(<IntelligenceStatusView status={status} time={time} />);
+    assert.equal((html.match(/data-status-digest="CHATS"/g) ?? []).length, 2);
+    assert.match(html, /data-status-digest="CHATS"[\s\S]*?CHATS<\/span> · CONVERSATION[\s\S]*?Up to date/);
+    assert.match(html, /data-status-digest="CHATS"[\s\S]*?Partly read[\s\S]*?STALE/);
+    for (const secret of ['SECRET-SYNTHESIS', 'SECRET-CK1', 'SECRET-CK2', 'TELEGRAM']) assert.equal(html.includes(secret), false, secret);
+  });
+
   it('an exposed read that returns nothing is empty; one that fails is "could not read"', async () => {
     const empty = await loadIntelligenceStatus(SESSION, NOW, deps({ digests: { metadataFor: async () => [], organizationCounts: async () => [] } }).deps);
     const html = renderToStaticMarkup(<IntelligenceStatusView status={empty} time={time} />);

@@ -34,6 +34,7 @@ import {
 
 import {
   AI_BUDGET_POLICY,
+  AI_BUDGET_POLICY_VERSION,
   AI_PROVIDER_SPECIALIZATION_POLICY,
   AI_PROVIDER_SPECIALIZATION_POLICY_VERSION,
   AI_ROUTING_POLICY,
@@ -72,7 +73,7 @@ test('the shipped routing policy conforms for every task, and Case Explanation n
   // content-triage slice's Telegram Content Triage) OR a task version bump (v2 conversation triage moved
   // the Telegram entry's taskVersion, and v2.1 moved it again). Case Explanation's own entry is untouched,
   // which is what the assertions around this one check.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-22.7');
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-25.8');
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.providerChoiceReason, undefined);
   // The fallback is another provider, and that is not a departure.
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.fallback!.providerId, 'openai');
@@ -218,17 +219,23 @@ test('fence: no task definition carries a provider or model, only a capability',
   }
 });
 
-test('telegram content triage: task 2.1.0 and its routing entry move in lockstep, at the pinned policy version', () => {
+test('telegram content triage: task 3.0.0 and its routing entry move in lockstep, at the pinned policy version', () => {
   const task = AI_TASKS.find((t) => t.taskId === 'telegram.content.triage')!;
-  assert.equal(task.version, '2.1.0', 'the v2.1 conversation-triage task (minimized business context)');
+  assert.equal(task.version, '3.0.0', 'the v3 task: obligations plus the conversation reading, in ONE call');
   const entry = AI_ROUTING_POLICY.tasks['telegram.content.triage']!;
   assert.equal(entry.taskVersion, task.version, 'the routing taskVersion tracks the task in lockstep');
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-22.7', 'the policy version increment for v2.1');
-  // The reviewed models were NOT changed: only two ids appear, both from the verified catalog. Nor was
-  // the output ceiling: the richer answer still fits the same small ceiling.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-25.8', 'the policy version increment for v3');
+  // The reviewed models were NOT changed: only two ids appear, both from the verified catalog. The
+  // output ceiling rose to 2000 for the conversation reading -- on both targets, and no further.
   assert.equal(entry.primary.modelId, 'claude-opus-5');
   assert.equal(entry.fallback!.modelId, 'gpt-6-astra');
-  assert.equal(entry.primary.maxOutputTokens, 1_000, 'the output ceiling was NOT raised for v2.1');
+  assert.equal(entry.primary.maxOutputTokens, 2_000, 'the v3 output ceiling');
+  assert.equal(entry.fallback!.maxOutputTokens, 2_000);
+  const cls = AI_BUDGET_POLICY.classes['telegram-content-triage']!;
+  assert.equal(cls.maxOutputTokensPerCall, 2_000, 'the budget class follows the route ceiling');
+  assert.equal(cls.taskDaily.maxInvocations, 50, 'the daily invocation cap was NOT raised');
+  assert.equal(cls.taskDaily.maxOutputTokens, 100_000, 'daily output tokens keep 50 calls at the new ceiling');
+  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-09-25.4-proposed');
 });
 
 test('telegram content triage: the whole-context input cap sits INSIDE the budget class per-call cap (the budget class was NOT raised)', () => {

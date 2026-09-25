@@ -4654,6 +4654,16 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-chats__meta { margin: 2px 0 0; color: var(--loop-text-2); font-size: 12.5px; overflow-wrap: anywhere; }
 .loop-chats__deadline { color: var(--loop-warn); }
 .loop-chats__when { font-size: 12px; color: var(--loop-text-3); white-space: nowrap; }
+.loop-chats__card { padding: 14px 0; border-top: 1px solid var(--loop-line); display: flex; flex-direction: column; gap: 6px; }
+.loop-chats__card:first-child { border-top: none; padding-top: 0; }
+.loop-chats__basis { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--loop-text-3); }
+.loop-chats__synthesis { margin: 0; font-size: 14px; color: var(--loop-text); line-height: 1.5; overflow-wrap: anywhere; }
+.loop-chats__reading { min-width: 0; }
+.loop-chats__reading-title { margin: 0; font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .03em; color: var(--loop-text-2); }
+.loop-chats__reading-basis { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--loop-text-3); }
+.loop-chats__attention { color: var(--loop-warn); }
+.loop-chats__reading-list { margin: 2px 0 0; padding-left: 18px; color: var(--loop-body); font-size: 13px; overflow-wrap: anywhere; }
+.loop-chats__owe { display: flex; flex-direction: column; gap: 8px; padding: 16px 20px; border: 1px solid var(--loop-line); border-left: 3px solid var(--loop-accent); border-radius: var(--loop-radius); background: var(--loop-surface); }
 @media (max-width: 640px) {
   .loop-chats__summary { padding: 14px 16px; }
   .loop-chats__item { grid-template-columns: minmax(0, 1fr); gap: 4px; }
