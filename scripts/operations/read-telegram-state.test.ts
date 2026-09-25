@@ -122,6 +122,7 @@ const SENTINEL = {
   checkpoint: 'SENTINEL_CHECKPOINT_CURSOR',
   contentCursor: 'SENTINEL_CONTENT_CURSOR',
   historicalCursor: 'SENTINEL_HISTORICAL_CURSOR',
+  hydrationCursor: 'SENTINEL_HYDRATION_CURSOR',
   conversationKey: 'SENTINEL_CONVKEY',
   eventId: 'SENTINEL_CONVKEY:SENTINEL_EVENT_1',
   senderKey: 'SENTINEL_SENDER',
@@ -175,7 +176,10 @@ function invocation(id: string, over: Row = {}): Row {
 }
 
 /** A production-shaped world: two Telegram connections, plus rows that must be excluded (Teams, another organization). */
-function world(rows: Partial<Record<'sourceConnection' | 'sourceObservation' | 'sourceBaselineCheckpoint' | 'sourceContentAuthorization' | 'workItem' | 'aiInvocation', Row[]>> = {}) {
+function world(
+  rows: Partial<Record<'sourceConnection' | 'sourceObservation' | 'sourceBaselineCheckpoint' | 'sourceContentAuthorization' | 'workItem' | 'aiInvocation', Row[]>> = {},
+  options: { readonly hydrationUnmigrated?: boolean } = {},
+) {
   const trace: Trace = { selected: new Set(), wheres: [] };
   const tables = {
     organization: [
@@ -219,12 +223,16 @@ function world(rows: Partial<Record<'sourceConnection' | 'sourceObservation' | '
         lastRunAt: at('2026-09-24T11:55:00Z'), lastFailureClass: 'REFUSED_BY_LOOP:BUDGET_GLOBAL_EXHAUSTED', backoffUntil: null, historicalState: 'COMPLETE', historicalCursor: null,
         historicalWindowFloorAt: at('2026-06-22T10:05:00Z'), historicalOldestReachedAt: at('2026-06-23T00:00:00Z'), historicalLastRunAt: at('2026-09-22T00:00:00Z'),
         historicalLastFailureClass: null, historicalBackoffUntil: null, historicalFailedItems: 2, createdAt: at('2026-09-21T08:00:00Z'),
+        intelligenceHydrationState: 'COMPLETE', intelligenceHydrationCursor: null, intelligenceHydrationLastRunAt: at('2026-09-25T10:00:00Z'),
+        intelligenceHydrationLastFailureClass: null, intelligenceHydrationBackoffUntil: null, intelligenceHydrationFailedItems: 1, intelligenceHydrationSchemaId: 'telegram-content-triage.v4',
       },
       {
         id: 'ca_charlie', organizationId: ORG, userId: 'user_charlie', provider: 'TELEGRAM', authorizedAt: at('2026-09-21T09:10:00Z'), revokedAt: at('2026-09-22T08:00:00Z'), contentCursor: null,
         lastRunAt: at('2026-09-21T10:00:00Z'), lastFailureClass: null, backoffUntil: null, historicalState: 'IN_PROGRESS', historicalCursor: SENTINEL.historicalCursor,
         historicalWindowFloorAt: at('2026-08-22T00:00:00Z'), historicalOldestReachedAt: at('2026-09-10T00:00:00Z'), historicalLastRunAt: at('2026-09-21T10:00:00Z'),
         historicalLastFailureClass: 'TRANSIENT', historicalBackoffUntil: at('2026-09-21T10:05:00Z'), historicalFailedItems: 0, createdAt: at('2026-09-21T09:10:00Z'),
+        intelligenceHydrationState: 'IN_PROGRESS', intelligenceHydrationCursor: SENTINEL.hydrationCursor, intelligenceHydrationLastRunAt: at('2026-09-21T10:00:00Z'),
+        intelligenceHydrationLastFailureClass: 'HYDRATION_BUDGET_RESERVE', intelligenceHydrationBackoffUntil: null, intelligenceHydrationFailedItems: 0, intelligenceHydrationSchemaId: null,
       },
     ],
     workItem: rows.workItem ?? [
@@ -247,7 +255,20 @@ function world(rows: Partial<Record<'sourceConnection' | 'sourceObservation' | '
       invocation('i_other', { organizationId: 'org_other' }),
     ],
   };
-  const fake = Object.fromEntries(Object.entries(tables).map(([name, rows]) => [name, model(name, rows, trace)]));
+  const fake: Record<string, Record<string, (a?: any) => Promise<unknown>>> = Object.fromEntries(Object.entries(tables).map(([name, rows]) => [name, model(name, rows, trace)]));
+  if (options.hydrationUnmigrated) {
+    // A database the hydration migration has not reached: any statement naming a hydration column fails P2022.
+    const inner = fake.sourceContentAuthorization!;
+    fake.sourceContentAuthorization = Object.fromEntries(
+      Object.entries(inner).map(([k, fn]) => [
+        k,
+        async (a?: unknown) => {
+          if (JSON.stringify(a ?? {}).includes('intelligenceHydration')) throw Object.assign(new Error('column does not exist'), { code: 'P2022' });
+          return fn(a);
+        },
+      ]),
+    );
+  }
   const client = readOnlyClient(fake as unknown as PrismaClient);
   const reader = new PrismaTelegramStateReader(client);
   const out: string[] = [];
@@ -299,6 +320,7 @@ test('every section is printed, with exactly these fields, and connections are #
   assert.deepEqual(fields('CONTENT_AUTHORIZATION'), [
     'event', 'connection', 'authorized', 'authorizedAt', 'revokedAt', 'lastRunAt', 'lastFailure', 'backoffUntil', 'cursor',
     'historicalState', 'historicalWindowFloorAt', 'historicalOldestReachedAt', 'historicalLastRunAt', 'historicalLastFailure', 'historicalBackoffUntil', 'historicalFailedItems', 'historicalCursor',
+    'hydrationState', 'hydrationLastRunAt', 'hydrationLastFailure', 'hydrationBackoffUntil', 'hydrationFailedItems', 'hydrationSchema', 'hydrationCursor',
   ]);
   assert.deepEqual(fields('AI_LEDGER_OUTCOME'), ['event', 'outcome', 'count', 'inputTokens', 'outputTokens', 'cachedInputTokens', 'reasoningTokens', 'reserveCostMicros']);
 
@@ -312,8 +334,8 @@ test('every section is printed, with exactly these fields, and connections are #
   // A baseline whose holder has no listed connection is UNMATCHED, never identified.
   assert.ok(w.out.includes('event=BASELINE connection=UNMATCHED state=REVOKED windowDays=30 windowFloorAt=2026-08-01T00:00:00.000Z consentAt=2026-09-01T00:00:00.000Z startedAt=- lastRunAt=- completedAt=- oldestReachedAt=- lastFailure=- backoffUntil=- revokedAt=2026-09-02T00:00:00.000Z checkpoint=false'));
   assert.ok(w.out.includes('event=BASELINES total=2 unmatched=1'));
-  assert.ok(w.out.includes('event=CONTENT_AUTHORIZATION connection=#1 authorized=true authorizedAt=2026-09-21T08:00:00.000Z revokedAt=- lastRunAt=2026-09-24T11:55:00.000Z lastFailure=REFUSED_BY_LOOP:BUDGET_GLOBAL_EXHAUSTED backoffUntil=- cursor=true historicalState=COMPLETE historicalWindowFloorAt=2026-06-22T10:05:00.000Z historicalOldestReachedAt=2026-06-23T00:00:00.000Z historicalLastRunAt=2026-09-22T00:00:00.000Z historicalLastFailure=- historicalBackoffUntil=- historicalFailedItems=2 historicalCursor=false'));
-  assert.ok(w.out.includes('event=CONTENT_AUTHORIZATION connection=#2 authorized=false authorizedAt=2026-09-21T09:10:00.000Z revokedAt=2026-09-22T08:00:00.000Z lastRunAt=2026-09-21T10:00:00.000Z lastFailure=- backoffUntil=- cursor=false historicalState=IN_PROGRESS historicalWindowFloorAt=2026-08-22T00:00:00.000Z historicalOldestReachedAt=2026-09-10T00:00:00.000Z historicalLastRunAt=2026-09-21T10:00:00.000Z historicalLastFailure=TRANSIENT historicalBackoffUntil=2026-09-21T10:05:00.000Z historicalFailedItems=0 historicalCursor=true'));
+  assert.ok(w.out.includes('event=CONTENT_AUTHORIZATION connection=#1 authorized=true authorizedAt=2026-09-21T08:00:00.000Z revokedAt=- lastRunAt=2026-09-24T11:55:00.000Z lastFailure=REFUSED_BY_LOOP:BUDGET_GLOBAL_EXHAUSTED backoffUntil=- cursor=true historicalState=COMPLETE historicalWindowFloorAt=2026-06-22T10:05:00.000Z historicalOldestReachedAt=2026-06-23T00:00:00.000Z historicalLastRunAt=2026-09-22T00:00:00.000Z historicalLastFailure=- historicalBackoffUntil=- historicalFailedItems=2 historicalCursor=false hydrationState=COMPLETE hydrationLastRunAt=2026-09-25T10:00:00.000Z hydrationLastFailure=- hydrationBackoffUntil=- hydrationFailedItems=1 hydrationSchema=telegram-content-triage.v4 hydrationCursor=false'));
+  assert.ok(w.out.includes('event=CONTENT_AUTHORIZATION connection=#2 authorized=false authorizedAt=2026-09-21T09:10:00.000Z revokedAt=2026-09-22T08:00:00.000Z lastRunAt=2026-09-21T10:00:00.000Z lastFailure=- backoffUntil=- cursor=false historicalState=IN_PROGRESS historicalWindowFloorAt=2026-08-22T00:00:00.000Z historicalOldestReachedAt=2026-09-10T00:00:00.000Z historicalLastRunAt=2026-09-21T10:00:00.000Z historicalLastFailure=TRANSIENT historicalBackoffUntil=2026-09-21T10:05:00.000Z historicalFailedItems=0 historicalCursor=true hydrationState=IN_PROGRESS hydrationLastRunAt=2026-09-21T10:00:00.000Z hydrationLastFailure=HYDRATION_BUDGET_RESERVE hydrationBackoffUntil=- hydrationFailedItems=0 hydrationSchema=- hydrationCursor=true'));
   assert.ok(w.out.includes('event=CONTENT_AUTHORIZATIONS total=2 authorized=1 revoked=1 unmatched=0'));
   // Work items: the shared closed vocabularies as columns (every member, zero included); a free-text
   // outcome is counted as `other`, never printed; an open item's missing outcome is `none`.
@@ -361,7 +383,7 @@ test('the reader never selects a content-bearing, secret or identifying column, 
   for (const column of [
     'sourceConnection.secretSealed', 'sourceConnection.cursor', 'sourceConnection.accountLabel', 'sourceConnection.keyRef', 'sourceConnection.id', 'sourceConnection.disconnectedByUserId',
     'sourceBaselineCheckpoint.checkpointCursor', 'sourceBaselineCheckpoint.id',
-    'sourceContentAuthorization.contentCursor', 'sourceContentAuthorization.historicalCursor', 'sourceContentAuthorization.id',
+    'sourceContentAuthorization.contentCursor', 'sourceContentAuthorization.historicalCursor', 'sourceContentAuthorization.intelligenceHydrationCursor', 'sourceContentAuthorization.id',
     'organization.name',
   ]) {
     assert.equal(w.trace.selected.has(column), false, `${column} is never selected`);
@@ -394,7 +416,7 @@ test('the runner has no write path, names no content column, and production runs
     assert.equal(code.includes(forbidden), false, `${forbidden} has no place in a read-only diagnosis`);
   }
   for (const column of [
-    'secretSealed: true', 'cursor: true', 'checkpointCursor: true', 'contentCursor: true', 'historicalCursor: true', 'accountLabel', 'keyRef', 'sealVersion',
+    'secretSealed: true', 'cursor: true', 'checkpointCursor: true', 'contentCursor: true', 'historicalCursor: true', 'intelligenceHydrationCursor: true', 'accountLabel', 'keyRef', 'sealVersion',
     'conversationKey', 'providerEventId', 'senderKey', 'participantKeys', 'title: true', 'evidence', 'recurrenceKey', 'name: true', 'email', 'phone',
     'principalUserId', 'invocationId', 'contextManifestHash', 'providerRequestId', 'disconnectedByUserId', 'employeeRef',
   ]) {
@@ -512,4 +534,16 @@ test('the read step uses the validated slug, never the raw input, and runs the s
   assert.match(summary, /if: always\(\)/);
   assert.match(summary, /\$GITHUB_STEP_SUMMARY/);
   assert.match(summary, /Nothing was written/);
+});
+
+test('before the hydration migration the probe still reads everything else, and says hydrationState=NOT_MIGRATED', async () => {
+  const w = world({}, { hydrationUnmigrated: true });
+  const result = await runTelegramState({ organizationSlug: SLUG }, w.deps);
+  assert.equal(result.overall, 'READ');
+  const auth = w.out.filter((l) => l.startsWith('event=CONTENT_AUTHORIZATION '));
+  assert.equal(auth.length, 2);
+  for (const l of auth) {
+    assert.ok(l.includes('hydrationState=NOT_MIGRATED hydrationLastRunAt=- hydrationLastFailure=- hydrationBackoffUntil=- hydrationFailedItems=- hydrationSchema=- hydrationCursor=false'), l);
+    assert.ok(l.includes('historicalState='), 'the pre-existing fields are all still there');
+  }
 });

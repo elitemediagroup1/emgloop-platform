@@ -538,3 +538,52 @@ describe('the Chats view, rendered', () => {
     assert.match(render(<ChatsView intel={composeChatsIntelligence(input({ activity24h: activity(0) }))} time={time} />), /Nothing in your chats is flagged for you/);
   });
 });
+
+describe('a digest written by the Chats Intelligence hydration', () => {
+  // The hydration (connections worker, chats-hydration-orchestrator.ts) writes through the SAME
+  // buildConversationDigest and IntelligenceDigestRepository.upsert as the forward sweep, so its row has
+  // exactly this shape: the full v4 mapping, CONNECTED_SUFFICIENT, CURRENT, and evidence that may be days
+  // old (no new message was needed). What it never has is an obligation: hydration writes no WorkItem.
+  const hydrated: ChatsDigest = {
+    subjectRef: 'telegram_conversation:ck_hydrated',
+    content: {
+      relevance: 'BUSINESS',
+      synthesis: 'Dana is waiting on the countersigned contract',
+      topics: ['Contract'],
+      developments: ['Dana asked for the signed contract'],
+      commitments: [],
+      opportunities: ['Returning it closes the job'],
+      concerns: [],
+      operational: [],
+      unresolved: ['The contract is not back yet'],
+      attention: 'Dana is waiting on it',
+      confidence: 'HIGH',
+      limitations: [],
+    },
+    coverage: 'CONNECTED_SUFFICIENT',
+    status: 'CURRENT',
+    windowEnd: ago(9 * D),
+    lastEvidenceAt: ago(9 * D),
+    expiresAt: new Date(ago(9 * D).getTime() + 30 * D),
+    generatedAt: ago(H),
+    evidenceCount: 6,
+  };
+
+  it('renders through composeChatsIntelligence with no special-casing: identical to the same row from the forward path', () => {
+    const intel = composeChatsIntelligence(input({ digests: [hydrated] }));
+    assert.equal(intel.state, 'CURRENT');
+    assert.equal(intel.conversations.length, 1);
+    const card = intel.conversations[0]!;
+    assert.equal(card.synthesis, 'Dana is waiting on the countersigned contract');
+    assert.equal(card.asCurrent, true);
+    assert.equal(card.owed, 0, 'no obligation: hydration writes none');
+    assert.deepEqual(intel.obligations, []);
+    assert.equal(intel.headline[0], 'Dana is waiting on the countersigned contract.');
+    // The composition cannot tell which producer wrote the row: the same fields compose identically.
+    const forward = composeChatsIntelligence(input({ digests: [{ ...hydrated }] }));
+    assert.deepEqual(intel, forward);
+    const html = unescape(render(<ChatsView intel={intel} time={time} />));
+    assert.match(html, /Dana is waiting on the countersigned contract/);
+    assert.match(html, /The contract is not back yet/);
+  });
+});

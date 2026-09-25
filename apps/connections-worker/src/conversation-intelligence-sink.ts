@@ -29,7 +29,7 @@ export interface ConversationIntelligenceRecorder {
 
 export function createConversationIntelligenceRecorder(
   digests: Pick<IntelligenceDigestRepository, 'upsert'>,
-  sweep: 'content' | 'historical_content',
+  sweep: 'content' | 'historical_content' | 'chats_hydration',
   log: (event: string, fields: Record<string, unknown>) => void,
 ): ConversationIntelligenceRecorder {
   const refusals = new Map<string, number>();

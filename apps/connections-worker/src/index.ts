@@ -7,7 +7,9 @@
 //      the derived (model-produced) work of a connection disconnected past the §21.2 grace window --
 //      and
 //   (with AI on, the two content sweeps triage conversations and store each one's obligations as
-//   WorkItems and its minimized reading as the person's private CHATS digest -- one governed call each),
+//   WorkItems and its minimized reading as the person's private CHATS digest -- one governed call each;
+//   and the DIGEST-ONLY Chats Intelligence hydration gives already-authorized people a digest per recent
+//   conversation that has none, writing no WorkItem -- see chats-hydration-orchestrator.ts),
 //   4. serves the signed control endpoints the Loop web tier calls to drive an interactive
 //      Telegram login and to disconnect.
 //
@@ -29,6 +31,7 @@ import {
   type DueBaseline,
   type DueContent,
   type DueHistoricalContent,
+  type DueChatsHydration,
   type WorkItemDetection,
   type WorkPrincipal,
 } from '@emgloop/database';
@@ -41,6 +44,7 @@ import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
 import { runContentSweep, type ContentSweepPorts } from './content-orchestrator';
 import { createConversationIntelligenceRecorder } from './conversation-intelligence-sink';
 import { runHistoricalContentSweep, type HistoricalContentSweepPorts } from './historical-content-orchestrator';
+import { runChatsHydrationSweep, type ChatsHydrationSweepPorts } from './chats-hydration-orchestrator';
 import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-retention';
 import { createWorkerAiRuntime } from './ai-runtime';
 import { TelegramAdapter } from './telegram/telegram-adapter';
@@ -240,6 +244,7 @@ async function main(): Promise<void> {
   // logged as counts only; a database failure throws so the sweep holds (conversation-intelligence-sink.ts).
   const contentDigests = createConversationIntelligenceRecorder(digests, 'content', log);
   const historicalDigests = createConversationIntelligenceRecorder(digests, 'historical_content', log);
+  const hydrationDigests = createConversationIntelligenceRecorder(digests, 'chats_hydration', log);
 
   // --- The FORWARD CONTENT-triage sweep ports (INDEPENDENT of the live and baseline sweeps) ------
   // These share the credential opener but have NO port that could write the live observation cursor or
@@ -327,6 +332,53 @@ async function main(): Promise<void> {
     }
   }
 
+  // --- The CHATS INTELLIGENCE HYDRATION ports (digest-only; INDEPENDENT of every other sweep) ------
+  // These advance ONLY the intelligenceHydration* columns. There is NO raiseWorkItem and NO
+  // resolveObligations port: hydration writes digests and nothing else. It reuses the historical pager,
+  // the credential opener, the SAME governed triage and the SAME digest write path (consent re-checked in
+  // the write). Before each call it reads the organization's triage headroom from the durable ledger and
+  // stops at the reserve so forward triage always keeps room.
+  const hydrationPorts: ChatsHydrationSweepPorts = {
+    dueForChatsHydration: () => contentAuthorizations.dueForChatsHydration(500),
+    adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
+    openCredential: (due: DueChatsHydration) => openContentCredential(due),
+    triage: (principal, input) => aiRuntime.service.triage(principal, input),
+    async hasCurrentConversationDigest(principal, subjectRef, now) {
+      return (await digests.current(principal, 'CHATS', { subjectKind: 'CONVERSATION', subjectRef, now })) !== null;
+    },
+    recordConversationIntelligence: hydrationDigests.record,
+    triageHeadroom: (organizationId, now) => aiRuntime.triageHeadroom(organizationId, now),
+    async recordChatsHydrationProgress(due, progress) {
+      await contentAuthorizations.recordChatsHydrationProgress(due.organizationId, due.userId, due.provider, {
+        cursor: progress.cursor,
+        state: progress.state,
+        failureClass: progress.failureClass,
+        backoffUntil: progress.backoffUntil,
+        failedItemsDelta: progress.failedItemsDelta,
+        schemaId: progress.schemaId,
+        now: progress.now,
+      });
+    },
+    conversationsPerSweep: config.hydrationConversationsPerSweep,
+    budgetReserve: config.hydrationBudgetReserve,
+    now: () => new Date(),
+  };
+
+  let hydrating = false;
+  async function hydration(): Promise<void> {
+    if (hydrating) return; // never overlap hydration sweeps
+    hydrating = true;
+    try {
+      const summary = await runChatsHydrationSweep(hydrationPorts);
+      if (summary.due > 0) log('chats_hydration', { ...summary });
+    } catch (err) {
+      log('chats_hydration_error', { name: (err as Error)?.name ?? 'error' });
+    } finally {
+      hydrationDigests.flush();
+      hydrating = false;
+    }
+  }
+
   // --- Retention: three independent steps, one cadence -----------------------------------------
   // 1. Content-free observations past the deployment's horizon.
   // 2. DERIVED work (the model's obligations) and the principal's domain-intelligence digests for a
@@ -407,12 +459,15 @@ async function main(): Promise<void> {
   // forward content sweep. With AI off (the default everywhere today), no historical loop is scheduled and
   // no message body is ever read.
   const historicalContentTimer = aiRuntime.enabled ? setInterval(() => void historicalContent(), config.historicalContentIntervalMs) : null;
+  // The Chats Intelligence HYDRATION sweep, likewise ONLY with the governed AI runtime enabled.
+  const hydrationTimer = aiRuntime.enabled ? setInterval(() => void hydration(), config.hydrationIntervalMs) : null;
   log('ai_runtime', { contentTriage: aiRuntime.enabled ? 'enabled' : 'off' });
   void sweep();
   void purge();
   void baseline();
   if (aiRuntime.enabled) void content();
   if (aiRuntime.enabled) void historicalContent();
+  if (aiRuntime.enabled) void hydration();
 
   const shutdown = () => {
     clearInterval(sweepTimer);
@@ -420,6 +475,7 @@ async function main(): Promise<void> {
     clearInterval(baselineTimer);
     if (contentTimer) clearInterval(contentTimer);
     if (historicalContentTimer) clearInterval(historicalContentTimer);
+    if (hydrationTimer) clearInterval(hydrationTimer);
     server.close();
     void prisma.$disconnect();
     log('worker_stopping');

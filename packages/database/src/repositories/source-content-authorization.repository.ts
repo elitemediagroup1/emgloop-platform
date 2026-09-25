@@ -24,6 +24,12 @@
 // unlike an item there is no provenance-only remainder worth keeping). The content cursor is kept,
 // so a later re-authorization does not re-triage what was already judged.
 //
+// CHATS INTELLIGENCE HYDRATION (2026-09-25). A fourth, independent lifecycle on this row
+// (intelligenceHydration*): a digest-only, one-off initialization for authorizations whose historical
+// backfill completed before conversation digests existed. dueForChatsHydration / recordChatsHydration
+// Progress advance only those columns; a revoke leaves them (revokedAt gates everything) and a
+// re-authorization after a revoke resets them to NOT_STARTED.
+//
 // THE WRITE RE-CHECKS IT (2026-09-24). `contentAuthorizedInTx` is the one read of that derived fact
 // for a writer: WorkItemRepository.detect calls it inside its own transaction before writing a MODEL
 // item on a derived subject, so a content sweep that was already in flight when the revoke committed
@@ -32,6 +38,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { SOURCE_CONNECTION_AUDIT_ACTIONS, type ConnectionProvider } from '@emgloop/shared';
 
+import { absentUntilMigrated } from '../creator/until-migrated';
 import { membershipAuthority } from './membership.repository';
 import { IntelligenceDigestRepository, intelligenceDigestsPresent } from './intelligence/intelligence-digest.repository';
 import { writeAudit, type SourceConnectionActor } from './source-connection.repository';
@@ -41,6 +48,52 @@ import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repositor
 // module (source-content-consent.ts) so that repository need not import this one, which imports
 // the withdrawal repository, which imports it back.
 export { contentAuthorizedInTx } from './source-content-consent';
+
+/**
+ * MERGE-SAFE COLUMNS. Every read of a content authorization, and every row a write returns, outside the
+ * Chats Intelligence hydration methods names exactly these -- the columns that existed BEFORE
+ * 20261004000000_chats_intelligence_hydration. Merging to `main` deploys the web tier at once, while the
+ * migration reaches production only when a human dispatches it afterwards; in that window a full-row
+ * read (Prisma selects every model column by default) would throw P2022 and take down the Connections
+ * status, Chats, authorize/revoke and offboarding. Only `dueForChatsHydration`,
+ * `recordChatsHydrationProgress` and the authorize-time reset (gated on `chatsHydrationColumnsPresent`)
+ * touch an `intelligenceHydration*` column.
+ */
+export const CONTENT_AUTHORIZATION_COLUMNS = Object.freeze({
+  id: true,
+  organizationId: true,
+  userId: true,
+  provider: true,
+  authorizedAt: true,
+  revokedAt: true,
+  contentCursor: true,
+  lastRunAt: true,
+  lastFailureClass: true,
+  backoffUntil: true,
+  historicalState: true,
+  historicalCursor: true,
+  historicalWindowFloorAt: true,
+  historicalOldestReachedAt: true,
+  historicalLastRunAt: true,
+  historicalLastFailureClass: true,
+  historicalBackoffUntil: true,
+  historicalFailedItems: true,
+  createdAt: true,
+  updatedAt: true,
+} as const) satisfies Prisma.SourceContentAuthorizationSelect;
+
+/**
+ * Whether the hydration columns exist in this database yet. Asked OUTSIDE any transaction (a failed
+ * statement aborts the whole Postgres transaction, so it cannot be caught inside one), exactly like
+ * `intelligenceDigestsPresent`. A missing column or table (P2022 / P2021) reads as absent; any other
+ * error is thrown. Scoped to one principal's rows.
+ */
+export async function chatsHydrationColumnsPresent(prisma: PrismaClient, organizationId: string, userId: string): Promise<boolean> {
+  const probed = await absentUntilMigrated(
+    prisma.sourceContentAuthorization.findMany({ where: { organizationId, userId }, select: { id: true, intelligenceHydrationState: true }, take: 1 }),
+  );
+  return probed !== null;
+}
 
 /** The words a withdrawal observation and the minimized evidence carry for an employee's own revoke. */
 const CONTENT_REVOKED_REASON = 'content authorization revoked';
@@ -67,9 +120,13 @@ export async function revokeContentAuthorizationsInTx(
     readonly digests?: boolean;
   },
 ): Promise<number> {
-  const live = await tx.sourceContentAuthorization.findMany({ where: { organizationId, userId, revokedAt: null } });
+  const live = await tx.sourceContentAuthorization.findMany({ where: { organizationId, userId, revokedAt: null }, select: CONTENT_AUTHORIZATION_COLUMNS });
   for (const row of live) {
-    await tx.sourceContentAuthorization.update({ where: { id: row.id }, data: { revokedAt: request.now, backoffUntil: null, historicalBackoffUntil: null } });
+    await tx.sourceContentAuthorization.update({
+      where: { id: row.id },
+      data: { revokedAt: request.now, backoffUntil: null, historicalBackoffUntil: null },
+      select: { id: true },
+    });
     // The digests drawn under this consent go with it, in the same transaction. (Offboarding also
     // erases every digest via WorkErasureRepository; this keeps the revoke self-sufficient.)
     const digests = request.digests === false ? { deleted: 0 } : await new IntelligenceDigestRepository(tx).withdrawForProvider({ organizationId, userId }, row.provider);
@@ -150,6 +207,46 @@ export interface HistoricalContentProgress {
   readonly now: Date;
 }
 
+/** The Chats Intelligence hydration lifecycle (DB CHECK). A revoke stops it via revokedAt. */
+export type ChatsHydrationState = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETE';
+
+/** One authorization worth a Chats Intelligence HYDRATION run now: routing fields only, never a credential or content. */
+export interface DueChatsHydration {
+  readonly organizationId: string;
+  readonly userId: string;
+  readonly provider: ConnectionProvider;
+  /** Opaque dialog-pagination frontier the hydration sweep resumes from. Never any other cursor. */
+  readonly hydrationCursor: string | null;
+  /** The baseline window floor: hydration never reads below it. */
+  readonly historicalWindowFloorAt: Date;
+}
+
+/**
+ * What one HYDRATION run recorded. Advances ONLY the intelligenceHydration* columns -- NEVER the live
+ * observation cursor, the baseline checkpoint, the forward contentCursor or the historical* columns.
+ */
+export interface ChatsHydrationProgress {
+  readonly cursor: string | null;
+  readonly state: ChatsHydrationState;
+  readonly failureClass?: string | null;
+  readonly backoffUntil?: Date | null;
+  /** Conversations passed over on a PERMANENT triage failure this run. Incremented, never reset here. */
+  readonly failedItemsDelta?: number;
+  /** The triage output schema a COMPLETED hydration covered. Written only with state COMPLETE. */
+  readonly schemaId?: string | null;
+  readonly now: Date;
+}
+
+/** The hydration columns as a re-authorization after a revoke leaves them: armed from the start. */
+const HYDRATION_RESET = Object.freeze({
+  intelligenceHydrationState: 'NOT_STARTED',
+  intelligenceHydrationCursor: null,
+  intelligenceHydrationLastFailureClass: null,
+  intelligenceHydrationBackoffUntil: null,
+  intelligenceHydrationFailedItems: 0,
+  intelligenceHydrationSchemaId: null,
+});
+
 export type ContentWriteOutcome =
   | { readonly outcome: 'AUTHORIZED'; readonly authorizationId: string }
   | { readonly outcome: 'REVOKED'; readonly authorizationId: string }
@@ -182,7 +279,9 @@ export class SourceContentAuthorizationRepository {
    * Authorize (or re-affirm) content processing. Refused, writing nothing, if the membership is not
    * active or there is no connection to authorize content for (content consent never precedes a
    * connection). A re-authorization clears any prior revoke and stamps a fresh authorizedAt, but keeps
-   * the content cursor so a resumed sweep does not re-triage the same messages.
+   * the content cursor so a resumed sweep does not re-triage the same messages. A re-authorization
+   * AFTER A REVOKE also resets the Chats Intelligence hydration to NOT_STARTED (fresh consent, fresh
+   * initialization); re-affirming a live authorization does not touch it.
    */
   async authorize(
     organizationId: string,
@@ -190,22 +289,31 @@ export class SourceContentAuthorizationRepository {
     provider: ConnectionProvider,
     request: { readonly now: Date; readonly actor: SourceConnectionActor },
   ): Promise<ContentWriteOutcome> {
+    // Known before the transaction: a missing column cannot be caught inside one (see the helper).
+    const hydrationPresent = await chatsHydrationColumnsPresent(this.prisma, organizationId, userId);
     return this.prisma.$transaction(async (tx) => {
       const standing = await membershipAuthority(tx, organizationId, userId, request.now);
       if (!standing.granted) return { outcome: 'NOT_PERMITTED' as const };
       const connection = await tx.sourceConnection.findFirst({ where: { organizationId, userId, provider } });
       if (!connection) return { outcome: 'NO_CONNECTION' as const };
-      const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider } });
+      const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider }, select: CONTENT_AUTHORIZATION_COLUMNS });
       const reaffirm = {
         authorizedAt: request.now,
         revokedAt: null,
         lastFailureClass: null,
         backoffUntil: null,
+        // FRESH CONSENT, FRESH INITIALIZATION. A re-authorization AFTER a revoke re-arms the Chats
+        // Intelligence hydration from the start: the revoke deleted every digest drawn under the old
+        // consent, so there is nothing for the forward path to own until a new message arrives. A
+        // re-affirmation of a LIVE authorization leaves hydration exactly where it is. Before the
+        // hydration migration there is nothing to reset (the columns do not exist), so it is skipped.
+        ...(hydrationPresent && existing && existing.revokedAt != null ? HYDRATION_RESET : {}),
       };
       const row = existing
-        ? await tx.sourceContentAuthorization.update({ where: { id: existing.id }, data: reaffirm })
+        ? await tx.sourceContentAuthorization.update({ where: { id: existing.id }, data: reaffirm, select: { id: true } })
         : await tx.sourceContentAuthorization.create({
             data: { organizationId, userId, provider, authorizedAt: request.now, contentCursor: null },
+            select: { id: true },
           });
       await writeAudit(this.prisma, tx, {
         organizationId,
@@ -237,12 +345,13 @@ export class SourceContentAuthorizationRepository {
     // Known before the transaction: a missing table cannot be caught inside one (see the helper).
     const digestsPresent = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider } });
+      const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider }, select: CONTENT_AUTHORIZATION_COLUMNS });
       if (!existing || existing.revokedAt != null) return { outcome: 'NOTHING_TO_DO' as const };
       const connection = await tx.sourceConnection.findFirst({ where: { organizationId, userId, provider } });
       const row = await tx.sourceContentAuthorization.update({
         where: { id: existing.id },
         data: { revokedAt: request.now, backoffUntil: null },
+        select: { id: true },
       });
       const withdrawn = await new WorkWithdrawalRepository(tx).withdrawDerived(
         { organizationId, userId },
@@ -264,7 +373,7 @@ export class SourceContentAuthorizationRepository {
 
   /** This person's content authorization for one provider. Null when none. Never exposes cursor meaning. */
   async get(organizationId: string, userId: string, provider: ConnectionProvider): Promise<ContentAuthorizationRecord | null> {
-    const row = await this.prisma.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider } });
+    const row = await this.prisma.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider }, select: CONTENT_AUTHORIZATION_COLUMNS });
     return row ? toRecord(row) : null;
   }
 
@@ -413,6 +522,84 @@ export class SourceContentAuthorizationRepository {
     if (progress.oldestReachedAt) data.historicalOldestReachedAt = progress.oldestReachedAt;
     // A PERMANENT triage failure advances past the conversation and is COUNTED, never silently lost.
     if (progress.failedItemsDelta && progress.failedItemsDelta > 0) data.historicalFailedItems = { increment: progress.failedItemsDelta };
+    const { count } = await this.prisma.sourceContentAuthorization.updateMany({
+      where: { organizationId, userId, provider, revokedAt: null },
+      data: data as never,
+    });
+    return count === 1;
+  }
+
+  // --- Chats Intelligence initialization ("hydration") -------------------------------------------
+  //
+  // A DIGEST-ONLY, one-off, resumable pass over the already-authorized recent window: for each recent
+  // conversation that has no current CHATS digest, one governed triage call whose conversation reading is
+  // stored as the digest. It writes NO WorkItem and runs NO reconciliation (the historical backfill owns
+  // obligations; re-arming it would re-sight and could supersede open items). It advances ONLY the
+  // intelligenceHydration* columns.
+
+  /**
+   * PLATFORM-WORKER DISCOVERY, ACROSS ALL TENANTS. Mirrors dueForHistoricalContent: the durable worker is
+   * ONE process serving every organization, so this returns the authorizations worth a HYDRATION run now
+   * regardless of org -- routing fields only (org, user, provider, the hydration cursor and the baseline
+   * floor), never a credential and never content. Liveness and activation are enforced DOWNSTREAM.
+   *
+   * DUE = NOT revoked, hydration NOT_STARTED or IN_PROGRESS, baseline eligible (historicalWindowFloorAt
+   * set, which is only ever done on a COMPLETE baseline) AND the historical backfill COMPLETE -- so
+   * hydration never races an armed backfill, which already writes digests -- and past any backoff.
+   * Stalest-run first.
+   *
+   * A MISSING COLUMN OR TABLE (P2021 / P2022: a worker deployed ahead of this migration) returns [] --
+   * nothing is due, nothing is read, and the other sweeps are untouched.
+   */
+  async dueForChatsHydration(limit = 500): Promise<DueChatsHydration[]> {
+    const now = new Date();
+    const rows = await absentUntilMigrated(
+      this.prisma.sourceContentAuthorization.findMany({
+        where: {
+          revokedAt: null,
+          intelligenceHydrationState: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
+          historicalState: 'COMPLETE',
+          historicalWindowFloorAt: { not: null },
+          OR: [{ intelligenceHydrationBackoffUntil: null }, { intelligenceHydrationBackoffUntil: { lt: now } }],
+        },
+        orderBy: [{ intelligenceHydrationLastRunAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+        take: Math.max(1, Math.min(limit, 2000)),
+        select: { organizationId: true, userId: true, provider: true, intelligenceHydrationCursor: true, historicalWindowFloorAt: true },
+      }),
+    );
+    if (rows === null) return [];
+    return rows.map((r) => ({
+      organizationId: r.organizationId,
+      userId: r.userId,
+      provider: r.provider as ConnectionProvider,
+      hydrationCursor: r.intelligenceHydrationCursor ?? null,
+      // Non-null by the WHERE above; the fallback keeps the type honest without a non-null assertion.
+      historicalWindowFloorAt: r.historicalWindowFloorAt ?? now,
+    }));
+  }
+
+  /**
+   * Record one HYDRATION run's outcome. Scoped to (org, user, provider) and skips an authorization revoked
+   * in the meantime (revokedAt: null in the WHERE), so a revoke always wins. THIS METHOD NEVER TOUCHES
+   * source_connections, source_baseline_checkpoints, the forward contentCursor OR the historical* columns --
+   * it advances only the intelligenceHydration* columns. The schema id is written only on COMPLETE.
+   * Returns true when exactly one authorization advanced.
+   */
+  async recordChatsHydrationProgress(
+    organizationId: string,
+    userId: string,
+    provider: ConnectionProvider,
+    progress: ChatsHydrationProgress,
+  ): Promise<boolean> {
+    const data: Record<string, unknown> = {
+      intelligenceHydrationCursor: progress.cursor,
+      intelligenceHydrationState: progress.state,
+      intelligenceHydrationLastFailureClass: progress.failureClass ?? null,
+      intelligenceHydrationBackoffUntil: progress.backoffUntil ?? null,
+      intelligenceHydrationLastRunAt: progress.now,
+    };
+    if (progress.state === 'COMPLETE' && progress.schemaId) data.intelligenceHydrationSchemaId = progress.schemaId;
+    if (progress.failedItemsDelta && progress.failedItemsDelta > 0) data.intelligenceHydrationFailedItems = { increment: progress.failedItemsDelta };
     const { count } = await this.prisma.sourceContentAuthorization.updateMany({
       where: { organizationId, userId, provider, revokedAt: null },
       data: data as never,

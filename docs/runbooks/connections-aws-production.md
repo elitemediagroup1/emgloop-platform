@@ -374,6 +374,18 @@ create, no update, no observation, no audit — so "no derived item after the au
 holds at the write itself, not by a worker-side pre-check that would re-open the same window. The
 worker logs `detect_refused` with a per-sweep count, never an id.
 
+### Chats intelligence initialization (digest-only hydration)
+
+Same mechanism, bounds, budget reserve and progress signals as staging
+(`connections-aws-staging.md`, "Chats intelligence initialization"). With AI on, every production
+person whose historical backfill already COMPLETED becomes eligible without re-authorizing; the sweep
+writes CHATS digests only (never a WorkItem or a reconciliation) and stops at the budget reserve so
+forward triage keeps at least 20 of the 50 daily calls. Order: (1) **Deploy Prisma Migrations** (it
+carries `20261004000000_chats_intelligence_hydration`), (2) deploy the worker. Merging deploys the web
+tier first; that is safe -- every other content-authorization read and write names only the
+pre-existing columns, so nothing on the web path touches the new ones before the migration lands. Watch the `chats_hydration` log
+line and **Read Telegram State** (`hydrationState` per authorization) until each reads `COMPLETE`.
+
 ## Part 10 — Open governance items (recorded here so they are not mistaken for cleared)
 
 These are not blockers found in the code, the provider or the platform. They are decisions that
