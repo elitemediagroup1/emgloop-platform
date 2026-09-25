@@ -2438,7 +2438,7 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
+## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR #341, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
 
 **Built, in one draft PR with one commit per phase:**
 
