@@ -89,6 +89,17 @@ export interface TelegramAuthorizationRow {
   readonly historicalBackoffUntil: Date | null;
   readonly historicalFailedItems: number;
   readonly historicalCursorHeld: boolean;
+  /**
+   * Chats Intelligence initialization (digest-only hydration). The cursor is a HELD flag, never read.
+   * NOT_MIGRATED (and the rest null) when the database has not received the hydration migration yet.
+   */
+  readonly intelligenceHydrationState: string;
+  readonly intelligenceHydrationLastRunAt: Date | null;
+  readonly intelligenceHydrationLastFailureClass: string | null;
+  readonly intelligenceHydrationBackoffUntil: Date | null;
+  readonly intelligenceHydrationFailedItems: number | null;
+  readonly intelligenceHydrationSchemaId: string | null;
+  readonly hydrationCursorHeld: boolean;
 }
 
 export interface TelegramLedgerOutcome {
@@ -268,13 +279,51 @@ export class PrismaTelegramStateReader implements TelegramStateReader {
       })
     ).map((r) => ({ ...r, checkpointHeld: checkpointHeld.has(r.userId) }));
 
-    // Content authorizations. Neither the forward nor the historical cursor is ever selected.
+    // Content authorizations. Neither the forward, the historical nor the hydration cursor is ever selected.
     const contentCursorHeld = new Set(
       (await this.prisma.sourceContentAuthorization.findMany({ where: { ...scope, contentCursor: { not: null } }, select: { userId: true } })).map((r) => r.userId),
     );
     const historicalCursorHeld = new Set(
       (await this.prisma.sourceContentAuthorization.findMany({ where: { ...scope, historicalCursor: { not: null } }, select: { userId: true } })).map((r) => r.userId),
     );
+    // The hydration columns are read on their own, so a database the hydration migration has not reached
+    // yet (P2021 / P2022) still yields every other line, with hydrationState=NOT_MIGRATED.
+    let hydration: Map<string, { state: string; lastRunAt: Date | null; lastFailure: string | null; backoffUntil: Date | null; failedItems: number; schemaId: string | null }> | null;
+    let hydrationCursorHeld = new Set<string>();
+    try {
+      hydrationCursorHeld = new Set(
+        (await this.prisma.sourceContentAuthorization.findMany({ where: { ...scope, intelligenceHydrationCursor: { not: null } }, select: { userId: true } })).map((r) => r.userId),
+      );
+      const rows = await this.prisma.sourceContentAuthorization.findMany({
+        where: scope,
+        select: {
+          userId: true,
+          intelligenceHydrationState: true,
+          intelligenceHydrationLastRunAt: true,
+          intelligenceHydrationLastFailureClass: true,
+          intelligenceHydrationBackoffUntil: true,
+          intelligenceHydrationFailedItems: true,
+          intelligenceHydrationSchemaId: true,
+        },
+      });
+      hydration = new Map(
+        rows.map((r) => [
+          r.userId,
+          {
+            state: r.intelligenceHydrationState,
+            lastRunAt: r.intelligenceHydrationLastRunAt,
+            lastFailure: r.intelligenceHydrationLastFailureClass,
+            backoffUntil: r.intelligenceHydrationBackoffUntil,
+            failedItems: r.intelligenceHydrationFailedItems,
+            schemaId: r.intelligenceHydrationSchemaId,
+          },
+        ]),
+      );
+    } catch (err) {
+      const code = (err as { code?: unknown })?.code;
+      if (code !== 'P2021' && code !== 'P2022') throw err;
+      hydration = null;
+    }
     const authorizations: TelegramAuthorizationRow[] = (
       await this.prisma.sourceContentAuthorization.findMany({
         where: scope,
@@ -295,7 +344,18 @@ export class PrismaTelegramStateReader implements TelegramStateReader {
           historicalFailedItems: true,
         },
       })
-    ).map((r) => ({ ...r, cursorHeld: contentCursorHeld.has(r.userId), historicalCursorHeld: historicalCursorHeld.has(r.userId) }));
+    ).map((r) => ({
+      ...r,
+      intelligenceHydrationState: hydration === null ? 'NOT_MIGRATED' : (hydration.get(r.userId)?.state ?? 'NOT_STARTED'),
+      intelligenceHydrationLastRunAt: hydration?.get(r.userId)?.lastRunAt ?? null,
+      intelligenceHydrationLastFailureClass: hydration?.get(r.userId)?.lastFailure ?? null,
+      intelligenceHydrationBackoffUntil: hydration?.get(r.userId)?.backoffUntil ?? null,
+      intelligenceHydrationFailedItems: hydration === null ? null : (hydration.get(r.userId)?.failedItems ?? 0),
+      intelligenceHydrationSchemaId: hydration?.get(r.userId)?.schemaId ?? null,
+      cursorHeld: contentCursorHeld.has(r.userId),
+      historicalCursorHeld: historicalCursorHeld.has(r.userId),
+      hydrationCursorHeld: hydrationCursorHeld.has(r.userId),
+    }));
 
     // Derived work items: counts only. The row (its title, its evidence, its subject) is never selected.
     const itemScope = { organizationId, producerKind: 'MODEL', subjectRef: { startsWith: TELEGRAM_SUBJECT_REF_PREFIX } };
@@ -436,6 +496,13 @@ export async function runTelegramState(request: { organizationSlug: string }, de
       historicalBackoffUntil: iso(a.historicalBackoffUntil),
       historicalFailedItems: a.historicalFailedItems,
       historicalCursor: a.historicalCursorHeld,
+      hydrationState: token(a.intelligenceHydrationState),
+      hydrationLastRunAt: iso(a.intelligenceHydrationLastRunAt),
+      hydrationLastFailure: token(a.intelligenceHydrationLastFailureClass),
+      hydrationBackoffUntil: iso(a.intelligenceHydrationBackoffUntil),
+      hydrationFailedItems: a.intelligenceHydrationFailedItems,
+      hydrationSchema: token(a.intelligenceHydrationSchemaId),
+      hydrationCursor: a.hydrationCursorHeld,
     }));
   }
   deps.log(line({

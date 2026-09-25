@@ -2002,6 +2002,15 @@ derived items; **offboarding** erases it with the rest of the person's work stat
 quote (quotation marks and any ten-word run copied from a message are refused before storage) and no
 identity field. It is intelligence, never work: nothing about it creates, closes or changes a WorkItem.
 
+**Chats intelligence initialization (PR C, 2026-09-25).** A person whose historical backfill completed
+before PR B is initialized once by a DIGEST-ONLY hydration sweep: recent conversations (newest message
+within 30 days and the baseline floor) with no current digest get one, from the same governed call and
+the same write path, under the same row-12 rules. **Hydration writes only digests -- never a WorkItem,
+never a reconciliation**; the obligations in its answers are dropped (the historical backfill and the
+forward sweep own obligations). Its progress lives on `source_content_authorizations`
+(`intelligenceHydration*`, content-free); a revoke stops it and a re-authorization after a revoke starts
+it again.
+
 **Status: approved as initial product policy (Matt, 2026-09-17, §29.1 D13).** These are the windows
 Daily Loop starts with — deliberately *policy*, not permanent universal constants. They live as named
 values in one place, are printed in the runbook and shown on the Connections page, and changing one is

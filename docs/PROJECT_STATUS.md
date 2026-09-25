@@ -2415,6 +2415,19 @@ triage output ceiling 1000 -> 2000 (budget `.4-proposed`: per-call 2000, daily o
 unchanged) -- needs Matt's approval with the PR. Digests arrive only on new messages or an armed backfill;
 no replay of completed history. Deploy order: PR A migration -> worker -> web.
 
+**Chats Intelligence initialization (PR C, `feat/chats-intelligence-hydration`, 2026-09-25, built, not
+committed at write time).** PR B's digests only arrive on a new message or an armed backfill, so people
+whose backfill COMPLETED before #338 had none. A DIGEST-ONLY hydration sweep in the worker
+(`chats-hydration-orchestrator.ts`) initializes them once, with no re-authorization: it reuses the
+historical pager, the same `telegram.content.triage` call and the same digest write (consent re-checked),
+skips conversations older than 30 days / the baseline floor or already digested (no model call), writes
+**no WorkItem and no reconciliation**, runs at most 5 calls per person per sweep (hard max 10) and stops
+at a budget reserve of 20 of the 50 daily triage invocations (read from the ledger). State on
+`source_content_authorizations.intelligenceHydration*` -- **migration
+`20261004000000_chats_intelligence_hydration`** (additive; existing rows NOT_STARTED). Merge-safe ahead
+of the migration (web reads/writes name only pre-existing columns; tested against a simulated unmigrated
+schema). Deploy order: merge (web) -> migration -> worker. Watch `chats_hydration` logs and `read-telegram-state` `hydrationState`.
+
 **Follow-ups recorded in #328.** DONE on `fix/detect-consent-recheck` (draft PR #331; the runbook's
 Part 9 gate, must merge before step 8): `WorkItemRepository.detect` re-checks content consent inside its
 own transaction, so an in-flight sweep can no longer write a derived item after a revoke or offboarding.

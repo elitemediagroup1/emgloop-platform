@@ -176,10 +176,10 @@ What an operator should know:
   conversation reviewed; there is no second task and no rollup call. The route's output ceiling is
   2000 tokens (was 1000) and the task's daily output tokens 100k (was 50k); the daily invocation cap (50)
   and the organization/global ceilings are unchanged.
-- **When digests appear.** Only when triage runs: a conversation with a new text message past the
-  forward cursor, or while an authorization's historical backfill is still armed. A conversation whose
-  backfill already COMPLETED gets no digest until its next new message. **There is no automatic replay
-  of already-read history**, and none should be added without a separate decision.
+- **When digests appear.** When triage runs: a conversation with a new text message past the forward
+  cursor, while an authorization's historical backfill is still armed, or once through the digest-only
+  **Chats intelligence initialization** below (recent conversations with no digest yet). There is no
+  other replay of already-read history, and none should be added without a separate decision.
 - **Order.** Obligations are written and reconciled, then the digest, then the cursor advances. A
   database failure on the digest write holds the cursor (the conversation is re-read next cycle). A
   refusal never holds: `CONSENT_NOT_IN_FORCE` / `NOT_AN_ACTIVE_MEMBER` stop that person's run for the
@@ -190,6 +190,52 @@ What an operator should know:
 - **Order when deploying:** the `intelligence_digests` migration (PR A) before this worker. A worker
   that runs ahead of it logs `NOT_MIGRATED` counts, writes no digest, and still raises obligations -- it
   never holds the cursor for a table that is not there.
+
+### Chats intelligence initialization (digest-only hydration)
+
+Authorizations whose historical backfill COMPLETED before Chats Intelligence existed would otherwise
+have no digest until a new message arrived. The worker's hydration sweep
+(`apps/connections-worker/src/chats-hydration-orchestrator.ts`) initializes them once:
+
+- **Who becomes eligible.** Every live content authorization whose baseline is COMPLETE and whose
+  historical backfill is COMPLETE -- with **no** re-authorization, reconnect or new message. The migration
+  `20261004000000_chats_intelligence_hydration` adds `intelligenceHydration*` columns to
+  `source_content_authorizations`; existing rows default to `NOT_STARTED`. A backfill that is still
+  armed is not eligible (it already writes digests). A revoke stops it (revokedAt); re-authorizing
+  after a revoke starts it again from `NOT_STARTED`. `COMPLETE` is never re-run.
+- **What it writes.** Only the person's CHATS digests, through the same write path as forward triage
+  (consent and membership re-checked inside the write). **Never a WorkItem, never a reconciliation**:
+  the obligations in the answer are dropped (§21 of `daily-loop-employee-intelligence.md`).
+- **What it reads, and what it calls.** It pages dialogs from its own cursor (distinct from every other
+  cursor). A conversation whose newest message is older than 30 days (the digest retention) or the
+  baseline floor, or that already has a current digest, is skipped with **no model call**. Otherwise one
+  `telegram.content.triage` call, exactly as forward triage.
+- **Bounds.** At most `LOOP_CONNECTION_CHATS_HYDRATION_CONVERSATIONS_PER_SWEEP` calls per person per
+  sweep (default 5, hard max 10) and at most 10 dialog pages; the sweep runs every
+  `LOOP_CONNECTION_CHATS_HYDRATION_INTERVAL_MS` (default 300000, min 60000), and only with AI on.
+- **Budget reserve.** Before every call the sweep reads the organization's `telegram.content.triage`
+  invocations from the AI ledger (the same windows the gateway admits against: task and organization
+  business day, trailing-24 h global) and **stops** when the headroom under the tightest daily cap is
+  at or below `LOOP_CONNECTION_CHATS_HYDRATION_BUDGET_RESERVE` (default 20). With the reviewed cap of
+  50/day that leaves forward triage at least 20 calls; hydration holds with
+  `HYDRATION_BUDGET_RESERVE` and resumes the next sweep or the next day. The gateway's own budget
+  refusal still applies on top.
+- **Failures.** TRANSIENT / governed refusal / budget reserve: the cursor holds and the page is retried
+  (conversations already given a digest cost nothing on the retry). FLOOD_WAIT: holds and backs off.
+  A rejected or refused answer: counted in `intelligenceHydrationFailedItems` and passed over (forward
+  triage reads it on its next message). Consent ended at the write: that person stops for the sweep.
+- **Watching progress.** The worker log line `chats_hydration` (counts only: `due`, `pages`,
+  `skippedOld`, `skippedHasDigest`, `invoked`, `digestsWritten`/`Unchanged`/`Refused`, `failedItems`,
+  `completed`, `held`, `heldBy`); `digest_refused` with `sweep=chats_hydration`. The **Read Telegram
+  State** workflow prints `hydrationState`, `hydrationLastRunAt`, `hydrationLastFailure`,
+  `hydrationFailedItems`, `hydrationSchema` and a `hydrationCursor` held flag per authorization. The
+  intelligence status page shows the digests and ledger rows as they land -- no change was needed.
+- **Rollout order.** (1) Apply the migration (`connections-migrate-staging`), (2) deploy the worker.
+  The code is merge-safe ahead of the migration: every other read and write of
+  `source_content_authorizations` names only the pre-existing columns (`CONTENT_AUTHORIZATION_COLUMNS`),
+  so the web tier (Connections, Chats, authorize/revoke, offboarding) works before the migration; the
+  re-authorize reset is skipped until the columns exist; a worker ahead of it finds nothing due
+  (`dueForChatsHydration` returns `[]`); and Read Telegram State prints `hydrationState=NOT_MIGRATED`.
 
 **Fail-closed:** with the secret missing, the deploy's ECS task cannot resolve the credential; with the
 variable missing/empty, no `LOOP_AI_*` env is set at all; with no recorded provider policy, the gateway
