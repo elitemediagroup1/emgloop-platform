@@ -742,6 +742,8 @@ export {
   type TelegramConversationTriageInput,
   type TelegramConversationTriageResult,
   type TelegramTriageObligation,
+  type TelegramConversationReading,
+  type TelegramConversationStatement,
 } from './services/ai-runtime/telegram-content-triage.service';
 export {
   buildTelegramTriageContext,

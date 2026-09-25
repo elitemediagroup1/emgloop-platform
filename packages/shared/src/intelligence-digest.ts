@@ -68,6 +68,17 @@ export interface DigestContent {
   readonly commitments?: readonly string[];
   readonly opportunities?: readonly string[];
   readonly concerns?: readonly string[];
+  /**
+   * Operational signals that are neither upside nor downside (a schedule move, a supplier change).
+   * Added 2026-09-25 (Chats Intelligence) for the triage v4 signal kind OPERATIONAL.
+   */
+  readonly operational?: readonly string[];
+  /**
+   * Why this subject needs the person's attention now, in one sentence -- present ONLY when it does.
+   * Absent is "the reading found no reason", never "nothing needs you" under partial coverage.
+   * Added 2026-09-25 (Chats Intelligence) for the triage v4 `attention` reading.
+   */
+  readonly attention?: string;
   /** What changed since the previous digest of this subject, in one sentence. */
   readonly stateChange?: string;
   /** The one-sentence reading of the whole subject. */
@@ -77,9 +88,32 @@ export interface DigestContent {
   readonly limitations?: readonly string[];
 }
 
-const LIST_KEYS = ['topics', 'developments', 'unresolved', 'commitments', 'opportunities', 'concerns', 'limitations'] as const;
-const STRING_KEYS = ['stateChange', 'synthesis'] as const;
+const LIST_KEYS = ['topics', 'developments', 'unresolved', 'commitments', 'opportunities', 'concerns', 'operational', 'limitations'] as const;
+const STRING_KEYS = ['stateChange', 'synthesis', 'attention'] as const;
 export const DIGEST_CONTENT_KEYS: readonly string[] = Object.freeze(['relevance', 'confidence', ...LIST_KEYS, ...STRING_KEYS]);
+
+/**
+ * What each content field KNOWS: OBSERVED fields state what the evidence itself says (each statement a
+ * producer wrote there rests on one piece of evidence its provenance anchors); INFERRED fields are the
+ * producer's reading of the whole. A surface that shows an INFERRED field shows it as a reading.
+ * `limitations` is neither: it is what the producer could not see. Added 2026-09-25 (Chats Intelligence).
+ */
+export const DIGEST_KNOWLEDGE = ['OBSERVED', 'INFERRED'] as const;
+export type DigestKnowledge = (typeof DIGEST_KNOWLEDGE)[number];
+export const DIGEST_FIELD_KNOWLEDGE: Readonly<Record<Exclude<keyof DigestContent, 'limitations'>, DigestKnowledge>> = Object.freeze({
+  developments: 'OBSERVED',
+  commitments: 'OBSERVED',
+  relevance: 'INFERRED',
+  topics: 'INFERRED',
+  unresolved: 'INFERRED',
+  opportunities: 'INFERRED',
+  concerns: 'INFERRED',
+  operational: 'INFERRED',
+  attention: 'INFERRED',
+  stateChange: 'INFERRED',
+  synthesis: 'INFERRED',
+  confidence: 'INFERRED',
+});
 
 /**
  * Keys that would carry the evidence itself rather than a reading of it. Refused by name,

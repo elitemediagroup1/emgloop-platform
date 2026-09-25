@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  DIGEST_CONTENT_KEYS,
+  DIGEST_FIELD_KNOWLEDGE,
   DIGEST_FORBIDDEN_KEYS,
   DIGEST_LIST_MAX_ITEMS,
   DIGEST_STRING_MAX_CHARS,
@@ -211,4 +213,27 @@ test('freshness: a connection that is not live, or a withdrawn digest -> DISCONN
   assert.equal(digestFreshness(digest, { ...live, connectionLive: false }), 'DISCONNECTED');
   assert.equal(digestFreshness({ ...digest, status: 'WITHDRAWN' }, live), 'DISCONNECTED');
   assert.equal(digestFreshness({ ...digest, coverage: 'GREAT' }, live), 'ERROR');
+});
+
+// --- Chats Intelligence (2026-09-25): two additive content fields and the per-field knowledge basis ---
+
+test('additive fields: `operational` is a bounded list and `attention` a bounded sentence, refused like the rest', () => {
+  assert.deepEqual(digestContentRefusals({ operational: ['The install moved to next week'], attention: 'Dana set a deadline for the contract' }), []);
+  assert.ok(digestContentRefusals({ operational: Array.from({ length: DIGEST_LIST_MAX_ITEMS + 1 }, (_, i) => `op ${i}`) }).includes('LIST_TOO_LONG'));
+  assert.ok(digestContentRefusals({ operational: ['x'.repeat(DIGEST_STRING_MAX_CHARS + 1)] }).includes('STRING_TOO_LONG'));
+  assert.ok(digestContentRefusals({ operational: 'not a list' }).includes('WRONG_TYPE'));
+  assert.ok(digestContentRefusals({ attention: '' }).includes('EMPTY_STRING'));
+  assert.ok(digestContentRefusals({ attention: 'x'.repeat(DIGEST_STRING_MAX_CHARS + 1) }).includes('STRING_TOO_LONG'));
+  assert.ok(digestContentRefusals({ attention: ['a list'] }).includes('WRONG_TYPE'));
+  // Still total: a key the contract does not name is refused, and the evidence keys are refused by name.
+  assert.ok(digestContentRefusals({ decisions: ['x'] }).includes('UNKNOWN_KEY'));
+  assert.ok(digestContentRefusals({ quote: 'x' }).includes('FORBIDDEN_KEY'));
+});
+
+test('every content field but `limitations` states what it KNOWS: only developments and commitments are OBSERVED', () => {
+  const fields = DIGEST_CONTENT_KEYS.filter((k) => k !== 'limitations').sort();
+  assert.deepEqual(Object.keys(DIGEST_FIELD_KNOWLEDGE).sort(), fields, 'one basis per field, no more, no fewer');
+  const observed = Object.entries(DIGEST_FIELD_KNOWLEDGE).filter(([, k]) => k === 'OBSERVED').map(([f]) => f).sort();
+  assert.deepEqual(observed, ['commitments', 'developments']);
+  assert.ok(Object.isFrozen(DIGEST_FIELD_KNOWLEDGE));
 });

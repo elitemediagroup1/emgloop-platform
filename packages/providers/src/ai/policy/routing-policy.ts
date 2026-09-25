@@ -83,7 +83,14 @@ function target(
 // now carries minimized business context (what happened, the topic, the next step, a GROUNDED deadline)
 // and the conversation is named by Telegram's own label. Provider, effort, deadlines, output ceiling and
 // budget class are UNCHANGED: the same 1000-token output ceiling holds the richer (still small) answer.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-22.7';
+// .8 (2026-09-25, Chats Intelligence): Telegram Content Triage moves to task 3.0.0 (output schema v4). The
+// SAME one call now also returns a minimized reading of the whole conversation, stored as the person's
+// private CHATS digest -- no second call, no new task. Provider, effort and deadlines are UNCHANGED. The
+// OUTPUT CEILING rises 1000 -> 2000 on both targets: the v4 answer's worst case (eight obligations plus a
+// full conversation reading) no longer fits 1000 tokens, and an answer cut off at the ceiling is not a
+// smaller answer, it is invalid JSON -- a FAILED call that holds the frontier and is re-run, i.e. spends
+// again. The budget class moves with it (budget .4-proposed below).
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-25.8';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
@@ -110,15 +117,16 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
       budgetClass: 'mail-reply-draft',
     }),
     // content-triage. A background conversation review: LOW effort, a SMALL output ceiling (each
-    // obligation is a category, a few short paraphrase fields and an anchor; at most eight, plus a few
-    // limitations), and short deadlines because nothing is waiting on it interactively.
+    // obligation is a category, a few short paraphrase fields and an anchor; at most eight, plus a
+    // bounded conversation reading and a few limitations), and short deadlines because nothing is
+    // waiting on it interactively.
     // GENERAL_REASONING has no default provider, so `providerChoiceReason` records why Anthropic
     // Claude Opus 5 is the reviewed primary; GPT-6 Astra is the availability fallback, never a second opinion.
     'telegram.content.triage': Object.freeze({
       taskId: 'telegram.content.triage',
-      taskVersion: '2.1.0',
-      primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1_000 }),
-      fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 1_000 }),
+      taskVersion: '3.0.0',
+      primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
+      fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 2_000 }),
       fallbackPermitted: true,
       budgetClass: 'telegram-content-triage',
       providerChoiceReason:
@@ -135,7 +143,11 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // across every organization) stay exactly as reviewed, and triage sweeps run INSIDE that envelope.
 // Its per-message call is cheaper than a draft; the shared caps bind first, by design. Still a
 // proposal until Matt approves the figures -- and the runtime is OFF, so nothing spends against it.
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-21.3-proposed';
+// .4 (2026-09-25, Chats Intelligence): the telegram-content-triage class's per-call OUTPUT cap follows the
+// route's ceiling, 1000 -> 2000, and its daily OUTPUT tokens 50k -> 100k so the same 50 daily invocations
+// still fit (the ledger reserves each call at its ceiling). Its invocation cap, its input caps, and the
+// organization and global ceilings are UNCHANGED -- they still bind first. Still a proposal.
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-25.4-proposed';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
@@ -153,17 +165,17 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
       maxOutputTokensPerCall: 2_000,
       taskDaily: Object.freeze({ maxInvocations: 50, maxInputTokens: 800_000, maxOutputTokens: 120_000 }),
     }),
-    // A per-message triage: one short message in, a few fields out. Cheaper per call than a draft,
+    // A per-conversation triage: one bounded window in, a few fields and a short reading out. Cheaper per call than a draft,
     // but run far more often, so the daily invocation ceiling -- not the token ceiling -- is what
     // bounds one person's sweep. There is no all-message option: past a day's cap, the sweep simply
     // does not triage more, which fails safe (no verdict, no WorkItem).
     'telegram-content-triage': Object.freeze({
       maxInputTokensPerCall: 8_000,
-      maxOutputTokensPerCall: 1_000,
+      maxOutputTokensPerCall: 2_000,
       // Bounded to sit INSIDE the existing organization/global envelope (which the worst-case
       // guardrail keeps under $50/day across every organization): the shared caps bind first, and
       // that is the point -- adding a per-message task must not raise the platform's daily ceiling.
-      taskDaily: Object.freeze({ maxInvocations: 50, maxInputTokens: 400_000, maxOutputTokens: 50_000 }),
+      taskDaily: Object.freeze({ maxInvocations: 50, maxInputTokens: 400_000, maxOutputTokens: 100_000 }),
     }),
   }),
   // The ceilings still bound the WORST case, which is every call being the dearest class at its

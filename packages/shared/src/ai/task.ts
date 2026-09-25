@@ -188,7 +188,13 @@ export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   // MINIMIZED business context to be useful -- what specifically happened, what the person must do, and
   // any GROUNDED deadline -- and the conversation is named by the label Telegram itself shows (never a
   // name the model produced). The output schema and the routing entry's taskVersion move in lockstep.
-  version: '2.1.0',
+  // v3.0.0 (Chats Intelligence, 2026-09-25): the SAME one call also returns a minimized reading of the
+  // whole conversation (`conversation`: relevance, a paraphrased summary, topics, anchored developments,
+  // decisions and commitments, commercial/operational signals, what is unresolved, whether it needs the
+  // person, and Loop's confidence). The worker stores that reading as the person's private CHATS digest
+  // (`intelligence_digests`); the obligations are unchanged and remain WorkItems. ONE invocation still
+  // produces both -- there is no second pass and no rollup model call. Output schema v4.
+  version: '3.0.0',
   // A conservative actionability judgment over a conversation: general reasoning, not communication
   // drafting and not technical analysis. GENERAL_REASONING has no default provider, so the routing
   // entry names one and says why.
@@ -208,9 +214,9 @@ export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   consequence: 'READ_ONLY',
   requires: Object.freeze([{ resource: 'sourceConnections', action: 'view' } as const]),
   invokerRoles: Object.freeze(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']),
-  outputSchemaId: 'telegram-content-triage.v3',
+  outputSchemaId: 'telegram-content-triage.v4',
   // Informational: the reviewed routing policy sets each call's actual ceiling and deadline.
-  maxOutputTokens: 1000,
+  maxOutputTokens: 2000,
   timeoutMs: 20_000,
   tools: Object.freeze([]),
 });
@@ -354,9 +360,79 @@ export interface AiTriageObligation {
   readonly deadline: string | null;
 }
 
-/** The whole conversation's read: the obligations still unresolved. An empty list is valid. */
+/**
+ * The whole conversation's read: the obligations still unresolved (an empty list is valid) and, from v4,
+ * the minimized reading of the conversation itself. `conversation` is `undefined` only when the answer
+ * did not carry the key at all (which v4 rejects as WRONG_SCHEMA); `null` is the model saying it could
+ * not read the conversation -- an honest answer, stored as an INSUFFICIENT digest.
+ */
 export interface AiConversationTriage {
   readonly items: readonly AiTriageObligation[];
+  readonly conversation?: AiConversationIntelligence | null;
+}
+
+/**
+ * CHATS INTELLIGENCE (triage v4, 2026-09-25). The minimized reading of ONE conversation, produced by the
+ * same governed call that finds the obligations. It is INTELLIGENCE, NEVER WORK: nothing here becomes a
+ * WorkItem, and the obligations above stay the only thing that does.
+ *
+ * NO BODY, NO QUOTE, NO TRANSCRIPT. Every field is a short paraphrase in Loop's own words, bounded, and
+ * checked after the answer for quotation marks and for any run of `AI_TRIAGE_LIMITS.verbatimRunTokens`
+ * consecutive words copied from one message (VERBATIM_CONTENT) -- a digest can say what a conversation
+ * is about; it cannot carry what somebody wrote.
+ *
+ * KNOWLEDGE BASIS IS PER FIELD (the simplest faithful shape). `developments`, `decisions` and
+ * `commitments` are OBSERVED: each states what a message itself says and is anchored to that message's
+ * ordinal. `summary`, `topics`, `signals`, `unresolved`, `attention` and `relevance` are INFERRED: Loop's
+ * reading of the whole back-and-forth. `DIGEST_FIELD_KNOWLEDGE` in intelligence-digest.ts records the
+ * same split for the stored digest, so a surface can label an inference as one.
+ *
+ * NO IDENTITY FIELD. As with the obligations, who the conversation is with is Telegram's own label,
+ * recorded by the worker; nothing here is a name field a model could fill.
+ *
+ * `relevance` IS THE ONLY BASIS FOR CALLING A CONVERSATION "BUSINESS". Nothing else Loop holds about a
+ * chat classifies it.
+ */
+export const AI_CONVERSATION_RELEVANCE = ['BUSINESS', 'NOT_BUSINESS', 'UNCLEAR'] as const;
+export type AiConversationRelevance = (typeof AI_CONVERSATION_RELEVANCE)[number];
+
+/** Loop's ordinal reading of how well the conversation supports its own reading. Never a percentage. */
+export const AI_CONVERSATION_CONFIDENCE = ['LOW', 'MEDIUM', 'HIGH'] as const;
+export type AiConversationConfidence = (typeof AI_CONVERSATION_CONFIDENCE)[number];
+
+/** A commercial or operational signal. OPPORTUNITY is upside; RISK and CONCERN are downside; OPERATIONAL is neither. */
+export const AI_CONVERSATION_SIGNAL_KINDS = ['OPPORTUNITY', 'RISK', 'CONCERN', 'OPERATIONAL'] as const;
+export type AiConversationSignalKind = (typeof AI_CONVERSATION_SIGNAL_KINDS)[number];
+
+/** One short paraphrased statement, anchored to the 1-based ordinal of the message it rests on. */
+export interface AiConversationStatement {
+  readonly anchorOrdinal: number;
+  readonly statement: string;
+}
+
+export interface AiConversationSignal extends AiConversationStatement {
+  readonly kind: AiConversationSignalKind;
+}
+
+export interface AiConversationIntelligence {
+  readonly relevance: AiConversationRelevance;
+  /** The situation in one minimized paraphrase (<=200 chars). Never a quote. */
+  readonly summary: string;
+  /** What it is about, a few words each (<=5 x <=40 chars). */
+  readonly topics: readonly string[];
+  /** What happened (<=4, each <=140, anchored). OBSERVED. */
+  readonly developments: readonly AiConversationStatement[];
+  /** What was decided (<=3, each <=140, anchored). OBSERVED. */
+  readonly decisions: readonly AiConversationStatement[];
+  /** What someone committed to (<=3, each <=140, anchored). OBSERVED. */
+  readonly commitments: readonly AiConversationStatement[];
+  /** Commercial / operational signals (<=3, each <=140, anchored). INFERRED. */
+  readonly signals: readonly AiConversationSignal[];
+  /** What remains open, in one line (<=140), or null. INFERRED. */
+  readonly unresolved: string | null;
+  /** Whether it needs the person now, and why (<=120). A reason exactly when needed. INFERRED. */
+  readonly attention: { readonly needed: boolean; readonly reason: string | null };
+  readonly confidence: AiConversationConfidence;
 }
 
 /**
@@ -378,6 +454,23 @@ export const AI_TRIAGE_LIMITS = Object.freeze({
   maxContextInputTokens: 8000,
   maxWindowMessages: 40,
   maxMessageChars: 500,
+  // v4 conversation reading (Chats Intelligence). Small on purpose: a reading, not a transcript.
+  maxSummaryChars: 200,
+  maxConversationTopics: 5,
+  maxConversationTopicChars: 40,
+  maxDevelopments: 4,
+  maxDecisions: 3,
+  maxCommitments: 3,
+  maxSignals: 3,
+  maxStatementChars: 140,
+  maxUnresolvedChars: 140,
+  maxAttentionReasonChars: 120,
+  /**
+   * A conversation field may not carry this many consecutive words copied from one message
+   * (VERBATIM_CONTENT). Ten, so a paraphrase may reuse a phrase ("the signed roofing contract")
+   * but not reproduce a sentence.
+   */
+  verbatimRunTokens: 10,
 });
 
 /**
@@ -392,6 +485,12 @@ export interface AiSupportedEvidence {
   readonly figures: ReadonlyMap<string, ReadonlySet<number>>;
   readonly dates: ReadonlySet<string>;
   readonly terms?: ReadonlySet<string>;
+  /**
+   * Every run of `AI_TRIAGE_LIMITS.verbatimRunTokens` consecutive word tokens inside ONE supplied
+   * message (`aiVerbatimRuns`), for refusing a conversation reading that copies a sentence. Transient,
+   * like `terms`. Absent means nothing can be checked, and a v4 conversation reading is refused.
+   */
+  readonly verbatimRuns?: ReadonlySet<string>;
 }
 
 export const AI_OUTPUT_REJECTIONS = [
@@ -409,6 +508,8 @@ export const AI_OUTPUT_REJECTIONS = [
   'RECOMMENDS_AN_ACTION',
   /** A triage deadline made of words the conversation never used: a produced date, not a restated one. */
   'UNGROUNDED_DEADLINE',
+  /** A conversation reading that quotes (quotation marks) or copies a run of words from a message. */
+  'VERBATIM_CONTENT',
 ] as const;
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
 
@@ -493,7 +594,16 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
         deadline: typeof o.deadline === 'string' ? o.deadline : null,
       });
     }
-    conversationTriage = { items };
+    // v4: the conversation reading. Absent stays absent (the validator decides whether this task needed
+    // it); null is an honest "could not read it"; anything else must be EXACTLY the shape -- an unknown
+    // key inside it is refused, because this block is what gets stored.
+    if (v.conversation === undefined) conversationTriage = { items };
+    else if (v.conversation === null) conversationTriage = { items, conversation: null };
+    else {
+      const conversation = parseConversationIntelligence(v.conversation);
+      if (!conversation) return null;
+      conversationTriage = { items, conversation };
+    }
   }
   return {
     schemaId: v.schemaId,
@@ -503,6 +613,126 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     ...(draft ? { draft } : {}),
     ...(conversationTriage ? { conversationTriage } : {}),
   };
+}
+
+const CONVERSATION_KEYS = ['relevance', 'summary', 'topics', 'developments', 'decisions', 'commitments', 'signals', 'unresolved', 'attention', 'confidence'];
+
+function exactKeys(o: Record<string, unknown>, keys: readonly string[]): boolean {
+  const own = Object.keys(o);
+  return own.length === keys.length && keys.every((k) => Object.prototype.hasOwnProperty.call(o, k));
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function parseStatements(v: unknown, withKind: boolean): AiConversationSignal[] | AiConversationStatement[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: (AiConversationStatement | AiConversationSignal)[] = [];
+  for (const raw of v) {
+    if (!isPlainObject(raw)) return null;
+    if (!exactKeys(raw, withKind ? ['kind', 'anchorOrdinal', 'statement'] : ['anchorOrdinal', 'statement'])) return null;
+    if (typeof raw.anchorOrdinal !== 'number' || !Number.isFinite(raw.anchorOrdinal) || typeof raw.statement !== 'string') return null;
+    if (withKind) {
+      if (typeof raw.kind !== 'string') return null;
+      out.push({ kind: raw.kind as AiConversationSignalKind, anchorOrdinal: raw.anchorOrdinal, statement: raw.statement });
+    } else out.push({ anchorOrdinal: raw.anchorOrdinal, statement: raw.statement });
+  }
+  return out as AiConversationSignal[] | AiConversationStatement[];
+}
+
+/** The v4 conversation block, by exact shape. Null on any deviation -- including one extra key. */
+function parseConversationIntelligence(value: unknown): AiConversationIntelligence | null {
+  if (!isPlainObject(value) || !exactKeys(value, CONVERSATION_KEYS)) return null;
+  const c = value;
+  if (typeof c.relevance !== 'string' || typeof c.summary !== 'string' || typeof c.confidence !== 'string') return null;
+  if (!Array.isArray(c.topics) || !c.topics.every((t) => typeof t === 'string')) return null;
+  if (c.unresolved !== null && typeof c.unresolved !== 'string') return null;
+  if (!isPlainObject(c.attention) || !exactKeys(c.attention, ['needed', 'reason'])) return null;
+  if (typeof c.attention.needed !== 'boolean') return null;
+  if (c.attention.reason !== null && typeof c.attention.reason !== 'string') return null;
+  const developments = parseStatements(c.developments, false);
+  const decisions = parseStatements(c.decisions, false);
+  const commitments = parseStatements(c.commitments, false);
+  const signals = parseStatements(c.signals, true);
+  if (!developments || !decisions || !commitments || !signals) return null;
+  return {
+    relevance: c.relevance as AiConversationRelevance,
+    summary: c.summary,
+    topics: c.topics as string[],
+    developments,
+    decisions,
+    commitments,
+    signals: signals as AiConversationSignal[],
+    unresolved: c.unresolved as string | null,
+    attention: { needed: c.attention.needed, reason: c.attention.reason as string | null },
+    confidence: c.confidence as AiConversationConfidence,
+  };
+}
+
+/**
+ * Every run of `n` consecutive word tokens in a text (`aiTermsInText`), joined by one space. The ONE
+ * shingler for both sides of the verbatim check, so a message and a field meet on the same runs.
+ */
+export function aiVerbatimRuns(text: string, n: number = AI_TRIAGE_LIMITS.verbatimRunTokens): string[] {
+  const tokens = aiTermsInText(text);
+  const out: string[] = [];
+  for (let i = 0; i + n <= tokens.length; i += 1) out.push(tokens.slice(i, i + n).join(' '));
+  return out;
+}
+
+/** Quotation marks of any common kind. A paraphrase needs none; a quote always has them. */
+const QUOTATION_MARKS = /["\u201C\u201D\u201E\u201F\u00AB\u00BB\u2033\u301D\u301E\uFF02]/;
+
+/** Everything wrong with a v4 conversation reading, given the window's anchor range. */
+function conversationRejections(c: AiConversationIntelligence, chunkSize: number, evidence: AiSupportedEvidence): AiOutputRejection[] {
+  const L = AI_TRIAGE_LIMITS;
+  const out: AiOutputRejection[] = [];
+  if (!(AI_CONVERSATION_RELEVANCE as readonly string[]).includes(c.relevance)) out.push('WRONG_SCHEMA');
+  if (!(AI_CONVERSATION_CONFIDENCE as readonly string[]).includes(c.confidence)) out.push('WRONG_SCHEMA');
+  const texts: string[] = [];
+  const bounded = (value: string, max: number) => {
+    if (value.trim() === '') out.push('EMPTY_ANSWER');
+    if (value.length > max) out.push('ANSWER_TOO_LONG');
+    texts.push(value);
+  };
+  bounded(c.summary, L.maxSummaryChars);
+  if (c.topics.length > L.maxConversationTopics) out.push('ANSWER_TOO_LONG');
+  for (const topic of c.topics) bounded(topic, L.maxConversationTopicChars);
+  const lists: [readonly AiConversationStatement[], number][] = [
+    [c.developments, L.maxDevelopments],
+    [c.decisions, L.maxDecisions],
+    [c.commitments, L.maxCommitments],
+    [c.signals, L.maxSignals],
+  ];
+  for (const [list, max] of lists) {
+    if (list.length > max) out.push('ANSWER_TOO_LONG');
+    for (const s of list) {
+      // Every statement rests on a message actually inside the evaluated window.
+      if (!Number.isInteger(s.anchorOrdinal) || s.anchorOrdinal < 1 || s.anchorOrdinal > chunkSize) out.push('WRONG_SCHEMA');
+      bounded(s.statement, L.maxStatementChars);
+    }
+  }
+  for (const s of c.signals) if (!(AI_CONVERSATION_SIGNAL_KINDS as readonly string[]).includes(s.kind)) out.push('WRONG_SCHEMA');
+  if (c.unresolved !== null) {
+    // Nothing open is null, not a blank.
+    if (c.unresolved.trim() === '') out.push('WRONG_SCHEMA');
+    else bounded(c.unresolved, L.maxUnresolvedChars);
+  }
+  // A reason exactly when attention is needed: "needed" with no why is not a reading, and a reason for
+  // something that does not need the person is a contradiction.
+  if (c.attention.needed) {
+    if (c.attention.reason === null || c.attention.reason.trim() === '') out.push('WRONG_SCHEMA');
+    else bounded(c.attention.reason, L.maxAttentionReasonChars);
+  } else if (c.attention.reason !== null) out.push('WRONG_SCHEMA');
+
+  // NO QUOTE, NO COPIED SENTENCE. Fail closed: with nothing to check against, nothing is accepted.
+  const runs = evidence.verbatimRuns;
+  for (const value of texts) {
+    if (QUOTATION_MARKS.test(value)) out.push('VERBATIM_CONTENT');
+    if (!runs || aiVerbatimRuns(value).some((run) => runs.has(run))) out.push('VERBATIM_CONTENT');
+  }
+  return out;
 }
 
 /** A model that scores its own certainty is guessing twice. C-05 applies to AI too. */
@@ -617,6 +847,10 @@ export function validateAiTaskOutput(
           if (!terms || tokens.length === 0 || tokens.some((t) => !terms.has(t))) out.push('UNGROUNDED_DEADLINE');
         }
       }
+      // v4: the conversation reading is REQUIRED as a key -- null (could not tell) is an answer, a
+      // missing key is not the answer asked for.
+      if (ct.conversation === undefined) out.push('WRONG_SCHEMA');
+      else if (ct.conversation !== null) out.push(...conversationRejections(ct.conversation, chunkSize, evidence));
       // Triage limitations are tighter than the general answer bounds (6 items, 200 chars each), and
       // this is the only place those tighter bounds are enforced -- the schema no longer encodes them,
       // because Anthropic's structured outputs reject those length/size keywords.

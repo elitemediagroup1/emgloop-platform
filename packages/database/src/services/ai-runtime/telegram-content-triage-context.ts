@@ -25,7 +25,9 @@
 //
 // GROUNDING. The evidence handed to the validator carries the word tokens of everything the model was
 // shown (`terms`), so a deadline the model returns can be checked to be RESTATED from the conversation
-// rather than produced. The tokens are transient too: they exist for the one validation and are dropped.
+// rather than produced -- and (v4) every run of ten consecutive words inside each message
+// (`verbatimRuns`), so a conversation reading that COPIES a message is refused. Both are transient: they
+// exist for the one validation and are dropped.
 //
 // BOUNDED. Each message's text is capped, and the window itself is bounded upstream (count and input
 // tokens), so one enormous message -- or an enormous conversation -- cannot become an enormous prompt.
@@ -35,6 +37,7 @@ import {
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
   aiTermsInText,
+  aiVerbatimRuns,
   estimateAiInputTokens,
   telegramConversationSubjectRef,
   type AiContextItem,
@@ -210,6 +213,21 @@ function supportedTerms(input: TelegramTriageContextInput): ReadonlySet<string> 
   return terms;
 }
 
+/**
+ * Every run of `AI_TRIAGE_LIMITS.verbatimRunTokens` consecutive words inside ONE (capped) message, so a
+ * conversation reading that copies a sentence is refused (VERBATIM_CONTENT). Runs never span two
+ * messages. Transient, like `terms`: built for one validation and dropped.
+ */
+function verbatimRuns(input: TelegramTriageContextInput): ReadonlySet<string> {
+  const runs = new Set<string>();
+  for (const message of input.messages) {
+    const text = message.text ?? '';
+    const capped = text.length > TELEGRAM_TRIAGE_CONTEXT_LIMITS.maxMessageChars ? text.slice(0, TELEGRAM_TRIAGE_CONTEXT_LIMITS.maxMessageChars) : text;
+    for (const run of aiVerbatimRuns(capped)) runs.add(run);
+  }
+  return runs;
+}
+
 /** Build the package. It assembles; it decides nothing about which obligations are unresolved. */
 export function buildTelegramTriageContext(input: TelegramTriageContextInput): TelegramTriageContext {
   const { items, ordinalToProviderEventId, labelled } = windowContextItems(input);
@@ -225,7 +243,8 @@ export function buildTelegramTriageContext(input: TelegramTriageContextInput): T
     // A conversation triage is not figure-checked (a minimized paraphrase naturally restates a fact, and
     // it is excluded from the number/date scan): figures and dates are deliberately empty rather than
     // pretending to have grounded them. `terms` grounds the one field that must be COPIED: the deadline.
-    evidence: { figures: new Map(), dates: new Set(), terms: supportedTerms(input) },
+    // `verbatimRuns` lets the validator refuse a conversation reading that copies a message (v4).
+    evidence: { figures: new Map(), dates: new Set(), terms: supportedTerms(input), verbatimRuns: verbatimRuns(input) },
     ordinalToProviderEventId,
     manifest: { includedCount: input.messages.length, truncated: input.truncated, labelled },
   };
