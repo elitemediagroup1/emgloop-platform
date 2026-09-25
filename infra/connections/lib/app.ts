@@ -141,6 +141,45 @@ export function aiTasksFromContext(raw: unknown): readonly string[] {
  * appear without a guard coming back.
  */
 
+const PRODUCER_ID = /^[a-z][a-z0-9._-]{0,62}@[0-9]{1,4}$/;
+const RECORD_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Loop Intelligence (2026-09-26): the worker's intelligence settings, from CDK context
+ * `intelligenceProducers` (producer ids), `intelligenceSituations` (organization,private),
+ * `intelligenceBriefings` (exactly `on`) and `intelligenceActingUsers` (orgId=userId pairs). Each maps to
+ * its LOOP_INTELLIGENCE_* variable. All unset: no variable is set and the template is unchanged -- the
+ * worker schedules nothing. A malformed value fails synth rather than half-configuring the worker.
+ * Setting these activates RULE readings only; a model reading also needs its task in `aiTasks`.
+ */
+export function intelligenceFromContext(ctx: { producers?: unknown; situations?: unknown; briefings?: unknown; actingUsers?: unknown }): Readonly<Record<string, string>> {
+  const env: Record<string, string> = {};
+  const producers = contextList('intelligenceProducers', ctx.producers);
+  if (producers) {
+    for (const p of producers) if (!PRODUCER_ID.test(p)) throw new Error(`intelligenceProducers: "${p}" is not a producer id (e.g. callgrid.domain@1)`);
+    env.LOOP_INTELLIGENCE_PRODUCERS = producers.join(',');
+  }
+  const situations = contextList('intelligenceSituations', ctx.situations);
+  if (situations) {
+    for (const s of situations) if (s !== 'organization' && s !== 'private') throw new Error(`intelligenceSituations: "${s}" is not organization or private`);
+    env.LOOP_INTELLIGENCE_SITUATIONS = situations.join(',');
+  }
+  const briefings = typeof ctx.briefings === 'string' ? ctx.briefings.trim() : ctx.briefings;
+  if (briefings !== undefined && briefings !== null && briefings !== '') {
+    if (briefings !== 'on') throw new Error('intelligenceBriefings must be exactly "on" or unset');
+    env.LOOP_INTELLIGENCE_BRIEFINGS = 'on';
+  }
+  const acting = contextList('intelligenceActingUsers', ctx.actingUsers);
+  if (acting) {
+    for (const pair of acting) {
+      const [org, user, extra] = pair.split('=');
+      if (!org || !user || extra !== undefined || !RECORD_ID.test(org) || !RECORD_ID.test(user)) throw new Error(`intelligenceActingUsers: "${pair}" is not orgId=userId`);
+    }
+    env.LOOP_INTELLIGENCE_ACTING_USERS = acting.join(',');
+  }
+  return env;
+}
+
 export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App; stack: ConnectionsStack } {
   // `-c key=value` from the CLI reaches the App through its environment, not through this props
   // object, so the stage and its account are read from the App after construction. Nothing is
@@ -164,6 +203,12 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
     typeof aiOrganizationId === 'string' && aiOrganizationId.trim() !== ''
       ? { organizationId: aiOrganizationId, providers: aiProviders, tasks: aiTasks }
       : undefined;
+  const intelligence = intelligenceFromContext({
+    producers: app.node.tryGetContext('intelligenceProducers'),
+    situations: app.node.tryGetContext('intelligenceSituations'),
+    briefings: app.node.tryGetContext('intelligenceBriefings'),
+    actingUsers: app.node.tryGetContext('intelligenceActingUsers'),
+  });
 
   const stack = new ConnectionsStack(app, target.stackName, {
     stage: target.stage,
@@ -178,6 +223,7 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
     description: `Loop connections worker (${target.stage}): Teams/Telegram durable observation worker`,
     ...(protection ? { protection } : {}),
     ...(aiActivation ? { aiActivation } : {}),
+    ...(Object.keys(intelligence).length > 0 ? { intelligence } : {}),
   });
   return { app, stack };
 }

@@ -15,7 +15,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, mediaOriginsFromContext } from '../lib/app';
+import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, intelligenceFromContext, mediaOriginsFromContext } from '../lib/app';
 import { connectionSecretNames, MEDIA_KEY_PREFIX, MEDIA_SIGN_PATH } from '../lib/connections-stack';
 import { assertTargetCredentials, CONNECTIONS_STAGING_TARGET, WrongTargetError } from '../lib/target';
 import { stubAssets } from './assets';
@@ -609,4 +609,30 @@ test('the guard retired TOGETHER with the exemption: both the shared exemption l
   assert.match(shared, /AI_PORTABLE_SCHEMA_EXEMPTIONS: Readonly<Record<string, readonly string\[\]>> = Object\.freeze\(\{\}\);/, 'no schema is exempt');
   assert.match(policy, /AI_SCHEMA_VERIFIED_PROVIDERS: Readonly<Record<string, readonly string\[\]>> = Object\.freeze\(\{\}\);/, 'no provider restriction is recorded');
   assert.doesNotMatch(app, /TRIAGE_V4_VERIFIED_PROVIDERS|assertAiProvidersVerified\(/, 'and this stack carries none either');
+});
+
+// --- Loop Intelligence (2026-09-26) ----------------------------------------------------------------
+
+test('Loop Intelligence: unset (the default) sets no LOOP_INTELLIGENCE_* variable and changes nothing', () => {
+  const c = workerContainer(template);
+  assert.ok(!(c.Environment ?? []).some((e) => e.Name.startsWith('LOOP_INTELLIGENCE_')));
+  assert.deepEqual(synthWith({ intelligenceProducers: '', intelligenceSituations: ' ', intelligenceBriefings: '', intelligenceActingUsers: '' }).toJSON(), template.toJSON());
+});
+
+test('Loop Intelligence: named producers, situations, briefings and acting operators reach the worker as plain settings (never secrets)', () => {
+  const c = workerContainer(synthWith({ intelligenceProducers: 'callgrid.domain@1,work.domain@1', intelligenceSituations: 'organization,private', intelligenceBriefings: 'on', intelligenceActingUsers: 'org_1=user_1' }));
+  const env = Object.fromEntries((c.Environment ?? []).map((e) => [e.Name, e.Value]));
+  assert.equal(env.LOOP_INTELLIGENCE_PRODUCERS, 'callgrid.domain@1,work.domain@1');
+  assert.equal(env.LOOP_INTELLIGENCE_SITUATIONS, 'organization,private');
+  assert.equal(env.LOOP_INTELLIGENCE_BRIEFINGS, 'on');
+  assert.equal(env.LOOP_INTELLIGENCE_ACTING_USERS, 'org_1=user_1');
+  assert.ok(!Object.keys(env).some((k) => k.startsWith('LOOP_AI_')), 'intelligence settings never switch the AI runtime on');
+});
+
+test('Loop Intelligence: a malformed setting fails synth rather than half-configuring the worker', () => {
+  assert.throws(() => intelligenceFromContext({ producers: 'callgrid' }), /producer id/);
+  assert.throws(() => intelligenceFromContext({ situations: 'everyone' }), /organization or private/);
+  assert.throws(() => intelligenceFromContext({ briefings: 'true' }), /exactly "on"/);
+  assert.throws(() => intelligenceFromContext({ actingUsers: 'org_1' }), /orgId=userId/);
+  assert.deepEqual(intelligenceFromContext({}), {});
 });
