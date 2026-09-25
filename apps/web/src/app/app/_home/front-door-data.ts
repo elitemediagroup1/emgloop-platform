@@ -46,6 +46,7 @@ import { TILE_PATHS, type HomeTile, type RosterRowInput } from './tiles';
 import { loadOrganizationReading, loadPrincipalReading } from '../../../intelligence/domain-reading';
 import type { DomainProjection, IntelligenceDomain } from '@emgloop/shared';
 import { loadSituations, type SituationsRead } from '../../../intelligence/situations';
+import { loadStoredBriefing, type StoredBriefing } from '../../../intelligence/briefing';
 
 /** Whether the rail this person was offered leads to `href`. Nav visibility, not authorization. */
 export function navOffers(groups: readonly NavGroup[], href: string): boolean {
@@ -81,6 +82,8 @@ export interface FrontDoorReads {
    * they may read (every domain a situation cites). Null when the read failed.
    */
   readonly situations: SituationsRead | null;
+  /** Loop Intelligence Phase G: today's stored Loop Briefing for the viewer, or null (none, or unreadable). */
+  readonly briefing: StoredBriefing | null;
 }
 
 /** Which tile shows which domain's reading, and at what scope. */
@@ -122,7 +125,7 @@ export async function loadFrontDoor(input: {
   const { session, principal, groups, time } = input;
   const organizationId = principal.organizationId;
 
-  const [context, chats, intake, creators, readings, situations] = await Promise.all([
+  const [context, chats, intake, creators, readings, situations, briefing] = await Promise.all([
     input.executive && navOffers(groups, TILE_PATHS.marketplace)
       ? settle(() => loadCommandContextFor(organizationId, undefined, { session, canAct: async () => false }))
       : Promise.resolve(null),
@@ -133,6 +136,7 @@ export async function loadFrontDoor(input: {
       : Promise.resolve(null),
     loadTileReadings(session, groups, time.now, input.executive).catch(() => ({})),
     loadSituations(session).catch(() => null),
+    loadStoredBriefing(principal, time.timeZone, time.now).catch(() => null),
   ]);
 
   const callgrid: Settled<HomeKpiStrip> | null = context === null ? null : context.ok ? kpiStrip(context.value) : { ok: false };
@@ -148,7 +152,7 @@ export async function loadFrontDoor(input: {
       })
     : null;
 
-  return { callgrid, callgridBrief, chats, intake, creators, readings, situations };
+  return { callgrid, callgridBrief, chats, intake, creators, readings, situations, briefing };
 }
 
 /**

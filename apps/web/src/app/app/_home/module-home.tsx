@@ -117,7 +117,7 @@ export function ModuleHome({
         <div className="loop-front__band">
           <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${name}`} subtitle={time.date(time.now)} />
         </div>
-        <BriefingCard narrative={narrative} briefing={briefing} time={time} />
+        <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front?.briefing ?? null} offers={(href) => navOffers(groups, href)} />
         {front?.situations ? <SituationsPanel read={front.situations} time={time} caseHref={null} /> : null}
         <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} />
         <ToolsGrid tiles={tiles} />

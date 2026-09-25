@@ -14,6 +14,11 @@
 // additionally need situation.synthesis[.private] (and, for an independent check, situation.verify[.private])
 // in LOOP_AI_TASKS. An organization pass runs as the named acting operator; a private pass as the person.
 //
+// THE BRIEFING (Phase G) is composed from the same host only when LOOP_INTELLIGENCE_BRIEFINGS is exactly
+// `on`: each person's Briefing from their stored readings, situations and work, reused when unchanged. Its
+// model step also needs loop.briefing.compose in LOOP_AI_TASKS; without it Loop's deterministic Briefing is
+// written, marked as such.
+//
 // Logs counts and refusal codes only -- never a target, an organization, a person or content.
 
 import type { PrismaClient } from '@prisma/client';
@@ -21,6 +26,7 @@ import type { PrismaClient } from '@prisma/client';
 export interface IntelligenceHostConfig {
   readonly producers: readonly string[];
   readonly situations: readonly ('ORGANIZATION' | 'PRINCIPAL')[];
+  readonly briefings: boolean;
   readonly actingUsersRaw: string;
   readonly intervalMs: number;
 }
@@ -34,7 +40,7 @@ export function readIntelligenceHostConfig(env: Record<string, string | undefine
   const intervalMs = Number.isFinite(raw) && raw >= MIN_INTERVAL_MS ? Math.floor(raw) : DEFAULT_INTERVAL_MS;
   const scopes = String(env.LOOP_INTELLIGENCE_SITUATIONS ?? '').split(',').map((s) => s.trim().toLowerCase());
   const situations = (['ORGANIZATION', 'PRINCIPAL'] as const).filter((s) => scopes.includes(s === 'ORGANIZATION' ? 'organization' : 'private'));
-  return { producers, situations, actingUsersRaw: String(env.LOOP_INTELLIGENCE_ACTING_USERS ?? ''), intervalMs };
+  return { producers, situations, briefings: env.LOOP_INTELLIGENCE_BRIEFINGS === 'on', actingUsersRaw: String(env.LOOP_INTELLIGENCE_ACTING_USERS ?? ''), intervalMs };
 }
 
 export interface IntelligenceHostRuntime {
@@ -55,7 +61,7 @@ export async function createIntelligenceHost(
   ai: IntelligenceHostRuntime,
   log: (event: string, fields?: Record<string, unknown>) => void,
 ): Promise<IntelligenceHost> {
-  if (config.producers.length === 0 && config.situations.length === 0) return { scheduled: false, unknownProducers: [], pass: async () => undefined };
+  if (config.producers.length === 0 && config.situations.length === 0 && !config.briefings) return { scheduled: false, unknownProducers: [], pass: async () => undefined };
   const db = await import('@emgloop/database');
   const now = () => new Date();
   const actingUsers = db.parseActingUsers(config.actingUsersRaw);
@@ -69,6 +75,7 @@ export async function createIntelligenceHost(
     now,
   });
   const situationOwners = new db.SituationRepository(prisma);
+  const briefings = new db.BriefingComposer({ prisma, runtime: ai.runtime ? (ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null, modelEnabled, now });
   const producers = db.loopProducers({
     prisma,
     work: db.repositories.work,
@@ -103,7 +110,14 @@ export async function createIntelligenceHost(
             for (const [d, n] of Object.entries(r?.decisions ?? {})) situationTally[`${scope}:${d}`] = (situationTally[`${scope}:${d}`] ?? 0) + n;
           }
         }
-        log('intelligence_pass', { situations: situationTally, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, discoveryFailures: report.discoveryFailures, ...(report.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held } : {}) });
+        const briefingTally: Record<string, number> = {};
+        if (config.briefings) {
+          for (const p of await briefings.people(now(), 200)) {
+            const r = await briefings.compose({ organizationId: p.organizationId, userId: p.userId }, p.timeZone).catch(() => ({ outcome: 'ERROR' }));
+            briefingTally[r.outcome] = (briefingTally[r.outcome] ?? 0) + 1;
+          }
+        }
+        log('intelligence_pass', { situations: situationTally, briefings: briefingTally, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, discoveryFailures: report.discoveryFailures, ...(report.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held } : {}) });
       } catch (err) {
         log('intelligence_pass_error', { name: (err as Error)?.name ?? 'error' });
       } finally {

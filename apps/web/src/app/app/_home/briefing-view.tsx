@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { counted, productLabel, type DayEvent, type TimeView } from '@emgloop/shared';
+import { INTELLIGENCE_DOMAIN_REGISTRY, counted, productLabel, type DayEvent, type TimeView } from '@emgloop/shared';
 import { StateBlock } from '../_loop-os/record';
 import {
   BRIEFING_LIMITS,
@@ -14,6 +14,7 @@ import {
   type BriefingTone,
 } from './briefing';
 import type { NarrativeSentence } from './narrative';
+import type { StoredBriefing } from '../../../intelligence/briefing';
 
 // The Home briefing and the viewer's day, drawn (approved design pass, 2026-09-24; the composition
 // correction, 2026-09-24). Server components over the pure plans: the briefing card (the narrative's
@@ -58,14 +59,66 @@ function Way({ href, label, place }: { href: string | null; label: string | null
  * The briefing card: the synthesis first, in prose, each sentence with its sources as small chips;
  * then, folded, the rows Loop read that changed -- kept for inspection, never the centerpiece.
  */
-export function BriefingCard({ narrative, briefing, time }: { narrative: readonly NarrativeSentence[]; briefing: Briefing; time: TimeView }) {
+const LINE_WORDS: Readonly<Record<string, string>> = Object.freeze({ NEEDS_YOU: 'Needs you', CHANGED: 'Changed', WATCH: 'Watch', AHEAD: 'Ahead' });
+
+/** Where a Briefing line's part lives in Loop (the domain's first surface), for its chip. */
+function partHref(part: string): string | null {
+  return INTELLIGENCE_DOMAIN_REGISTRY.find((d) => d.domain === part)?.surfaces[0] ?? null;
+}
+function partLabel(part: string): string {
+  return part === 'SITUATION' ? 'Situation' : (INTELLIGENCE_DOMAIN_REGISTRY.find((d) => d.domain === part)?.label ?? part);
+}
+
+/**
+ * The stored Loop Briefing (Phase G): its headline and lines, each chip naming the part of Loop it rests on.
+ * Says who composed it -- the governed model, or Loop's own deterministic Briefing.
+ */
+function StoredBriefingBody({ stored, time, offers }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean }) {
+  return (
+    <div className="loop-front__prose" data-briefing-stored={stored.composer}>
+      <p className="loop-front__sentence" data-briefing-headline>
+        <span>{stored.headline}</span>
+      </p>
+      {stored.lines.map((l, i) => (
+        <p className="loop-front__sentence" key={i} data-briefing-line={l.kind}>
+          <span>
+            {LINE_WORDS[l.kind]}: {l.statement}
+          </span>
+          {l.parts.map((part) => {
+            const target = partHref(part);
+            // A chip links only where this viewer's navigation offers the destination.
+            const href = target && offers(target) ? target : null;
+            return href ? (
+              <Link key={part} className="loop-front__chip" href={href} data-briefing-chip={part}>
+                {partLabel(part)}
+              </Link>
+            ) : (
+              <span key={part} className="loop-front__chip" data-briefing-chip={part}>
+                {partLabel(part)}
+              </span>
+            );
+          })}
+        </p>
+      ))}
+      <p className="loop-front__prose-quiet">
+        {stored.composer === 'MODEL' ? 'Composed by Loop from what it read for you' : 'Loop’s own Briefing from what it read for you'} ·{' '}
+        <time dateTime={time.iso(stored.generatedAt)}>{time.relative(stored.generatedAt)}</time>
+        {stored.limitations.length > 0 ? ` · ${stored.limitations.join('; ')}` : ''}
+      </p>
+    </div>
+  );
+}
+
+export function BriefingCard({ narrative, briefing, time, stored = null, offers = () => false }: { narrative: readonly NarrativeSentence[]; briefing: Briefing; time: TimeView; stored?: StoredBriefing | null; offers?: (href: string) => boolean }) {
   return (
     <section className="loop-panel loop-front__briefing" aria-label="Your briefing" id="your-briefing">
       <div className="loop-brief__head">
         <h2 className="loop-panel__title">Your briefing</h2>
         <span className="loop-brief__sub">{time.date(time.now)}</span>
       </div>
-      {narrative.length === 0 ? (
+      {stored ? (
+        <StoredBriefingBody stored={stored} time={time} offers={offers} />
+      ) : narrative.length === 0 ? (
         <p className="loop-front__prose-quiet" data-briefing-narrative-empty>
           Loop has no source it can read for you yet. Connect one in Connections and your briefing starts here.
         </p>

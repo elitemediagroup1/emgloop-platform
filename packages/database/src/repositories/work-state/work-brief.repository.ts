@@ -10,8 +10,9 @@
 // COVERAGE IS PART OF THE RECORD. A brief written when a source could not be read says so,
 // because "nothing needed you" and "I could not look" must never render the same.
 //
-// `headline` IS A STAGE 3 SEAM AND IS ALWAYS NULL HERE. The narrative sentence needs message
-// content and a model; a brief with counts and references is honest without one.
+// `headline` is written by the Loop Briefing (Loop Intelligence Phase G): the composed sentence, whether
+// the governed model wrote it or Loop's deterministic fallback did (the coverage record says which). A
+// brief with counts and references and no headline is still honest.
 
 import type { PrismaClient } from '@prisma/client';
 
@@ -30,6 +31,8 @@ export interface BriefComposition {
   readonly items: readonly unknown[];
   readonly generatorVersion: string;
   readonly generatedAt?: Date;
+  /** Phase G: the Briefing's headline. */
+  readonly headline?: string | null;
 }
 
 export class WorkBriefRepository {
@@ -59,6 +62,7 @@ export class WorkBriefRepository {
         counts: composition.counts as any,
         items: composition.items as any,
         generatorVersion: composition.generatorVersion,
+        ...(composition.headline ? { headline: composition.headline } : {}),
         ...(composition.generatedAt ? { generatedAt: composition.generatedAt } : {}),
       },
     });
