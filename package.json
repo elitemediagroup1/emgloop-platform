@@ -44,6 +44,7 @@
     "read:telegram-state": "tsx scripts/operations/read-telegram-state.ts",
     "read:ai-provider-policy": "tsx scripts/operations/read-ai-provider-policy.ts",
     "record:ai-provider-policy": "tsx scripts/operations/record-ai-provider-policy.ts",
+    "record:ai-budget": "tsx scripts/operations/record-ai-budget.ts",
     "declare:intelligence-subscriptions": "tsx scripts/operations/declare-intelligence-subscriptions.ts",
     "test:operations": "node --import tsx --test scripts/operations/*.test.ts",
     "test:diagnostics": "node --import tsx --test scripts/diagnostics/*.test.ts",

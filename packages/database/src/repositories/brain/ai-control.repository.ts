@@ -20,13 +20,25 @@
 // gateway (`providerPolicies`), and NEVER returned by `currentFor` -- a policy is not a switch, and
 // the Brain's effective-controls reader must not see one.
 //
+// THE OPERATING BUDGET (PR 1, 2026-09-26) is stored here too, under scope BUDGET (`BUDGET|-|operating`),
+// ACTIVE only, with its figures in `settings` (capacity.ts). A reviewed operations run records it
+// (`recordOperatingBudget`, the record-ai-budget workflow); the gateway reads it (`operatingBudget`). Like
+// a provider policy it is never returned by `currentFor`.
+//
+// EVERY READ NAMES ITS COLUMNS (PR 1). `settings` arrived in migration 20261005000000, and a read that
+// selected whole rows would fail on a database the code reached before its migration -- which would
+// have refused every AI call, since the provider-policy read goes through here. Only the budget read
+// selects `settings`, and it reads a database without the column as "no budget recorded".
+//
 // AN ORGANIZATION SEES PLATFORM CONTROLS AND ITS OWN -- never another organization's.
 // Who may record an organization's controls (OWNER or ADMIN) is decided by the Brain
 // API's IAM check in B5; this repository requires only that the person is an active
 // member of that organization.
 
-import type { AiControl as AiControlRow, PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import {
+  AI_BUDGET_CONTROL_VALUE,
+  AI_BUDGET_SCOPE,
   AI_CONTROL_SCOPES,
   AI_CONTROL_STATES,
   AI_PROVIDER_POLICY_SCOPE,
@@ -36,22 +48,64 @@ import {
   aiControlAppendDecision,
   aiControlKey,
   aiControlRefusals,
+  aiOperatingBudgetOf,
+  aiOperatingBudgetRefusals,
   type AiControlActor,
   type AiControlEntry,
   type AiControlRefusal,
   type AiControlScope,
   type AiControlState,
   type AiControlTarget,
+  type AiOperatingBudget,
   type AiProviderPolicy,
   type AiSensitivityClass,
   type AiStoredControlScope,
 } from '@emgloop/shared';
 
+import { absentUntilMigrated } from '../../creator/until-migrated';
 import { BrainRecordUnreadable, isUniqueViolation } from './brain-records';
+
+/** Every column a control read needs, named -- never the whole row (see the header). */
+const CONTROL_COLUMNS = Object.freeze({
+  controlKey: true,
+  version: true,
+  scope: true,
+  organizationId: true,
+  value: true,
+  state: true,
+  reason: true,
+  actorKind: true,
+  actorUserId: true,
+  actorReference: true,
+  ceiling: true,
+  recordedAt: true,
+} as const);
+
+interface AiControlRow {
+  readonly controlKey: string;
+  readonly version: number;
+  readonly scope: string;
+  readonly organizationId: string | null;
+  readonly value: string | null;
+  readonly state: string;
+  readonly reason: string;
+  readonly actorKind: string;
+  readonly actorUserId: string | null;
+  readonly actorReference: string | null;
+  readonly ceiling: string | null;
+  readonly recordedAt: Date;
+  readonly settings?: unknown;
+}
+
+/** What the gateway reads of the operating budget. UNREADABLE refuses every call; NONE is today's policy. */
+export type AiOperatingBudgetRead =
+  | { readonly state: 'NONE' }
+  | { readonly state: 'RECORDED'; readonly budget: AiOperatingBudget; readonly version: number; readonly recordedAtMs: number; readonly reason: string }
+  | { readonly state: 'UNREADABLE' };
 
 export type AiControlRecordOutcome =
   | { readonly ok: true; readonly result: 'APPENDED' | 'UNCHANGED'; readonly entry: AiControlEntry }
-  | { readonly ok: false; readonly refusal: AiControlRefusal | 'STALE' | 'SCOPE_NOT_ALLOWED' | 'ACTOR_NOT_ACTIVE_MEMBER' };
+  | { readonly ok: false; readonly refusal: AiControlRefusal | 'STALE' | 'SCOPE_NOT_ALLOWED' | 'ACTOR_NOT_ACTIVE_MEMBER' | 'SETTINGS_INVALID' | 'NOT_MIGRATED' };
 
 export interface AiControlChange {
   readonly state: AiControlState;
@@ -61,6 +115,8 @@ export interface AiControlChange {
   readonly now?: Date;
   /** PROVIDER_POLICY only. */
   readonly ceiling?: AiSensitivityClass | null;
+  /** BUDGET only. */
+  readonly settings?: unknown;
 }
 
 const ORGANIZATION_SCOPES: readonly AiControlScope[] = ['ORGANIZATION', 'TASK'];
@@ -86,6 +142,7 @@ function entryOf(row: AiControlRow): AiControlEntry {
     actor,
     recordedAtMs: row.recordedAt.getTime(),
     ...(scope === AI_PROVIDER_POLICY_SCOPE ? { ceiling: ceiling as AiSensitivityClass | null } : {}),
+    ...(scope === AI_BUDGET_SCOPE ? { settings: row.settings ?? null } : {}),
   };
 }
 
@@ -159,8 +216,63 @@ export class AiControlRepository {
     if (views.length === 0) return [];
     const rows = await this.prisma.aiControl.findMany({
       where: { OR: views.map((v) => ({ controlKey: v.controlKey, version: v.version })) },
+      select: CONTROL_COLUMNS,
     });
     return aiProviderPoliciesOf(rows.map(entryOf));
+  }
+
+  /**
+   * PR 1. Record the operating budget: the figures (`settings`, capacity.ts) an operations run chose,
+   * validated against the reviewed policy's budget classes and the code maximums before anything is
+   * written. Versioned like every control; recording figures that are already current appends nothing.
+   * NOT_MIGRATED when the database has no `settings` column yet.
+   */
+  async recordOperatingBudget(request: {
+    readonly settings: unknown;
+    readonly knownClasses: readonly string[];
+    readonly reason: string;
+    readonly expectedVersion: number;
+    readonly actor: AiControlActor;
+    readonly now?: Date;
+  }): Promise<AiControlRecordOutcome> {
+    if (aiOperatingBudgetRefusals(request.settings, request.knownClasses).length > 0) return { ok: false, refusal: 'SETTINGS_INVALID' };
+    // An empty result is a migrated table with no rows; null is a database without the column.
+    const migrated = await absentUntilMigrated(this.prisma.aiControl.findMany({ select: { settings: true }, take: 1 }));
+    if (migrated === null) return { ok: false, refusal: 'NOT_MIGRATED' };
+    const target: AiControlTarget = { scope: AI_BUDGET_SCOPE, organizationId: null, value: AI_BUDGET_CONTROL_VALUE };
+    return this.append(target, { state: 'ACTIVE', reason: request.reason, expectedVersion: request.expectedVersion, settings: request.settings, now: request.now }, request.actor);
+  }
+
+  /**
+   * PR 1. The CURRENT operating budget, as the gateway admits against it. NONE when nothing is recorded
+   * (a database that predates migration 20261005000000 cannot hold a BUDGET row at all, so it reads NONE
+   * here without ever touching the new column). UNREADABLE when a recorded budget cannot be read back or
+   * does not validate: the gateway then refuses every call rather than run unbounded. Throws on a
+   * database error, which the gateway's reader also treats as UNREADABLE.
+   */
+  async operatingBudget(knownClasses: readonly string[]): Promise<AiOperatingBudgetRead> {
+    const key = aiControlKey({ scope: AI_BUDGET_SCOPE, organizationId: null, value: AI_BUDGET_CONTROL_VALUE });
+    const view = await this.prisma.aiControlCurrent.findFirst({ where: { controlKey: key }, select: { version: true } });
+    if (!view) return { state: 'NONE' };
+    const row = await absentUntilMigrated(
+      this.prisma.aiControl.findFirst({ where: { controlKey: key, version: view.version }, select: { ...CONTROL_COLUMNS, settings: true } }),
+    );
+    if (row === null) return { state: 'UNREADABLE' };
+    const budget = row.state === 'ACTIVE' ? aiOperatingBudgetOf(row.settings, knownClasses) : null;
+    if (!budget) return { state: 'UNREADABLE' };
+    return { state: 'RECORDED', budget, version: row.version, recordedAtMs: row.recordedAt.getTime(), reason: row.reason };
+  }
+
+  /**
+   * PR 1. The operating budget's CURRENT VERSION -- a record's position in its history, not a
+   * measurement -- whether or not its figures still validate (version 0 when none is recorded). This is the recovery path: a budget that became UNREADABLE (for instance, a later release
+   * retired a budget class it names) refuses every AI call, and recording corrected figures must still be
+   * able to name the version it replaces. It reads the current view only -- never `settings`.
+   */
+  async operatingBudgetVersion(): Promise<{ readonly version: number }> {
+    const key = aiControlKey({ scope: AI_BUDGET_SCOPE, organizationId: null, value: AI_BUDGET_CONTROL_VALUE });
+    const view = await this.prisma.aiControlCurrent.findFirst({ where: { controlKey: key }, select: { version: true } });
+    return { version: view?.version ?? 0 };
   }
 
   /** One provider's policy history, oldest first. Platform-wide; no organization owns it. */
@@ -168,13 +280,22 @@ export class AiControlRepository {
     const rows = await this.prisma.aiControl.findMany({
       where: { controlKey: aiControlKey({ scope: AI_PROVIDER_POLICY_SCOPE, organizationId: null, value: providerId }) },
       orderBy: { version: 'asc' },
+      select: CONTROL_COLUMNS,
     });
     return rows.map(entryOf);
   }
 
   private async append(target: AiControlTarget, change: AiControlChange, actor: AiControlActor): Promise<AiControlRecordOutcome> {
     const ceiling = target.scope === AI_PROVIDER_POLICY_SCOPE ? (change.ceiling ?? null) : null;
-    const refusals = aiControlRefusals({ target, state: change.state, reason: change.reason, actor, ceiling: change.ceiling ?? null });
+    const settings = target.scope === AI_BUDGET_SCOPE ? (change.settings ?? null) : null;
+    const refusals = aiControlRefusals({
+      target,
+      state: change.state,
+      reason: change.reason,
+      actor,
+      ceiling: change.ceiling ?? null,
+      settings: change.settings ?? null,
+    });
     if (refusals.length > 0) return { ok: false, refusal: refusals[0]! };
     const controlKey = aiControlKey(target);
     const now = change.now ?? new Date();
@@ -182,13 +303,22 @@ export class AiControlRepository {
       return await this.prisma.$transaction(async (tx) => {
         const current = await tx.aiControlCurrent.findFirst({ where: { controlKey }, select: { version: true } });
         const currentEntry = current
-          ? await tx.aiControl.findFirst({ where: { controlKey, version: current.version } })
+          ? await tx.aiControl.findFirst({
+              where: { controlKey, version: current.version },
+              // Only a budget's own history reads `settings`, so no other control depends on the column.
+              select: target.scope === AI_BUDGET_SCOPE ? { ...CONTROL_COLUMNS, settings: true } : CONTROL_COLUMNS,
+            })
           : null;
         const decision = aiControlAppendDecision(
           currentEntry
-            ? { version: currentEntry.version, state: currentEntry.state as AiControlState, ceiling: (currentEntry as { ceiling?: string | null }).ceiling ?? null }
+            ? {
+                version: currentEntry.version,
+                state: currentEntry.state as AiControlState,
+                ceiling: currentEntry.ceiling ?? null,
+                settings: (currentEntry as AiControlRow).settings ?? null,
+              }
             : null,
-          { expectedVersion: change.expectedVersion, state: change.state, ceiling },
+          { expectedVersion: change.expectedVersion, state: change.state, ceiling, settings },
         );
         if (decision.action === 'STALE') return { ok: false as const, refusal: 'STALE' as const };
         if (decision.action === 'UNCHANGED') return { ok: true as const, result: 'UNCHANGED' as const, entry: entryOf(currentEntry!) };
@@ -204,10 +334,13 @@ export class AiControlRepository {
             actorKind: actor.kind,
             actorUserId: actor.kind === 'HUMAN' ? actor.userId : null,
             actorReference: actor.kind === 'OPERATIONS' ? actor.reference : null,
-            // Only a provider policy carries a ceiling; every other control's row is unchanged.
+            // Only a provider policy carries a ceiling, and only a budget carries settings; every other
+            // control's row is written exactly as before (neither column is named).
             ...(target.scope === AI_PROVIDER_POLICY_SCOPE ? { ceiling } : {}),
+            ...(target.scope === AI_BUDGET_SCOPE ? { settings: settings as never } : {}),
             recordedAt: now,
           },
+          select: target.scope === AI_BUDGET_SCOPE ? { ...CONTROL_COLUMNS, settings: true } : CONTROL_COLUMNS,
         });
         if (decision.version === 1) {
           await tx.aiControlCurrent.create({
@@ -240,12 +373,14 @@ export class AiControlRepository {
     if (views.length === 0) return [];
     const rows = await this.prisma.aiControl.findMany({
       where: { OR: views.map((v) => ({ controlKey: v.controlKey, version: v.version })) },
+      select: CONTROL_COLUMNS,
     });
     const byKey = new Map(rows.map((r) => [r.controlKey, r]));
     return views
       .map((v) => byKey.get(v.controlKey))
       .filter((r): r is AiControlRow => r !== undefined)
-      // Switches only: a provider policy is read by admission, never by the effective-controls reader.
+      // Switches only: a provider policy or the operating budget is read by admission, never by the
+      // effective-controls reader.
       .filter((r) => (AI_CONTROL_SCOPES as readonly string[]).includes(r.scope))
       .map(entryOf);
   }
@@ -256,6 +391,7 @@ export class AiControlRepository {
     const rows = await this.prisma.aiControl.findMany({
       where: { controlKey: aiControlKey(target), OR: [{ organizationId: null }, { organizationId }] },
       orderBy: { version: 'asc' },
+      select: CONTROL_COLUMNS,
     });
     return rows.map(entryOf);
   }

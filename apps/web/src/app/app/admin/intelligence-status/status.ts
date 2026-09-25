@@ -20,7 +20,15 @@
 //
 // PURE: no database, no clock, no environment.
 
-import { AI_TASKS } from '@emgloop/shared';
+import {
+  AI_DEFAULT_EMERGENCY_CEILING_MICROS,
+  AI_LANES,
+  AI_TASKS,
+  type AiCostSnapshot,
+  type AiKillSwitch,
+  type AiLane,
+  type AiOperatingBudget,
+} from '@emgloop/shared';
 
 export const STATUS_WINDOWS = Object.freeze([
   { key: '24h', label: 'Last 24 hours', hours: 24 },
@@ -285,10 +293,74 @@ export type Section<T> =
   /** The authority that owns the data exposes no read this page may use (yet). Nothing was read. */
   | { readonly state: 'NOT_EXPOSED' };
 
+// --- AI capacity (PR 1) ------------------------------------------------------------------------------
+
+/** One lane's day: what it has spent (reported cost, or the reserve while in flight) against its cap. */
+export interface CapacityLaneRow {
+  readonly lane: AiLane;
+  readonly spentMicros: number;
+  /** Null when no operating budget is recorded: the lane has no cost cap of its own. */
+  readonly capMicros: number | null;
+  readonly invocations: number;
+  readonly callCap: number | null;
+}
+
+export interface CapacityStatus {
+  readonly budget:
+    | { readonly state: 'NONE' }
+    | { readonly state: 'RECORDED'; readonly label: string; readonly version: number; readonly recordedAt: Date }
+    | { readonly state: 'UNREADABLE' };
+  readonly organizationSpentMicros: number;
+  readonly organizationCapMicros: number | null;
+  readonly forwardReserveMicros: number | null;
+  /** This organization's spend over the trailing 24 hours -- never another organization's. */
+  readonly trailingDayMicros: number;
+  readonly emergencyCapMicros: number;
+  readonly lanes: readonly CapacityLaneRow[];
+  /** Stored KILLED switches that apply to this organization. */
+  readonly storedKills: readonly { readonly scope: string; readonly value: string | null }[];
+}
+
+/** What the capacity read returns, before projection. */
+export interface CapacityRead {
+  readonly budget:
+    | { readonly state: 'NONE' }
+    | { readonly state: 'RECORDED'; readonly budget: AiOperatingBudget; readonly version: number; readonly recordedAtMs: number }
+    | { readonly state: 'UNREADABLE' };
+  readonly cost: AiCostSnapshot;
+  readonly storedKills: readonly AiKillSwitch[];
+}
+
+/** Pure: the capacity section as the page shows it. Amounts stay micro-dollars until the view formats them. */
+export function projectCapacity(read: CapacityRead): CapacityStatus {
+  const operating = read.budget.state === 'RECORDED' ? read.budget.budget : null;
+  return {
+    budget:
+      read.budget.state === 'RECORDED'
+        ? { state: 'RECORDED', label: read.budget.budget.label, version: read.budget.version, recordedAt: new Date(read.budget.recordedAtMs) }
+        : read.budget,
+    organizationSpentMicros: read.cost.organizationMicros,
+    organizationCapMicros: operating?.organizationDailyCostMicros ?? null,
+    forwardReserveMicros: operating?.forwardReserveCostMicros ?? null,
+    trailingDayMicros: read.cost.globalMicros,
+    emergencyCapMicros: operating?.emergencyCostMicros ?? AI_DEFAULT_EMERGENCY_CEILING_MICROS,
+    lanes: AI_LANES.map((lane) => ({
+      lane,
+      spentMicros: read.cost.laneMicros[lane],
+      capMicros: operating ? operating.lanes[lane].dailyCostMicros : null,
+      invocations: read.cost.laneInvocations[lane],
+      callCap: operating?.lanes[lane].maxInvocations ?? null,
+    })),
+    storedKills: read.storedKills.map((k) => ({ scope: k.scope, value: 'value' in k && k.value ? k.value : null })),
+  };
+}
+
 export interface IntelligenceStatus {
   readonly generatedAt: Date;
   readonly tasks: Section<{ readonly rows: readonly TaskStatus[]; readonly latencySampled: boolean }>;
   readonly providers: Section<readonly ProviderPolicyRow[]>;
   readonly yourDigests: Section<readonly DigestMetadata[]>;
   readonly organizationDigests: Section<readonly DigestCount[]>;
+  /** PR 1: spend by lane against the operating budget, the emergency ceiling, and stored stops. */
+  readonly capacity: Section<CapacityStatus>;
 }

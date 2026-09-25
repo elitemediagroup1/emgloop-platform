@@ -22,7 +22,7 @@
 //
 // G2 IS NOT HERE ANY MORE (2026-09-24). Whether Loop may SEND a provider a class of data
 // is a RECORDED provider policy (`ai_controls`, scope PROVIDER_POLICY), which the gateway
-// reads through `aiProviderPolicyReader` and refuses without (POLICY_DENIED). The old
+// reads through `aiRuntimeControlsReader` and refuses without (POLICY_DENIED). The old
 // LOOP_AI_PROVIDER_TERMS_CONFIRMED variable is not read: an environment can list a
 // provider, never approve one.
 //

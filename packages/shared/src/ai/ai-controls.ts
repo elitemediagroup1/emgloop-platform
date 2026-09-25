@@ -28,18 +28,33 @@
 // read as, or collide with, a PROVIDER activation control. `aiEffectiveControls` ignores it;
 // the gateway's admission reads it (provider-policy.ts).
 //
+// AND ONE MORE (PR 1, 2026-09-26). A BUDGET control records the OPERATING BUDGET (capacity.ts): the
+// daily cost caps, lanes and invocation caps an operator raises from observed usage. Platform-wide, one
+// history (`BUDGET|-|operating`), ACTIVE only, carrying its figures in `settings`. Like a provider
+// policy it is not a switch: `aiEffectiveControls` ignores it and the gateway reads it.
+//
+// WHAT THE AI GATEWAY READS OF THE SWITCHES (PR 1). Only the KILLED ones (`aiStoredKillSwitches`). The
+// gateway's floor is its deployment's environment, and it does not require ACTIVE grant rows the way a
+// Brain job does -- reading grants there would switch off every deployment that never recorded one. A
+// KILLED control, though, stops the gateway's work within the reader's cache (under a minute), with no
+// deploy: GLOBAL, one provider, one model, one task, or one organization.
+//
 // PURE.
 
 import { AI_KILL_SWITCH_SCOPES, type AiActivation, type AiKillSwitch, type AiKillSwitchScope } from './runtime';
 import { AI_SENSITIVITY_CLASSES, type AiSensitivityClass } from './context';
 import { AI_PROVIDER_POLICY_SCOPE, type AiProviderPolicy } from './provider-policy';
 
+/** PR 1. The scope the operating budget is recorded under, and its one value. */
+export const AI_BUDGET_SCOPE = 'BUDGET' as const;
+export const AI_BUDGET_CONTROL_VALUE = 'operating' as const;
+
 /** The scopes that switch AI work on or off: the same five the kill switches use. */
 export const AI_CONTROL_SCOPES = AI_KILL_SWITCH_SCOPES;
 export type AiControlScope = AiKillSwitchScope;
 
 /** Every scope the control log stores: the five switches, and the provider policy (G2). */
-export const AI_STORED_CONTROL_SCOPES = [...AI_CONTROL_SCOPES, AI_PROVIDER_POLICY_SCOPE] as const;
+export const AI_STORED_CONTROL_SCOPES = [...AI_CONTROL_SCOPES, AI_PROVIDER_POLICY_SCOPE, AI_BUDGET_SCOPE] as const;
 export type AiStoredControlScope = (typeof AI_STORED_CONTROL_SCOPES)[number];
 
 /** ACTIVE: recorded authority enables the target. KILLED: it is stopped. */
@@ -54,6 +69,7 @@ export type AiControlState = (typeof AI_CONTROL_STATES)[number];
  *   TASK          one task, platform-wide (no organization) or within one organization.
  *   ORGANIZATION  one organization. Its value IS that organization.
  *   PROVIDER_POLICY  one provider's data-class approval, platform-wide. No organization.
+ *   BUDGET        the operating budget, platform-wide. No organization; value `operating`.
  */
 export interface AiControlTarget {
   readonly scope: AiStoredControlScope;
@@ -79,6 +95,11 @@ export interface AiControlEntry {
    * when ACTIVE; optional when KILLED; never present on any other scope.
    */
   readonly ceiling?: AiSensitivityClass | null;
+  /**
+   * BUDGET only (PR 1): the operating budget's figures, validated by `aiOperatingBudgetRefusals` before
+   * they are recorded and again when they are read. Never present on any other scope.
+   */
+  readonly settings?: unknown;
 }
 
 export const AI_CONTROL_REFUSALS = [
@@ -94,18 +115,22 @@ export const AI_CONTROL_REFUSALS = [
   'CEILING_REQUIRED',
   'CEILING_NOT_ALLOWED_FOR_SCOPE',
   'UNKNOWN_CEILING',
+  // PR 1: the operating budget's own rules.
+  'SETTINGS_REQUIRED',
+  'SETTINGS_NOT_ALLOWED_FOR_SCOPE',
+  'BUDGET_MUST_BE_ACTIVE',
 ] as const;
 export type AiControlRefusal = (typeof AI_CONTROL_REFUSALS)[number];
 
 const VALUE = /^[A-Za-z0-9][A-Za-z0-9._:\/-]{0,199}$/;
 
 /** Everything wrong with a control about to be recorded. Empty means it may be appended. */
-export function aiControlRefusals(entry: Pick<AiControlEntry, 'target' | 'state' | 'reason' | 'actor' | 'ceiling'>): AiControlRefusal[] {
+export function aiControlRefusals(entry: Pick<AiControlEntry, 'target' | 'state' | 'reason' | 'actor' | 'ceiling' | 'settings'>): AiControlRefusal[] {
   const out: AiControlRefusal[] = [];
   const { scope, organizationId, value } = entry.target;
   if (!(AI_STORED_CONTROL_SCOPES as readonly string[]).includes(scope)) out.push('UNKNOWN_SCOPE');
   if (!(AI_CONTROL_STATES as readonly string[]).includes(entry.state)) out.push('UNKNOWN_STATE');
-  const platformOnly = scope === 'GLOBAL' || scope === 'PROVIDER' || scope === 'MODEL' || scope === AI_PROVIDER_POLICY_SCOPE;
+  const platformOnly = scope === 'GLOBAL' || scope === 'PROVIDER' || scope === 'MODEL' || scope === AI_PROVIDER_POLICY_SCOPE || scope === AI_BUDGET_SCOPE;
   if (platformOnly && organizationId !== null) out.push('ORGANIZATION_NOT_ALLOWED_FOR_SCOPE');
   if (scope === 'ORGANIZATION' && organizationId === null) out.push('ORGANIZATION_REQUIRED');
   if (scope === 'GLOBAL' && value !== null) out.push('VALUE_NOT_ALLOWED_FOR_SCOPE');
@@ -122,6 +147,15 @@ export function aiControlRefusals(entry: Pick<AiControlEntry, 'target' | 'state'
     if (entry.state === 'ACTIVE' && ceiling === null) out.push('CEILING_REQUIRED');
   } else if (ceiling !== null) {
     out.push('CEILING_NOT_ALLOWED_FOR_SCOPE');
+  }
+  // The operating budget carries its figures and is only ever ACTIVE: to change it, record new figures.
+  const settings = entry.settings ?? null;
+  if (scope === AI_BUDGET_SCOPE) {
+    if (entry.state !== 'ACTIVE') out.push('BUDGET_MUST_BE_ACTIVE');
+    if (settings === null) out.push('SETTINGS_REQUIRED');
+    if (value !== AI_BUDGET_CONTROL_VALUE) out.push('VALUE_REQUIRED');
+  } else if (settings !== null) {
+    out.push('SETTINGS_NOT_ALLOWED_FOR_SCOPE');
   }
   return [...new Set(out)];
 }
@@ -149,14 +183,34 @@ export type AiControlAppendDecision =
  * else's decision. Recording the state a control already has appends nothing.
  */
 export function aiControlAppendDecision(
-  current: { readonly version: number; readonly state: AiControlState; readonly ceiling?: string | null } | null,
-  request: { readonly expectedVersion: number; readonly state: AiControlState; readonly ceiling?: string | null },
+  current: { readonly version: number; readonly state: AiControlState; readonly ceiling?: string | null; readonly settings?: unknown } | null,
+  request: { readonly expectedVersion: number; readonly state: AiControlState; readonly ceiling?: string | null; readonly settings?: unknown },
 ): AiControlAppendDecision {
   const version = current?.version ?? 0;
   if (request.expectedVersion !== version) return { action: 'STALE', currentVersion: version };
-  // A provider policy that moves its ceiling is a change even when its state does not.
-  if (current && current.state === request.state && (current.ceiling ?? null) === (request.ceiling ?? null)) return { action: 'UNCHANGED' };
+  // A provider policy that moves its ceiling -- or an operating budget that moves any figure -- is a
+  // change even when its state does not.
+  if (
+    current &&
+    current.state === request.state &&
+    (current.ceiling ?? null) === (request.ceiling ?? null) &&
+    canonicalJson(current.settings ?? null) === canonicalJson(request.settings ?? null)
+  ) {
+    return { action: 'UNCHANGED' };
+  }
   return { action: 'APPEND', version: version + 1 };
+}
+
+/** JSON with object keys sorted, so two recordings of the same figures compare equal. */
+export function canonicalJson(value: unknown): string {
+  const norm = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(norm);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, norm((v as Record<string, unknown>)[k])]));
+    }
+    return v;
+  };
+  return JSON.stringify(norm(value));
 }
 
 /**
@@ -190,8 +244,10 @@ export function aiEffectiveControls(
   stored: readonly AiControlEntry[],
   organizationId: string,
 ): AiEffectiveControls {
-  // Provider policies are not switches: G2 is decided at admission, never here.
-  const applying = aiControlsApplyingTo(organizationId, stored).filter((e) => e.target.scope !== AI_PROVIDER_POLICY_SCOPE);
+  // Provider policies and the operating budget are not switches: both are read at admission, never here.
+  const applying = aiControlsApplyingTo(organizationId, stored).filter(
+    (e) => e.target.scope !== AI_PROVIDER_POLICY_SCOPE && e.target.scope !== AI_BUDGET_SCOPE,
+  );
   const has = (state: AiControlState, scope: AiControlScope, value: string | null, org: string | null) =>
     applying.some((e) => e.state === state && e.target.scope === scope && e.target.value === value && e.target.organizationId === org);
 
@@ -233,6 +289,23 @@ export function aiProviderPoliciesOf(entries: readonly AiControlEntry[]): AiProv
   for (const e of entries) {
     if (e.target.scope !== AI_PROVIDER_POLICY_SCOPE || e.target.organizationId !== null || !e.target.value) continue;
     out.push({ providerId: e.target.value, state: e.state, ceiling: e.ceiling ?? null, version: e.version, recordedAtMs: e.recordedAtMs });
+  }
+  return out;
+}
+
+/**
+ * PR 1. The stored KILLED controls that stop an AI gateway's work for one organization, as kill switches
+ * `admitAiInvocation` already understands. ACTIVE controls are ignored here on purpose (see the header):
+ * the gateway's floor is its environment. A KILLED TASK recorded by this organization stops that task for
+ * this organization only; every platform KILLED control stops what it names everywhere.
+ */
+export function aiStoredKillSwitches(stored: readonly AiControlEntry[], organizationId: string): AiKillSwitch[] {
+  const out: AiKillSwitch[] = [];
+  for (const e of aiControlsApplyingTo(organizationId, stored)) {
+    if (e.state !== 'KILLED') continue;
+    const { scope, value } = e.target;
+    if (scope === 'GLOBAL') out.push({ scope: 'GLOBAL' });
+    else if ((scope === 'ORGANIZATION' || scope === 'TASK' || scope === 'PROVIDER' || scope === 'MODEL') && value) out.push({ scope, value });
   }
   return out;
 }

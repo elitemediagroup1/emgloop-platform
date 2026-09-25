@@ -268,3 +268,67 @@ describe('digests: the viewer’s own metadata, organization counts, never conte
     assert.match(renderToStaticMarkup(<IntelligenceStatusView status={failed} time={time} />), /Loop could not read your digests just now/);
   });
 });
+
+describe('AI capacity (PR 1)', () => {
+  const noCost = {
+    organizationMicros: 0,
+    laneMicros: { FORWARD: 0, SYNTHESIS: 0, INTERACTIVE: 0, BACKGROUND: 0 },
+    laneInvocations: { FORWARD: 0, SYNTHESIS: 0, INTERACTIVE: 0, BACKGROUND: 0 },
+    globalMicros: 0,
+    taskRecentFailures: 0,
+  };
+
+  it('with no recorded budget: spend by lane, no lane caps, and the $25 emergency ceiling -- said in words', async () => {
+    const status = await loadIntelligenceStatus(SESSION, NOW, {
+      ...deps().deps,
+      capacity: async () => ({
+        budget: { state: 'NONE' },
+        cost: { ...noCost, organizationMicros: 1_650_000, globalMicros: 1_650_000, laneMicros: { ...noCost.laneMicros, FORWARD: 1_250_000, BACKGROUND: 400_000 }, laneInvocations: { ...noCost.laneInvocations, FORWARD: 25, BACKGROUND: 9 } },
+        storedKills: [],
+      }),
+    });
+    assert.equal(status.capacity.state, 'READ');
+    const html = renderToStaticMarkup(<IntelligenceStatusView status={status} time={time} />);
+    assert.match(html, /No operating budget is recorded/);
+    assert.match(html, /Live \(new messages\)<\/td><td>\$1\.25<\/td>/);
+    assert.match(html, /Background catch-up<\/td><td>\$0\.40<\/td>/);
+    assert.match(html, /No lane cap/);
+    assert.match(html, /\$25\.00 emergency ceiling/);
+    assert.match(html, /No recorded stop applies here/);
+  });
+
+  it('with the initial budget: each lane against its cap, the $20 day with its live reserve, and the stops in force', async () => {
+    const { AI_OPERATING_BUDGET_INITIAL } = await import('@emgloop/shared');
+    const status = await loadIntelligenceStatus(SESSION, NOW, {
+      ...deps().deps,
+      capacity: async () => ({
+        budget: { state: 'RECORDED', budget: AI_OPERATING_BUDGET_INITIAL, version: 1, recordedAtMs: hoursAgo(3).getTime() },
+        cost: { ...noCost, organizationMicros: 4_600_000, globalMicros: 4_600_000 },
+        storedKills: [{ scope: 'TASK', value: 'mail.reply.draft' }],
+      }),
+    });
+    const html = renderToStaticMarkup(<IntelligenceStatusView status={status} time={time} />);
+    assert.match(html, /Operating budget operating\.initial\.1 \(version 1\)/);
+    assert.match(html, /Live \(new messages\)<\/td><td>\$0\.00<\/td><td>\$8\.00<\/td>/);
+    assert.match(html, /Background catch-up[\s\S]*?\$2\.00<\/td><td>0<\/td><td>60<\/td>/);
+    assert.match(html, /\$20\.00[\s\S]*?incl\. \$1\.50 live reserve/);
+    assert.match(html, /Recorded stops in force: TASK mail\.reply\.draft/);
+  });
+
+  it('an unreadable budget says every call is refused; a failed read is "could not read"; no capacity read is NOT_EXPOSED', async () => {
+    const unreadable = await loadIntelligenceStatus(SESSION, NOW, { ...deps().deps, capacity: async () => ({ budget: { state: 'UNREADABLE' }, cost: noCost, storedKills: [] }) });
+    assert.match(renderToStaticMarkup(<IntelligenceStatusView status={unreadable} time={time} />), /refuses every AI call until corrected figures are recorded/);
+    const failed = await loadIntelligenceStatus(SESSION, NOW, { ...deps().deps, capacity: async () => { throw new Error('db'); } });
+    assert.equal(failed.capacity.state, 'UNAVAILABLE');
+    assert.match(renderToStaticMarkup(<IntelligenceStatusView status={failed} time={time} />), /Loop could not read AI capacity just now/);
+    assert.equal((await loadIntelligenceStatus(SESSION, NOW, deps().deps)).capacity.state, 'NOT_EXPOSED');
+  });
+
+  it('the capacity read names no person, and its trailing figure is this organization alone', () => {
+    const data = code(read('app/app/admin/intelligence-status/status-data.ts'));
+    assert.match(data, /\.spend\(organizationId, 'intelligence-status', now, \[organizationId\], operating\)/);
+    const body = data.slice(data.indexOf('async function readCapacity'), data.indexOf('function defaultDeps'));
+    assert.ok(body.length > 100);
+    assert.doesNotMatch(body, /principalUserId|userId/);
+  });
+});

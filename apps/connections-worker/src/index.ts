@@ -70,9 +70,11 @@ async function main(): Promise<void> {
   const sealer = new ConnectionSecretSealer(config.connectionSecretKey);
   const sink = createDbObservationSink(prisma);
 
-  // The governed AI runtime, assembled from THIS deployment's own env. OFF by default: with
-  // LOOP_AI_ENABLED anything but exactly "true", or no listed+confirmed+credentialled provider, it is
-  // not enabled and the content sweep never runs -- so no message body is ever read.
+  // The governed AI runtime, assembled from THIS deployment's own env. OFF by default: unless
+  // LOOP_AI_ENABLED is exactly "true", telegram.content.triage is in LOOP_AI_TASKS, and a credentialled
+  // provider on that task's own route is listed, it is not enabled and the forward, historical and
+  // hydration sweeps never start -- so no message body is ever read for AI triage. A provider listed for
+  // a task whose schema it is not verified against refuses startup here (worker_fatal, NotConfigured).
   const aiRuntime = createWorkerAiRuntime(prisma);
 
   const clientPort = createTelegramClientPort(config.telegram);
@@ -297,7 +299,7 @@ async function main(): Promise<void> {
     adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
     openCredential: (due: DueHistoricalContent) => openContentCredential(due),
     conversationSecret: config.conversationSecret,
-    triage: (principal, input) => aiRuntime.service.triage(principal, input),
+    triage: (principal, input) => aiRuntime.service.triage(principal, { ...input, lane: 'BACKGROUND' }),
     raiseWorkItem: historicalRaise.raiseWorkItem,
     resolveObligations,
     recordConversationIntelligence: historicalDigests.record,
@@ -342,7 +344,7 @@ async function main(): Promise<void> {
     dueForChatsHydration: () => contentAuthorizations.dueForChatsHydration(500),
     adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
     openCredential: (due: DueChatsHydration) => openContentCredential(due),
-    triage: (principal, input) => aiRuntime.service.triage(principal, input),
+    triage: (principal, input) => aiRuntime.service.triage(principal, { ...input, lane: 'BACKGROUND' }),
     async hasCurrentConversationDigest(principal, subjectRef, now) {
       return (await digests.current(principal, 'CHATS', { subjectKind: 'CONVERSATION', subjectRef, now })) !== null;
     },

@@ -27,6 +27,12 @@
 //
 // NO PER-USER CAP (Product, 2026-09-16). `principalUserId` is attribution only.
 //
+// COST AND LANES (PR 1, 2026-09-26). The same serializable reservation also checks CAPACITY
+// (capacity.ts): the always-on emergency ceiling, and -- when an operating budget is recorded -- the
+// organization's daily cost, the call's lane, background deferral and the circuit breaker. The
+// reservation row records its lane; the reconcile records its cost. On a database that predates the
+// columns, the service neither writes nor reads them (`capacityColumnsPresent`).
+//
 // THIS SERVICE ACTIVATES NOTHING. It reads and writes one table; it constructs no
 // provider client, reads no credential, and makes no model call.
 
@@ -34,9 +40,12 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import {
   aiBudgetDate,
   aiBudgetRefusals,
+  aiCapacityRefusals,
   aiCostMicros,
+  AI_NO_COST,
   type AiBudgetDate,
   type AiBudgetPolicy,
+  type AiOperatingBudget,
   type AiSpendSnapshot,
 } from '@emgloop/shared';
 
@@ -87,18 +96,33 @@ export class DurableAiUsageLedger implements AiUsageLedger {
     return aiBudgetDate(instant, org?.timezone ?? 'UTC');
   }
 
-  async spend(organizationId: string, taskId: string, at: Date, activeOrganizations: readonly string[]): Promise<AiSpendSnapshot> {
+  async spend(
+    organizationId: string,
+    taskId: string,
+    at: Date,
+    activeOrganizations: readonly string[],
+    operating: AiOperatingBudget | null = null,
+  ): Promise<AiSpendSnapshot> {
     const date = await this.businessDate(organizationId, at);
-    return this.ledger.spendSnapshot(organizationId, taskId, date, activeOrganizations, new Date(at.getTime() - GLOBAL_WINDOW_MS));
+    const capacity = await this.ledger.capacityColumnsPresent();
+    return this.ledger.spendSnapshot(organizationId, taskId, date, activeOrganizations, new Date(at.getTime() - GLOBAL_WINDOW_MS), undefined, {
+      capacity,
+      breakerSince: breakerSince(operating, at),
+    });
   }
 
   async reserve(
     reservation: AiCallReservation,
     budget: AiBudgetPolicy,
     activeOrganizations: readonly string[],
+    operating: AiOperatingBudget | null = null,
   ): Promise<AiReserveResult> {
     const date = await this.businessDate(reservation.organizationId, reservation.requestedAt);
     const since = new Date(reservation.requestedAt.getTime() - GLOBAL_WINDOW_MS);
+    // Probed OUTSIDE the transaction: on a database without the columns the probe's own failure would
+    // otherwise abort the reservation it was meant to shape.
+    const capacity = await this.ledger.capacityColumnsPresent();
+    const estimatedCostMicros = aiCostMicros(reservation.target.pricing, reservation.estimate);
 
     for (let attempt = 0; attempt < this.maxAttempts; attempt += 1) {
       try {
@@ -114,8 +138,17 @@ export class DurableAiUsageLedger implements AiUsageLedger {
               activeOrganizations,
               since,
               tx,
+              { capacity, breakerSince: breakerSince(operating, reservation.requestedAt) },
             );
-            const refusals = aiBudgetRefusals(budget, reservation.budgetClass, reservation.estimate, spend);
+            const refusals = [
+              ...aiBudgetRefusals(budget, reservation.budgetClass, reservation.estimate, spend),
+              ...aiCapacityRefusals({
+                operating,
+                lane: reservation.lane ?? 'INTERACTIVE',
+                estimateMicros: estimatedCostMicros,
+                cost: spend.cost ?? AI_NO_COST,
+              }),
+            ];
             if (refusals.length > 0) return { ok: false, refusals } as const;
             await this.ledger.insertReservation(
               reservation.organizationId,
@@ -133,7 +166,7 @@ export class DurableAiUsageLedger implements AiUsageLedger {
                 contextSourceRefs: reservation.contextSourceRefs,
                 estimatedInputTokens: reservation.estimate.inputTokens,
                 estimatedOutputTokens: reservation.estimate.outputTokens,
-                estimatedCostMicros: aiCostMicros(reservation.target.pricing, reservation.estimate),
+                estimatedCostMicros,
                 unitCostBasis: reservation.target.pricing?.listVersion ?? null,
                 businessDate: date,
                 requestedAt: reservation.requestedAt,
@@ -142,8 +175,10 @@ export class DurableAiUsageLedger implements AiUsageLedger {
                 brainJobId: reservation.brain?.jobId ?? null,
                 brainStepKey: reservation.brain?.stepKey ?? null,
                 specializationPolicyVersion: reservation.specializationPolicyVersion ?? null,
+                lane: reservation.lane ?? null,
               },
               tx,
+              capacity,
             );
             return { ok: true } as const;
           },
@@ -159,7 +194,8 @@ export class DurableAiUsageLedger implements AiUsageLedger {
     return { ok: false, refusals: ['RESERVATION_CONTENDED'] };
   }
 
-  reconcile(organizationId: string, reconciliation: AiCallReconciliation): Promise<boolean> {
+  async reconcile(organizationId: string, reconciliation: AiCallReconciliation): Promise<boolean> {
+    const capacity = await this.ledger.capacityColumnsPresent();
     return this.ledger.reconcile(organizationId, {
       invocationId: reconciliation.callKey,
       outcome: reconciliation.outcome,
@@ -174,6 +210,13 @@ export class DurableAiUsageLedger implements AiUsageLedger {
       rejectionCodes: reconciliation.rejectionCodes,
       completedAt: reconciliation.completedAt,
       latencyMs: reconciliation.latencyMs,
-    });
+      costMicros: reconciliation.costMicros ?? null,
+    }, undefined, capacity);
   }
+}
+
+/** Where the circuit breaker's trailing window starts, or null when no breaker is configured. */
+function breakerSince(operating: AiOperatingBudget | null, at: Date): Date | null {
+  const breaker = operating?.circuitBreaker ?? null;
+  return breaker ? new Date(at.getTime() - breaker.windowMinutes * 60_000) : null;
 }

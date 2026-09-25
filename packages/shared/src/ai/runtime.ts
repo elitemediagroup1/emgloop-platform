@@ -35,6 +35,7 @@
 import { aiToolsAdmissible, type AiModelRequest, type AiUsage } from './provider';
 import { aiContextSourceRefs, type AiContextPackage, type AiSensitivityClass } from './context';
 import { aiProviderPolicyRefusal, type AiProviderPolicy, type AiProviderPolicyRefusal } from './provider-policy';
+import { aiCapacityRefusals, AI_NO_COST, type AiCostSnapshot, type AiLane, type AiOperatingBudget } from './capacity';
 
 /** How hard a model should think. Provider-neutral; each adapter maps it to its own knob. */
 export const AI_REASONING_EFFORTS = ['low', 'medium', 'high'] as const;
@@ -87,6 +88,19 @@ export interface AiTaskRoutePolicy {
   /** Which budget class limits this task. */
   readonly budgetClass: string;
   /**
+   * PR 1. The capacity lane this task's calls run in (capacity.ts). A caller may move a call DOWN to
+   * BACKGROUND and nowhere else. Absent reads as INTERACTIVE.
+   */
+  readonly lane?: AiLane;
+  /**
+   * PR 1. How the serving target is chosen. Absent: the primary, then the permitted fallback when the
+   * primary is unavailable. OTHER_THAN_SUBJECT: a verification task that must be served by a provider
+   * OTHER than the one that produced what it checks (`AiAdmissionRequest.subjectProvider`); both named
+   * targets are candidates, the subject's provider is removed, and with no independent provider left
+   * the call is refused as NO_INDEPENDENT_PROVIDER -- never quietly served by the same provider.
+   */
+  readonly strategy?: 'OTHER_THAN_SUBJECT';
+  /**
    * Why the primary is not the provider the task's capability route prefers, or why
    * this provider was chosen for a route with no default. Absent when the primary
    * follows the preference. Reviewed with the rest of the entry (capability.ts).
@@ -97,6 +111,8 @@ export interface AiTaskRoutePolicy {
 export interface AiRoutingPolicy {
   /** Recorded on every call, so "which table chose this model" has an answer. */
   readonly version: string;
+  /** PR 1. The provider-specialization policy this routing conforms to. Recorded on every call. */
+  readonly specializationPolicyVersion?: string;
   readonly tasks: Readonly<Record<string, AiTaskRoutePolicy>>;
 }
 
@@ -175,6 +191,12 @@ export interface AiSpendSnapshot {
   readonly organization: AiSpendToday;
   readonly task: AiSpendToday;
   readonly global: AiSpendToday;
+  /**
+   * PR 1. What those windows COST, per lane, for the capacity checks (capacity.ts). A ledger that does
+   * not report it is read as having spent nothing -- which only the emergency ceiling reads, and which a
+   * durable ledger always reports.
+   */
+  readonly cost?: AiCostSnapshot;
 }
 
 /** What one provider call is expected to cost before it is made. Deliberately pessimistic. */
@@ -272,6 +294,22 @@ export const AI_ADMISSION_REFUSALS = [
   'RESERVATION_CONTENDED',
   'DUPLICATE_INVOCATION',
   'LEDGER_UNAVAILABLE',
+  // PR 1 (AI runtime). The answer's schema has no registered output contract, so no answer could be checked.
+  'OUTPUT_CONTRACT_UNKNOWN',
+  // PR 1. A caller asked for a lane its task's route does not name (only BACKGROUND may be chosen).
+  'LANE_NOT_PERMITTED',
+  // PR 1. A verification route has no eligible provider other than the one that produced its subject.
+  'NO_INDEPENDENT_PROVIDER',
+  // PR 1. Capacity (capacity.ts): the always-on emergency ceiling, then the recorded operating budget.
+  'BUDGET_EMERGENCY_CEILING',
+  'BUDGET_COST_UNPRICED',
+  'BUDGET_ORGANIZATION_COST_EXHAUSTED',
+  'BUDGET_LANE_EXHAUSTED',
+  'BUDGET_BACKGROUND_DEFERRED',
+  'TASK_CIRCUIT_OPEN',
+  // PR 1. A recorded control (a stored kill switch or the operating budget) could not be read or does not
+  // validate. Refused, never read as "no control".
+  'CONTROLS_UNREADABLE',
 ] as const;
 export type AiAdmissionRefusal = (typeof AI_ADMISSION_REFUSALS)[number];
 
@@ -299,6 +337,15 @@ export interface AiAdmissionRequest {
   readonly providerPolicies: readonly AiProviderPolicy[] | null;
   /** The task's own sensitivity ceiling, from its definition. A provider policy must reach it. */
   readonly sensitivityCeiling: AiSensitivityClass;
+  /**
+   * PR 1. The recorded operating budget (capacity.ts), or null when none is recorded. `budget` above is
+   * then already the EFFECTIVE policy (`aiEffectiveBudgetPolicy`); this adds the cost and lane checks.
+   */
+  readonly operating?: AiOperatingBudget | null;
+  /** PR 1. The lane the caller asked for. Absent: the route's own lane. */
+  readonly lane?: AiLane;
+  /** PR 1. For an OTHER_THAN_SUBJECT route: the provider that produced what this call checks. */
+  readonly subjectProvider?: string | null;
 }
 
 /** Why an admissible primary did not serve. Recorded, so a provider never changes silently. */
@@ -315,6 +362,8 @@ export type AiAdmission =
       readonly skipped: readonly AiSkippedTarget[];
       readonly routingPolicyVersion: string;
       readonly budgetClass: string;
+      /** PR 1. The lane every call of this invocation is reserved and recorded in. */
+      readonly lane: AiLane;
     }
   | { readonly ok: false; readonly refusals: readonly AiAdmissionRefusal[] };
 
@@ -346,7 +395,19 @@ export function admitAiInvocation(request: AiAdmissionRequest): AiAdmission {
   if (!route) return { ok: false, refusals: unique([...refusals, 'NO_ROUTE_FOR_TASK']) };
   if (route.taskVersion !== request.taskVersion) refusals.push('ROUTE_TASK_VERSION_MISMATCH');
 
-  const candidates = [route.primary, ...(route.fallbackPermitted && route.fallback ? [route.fallback] : [])];
+  // PR 1. The lane: the route's own, or BACKGROUND when the caller moves the work down. Nothing else.
+  const routeLane: AiLane = route.lane ?? 'INTERACTIVE';
+  const lane: AiLane = request.lane ?? routeLane;
+  if (lane !== routeLane && lane !== 'BACKGROUND') refusals.push('LANE_NOT_PERMITTED');
+
+  // PR 1. An independent verification is served by a provider OTHER than its subject's, or not at all.
+  const independent = route.strategy === 'OTHER_THAN_SUBJECT';
+  const named = independent
+    ? [route.primary, ...(route.fallback ? [route.fallback] : [])]
+    : [route.primary, ...(route.fallbackPermitted && route.fallback ? [route.fallback] : [])];
+  const subject = request.subjectProvider ?? null;
+  const candidates = independent ? (subject ? named.filter((t) => t.providerId !== subject) : []) : named;
+  if (independent && candidates.length === 0) return { ok: false, refusals: unique([...refusals, 'NO_INDEPENDENT_PROVIDER']) };
   const skipped: AiSkippedTarget[] = [];
   const serving: AiRouteTargetPolicy[] = [];
   for (const target of candidates) {
@@ -362,10 +423,22 @@ export function admitAiInvocation(request: AiAdmissionRequest): AiAdmission {
     if (policyReasons.length > 0) refusals.push('POLICY_DENIED', ...policyReasons);
   }
 
-  const [primary, ...fallbacks] = serving;
+  const [primary, ...firstFallbacks] = serving;
+  // An independent verification has no availability fallback: the other candidate may be the subject's
+  // own provider in a later configuration, and "served by someone" is not the same as "independent".
+  const fallbacks = independent && !route.fallbackPermitted ? [] : firstFallbacks;
   if (primary) {
     const estimate = { inputTokens: request.estimatedInputTokens, outputTokens: primary.maxOutputTokens };
     refusals.push(...aiBudgetRefusals(request.budget, route.budgetClass, estimate, request.spend));
+    // PR 1. Capacity: the emergency ceiling always; lanes and cost with a recorded operating budget.
+    refusals.push(
+      ...aiCapacityRefusals({
+        operating: request.operating ?? null,
+        lane,
+        estimateMicros: aiCostMicros(primary.pricing, estimate),
+        cost: request.spend.cost ?? AI_NO_COST,
+      }),
+    );
   }
 
   if (refusals.length > 0 || !primary) {
@@ -378,6 +451,7 @@ export function admitAiInvocation(request: AiAdmissionRequest): AiAdmission {
     skipped,
     routingPolicyVersion: request.policy.version,
     budgetClass: route.budgetClass,
+    lane,
   };
 }
 

@@ -7,7 +7,17 @@ import { intelligenceCoverageLabel, isIntelligenceCoverage, type TimeView } from
 import { LabelBadge } from '../../_loop-os/product-state';
 import { Panel, StateBlock } from '../../_loop-os/record';
 import { num } from '../../_loop-os/format';
-import { STATUS_WINDOWS, type DigestCount, type DigestMetadata, type IntelligenceStatus, type ProviderPolicyRow, type Section, type TaskStatus, type TaskWindowStatus } from './status';
+import {
+  STATUS_WINDOWS,
+  type CapacityStatus,
+  type DigestCount,
+  type DigestMetadata,
+  type IntelligenceStatus,
+  type ProviderPolicyRow,
+  type Section,
+  type TaskStatus,
+  type TaskWindowStatus,
+} from './status';
 
 const NOT_RECORDED = 'Not recorded';
 
@@ -138,9 +148,93 @@ function CountRow({ c }: { c: DigestCount }) {
   );
 }
 
+const LANE_LABEL: Record<CapacityStatus['lanes'][number]['lane'], string> = {
+  FORWARD: 'Live (new messages)',
+  SYNTHESIS: 'Readings, situations, briefing',
+  INTERACTIVE: 'Requested by a person',
+  BACKGROUND: 'Background catch-up',
+};
+
+function CapacityView({ c, time }: { c: CapacityStatus; time: TimeView }) {
+  const budget =
+    c.budget.state === 'RECORDED'
+      ? `Operating budget ${c.budget.label} (version ${c.budget.version}), recorded ${time.dateTime(c.budget.recordedAt)}.`
+      : c.budget.state === 'UNREADABLE'
+        ? 'The recorded operating budget cannot be read, so Loop refuses every AI call until corrected figures are recorded.'
+        : 'No operating budget is recorded. Loop admits against the reviewed budget policy, plus the emergency ceiling.';
+  return (
+    <>
+      <p className="loop-panel__lead">{budget}</p>
+      <table className="loop-table" aria-label="AI spend by lane today">
+        <thead>
+          <tr>
+            <th>Lane</th>
+            <th>Spent today</th>
+            <th>Daily cap</th>
+            <th>Calls today</th>
+            <th>Call cap</th>
+          </tr>
+        </thead>
+        <tbody>
+          {c.lanes.map((l) => (
+            <tr key={l.lane}>
+              <td>{LANE_LABEL[l.lane]}</td>
+              <td>{dollarsFromMicros(l.spentMicros)}</td>
+              <td>{l.capMicros === null ? <span className="loop-table__muted">No lane cap</span> : dollarsFromMicros(l.capMicros)}</td>
+              <td>{num(l.invocations)}</td>
+              <td>{l.callCap === null ? <span className="loop-table__muted">None</span> : num(l.callCap)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td>
+              <strong>Organization today</strong>
+            </td>
+            <td>
+              <strong>{dollarsFromMicros(c.organizationSpentMicros)}</strong>
+            </td>
+            <td>
+              {c.organizationCapMicros === null ? (
+                <span className="loop-table__muted">No cost cap</span>
+              ) : (
+                <>
+                  {dollarsFromMicros(c.organizationCapMicros)}
+                  {c.forwardReserveMicros ? <span className="loop-table__muted"> (incl. {dollarsFromMicros(c.forwardReserveMicros)} live reserve)</span> : null}
+                </>
+              )}
+            </td>
+            <td colSpan={2} />
+          </tr>
+          <tr>
+            <td>Trailing 24 hours (this organization)</td>
+            <td>{dollarsFromMicros(c.trailingDayMicros)}</td>
+            <td>{dollarsFromMicros(c.emergencyCapMicros)} emergency ceiling</td>
+            <td colSpan={2} />
+          </tr>
+        </tbody>
+      </table>
+      {c.storedKills.length === 0 ? (
+        <p className="loop-panel__lead">No recorded stop applies here.</p>
+      ) : (
+        <p className="loop-panel__lead">
+          Recorded stops in force: {c.storedKills.map((k) => (k.value ? `${k.scope} ${k.value}` : k.scope)).join(', ')}.
+        </p>
+      )}
+    </>
+  );
+}
+
 export function IntelligenceStatusView({ status, time }: { status: IntelligenceStatus; time: TimeView }) {
   return (
     <>
+      <Panel
+        title="AI capacity"
+        lead="What this organization's AI work has cost today, by lane, against the recorded operating budget. Spent is what providers reported, or the reserve while a call is still running."
+      >
+        <SectionState section={status.capacity} what="AI capacity">
+          {(c) => <CapacityView c={c} time={time} />}
+        </SectionState>
+      </Panel>
+
       <Panel
         title="AI tasks"
         lead="Every governed AI task, from the AI usage ledger. Organization totals only: no figure here says whose run it was, except your own. The ledger keeps no prompt and no response."

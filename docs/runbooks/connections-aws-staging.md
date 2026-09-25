@@ -114,7 +114,8 @@ lives ONLY in the GitHub variable; it is never committed to source.
 
 1. **Create the AI credential secret** in Secrets Manager (`065148797865` / `us-east-1`), BEFORE the
    next deploy. Enter the value in the AWS console or CloudShell — **never paste a real key into chat,
-   a PR, an issue or a log.** The secret is a JSON document; Anthropic is required, OpenAI is opt-in:
+   a PR, an issue or a log.** The secret is a JSON document holding one field per provider the
+   deploy lists (step 2); the default lists only Anthropic:
 
     ```sh
     aws sts get-caller-identity --query Account --output text   # must print 065148797865 — stop otherwise
@@ -122,10 +123,11 @@ lives ONLY in the GitHub variable; it is never committed to source.
       --secret-string '{"anthropic_api_key":"REPLACE_WITH_ANTHROPIC_API_KEY"}'
     ```
 
-   To also enable the OpenAI fallback (`aiOpenAiFallback` context, off by default), add the second
-   field: `{"anthropic_api_key":"…","openai_api_key":"…"}`. A default activation needs no OpenAI key.
-   The stack **references** this secret (like the Telegram secret); it never creates it, so it must
-   exist with real values before deploy.
+   For OpenAI, add the second field `{"anthropic_api_key":"…","openai_api_key":"…"}` **before** any
+   deploy that lists `openai` (step 2); a default activation needs no OpenAI key. The stack
+   **references** this secret (like the Telegram secret); it never creates it, so each listed
+   provider's field must exist with a real value before deploy -- otherwise the task cannot start and
+   the deployment circuit breaker rolls the deploy back.
 
 2. **Set the GitHub Actions variable** `CONNECTIONS_STAGING_AI_ORG_ID` in the `connections-staging`
    environment (repo Settings → Environments → `connections-staging` → **Variables**) to the **real
@@ -133,12 +135,35 @@ lives ONLY in the GitHub variable; it is never committed to source.
    in source and must not be committed anywhere. An empty or unset variable leaves AI off (the deploy
    passes an empty context, which the app treats as inactive).
 
+   Two optional variables on the same environment shape the activation; unset or empty means the
+   default, and neither does anything without the org id:
+
+   | Variable | Default | Meaning |
+   |---|---|---|
+   | `CONNECTIONS_STAGING_AI_PROVIDERS` | `anthropic` | comma-separated, no spaces, from `anthropic` and `openai`, in preference order. **`openai` is refused while `telegram.content.triage` is in the task list** (below) |
+   | `CONNECTIONS_STAGING_AI_TASKS` | `telegram.content.triage` | comma-separated task ids the worker runs |
+
+   An unknown provider, a malformed task id or a repeated entry fails the synth, before anything is
+   deployed. **Listing `openai` does not approve it.** It only makes OpenAI callable; the gateway
+   still refuses it (`POLICY_DENIED`) until (1) a provider policy for `openai` is recorded through the
+   Record AI Provider Policy workflow after the data-terms decision (step 4), and (2) the
+   `openai_api_key` field exists in `loop/connections/staging/ai` -- add it BEFORE the variable lists
+   `openai`, or the task cannot start and the deploy rolls back.
+
+   **OpenAI beside Telegram triage is REFUSED until triage v5 (PR 3).** Triage's current output schema
+   (`telegram-content-triage.v4`) carries a named portability exemption and has been verified against
+   Anthropic only, so OpenAI must not become its fallback. Listing `openai` while
+   `telegram.content.triage` is in `CONNECTIONS_STAGING_AI_TASKS` (its default) fails the synth
+   (`aiProviders: openai is not verified against telegram-content-triage.v4`), and a worker started
+   with that environment anyway refuses to start (`worker_fatal`, `NotConfigured: LOOP_AI_PROVIDERS`).
+   Recording an `openai` policy does not change this. Both guards are removed with the exemption.
+
 3. **Re-run the connections-infra-deploy workflow** (Actions → connections-infra-deploy → Run
    workflow → `action: deploy` + `confirm: deploy loop-connections-staging`). The deploy reads the
-   variable into `-c aiOrganizationId=…`, references the `loop/connections/staging/ai` secret, and the
-   task definition gains the four `LOOP_AI_*` env vars (`ENABLED`, `PROVIDERS`, `ORGANIZATIONS`,
-   `TASKS`) plus `ANTHROPIC_API_KEY` (and `OPENAI_API_KEY`
-   only if the fallback field and context are set) injected from Secrets Manager.
+   variables into `-c aiOrganizationId=… -c aiProviders=… -c aiTasks=…`, references the
+   `loop/connections/staging/ai` secret, and the task definition gains the four `LOOP_AI_*` env vars
+   (`ENABLED`, `PROVIDERS`, `ORGANIZATIONS`, `TASKS`) plus one key per listed provider
+   (`ANTHROPIC_API_KEY` for `anthropic`, `OPENAI_API_KEY` for `openai`) injected from Secrets Manager.
 
 4. **Record the provider policy (activation gate G2).** Since 2026-09-24 listing a provider in the
    environment approves nothing: the stack no longer sets `LOOP_AI_PROVIDER_TERMS_CONFIRMED`, and nothing
@@ -157,14 +182,50 @@ lives ONLY in the GitHub variable; it is never committed to source.
    | confirm | `record ai-provider-policy staging` |
 
    The job prints `event=TASK_POLICY task=telegram.content.triage needs=COMMUNICATION_CONTENT
-   admittedBy=anthropic` when it is in place. With the OpenAI fallback on, record `openai` the same way
-   or it is skipped (`PROVIDER_POLICY_MISSING`) while the primary serves. A running worker picks the
+   admittedBy=anthropic` when it is in place. An `openai` policy, once its terms decision exists, is
+   recorded the same way -- but it does NOT make OpenAI eligible for Telegram triage before triage v5
+   (step 2): the deploy and the worker refuse that combination. A running worker picks the
    policy up within 60 seconds; no redeploy is needed. To stop sending to a provider, run the same
    workflow with `state: KILLED`.
 
    **Order when upgrading a worker that already runs triage:** (1) apply the migration
    (`connections-migrate-staging`), (2) record the policy, (3) then deploy the worker. The new worker
    refuses triage until the policy exists.
+
+### Record the operating budget (PR 1)
+
+The AI **operating budget** -- what a day of AI may cost, split into lanes (`ai_controls`, scope
+`BUDGET`) -- is recorded, not deployed. **Without it, behaviour is unchanged:** admission is the
+reviewed budget policy's invocation and token caps plus the always-on $25 emergency ceiling (every
+organization, trailing 24 hours). Recording it is an explicit commissioning act and is **not required
+to deploy PR 1**.
+
+1. **Apply the migrations** (`connections-migrate-staging`); the budget needs
+   `20261005000000_ai_runtime_capacity`, and a write without it is refused as `NOT_MIGRATED`.
+2. **Run Actions → Record AI Budget** with `stage: staging`, `preset: initial`, `settings_json` empty,
+   a one-line reason, and `confirm: record ai-budget staging`. The job prints the current controls and
+   a dry run (current and requested budget in dollars, `event=VALIDATION result=VALID`) before it
+   writes.
+3. **Verify** in the job's closing `read:ai-provider-policy` output: `event=OPERATING_BUDGET
+   state=RECORDED version=1 ... label=operating.initial.1 organizationDailyUsd=20.00 emergencyUsd=25.00`,
+   plus `STORED_KILL` lines for any KILLED platform control. Running workers pick it up within 60
+   seconds; no redeploy.
+
+The initial figures: **$20 per organization per business day, $25 emergency**; lanes FORWARD $8,
+SYNTHESIS $6, INTERACTIVE $2.50, BACKGROUND $2 (at most 60 calls); FORWARD reserve $1.50; BACKGROUND
+defers at $12 of organization spend or 75% of FORWARD used; invocation caps 70 triage / 10 reply
+drafts / 6 case explanations, 300 per organization and 360 globally per day; circuit breaker 10
+failures in 60 minutes.
+
+**To raise limits later**, run the same workflow with `preset: custom` and `settings_json` set to ONE
+LINE: the whole budget as a JSON object in the same shape (amounts in integer micro-dollars, $1 =
+`1000000`; start from the `REQUESTED` lines of an `initial` dry run). Every field is validated: an
+unknown key, lanes plus reserve above the organization cap, a class the reviewed policy does not have,
+or anything above the code maximums ($100/day per organization, $125 emergency) is refused with its
+codes printed and nothing written. Raising a maximum is a reviewed pull request.
+
+If the status/read output shows `OPERATING_BUDGET state=UNREADABLE`, every AI call is refused; record
+corrected figures with this workflow (it replaces the unreadable version).
 
 ### Conversation digests (Chats Intelligence, triage task 3.0.0)
 

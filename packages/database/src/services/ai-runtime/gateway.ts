@@ -43,18 +43,36 @@
 //
 // NO BODY IS PERSISTED. The ledger receives ids, versions, counts and a hash of the
 // source refs -- never the prompt, never the answer, never a provider's error text.
+//
+// PR 1 (2026-09-26): WHAT CHANGED BENEATH THE SEQUENCE, AND WHAT DID NOT.
+//   - An answer is parsed and validated through the OUTPUT-CONTRACT REGISTRY (output-contracts.ts),
+//     looked up by the task's `outputSchemaId`; today's three schemas are registered against the same
+//     functions this gateway called before, so every answer is judged exactly as it was. A schema with
+//     no contract is refused before anything else is read.
+//   - Stored KILLED controls (`ai_controls`) stop work within the reader's cache, alongside the
+//     environment's kill switches; a read that fails refuses (CONTROLS_UNREADABLE).
+//   - CAPACITY (capacity.ts): every call runs in a LANE and is reserved at its ceiling COST; the
+//     emergency ceiling always applies, and a recorded OPERATING BUDGET adds cost, lane, background
+//     and circuit-breaker limits and replaces the invocation caps. No recorded budget: the reviewed
+//     budget policy is admitted against exactly as before.
+//   - A verification route may require a provider OTHER than its subject's (OTHER_THAN_SUBJECT).
+//   - Every call records the provider-specialization version its routing conformed to.
+// The provider request -- instructions, input, schema, limits -- is built exactly as before.
 
 import {
   admitAiInvocation,
   aiBudgetRefusals,
+  aiCapacityRefusals,
   aiCostMicros,
+  aiEffectiveBudgetPolicy,
+  aiOutputContract,
   aiProvenanceOf,
   estimateAiInputTokens,
-  parseAiTaskOutput,
   providerFailurePolicy,
   validateAiContextPackage,
-  validateAiTaskOutput,
   AI_FAILURE_CLASSES,
+  AI_LANES,
+  AI_NO_COST,
   type AiActivation,
   type AiAdmissionRefusal,
   type AiBudgetPolicy,
@@ -62,8 +80,11 @@ import {
   type AiContextPackage,
   type AiInvocationProvenance,
   type AiKillSwitch,
+  type AiLane,
   type AiModelRequest,
   type AiModelResult,
+  type AiOperatingBudget,
+  type AiOutputContract,
   type AiOutputRejection,
   type AiProviderPolicy,
   type AiRouteTargetPolicy,
@@ -119,6 +140,8 @@ export interface AiCallReservation {
   readonly brain?: { readonly jobId: string; readonly stepKey: string } | null;
   /** B5. The provider-specialization policy version the call's routing conformed to. */
   readonly specializationPolicyVersion?: string | null;
+  /** PR 1. The capacity lane the call is reserved in and recorded under. */
+  readonly lane?: AiLane;
 }
 
 export type AiReserveResult = { readonly ok: true } | { readonly ok: false; readonly refusals: readonly AiAdmissionRefusal[] };
@@ -138,6 +161,8 @@ export interface AiCallReconciliation {
   readonly rejectionCodes: readonly string[];
   readonly completedAt: Date;
   readonly latencyMs: number | null;
+  /** PR 1. The call's cost at its route's price, from the reported usage. Null when nothing was reported. */
+  readonly costMicros?: number | null;
 }
 
 /**
@@ -146,9 +171,23 @@ export interface AiCallReconciliation {
  */
 export interface AiUsageLedger {
   /** Spend so far, for the cheap pre-check. The reservation re-reads it authoritatively. */
-  spend(organizationId: string, taskId: string, at: Date, activeOrganizations: readonly string[]): Promise<AiSpendSnapshot>;
-  /** Claim the estimate, or refuse. Must be atomic with its own budget check. */
-  reserve(reservation: AiCallReservation, budget: AiBudgetPolicy, activeOrganizations: readonly string[]): Promise<AiReserveResult>;
+  spend(
+    organizationId: string,
+    taskId: string,
+    at: Date,
+    activeOrganizations: readonly string[],
+    operating?: AiOperatingBudget | null,
+  ): Promise<AiSpendSnapshot>;
+  /**
+   * Claim the estimate, or refuse. Must be atomic with its own budget check -- the invocation budget
+   * AND the capacity check (capacity.ts), against `operating` when one is recorded.
+   */
+  reserve(
+    reservation: AiCallReservation,
+    budget: AiBudgetPolicy,
+    activeOrganizations: readonly string[],
+    operating?: AiOperatingBudget | null,
+  ): Promise<AiReserveResult>;
   /** Replace the estimate with what happened. False when no such reservation exists. */
   reconcile(organizationId: string, reconciliation: AiCallReconciliation): Promise<boolean>;
 }
@@ -174,12 +213,30 @@ export interface AiRuntimeDeps {
   /** Injected so a deadline can be tested without waiting for one. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
   /**
-   * G2. Every provider's CURRENT recorded policy. Production: `aiProviderPolicyReader(prisma)`
+   * G2. Every provider's CURRENT recorded policy. Production: `aiRuntimeControlsReader(prisma).providerPolicies`
    * (a short in-process cache over `ai_controls`). REQUIRED, and a read that throws refuses every
    * provider as PROVIDER_POLICY_UNREADABLE: there is no default that approves.
    */
   readonly providerPolicies: () => Promise<readonly AiProviderPolicy[]>;
+  /**
+   * PR 1. The stored KILLED controls that apply to this organization, as kill switches
+   * (`aiStoredKillSwitches`). Production: `aiRuntimeControlsReader(prisma).storedKillSwitches`. A read
+   * that throws refuses the call (CONTROLS_UNREADABLE). Absent only in unit tests that predate it.
+   */
+  readonly storedKillSwitches?: (organizationId: string) => Promise<readonly AiKillSwitch[]>;
+  /**
+   * PR 1. The current operating budget. Production: `aiRuntimeControlsReader(prisma).operatingBudget`.
+   * UNREADABLE, or a read that throws, refuses the call (CONTROLS_UNREADABLE); NONE admits against the
+   * reviewed budget policy alone. Absent only in unit tests that predate it.
+   */
+  readonly operatingBudget?: () => Promise<AiOperatingBudgetReading>;
 }
+
+/** What the gateway learns of the operating budget. The repository's read has this shape and more. */
+export type AiOperatingBudgetReading =
+  | { readonly state: 'NONE' }
+  | { readonly state: 'RECORDED'; readonly budget: AiOperatingBudget }
+  | { readonly state: 'UNREADABLE' };
 
 export type AiRunResult =
   | { readonly outcome: 'ANSWERED'; readonly output: AiTaskOutput; readonly provenance: AiInvocationProvenance }
@@ -198,6 +255,10 @@ export interface AiRunRequest {
   /** The numbers (per source) and dates the supplied evidence actually contains. An answer may state no other. */
   readonly evidence: AiSupportedEvidence;
   readonly signal?: AbortSignal;
+  /** PR 1. Move this call DOWN to the BACKGROUND lane (hydration, backfill). Any other lane is refused. */
+  readonly lane?: AiLane;
+  /** PR 1. For an OTHER_THAN_SUBJECT route: the provider that produced what this call checks. */
+  readonly subjectProvider?: string;
 }
 
 /**
@@ -214,6 +275,26 @@ export class InMemoryAiUsageLedger implements AiUsageLedger {
   }
 
   private snapshot(organizationId: string, taskId: string): AiSpendSnapshot {
+    // PR 1: cost by the durable ledger's rule -- the reserve while outstanding, the reported cost once
+    // reconciled, and zero for a reconciled call that reported nothing. Lanes default to INTERACTIVE, the
+    // same default admission uses for a route that names none.
+    const costOf = (r: InMemoryAiUsageLedger['calls'][number]) =>
+      r.reconciliation ? (r.reconciliation.costMicros ?? 0) : (aiCostMicros(r.target.pricing, r.estimate) ?? 0);
+    const laneOf = (r: InMemoryAiUsageLedger['calls'][number]): AiLane => r.lane ?? 'INTERACTIVE';
+    const orgCalls = this.calls.filter((c) => c.organizationId === organizationId);
+    const cost = {
+      organizationMicros: orgCalls.reduce((n, r) => n + costOf(r), 0),
+      laneMicros: Object.fromEntries(AI_LANES.map((l) => [l, orgCalls.filter((r) => laneOf(r) === l).reduce((n, r) => n + costOf(r), 0)])) as Record<AiLane, number>,
+      laneInvocations: Object.fromEntries(AI_LANES.map((l) => [l, orgCalls.filter((r) => laneOf(r) === l).length])) as Record<AiLane, number>,
+      globalMicros: this.calls.reduce((n, r) => n + costOf(r), 0),
+      taskRecentFailures: orgCalls.filter(
+        (r) => r.taskId === taskId && (r.reconciliation?.outcome === 'FAILED' || r.reconciliation?.outcome === 'REJECTED_BY_LOOP'),
+      ).length,
+    };
+    return { ...this.tokens(organizationId, taskId), cost };
+  }
+
+  private tokens(organizationId: string, taskId: string): Omit<AiSpendSnapshot, 'cost'> {
     // Same rule as the durable ledger's sumSpend: a reconciled call counts what the provider actually
     // reported (null usage means it processed nothing -- ZERO, not its reserve); only a call still
     // outstanding (reconciliation === null) holds its estimate. Falling back to the estimate for a
@@ -231,12 +312,25 @@ export class InMemoryAiUsageLedger implements AiUsageLedger {
     return { organization: sum(org), task: sum(org.filter((c) => c.taskId === taskId)), global: sum(this.calls) };
   }
 
-  async reserve(reservation: AiCallReservation, budget: AiBudgetPolicy): Promise<AiReserveResult> {
+  async reserve(
+    reservation: AiCallReservation,
+    budget: AiBudgetPolicy,
+    _activeOrganizations: readonly string[] = [],
+    operating: AiOperatingBudget | null = null,
+  ): Promise<AiReserveResult> {
     if (this.calls.some((c) => c.organizationId === reservation.organizationId && c.callKey === reservation.callKey)) {
       return { ok: false, refusals: ['DUPLICATE_INVOCATION'] };
     }
     const spend = this.snapshot(reservation.organizationId, reservation.taskId);
-    const refusals = aiBudgetRefusals(budget, reservation.budgetClass, reservation.estimate, spend);
+    const refusals = [
+      ...aiBudgetRefusals(budget, reservation.budgetClass, reservation.estimate, spend),
+      ...aiCapacityRefusals({
+        operating,
+        lane: reservation.lane ?? 'INTERACTIVE',
+        estimateMicros: aiCostMicros(reservation.target.pricing, reservation.estimate),
+        cost: spend.cost ?? AI_NO_COST,
+      }),
+    ];
     if (refusals.length > 0) return { ok: false, refusals };
     this.calls.push({ ...reservation, reconciliation: null });
     return { ok: true };
@@ -286,6 +380,24 @@ export class AiRuntimeGateway {
     }
     if (!authorized) return { outcome: 'REFUSED_BY_LOOP', refusals: ['NOT_AUTHORIZED'] };
 
+    // PR 1. An answer nobody registered a contract for could not be checked, so it is never asked for.
+    const contract = aiOutputContract(task.outputSchemaId);
+    if (!contract) return { outcome: 'REFUSED_BY_LOOP', refusals: ['OUTPUT_CONTRACT_UNKNOWN'] };
+
+    // PR 1. The recorded controls: stored KILLED switches, and the operating budget. Read, never assumed:
+    // a read that fails, or a budget that does not validate, refuses rather than run unbounded.
+    let operating: AiOperatingBudget | null = null;
+    let storedKills: readonly AiKillSwitch[] = [];
+    try {
+      const reading = this.deps.operatingBudget ? await this.deps.operatingBudget() : ({ state: 'NONE' } as const);
+      if (reading.state === 'UNREADABLE') return { outcome: 'REFUSED_BY_LOOP', refusals: ['CONTROLS_UNREADABLE'] };
+      operating = reading.state === 'RECORDED' ? reading.budget : null;
+      storedKills = this.deps.storedKillSwitches ? await this.deps.storedKillSwitches(context.organizationId) : [];
+    } catch {
+      return { outcome: 'REFUSED_BY_LOOP', refusals: ['CONTROLS_UNREADABLE'] };
+    }
+    const effectiveBudget = this.config.budget ? aiEffectiveBudgetPolicy(this.config.budget, operating) : null;
+
     // 5-10. Context, activation, kill switches, routing, a cheap budget check.
     const now = this.deps.now();
     const estimatedInputTokens = estimateAiInputTokens([
@@ -295,7 +407,7 @@ export class AiRuntimeGateway {
     ]);
     let spend: AiSpendSnapshot;
     try {
-      spend = await this.deps.ledger.spend(context.organizationId, task.taskId, now, this.config.activation.organizations);
+      spend = await this.deps.ledger.spend(context.organizationId, task.taskId, now, this.config.activation.organizations, operating);
     } catch {
       return { outcome: 'REFUSED_BY_LOOP', refusals: ['LEDGER_UNAVAILABLE'] };
     }
@@ -313,8 +425,8 @@ export class AiRuntimeGateway {
       authorized,
       activation: this.config.activation,
       policy: this.config.policy,
-      killSwitches: this.config.killSwitches,
-      budget: this.config.budget,
+      killSwitches: storedKills.length > 0 ? [...this.config.killSwitches, ...storedKills] : this.config.killSwitches,
+      budget: effectiveBudget,
       spend,
       estimatedInputTokens,
       registeredProviders: this.deps.providers.map((p) => p.providerId),
@@ -322,9 +434,12 @@ export class AiRuntimeGateway {
       tools: [],
       providerPolicies,
       sensitivityCeiling: task.sensitivityCeiling,
+      operating,
+      ...(request.lane ? { lane: request.lane } : {}),
+      ...(request.subjectProvider ? { subjectProvider: request.subjectProvider } : {}),
     });
     if (!admission.ok) return { outcome: 'REFUSED_BY_LOOP', refusals: admission.refusals };
-    const budget = this.config.budget;
+    const budget = effectiveBudget;
     if (!budget) return { outcome: 'REFUSED_BY_LOOP', refusals: ['BUDGET_NOT_CONFIGURED'] };
 
     const invocationId = this.deps.newInvocationId();
@@ -387,6 +502,8 @@ export class AiRuntimeGateway {
             refs,
             estimatedInputTokens,
             budget,
+            operating,
+            lane: admission.lane,
             routingPolicyVersion: admission.routingPolicyVersion,
             budgetClass: admission.budgetClass,
           });
@@ -401,7 +518,7 @@ export class AiRuntimeGateway {
           }
 
           if (outcome.kind === 'RESULT') {
-            return await this.conclude(request, outcome, provenance);
+            return await this.conclude(request, contract, outcome, provenance);
           }
 
           lastFailure = outcome.failure;
@@ -437,6 +554,8 @@ export class AiRuntimeGateway {
       refs: readonly string[];
       estimatedInputTokens: number;
       budget: AiBudgetPolicy;
+      operating: AiOperatingBudget | null;
+      lane: AiLane;
       routingPolicyVersion: string;
       budgetClass: string;
     },
@@ -464,9 +583,12 @@ export class AiRuntimeGateway {
           fellBackFrom: meta.fellBackFrom,
           callOrdinal: meta.callOrdinal,
           requestedAt: this.deps.now(),
+          specializationPolicyVersion: this.config.policy.specializationPolicyVersion ?? null,
+          lane: meta.lane,
         },
         meta.budget,
         this.config.activation.organizations,
+        meta.operating,
       );
     } catch {
       return { kind: 'NOT_RESERVED', refusals: ['LEDGER_UNAVAILABLE'] };
@@ -524,6 +646,7 @@ export class AiRuntimeGateway {
       rejectionCodes: [],
       completedAt: this.deps.now(),
       latencyMs: this.deps.now().getTime() - started,
+      costMicros: null,
     });
     return { kind: 'FAILURE', failure, callKey, target };
   }
@@ -531,6 +654,7 @@ export class AiRuntimeGateway {
   /** Steps 14-17 for a call that returned. */
   private async conclude(
     request: AiRunRequest,
+    contract: AiOutputContract,
     outcome: Extract<CallOutcome, { kind: 'RESULT' }>,
     provenance: (target: AiRouteTargetPolicy, result: AiModelResult | null, outcome: AiInvocationProvenance['outcome']) => AiInvocationProvenance,
   ): Promise<AiRunResult> {
@@ -544,6 +668,8 @@ export class AiRuntimeGateway {
       unitCostBasis: target.pricing?.listVersion ?? null,
       completedAt: this.deps.now(),
       latencyMs: result.latencyMs,
+      // PR 1: the cost the daily caps sum, at this route's price, from what the provider reported.
+      costMicros: result.usage ? aiCostMicros(target.pricing, result.usage) : null,
     };
 
     // A refusal is an outcome. It is recorded and it stops here.
@@ -553,9 +679,11 @@ export class AiRuntimeGateway {
     }
 
     // 14. Checked before anybody sees it. A truncated answer is not half an answer.
-    const parsed = result.stopReason === 'END' ? parseAiTaskOutput(result.output.json ?? safeJson(result.output.text)) : null;
+    // PR 1: through the task's registered output contract (the same parse and rules as before for every
+    // schema registered today).
+    const parsed = result.stopReason === 'END' ? contract.parse(result.output.json ?? safeJson(result.output.text)) : null;
     const rejections: AiOutputRejection[] = parsed
-      ? validateAiTaskOutput(parsed, request.task, new Set(request.context.items.map((i) => i.sourceRef)), request.evidence)
+      ? contract.validate(parsed, request.task, new Set(request.context.items.map((i) => i.sourceRef)), request.evidence)
       : ['WRONG_SCHEMA'];
     const accepted = parsed !== null && rejections.length === 0;
 

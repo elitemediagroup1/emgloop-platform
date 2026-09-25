@@ -132,7 +132,8 @@ const target = (value: string) => ({ scope: 'PROVIDER_POLICY', organizationId: n
 
 test('a provider policy is its own key namespace, never an activation switch', () => {
   assert.deepEqual([...AI_CONTROL_SCOPES], [...AI_KILL_SWITCH_SCOPES], 'the switch scopes are unchanged');
-  assert.deepEqual([...AI_STORED_CONTROL_SCOPES], [...AI_KILL_SWITCH_SCOPES, 'PROVIDER_POLICY']);
+  // PR 1 appended the operating budget's own scope; the switch scopes and PROVIDER_POLICY are unchanged.
+  assert.deepEqual([...AI_STORED_CONTROL_SCOPES], [...AI_KILL_SWITCH_SCOPES, 'PROVIDER_POLICY', 'BUDGET']);
   assert.equal(aiControlKey(target('anthropic')), 'PROVIDER_POLICY|-|anthropic');
   assert.notEqual(aiControlKey(target('anthropic')), aiControlKey({ scope: 'PROVIDER', organizationId: null, value: 'anthropic' }));
 });

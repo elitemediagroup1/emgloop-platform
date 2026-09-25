@@ -132,7 +132,9 @@ export const AI_TASK_CASE_EXPLANATION: AiTaskDefinition = Object.freeze({
  */
 export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
   taskId: 'mail.reply.draft',
-  version: '1.0.0',
+  // 1.1.0 (PR 1): the output schema moves to v2, one both providers accept. The answer's shape and the
+  // rules it is judged by are unchanged; only the schema sent to the provider is.
+  version: '1.1.0',
   capabilityRoute: 'COMMUNICATION',
   resultType: 'DRAFT',
   // The draft belongs to the employee's own work context, about one thread of their own mail.
@@ -152,7 +154,7 @@ export const AI_TASK_MAIL_REPLY_DRAFT: AiTaskDefinition = Object.freeze({
   consequence: 'READ_ONLY',
   requires: Object.freeze([{ resource: 'employeeIntelligence', action: 'view' } as const]),
   invokerRoles: Object.freeze(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']),
-  outputSchemaId: 'mail-reply-draft.v1',
+  outputSchemaId: 'mail-reply-draft.v2',
   maxOutputTokens: 2000,
   timeoutMs: 25_000,
   tools: Object.freeze([]),

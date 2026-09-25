@@ -440,6 +440,8 @@ test('a duplicate call key is refused, and a unique-index race is reported the s
   // The database, not the pre-check, settles two instances inserting the same key at once.
   const racing = {
     organization: { findFirst: async () => ({ timezone: 'UTC' }) },
+    // PR 1: the ledger probes (once, outside the transaction) whether the capacity columns exist.
+    aiInvocation: { findMany: async () => [] },
     $transaction: async () => {
       throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
     },

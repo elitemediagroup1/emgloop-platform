@@ -115,7 +115,8 @@ test('the budget bounds the worst case, and the policy admits a real request', (
   assert.ok(perDayMicros <= 50_000_000, `worst day ${perDayMicros / 1e6} USD across every organization`);
   assert.ok(cls.taskDaily.maxInvocations <= AI_BUDGET_POLICY.organizationDaily.maxInvocations);
   assert.ok(AI_BUDGET_POLICY.organizationDaily.maxInvocations <= AI_BUDGET_POLICY.globalDaily.maxInvocations);
-  assert.match(AI_BUDGET_POLICY.version, /proposed/, 'labelled a proposal until approved');
+  // Approved by Matt on 2026-09-25 with PR #338; PR 1 dropped the "-proposed" label (the figures did not move).
+  assert.doesNotMatch(AI_BUDGET_POLICY.version, /proposed/, 'the reviewed floor is approved');
 
   const admitted = admitAiInvocation({
     taskId: 'case.explanation',

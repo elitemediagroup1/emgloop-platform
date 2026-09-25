@@ -502,6 +502,39 @@ No vague global AI memory. Each kind maps to an existing or proposed authority:
   honest "budget reached" state, or degraded to a cheaper tier when policy allows.
 - **Cost data never enters domain tables.**
 
+**As built in PR 1 (AI runtime, 2026-09-26): capacity, recorded controls, output contracts**
+- **Two budgets, one admission.** The reviewed *budget policy* (`routing-policy.ts`) still bounds every
+  call's tokens and every window's invocations. The *operating budget* (`capacity.ts`) bounds what a day
+  may COST: an organization cap, four **lanes** (FORWARD live triage, SYNTHESIS readings/situations/briefing,
+  INTERACTIVE a person clicked, BACKGROUND hydration/backfill), a FORWARD-only reserve, background
+  deferral, per-lane call caps and a per-task circuit breaker. While one is recorded its invocation caps
+  replace the policy's. Both are checked in the admission pre-check and again inside the serializable
+  ledger reservation, which reserves each call at its CEILING cost and reconciles to the reported cost
+  (`ai_invocations.lane`, `costMicros`).
+- **The operating budget is recorded, not deployed**: `ai_controls` scope `BUDGET` (`BUDGET|-|operating`),
+  written by the `record-ai-budget` workflow, validated totally against code maximums (organization
+  $100/day, emergency $125). Absent, admission is exactly the budget policy. A budget that does not
+  validate refuses every call (`CONTROLS_UNREADABLE`) and is replaced by recording corrected figures.
+- **The emergency ceiling is always on**: $25 over the trailing 24 hours across every organization, or the
+  recorded budget's own.
+- **Stored KILLED controls stop the gateway** (GLOBAL, PROVIDER, MODEL, TASK, ORGANIZATION) within the
+  controls reader's cache, alongside the environment's kill switches. The gateway reads only KILLED rows;
+  a missing ACTIVE grant never switches it off (grants remain the Brain executor's floor).
+- **Output contracts are a registry** (`output-contracts.ts`) keyed by the task's `outputSchemaId`; the
+  gateway looks one up and never branches on a task. A schema with no contract is refused before
+  anything is read.
+- **Every task schema is held to the subset both providers accept** (`portable-schema.ts`), with one
+  named exemption (`telegram-content-triage.v4`'s `const`, until triage v5).
+- **Independent verification** is a route strategy (`OTHER_THAN_SUBJECT`): served by a provider other
+  than the one that produced the subject, or refused as `NO_INDEPENDENT_PROVIDER`.
+- **Activation is configuration**: the connections stack takes provider and task LISTS
+  (`CONNECTIONS_<STAGE>_AI_PROVIDERS`, `_AI_TASKS`; defaults `anthropic`, `telegram.content.triage`).
+  Listing a provider never approves it: the recorded provider policy (G2) does.
+- **An exempt schema is served only by the providers it was verified against** (`AI_SCHEMA_VERIFIED_PROVIDERS`):
+  triage v4 by Anthropic alone. Listing OpenAI beside `telegram.content.triage` is refused at synth and at
+  worker startup until triage v5 removes the exemption. The worker's AI sweeps start only when triage
+  itself is activated and a configured provider is on its route.
+
 ## 13. F12 — Evaluation
 
 - **Offline suites per task** use synthetic or sanitized fixtures, never production PII. They measure:

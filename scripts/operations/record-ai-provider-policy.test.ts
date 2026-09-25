@@ -11,7 +11,7 @@ import type { PrismaClient } from '@prisma/client';
 import { makeCognitivePrisma } from '../../packages/database/test/helpers/cognitive-prisma-fake';
 import { AiControlRepository } from '@emgloop/database';
 import { parseArgs, requestRefusals, runRecordAiProviderPolicy, type RecordPolicyDeps } from './record-ai-provider-policy';
-import { runReadAiProviderPolicy } from './read-ai-provider-policy';
+import { KNOWN_BUDGET_CLASSES, PLATFORM_ONLY_ORGANIZATION, runReadAiProviderPolicy } from './read-ai-provider-policy';
 
 const WORKFLOW = join(__dirname, '..', '..', '.github', 'workflows', 'record-ai-provider-policy.yml');
 const REASON = 'Anthropic commercial terms reviewed 2026-09-24: no training on inputs, 30-day retention, US region.';
@@ -112,15 +112,25 @@ test('a policy moved between the read and the write is refused as STALE, never o
   assert.equal((await w.controls.providerPolicies())[0]!.ceiling, 'OPERATIONAL', 'the other decision stands');
 });
 
+/** The read-only probe over the same fake store (the budget and kill readers are exercised in record-ai-budget.test.ts). */
+function readDeps(w: ReturnType<typeof world>, lines: string[]) {
+  return {
+    current: () => w.controls.providerPolicies(),
+    operatingBudget: () => w.controls.operatingBudget(KNOWN_BUDGET_CLASSES),
+    platformControls: () => w.controls.currentFor(PLATFORM_ONLY_ORGANIZATION),
+    log: (l: string) => void lines.push(l),
+  };
+}
+
 test('the read-only probe prints every provider and whether each task is admitted by G2 -- and writes nothing', async () => {
   const w = world();
   const lines: string[] = [];
-  await runReadAiProviderPolicy({ current: () => w.controls.providerPolicies(), log: (l) => void lines.push(l) });
+  await runReadAiProviderPolicy(readDeps(w, lines));
   assert.ok(lines.includes('event=PROVIDER_POLICY provider=anthropic state=NONE ceiling=- version=0'));
   assert.ok(lines.includes('event=TASK_POLICY task=telegram.content.triage needs=COMMUNICATION_CONTENT admittedBy=none'));
   await runRecordAiProviderPolicy(args({ write: true }), w.deps);
   const after: string[] = [];
-  await runReadAiProviderPolicy({ current: () => w.controls.providerPolicies(), log: (l) => void after.push(l) });
+  await runReadAiProviderPolicy(readDeps(w, after));
   assert.ok(after.includes('event=TASK_POLICY task=telegram.content.triage needs=COMMUNICATION_CONTENT admittedBy=anthropic'), 'the staging record admits triage');
   assert.ok(after.some((l) => /^event=PROVIDER_POLICY provider=anthropic state=ACTIVE ceiling=COMMUNICATION_CONTENT version=1 recordedAt=/.test(l)));
   assert.ok(after.includes('event=PROVIDER_POLICY provider=openai state=NONE ceiling=- version=0'));

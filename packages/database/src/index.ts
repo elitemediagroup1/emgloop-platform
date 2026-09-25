@@ -378,6 +378,11 @@ export {
   AI_PROVIDER_POLICY_CACHE_MAX_MS,
 } from './services/ai-runtime/provider-policy-reader';
 export type { AiProviderPolicySource } from './services/ai-runtime/provider-policy-reader';
+// PR 1 (AI runtime): the one reader for every recorded control the gateway admits against -- provider
+// policies, stored KILLED switches and the operating budget -- cached <= 60 s.
+export { aiRuntimeControlsReader, cachedAiRuntimeControls } from './services/ai-runtime/controls-reader';
+export type { AiRuntimeControls, AiRuntimeControlSource } from './services/ai-runtime/controls-reader';
+export type { AiOperatingBudgetReading } from './services/ai-runtime/gateway';
 // Loop Intelligence PR A (2026-09-24): principal-private domain intelligence digests. Every
 // method takes a principal from the signed session; there is no organization-wide read.
 export {
@@ -509,6 +514,7 @@ export type { BrainCommandRecord, BrainEventRecord } from './repositories/brain/
 export { BrainExecutionReferences } from './repositories/brain/brain-execution-references';
 export type { BrainJobReference, BrainCommandReference, BrainWaitReference } from './repositories/brain/brain-execution-references';
 export { AiControlRepository } from './repositories/brain/ai-control.repository';
+export type { AiOperatingBudgetRead } from './repositories/brain/ai-control.repository';
 export type { AiControlRecordOutcome, AiControlChange } from './repositories/brain/ai-control.repository';
 export {
   BrainRecordUnreadable,
