@@ -123,7 +123,7 @@ test('DIGEST-ONLY (structural): obligations in the answer are never raised and n
   assert.equal(s.digestsWritten, 3);
   assert.deepEqual(h.obligationSpy, { raised: 0, resolved: 0 });
   assert.equal(h.progress.at(-1)!.state, 'COMPLETE');
-  assert.equal(h.progress.at(-1)!.schemaId, 'telegram-content-triage.v4');
+  assert.equal(h.progress.at(-1)!.schemaId, 'telegram-content-triage.v5');
 });
 
 test('BOUND: never more calls than conversationsPerSweep; every page asks for at most the calls still allowed', async () => {

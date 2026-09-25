@@ -90,16 +90,17 @@ function triaged(input: TelegramConversationTriageInput, principal: WorkPrincipa
   const anchor = input.messages[input.messages.length - 1]!.providerEventId;
   return {
     outcome: 'TRIAGED',
-    items: [{ anchorProviderEventId: anchor, category: 'REQUEST', oneLineMeaning: 'Dana wants the signed contract back', topic: 'Contract', nextStep: 'Countersign and send it', deadline: null }],
+    items: [{ anchorProviderEventId: anchor, category: 'REQUEST', oneLineMeaning: 'Dana wants the signed contract back', topic: 'Contract', nextStep: 'Countersign and send it', deadline: null, owedBy: 'VIEWER', who: null }],
     conversation: {
       relevance: 'BUSINESS',
       summary: 'Dana is waiting on the countersigned contract.',
       topics: ['Contract'],
-      developments: [{ anchorProviderEventId: anchor, statement: 'Dana asked for the signed contract' }],
-      decisions: [],
-      commitments: [],
-      signals: [{ kind: 'OPPORTUNITY', anchorProviderEventId: anchor, statement: 'Returning it closes the job' }],
-      unresolved: 'The contract is not back yet',
+      stateChange: null,
+      signals: [
+        { kind: 'CHANGE', anchorProviderEventId: anchor, statement: 'Dana asked for the signed contract', severity: 'MEDIUM', owedBy: null, who: null },
+        { kind: 'OPPORTUNITY', anchorProviderEventId: anchor, statement: 'Returning it closes the job', severity: 'MEDIUM', owedBy: null, who: null },
+        { kind: 'UNRESOLVED', anchorProviderEventId: anchor, statement: 'The contract is not back yet', severity: 'MEDIUM', owedBy: null, who: null },
+      ],
       attention: { needed: true, reason: 'Dana is waiting on it' },
       confidence: 'HIGH',
     },
@@ -200,7 +201,7 @@ test('the digest is written for the authorization principal only, minimized, fro
     assert.equal(d.content.attention, 'Dana is waiting on it');
     assert.deepEqual(d.content.opportunities, ['Returning it closes the job']);
     assert.equal(d.provenance.taskId, 'telegram.content.triage');
-    assert.equal(d.provenance.schemaId, 'telegram-content-triage.v4');
+    assert.equal(d.provenance.schemaId, 'telegram-content-triage.v5');
     assert.equal(d.provenance.consentBasis, 'CONTENT_AUTHORIZATION');
     assert.deepEqual(d.provenance.anchorEventIds, [`${CONV_KEY}:11`]);
     assert.equal(d.aiInvocationId, `inv-${alice}-2`);

@@ -297,18 +297,19 @@ test('OTHER_THAN_SUBJECT: a verification is served by a provider other than its 
 
 // --- Output contracts ---------------------------------------------------------------------------
 
-test('every task has a registered output contract; the three pre-registry contracts use exactly the rules the gateway used before', () => {
+test('every task has a registered output contract; the pre-registry contracts use exactly the rules the gateway used before', () => {
   for (const task of AI_TASKS) assert.ok(aiOutputContract(task.outputSchemaId), `${task.taskId} has a contract`);
-  assert.deepEqual(Object.keys(AI_OUTPUT_CONTRACTS).sort(), ['case-explanation.v2', 'domain-reading.v1', 'mail-reply-draft.v2', 'telegram-content-triage.v4']);
-  for (const id of ['case-explanation.v2', 'mail-reply-draft.v2', 'telegram-content-triage.v4']) {
+  assert.deepEqual(Object.keys(AI_OUTPUT_CONTRACTS).sort(), ['case-explanation.v2', 'domain-reading.v1', 'mail-reply-draft.v2', 'telegram-content-triage.v5']);
+  for (const id of ['case-explanation.v2', 'mail-reply-draft.v2']) {
     const contract = AI_OUTPUT_CONTRACTS[id]!;
     assert.equal(contract.parse, parseAiTaskOutput, `${contract.schemaId} parses with the existing parser`);
     assert.equal(contract.validate, validateAiTaskOutput, `${contract.schemaId} validates with the existing rules`);
   }
-  // PR 2: the generic domain reading has its OWN parser and rules, and the existing ones never see it.
-  const domain = AI_OUTPUT_CONTRACTS['domain-reading.v1']!;
-  assert.notEqual(domain.parse, parseAiTaskOutput);
-  assert.notEqual(domain.validate, validateAiTaskOutput);
+  // PR 2's generic domain reading and Chats v5's triage have their OWN parsers and rules.
+  for (const id of ['domain-reading.v1', 'telegram-content-triage.v5']) {
+    assert.notEqual(AI_OUTPUT_CONTRACTS[id]!.parse, parseAiTaskOutput, id);
+    assert.notEqual(AI_OUTPUT_CONTRACTS[id]!.validate, validateAiTaskOutput, id);
+  }
   assert.equal(aiOutputContract('mail-reply-draft.v1'), null, 'the retired schema has no contract');
   assert.equal(aiOutputContract('toString'), null, 'an inherited property is not a contract');
 });
@@ -343,13 +344,11 @@ test('the portable subset: forbidden keywords, open objects and optional propert
   assert.ok(!found.some((k) => k.endsWith(':format')));
 });
 
-test('an exemption is named, narrow and listed: only triage v4 schemaId const, until triage v5', () => {
-  assert.deepEqual(Object.keys(AI_PORTABLE_SCHEMA_EXEMPTIONS), ['telegram-content-triage.v4']);
-  assert.deepEqual([...AI_PORTABLE_SCHEMA_EXEMPTIONS['telegram-content-triage.v4']!], ['$.properties.schemaId:const']);
+test('no schema is exempt since Chats v5: the one exemption (triage v4 schemaId const) retired with its schema', () => {
+  assert.deepEqual(Object.keys(AI_PORTABLE_SCHEMA_EXEMPTIONS), []);
   const schema = { type: 'object', additionalProperties: false, required: ['schemaId', 'x'], properties: { schemaId: { const: 'v' }, x: { type: 'string', maxLength: 3 } } };
-  const left = aiUnexemptedSchemaViolations('telegram-content-triage.v4', schema).map(aiPortableSchemaViolationKey);
-  assert.deepEqual(left, ['$.properties.x:maxLength'], 'the exemption covers the named violation and nothing else');
-  assert.equal(aiUnexemptedSchemaViolations('another.v1', schema).length, 2, 'no other schema is exempt');
+  assert.equal(aiUnexemptedSchemaViolations('telegram-content-triage.v4', schema).length, 2, 'the retired id exempts nothing any more');
+  assert.equal(aiUnexemptedSchemaViolations('another.v1', schema).length, 2);
 });
 
 // --- Recorded controls ------------------------------------------------------------------------

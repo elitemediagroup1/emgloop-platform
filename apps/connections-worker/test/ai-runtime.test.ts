@@ -107,29 +107,12 @@ test('REGRESSION: the forward, historical and hydration sweeps -- the only reade
   assert.match(index, /const aiRuntime = createWorkerAiRuntime\(prisma\);/);
 });
 
-// --- PR 1 review fix 2: no unverified provider beside triage v4 --------------------------------------------
+// --- Chats v5: the PR 1 triage-v4 provider guard is retired with the v4 schema ---------------------------
 
-test('REFUSED AT STARTUP: openai listed while telegram.content.triage (schema v4, verified on anthropic only) is activated', () => {
-  const refused = (env: Record<string, string>) => {
-    let error: unknown;
-    try {
-      createWorkerAiRuntime(NO_DB, { env });
-    } catch (e) {
-      error = e;
-    }
-    assert.ok(error instanceof NotConfigured, 'refused as a configuration error');
-    const logged = fatalLogFields(error);
-    assert.match(logged.message ?? '', /^connections worker not configured: LOOP_AI_PROVIDERS \(openai is not verified against telegram-content-triage\.v4/, 'the worker_fatal line names the setting');
-    assert.doesNotMatch(JSON.stringify(logged), /sk-/, 'no credential in the fatal line');
-  };
-  refused({ ...ON, LOOP_AI_PROVIDERS: 'anthropic,openai', OPENAI_API_KEY: 'sk-test', LOOP_AI_TASKS: 'telegram.content.triage' });
-  refused({ ...ON, LOOP_AI_PROVIDERS: 'openai', OPENAI_API_KEY: 'sk-test', LOOP_AI_TASKS: 'telegram.content.triage' });
-  refused({ ...ON, LOOP_AI_PROVIDERS: 'openai,anthropic', OPENAI_API_KEY: 'sk-test', LOOP_AI_TASKS: 'case.explanation,telegram.content.triage' });
-  // Refused even without an OpenAI key: the listing alone is the unsafe configuration.
-  refused({ ...ON, LOOP_AI_PROVIDERS: 'anthropic,openai', LOOP_AI_TASKS: 'telegram.content.triage' });
-  // Allowed: anthropic beside triage; openai beside other tasks; anything while AI is off.
-  assert.doesNotThrow(() => createWorkerAiRuntime(NO_DB, { env: { ...ON, LOOP_AI_TASKS: 'telegram.content.triage' } }));
-  assert.doesNotThrow(() => createWorkerAiRuntime(NO_DB, { env: { ...ON, LOOP_AI_PROVIDERS: 'anthropic,openai', OPENAI_API_KEY: 'sk-test', LOOP_AI_TASKS: 'case.explanation' } }));
-  assert.doesNotThrow(() => createWorkerAiRuntime(NO_DB, { env: { LOOP_AI_ENABLED: 'false', LOOP_AI_PROVIDERS: 'anthropic,openai', LOOP_AI_TASKS: 'telegram.content.triage' } }));
+test('Chats v5: listing openai beside telegram.content.triage no longer refuses startup (schema v5 is portable); the guard stays data-driven', () => {
+  // The listing alone never commissions a provider: the recorded provider policy and a key still decide.
+  assert.doesNotThrow(() => createWorkerAiRuntime(NO_DB, { env: { ...ON, LOOP_AI_PROVIDERS: 'anthropic,openai', OPENAI_API_KEY: 'sk-test', LOOP_AI_TASKS: 'telegram.content.triage' } }));
+  assert.doesNotThrow(() => createWorkerAiRuntime(NO_DB, { env: { ...ON, LOOP_AI_PROVIDERS: 'anthropic,openai', LOOP_AI_TASKS: 'telegram.content.triage' } }));
+  assert.doesNotThrow(() => assertWorkerProvidersVerified(['anthropic', 'openai'], ['telegram.content.triage']));
   assert.doesNotThrow(() => assertWorkerProvidersVerified(['anthropic', 'openai'], ['not.a.task']), 'an unknown task names no schema');
 });

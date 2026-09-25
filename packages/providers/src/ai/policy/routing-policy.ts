@@ -99,7 +99,11 @@ function target(
 // the provider-specialization version it conforms to, which every call now carries. Mail Reply Draft
 // moves to task 1.1.0 (output schema v2, one both providers accept). Telegram Content Triage's targets,
 // efforts, deadlines, output ceilings and budget class are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-26.9';
+// .10 (2026-09-26, Chats v5): Telegram Content Triage moves to task 4.0.0 (output schema v5, portable).
+// Its targets, efforts, deadlines, output ceiling, lane and budget class are UNCHANGED; its OpenAI
+// fallback becomes schema-eligible, and stays uncommissioned until a policy, a key and an activation
+// list name it.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-26.10';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
@@ -136,7 +140,7 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     // Claude Opus 5 is the reviewed primary; GPT-6 Astra is the availability fallback, never a second opinion.
     'telegram.content.triage': Object.freeze({
       taskId: 'telegram.content.triage',
-      taskVersion: '3.0.0',
+      taskVersion: '4.0.0',
       primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
       fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 2_000 }),
       fallbackPermitted: true,

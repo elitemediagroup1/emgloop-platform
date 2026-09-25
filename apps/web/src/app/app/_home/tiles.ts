@@ -202,8 +202,13 @@ function chatsTile(input: TilesInput, item: TileNavItem): HomeTile | null {
       return { ...base, metric: c.metric, lines: [], state: 'NOT_READ', stateLine: c.statement, status };
     case 'STALE':
     case 'CURRENT':
-    default:
-      return { ...base, metric: c.metric, lines: [c.statement], state: 'OK', stateLine: null, status };
+    default: {
+      // Chats v5: the most pressing entry of the page's own first group, one line -- the same composition.
+      const lead = c.groups[0];
+      const top = lead?.entries[0];
+      const line = top ? `${lead.title}: ${top.conversation ? `${top.conversation} — ` : ''}${top.statement}` : null;
+      return { ...base, metric: c.metric, lines: line ? [c.statement, line] : [c.statement], state: 'OK', stateLine: null, status };
+    }
   }
 }
 

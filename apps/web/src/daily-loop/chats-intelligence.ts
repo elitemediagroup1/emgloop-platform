@@ -58,6 +58,17 @@ export interface ChatsItem {
   readonly at: Date;
   /** The KEYED conversation the obligation came from (never a raw id, never shown). Links it to its digest. */
   readonly conversationKey?: string | null;
+  /** Chats v5. The WorkItem id, for the person's own actions on it (handled, dismiss, snooze). */
+  readonly id?: string;
+  /** Chats v5. NEEDS_YOU: the person owes it. WAITING_ON_THEM: someone else in the conversation does. */
+  readonly lane?: 'NEEDS_YOU' | 'WAITING_ON_THEM';
+  /** Chats v5. Who appears to owe it; null on an item raised before v5 (read as the person's own). */
+  readonly owedBy?: 'VIEWER' | 'OTHER' | 'UNKNOWN' | null;
+  /** Chats v5. For OTHER: the label the conversation showed for them. Never an identity, never an assignment. */
+  readonly who?: string | null;
+  /** Chats v5, Loop's arithmetic: whether the person wrote after the message that raised it. */
+  readonly repliedAfter?: boolean | null;
+  readonly conversationKind?: 'PRIVATE' | 'GROUP' | null;
 }
 
 /** The viewer's own Telegram connection, in the Connections page's words. */
@@ -175,6 +186,58 @@ export interface ChatsCoverageSummary {
   readonly latestGeneratedAt: Date | null;
 }
 
+/**
+ * CHATS v5 GROUPS. What the page leads with, each entry an item the triage raised (Work OS state, the
+ * person can act on it) or a typed signal of Loop's reading (intelligence, read-only):
+ *
+ *   YOU           Needs your attention: what the person owes, and conversations whose reading says
+ *                 they should look now.
+ *   TEAM          Needs team attention: what someone else owes, in a GROUP conversation the person is
+ *                 in -- named only by the label Telegram showed. Loop never decides who is a colleague.
+ *   WAITING       Waiting on others: what the other side of a private chat (or an unnamed someone) owes.
+ *   OPEN          Open / unfinished: unresolved questions and problems in a reading.
+ *   DECISIONS     Decisions pending: a decision is needed and was not made.
+ *   QUIET         Gone quiet: STALLED readings, and conversations with something still open whose last
+ *                 message is older than CHATS_QUIET_DAYS (Loop's own arithmetic over the digest's
+ *                 newest evidence -- time passing is not something a model is asked).
+ *   DEVELOPMENTS  Important developments: changes, opportunities, risks, operational moves and what is
+ *                 coming up, at MEDIUM or HIGH severity.
+ */
+export type ChatsGroupKey = 'YOU' | 'TEAM' | 'WAITING' | 'OPEN' | 'DECISIONS' | 'QUIET' | 'DEVELOPMENTS';
+
+export interface ChatsEntry {
+  /** List key only. Never rendered. */
+  readonly key: string;
+  /** ITEM: an open obligation (Work OS), actionable. SIGNAL: part of Loop's reading, read-only. */
+  readonly source: 'ITEM' | 'SIGNAL';
+  /** Telegram's own label for the conversation, or null. */
+  readonly conversation: string | null;
+  readonly conversationKind: 'PRIVATE' | 'GROUP' | null;
+  /** The one sentence: the item's paraphrase, or the signal's statement. Never a quote. */
+  readonly statement: string;
+  /** What to do next, for an item. */
+  readonly nextStep: string | null;
+  readonly deadline: string | null;
+  /** For something someone else owes: the label the conversation showed for them. */
+  readonly who: string | null;
+  /** How the statement is known: a signal's knowledge ('OBSERVED' | 'INFERRED'), or 'RAISED' for an item. */
+  readonly basis: 'RAISED' | 'OBSERVED' | 'INFERRED';
+  readonly severity: 'LOW' | 'MEDIUM' | 'HIGH' | null;
+  /** Loop's own facts about it, in words ("No reply from you since", "Quiet for 5 days"). */
+  readonly facts: readonly string[];
+  readonly at: Date | null;
+  /** The WorkItem id when the person can act on it (an ITEM); null for a SIGNAL. */
+  readonly itemId: string | null;
+  /** The evidence behind it, content-free: category / signal kind, and when it was raised or read. */
+  readonly evidence: { readonly kind: string; readonly readAt: Date | null; readonly asCurrent: boolean };
+}
+
+export interface ChatsGroup {
+  readonly key: ChatsGroupKey;
+  readonly title: string;
+  readonly entries: readonly ChatsEntry[];
+}
+
 export interface ChatsIntelligence {
   readonly state: ChatsState;
   readonly unavailable: ChatsUnavailable;
@@ -198,7 +261,16 @@ export interface ChatsIntelligence {
   readonly owed: string | null;
   readonly activity24h: ChatsActivity | null;
   readonly activity7d: ChatsActivity | null;
+  /** Chats v5: what needs whom, grouped (see ChatsGroupKey). Empty groups are omitted. */
+  readonly groups: readonly ChatsGroup[];
 }
+
+/** A conversation with something still open is "quiet" once its newest message is this old. */
+export const CHATS_QUIET_DAYS = 3;
+/** The most entries one group shows. */
+export const CHATS_GROUP_LIMIT = 8;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The only source Chats reads today. */
 export const CHATS_PROVIDER = 'TELEGRAM';
@@ -348,8 +420,9 @@ const byAttention = (a: ChatsConversationCard, b: ChatsConversationCard) =>
 
 function cardOf(digest: ChatsDigest, input: ChatsIntelligenceInput, live: boolean, items: readonly ChatsItem[]): ChatsConversationCard {
   const key = chatsConversationKeyOf(digest.subjectRef);
-  const linked = items.filter((i) => i.conversationKey === key && i.category !== CHANGE_CATEGORY);
-  const label = items.find((i) => i.conversationKey === key && i.counterparty?.trim())?.counterparty?.trim() ?? null;
+  const linked = items.filter((i) => i.conversationKey === key && i.category !== CHANGE_CATEGORY && (i.lane ?? 'NEEDS_YOU') === 'NEEDS_YOU');
+  // Telegram's own label: the digest's (Chats v5 records it from the provider), else an obligation's.
+  const label = text(digest.content.label) ?? items.find((i) => i.conversationKey === key && i.counterparty?.trim())?.counterparty?.trim() ?? null;
   const coverage = digestFreshness(digest, {
     sourceLastEvidenceAt: input.latestActivity?.get(key) ?? null,
     connectionLive: live,
@@ -434,7 +507,9 @@ const BROKEN_STATES: readonly string[] = ['RECONNECT_REQUIRED', 'FAILED'];
 
 export function composeChatsIntelligence(input: ChatsIntelligenceInput): ChatsIntelligence {
   const c = input.connection;
-  const items = input.items.filter((i) => i.provider === CHATS_PROVIDER);
+  const all = input.items.filter((i) => i.provider === CHATS_PROVIDER);
+  // What the PERSON owes. Items others owe them (WAITING_ON_THEM) are grouped below, never counted as owed.
+  const items = all.filter((i) => (i.lane ?? 'NEEDS_YOU') === 'NEEDS_YOU');
   const obligations = groupChats(items);
   const configured = c !== null && c.configured;
   const connectionLive = configured && LIVE_STATES.includes(c.state);
@@ -517,6 +592,8 @@ export function composeChatsIntelligence(input: ChatsIntelligenceInput): ChatsIn
         ? { value: String(active), label: active === 1 ? 'active conversation since yesterday' : 'active conversations since yesterday' }
         : null;
 
+  const groups = state === 'CURRENT' || state === 'STALE' || state === 'NO_INTELLIGENCE_YET' ? chatsGroups(all, digests, allCards, input.now) : [];
+
   return {
     state,
     unavailable,
@@ -532,5 +609,160 @@ export function composeChatsIntelligence(input: ChatsIntelligenceInput): ChatsIn
     owed: owedSentence(obligations, items, !connectionLive),
     activity24h: input.activity24h,
     activity7d: input.activity7d,
+    groups,
   };
+}
+
+// --- Chats v5 groups ---------------------------------------------------------------------------------
+
+const GROUP_TITLES: Readonly<Record<ChatsGroupKey, string>> = Object.freeze({
+  YOU: 'Needs your attention',
+  TEAM: 'Needs team attention',
+  WAITING: 'Waiting on others',
+  OPEN: 'Open and unfinished',
+  DECISIONS: 'Decisions pending',
+  QUIET: 'Gone quiet',
+  DEVELOPMENTS: 'Important developments',
+});
+const GROUP_ORDER: readonly ChatsGroupKey[] = ['YOU', 'TEAM', 'WAITING', 'DECISIONS', 'OPEN', 'QUIET', 'DEVELOPMENTS'];
+const SEVERITY_RANK: Readonly<Record<string, number>> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+
+function daysBetween(from: Date, to: Date): number {
+  return Math.floor((to.getTime() - from.getTime()) / DAY_MS);
+}
+
+function itemFacts(item: ChatsItem, now: Date): string[] {
+  const facts: string[] = [];
+  if ((item.owedBy ?? 'VIEWER') === 'VIEWER' && item.repliedAfter === false) facts.push('No reply from you since');
+  if (item.repliedAfter === true && (item.owedBy ?? 'VIEWER') === 'VIEWER') facts.push('You replied, but it is still open');
+  const quiet = daysBetween(item.at, now);
+  if (quiet >= CHATS_QUIET_DAYS) facts.push(`Raised ${quiet} days ago`);
+  return facts;
+}
+
+function itemEntry(item: ChatsItem, label: string | null, now: Date): ChatsEntry {
+  return {
+    key: `item:${item.id ?? `${item.conversationKey ?? ''}:${item.at.getTime()}:${item.title}`}`,
+    source: 'ITEM',
+    conversation: item.counterparty?.trim() || label,
+    conversationKind: item.conversationKind ?? null,
+    statement: item.title,
+    nextStep: item.nextStep,
+    deadline: item.deadline,
+    who: item.owedBy === 'OTHER' ? (item.who ?? null) : null,
+    basis: 'RAISED',
+    severity: item.deadline ? 'HIGH' : null,
+    facts: itemFacts(item, now),
+    at: item.at,
+    itemId: item.id ?? null,
+    evidence: { kind: item.category ?? 'OBLIGATION', readAt: item.at, asCurrent: true },
+  };
+}
+
+/**
+ * The v5 groups, from the viewer's own items and digests only. An item lands in exactly one group by
+ * who owes it; a signal lands in the group its KIND names; the same conversation's obligation is not
+ * repeated as a signal. "Gone quiet" is Loop's own arithmetic over the digest's newest evidence.
+ */
+function chatsGroups(items: readonly ChatsItem[], digests: readonly ChatsDigest[], cards: readonly ChatsConversationCard[], now: Date): ChatsGroup[] {
+  const out: Record<ChatsGroupKey, ChatsEntry[]> = { YOU: [], TEAM: [], WAITING: [], OPEN: [], DECISIONS: [], QUIET: [], DEVELOPMENTS: [] };
+  const labelOf = (key: string | null | undefined) => {
+    if (!key) return null;
+    const card = cards.find((c) => chatsConversationKeyOf(c.key) === key);
+    return card?.label ?? null;
+  };
+  const withItems = new Set<string>();
+  for (const item of items) {
+    if (item.category === CHANGE_CATEGORY) continue;
+    if (item.conversationKey) withItems.add(item.conversationKey);
+    const entry = itemEntry(item, labelOf(item.conversationKey), now);
+    if ((item.lane ?? 'NEEDS_YOU') === 'NEEDS_YOU' || item.owedBy !== 'OTHER') out.YOU.push(entry);
+    else if (item.conversationKind === 'GROUP') out.TEAM.push(entry);
+    else out.WAITING.push(entry);
+  }
+  for (const digest of digests) {
+    const key = chatsConversationKeyOf(digest.subjectRef);
+    const card = cards.find((c) => c.key === digest.subjectRef);
+    if (!card || card.relevance === 'NOT_BUSINESS') continue;
+    const signals = digest.content.signals ?? [];
+    const readAt = digest.generatedAt;
+    const signalEntry = (sig: (typeof signals)[number]): ChatsEntry => ({
+      key: `signal:${digest.subjectRef}:${sig.key}`,
+      source: 'SIGNAL',
+      conversation: card.label,
+      conversationKind: null,
+      statement: sig.statement,
+      nextStep: null,
+      deadline: null,
+      who: sig.party ?? null,
+      basis: sig.knowledge === 'OBSERVED' ? 'OBSERVED' : 'INFERRED',
+      severity: sig.severity ?? null,
+      facts: [],
+      at: sig.occurredAt ? new Date(sig.occurredAt) : digest.lastEvidenceAt,
+      itemId: null,
+      evidence: { kind: sig.kind, readAt, asCurrent: card.asCurrent },
+    });
+    // The reading says the person should look now, and no item already says so.
+    if (card.attention && !withItems.has(key)) {
+      out.YOU.push({
+        key: `attention:${digest.subjectRef}`,
+        source: 'SIGNAL',
+        conversation: card.label,
+        conversationKind: null,
+        statement: card.attention,
+        nextStep: null,
+        deadline: null,
+        who: null,
+        basis: 'INFERRED',
+        severity: 'HIGH',
+        facts: [],
+        at: digest.lastEvidenceAt,
+        itemId: null,
+        evidence: { kind: 'ATTENTION', readAt, asCurrent: card.asCurrent },
+      });
+    }
+    let open = false;
+    for (const sig of signals) {
+      if (sig.kind === 'DECISION_PENDING') (open = true), out.DECISIONS.push(signalEntry(sig));
+      else if (sig.kind === 'UNRESOLVED') (open = true), out.OPEN.push(signalEntry(sig));
+      else if (sig.kind === 'STALLED') (open = true), out.QUIET.push(signalEntry(sig));
+      else if (sig.kind === 'OBLIGATION') {
+        open = true;
+        // An obligation the triage also raised as an item is shown once, as the item.
+        if (withItems.has(key)) continue;
+        const entry = signalEntry(sig);
+        if (sig.owedBy === 'VIEWER' || sig.owedBy === undefined) out.YOU.push(entry);
+        else if (sig.owedBy === 'COUNTERPARTY') out.WAITING.push(entry);
+        else out.TEAM.push(entry);
+      } else if ((sig.severity === 'HIGH' || sig.severity === 'MEDIUM') && ['CHANGE', 'OPPORTUNITY', 'RISK', 'OPERATIONAL', 'UPCOMING'].includes(sig.kind)) {
+        out.DEVELOPMENTS.push(signalEntry(sig));
+      }
+    }
+    // Gone quiet: something is still open here, and nothing new has arrived for CHATS_QUIET_DAYS.
+    const last = digest.lastEvidenceAt;
+    if (last && (open || card.unresolved.length > 0 || withItems.has(key)) && daysBetween(last, now) >= CHATS_QUIET_DAYS && !signals.some((sig) => sig.kind === 'STALLED')) {
+      out.QUIET.push({
+        key: `quiet:${digest.subjectRef}`,
+        source: 'SIGNAL',
+        conversation: card.label,
+        conversationKind: null,
+        statement: card.synthesis ?? 'Something here is still open.',
+        nextStep: null,
+        deadline: null,
+        who: null,
+        basis: 'INFERRED',
+        severity: 'MEDIUM',
+        facts: [`No new messages for ${daysBetween(last, now)} days`],
+        at: last,
+        itemId: null,
+        evidence: { kind: 'QUIET', readAt, asCurrent: card.asCurrent },
+      });
+    }
+  }
+  const byPressure = (a: ChatsEntry, b: ChatsEntry) =>
+    (SEVERITY_RANK[a.severity ?? 'LOW'] ?? 3) - (SEVERITY_RANK[b.severity ?? 'LOW'] ?? 3) ||
+    Number(b.source === 'ITEM') - Number(a.source === 'ITEM') ||
+    (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0) ||
+    a.key.localeCompare(b.key);
+  return GROUP_ORDER.filter((k) => out[k].length > 0).map((k) => ({ key: k, title: GROUP_TITLES[k], entries: out[k].sort(byPressure).slice(0, CHATS_GROUP_LIMIT) }));
 }

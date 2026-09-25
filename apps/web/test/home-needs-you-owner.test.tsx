@@ -114,7 +114,7 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
     assert.match(composer, /attentionElsewhere: input\.review\?\.attentionElsewhere \?\? \[\],/);
     // The Chats reading is built from the SAME items the page read, handed down as data: no second read.
     const front = code(read('../src/app/app/_home/front-door-data.ts'));
-    assert.match(front, /loadChatsInput\(\{ session, principal, now: time\.now, needsYou \}\)/);
+    assert.match(front, /loadChatsInput\(\{ session, principal, now: time\.now \}\)/);
     assert.equal(front.includes('loadNeedsYou'), false);
     assert.match(home, /loadFrontDoor\(\{ session, principal, groups, time, needsYou, executive: true \}\)/);
   });

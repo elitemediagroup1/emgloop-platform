@@ -410,7 +410,10 @@ describe('Your tools & spaces: a tile only where the rail leads, each its domain
   it('Chats is the Chats domain’s reading and routes to Chats; Calendar says the day and routes to Calendar', () => {
     const c = tileByKey(tilesInput(), 'chats')!;
     const reading = composeChatsIntelligence(CHATS);
-    assert.deepEqual([c.state, c.href, c.metric, c.lines, c.status], ['OK', '/app/chats', reading.metric, [reading.statement], `${reading.status} · ${reading.coverage.words}`]);
+    // Chats v5: the statement, then the page's own most pressing group entry (the same composition).
+    const top = reading.groups[0]?.entries[0];
+    const second = top ? [`${reading.groups[0]!.title}: ${top.conversation ? `${top.conversation} — ` : ''}${top.statement}`] : [];
+    assert.deepEqual([c.state, c.href, c.metric, c.lines, c.status], ['OK', '/app/chats', reading.metric, [reading.statement, ...second], `${reading.status} · ${reading.coverage.words}`]);
     assert.deepEqual(c.metric, { value: '1', label: 'business conversation' }, 'business is the digest’s relevance, never an activity count');
     // Connected with no reading yet is still Chats, and says so -- never a summary built from counts.
     const none = tileByKey(tilesInput({ chats: chats({ digests: [] }) }), 'chats')!;
@@ -520,7 +523,7 @@ describe('the front door’s reads are gated by the rail and scoped by the sessi
     assert.match(data, /input\.executive && navOffers\(groups, TILE_PATHS\.marketplace\)\s*\? settle\(\(\) => loadCommandContextFor\(organizationId, undefined, \{ session, canAct: async \(\) => false \}\)\)/, 'the CallGrid context is read only for the executive seat with the marketplace offered, with the session principal and no authority to act');
     // The executive row is the contract's own rule over that context -- Home chooses the figures, never the arithmetic.
     assert.match(data, /const kpis = callGridKpis\(\{\s*metrics: ctx\.report\.metrics,\s*comparison: ctx\.report\.comparison,\s*series: ctx\.facts\?\.series \?\? \[\],\s*comparisonWithheld: ctx\.window !== ctx\.selection\.window,\s*keys: HOME_KPI_KEYS,\s*\}\);\s*return \{ ok: true, value: projectHomeKpis\(\{ \.\.\.ctx, kpis \}\) \};/);
-    assert.match(data, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now, needsYou \}\)\)/);
+    assert.match(data, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now \}\)\)/);
     assert.match(data, /navOffers\(groups, TILE_PATHS\.intake\) \? settle\(\(\) => crmRepos\.crm\.statusCounts\(organizationId\)\)/);
     assert.match(data, /input\.executive && navOffers\(groups, TILE_PATHS\.creators\)\s*\? settle\(\(\) => absentUntilMigrated\(creatorDomain\(\)\.records\.roster\(organizationId\)\)\)/);
     assert.match(data, /const organizationId = principal\.organizationId;/);

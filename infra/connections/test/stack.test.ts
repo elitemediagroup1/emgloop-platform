@@ -15,7 +15,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, mediaOriginsFromContext, TRIAGE_V4_VERIFIED_PROVIDERS } from '../lib/app';
+import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, mediaOriginsFromContext } from '../lib/app';
 import { connectionSecretNames, MEDIA_KEY_PREFIX, MEDIA_SIGN_PATH } from '../lib/connections-stack';
 import { assertTargetCredentials, CONNECTIONS_STAGING_TARGET, WrongTargetError } from '../lib/target';
 import { stubAssets } from './assets';
@@ -595,26 +595,18 @@ test('without aiOrganizationId nothing AI-related appears, whatever the lists sa
   assert.ok(!json.includes(AI_SECRET_NAME) && !/LOOP_AI_|ANTHROPIC_API_KEY|OPENAI_API_KEY/.test(json));
 });
 
-test('PR 1 guard: a provider not verified against triage v4 is refused beside telegram.content.triage -- at synth, AI on or off', () => {
-  const refused = /aiProviders: openai is not verified against telegram-content-triage\.v4/;
-  // Listed with the default task (triage), in either order, alone or with anthropic.
-  assert.throws(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic,openai' }), refused);
-  assert.throws(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'openai' }), refused);
-  assert.throws(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'openai,anthropic', aiTasks: 'chats.digest.v2,telegram.content.triage' }), refused);
-  // Refused before AI is even switched on, so it can never reach a deploy.
-  assert.throws(() => synthStack({ aiProviders: 'anthropic,openai' }), refused);
-  // Anthropic beside triage, and openai beside other tasks, are allowed.
+test('Chats v5: the triage-v4 provider guard is retired -- a second provider beside triage synthesizes (and is still commissioned only by policy + activation)', () => {
+  assert.doesNotThrow(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic,openai' }));
   assert.doesNotThrow(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic' }));
-  assert.doesNotThrow(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic,openai', aiTasks: 'case.explanation' }));
-  assert.deepEqual([...TRIAGE_V4_VERIFIED_PROVIDERS], ['anthropic']);
+  assert.doesNotThrow(() => synthStack({ aiProviders: 'anthropic,openai' }));
 });
 
-test('PR 1 guard stays in step with the shared portability exemption: remove both together (triage v5, PR 3)', () => {
+test('the guard retired TOGETHER with the exemption: both the shared exemption list and the verified-provider policy are empty', () => {
   const repo = join(__dirname, '..', '..', '..');
   const shared = readFileSync(join(repo, 'packages', 'shared', 'src', 'ai', 'portable-schema.ts'), 'utf8');
   const policy = readFileSync(join(repo, 'packages', 'providers', 'src', 'ai', 'policy', 'schema-verification.ts'), 'utf8');
-  const exempt = /'telegram-content-triage\.v4': Object\.freeze\(\['\$\.properties\.schemaId:const'\]\)/.test(shared);
-  const verifiedOnly = /'telegram-content-triage\.v4': Object\.freeze\(\['anthropic'\]\)/.test(policy);
-  assert.equal(exempt, true, 'while triage v4 is exempt, this synth guard must stay');
-  assert.equal(verifiedOnly, true, 'the providers verified-provider policy names anthropic only, as this guard does');
+  const app = readFileSync(join(__dirname, '..', 'lib', 'app.ts'), 'utf8');
+  assert.match(shared, /AI_PORTABLE_SCHEMA_EXEMPTIONS: Readonly<Record<string, readonly string\[\]>> = Object\.freeze\(\{\}\);/, 'no schema is exempt');
+  assert.match(policy, /AI_SCHEMA_VERIFIED_PROVIDERS: Readonly<Record<string, readonly string\[\]>> = Object\.freeze\(\{\}\);/, 'no provider restriction is recorded');
+  assert.doesNotMatch(app, /TRIAGE_V4_VERIFIED_PROVIDERS|assertAiProvidersVerified\(/, 'and this stack carries none either');
 });

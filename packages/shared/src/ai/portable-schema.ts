@@ -47,15 +47,13 @@ export interface AiPortableSchemaViolation {
 }
 
 /**
- * Exemptions by output schema id. TELEGRAM CONTENT TRIAGE v4 is the production schema of the live
- * Telegram triage (task 3.0.0); its `schemaId` property uses `const`, which Anthropic accepts and
- * production has run on since 2026-09-25. It stays byte-for-byte in PR 1 -- changing the schema a live
- * task sends is a task change, not a runtime change -- and is replaced by a one-value `enum` in triage
- * schema v5 (PR 3). Until then the OpenAI fallback for triage stays UNVERIFIED against this schema.
+ * Exemptions by output schema id. EMPTY since Chats v5 (Loop Intelligence Phase B, 2026-09-26): the one
+ * exemption there ever was -- `telegram-content-triage.v4`'s `const` schemaId, live in production from
+ * 2026-09-25 until triage schema v5 replaced it with a one-value `enum` -- retired with that schema, and
+ * the provider guard that depended on it (AI_SCHEMA_VERIFIED_PROVIDERS) retired with it. A test holds
+ * the two together: an exemption can never exist without its verified-provider list, nor the reverse.
  */
-export const AI_PORTABLE_SCHEMA_EXEMPTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'telegram-content-triage.v4': Object.freeze(['$.properties.schemaId:const']),
-});
+export const AI_PORTABLE_SCHEMA_EXEMPTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 
 function key(v: AiPortableSchemaViolation): string {
   return `${v.path}:${v.keyword ?? v.rule}`;

@@ -4694,3 +4694,12 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .loop-cal__now { padding: 14px 16px; }
   .loop-cal__event { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+
+/* Chats v5 (Loop Intelligence Phase B): what needs whom -- groups, entries, the person's own actions,
+   and a content-free evidence drill-down. Tokens only. */
+.loop-chats__groups { display: flex; flex-direction: column; gap: 18px; }
+.loop-chats__group { display: flex; flex-direction: column; gap: 8px; }
+.loop-chats__entry { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius); background: var(--loop-surface); }
+.loop-chats__evidence summary { cursor: pointer; font-size: 12px; color: var(--loop-text-2); }
+.loop-chats__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.loop-chats__actions form { margin: 0; }

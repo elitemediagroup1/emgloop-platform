@@ -104,6 +104,11 @@ export interface DigestContent {
   readonly confidence?: DigestConfidence;
   /** What the digest could not see or could not conclude. Never omitted to look complete. */
   readonly limitations?: readonly string[];
+  /**
+   * The SOURCE's own label for the subject (a Telegram contact's display name or group title), as the
+   * worker recorded it from the provider -- never a name a model produced. Chats v5. <=60 characters.
+   */
+  readonly label?: string;
   /** The typed one-sentence reading of the subject (participation contract, PR 2). */
   readonly reading?: IntelligenceReading;
   /** Typed, evidence-referenced signals (participation contract, PR 2). */
@@ -113,7 +118,9 @@ export interface DigestContent {
 const LIST_KEYS = ['topics', 'developments', 'unresolved', 'commitments', 'opportunities', 'concerns', 'operational', 'limitations'] as const;
 const STRING_KEYS = ['stateChange', 'synthesis', 'attention'] as const;
 const CONTRACT_KEYS = ['reading', 'signals'] as const;
-export const DIGEST_CONTENT_KEYS: readonly string[] = Object.freeze(['relevance', 'confidence', ...LIST_KEYS, ...STRING_KEYS, ...CONTRACT_KEYS]);
+/** The longest source label a digest may carry (the triage label cap). */
+export const DIGEST_LABEL_MAX_CHARS = 60;
+export const DIGEST_CONTENT_KEYS: readonly string[] = Object.freeze(['relevance', 'confidence', 'label', ...LIST_KEYS, ...STRING_KEYS, ...CONTRACT_KEYS]);
 
 /**
  * What each content field KNOWS: OBSERVED fields state what the evidence itself says (each statement a
@@ -126,6 +133,8 @@ export type DigestKnowledge = (typeof DIGEST_KNOWLEDGE)[number];
 export const DIGEST_FIELD_KNOWLEDGE: Readonly<Record<Exclude<keyof DigestContent, 'limitations' | 'reading' | 'signals'>, DigestKnowledge>> = Object.freeze({
   developments: 'OBSERVED',
   commitments: 'OBSERVED',
+  // The source's own name for the subject: observed from the provider, never inferred.
+  label: 'OBSERVED',
   relevance: 'INFERRED',
   topics: 'INFERRED',
   unresolved: 'INFERRED',
@@ -198,7 +207,13 @@ export function digestContentRefusals(
       continue;
     }
     if (value === undefined) continue;
-    if (key === 'reading') {
+    if (key === 'label') {
+      if (typeof value !== 'string') out.push('WRONG_TYPE');
+      else {
+        if (value.trim() === '') out.push('EMPTY_STRING');
+        if ([...value].length > DIGEST_LABEL_MAX_CHARS) out.push('STRING_TOO_LONG');
+      }
+    } else if (key === 'reading') {
       if (intelligenceReadingRefusals(value).length > 0) out.push('INVALID_READING');
     } else if (key === 'signals') {
       if (intelligenceSignalsRefusals(value, context).length > 0) out.push('INVALID_SIGNALS');

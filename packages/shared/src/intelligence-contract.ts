@@ -104,6 +104,11 @@ export interface IntelligenceSignal {
   readonly confidence?: IntelligenceOrdinal;
   readonly severity?: IntelligenceOrdinal;
   readonly owedBy?: IntelligenceOwedBy;
+  /**
+   * Who appears to owe an OBLIGATION, as the SOURCE labels them (a Telegram contact or group sender).
+   * A label the evidence itself showed, never a Loop identity and never an assignment. Only with owedBy.
+   */
+  readonly party?: string;
   readonly metric?: IntelligenceMetric;
 }
 
@@ -113,7 +118,9 @@ export interface IntelligenceReading {
   readonly confidence: IntelligenceOrdinal;
 }
 
-const SIGNAL_KEYS = ['key', 'kind', 'knowledge', 'statement', 'entities', 'evidenceRefs', 'occurredAt', 'dueAt', 'asOf', 'confidence', 'severity', 'owedBy', 'metric'];
+const SIGNAL_KEYS = ['key', 'kind', 'knowledge', 'statement', 'entities', 'evidenceRefs', 'occurredAt', 'dueAt', 'asOf', 'confidence', 'severity', 'owedBy', 'party', 'metric'];
+/** The longest source label a signal's `party` may carry. */
+export const SIGNAL_PARTY_MAX_CHARS = 60;
 const METRIC_KEYS = ['name', 'value', 'unit', 'baseline'];
 const READING_KEYS = ['statement', 'status', 'confidence'];
 
@@ -217,6 +224,10 @@ export function intelligenceSignalRefusals(signal: unknown, context: Intelligenc
   if (signal.owedBy !== undefined) {
     oneOf(signal.owedBy, INTELLIGENCE_OWED_BY, out);
     if (signal.kind !== 'OBLIGATION') out.push('OWED_BY_NOT_OBLIGATION');
+  }
+  if (signal.party !== undefined) {
+    bounded(signal.party, SIGNAL_PARTY_MAX_CHARS, out);
+    if (signal.owedBy === undefined) out.push('OWED_BY_NOT_OBLIGATION');
   }
   if (signal.knowledge === 'MEASURED') {
     if (signal.metric === undefined) out.push('MEASURED_WITHOUT_METRIC');

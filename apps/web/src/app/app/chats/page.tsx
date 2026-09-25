@@ -4,7 +4,6 @@ import { requirePermission } from '../../../auth/guard';
 import { LOOP_HOME } from '../../../auth/landing';
 import { loadChatsInput } from '../../../daily-loop/chats';
 import { composeChatsIntelligence, type ChatsIntelligence } from '../../../daily-loop/chats-intelligence';
-import { loadNeedsYou } from '../../../daily-loop/needs-you';
 import { readerTimeZone } from '../../../daily-loop/reader-zone';
 import WorkspaceShell from '../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead } from '../_loop-os/record';
@@ -30,21 +29,13 @@ import { ChatsView } from './_chats/chats-view';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * How many flagged items Chats reads. Home shows the newest few; the domain page counts every open one,
- * up to the loader's own ceiling, so "N conversations need you" is not a truncated number.
- */
-const CHATS_ITEM_LIMIT = 200;
-
 export default async function ChatsPage() {
   const session = await requirePermission('googleWorkspace', 'view');
   const principal = { organizationId: session.organizationId, userId: session.userId };
   const zone = resolveDisplayTimeZone({ preference: null, device: readerTimeZone() });
   const now = new Date();
 
-  // Loaded once, with the session's principal, and handed to the loader as data.
-  const needsYou = await loadNeedsYou(principal, CHATS_ITEM_LIMIT);
-  const input = await settle(() => loadChatsInput({ session, principal, now, needsYou }));
+  const input = await settle(() => loadChatsInput({ session, principal, now }));
   const intel: ChatsIntelligence | 'UNAVAILABLE' = input.ok ? composeChatsIntelligence(input.value) : 'UNAVAILABLE';
   const time = createTimeView(zone, now);
 

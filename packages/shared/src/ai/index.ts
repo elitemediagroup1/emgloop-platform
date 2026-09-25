@@ -14,6 +14,8 @@ export * from './output-contracts';
 export * from './portable-schema';
 // PR 2 (Loop Intelligence fabric): the one generic, portable domain-reading output contract.
 export * from './domain-reading';
+// Chats v5 (Loop Intelligence Phase B): the portable triage schema v5 contract.
+export * from './telegram-triage-v5';
 
 // Brain execution contracts (B2): capability routes, execution classes, result types and
 // ownership, jobs, steps, the trust envelope and the executor port. Contracts only.

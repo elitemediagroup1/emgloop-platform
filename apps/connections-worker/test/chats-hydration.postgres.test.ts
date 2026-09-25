@@ -102,16 +102,16 @@ function triaged(input: TelegramConversationTriageInput, principal: WorkPrincipa
   return {
     outcome: 'TRIAGED',
     // Obligations ARE in the answer: hydration must drop them.
-    items: [{ anchorProviderEventId: anchor, category: 'REQUEST', oneLineMeaning: 'Dana wants the signed contract back', topic: 'Contract', nextStep: 'Countersign and send it', deadline: null }],
+    items: [{ anchorProviderEventId: anchor, category: 'REQUEST', oneLineMeaning: 'Dana wants the signed contract back', topic: 'Contract', nextStep: 'Countersign and send it', deadline: null, owedBy: 'VIEWER', who: null }],
     conversation: {
       relevance: 'BUSINESS',
       summary: 'Dana is waiting on the countersigned contract.',
       topics: ['Contract'],
-      developments: [{ anchorProviderEventId: anchor, statement: 'Dana asked for the signed contract' }],
-      decisions: [],
-      commitments: [],
-      signals: [],
-      unresolved: 'The contract is not back yet',
+      stateChange: null,
+      signals: [
+        { kind: 'CHANGE', anchorProviderEventId: anchor, statement: 'Dana asked for the signed contract', severity: 'MEDIUM', owedBy: null, who: null },
+        { kind: 'UNRESOLVED', anchorProviderEventId: anchor, statement: 'The contract is not back yet', severity: 'MEDIUM', owedBy: null, who: null },
+      ],
       attention: { needed: true, reason: 'Dana is waiting on it' },
       confidence: 'HIGH',
     },
@@ -234,7 +234,7 @@ test('a person whose backfill COMPLETED before Chats Intelligence gets a digest 
     const d = mine.find((x) => x.subjectRef === telegramConversationSubjectRef(a.conversationKey))!;
     assert.equal(d.subjectKind, 'CONVERSATION');
     assert.equal(d.version, 1);
-    assert.equal(d.provenance.schemaId, 'telegram-content-triage.v4');
+    assert.equal(d.provenance.schemaId, 'telegram-content-triage.v5');
     assert.equal(d.provenance.consentBasis, 'CONTENT_AUTHORIZATION');
     const stored = JSON.stringify(await prisma.intelligenceDigest.findMany({ where: { organizationId } }));
     for (const forbidden of [MARKER, SENDER, 'raw-a', 'raw-b', 'body-11']) assert.ok(!stored.includes(forbidden), `no ${forbidden} in any stored digest`);
@@ -246,7 +246,7 @@ test('a person whose backfill COMPLETED before Chats Intelligence gets a digest 
 
     const r = await row(prisma, organizationId, alice!);
     assert.equal(r.intelligenceHydrationState, 'COMPLETE');
-    assert.equal(r.intelligenceHydrationSchemaId, 'telegram-content-triage.v4');
+    assert.equal(r.intelligenceHydrationSchemaId, 'telegram-content-triage.v5');
     assert.equal(r.historicalCursor, 'HIST-END', 'the historical backfill columns are untouched');
     assert.equal(r.contentCursor, null, 'the forward cursor is untouched');
 

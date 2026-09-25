@@ -3,6 +3,11 @@
 //
 // IN THIS ORDER, AND KEPT APART:
 //   1. What Loop understands -- the composed statement and the business-conversation figure;
+//   1b. What needs whom (Chats v5) -- the groups: needs your attention, needs team attention, waiting
+//      on others, decisions pending, open, gone quiet, important developments. An ITEM (raised by the
+//      triage; Work OS state) carries the person's own actions -- handled, not mine, not now -- and an
+//      evidence drill-down that is content-free (what kind, from which conversation, when read);
+//      a SIGNAL is part of Loop's reading and says whether it was observed or inferred;
 //   2. Conversation intelligence -- Loop's INTERPRETATION of each conversation, one digest's own
 //      fields, labelled as interpretation, with its confidence, how current it is (the governed
 //      coverage words) and, per list, what it rests on (`DIGEST_FIELD_KNOWLEDGE`);
@@ -26,8 +31,11 @@ import {
   type ChatsActivity,
   type ChatsConversation,
   type ChatsConversationCard,
+  type ChatsEntry,
+  type ChatsGroup,
   type ChatsIntelligence,
 } from '../../../../daily-loop/chats-intelligence';
+import { chatsDismissAction, chatsHandledAction, chatsSnoozeAction } from '../actions';
 import { LabelBadge } from '../../_loop-os/product-state';
 import { Facts, Panel, StateBlock } from '../../_loop-os/record';
 
@@ -120,6 +128,83 @@ function ReadingList({ title, items, basis }: { title: string; items: readonly s
         ))}
       </ul>
     </div>
+  );
+}
+
+const ENTRY_BASIS: Readonly<Record<ChatsEntry['basis'], string>> = Object.freeze({
+  RAISED: 'Flagged from the conversation',
+  OBSERVED: 'As the conversation said it',
+  INFERRED: 'Loop’s reading',
+});
+
+function EntryActions({ entry }: { entry: ChatsEntry }) {
+  if (!entry.itemId) return null;
+  return (
+    <div className="loop-chats__actions loop-btnrow" data-chats-actions>
+      <form action={chatsHandledAction}>
+        <input type="hidden" name="itemId" value={entry.itemId} />
+        <button type="submit" className="loop-btn">Handled</button>
+      </form>
+      <form action={chatsSnoozeAction}>
+        <input type="hidden" name="itemId" value={entry.itemId} />
+        <input type="hidden" name="hours" value="24" />
+        <button type="submit" className="loop-btn loop-btn--quiet">Not now</button>
+      </form>
+      <form action={chatsDismissAction}>
+        <input type="hidden" name="itemId" value={entry.itemId} />
+        <button type="submit" className="loop-btn loop-btn--quiet">Not mine</button>
+      </form>
+    </div>
+  );
+}
+
+function GroupEntry({ entry, time }: { entry: ChatsEntry; time: TimeView }) {
+  return (
+    <li className="loop-chats__entry" data-chats-entry={entry.source} data-chats-entry-basis={entry.basis}>
+      <div className="loop-chats__conv-head">
+        <span className="loop-chats__label">{entry.conversation ?? UNNAMED_CONVERSATION}</span>
+        {entry.who ? <span className="loop-pill">Waiting on {entry.who}</span> : null}
+        {entry.severity === 'HIGH' ? <span className="loop-pill loop-pill--attention">Pressing</span> : null}
+        <span className="loop-chats__place">{PLACE}</span>
+      </div>
+      <p className="loop-chats__title">{entry.statement}</p>
+      {entry.nextStep ? <p className="loop-chats__meta">Next: {entry.nextStep}</p> : null}
+      {entry.deadline ? <p className="loop-chats__meta loop-chats__deadline">Deadline, as the conversation put it: {entry.deadline}</p> : null}
+      {entry.facts.length > 0 ? <p className="loop-chats__meta" data-chats-facts>{entry.facts.join(' · ')}</p> : null}
+      <details className="loop-chats__evidence">
+        <summary>Why Loop shows this</summary>
+        <p className="loop-chats__meta">
+          {ENTRY_BASIS[entry.basis]} · {entry.source === 'ITEM' ? chatsKindLabel(entry.evidence.kind) : entry.evidence.kind.replace(/_/g, ' ').toLowerCase()}
+          {entry.evidence.readAt ? (
+            <>
+              {' · read '}
+              <time dateTime={time.iso(entry.evidence.readAt)}>{time.relative(entry.evidence.readAt)}</time>
+            </>
+          ) : null}
+          {entry.evidence.asCurrent ? '' : ' · not current'}
+        </p>
+        <p className="loop-chats__meta">Loop keeps no message text. The conversation itself is in Telegram.</p>
+      </details>
+      <EntryActions entry={entry} />
+    </li>
+  );
+}
+
+function Groups({ groups, time }: { groups: readonly ChatsGroup[]; time: TimeView }) {
+  if (groups.length === 0) return null;
+  return (
+    <section className="loop-chats__groups" aria-label="What needs whom" data-chats-groups>
+      {groups.map((g) => (
+        <div key={g.key} className="loop-chats__group" data-chats-group={g.key}>
+          <h2 className="loop-panel__title">{g.title}</h2>
+          <ul className="loop-chats__list">
+            {g.entries.map((e) => (
+              <GroupEntry key={e.key} entry={e} time={time} />
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -223,6 +308,8 @@ export function ChatsView({ intel, time }: { intel: ChatsIntelligence | 'UNAVAIL
       </section>
 
       <StateLine intel={intel} />
+
+      <Groups groups={intel.groups} time={time} />
 
       {intel.conversations.length > 0 || intel.notBusiness > 0 ? (
         <Panel

@@ -79,14 +79,14 @@ export async function loadFrontDoor(input: {
   /** True only for the executive Home: the organization-wide reads are made for no other seat. */
   readonly executive: boolean;
 }): Promise<FrontDoorReads> {
-  const { session, principal, groups, time, needsYou } = input;
+  const { session, principal, groups, time } = input;
   const organizationId = principal.organizationId;
 
   const [context, chats, intake, creators] = await Promise.all([
     input.executive && navOffers(groups, TILE_PATHS.marketplace)
       ? settle(() => loadCommandContextFor(organizationId, undefined, { session, canAct: async () => false }))
       : Promise.resolve(null),
-    navOffers(groups, TILE_PATHS.chats) ? settle(() => loadChatsInput({ session, principal, now: time.now, needsYou })) : Promise.resolve(null),
+    navOffers(groups, TILE_PATHS.chats) ? settle(() => loadChatsInput({ session, principal, now: time.now })) : Promise.resolve(null),
     navOffers(groups, TILE_PATHS.intake) ? settle(() => crmRepos.crm.statusCounts(organizationId)) : Promise.resolve(null),
     input.executive && navOffers(groups, TILE_PATHS.creators)
       ? settle(() => absentUntilMigrated(creatorDomain().records.roster(organizationId)))

@@ -181,7 +181,7 @@ export function validateDomainReadingOutput(
   if (output.schemaId !== task.outputSchemaId || output.schemaId !== DOMAIN_READING_SCHEMA_ID) out.push('WRONG_SCHEMA');
   const dr = output.domainReading;
   if (!dr) return [...new Set([...out, 'EMPTY_ANSWER' as const])];
-  if (output.conversationTriage !== undefined || output.draft !== undefined || output.claims.length > 0) out.push('WRONG_SCHEMA');
+  if (output.draft !== undefined || output.claims.length > 0) out.push('WRONG_SCHEMA');
 
   out.push(...intelligenceReadingRefusals(dr.reading).map(mapRefusal));
   // A model is never a RULE producer: MEASURED is refused (MEASURED_BY_MODEL -> WRONG_SCHEMA).

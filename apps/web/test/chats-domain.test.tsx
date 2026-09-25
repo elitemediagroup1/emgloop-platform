@@ -352,7 +352,12 @@ describe('Home’s Chats tile and /app/chats are one composition at two depths',
       }
       assert.ok(page.includes(intel.statement), `${state}: the page leads with the statement`);
       if (state === 'CURRENT' || state === 'STALE') {
-        assert.deepEqual([tile!.lines, tile!.metric], [[intel.statement], intel.metric], state);
+        // Chats v5: the tile's second line is the page's own first group, its most pressing entry.
+        const lead = intel.groups[0];
+        const top = lead?.entries[0];
+        const second = top ? [`${lead!.title}: ${top.conversation ? `${top.conversation} — ` : ''}${top.statement}`] : [];
+        assert.deepEqual([tile!.lines, tile!.metric], [[intel.statement, ...second], intel.metric], state);
+        if (top) assert.ok(page.includes(top.statement), `${state}: the tile's line is on the page`);
         assert.equal(tile!.status, `${intel.status} · ${intel.coverage.words}`);
       } else if (state !== 'NOT_CONNECTED') {
         assert.equal(tile!.stateLine, intel.statement, state);
@@ -391,7 +396,8 @@ describe('Home’s Chats tile and /app/chats are one composition at two depths',
     for (const src of [TILES, NARRATIVE]) {
       assert.equal(/composeChatsIntelligence\(|digestFreshness|\.content\b|synthesis|IntelligenceDigest/.test(src), false, 'the tile and the briefing read the composition, never digests');
     }
-    assert.match(TILES, /lines: \[c\.statement\]/);
+    assert.match(TILES, /lines: line \? \[c\.statement, line\] : \[c\.statement\]/);
+    assert.match(TILES, /const lead = c\.groups\[0\];/, 'the second line is the composition\'s own first group');
     assert.equal(/c\.conversations/.test(NARRATIVE), false, 'the briefing counts obligations, never conversation intelligence');
     assert.match(NARRATIVE, /c\.obligations\.length/);
   });
@@ -415,11 +421,11 @@ describe('the Chats page and its loader', () => {
     assert.match(read('../src/app/app/connections/page.tsx'), /requirePermission\('googleWorkspace', 'view'\)/);
   });
 
-  it('loads Needs You once, with the session principal, and hands it to the loader; the loader never loads it', () => {
-    assert.equal(PAGE.match(/loadNeedsYou\(/g)?.length, 1);
-    assert.match(PAGE, /loadNeedsYou\(principal, /);
-    assert.match(PAGE, /loadChatsInput\(\{ session, principal, now, needsYou \}\)/);
-    assert.equal(/loadNeedsYou\(/.test(LOADER), false);
+  it('Chats v5: the LOADER reads the conversation items once, both lanes, for the session principal -- so Home and the page compose the same items', () => {
+    assert.equal(/loadNeedsYou\(/.test(PAGE), false, 'the page no longer hands a Needs You list in');
+    assert.equal(LOADER.match(/loadNeedsYou\(/g)?.length, 1);
+    assert.match(LOADER, /loadNeedsYou\(principal, CHATS_ITEM_LIMIT, prisma, \['NEEDS_YOU', 'WAITING_ON_THEM'\]\)/);
+    assert.match(PAGE, /loadChatsInput\(\{ session, principal, now \}\)/);
     assert.match(PAGE, /export const dynamic = 'force-dynamic'/);
   });
 
@@ -434,7 +440,7 @@ describe('the Chats page and its loader', () => {
       for (const call of src.matchAll(/\.(forDomain|current)\(([^)]*)\)/g)) assert.match(call[2]!, /^principal,/, 'every digest read names the session principal first');
     }
     // Home reads Chats through the same loader, gated by the rail and settled on its own.
-    assert.match(FRONT, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now, needsYou \}\)\)/);
+    assert.match(FRONT, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now \}\)\)/);
     assert.equal(FRONT.includes('IntelligenceDigestRepository'), false);
   });
 

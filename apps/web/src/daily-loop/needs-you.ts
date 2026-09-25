@@ -45,6 +45,19 @@ export interface NeedsYouItem {
    * conversation on the Chats page.
    */
   readonly conversationKey?: string | null;
+  /**
+   * Chats v5. Which lane the triage raised it in: NEEDS_YOU (the person owes it) or WAITING_ON_THEM
+   * (someone else in the conversation does). Home's "Needs you" reads NEEDS_YOU only.
+   */
+  readonly lane?: 'NEEDS_YOU' | 'WAITING_ON_THEM';
+  /** Chats v5: who appears to owe it (VIEWER, OTHER, UNKNOWN); null on an item raised before v5. */
+  readonly owedBy?: 'VIEWER' | 'OTHER' | 'UNKNOWN' | null;
+  /** Chats v5: for OTHER, the label the conversation showed for them -- never an identity. */
+  readonly who?: string | null;
+  /** Chats v5, Loop's own arithmetic: whether the person wrote after the message that raised it. */
+  readonly repliedAfter?: boolean | null;
+  /** PRIVATE or GROUP, as the source recorded it; null when unknown. */
+  readonly conversationKind?: 'PRIVATE' | 'GROUP' | null;
 }
 
 function evidenceProvider(evidence: unknown): ConnectionProvider | null {
@@ -69,6 +82,21 @@ function evidenceText(evidence: unknown, key: string, maxChars: number): string 
   return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
 }
 
+function evidenceOwedBy(evidence: unknown): 'VIEWER' | 'OTHER' | 'UNKNOWN' | null {
+  const v = evidence && typeof evidence === 'object' ? (evidence as Record<string, unknown>).owedBy : null;
+  return v === 'VIEWER' || v === 'OTHER' || v === 'UNKNOWN' ? v : null;
+}
+
+function evidenceBoolean(evidence: unknown, key: string): boolean | null {
+  const v = evidence && typeof evidence === 'object' ? (evidence as Record<string, unknown>)[key] : null;
+  return typeof v === 'boolean' ? v : null;
+}
+
+function evidenceKind(evidence: unknown): 'PRIVATE' | 'GROUP' | null {
+  const v = evidence && typeof evidence === 'object' ? (evidence as Record<string, unknown>).conversationKind : null;
+  return v === 'PRIVATE' || v === 'GROUP' ? v : null;
+}
+
 /** The database the loader reads through. Injected only by tests; production is the shared client. */
 type NeedsYouDb = ConstructorParameters<typeof WorkItemRepository>[0];
 
@@ -81,12 +109,19 @@ type NeedsYouDb = ConstructorParameters<typeof WorkItemRepository>[0];
  * (organizationId, userId), and gets the OWNER's own items -- never another employee's. The
  * repository scopes at the data layer; nothing here can name a wider scope.
  */
-export async function loadNeedsYou(principal: WorkPrincipal, limit = 6, db: NeedsYouDb = prisma): Promise<NeedsYouItem[]> {
+export async function loadNeedsYou(
+  principal: WorkPrincipal,
+  limit = 6,
+  db: NeedsYouDb = prisma,
+  // Chats v5: the Chats page also reads WAITING_ON_THEM (what others owe the person). Home's "Needs you"
+  // keeps the default -- the person's own obligations only.
+  lanes: readonly ('NEEDS_YOU' | 'WAITING_ON_THEM')[] = ['NEEDS_YOU'],
+): Promise<NeedsYouItem[]> {
   try {
     const items = await new WorkItemRepository(db).items(principal, { state: 'OPEN', limit: 200 });
     const out: NeedsYouItem[] = [];
     for (const item of items) {
-      if (item.class !== 'NEEDS_YOU' || item.producerKind !== 'MODEL') continue;
+      if (!(lanes as readonly string[]).includes(item.class) || item.producerKind !== 'MODEL') continue;
       const provider = evidenceProvider(item.evidence);
       if (!provider) continue;
       const title = item.title?.trim();
@@ -104,6 +139,11 @@ export async function loadNeedsYou(principal: WorkPrincipal, limit = 6, db: Need
         at: item.lastDetectedAt,
         detectionCount: item.detectionCount,
         conversationKey: evidenceText(item.evidence, 'conversationKey', 256),
+        lane: item.class === 'WAITING_ON_THEM' ? 'WAITING_ON_THEM' : 'NEEDS_YOU',
+        owedBy: evidenceOwedBy(item.evidence),
+        who: evidenceText(item.evidence, 'who', AI_TRIAGE_LIMITS.maxCounterpartyLabelChars),
+        repliedAfter: evidenceBoolean(item.evidence, 'repliedAfter'),
+        conversationKind: evidenceKind(item.evidence),
       });
     }
     out.sort((a, b) => b.at.getTime() - a.at.getTime());

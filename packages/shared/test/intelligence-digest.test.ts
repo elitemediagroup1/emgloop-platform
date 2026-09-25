@@ -262,11 +262,11 @@ test('additive fields: `operational` is a bounded list and `attention` a bounded
   assert.ok(digestContentRefusals({ quote: 'x' }).includes('FORBIDDEN_KEY'));
 });
 
-test('every content field but `limitations` states what it KNOWS: only developments and commitments are OBSERVED', () => {
+test('every content field but `limitations` states what it KNOWS: only developments, commitments and the source label are OBSERVED', () => {
   // `reading` and `signals` (PR 2) carry their knowledge per signal, in the participation contract.
   const fields = DIGEST_CONTENT_KEYS.filter((k) => k !== 'limitations' && k !== 'reading' && k !== 'signals').sort();
   assert.deepEqual(Object.keys(DIGEST_FIELD_KNOWLEDGE).sort(), fields, 'one basis per field, no more, no fewer');
   const observed = Object.entries(DIGEST_FIELD_KNOWLEDGE).filter(([, k]) => k === 'OBSERVED').map(([f]) => f).sort();
-  assert.deepEqual(observed, ['commitments', 'developments']);
+  assert.deepEqual(observed, ['commitments', 'developments', 'label']);
   assert.ok(Object.isFrozen(DIGEST_FIELD_KNOWLEDGE));
 });

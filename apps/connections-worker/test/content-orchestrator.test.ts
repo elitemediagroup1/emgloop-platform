@@ -130,21 +130,25 @@ const PROVENANCE = {
   recordedAt: '2026-09-21T10:00:00Z',
 };
 
-/** A v4 conversation reading, anchors already keyed (as the service returns it). No body, no quote. */
+/** A v5 conversation reading, anchors already keyed (as the service returns it). No body, no quote. */
+function sig(kind: TelegramConversationReading['signals'][number]['kind'], statement: string, over: Partial<TelegramConversationReading['signals'][number]> = {}): TelegramConversationReading['signals'][number] {
+  return { kind, anchorProviderEventId: `${CONV_KEY}:10`, statement, severity: 'MEDIUM', owedBy: kind === 'OBLIGATION' ? 'VIEWER' : null, who: null, ...over };
+}
 function reading(over: Partial<TelegramConversationReading> = {}): TelegramConversationReading {
   return {
     relevance: 'BUSINESS',
     summary: 'A client is waiting on a revised quote for the install.',
     topics: ['Install quote'],
-    developments: [{ anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The client asked for a revised quote' }],
-    decisions: [{ anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The install moves to the second week' }],
-    commitments: [{ anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The person promised numbers soon' }],
+    stateChange: null,
     signals: [
-      { kind: 'OPPORTUNITY', anchorProviderEventId: `${CONV_KEY}:10`, statement: 'A signed quote would book the job' },
-      { kind: 'RISK', anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The client may go elsewhere if it slips' },
-      { kind: 'OPERATIONAL', anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The crew schedule depends on the date' },
+      sig('CHANGE', 'The client asked for a revised quote'),
+      sig('DECIDED', 'The install moves to the second week'),
+      sig('OBLIGATION', 'The person promised numbers soon'),
+      sig('OPPORTUNITY', 'A signed quote would book the job'),
+      sig('RISK', 'The client may go elsewhere if it slips'),
+      sig('OPERATIONAL', 'The crew schedule depends on the date'),
+      sig('UNRESOLVED', 'The revised quote has not been sent'),
     ],
-    unresolved: 'The revised quote has not been sent',
     attention: { needed: true, reason: 'The client is waiting on the quote' },
     confidence: 'MEDIUM',
     ...over,
@@ -164,7 +168,7 @@ const obligation = (
   anchorId: string,
   oneLineMeaning: string,
   category: TelegramTriageObligation['category'] = 'REQUEST',
-  over: Partial<Pick<TelegramTriageObligation, 'topic' | 'nextStep' | 'deadline'>> = {},
+  over: Partial<Pick<TelegramTriageObligation, 'topic' | 'nextStep' | 'deadline' | 'owedBy' | 'who'>> = {},
 ): TelegramTriageObligation => ({
   anchorProviderEventId: `${CONV_KEY}:${anchorId}`,
   category,
@@ -172,6 +176,8 @@ const obligation = (
   topic: '',
   nextStep: 'Reply in Telegram',
   deadline: null,
+  owedBy: 'VIEWER',
+  who: null,
   ...over,
 });
 
@@ -573,16 +579,19 @@ test('the digest is the authorization principal\'s, keyed to the conversation, C
     aiInvocationId: 'inv-777',
     taskId: 'telegram.content.triage',
     taskVersion: '2.1.0',
-    schemaId: 'telegram-content-triage.v4',
+    schemaId: 'telegram-content-triage.v5',
     producerVersion: 'telegram.content.triage@2.1.0',
+    producerKind: 'MODEL',
+    sources: [{ sourceId: 'TELEGRAM', asOf: digest.windowEnd.toISOString(), coverage: digest.coverage }],
   });
-  assert.deepEqual(digestContentRefusals(digest.content), [], 'the content passes the digest contract');
+  assert.deepEqual(digestContentRefusals(digest.content, { scope: 'PRINCIPAL', producerKind: 'MODEL' }), [], 'the content passes the digest contract');
 });
 
-test('MAPPING: v4 reading -> DigestContent (signals split by kind, decisions as developments, attention only when needed, limitations kept)', () => {
+test('MAPPING: v5 reading -> DigestContent (typed signals are the record; the PR A lists derive from them; attention only when needed)', () => {
   const w = windowOf(['10']);
   const d = buildConversationDigest(w, triaged([], `${CONV_KEY}:10`, reading(), ['Older context not shown']) as any, false, new Date('2026-09-21T10:00:00Z'))!;
-  assert.deepEqual({ ...d.content }, {
+  const { reading: typed, signals, ...legacy } = d.content;
+  assert.deepEqual(legacy, {
     relevance: 'BUSINESS',
     synthesis: 'A client is waiting on a revised quote for the install.',
     topics: ['Install quote'],
@@ -596,7 +605,21 @@ test('MAPPING: v4 reading -> DigestContent (signals split by kind, decisions as 
     confidence: 'MEDIUM',
     limitations: ['Older context not shown'],
   });
-  const quiet = buildConversationDigest(w, triaged([], '', reading({ attention: { needed: false, reason: null }, unresolved: null, signals: [] })) as any, false, new Date())!;
+  assert.deepEqual(typed, { statement: 'A client is waiting on a revised quote for the install.', status: 'ATTENTION', confidence: 'MEDIUM' });
+  assert.deepEqual(signals!.map((s) => [s.kind, s.knowledge]), [
+    ['CHANGE', 'OBSERVED'],
+    ['CHANGE', 'OBSERVED'],
+    ['OBLIGATION', 'OBSERVED'],
+    ['OPPORTUNITY', 'INFERRED'],
+    ['RISK', 'INFERRED'],
+    ['OPERATIONAL', 'INFERRED'],
+    ['UNRESOLVED', 'INFERRED'],
+  ]);
+  assert.equal(signals![1]!.statement, 'Decided: The install moves to the second week');
+  assert.equal(signals![2]!.owedBy, 'VIEWER');
+  assert.ok(signals!.every((s) => s.evidenceRefs.length === 1 && s.evidenceRefs[0] === `telegram_message:${CONV_KEY}:10`), 'every signal cites its keyed anchor, never content');
+  assert.equal(new Set(signals!.map((s) => s.key)).size, signals!.length, 'stable, unique keys');
+  const quiet = buildConversationDigest(w, triaged([], '', reading({ attention: { needed: false, reason: null }, signals: [] })) as any, false, new Date())!;
   assert.equal('attention' in quiet.content, false, 'no attention field when the reading found no reason');
   assert.deepEqual(quiet.content.unresolved, [], 'nothing open is an honest empty list');
   // Blank limitations never reach the digest (they would be refused as EMPTY_STRING).
@@ -620,10 +643,10 @@ test('COVERAGE: truncated -> PARTIAL; a null reading or an empty UNCLEAR/LOW one
   assert.equal(conversationDigestCoverage(reading(), true), 'CONNECTED_PARTIAL');
   assert.equal(conversationDigestCoverage(null, false), 'CONNECTED_INSUFFICIENT');
   assert.equal(conversationDigestCoverage(null, true), 'CONNECTED_INSUFFICIENT', 'could-not-tell outranks truncation');
-  const empty = reading({ relevance: 'UNCLEAR', confidence: 'LOW', developments: [], decisions: [], commitments: [], signals: [], unresolved: null });
+  const empty = reading({ relevance: 'UNCLEAR', confidence: 'LOW', signals: [] });
   assert.equal(conversationDigestCoverage(empty, false), 'CONNECTED_INSUFFICIENT');
   assert.equal(conversationDigestCoverage({ ...empty, confidence: 'MEDIUM' }, false), 'CONNECTED_SUFFICIENT', 'a confident UNCLEAR is a reading');
-  assert.equal(conversationDigestCoverage(reading({ relevance: 'NOT_BUSINESS', developments: [], decisions: [], commitments: [], signals: [], unresolved: null, confidence: 'HIGH' }), false), 'CONNECTED_SUFFICIENT', 'small talk, read fully, is sufficient');
+  assert.equal(conversationDigestCoverage(reading({ relevance: 'NOT_BUSINESS', signals: [], confidence: 'HIGH' }), false), 'CONNECTED_SUFFICIENT', 'small talk, read fully, is sufficient');
 });
 
 test('a null reading is stored honestly: INSUFFICIENT, the model\'s limitations, nothing invented', async () => {

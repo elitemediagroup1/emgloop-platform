@@ -159,11 +159,8 @@ function triaged(items: readonly TelegramTriageObligation[], evaluatedFloor: str
     relevance: 'BUSINESS' as const,
     summary: 'A client is chasing an answer.',
     topics: ['Answer'],
-    developments: [{ anchorProviderEventId: evaluatedFloor || `${key}:10`, statement: 'The client asked for an answer' }],
-    decisions: [],
-    commitments: [],
-    signals: [],
-    unresolved: null,
+    stateChange: null,
+    signals: [{ kind: 'CHANGE' as const, anchorProviderEventId: evaluatedFloor || `${key}:10`, statement: 'The client asked for an answer', severity: 'MEDIUM' as const, owedBy: null, who: null }],
     attention: { needed: false, reason: null },
     confidence: 'MEDIUM' as const,
   };
@@ -206,7 +203,7 @@ function ports(opts: {
       openCredential: async () => 'session',
       conversationSecret: SECRET,
       triage: async (_principal, input) =>
-        (rec.triaged.push(input.conversationKey), opts.triage ?? ((i) => triaged([{ anchorProviderEventId: `${input.conversationKey}:10`, category: 'REQUEST', oneLineMeaning: 'do the thing', topic: '', nextStep: 'Do it', deadline: null }], i.evaluatedFloorProviderEventId)))(input),
+        (rec.triaged.push(input.conversationKey), opts.triage ?? ((i) => triaged([{ anchorProviderEventId: `${input.conversationKey}:10`, category: 'REQUEST', oneLineMeaning: 'do the thing', topic: '', nextStep: 'Do it', deadline: null, owedBy: 'VIEWER', who: null }], i.evaluatedFloorProviderEventId)))(input),
       raiseWorkItem: async (_principal: WorkPrincipal, detection) => {
         rec.raised.push(detection);
       },
@@ -306,7 +303,7 @@ test('historical: each TRIAGED conversation also yields its digest from the SAME
   assert.equal(digest.subjectRef, `telegram_conversation:${CONV_KEY}`);
   assert.equal(digest.consentBasis, 'CONTENT_AUTHORIZATION');
   assert.equal(digest.evidenceCount, 2);
-  assert.equal(digest.provenance.schemaId, 'telegram-content-triage.v4');
+  assert.equal(digest.provenance.schemaId, 'telegram-content-triage.v5');
   assert.equal(summary.digestsWritten, 1);
   assert.equal(rec.progress[0]!.state, 'COMPLETE');
 });
