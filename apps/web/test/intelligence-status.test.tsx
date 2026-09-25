@@ -231,7 +231,7 @@ describe('digests: the viewer’s own metadata, organization counts, never conte
     assert.equal(status.yourDigests.state, 'READ');
     if (status.yourDigests.state !== 'READ' || status.organizationDigests.state !== 'READ') return;
     assert.deepEqual(Object.keys(status.yourDigests.value[0]!).sort(), ['coverage', 'domain', 'evidenceCount', 'expiresAt', 'generatedAt', 'status', 'subjectKind', 'version', 'windowEnd']);
-    assert.deepEqual(Object.keys(status.organizationDigests.value[0]!).sort(), ['count', 'coverage', 'domain', 'status']);
+    assert.deepEqual(Object.keys(status.organizationDigests.value[0]!).sort(), ['count', 'coverage', 'domain', 'scope', 'status']);
     const html = renderToStaticMarkup(<IntelligenceStatusView status={status} time={time} />);
     for (const secret of ['SECRET-CONTENT', 'SECRET-KEY', 'SECRET-REF', 'TELEGRAM', 'u_other']) assert.equal(html.includes(secret), false, secret);
     assert.match(html, /data-status-digest="CHATS"/);
@@ -330,5 +330,84 @@ describe('AI capacity (PR 1)', () => {
     const body = data.slice(data.indexOf('async function readCapacity'), data.indexOf('function defaultDeps'));
     assert.ok(body.length > 100);
     assert.doesNotMatch(body, /principalUserId|userId/);
+  });
+});
+
+describe('the intelligence fabric section (Loop Intelligence PR 2)', () => {
+  const counts = [
+    { scope: 'PRINCIPAL', domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 7 },
+    { scope: 'PRINCIPAL', domain: 'CHATS', status: 'STALE', coverage: 'CONNECTED_PARTIAL', count: 2 },
+    { scope: 'ORGANIZATION', domain: 'CALLGRID', status: 'CURRENT', coverage: 'ERROR', count: 1 },
+  ];
+  const fabricDeps = (queue: Awaited<ReturnType<NonNullable<StatusDeps['fabric']>>>['queue']) => ({
+    ...deps({ digests: { organizationCounts: async () => counts } }).deps,
+    fabric: async () => ({ producers: [], queue }),
+  });
+
+  it('lists every registered domain with its scope, surface, reading task, producers, digest and queue counts', async () => {
+    const status = await loadIntelligenceStatus(SESSION, NOW, fabricDeps({
+      state: 'READ',
+      counts: [
+        { scope: 'ORGANIZATION', domain: 'CALLGRID', state: 'PENDING', count: 3, oldestRequestedAt: hoursAgo(5) },
+        { scope: 'PRINCIPAL', domain: 'CHATS', state: 'HELD', count: 1, oldestRequestedAt: hoursAgo(50) },
+      ],
+    }));
+    assert.equal(status.fabric.state, 'READ');
+    if (status.fabric.state !== 'READ') return;
+    const f = status.fabric.value;
+    assert.deepEqual(f.domains.map((d) => d.domain).sort(), ['CALENDAR', 'CALLGRID', 'CAMPAIGNS', 'CHATS', 'CREATORS', 'CRM', 'MAIL', 'PIPELINE', 'WEBSITE', 'WORK']);
+    const chats = f.domains.find((d) => d.domain === 'CHATS')!;
+    assert.deepEqual(chats.digests, { principal: 9, organization: 0, stale: 2, error: 0 });
+    assert.deepEqual(chats.queue, { pending: 0, claimed: 0, held: 1, oldestPendingAt: null });
+    assert.equal(chats.readingTask, 'telegram.content.triage');
+    const callgrid = f.domains.find((d) => d.domain === 'CALLGRID')!;
+    assert.deepEqual(callgrid.digests, { principal: 0, organization: 1, stale: 0, error: 1 });
+    assert.equal(callgrid.queue?.pending, 3);
+    assert.deepEqual(f.totals, { queued: 3, held: 1, stale: 2, error: 1, producers: 0 });
+    const html = renderToStaticMarkup(<IntelligenceStatusView status={status} time={time} />);
+    assert.match(html, /Intelligence fabric/);
+    assert.match(html, /No domain producer is built into this release yet/);
+    assert.match(html, /3 refreshes queued · 1 held/);
+    assert.match(html, /data-fabric-domain="WEBSITE"/);
+  });
+
+  it('shows no subject, no user and no content: the queue read is counts and the allowlist strips anything else', async () => {
+    const status = await loadIntelligenceStatus(SESSION, NOW, fabricDeps({
+      state: 'READ',
+      counts: [{ scope: 'PRINCIPAL', domain: 'MAIL', state: 'PENDING', count: 1, oldestRequestedAt: hoursAgo(1), subjectRef: 'mail_thread:SECRET', userId: 'u_other' } as never],
+    }));
+    const html = renderToStaticMarkup(<IntelligenceStatusView status={status} time={time} />);
+    assert.equal(html.includes('SECRET'), false);
+    assert.equal(html.includes('u_other'), false);
+    const data = code(read('app/app/admin/intelligence-status/status-data.ts'));
+    const body = data.slice(data.indexOf('async function readFabric'), data.indexOf('function defaultDeps'));
+    assert.match(body, /organizationCounts\(organizationId\)/);
+    assert.doesNotMatch(body, /claim|enqueue|findMany|findFirst|subjectRef|userId|forDomain|organizationCurrent|organizationForDomain/);
+  });
+
+  it('before the queue migration it says so; a failed read is "could not read"; the page never enqueues', async () => {
+    const pre = await loadIntelligenceStatus(SESSION, NOW, fabricDeps({ state: 'NOT_MIGRATED' }));
+    assert.equal(pre.fabric.state === 'READ' && pre.fabric.value.queueMigrated, false);
+    assert.match(renderToStaticMarkup(<IntelligenceStatusView status={pre} time={time} />), /The refresh queue has not been migrated into this database yet/);
+    const failed = await loadIntelligenceStatus(SESSION, NOW, { ...deps().deps, fabric: async () => { throw new Error('db'); } });
+    assert.equal(failed.fabric.state, 'UNAVAILABLE');
+    assert.equal((await loadIntelligenceStatus(SESSION, NOW, deps().deps)).fabric.state, 'NOT_EXPOSED');
+  });
+});
+
+describe('page render never enqueues or runs intelligence (Loop Intelligence PR 2)', () => {
+  it('nothing in the web app enqueues a refresh, claims one, or runs the producer loop', () => {
+    const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs');
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((f) => {
+        const p = join(dir, f);
+        return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(f) ? [p] : [];
+      });
+    for (const file of walk(SRC)) {
+      const src = code(readFileSync(file, 'utf8'));
+      for (const forbidden of ['.enqueue(', 'runIntelligenceProducerCycle', '.claim(', 'upsertOrganization(', 'DomainReadingService']) {
+        assert.equal(src.includes(forbidden), false, `${file} must not call ${forbidden}`);
+      }
+    }
   });
 });

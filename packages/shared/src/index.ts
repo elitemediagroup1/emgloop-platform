@@ -199,6 +199,12 @@ export * from './coverage-health';
 // carries, and the contract of `intelligence_digests` (principal-private, minimized, bounded).
 export * from './intelligence-coverage';
 export * from './intelligence-digest';
+// Loop Intelligence PR 2 (the fabric): canonical entity references, the participation contract every
+// domain reading follows, and the domain + source registries.
+export * from './entity-ref';
+export * from './intelligence-contract';
+export * from './intelligence-registry';
+export * from './intelligence-projection';
 // Representative product states for building and reviewing surfaces. Typed as the
 // real contracts, so a contract change breaks the fixtures rather than the design.
 export * from './product-states.fixture';

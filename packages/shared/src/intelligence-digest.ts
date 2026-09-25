@@ -15,24 +15,42 @@
 // projection of evidence that stays where it is (Rule 2), and its provenance names that evidence
 // (Rule 3), so overwriting it loses nothing that cannot be rebuilt.
 //
-// PRINCIPAL-PRIVATE. Every digest in PR A is scope PRINCIPAL: one person's, readable by that
-// person only -- not by their OWNER, not by an ADMIN, not by a Super Admin reading "their org".
-// ORGANIZATION scope is reserved in the schema and refused by the repository until a separate,
-// approved decision says what organization-level intelligence may be derived from.
+// TWO SCOPES, NEVER MIXED (PR 2, the fabric, 2026-09-26).
+//   PRINCIPAL      one person's, readable by that person only -- not by their OWNER, not by an ADMIN,
+//                  not by a Super Admin reading "their org". Mail, Chats and Calendar are PRINCIPAL
+//                  forever; Work may be PRINCIPAL (a person's own assigned work).
+//   ORGANIZATION   the organization's, derived ONLY from governed Loop records (basis LOOP_RECORDS):
+//                  CallGrid, Campaigns, Intake, People, Creators, Work, Website. userId is null. The
+//                  database refuses an ORGANIZATION row in a private domain, with a provider, or on any
+//                  basis but LOOP_RECORDS, so private communication can never become org intelligence.
+// There is no read that returns both: a principal read never returns an ORGANIZATION row, and the
+// organization read never returns a PRINCIPAL row.
+//
+// THE PARTICIPATION CONTRACT (`intelligence-contract.ts`) adds the typed `reading` and `signals` every
+// domain shares; the registries (`intelligence-registry.ts`) say which domains and sources exist.
 //
 // PURE. No clock, no I/O; instants are passed in.
 
 import { isIntelligenceCoverage, type IntelligenceCoverage } from './intelligence-coverage';
+import {
+  intelligenceReadingRefusals,
+  intelligenceSignalsRefusals,
+  type IntelligenceReading,
+  type IntelligenceSignal,
+  type IntelligenceWriteContext,
+} from './intelligence-contract';
 
 export const INTELLIGENCE_DIGEST_SCOPES = ['PRINCIPAL', 'ORGANIZATION'] as const;
 export type IntelligenceDigestScope = (typeof INTELLIGENCE_DIGEST_SCOPES)[number];
-/** The only scope anything may write today. ORGANIZATION is reserved, not built. */
-export const INTELLIGENCE_DIGEST_WRITABLE_SCOPES = ['PRINCIPAL'] as const;
+/** Both scopes are writable since PR 2 (ORGANIZATION only over governed Loop records). */
+export const INTELLIGENCE_DIGEST_WRITABLE_SCOPES = ['PRINCIPAL', 'ORGANIZATION'] as const;
 
-export const INTELLIGENCE_DOMAINS = ['CHATS', 'MAIL', 'CALENDAR', 'CALLGRID', 'CREATORS', 'WORK', 'CRM', 'CAMPAIGNS'] as const;
+// PIPELINE and WEBSITE added in PR 2 (the fabric). Every domain has an entry in INTELLIGENCE_DOMAIN_REGISTRY.
+export const INTELLIGENCE_DOMAINS = ['CHATS', 'MAIL', 'CALENDAR', 'CALLGRID', 'CREATORS', 'WORK', 'CRM', 'CAMPAIGNS', 'PIPELINE', 'WEBSITE'] as const;
 export type IntelligenceDomain = (typeof INTELLIGENCE_DOMAINS)[number];
 
-export const INTELLIGENCE_SUBJECT_KINDS = ['CONVERSATION', 'THREAD', 'DOMAIN'] as const;
+// ENTITY (one canonical entity: a campaign, a creator, a buyer) and EVENT (one meeting) added in PR 2.
+export const INTELLIGENCE_SUBJECT_KINDS = ['CONVERSATION', 'THREAD', 'DOMAIN', 'ENTITY', 'EVENT'] as const;
 export type IntelligenceSubjectKind = (typeof INTELLIGENCE_SUBJECT_KINDS)[number];
 
 /** The one subjectRef a DOMAIN rollup carries: there is exactly one per (person, domain). */
@@ -86,11 +104,16 @@ export interface DigestContent {
   readonly confidence?: DigestConfidence;
   /** What the digest could not see or could not conclude. Never omitted to look complete. */
   readonly limitations?: readonly string[];
+  /** The typed one-sentence reading of the subject (participation contract, PR 2). */
+  readonly reading?: IntelligenceReading;
+  /** Typed, evidence-referenced signals (participation contract, PR 2). */
+  readonly signals?: readonly IntelligenceSignal[];
 }
 
 const LIST_KEYS = ['topics', 'developments', 'unresolved', 'commitments', 'opportunities', 'concerns', 'operational', 'limitations'] as const;
 const STRING_KEYS = ['stateChange', 'synthesis', 'attention'] as const;
-export const DIGEST_CONTENT_KEYS: readonly string[] = Object.freeze(['relevance', 'confidence', ...LIST_KEYS, ...STRING_KEYS]);
+const CONTRACT_KEYS = ['reading', 'signals'] as const;
+export const DIGEST_CONTENT_KEYS: readonly string[] = Object.freeze(['relevance', 'confidence', ...LIST_KEYS, ...STRING_KEYS, ...CONTRACT_KEYS]);
 
 /**
  * What each content field KNOWS: OBSERVED fields state what the evidence itself says (each statement a
@@ -100,7 +123,7 @@ export const DIGEST_CONTENT_KEYS: readonly string[] = Object.freeze(['relevance'
  */
 export const DIGEST_KNOWLEDGE = ['OBSERVED', 'INFERRED'] as const;
 export type DigestKnowledge = (typeof DIGEST_KNOWLEDGE)[number];
-export const DIGEST_FIELD_KNOWLEDGE: Readonly<Record<Exclude<keyof DigestContent, 'limitations'>, DigestKnowledge>> = Object.freeze({
+export const DIGEST_FIELD_KNOWLEDGE: Readonly<Record<Exclude<keyof DigestContent, 'limitations' | 'reading' | 'signals'>, DigestKnowledge>> = Object.freeze({
   developments: 'OBSERVED',
   commitments: 'OBSERVED',
   relevance: 'INFERRED',
@@ -131,6 +154,9 @@ export const DIGEST_CONTENT_REFUSALS = [
   'LIST_TOO_LONG',
   'UNKNOWN_RELEVANCE',
   'UNKNOWN_CONFIDENCE',
+  'CONTENT_TOO_LARGE',
+  'INVALID_READING',
+  'INVALID_SIGNALS',
 ] as const;
 export type DigestContentRefusal = (typeof DIGEST_CONTENT_REFUSALS)[number];
 
@@ -149,9 +175,19 @@ function boundedString(value: unknown, out: DigestContentRefusal[]): void {
  * SHAPE, and it is total: an unknown key is refused rather than ignored, so a producer cannot add
  * a field that quietly carries more than this contract allows.
  */
-export function digestContentRefusals(content: unknown): DigestContentRefusal[] {
+/**
+ * The most a stored digest's content may serialize to. The database CHECK holds the same bound (raised
+ * from 16384 to 32768 bytes by 20261006000000_intelligence_fabric, for typed signals).
+ */
+export const DIGEST_CONTENT_MAX_BYTES = 32768;
+
+export function digestContentRefusals(
+  content: unknown,
+  context: IntelligenceWriteContext = { scope: 'PRINCIPAL', producerKind: null },
+): DigestContentRefusal[] {
   if (!content || typeof content !== 'object' || Array.isArray(content)) return ['NOT_AN_OBJECT'];
   const out: DigestContentRefusal[] = [];
+  if (new TextEncoder().encode(JSON.stringify(content)).length > DIGEST_CONTENT_MAX_BYTES) out.push('CONTENT_TOO_LARGE');
   for (const [key, value] of Object.entries(content as Record<string, unknown>)) {
     if (DIGEST_FORBIDDEN_KEYS.includes(key.toLowerCase())) {
       out.push('FORBIDDEN_KEY');
@@ -162,7 +198,11 @@ export function digestContentRefusals(content: unknown): DigestContentRefusal[] 
       continue;
     }
     if (value === undefined) continue;
-    if (key === 'relevance') {
+    if (key === 'reading') {
+      if (intelligenceReadingRefusals(value).length > 0) out.push('INVALID_READING');
+    } else if (key === 'signals') {
+      if (intelligenceSignalsRefusals(value, context).length > 0) out.push('INVALID_SIGNALS');
+    } else if (key === 'relevance') {
       if (!(DIGEST_RELEVANCE as readonly unknown[]).includes(value)) out.push('UNKNOWN_RELEVANCE');
     } else if (key === 'confidence') {
       if (!(DIGEST_CONFIDENCE as readonly unknown[]).includes(value)) out.push('UNKNOWN_CONFIDENCE');

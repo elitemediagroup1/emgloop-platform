@@ -383,8 +383,8 @@ export type { AiProviderPolicySource } from './services/ai-runtime/provider-poli
 export { aiRuntimeControlsReader, cachedAiRuntimeControls } from './services/ai-runtime/controls-reader';
 export type { AiRuntimeControls, AiRuntimeControlSource } from './services/ai-runtime/controls-reader';
 export type { AiOperatingBudgetReading } from './services/ai-runtime/gateway';
-// Loop Intelligence PR A (2026-09-24): principal-private domain intelligence digests. Every
-// method takes a principal from the signed session; there is no organization-wide read.
+// Loop Intelligence PR A (2026-09-24): domain intelligence digests. Every principal method takes a
+// principal from the signed session; there is no read that returns every digest in an organization.
 export {
   IntelligenceDigestRepository,
   intelligenceDigestsPresent,
@@ -404,6 +404,43 @@ export type {
   IntelligenceDigestWriteRefusal,
   IntelligenceDigestWriteOutcome,
 } from './repositories/intelligence/intelligence-digest.repository';
+// Loop Intelligence PR 2 (the fabric, 2026-09-26): ORGANIZATION digests over governed Loop records
+// (upsertOrganization / organization* reads on the repository above), explicit entity links, the
+// durable refresh queue, the generic producer loop and the governed domain-reading path.
+export { DIGEST_BASE_SELECT } from './repositories/intelligence/intelligence-digest.repository';
+export {
+  digestEntityRefsPresent,
+  entityLinksPresent,
+  refreshQueuePresent,
+  intelligenceFabricPresent,
+  forgetIntelligenceFabricPresence,
+} from './repositories/intelligence/intelligence-fabric-presence';
+export type { IntelligenceFabricPresence } from './repositories/intelligence/intelligence-fabric-presence';
+export { EntityLinkRepository, ENTITY_LINK_RELATIONS, ENTITY_LINK_BASES, ENTITY_LINK_REFUSALS, entityLinkDeclarationRefusal } from './repositories/intelligence/entity-link.repository';
+export type { EntityLinkOwner, EntityLinkDeclaration, EntityLinkRecord, EntityLinkRefusal, EntityLinkOutcome, EntityLinkRelation, EntityLinkBasis } from './repositories/intelligence/entity-link.repository';
+export { IntelligenceRefreshQueueRepository, INTELLIGENCE_REFRESH_STATES, refreshTargetRefusal } from './repositories/intelligence/intelligence-refresh-queue.repository';
+export type {
+  IntelligenceRefreshTarget,
+  IntelligenceRefreshRequestInput,
+  IntelligenceRefreshClaim,
+  IntelligenceRefreshState,
+  IntelligenceEnqueueOutcome,
+  IntelligenceRefreshCount,
+} from './repositories/intelligence/intelligence-refresh-queue.repository';
+export { IntelligenceProducerRegistry, parseProducerActivation } from './services/intelligence-fabric/producer';
+export type { IntelligenceProducer, IntelligenceGatherResult, IntelligenceReadResult } from './services/intelligence-fabric/producer';
+export { runIntelligenceProducerCycle } from './services/intelligence-fabric/producer-loop';
+export { INTELLIGENCE_PRODUCER_CATALOG } from './services/intelligence-fabric/catalog';
+export type { IntelligenceProducerDescriptor } from './services/intelligence-fabric/catalog';
+export type { ProducerLoopDeps, ProducerLoopOptions, ProducerLoopReport } from './services/intelligence-fabric/producer-loop';
+export { DomainReadingService } from './services/ai-runtime/domain-reading.service';
+export type { DomainReadingRequest, DomainReadingResult } from './services/ai-runtime/domain-reading.service';
+export {
+  DOMAIN_READING_TEMPLATE_ID,
+  DOMAIN_READING_TEMPLATE_VERSION,
+  renderDomainReadingInstructions,
+} from './services/ai-runtime/templates/domain-reading';
+export type { DomainReadingFraming } from './services/ai-runtime/templates/domain-reading';
 export type {
   AiProviderPort,
   AiUsageLedger,

@@ -24,8 +24,20 @@
 //   - `purgeExpired`, a cross-tenant maintenance delete by time that returns a count and nothing
 //     else (like SourceObservationRepository.purgeOlderThan).
 //
-// ORGANIZATION SCOPE IS RESERVED. `upsert` refuses it before the database is asked, and a CHECK
-// refuses it if anything else tried.
+// ORGANIZATION SCOPE (PR 2, the fabric, 2026-09-26) IS A SEPARATE DOOR. `upsert` and every principal
+// read are PRINCIPAL-only, and filter on scope as well as the user, so they can never return an
+// organization row. `upsertOrganization` and the `organization*` reads handle ORGANIZATION rows only --
+// userId null, no provider, basis LOOP_RECORDS, never a private domain, never a principal-only entity
+// reference, every provenance source an organization source -- and they can never return a principal
+// row. There is still NO read that returns every digest in an organization: the organization reads are
+// per domain and return ORGANIZATION rows only, and the caller enforces the domain's read authority
+// (INTELLIGENCE_DOMAIN_REGISTRY readAuthority) from the signed session before calling. The database
+// enforces the same rules (intelligence_digests_scope_check).
+//
+// MERGE-SAFE. Every read and write names its columns (DIGEST_BASE_SELECT), and "entityRefs" is named only
+// once `digestEntityRefsPresent` says migration 20261006000000 has run: the web deploys before a human
+// applies the migration, and a select naming a missing column fails. Before it, principal writes work as
+// they did in PR A and organization writes are refused NOT_MIGRATED.
 //
 // CONSENT IS RE-CHECKED AT THE WRITE. A digest drawn from a provider that has a revocable
 // content-consent authority (TELEGRAM today: source_content_authorizations) is written only if
@@ -46,7 +58,15 @@
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
+  INTELLIGENCE_CONTRACT_VERSION,
   INTELLIGENCE_DIGEST_STATUSES,
+  INTELLIGENCE_PRODUCER_KINDS,
+  PRIVATE_INTELLIGENCE_DOMAINS,
+  ENTITY_REFS_MAX_PER_DIGEST,
+  entityRefListRefusals,
+  intelligenceDomainAllowsScope,
+  intelligenceSourceScopes,
+  intelligenceSourceUseRefusals,
   INTELLIGENCE_DOMAIN_SUBJECT_REF,
   INTELLIGENCE_DOMAINS,
   INTELLIGENCE_GENERATED_COVERAGE,
@@ -60,6 +80,8 @@ import {
   type IntelligenceDigestScope,
   type IntelligenceDigestStatus,
   type IntelligenceDomain,
+  type IntelligenceProducerKind,
+  type IntelligenceSourceUse,
   type IntelligenceSubjectKind,
 } from '@emgloop/shared';
 
@@ -67,6 +89,7 @@ import { absentUntilMigrated } from '../../creator/until-migrated';
 import { membershipAuthority } from '../membership.repository';
 import { contentAuthorizedInTx } from '../source-content-consent';
 import { workScope, type WorkPrincipal } from '../work-state/work-principal';
+import { digestEntityRefsPresent } from './intelligence-fabric-presence';
 
 /** One person, in one organization, from the signed session. The only way into this repository. */
 export type IntelligencePrincipal = WorkPrincipal;
@@ -107,6 +130,7 @@ export interface IntelligenceDigestMetadata {
 
 /** One cell of `organizationCounts`: a count, and the three vocabularies it is grouped by. Nothing else. */
 export interface IntelligenceDigestCount {
+  readonly scope: IntelligenceDigestScope;
   readonly domain: IntelligenceDomain;
   readonly status: IntelligenceDigestStatus;
   readonly coverage: IntelligenceCoverage;
@@ -137,10 +161,19 @@ export interface DigestProvenance {
   readonly taskVersion?: string | null;
   readonly schemaId?: string | null;
   readonly producerVersion: string;
+  /**
+   * Participation contract (PR 2): the governed sources read, each with its as-of and coverage. Required
+   * for an ORGANIZATION digest, and every source named must be one whose evidence may feed that scope.
+   */
+  readonly sources?: readonly IntelligenceSourceUse[];
+  /** RULE (deterministic over Loop records) or MODEL (a governed AI task). Only a RULE may state MEASURED. */
+  readonly producerKind?: IntelligenceProducerKind;
+  /** Stamped by the repository when absent: the participation contract version the digest was checked against. */
+  readonly contractVersion?: string;
 }
 
 export interface IntelligenceDigestInput {
-  /** Defaults to PRINCIPAL. ORGANIZATION is refused. */
+  /** Defaults to PRINCIPAL. `upsert` refuses ORGANIZATION: that is `upsertOrganization`. */
   readonly scope?: IntelligenceDigestScope;
   readonly domain: IntelligenceDomain;
   readonly subjectKind: IntelligenceSubjectKind;
@@ -158,6 +191,11 @@ export interface IntelligenceDigestInput {
   readonly provenance: DigestProvenance;
   readonly aiInvocationId: string | null;
   /**
+   * Canonical entity references (@emgloop/shared entity-ref.ts), at most 32. Optional: a producer that
+   * names none (Chats triage v4) writes an empty list. Written only once the column exists.
+   */
+  readonly entityRefs?: readonly string[];
+  /**
    * The digest's meaning. An upsert with the fingerprint already stored writes nothing, so it must
    * cover everything that should refresh the row (content, coverage, and the window if it matters).
    */
@@ -168,7 +206,9 @@ export interface IntelligenceDigestInput {
 export interface IntelligenceDigestRecord {
   readonly id: string;
   readonly organizationId: string;
-  readonly userId: string;
+  readonly scope: IntelligenceDigestScope;
+  /** The principal's user id; null for an ORGANIZATION digest. */
+  readonly userId: string | null;
   readonly domain: IntelligenceDomain;
   readonly subjectKind: IntelligenceSubjectKind;
   readonly subjectRef: string;
@@ -182,6 +222,8 @@ export interface IntelligenceDigestRecord {
   readonly lastEvidenceAt: Date | null;
   readonly provenance: Readonly<Record<string, unknown>>;
   readonly aiInvocationId: string | null;
+  /** Empty before the PR 2 migration, and for every digest whose producer named none. */
+  readonly entityRefs: readonly string[];
   readonly fingerprint: string;
   readonly version: number;
   readonly status: IntelligenceDigestStatus;
@@ -190,7 +232,16 @@ export interface IntelligenceDigestRecord {
 }
 
 export const INTELLIGENCE_DIGEST_WRITE_REFUSALS = [
+  // `upsert` was asked for an ORGANIZATION row (that is `upsertOrganization`), or the reverse.
   'ORGANIZATION_SCOPE_RESERVED',
+  'WRONG_SCOPE',
+  // The domain's registry entry does not admit this scope (Mail, Chats and Calendar are PRINCIPAL only).
+  'SCOPE_NOT_ALLOWED_FOR_DOMAIN',
+  // An ORGANIZATION digest must rest on Loop's own records and name only organization sources.
+  'PRIVATE_EVIDENCE',
+  'INVALID_ENTITY_REFS',
+  // The PR 2 migration has not reached this database yet.
+  'NOT_MIGRATED',
   'INVALID_INPUT',
   'INVALID_CONTENT',
   'CONSENT_BASIS_MISMATCH',
@@ -207,6 +258,38 @@ export type IntelligenceDigestWriteOutcome =
   | { readonly outcome: 'REFUSED'; readonly refusal: IntelligenceDigestWriteRefusal; readonly contentRefusals?: readonly DigestContentRefusal[] };
 
 const SUBJECT_REF = /^[A-Za-z0-9][A-Za-z0-9._:@\/-]{0,255}$/;
+
+/**
+ * THE COLUMNS EVERY READ NAMES. Never a whole row: the PR 2 column ("entityRefs") is added to a select
+ * only after the migration is known to have run, so this code reads a database either side of it.
+ */
+export const DIGEST_BASE_SELECT = Object.freeze({
+  id: true,
+  organizationId: true,
+  scope: true,
+  userId: true,
+  domain: true,
+  subjectKind: true,
+  subjectRef: true,
+  provider: true,
+  content: true,
+  coverage: true,
+  windowStart: true,
+  windowEnd: true,
+  evidenceCount: true,
+  lastEvidenceAt: true,
+  provenance: true,
+  aiInvocationId: true,
+  fingerprint: true,
+  version: true,
+  status: true,
+  generatedAt: true,
+  expiresAt: true,
+} as const);
+
+function digestSelect(withRefs: boolean) {
+  return withRefs ? { ...DIGEST_BASE_SELECT, entityRefs: true as const } : DIGEST_BASE_SELECT;
+}
 const PROVIDER = /^[A-Z][A-Z0-9_]{0,63}$/;
 const FINGERPRINT = /^[A-Za-z0-9._:-]{1,128}$/;
 const READ_LIMIT_MAX = 200;
@@ -250,6 +333,8 @@ function inputIsValid(input: IntelligenceDigestInput, subjectRef: string): boole
     const v = p[key];
     if (v !== undefined && v !== null && !nonBlankString(v, 200)) return false;
   }
+  if (p.producerKind !== undefined && !(INTELLIGENCE_PRODUCER_KINDS as readonly string[]).includes(p.producerKind)) return false;
+  if (p.contractVersion !== undefined && !nonBlankString(p.contractVersion, 64)) return false;
   return true;
 }
 
@@ -264,6 +349,10 @@ function storedProvenance(p: DigestProvenance, basis: IntelligenceConsentBasis):
     schemaId: p.schemaId ?? null,
     producerVersion: p.producerVersion,
     consentBasis: basis,
+    // Participation contract (PR 2). Present only when the producer stated them, so a PR A row and a
+    // PR A producer's new row keep exactly the provenance they always had.
+    ...(p.sources ? { sources: p.sources.map((u) => ({ sourceId: u.sourceId, asOf: u.asOf, coverage: u.coverage })) } : {}),
+    ...(p.producerKind ? { producerKind: p.producerKind, contractVersion: p.contractVersion ?? INTELLIGENCE_CONTRACT_VERSION } : {}),
   };
 }
 
@@ -274,15 +363,22 @@ function storedContent(content: DigestContent): Record<string, unknown> {
   return out;
 }
 
-function recordOf(row: any): IntelligenceDigestRecord {
+type DigestRow = Prisma.IntelligenceDigestGetPayload<{ select: typeof DIGEST_BASE_SELECT }> & { readonly entityRefs?: string[] };
+
+function recordOf(row: DigestRow): IntelligenceDigestRecord {
   const content = row.content as unknown;
-  const readable = digestContentRefusals(content).length === 0 && isIntelligenceCoverage(row.coverage);
+  const scope: IntelligenceDigestScope = row.scope === 'ORGANIZATION' ? 'ORGANIZATION' : 'PRINCIPAL';
+  const producerKind = (row.provenance as { producerKind?: unknown } | null)?.producerKind;
+  const readable =
+    digestContentRefusals(content, { scope, producerKind: producerKind === 'RULE' || producerKind === 'MODEL' ? producerKind : null }).length === 0 &&
+    isIntelligenceCoverage(row.coverage);
   return {
     id: row.id,
     organizationId: row.organizationId,
-    userId: row.userId,
-    domain: row.domain,
-    subjectKind: row.subjectKind,
+    scope,
+    userId: row.userId ?? null,
+    domain: row.domain as IntelligenceDomain,
+    subjectKind: row.subjectKind as IntelligenceSubjectKind,
     subjectRef: row.subjectRef,
     provider: row.provider ?? null,
     // A row that cannot be understood is shown as what it is -- an ERROR -- never as a reading.
@@ -294,9 +390,10 @@ function recordOf(row: any): IntelligenceDigestRecord {
     lastEvidenceAt: row.lastEvidenceAt ?? null,
     provenance: (row.provenance && typeof row.provenance === 'object' ? row.provenance : {}) as Record<string, unknown>,
     aiInvocationId: row.aiInvocationId ?? null,
+    entityRefs: Array.isArray(row.entityRefs) ? [...row.entityRefs] : [],
     fingerprint: row.fingerprint,
     version: row.version,
-    status: (INTELLIGENCE_DIGEST_STATUSES as readonly string[]).includes(row.status) ? row.status : 'STALE',
+    status: ((INTELLIGENCE_DIGEST_STATUSES as readonly string[]).includes(row.status) ? row.status : 'STALE') as IntelligenceDigestStatus,
     generatedAt: row.generatedAt,
     expiresAt: row.expiresAt,
   };
@@ -332,6 +429,17 @@ export class IntelligenceDigestRepository {
   }
 
   /**
+   * Whether "entityRefs" exists here. Asked only on a client (outside a transaction); a repository built
+   * on a transaction client does not know, and names the base columns only -- it never reads or writes
+   * a column it has not proved.
+   */
+  private async refsPresent(): Promise<boolean> {
+    const db = this.db as PrismaClient;
+    if (typeof db.$transaction !== 'function') return false;
+    return digestEntityRefsPresent(db);
+  }
+
+  /**
    * Write this person's current digest of one subject. Refused, writing nothing, when the scope is
    * ORGANIZATION, the input or content breaks the contract, the consent basis does not match the
    * provider, the provider's content consent is not in force at the moment of the write, the
@@ -345,9 +453,15 @@ export class IntelligenceDigestRepository {
   async upsert(principal: IntelligencePrincipal, input: IntelligenceDigestInput): Promise<IntelligenceDigestWriteOutcome> {
     const scope = workScope(principal);
     if ((input.scope ?? 'PRINCIPAL') !== 'PRINCIPAL') return { outcome: 'REFUSED', refusal: 'ORGANIZATION_SCOPE_RESERVED' };
+    if (!intelligenceDomainAllowsScope(input.domain, 'PRINCIPAL')) return { outcome: 'REFUSED', refusal: 'SCOPE_NOT_ALLOWED_FOR_DOMAIN' };
     const subjectRef = input.subjectKind === 'DOMAIN' ? (input.subjectRef ?? INTELLIGENCE_DOMAIN_SUBJECT_REF) : (input.subjectRef ?? '');
     if (!inputIsValid(input, subjectRef)) return { outcome: 'REFUSED', refusal: 'INVALID_INPUT' };
-    const contentRefusals = digestContentRefusals(input.content);
+    if (input.provenance.sources !== undefined && intelligenceSourceUseRefusals(input.provenance.sources, 'PRINCIPAL', intelligenceSourceScopes).length > 0) {
+      return { outcome: 'REFUSED', refusal: 'INVALID_INPUT' };
+    }
+    const entityRefs = input.entityRefs ?? [];
+    if (entityRefListRefusals(entityRefs, ENTITY_REFS_MAX_PER_DIGEST, 'PRINCIPAL').length > 0) return { outcome: 'REFUSED', refusal: 'INVALID_ENTITY_REFS' };
+    const contentRefusals = digestContentRefusals(input.content, { scope: 'PRINCIPAL', producerKind: input.provenance.producerKind ?? null });
     if (contentRefusals.length > 0) return { outcome: 'REFUSED', refusal: 'INVALID_CONTENT', contentRefusals };
 
     const needsContentConsent = input.provider !== null && INTELLIGENCE_CONTENT_CONSENT_PROVIDERS.includes(input.provider);
@@ -363,8 +477,87 @@ export class IntelligenceDigestRepository {
     });
     if (expiresAt.getTime() <= input.generatedAt.getTime()) return { outcome: 'REFUSED', refusal: 'EXPIRED_AT_WRITE' };
 
-    const key = { ...scope, domain: input.domain, subjectKind: input.subjectKind, subjectRef };
+    // Probed OUTSIDE the transaction. Before the migration the column does not exist: nothing names it,
+    // and a producer's references are simply not kept (they are optional for a principal digest).
+    const withRefs = await this.refsPresent();
+    const select = digestSelect(withRefs);
+    const key = { ...scope, scope: 'PRINCIPAL', domain: input.domain, subjectKind: input.subjectKind, subjectRef };
     const data = {
+      ...this.writeData(input, expiresAt),
+      ...(withRefs ? { entityRefs: [...entityRefs] } : {}),
+    };
+
+    try {
+      return await this.inTransaction(async (tx) => {
+        const standing = await membershipAuthority(tx, scope.organizationId, scope.userId, input.generatedAt);
+        if (!standing.granted) return { outcome: 'REFUSED' as const, refusal: 'NOT_AN_ACTIVE_MEMBER' as const };
+        // THE WRITE RE-CHECKS CONSENT: a revoke that committed after the producer began wins.
+        if (needsContentConsent && !(await contentAuthorizedInTx(tx, scope.organizationId, scope.userId, input.provider!))) {
+          return { outcome: 'REFUSED' as const, refusal: 'CONSENT_NOT_IN_FORCE' as const };
+        }
+        return this.writeInTx(tx, key, data, input.fingerprint, select);
+      });
+    } catch (err) {
+      // Two producers created the same subject at once; the other one's row stands.
+      if (isUniqueViolation(err)) return { outcome: 'REFUSED', refusal: 'CONTENDED' };
+      throw err;
+    }
+  }
+
+  /**
+   * Write the ORGANIZATION's current digest of one subject in one domain (PR 2). THE ONLY WAY AN
+   * ORGANIZATION ROW IS WRITTEN, and it admits governed Loop records only:
+   *   - the domain's registry entry must admit ORGANIZATION scope (never Mail, Chats or Calendar);
+   *   - no provider, and consent basis LOOP_RECORDS;
+   *   - the provenance must name its producer kind and at least one source, every one of them an
+   *     organization source in the source registry (no Telegram, Gmail or Calendar evidence);
+   *   - no entity reference of a principal-only kind (a conversation, a thread, a correspondent);
+   *   - content validated as ORGANIZATION content (a MODEL producer can never state MEASURED).
+   * `organizationId` comes from the signed session or a governed job, never a request. Refused
+   * NOT_MIGRATED before 20261006000000 has run.
+   */
+  async upsertOrganization(organizationId: string, input: IntelligenceDigestInput): Promise<IntelligenceDigestWriteOutcome> {
+    if (!organizationId) return { outcome: 'REFUSED', refusal: 'INVALID_INPUT' };
+    if ((input.scope ?? 'ORGANIZATION') !== 'ORGANIZATION') return { outcome: 'REFUSED', refusal: 'WRONG_SCOPE' };
+    if (PRIVATE_INTELLIGENCE_DOMAINS.includes(input.domain) || !intelligenceDomainAllowsScope(input.domain, 'ORGANIZATION')) {
+      return { outcome: 'REFUSED', refusal: 'SCOPE_NOT_ALLOWED_FOR_DOMAIN' };
+    }
+    if (input.provider !== null || input.consentBasis !== 'LOOP_RECORDS') return { outcome: 'REFUSED', refusal: 'PRIVATE_EVIDENCE' };
+    const sources = input.provenance?.sources;
+    if (!sources || sources.length === 0 || !input.provenance.producerKind) return { outcome: 'REFUSED', refusal: 'INVALID_INPUT' };
+    const sourceRefusals = intelligenceSourceUseRefusals(sources, 'ORGANIZATION', intelligenceSourceScopes);
+    if (sourceRefusals.includes('PRIVATE_SOURCE')) return { outcome: 'REFUSED', refusal: 'PRIVATE_EVIDENCE' };
+    if (sourceRefusals.length > 0) return { outcome: 'REFUSED', refusal: 'INVALID_INPUT' };
+    const subjectRef = input.subjectKind === 'DOMAIN' ? (input.subjectRef ?? INTELLIGENCE_DOMAIN_SUBJECT_REF) : (input.subjectRef ?? '');
+    if (!inputIsValid(input, subjectRef)) return { outcome: 'REFUSED', refusal: 'INVALID_INPUT' };
+    const entityRefs = input.entityRefs ?? [];
+    const refRefusals = entityRefListRefusals(entityRefs, ENTITY_REFS_MAX_PER_DIGEST, 'ORGANIZATION');
+    if (refRefusals.includes('PRIVATE_ENTITY_REF')) return { outcome: 'REFUSED', refusal: 'PRIVATE_EVIDENCE' };
+    if (refRefusals.length > 0) return { outcome: 'REFUSED', refusal: 'INVALID_ENTITY_REFS' };
+    const contentRefusals = digestContentRefusals(input.content, { scope: 'ORGANIZATION', producerKind: input.provenance.producerKind });
+    if (contentRefusals.length > 0) return { outcome: 'REFUSED', refusal: 'INVALID_CONTENT', contentRefusals };
+    const expiresAt = intelligenceDigestExpiresAt({
+      subjectKind: input.subjectKind,
+      lastEvidenceAt: input.lastEvidenceAt,
+      windowEnd: input.windowEnd,
+      generatedAt: input.generatedAt,
+    });
+    if (expiresAt.getTime() <= input.generatedAt.getTime()) return { outcome: 'REFUSED', refusal: 'EXPIRED_AT_WRITE' };
+    if (!(await this.refsPresent())) return { outcome: 'REFUSED', refusal: 'NOT_MIGRATED' };
+
+    const select = digestSelect(true);
+    const key = { organizationId, scope: 'ORGANIZATION', userId: null, domain: input.domain, subjectKind: input.subjectKind, subjectRef };
+    const data = { ...this.writeData(input, expiresAt), entityRefs: [...entityRefs] };
+    try {
+      return await this.inTransaction((tx) => this.writeInTx(tx, key, data, input.fingerprint, select));
+    } catch (err) {
+      if (isUniqueViolation(err)) return { outcome: 'REFUSED', refusal: 'CONTENDED' };
+      throw err;
+    }
+  }
+
+  private writeData(input: IntelligenceDigestInput, expiresAt: Date) {
+    return {
       provider: input.provider,
       content: storedContent(input.content) as Prisma.InputJsonValue,
       coverage: input.coverage,
@@ -379,41 +572,34 @@ export class IntelligenceDigestRepository {
       generatedAt: input.generatedAt,
       expiresAt,
     };
+  }
 
-    try {
-      return await this.inTransaction(async (tx) => {
-        const standing = await membershipAuthority(tx, scope.organizationId, scope.userId, input.generatedAt);
-        if (!standing.granted) return { outcome: 'REFUSED' as const, refusal: 'NOT_AN_ACTIVE_MEMBER' as const };
-        // THE WRITE RE-CHECKS CONSENT: a revoke that committed after the producer began wins.
-        if (needsContentConsent && !(await contentAuthorizedInTx(tx, scope.organizationId, scope.userId, input.provider!))) {
-          return { outcome: 'REFUSED' as const, refusal: 'CONSENT_NOT_IN_FORCE' as const };
-        }
-        const existing = await tx.intelligenceDigest.findFirst({ where: key });
-        if (!existing) {
-          const created = await tx.intelligenceDigest.create({ data: { ...key, scope: 'PRINCIPAL', version: 1, ...data } });
-          return { outcome: 'WRITTEN' as const, digest: recordOf(created) };
-        }
-        if (existing.fingerprint === input.fingerprint) {
-          if (existing.status === 'CURRENT') return { outcome: 'UNCHANGED' as const, digest: recordOf(existing) };
-          const reaffirmed = await tx.intelligenceDigest.update({ where: { id: existing.id }, data: { status: 'CURRENT' } });
-          return { outcome: 'UNCHANGED' as const, digest: recordOf(reaffirmed) };
-        }
-        const updated = await tx.intelligenceDigest.update({
-          where: { id: existing.id },
-          data: { ...data, version: existing.version + 1 },
-        });
-        return { outcome: 'WRITTEN' as const, digest: recordOf(updated) };
-      });
-    } catch (err) {
-      // Two producers created the same subject at once; the other one's row stands.
-      if (isUniqueViolation(err)) return { outcome: 'REFUSED', refusal: 'CONTENDED' };
-      throw err;
+  /** The fingerprint-versioned write both scopes share. `key` fixes the scope; nothing here widens it. */
+  private async writeInTx(
+    tx: Prisma.TransactionClient,
+    key: { organizationId: string; scope: string; userId: string | null; domain: string; subjectKind: string; subjectRef: string },
+    data: ReturnType<IntelligenceDigestRepository['writeData']> & { entityRefs?: string[] },
+    fingerprint: string,
+    select: ReturnType<typeof digestSelect>,
+  ): Promise<IntelligenceDigestWriteOutcome> {
+    const existing = await tx.intelligenceDigest.findFirst({ where: key, select });
+    if (!existing) {
+      const created = await tx.intelligenceDigest.create({ data: { ...key, version: 1, ...data }, select });
+      return { outcome: 'WRITTEN', digest: recordOf(created) };
     }
+    if (existing.fingerprint === fingerprint) {
+      if (existing.status === 'CURRENT') return { outcome: 'UNCHANGED', digest: recordOf(existing) };
+      const reaffirmed = await tx.intelligenceDigest.update({ where: { id: existing.id }, data: { status: 'CURRENT' }, select });
+      return { outcome: 'UNCHANGED', digest: recordOf(reaffirmed) };
+    }
+    const updated = await tx.intelligenceDigest.update({ where: { id: existing.id }, data: { ...data, version: existing.version + 1 }, select });
+    return { outcome: 'WRITTEN', digest: recordOf(updated) };
   }
 
   /**
    * This person's digest of one subject in a domain, or their DOMAIN rollup when no subject is
-   * named. Null when there is none, it expired, or it was withdrawn -- and for anyone else's.
+   * named. Null when there is none, it expired, or it was withdrawn -- and for anyone else's, and for
+   * any ORGANIZATION row.
    */
   async current(
     principal: IntelligencePrincipal,
@@ -425,12 +611,13 @@ export class IntelligenceDigestRepository {
     const subjectRef = subject.subjectRef ?? (subjectKind === 'DOMAIN' ? INTELLIGENCE_DOMAIN_SUBJECT_REF : '');
     if (!subjectRef) return null;
     const row = await this.db.intelligenceDigest.findFirst({
-      where: { ...scope, domain, subjectKind, subjectRef, status: { not: 'WITHDRAWN' }, expiresAt: { gt: subject.now ?? new Date() } },
+      where: { ...scope, scope: 'PRINCIPAL', domain, subjectKind, subjectRef, status: { not: 'WITHDRAWN' }, expiresAt: { gt: subject.now ?? new Date() } },
+      select: digestSelect(await this.refsPresent()),
     });
     return row ? recordOf(row) : null;
   }
 
-  /** Every live digest this person holds in one domain, newest evidence first, bounded. */
+  /** Every live digest this person holds in one domain, newest evidence first, bounded. Never an ORGANIZATION row. */
   async forDomain(
     principal: IntelligencePrincipal,
     domain: IntelligenceDomain,
@@ -438,11 +625,76 @@ export class IntelligenceDigestRepository {
   ): Promise<IntelligenceDigestRecord[]> {
     const scope = workScope(principal);
     const rows = await this.db.intelligenceDigest.findMany({
-      where: { ...scope, domain, status: { not: 'WITHDRAWN' }, expiresAt: { gt: options.now ?? new Date() } },
+      where: { ...scope, scope: 'PRINCIPAL', domain, status: { not: 'WITHDRAWN' }, expiresAt: { gt: options.now ?? new Date() } },
       orderBy: [{ lastEvidenceAt: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }],
       take: Math.max(1, Math.min(options.limit ?? 50, READ_LIMIT_MAX)),
+      select: digestSelect(await this.refsPresent()),
     });
     return rows.map(recordOf);
+  }
+
+  /**
+   * The ORGANIZATION's digest of one subject in one domain (its DOMAIN rollup when no subject is named).
+   * Returns ORGANIZATION rows only -- a principal row is structurally unreachable here (scope and
+   * userId null are both in the filter). The CALLER enforces the domain's read authority from the
+   * signed session (INTELLIGENCE_DOMAIN_REGISTRY readAuthority) before calling. Null before the migration.
+   */
+  async organizationCurrent(
+    organizationId: string,
+    domain: IntelligenceDomain,
+    subject: { readonly subjectKind?: IntelligenceSubjectKind; readonly subjectRef?: string; readonly now?: Date } = {},
+  ): Promise<IntelligenceDigestRecord | null> {
+    if (!organizationId || PRIVATE_INTELLIGENCE_DOMAINS.includes(domain)) return null;
+    if (!(await this.refsPresent())) return null;
+    const subjectKind = subject.subjectKind ?? 'DOMAIN';
+    const subjectRef = subject.subjectRef ?? (subjectKind === 'DOMAIN' ? INTELLIGENCE_DOMAIN_SUBJECT_REF : '');
+    if (!subjectRef) return null;
+    const row = await this.db.intelligenceDigest.findFirst({
+      where: { organizationId, scope: 'ORGANIZATION', userId: null, domain, subjectKind, subjectRef, status: { not: 'WITHDRAWN' }, expiresAt: { gt: subject.now ?? new Date() } },
+      select: digestSelect(true),
+    });
+    return row ? recordOf(row) : null;
+  }
+
+  /**
+   * The ORGANIZATION's live digests in ONE domain, newest evidence first, bounded. Never a principal row,
+   * never more than one domain per call, and never a private domain. The caller enforces read authority.
+   */
+  async organizationForDomain(
+    organizationId: string,
+    domain: IntelligenceDomain,
+    options: { readonly now?: Date; readonly limit?: number } = {},
+  ): Promise<IntelligenceDigestRecord[]> {
+    if (!organizationId || PRIVATE_INTELLIGENCE_DOMAINS.includes(domain)) return [];
+    if (!(await this.refsPresent())) return [];
+    const rows = await this.db.intelligenceDigest.findMany({
+      where: { organizationId, scope: 'ORGANIZATION', userId: null, domain, status: { not: 'WITHDRAWN' }, expiresAt: { gt: options.now ?? new Date() } },
+      orderBy: [{ lastEvidenceAt: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }],
+      take: Math.max(1, Math.min(options.limit ?? 50, READ_LIMIT_MAX)),
+      select: digestSelect(true),
+    });
+    return rows.map(recordOf);
+  }
+
+  /**
+   * The stored fingerprint of one target, for the producer loop's "unchanged -> skip" check BEFORE any
+   * model is called. Selects the fingerprint, status and version only. A principal target reads only
+   * that person's row; an organization target only the organization's.
+   */
+  async storedFingerprint(
+    owner: { readonly scope: 'PRINCIPAL'; readonly principal: IntelligencePrincipal } | { readonly scope: 'ORGANIZATION'; readonly organizationId: string },
+    target: { readonly domain: IntelligenceDomain; readonly subjectKind: IntelligenceSubjectKind; readonly subjectRef: string },
+  ): Promise<{ readonly fingerprint: string; readonly status: IntelligenceDigestStatus; readonly version: number } | null> {
+    const where =
+      owner.scope === 'PRINCIPAL'
+        ? { ...workScope(owner.principal), scope: 'PRINCIPAL' }
+        : { organizationId: owner.organizationId, scope: 'ORGANIZATION', userId: null };
+    const row = await this.db.intelligenceDigest.findFirst({
+      where: { ...where, domain: target.domain, subjectKind: target.subjectKind, subjectRef: target.subjectRef },
+      select: { fingerprint: true, status: true, version: true },
+    });
+    if (!row) return null;
+    return { fingerprint: row.fingerprint, status: ((INTELLIGENCE_DIGEST_STATUSES as readonly string[]).includes(row.status) ? row.status : 'STALE') as IntelligenceDigestStatus, version: row.version };
   }
 
   /**
@@ -453,7 +705,7 @@ export class IntelligenceDigestRepository {
   async metadataFor(principal: IntelligencePrincipal, opts: { readonly now: Date }): Promise<IntelligenceDigestMetadata[]> {
     const scope = workScope(principal);
     const rows = await this.db.intelligenceDigest.findMany({
-      where: { ...scope, status: { not: 'WITHDRAWN' }, expiresAt: { gt: opts.now } },
+      where: { ...scope, scope: 'PRINCIPAL', status: { not: 'WITHDRAWN' }, expiresAt: { gt: opts.now } },
       select: INTELLIGENCE_DIGEST_METADATA_SELECT,
       orderBy: [{ generatedAt: 'desc' }],
       take: READ_LIMIT_MAX,
@@ -472,8 +724,8 @@ export class IntelligenceDigestRepository {
   }
 
   /**
-   * THE ONE ORGANIZATION-LEVEL READ. How many live digests the organization holds, per (domain,
-   * status, coverage) -- a groupBy that selects nothing but those three and a count. It carries NO
+   * THE ONE ORGANIZATION-WIDE READ. How many live digests the organization holds, per (scope, domain,
+   * status, coverage) -- a groupBy that selects nothing but those four and a count. It carries NO
    * content, NO subject, NO provenance and NO identity: the output has no user id, so it can say
    * that intelligence is (or is not) being produced, never whose or about what. It is still scoped
    * to one organization, which the caller takes from the signed session.
@@ -481,12 +733,13 @@ export class IntelligenceDigestRepository {
   async organizationCounts(organizationId: string, opts: { readonly now: Date }): Promise<IntelligenceDigestCount[]> {
     if (!organizationId) return [];
     const groups = await this.db.intelligenceDigest.groupBy({
-      by: ['domain', 'status', 'coverage'],
+      by: ['scope', 'domain', 'status', 'coverage'],
       where: { organizationId, status: { not: 'WITHDRAWN' }, expiresAt: { gt: opts.now } },
       _count: { _all: true },
-      orderBy: [{ domain: 'asc' }, { status: 'asc' }, { coverage: 'asc' }],
+      orderBy: [{ scope: 'asc' }, { domain: 'asc' }, { status: 'asc' }, { coverage: 'asc' }],
     });
     return groups.map((g) => ({
+      scope: (g.scope === 'ORGANIZATION' ? 'ORGANIZATION' : 'PRINCIPAL') as IntelligenceDigestScope,
       domain: g.domain as IntelligenceDomain,
       status: g.status as IntelligenceDigestStatus,
       coverage: isIntelligenceCoverage(g.coverage) ? g.coverage : 'ERROR',
@@ -503,7 +756,7 @@ export class IntelligenceDigestRepository {
     target: { readonly domain: IntelligenceDomain; readonly subjectKind?: IntelligenceSubjectKind; readonly subjectRef?: string; readonly provider?: string },
   ): Promise<number> {
     const scope = workScope(principal);
-    const where: Record<string, unknown> = { ...scope, domain: target.domain, status: 'CURRENT' };
+    const where: Record<string, unknown> = { ...scope, scope: 'PRINCIPAL', domain: target.domain, status: 'CURRENT' };
     if (target.subjectKind) where.subjectKind = target.subjectKind;
     if (target.subjectRef) where.subjectRef = target.subjectRef;
     if (target.provider) where.provider = target.provider;

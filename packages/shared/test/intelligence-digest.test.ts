@@ -8,6 +8,8 @@ import { join } from 'node:path';
 
 import {
   DIGEST_CONTENT_KEYS,
+  DIGEST_CONTENT_MAX_BYTES,
+  PRIVATE_INTELLIGENCE_DOMAINS,
   DIGEST_FIELD_KNOWLEDGE,
   DIGEST_FORBIDDEN_KEYS,
   DIGEST_LIST_MAX_ITEMS,
@@ -95,15 +97,15 @@ test('every coverage value has governed words that say what it does not mean, ke
 
 // --- Digest vocabulary ------------------------------------------------------------------------
 
-test('scopes, domains, subject kinds and statuses are the approved ones; only PRINCIPAL is writable', () => {
+test('scopes, domains, subject kinds and statuses are the approved ones; both scopes are writable since PR 2', () => {
   assert.deepEqual([...INTELLIGENCE_DIGEST_SCOPES], ['PRINCIPAL', 'ORGANIZATION']);
-  assert.deepEqual([...INTELLIGENCE_DIGEST_WRITABLE_SCOPES], ['PRINCIPAL']);
-  assert.deepEqual([...INTELLIGENCE_DOMAINS], ['CHATS', 'MAIL', 'CALENDAR', 'CALLGRID', 'CREATORS', 'WORK', 'CRM', 'CAMPAIGNS']);
-  assert.deepEqual([...INTELLIGENCE_SUBJECT_KINDS], ['CONVERSATION', 'THREAD', 'DOMAIN']);
+  assert.deepEqual([...INTELLIGENCE_DIGEST_WRITABLE_SCOPES], ['PRINCIPAL', 'ORGANIZATION']);
+  assert.deepEqual([...INTELLIGENCE_DOMAINS], ['CHATS', 'MAIL', 'CALENDAR', 'CALLGRID', 'CREATORS', 'WORK', 'CRM', 'CAMPAIGNS', 'PIPELINE', 'WEBSITE']);
+  assert.deepEqual([...INTELLIGENCE_SUBJECT_KINDS], ['CONVERSATION', 'THREAD', 'DOMAIN', 'ENTITY', 'EVENT']);
   assert.deepEqual([...INTELLIGENCE_DIGEST_STATUSES], ['CURRENT', 'STALE', 'WITHDRAWN']);
 });
 
-test('the migration CHECKs name exactly the shared vocabularies', () => {
+test('the PR A migration CHECKs named the vocabularies of their day (history, unchanged)', () => {
   const sql = readFileSync(join(__dirname, '..', '..', 'database', 'prisma', 'migrations', '20261003000000_intelligence_digests', 'migration.sql'), 'utf8');
   const list = (column: string) => {
     const m = new RegExp(`"${column}" IN \\(([^)]*)\\)`).exec(sql);
@@ -111,12 +113,42 @@ test('the migration CHECKs name exactly the shared vocabularies', () => {
     return [...m![1]!.matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]);
   };
   assert.deepEqual(list('scope'), [...INTELLIGENCE_DIGEST_SCOPES]);
-  assert.deepEqual(list('domain'), [...INTELLIGENCE_DOMAINS]);
-  assert.deepEqual(list('subjectKind'), [...INTELLIGENCE_SUBJECT_KINDS]);
+  assert.deepEqual(list('domain'), ['CHATS', 'MAIL', 'CALENDAR', 'CALLGRID', 'CREATORS', 'WORK', 'CRM', 'CAMPAIGNS']);
+  assert.deepEqual(list('subjectKind'), ['CONVERSATION', 'THREAD', 'DOMAIN']);
   assert.deepEqual(list('coverage'), [...INTELLIGENCE_COVERAGE]);
   assert.deepEqual(list('status'), [...INTELLIGENCE_DIGEST_STATUSES]);
-  assert.match(sql, /"intelligence_digests_organization_scope_reserved" CHECK \(\s*"scope" = 'PRINCIPAL'\s*\)/);
-  assert.match(sql, /"scope" <> 'PRINCIPAL' OR "userId" IS NOT NULL/);
+});
+
+test('the PR 2 migration: per-scope partial uniqueness, the scope CHECK both ways, and the private domains spelled out', () => {
+  const sql = readFileSync(join(__dirname, '..', '..', 'database', 'prisma', 'migrations', '20261006000000_intelligence_org_digests', 'migration.sql'), 'utf8');
+  const list = (column: string) => {
+    const m = new RegExp(`"${column}" IN \\(([^)]*)\\)`).exec(sql);
+    assert.ok(m, column);
+    return [...m![1]!.matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]);
+  };
+  assert.deepEqual(list('scope'), [...INTELLIGENCE_DIGEST_SCOPES]);
+  assert.deepEqual(list('coverage'), [...INTELLIGENCE_COVERAGE]);
+  assert.deepEqual(list('status'), [...INTELLIGENCE_DIGEST_STATUSES]);
+  // The domain and subject vocabularies are the registry's; the database checks their pattern.
+  for (const d of INTELLIGENCE_DOMAINS) assert.match(d, /^[A-Z][A-Z_]{1,31}$/);
+  for (const k of INTELLIGENCE_SUBJECT_KINDS) assert.match(k, /^[A-Z][A-Z_]{1,31}$/);
+  // The private domains are spelled out in the scope CHECK and match the shared constant.
+  const privateDomains = /"domain" NOT IN \(([^)]*)\)/.exec(sql)?.[1] ?? '';
+  assert.deepEqual([...privateDomains.matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]), [...PRIVATE_INTELLIGENCE_DOMAINS]);
+  assert.match(sql, /"scope" = 'PRINCIPAL' AND "userId" IS NOT NULL/);
+  assert.match(sql, /"scope" = 'ORGANIZATION'\s+AND "userId" IS NULL\s+AND "provider" IS NULL\s+AND COALESCE\("provenance"->>'consentBasis', ''\) = 'LOOP_RECORDS'/);
+  assert.match(sql, /DROP CONSTRAINT "intelligence_digests_organization_scope_reserved"/);
+  // The new unique indexes are created BEFORE the old one is dropped.
+  const principalAt = sql.indexOf('"intelligence_digests_principal_subject_key"');
+  const organizationAt = sql.indexOf('"intelligence_digests_organization_subject_key"');
+  const dropAt = sql.indexOf('DROP INDEX "intelligence_digests_organizationId_userId_domain_subjectKi_key"');
+  assert.ok(principalAt > 0 && organizationAt > 0 && dropAt > principalAt && dropAt > organizationAt);
+  assert.match(sql, /WHERE "scope" = 'PRINCIPAL';/);
+  assert.match(sql, /WHERE "scope" = 'ORGANIZATION';/);
+  assert.match(sql, /pg_column_size\("content"\) <= 32768/);
+  assert.equal(DIGEST_CONTENT_MAX_BYTES, 32768);
+  assert.match(sql, /cardinality\("entityRefs"\) <= 32/);
+  assert.equal(/^[\x00-\x7F]*$/.test(sql), true, 'ASCII only');
 });
 
 // --- Content: minimized and bounded -----------------------------------------------------------
@@ -188,7 +220,7 @@ test('the retention policy has an INTELLIGENCE_DIGESTS category governing intell
   assert.equal(category!.days, 30);
   assert.deepEqual(category!.tables, ['intelligence_digests']);
   assert.ok(WORK_STATE_TABLES.includes('intelligence_digests'), 'covered by the every-table-in-one-category test');
-  assert.deepEqual([...WORK_RETENTION_NOT_OVERRIDABLE], ['INTELLIGENCE_DIGESTS']);
+  assert.deepEqual([...WORK_RETENTION_NOT_OVERRIDABLE], ['INTELLIGENCE_DIGESTS', 'INTELLIGENCE_REFRESH_REQUESTS']);
 });
 
 // --- Freshness -------------------------------------------------------------------------------
@@ -231,7 +263,8 @@ test('additive fields: `operational` is a bounded list and `attention` a bounded
 });
 
 test('every content field but `limitations` states what it KNOWS: only developments and commitments are OBSERVED', () => {
-  const fields = DIGEST_CONTENT_KEYS.filter((k) => k !== 'limitations').sort();
+  // `reading` and `signals` (PR 2) carry their knowledge per signal, in the participation contract.
+  const fields = DIGEST_CONTENT_KEYS.filter((k) => k !== 'limitations' && k !== 'reading' && k !== 'signals').sort();
   assert.deepEqual(Object.keys(DIGEST_FIELD_KNOWLEDGE).sort(), fields, 'one basis per field, no more, no fewer');
   const observed = Object.entries(DIGEST_FIELD_KNOWLEDGE).filter(([, k]) => k === 'OBSERVED').map(([f]) => f).sort();
   assert.deepEqual(observed, ['commitments', 'developments']);

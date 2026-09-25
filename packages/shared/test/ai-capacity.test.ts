@@ -297,13 +297,18 @@ test('OTHER_THAN_SUBJECT: a verification is served by a provider other than its 
 
 // --- Output contracts ---------------------------------------------------------------------------
 
-test('every task has a registered output contract, and today three contracts use exactly the rules the gateway used before', () => {
+test('every task has a registered output contract; the three pre-registry contracts use exactly the rules the gateway used before', () => {
   for (const task of AI_TASKS) assert.ok(aiOutputContract(task.outputSchemaId), `${task.taskId} has a contract`);
-  assert.deepEqual(Object.keys(AI_OUTPUT_CONTRACTS).sort(), ['case-explanation.v2', 'mail-reply-draft.v2', 'telegram-content-triage.v4']);
-  for (const contract of Object.values(AI_OUTPUT_CONTRACTS)) {
+  assert.deepEqual(Object.keys(AI_OUTPUT_CONTRACTS).sort(), ['case-explanation.v2', 'domain-reading.v1', 'mail-reply-draft.v2', 'telegram-content-triage.v4']);
+  for (const id of ['case-explanation.v2', 'mail-reply-draft.v2', 'telegram-content-triage.v4']) {
+    const contract = AI_OUTPUT_CONTRACTS[id]!;
     assert.equal(contract.parse, parseAiTaskOutput, `${contract.schemaId} parses with the existing parser`);
     assert.equal(contract.validate, validateAiTaskOutput, `${contract.schemaId} validates with the existing rules`);
   }
+  // PR 2: the generic domain reading has its OWN parser and rules, and the existing ones never see it.
+  const domain = AI_OUTPUT_CONTRACTS['domain-reading.v1']!;
+  assert.notEqual(domain.parse, parseAiTaskOutput);
+  assert.notEqual(domain.validate, validateAiTaskOutput);
   assert.equal(aiOutputContract('mail-reply-draft.v1'), null, 'the retired schema has no contract');
   assert.equal(aiOutputContract('toString'), null, 'an inherited property is not a contract');
 });

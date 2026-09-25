@@ -114,22 +114,44 @@ test('the repository has no organization-wide read of digests and no role bypass
   const src = readFileSync(join(__dirname, '..', 'src', 'repositories', 'intelligence', 'intelligence-digest.repository.ts'), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
   const methods = [...code.matchAll(/^  async (\w+)\(/gm)].map((m) => m[1]);
-  assert.deepEqual(methods.sort(), ['current', 'deleteForPrincipal', 'forDomain', 'markStale', 'metadataFor', 'organizationCounts', 'purgeExpired', 'upsert', 'withdrawForProvider'].sort());
-  // Every tenant method resolves its scope from the principal. Two named exceptions: the
-  // organization-level COUNTS (no content, no identity) and the time-based purge.
-  for (const name of methods.filter((m) => m !== 'purgeExpired' && m !== 'organizationCounts')) {
-    const body = code.slice(code.indexOf(`  async ${name}(`), code.indexOf('\n  }\n', code.indexOf(`  async ${name}(`)));
+  const principalMethods = ['current', 'deleteForPrincipal', 'forDomain', 'markStale', 'metadataFor', 'upsert', 'withdrawForProvider'];
+  const organizationMethods = ['organizationCurrent', 'organizationForDomain', 'upsertOrganization'];
+  assert.deepEqual(methods.sort(), [...principalMethods, ...organizationMethods, 'organizationCounts', 'purgeExpired', 'storedFingerprint'].sort());
+  const bodyOf = (name: string) => code.slice(code.indexOf(`  async ${name}(`), code.indexOf('\n  }\n', code.indexOf(`  async ${name}(`)));
+  // Every PRINCIPAL method resolves its scope from the principal, and every one that reads or writes
+  // rows beyond a delete names scope PRINCIPAL, so it can never touch an organization row.
+  for (const name of principalMethods) {
+    const body = bodyOf(name);
     assert.match(body, /workScope\(principal\)/, `${name} scopes by the principal`);
     assert.match(body, /^  async \w+\(\s*principal: IntelligencePrincipal,/, `${name} takes a principal first`);
+    assert.doesNotMatch(body, /'ORGANIZATION'\s*[,}]/, `${name} never names organization scope as a filter`);
   }
+  for (const name of ['current', 'forDomain', 'metadataFor', 'markStale', 'upsert']) assert.match(bodyOf(name), /scope: 'PRINCIPAL'/, `${name} names PRINCIPAL scope`);
+  // Every ORGANIZATION method takes the organization first, names scope ORGANIZATION with userId null,
+  // and refuses a private domain before the database is asked.
+  for (const name of organizationMethods) {
+    const body = bodyOf(name);
+    assert.match(body, /^  async \w+\(\s*organizationId: string,/, `${name} takes the organization first`);
+    assert.match(body, /scope: 'ORGANIZATION', userId: null/, `${name} is confined to ORGANIZATION rows`);
+    assert.match(body, /PRIVATE_INTELLIGENCE_DOMAINS\.includes/, `${name} refuses a private domain`);
+    assert.doesNotMatch(body, /workScope|principal/, `${name} never reads a principal`);
+  }
+  // The organization reads are per domain: there is no method without a domain parameter that reads rows.
+  assert.match(bodyOf('organizationForDomain'), /domain: IntelligenceDomain/);
   assert.doesNotMatch(code, /role|OWNER|ADMIN|SUPER|systemRole|can\(/, 'no role enters this repository');
   assert.doesNotMatch(code, /forOrganization|listForOrganization|countByOrganization|allFor/i);
   const purge = code.slice(code.indexOf('  async purgeExpired('));
   assert.match(purge, /return \{ purged: count \}/, 'the cross-tenant sweep returns a count, nothing else');
-  // The one organization-level read groups by three vocabularies and counts; it selects nothing else.
-  const counts = code.slice(code.indexOf('  async organizationCounts('), code.indexOf('\n  }\n', code.indexOf('  async organizationCounts(')));
-  assert.match(counts, /groupBy\(\{\s*by: \['domain', 'status', 'coverage'\]/);
+  // The one organization-wide read groups by four vocabularies and counts; it selects nothing else.
+  const counts = bodyOf('organizationCounts');
+  assert.match(counts, /groupBy\(\{\s*by: \['scope', 'domain', 'status', 'coverage'\]/);
   assert.doesNotMatch(counts, /userId|content|subjectRef|provenance|findMany|findFirst|select:/, 'no identity, no content, no row read');
+  // The fingerprint lookup selects three columns and nothing else.
+  assert.match(bodyOf('storedFingerprint'), /select: \{ fingerprint: true, status: true, version: true \}/);
+  // Merge-safe: no read or write in this file returns a whole row.
+  for (const call of code.matchAll(/intelligenceDigest\.(findFirst|findMany|create|update)\(\{[\s\S]*?\}\);/g)) {
+    assert.match(call[0], /select/, `${call[1]} names its columns`);
+  }
 });
 
 // --- The two metadata reads (for the web surfaces) --------------------------------------------------
@@ -170,24 +192,24 @@ test('metadataFor, against rows: this person\'s live digests across domains, nob
   assert.equal(JSON.stringify(mine).includes('mail_thread'), false, 'no subject reference');
 });
 
-test('organizationCounts: counts per (domain, status, coverage) for ONE organization, and no user id in the output', async () => {
+test('organizationCounts: counts per (scope, domain, status, coverage) for ONE organization, and no user id in the output', async () => {
   const { calls, repo } = tracing([
-    { domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', _count: { _all: 3 } },
-    { domain: 'MAIL', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', _count: { _all: 1 } },
+    { scope: 'PRINCIPAL', domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', _count: { _all: 3 } },
+    { scope: 'PRINCIPAL', domain: 'MAIL', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', _count: { _all: 1 } },
   ]);
   const out = await repo.organizationCounts(ORG_A, { now: NOW });
   assert.deepEqual(out, [
-    { domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 3 },
-    { domain: 'MAIL', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', count: 1 },
+    { scope: 'PRINCIPAL', domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 3 },
+    { scope: 'PRINCIPAL', domain: 'MAIL', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', count: 1 },
   ]);
   const { method, args } = calls[0]!;
   assert.equal(method, 'groupBy');
-  assert.deepEqual(args.by, ['domain', 'status', 'coverage']);
+  assert.deepEqual(args.by, ['scope', 'domain', 'status', 'coverage']);
   assert.deepEqual(args._count, { _all: true });
   assert.equal(args.select, undefined);
   assert.deepEqual(Object.keys(args.where).sort(), ['expiresAt', 'organizationId', 'status'], 'the organization, and nothing that names a person');
   assert.equal(args.where.organizationId, ORG_A);
-  for (const row of out) assert.deepEqual(Object.keys(row).sort(), ['count', 'coverage', 'domain', 'status']);
+  for (const row of out) assert.deepEqual(Object.keys(row).sort(), ['count', 'coverage', 'domain', 'scope', 'status']);
   assert.deepEqual(await repo.organizationCounts('', { now: NOW }), [], 'no organization, no read');
   assert.equal(calls.length, 1);
 });

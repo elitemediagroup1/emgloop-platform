@@ -30,6 +30,7 @@ import type { BrainExecutionContract } from './brain-execution';
 import { brainExecutionContractViolations } from './brain-execution';
 import type { BrainResultOwner, BrainResultType } from './brain-result';
 import { brainOwnershipRule } from './brain-result';
+import type { AiDomainReading } from './domain-reading';
 
 export const AI_TASK_CONSEQUENCES = ['READ_ONLY', 'PROPOSES_FOR_APPROVAL'] as const;
 export type AiTaskConsequence = (typeof AI_TASK_CONSEQUENCES)[number];
@@ -304,6 +305,11 @@ export interface AiTaskOutput {
    * is unresolved), and nothing is raised.
    */
   readonly conversationTriage?: AiConversationTriage;
+  /**
+   * The typed domain reading, for a task answering `domain-reading.v1` (PR 2, `domain-reading.ts`). It
+   * is parsed and validated by that contract only; `validateAiTaskOutput` never sees it.
+   */
+  readonly domainReading?: AiDomainReading;
 }
 
 export interface AiDraftText {
@@ -493,6 +499,11 @@ export interface AiSupportedEvidence {
    * like `terms`. Absent means nothing can be checked, and a v4 conversation reading is refused.
    */
   readonly verbatimRuns?: ReadonlySet<string>;
+  /**
+   * The canonical entity references the context package supplied (PR 2, domain-reading.v1). A reading
+   * may name only these; absent means it may name none.
+   */
+  readonly entityRefs?: ReadonlySet<string>;
 }
 
 export const AI_OUTPUT_REJECTIONS = [
@@ -512,6 +523,8 @@ export const AI_OUTPUT_REJECTIONS = [
   'UNGROUNDED_DEADLINE',
   /** A conversation reading that quotes (quotation marks) or copies a run of words from a message. */
   'VERBATIM_CONTENT',
+  /** PR 2 (domain-reading.v1): a reading named an entity reference the context did not supply. */
+  'ENTITY_NOT_SUPPLIED',
 ] as const;
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
 
@@ -772,6 +785,27 @@ export function aiNumbersInText(text: string): number[] {
  */
 export function aiTermsInText(text: string): string[] {
   return String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/**
+ * Shared by output contracts outside this file (PR 2, `domain-reading.ts`): the SAME number, date,
+ * quotation and prose checks the existing tasks apply, so a new contract cannot drift from them.
+ */
+export function aiNumberSupported(value: number, allowed: ReadonlySet<number>): boolean {
+  return supported(value, allowed);
+}
+
+/** A quotation mark of any common kind in a model's text. */
+export function aiHasQuotation(text: string): boolean {
+  return QUOTATION_MARKS.test(text);
+}
+
+/** Numeric self-confidence, and (for a READ_ONLY task) telling somebody what to do. */
+export function aiProseRejections(prose: string, consequence: AiTaskConsequence): AiOutputRejection[] {
+  const out: AiOutputRejection[] = [];
+  if (CONFIDENCE_LIKE.test(prose)) out.push('NUMERIC_CONFIDENCE_PRESENT');
+  if (consequence === 'READ_ONLY' && RECOMMENDATION_LIKE.test(prose)) out.push('RECOMMENDS_AN_ACTION');
+  return out;
 }
 
 function supported(value: number, allowed: ReadonlySet<number>): boolean {

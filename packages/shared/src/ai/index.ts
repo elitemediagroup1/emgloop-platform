@@ -12,6 +12,8 @@ export * from './task';
 export * from './capacity';
 export * from './output-contracts';
 export * from './portable-schema';
+// PR 2 (Loop Intelligence fabric): the one generic, portable domain-reading output contract.
+export * from './domain-reading';
 
 // Brain execution contracts (B2): capability routes, execution classes, result types and
 // ownership, jobs, steps, the trust envelope and the executor port. Contracts only.

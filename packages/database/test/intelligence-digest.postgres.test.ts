@@ -2,8 +2,8 @@
 // OPT-IN AND LOCAL ONLY (LOOP_TEST_POSTGRES_URL, localhost).
 //
 // WHAT IT PROVES, THAT AN IN-MEMORY DOUBLE CANNOT
-//   - The CHECK constraints: a PRINCIPAL digest names its user; ORGANIZATION scope is refused
-//     outright (reserved); content may not carry body/text/quote/message; vocabularies are closed;
+//   - The CHECK constraints: a PRINCIPAL digest names its user; an ORGANIZATION row is never a private
+//     (Chats) row (PR 2); content may not carry body/text/quote/message; vocabularies are closed;
 //     the composite FK refuses a user who is not a member of that organization.
 //   - The repository round trip on the real schema: isolation, fingerprint versioning, expiry purge.
 //   - A consent revoke deletes the provider's digests in the same transaction; offboarding erases
@@ -70,15 +70,17 @@ test('the database refuses what the contract forbids, even without the repositor
   try {
     const create = (data: Record<string, unknown>) => prisma.intelligenceDigest.create({ data: data as never });
     await create(row(organizationId, alice!)); // the baseline passes
-    await assert.rejects(() => create(row(organizationId, null)), /intelligence_digests_shape_check/, 'a PRINCIPAL digest names its user');
-    await assert.rejects(() => create(row(organizationId, null, { scope: 'ORGANIZATION' })), /intelligence_digests_organization_scope_reserved/, 'ORGANIZATION scope is reserved');
-    await assert.rejects(() => create(row(organizationId, alice!, { scope: 'ORGANIZATION' })), /intelligence_digests_organization_scope_reserved/);
+    await assert.rejects(() => create(row(organizationId, null)), /intelligence_digests_scope_check/, 'a PRINCIPAL digest names its user');
+    // PR 2: ORGANIZATION rows exist, but only over Loop records -- the full rules are proved in
+    // intelligence-fabric.postgres.test.ts. A Chats row (private, provider TELEGRAM) can never be one.
+    await assert.rejects(() => create(row(organizationId, null, { scope: 'ORGANIZATION' })), /intelligence_digests_scope_check/, 'a private-domain row is never ORGANIZATION');
+    await assert.rejects(() => create(row(organizationId, alice!, { scope: 'ORGANIZATION' })), /intelligence_digests_scope_check/);
     for (const key of ['body', 'text', 'quote', 'message']) {
       await assert.rejects(() => create(row(organizationId, alice!, { content: { [key]: 'the words' } })), /intelligence_digests_content_check/, key);
     }
     await assert.rejects(() => create(row(organizationId, alice!, { content: ['not', 'an', 'object'] })), /intelligence_digests_content_check/);
-    await assert.rejects(() => create(row(organizationId, alice!, { content: { synthesis: 'x'.repeat(20_000) } })), /intelligence_digests_content_check/, 'bounded');
-    await assert.rejects(() => create(row(organizationId, alice!, { domain: 'EVERYTHING' })), /intelligence_digests_shape_check/);
+    await assert.rejects(() => create(row(organizationId, alice!, { content: { synthesis: 'x'.repeat(40_000) } })), /intelligence_digests_content_check/, 'bounded');
+    await assert.rejects(() => create(row(organizationId, alice!, { domain: 'every thing' })), /intelligence_digests_shape_check/);
     await assert.rejects(() => create(row(organizationId, alice!, { coverage: 'GREAT' })), /intelligence_digests_shape_check/);
     await assert.rejects(() => create(row(organizationId, alice!, { subjectKind: 'DOMAIN', subjectRef: 'other' })), /intelligence_digests_shape_check/);
     await assert.rejects(() => create(row(organizationId, alice!, { evidenceCount: 2, lastEvidenceAt: null })), /intelligence_digests_shape_check/);
@@ -116,7 +118,7 @@ test('the repository on the real schema: isolation, versioning, expiry purge', {
     const meta = await repo.metadataFor(A, { now: NOW });
     assert.deepEqual(meta.map((m) => [m.domain, m.subjectKind, m.coverage, m.status, m.version]), [['CHATS', 'CONVERSATION', 'CONNECTED_PARTIAL', 'CURRENT', 2]]);
     assert.deepEqual(await repo.metadataFor({ organizationId, userId: owner! }, { now: NOW }), []);
-    assert.deepEqual(await repo.organizationCounts(organizationId, { now: NOW }), [{ domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 1 }]);
+    assert.deepEqual(await repo.organizationCounts(organizationId, { now: NOW }), [{ scope: 'PRINCIPAL', domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 1 }]);
     assert.deepEqual(await repo.organizationCounts(organizationId, { now: at(30) }), [], 'expired digests are not counted');
     // Expiry: stamped at write, purged by time.
     const purged = await repo.purgeExpired(at(28));

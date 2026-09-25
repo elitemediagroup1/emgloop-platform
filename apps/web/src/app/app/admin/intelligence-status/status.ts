@@ -21,6 +21,7 @@
 // PURE: no database, no clock, no environment.
 
 import {
+  INTELLIGENCE_DOMAIN_REGISTRY,
   AI_DEFAULT_EMERGENCY_CEILING_MICROS,
   AI_LANES,
   AI_TASKS,
@@ -259,6 +260,8 @@ export interface DigestMetadata {
 
 /** Organization-wide counts only, never a row. */
 export interface DigestCount {
+  /** PR 2: PRINCIPAL or ORGANIZATION; null when the reader did not say (before PR 2). */
+  readonly scope: 'PRINCIPAL' | 'ORGANIZATION' | null;
   readonly domain: string;
   readonly status: string;
   readonly coverage: string;
@@ -283,7 +286,13 @@ export function digestMetadataOnly(rows: readonly Record<string, unknown>[]): Di
 export function digestCountsOnly(rows: readonly Record<string, unknown>[]): DigestCount[] {
   return rows
     .filter((r) => typeof r.domain === 'string' && typeof r.status === 'string' && typeof r.coverage === 'string' && typeof r.count === 'number')
-    .map((r) => ({ domain: r.domain as string, status: r.status as string, coverage: r.coverage as string, count: r.count as number }));
+    .map((r) => ({
+      scope: r.scope === 'PRINCIPAL' || r.scope === 'ORGANIZATION' ? r.scope : null,
+      domain: r.domain as string,
+      status: r.status as string,
+      coverage: r.coverage as string,
+      count: r.count as number,
+    }));
 }
 
 /** A section's read, kept apart from its value, so "could not read" never renders as "none". */
@@ -355,6 +364,124 @@ export function projectCapacity(read: CapacityRead): CapacityStatus {
   };
 }
 
+// --- The intelligence fabric (Loop Intelligence PR 2) -----------------------------------------------
+
+/** A known producer, as the code's catalog describes it. Metadata only; activation is the worker's. */
+export interface FabricProducer {
+  readonly id: string;
+  readonly domain: string;
+  readonly scope: 'PRINCIPAL' | 'ORGANIZATION';
+  readonly kind: 'RULE' | 'MODEL';
+  readonly taskId: string | null;
+}
+
+/** One cell of the refresh queue's counts: scope, domain, state, count, oldest. Never a subject or a person. */
+export interface FabricQueueCount {
+  readonly scope: 'PRINCIPAL' | 'ORGANIZATION';
+  readonly domain: string;
+  readonly state: 'PENDING' | 'CLAIMED' | 'HELD';
+  readonly count: number;
+  readonly oldestRequestedAt: Date | null;
+}
+
+export interface FabricRead {
+  readonly producers: readonly FabricProducer[];
+  /** NOT_MIGRATED before 20261006000002 has reached this database. */
+  readonly queue: { readonly state: 'READ'; readonly counts: readonly FabricQueueCount[] } | { readonly state: 'NOT_MIGRATED' };
+  /** The same counts the organization-digest section shows; null when that read failed or is absent. */
+  readonly digests: readonly DigestCount[] | null;
+}
+
+export interface FabricDomainRow {
+  readonly domain: string;
+  readonly label: string;
+  readonly scopes: readonly string[];
+  readonly surfaces: readonly string[];
+  readonly homeTile: string | null;
+  readonly readingTask: string | null;
+  readonly producers: readonly FabricProducer[];
+  /** Live digests per scope (null when digest counts could not be read). */
+  readonly digests: { readonly principal: number; readonly organization: number; readonly stale: number; readonly error: number } | null;
+  /** Refresh requests (null before the queue migration). */
+  readonly queue: { readonly pending: number; readonly claimed: number; readonly held: number; readonly oldestPendingAt: Date | null } | null;
+}
+
+export interface FabricStatus {
+  readonly domains: readonly FabricDomainRow[];
+  readonly queueMigrated: boolean;
+  readonly totals: { readonly queued: number; readonly held: number; readonly stale: number; readonly error: number; readonly producers: number };
+}
+
+/** Strip a queue read to the allowlist, whatever it returned. */
+export function fabricQueueCountsOnly(rows: readonly Record<string, unknown>[]): FabricQueueCount[] {
+  return rows
+    .filter(
+      (r) =>
+        (r.scope === 'PRINCIPAL' || r.scope === 'ORGANIZATION') &&
+        typeof r.domain === 'string' &&
+        (r.state === 'PENDING' || r.state === 'CLAIMED' || r.state === 'HELD') &&
+        typeof r.count === 'number',
+    )
+    .map((r) => ({
+      scope: r.scope as FabricQueueCount['scope'],
+      domain: r.domain as string,
+      state: r.state as FabricQueueCount['state'],
+      count: r.count as number,
+      oldestRequestedAt: r.oldestRequestedAt instanceof Date ? r.oldestRequestedAt : null,
+    }));
+}
+
+/** The registry's domains, each with its producers, its digest counts and its refresh requests. */
+export function projectFabric(read: FabricRead): FabricStatus {
+  const queue = read.queue.state === 'READ' ? read.queue.counts : null;
+  const domains = INTELLIGENCE_DOMAIN_REGISTRY.map((entry): FabricDomainRow => {
+    const counts = read.digests?.filter((c) => c.domain === entry.domain) ?? null;
+    const q = queue?.filter((c) => c.domain === entry.domain) ?? null;
+    const sum = (rows: readonly { count: number }[]) => rows.reduce((n, r) => n + r.count, 0);
+    const oldestPending = q
+      ?.filter((c) => c.state === 'PENDING' && c.oldestRequestedAt)
+      .map((c) => c.oldestRequestedAt!)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    return {
+      domain: entry.domain,
+      label: entry.label,
+      scopes: [...entry.scopes],
+      surfaces: [...entry.surfaces],
+      homeTile: entry.home.tile,
+      readingTask: entry.readingTask,
+      producers: read.producers.filter((p) => p.domain === entry.domain),
+      digests: counts
+        ? {
+            principal: sum(counts.filter((c) => c.scope !== 'ORGANIZATION')),
+            organization: sum(counts.filter((c) => c.scope === 'ORGANIZATION')),
+            stale: sum(counts.filter((c) => c.status === 'STALE' || c.coverage === 'STALE')),
+            error: sum(counts.filter((c) => c.coverage === 'ERROR')),
+          }
+        : null,
+      queue: q
+        ? {
+            pending: sum(q.filter((c) => c.state === 'PENDING')),
+            claimed: sum(q.filter((c) => c.state === 'CLAIMED')),
+            held: sum(q.filter((c) => c.state === 'HELD')),
+            oldestPendingAt: oldestPending ?? null,
+          }
+        : null,
+    };
+  });
+  const total = (f: (d: FabricDomainRow) => number) => domains.reduce((n, d) => n + f(d), 0);
+  return {
+    domains,
+    queueMigrated: read.queue.state === 'READ',
+    totals: {
+      queued: total((d) => (d.queue ? d.queue.pending + d.queue.claimed : 0)),
+      held: total((d) => d.queue?.held ?? 0),
+      stale: total((d) => d.digests?.stale ?? 0),
+      error: total((d) => d.digests?.error ?? 0),
+      producers: read.producers.length,
+    },
+  };
+}
+
 export interface IntelligenceStatus {
   readonly generatedAt: Date;
   readonly tasks: Section<{ readonly rows: readonly TaskStatus[]; readonly latencySampled: boolean }>;
@@ -363,4 +490,6 @@ export interface IntelligenceStatus {
   readonly organizationDigests: Section<readonly DigestCount[]>;
   /** PR 1: spend by lane against the operating budget, the emergency ceiling, and stored stops. */
   readonly capacity: Section<CapacityStatus>;
+  /** PR 2: the registered domains and producers, refresh-queue depth and state, stale and error counts. */
+  readonly fabric: Section<FabricStatus>;
 }

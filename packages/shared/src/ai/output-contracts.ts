@@ -6,13 +6,14 @@
 // schema has no registered contract is refused before any model is called: an answer Loop could not
 // check is not an answer Loop may show.
 //
-// TODAY'S THREE CONTRACTS ARE TODAY'S RULES, UNCHANGED. Case Explanation, Mail Reply Draft and
+// THE FIRST THREE CONTRACTS ARE THE PRE-REGISTRY RULES, UNCHANGED. Case Explanation, Mail Reply Draft and
 // Telegram Content Triage are registered against the existing `parseAiTaskOutput` and
 // `validateAiTaskOutput` (task.ts) exactly as the gateway called them before this registry existed,
 // so every answer is judged by the same code, byte for byte.
 //
 // PURE.
 
+import { DOMAIN_READING_SCHEMA_ID, parseDomainReadingOutput, validateDomainReadingOutput } from './domain-reading';
 import { parseAiTaskOutput, validateAiTaskOutput, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
 
 export interface AiOutputContract {
@@ -31,6 +32,9 @@ export const AI_OUTPUT_CONTRACTS: Readonly<Record<string, AiOutputContract>> = O
   'case-explanation.v2': existingRules('case-explanation.v2'),
   'mail-reply-draft.v2': existingRules('mail-reply-draft.v2'),
   'telegram-content-triage.v4': existingRules('telegram-content-triage.v4'),
+  // PR 2 (Loop Intelligence fabric, 2026-09-26): the ONE generic domain reading. Its own parser and
+  // rules (`domain-reading.ts`); the gateway does not change.
+  [DOMAIN_READING_SCHEMA_ID]: Object.freeze({ schemaId: DOMAIN_READING_SCHEMA_ID, parse: parseDomainReadingOutput, validate: validateDomainReadingOutput }),
 });
 
 /** The contract an answer to this schema is judged by, or null when none is registered. */

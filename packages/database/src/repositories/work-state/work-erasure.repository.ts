@@ -38,6 +38,10 @@ export const ERASED_WORK_TABLES = Object.freeze([
   'work_source_cursors',
   'employee_work_preferences',
   'intelligence_digests',
+  // Loop Intelligence PR 2 (2026-09-26): the person's own entity links and refresh requests. Their
+  // ORGANIZATION rows name nobody and are not this person's to erase.
+  'entity_links',
+  'intelligence_refresh_queue',
 ] as const);
 export type ErasedWorkTable = (typeof ERASED_WORK_TABLES)[number];
 
@@ -56,7 +60,8 @@ export class WorkErasureRepository {
     principal: WorkPrincipal,
     // False ONLY when `intelligenceDigestsPresent` said the table is not migrated yet (there is then
     // nothing to delete). Defaults to deleting, so a caller that forgets fails loudly, never leaks.
-    options: { readonly intelligenceDigests?: boolean } = {},
+    // Each false ONLY when the matching probe said the table is not migrated yet (nothing to delete).
+    options: { readonly intelligenceDigests?: boolean; readonly intelligenceFabric?: { readonly entityLinks: boolean; readonly refreshQueue: boolean } } = {},
   ): Promise<WorkErasure> {
     const where = workScope(principal);
     const db = this.db;
@@ -75,6 +80,10 @@ export class WorkErasureRepository {
     counts.work_source_cursors = (await db.workSourceCursor.deleteMany({ where })).count;
     counts.employee_work_preferences = (await db.employeeWorkPreferences.deleteMany({ where })).count;
     counts.intelligence_digests = options.intelligenceDigests === false ? 0 : (await db.intelligenceDigest.deleteMany({ where })).count;
+    // `where` names the user, so only PRINCIPAL rows match: an ORGANIZATION row's userId is null.
+    const fabric = options.intelligenceFabric ?? { entityLinks: true, refreshQueue: true };
+    counts.entity_links = fabric.entityLinks ? (await db.entityLink.deleteMany({ where })).count : 0;
+    counts.intelligence_refresh_queue = fabric.refreshQueue ? (await db.intelligenceRefreshRequest.deleteMany({ where })).count : 0;
     return Object.freeze(counts);
   }
 }
